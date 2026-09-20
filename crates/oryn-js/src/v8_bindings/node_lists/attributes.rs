@@ -50,22 +50,22 @@ pub(in crate::v8_bindings) fn element_operation<'s>(
         }));
     }
     let mut converted = None;
-    if member != "removeAttributeNode" {
-        if let Some(kind) = native_trusted_attribute_type(
+    if member != "removeAttributeNode"
+        && let Some(kind) = native_trusted_attribute_type(
             state,
             element,
             &data.local_name,
             data.namespace.as_deref(),
-        )? {
-            let value = v8_string(scope, &data.value)?;
-            converted = Some(trusted_string(
-                scope,
-                state,
-                value,
-                kind,
-                &native_trusted_attribute_sink(state, element, &data.local_name)?,
-            )?);
-        }
+        )?
+    {
+        let value = v8_string(scope, &data.value)?;
+        converted = Some(trusted_string(
+            scope,
+            state,
+            value,
+            kind,
+            &native_trusted_attribute_sink(state, element, &data.local_name)?,
+        )?);
     }
     // Default policy conversion can adopt the receiver or the Attr. Resolve
     // both original objects again and retain exact native ownership.

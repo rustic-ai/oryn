@@ -2,7 +2,7 @@
 //! constraints intersect; advanced sets are retained only when satisfiable.
 use oryn_js::media_capture::Kind;
 use serde_json::{Value, json};
-fn required<'a>(value: &'a Value, advanced: bool) -> Option<&'a Value> {
+fn required(value: &Value, advanced: bool) -> Option<&Value> {
     value
         .get("exact")
         .or_else(|| (advanced && !value.is_object()).then_some(value))
@@ -25,18 +25,17 @@ fn accepts(sets: &[(&Value, bool)], name: &str, actual: &Value) -> bool {
         if required(value, *advanced).is_some_and(|value| !matches(value, actual)) {
             return false;
         }
-        if let Some(actual) = actual.as_f64() {
-            if value
+        if let Some(actual) = actual.as_f64()
+            && (value
                 .get("min")
                 .and_then(Value::as_f64)
                 .is_some_and(|min| actual < min)
                 || value
                     .get("max")
                     .and_then(Value::as_f64)
-                    .is_some_and(|max| actual > max)
-            {
-                return false;
-            }
+                    .is_some_and(|max| actual > max))
+        {
+            return false;
         }
         true
     })

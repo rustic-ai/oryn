@@ -241,14 +241,14 @@ pub(super) fn blocked(state: &V8BindingState, request: u64, old: u64, new: Optio
     });
 }
 pub(super) fn deferred_failure(state: &V8BindingState, request: u64, open: bool) {
-    if let Ok(mut record) = platform_object_mut(state, request) {
-        if let PlatformObjectRecord::IdbRequest(record) = &mut *record {
-            record.done = true;
-            record.result = None;
-            record.error = Some("AbortError".into());
-            if open {
-                record.transaction_id = None;
-            }
+    if let Ok(mut record) = platform_object_mut(state, request)
+        && let PlatformObjectRecord::IdbRequest(record) = &mut *record
+    {
+        record.done = true;
+        record.result = None;
+        record.error = Some("AbortError".into());
+        if open {
+            record.transaction_id = None;
         }
     }
     let task = Task {
@@ -384,12 +384,11 @@ impl Task {
                         // Custody has already moved from the accepted host receipt to
                         // this task. Advance the event number only with a retained
                         // listener continuation and native acknowledgement suffix.
-                        if fresh {
-                            if let PlatformObjectRecord::IdbDatabase(record) =
+                        if fresh
+                            && let PlatformObjectRecord::IdbDatabase(record) =
                                 &mut *platform_object_mut(state, database)?
-                            {
-                                record.last_versionchange_event = event;
-                            }
+                        {
+                            record.last_versionchange_event = event;
                         }
                         self.steps.pop_front();
                         self.add_front([Step::ConnectionAck { token, name, event }]);
@@ -443,11 +442,9 @@ impl Task {
                             transaction_id: transaction,
                         },
                     )?;
-                    if let PlatformObjectRecord::IdbRequest(record) =
-                        &mut *platform_object_mut(state, request)?
-                    {
-                        record.transaction_id = None;
-                    }
+                    // The open request exposes the upgrade transaction through
+                    // its complete event. TerminalAfter clears it before jobs
+                    // queued by that callback and before open success.
                     self.steps.pop_front();
                     self.add_front([Step::Flush]);
                 }
@@ -544,12 +541,11 @@ impl Task {
                         transaction.settled = true;
                         (transaction.mode == "versionchange").then_some(transaction.database_id)
                     };
-                    if let Some(database) = database {
-                        if let PlatformObjectRecord::IdbDatabase(database) =
+                    if let Some(database) = database
+                        && let PlatformObjectRecord::IdbDatabase(database) =
                             &mut *platform_object_mut(state, database)?
-                        {
-                            database.upgrade_transaction_id = None;
-                        }
+                    {
+                        database.upgrade_transaction_id = None;
                     }
                     self.steps.pop_front();
                     self.add_front([
@@ -566,15 +562,14 @@ impl Task {
                         }
                         _ => None,
                     };
-                    if let Some(request) = request {
-                        if let PlatformObjectRecord::IdbRequest(request) =
+                    if let Some(request) = request
+                        && let PlatformObjectRecord::IdbRequest(request) =
                             &mut *platform_object_mut(state, request)?
-                        {
-                            request.transaction_id = None;
-                            if name == "abort" {
-                                request.result = None;
-                                request.done = false;
-                            }
+                    {
+                        request.transaction_id = None;
+                        if name == "abort" {
+                            request.result = None;
+                            request.done = false;
                         }
                     }
                     self.steps.pop_front();
@@ -645,17 +640,16 @@ impl Task {
                     self.steps.pop_front();
                 }
                 Step::Event(target, name, version) => {
-                    if matches!(name, "success" | "error" | "upgradeneeded") {
-                        if let PlatformObjectRecord::IdbRequest(request) =
+                    if matches!(name, "success" | "error" | "upgradeneeded")
+                        && let PlatformObjectRecord::IdbRequest(request) =
                             &mut *platform_object_mut(state, target)?
-                        {
-                            request.done = true;
-                            if request.internal {
-                                self.threw = false;
-                                self.prevented = false;
-                                self.steps.pop_front();
-                                continue;
-                            }
+                    {
+                        request.done = true;
+                        if request.internal {
+                            self.threw = false;
+                            self.prevented = false;
+                            self.steps.pop_front();
+                            continue;
                         }
                     }
                     if self.event.is_none() {
@@ -751,17 +745,16 @@ impl Task {
                     if !self.finish_accounted.contains(&request) {
                         state.active_idb_connections.borrow_mut().remove(&request);
                         remove_idb_request_from_queue(state, request)?;
-                        if let Some(id) = transaction {
-                            if let PlatformObjectRecord::IdbTransaction(transaction) =
+                        if let Some(id) = transaction
+                            && let PlatformObjectRecord::IdbTransaction(transaction) =
                                 &mut *platform_object_mut(state, id)?
+                        {
+                            transaction.pending_requests =
+                                transaction.pending_requests.saturating_sub(1);
+                            if transaction.mode != "versionchange"
+                                && transaction.pending_requests == 0
                             {
-                                transaction.pending_requests =
-                                    transaction.pending_requests.saturating_sub(1);
-                                if transaction.mode != "versionchange"
-                                    && transaction.pending_requests == 0
-                                {
-                                    transaction.completion_requested = true;
-                                }
+                                transaction.completion_requested = true;
                             }
                         }
                         self.finish_accounted.insert(request);
@@ -885,48 +878,49 @@ impl Task {
             IdbCompletionAction::DeleteDatabase { name } => Some((name.clone(), None)),
             _ => None,
         };
-        if !response.connection_managed && !self.legacy_started {
-            if let Some((name, version)) = change {
-                let notified = match &*platform_object(state, self.request)? {
-                    PlatformObjectRecord::IdbRequest(request) => request.versionchange_notified,
-                    _ => false,
-                };
-                let blockers = if notified {
-                    Vec::new()
-                } else {
-                    state
-                        .platform_objects
-                        .borrow()
-                        .iter()
-                        .filter_map(|(id, record)| match record {
-                            PlatformObjectRecord::IdbDatabase(database)
-                                if database.name == name && !database.closed =>
-                            {
-                                Some((*id, database.version))
-                            }
-                            _ => None,
-                        })
-                        .collect()
-                };
-                if let PlatformObjectRecord::IdbRequest(request) =
-                    &mut *platform_object_mut(state, self.request)?
-                {
-                    request.versionchange_notified = true;
-                }
-                self.legacy_started = true;
-                for (id, old) in blockers {
-                    self.steps.extend([
-                        Step::Event(id, "versionchange", Some((old, version))),
-                        Step::Checkpoint,
-                    ]);
-                }
-                self.steps.push_back(Step::LegacyCheck {
-                    name,
-                    version,
-                    old: response.old_version.unwrap_or(0),
-                });
-                return Ok(());
+        if !response.connection_managed
+            && !self.legacy_started
+            && let Some((name, version)) = change
+        {
+            let notified = match &*platform_object(state, self.request)? {
+                PlatformObjectRecord::IdbRequest(request) => request.versionchange_notified,
+                _ => false,
+            };
+            let blockers = if notified {
+                Vec::new()
+            } else {
+                state
+                    .platform_objects
+                    .borrow()
+                    .iter()
+                    .filter_map(|(id, record)| match record {
+                        PlatformObjectRecord::IdbDatabase(database)
+                            if database.name == name && !database.closed =>
+                        {
+                            Some((*id, database.version))
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            };
+            if let PlatformObjectRecord::IdbRequest(request) =
+                &mut *platform_object_mut(state, self.request)?
+            {
+                request.versionchange_notified = true;
             }
+            self.legacy_started = true;
+            for (id, old) in blockers {
+                self.steps.extend([
+                    Step::Event(id, "versionchange", Some((old, version))),
+                    Step::Checkpoint,
+                ]);
+            }
+            self.steps.push_back(Step::LegacyCheck {
+                name,
+                version,
+                old: response.old_version.unwrap_or(0),
+            });
+            return Ok(());
         }
         match self.action.clone() {
             IdbCompletionAction::Open { name } => {
@@ -1051,16 +1045,16 @@ impl Task {
                     transaction.settled = true;
                     transaction.active = false;
                 }
-                if closed {
-                    if let PlatformObjectRecord::IdbRequest(request) =
+                if closed
+                    && let PlatformObjectRecord::IdbRequest(request) =
                         &mut *platform_object_mut(state, original)?
-                    {
-                        request.result = None;
-                        request.error = Some("AbortError".into());
-                    }
+                {
+                    request.result = None;
+                    request.error = Some("AbortError".into());
                 }
                 self.steps.extend([
                     Step::Event(transaction_id, "complete", None),
+                    Step::TerminalAfter(transaction_id, "complete"),
                     Step::Checkpoint,
                     Step::Event(original, if closed { "error" } else { "success" }, None),
                     Step::Finish(original),

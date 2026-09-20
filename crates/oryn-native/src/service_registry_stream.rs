@@ -199,7 +199,9 @@ impl ServiceRegistry {
         let (demand, mut credits) = tokio::sync::mpsc::channel(1);
         sender
             .try_send(NetworkEvent::Headers {
-                timing: crate::network::service_timing_provenance(metadata.timing.as_ref()),
+                response_policy: None,
+                timing: crate::network::service_timing_provenance(metadata.timing.as_ref())
+                    .map(Box::new),
                 request_id,
                 status: metadata.status,
                 headers: metadata.headers.clone(),

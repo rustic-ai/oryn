@@ -1,5 +1,8 @@
 //! Single-use native prelaunch custody. The caller cannot replace any request
 //! field after its Document is retired.
+#[cfg(test)]
+type DispatchGate = Arc<(Mutex<bool>, std::sync::Condvar)>;
+
 use super::*;
 use std::time::Instant;
 #[derive(Clone)]
@@ -33,20 +36,19 @@ pub(super) struct Job {
 }
 impl Job {
     fn release_result(&self, result: Result<ContextServiceResponse, RuntimeError>) {
-        if let Ok(ContextServiceResponse::HttpStreamStarted { stream_id, .. }) = result {
-            if self
+        if let Ok(ContextServiceResponse::HttpStreamStarted { stream_id, .. }) = result
+            && self
                 .lifecycle
                 .release_result(self.creator.as_ref(), Some(stream_id), None)
                 .is_err()
-            {
-                let lifecycle = self.lifecycle.clone();
-                let creator = self.creator.clone();
-                self.release_retry.orphan(move || {
-                    lifecycle
-                        .release_result(creator.as_ref(), Some(stream_id), None)
-                        .is_ok()
-                });
-            }
+        {
+            let lifecycle = self.lifecycle.clone();
+            let creator = self.creator.clone();
+            self.release_retry.orphan(move || {
+                lifecycle
+                    .release_result(creator.as_ref(), Some(stream_id), None)
+                    .is_ok()
+            });
         }
     }
     fn publish(&self, result: Result<ContextServiceResponse, RuntimeError>) {
@@ -98,7 +100,7 @@ impl Job {
 pub(crate) struct Registry {
     entries: Mutex<BTreeMap<String, Arc<Job>>>,
     #[cfg(test)]
-    dispatch_gate: Mutex<Option<Arc<(Mutex<bool>, std::sync::Condvar)>>>,
+    dispatch_gate: Mutex<Option<DispatchGate>>,
 }
 impl Registry {
     fn insert(
@@ -219,7 +221,7 @@ impl ParentContextService {
         let creator = request.client.as_ref().ok_or_else(|| {
             RuntimeError::ProtocolViolation("keepalive requires native creator".into())
         })?;
-        if request.body_base64.len() > 4 * ((65536 + 2) / 3)
+        if request.body_base64.len() > 4 * 65536_usize.div_ceil(3)
             || request.url.len() > 256 * 1024
             || request.method.len() > 32
             || request.headers.len() > 1024
@@ -287,16 +289,16 @@ impl ParentContextService {
                 }
             }
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                service.start_http_stream_with_destination(
-                    page,
+                service.start_http_stream_with_destination(HttpStreamDestinationInputs {
+                    page_id: page,
                     request,
-                    crate::csp::CspDestination::Connect,
-                    true,
-                    None,
-                    false,
-                    None,
-                    Some(authority),
-                )
+                    destination: crate::csp::CspDestination::Connect,
+                    cors_enabled: true,
+                    media_destination: None,
+                    preload: false,
+                    template_nonce: None,
+                    frozen: Some(authority),
+                })
             }))
             .unwrap_or_else(|_| {
                 Err(RuntimeError::Network(
@@ -313,10 +315,12 @@ impl ParentContextService {
     }
 }
 
+#[cfg(feature = "v8-host")]
 pub(crate) struct Lease {
     ticket: script_cleanup_custody::Ticket,
     page: PageId,
 }
+#[cfg(feature = "v8-host")]
 impl Lease {
     pub(crate) fn attach(&self, token: &str) {
         self.ticket
@@ -326,6 +330,7 @@ impl Lease {
             });
     }
 }
+#[cfg(feature = "v8-host")]
 impl SharedContextClient {
     pub(crate) fn reserve_ordinary_keepalive_cleanup(
         &self,
@@ -353,6 +358,7 @@ mod tests {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             self.0.lock().unwrap().push(request.clone());
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -361,13 +367,15 @@ mod tests {
             })
         }
     }
-    fn fixture() -> (
+    type KeepaliveFixture = (
         BrowserContext,
         crate::PageHandle,
         Arc<ParentContextService>,
         Creator,
         Arc<Mutex<Vec<NetworkRequest>>>,
-    ) {
+    );
+
+    fn fixture() -> KeepaliveFixture {
         let context =
             crate::Browser::in_process_with_config(crate::BrowserConfig::default()).new_context();
         let page = context.new_page();

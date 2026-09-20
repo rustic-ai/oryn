@@ -2,6 +2,18 @@
 //! https://html.spec.whatwg.org/multipage/tables.html#header-and-data-cell-semantics
 //! Coordinate bands replace repeated identical slot scans; overlapping slots are
 //! skipped exactly as the specification requires, not arbitrarily attributed.
+
+/// Inputs for scan.
+struct HeaderScan<'a> {
+    table: &'a Table,
+    nodes: &'a BTreeMap<SemanticRef, Node>,
+    model: &'a Model,
+    principal: SemanticRef,
+    fixed: usize,
+    horizontal: bool,
+    result: &'a mut Vec<SemanticRef>,
+    budget: &'a mut Budget,
+}
 use super::*;
 #[derive(Clone, Debug, Default)]
 pub(super) struct Model {
@@ -41,7 +53,7 @@ impl Budget {
 fn overlaps(a: usize, width: usize, b: usize, other: usize) -> bool {
     a < b + other && b < a + width
 }
-fn scope<'a>(nodes: &'a BTreeMap<SemanticRef, Node>, id: SemanticRef) -> Option<&'a str> {
+fn scope(nodes: &BTreeMap<SemanticRef, Node>, id: SemanticRef) -> Option<&str> {
     nodes[&id]
         .properties
         .get("native_scope")
@@ -77,16 +89,18 @@ fn bands(table: &Table, start: usize, end: usize, horizontal: bool) -> Vec<usize
     }
     values.into_iter().collect()
 }
-fn scan(
-    table: &Table,
-    nodes: &BTreeMap<SemanticRef, Node>,
-    model: &Model,
-    principal: SemanticRef,
-    fixed: usize,
-    horizontal: bool,
-    result: &mut Vec<SemanticRef>,
-    budget: &mut Budget,
-) -> Result<(), String> {
+fn scan(params: HeaderScan<'_>) -> Result<(), String> {
+    let HeaderScan {
+        table,
+        nodes,
+        model,
+        principal,
+        fixed,
+        horizontal,
+        result,
+        budget,
+    } = params;
+
     let principal_cell = &table.cells[&principal];
     let limit = if horizontal {
         principal_cell.column
@@ -225,16 +239,16 @@ pub(super) fn build(table: &Table, nodes: &BTreeMap<SemanticRef, Node>) -> Resul
         } else if !headers.is_empty() {
             budget.charge(table.cells.len().saturating_mul(2))?;
             for row in bands(table, subject.row, subject.row + subject.row_span, true) {
-                scan(
+                scan(HeaderScan {
                     table,
                     nodes,
-                    &model,
-                    *principal,
-                    row,
-                    true,
-                    &mut list,
-                    &mut budget,
-                )?;
+                    model: &model,
+                    principal: *principal,
+                    fixed: row,
+                    horizontal: true,
+                    result: &mut list,
+                    budget: &mut budget,
+                })?;
             }
             for column in bands(
                 table,
@@ -242,16 +256,16 @@ pub(super) fn build(table: &Table, nodes: &BTreeMap<SemanticRef, Node>) -> Resul
                 subject.column + subject.column_span,
                 false,
             ) {
-                scan(
+                scan(HeaderScan {
                     table,
                     nodes,
-                    &model,
-                    *principal,
-                    column,
-                    false,
-                    &mut list,
-                    &mut budget,
-                )?;
+                    model: &model,
+                    principal: *principal,
+                    fixed: column,
+                    horizontal: false,
+                    result: &mut list,
+                    budget: &mut budget,
+                })?;
             }
             for header in &headers {
                 budget.charge(1)?;

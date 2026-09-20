@@ -12,6 +12,13 @@ impl BrowserContext {
     ) -> Result<bool, RuntimeError> {
         if self.script_close_state(source, creator, target, expected)? {
             self.ensure_script_close_runner()?;
+            self.inner
+                .script_close_admissions
+                .lock()
+                .map_err(|_| {
+                    RuntimeError::ContextService("close admission registry poisoned".into())
+                })?
+                .record_action_close(source, target)?;
             return Ok(true);
         }
         let target_creator = self.root_navigation_creator(target)?;
@@ -47,13 +54,15 @@ impl BrowserContext {
             ));
         };
         self.with_window_worker_creator_pages_checked(
-            source,
-            source_target,
-            *document_generation,
-            *stream_epoch,
-            false,
-            false,
-            Some((target, &target_creator)),
+            crate::runtime::CheckedWorkerCreatorPagesInputs {
+                page_id: source,
+                target: source_target,
+                generation: *document_generation,
+                epoch: *stream_epoch,
+                include_urls: false,
+                allow_prerender: false,
+                checked_root: Some((target, &target_creator)),
+            },
             |_, _, _, pages| {
                 let groups = self.inner.group.browsing_groups.lock().map_err(|_| {
                     RuntimeError::ContextService("close group registry poisoned".into())
@@ -74,6 +83,13 @@ impl BrowserContext {
                     return Err(RuntimeError::NavigationCancelled);
                 }
                 if record.is_closing {
+                    self.inner
+                        .script_close_admissions
+                        .lock()
+                        .map_err(|_| {
+                            RuntimeError::ContextService("close admission registry poisoned".into())
+                        })?
+                        .record_action_close(source, target)?;
                     return Ok(true);
                 }
                 if !record.created_by_web_content {
@@ -98,6 +114,7 @@ impl BrowserContext {
                 let (admission, _) = registry.admit(source, creator.clone(), target)?;
                 registry.preparing(target, admission.token, target_creator.clone())?;
                 record.is_closing = true;
+                registry.record_action_close(source, target)?;
                 Ok(true)
             },
         )

@@ -156,6 +156,7 @@ impl BrowsingGroups {
         };
         source.token == target.token && expected.is_none_or(|expected| expected == source.token)
     }
+    #[cfg(test)]
     pub(crate) fn retire(&mut self, page: PageId) {
         self.documents.remove(&page);
     }

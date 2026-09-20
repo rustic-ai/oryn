@@ -146,8 +146,8 @@ pub(super) fn cancel_protocol(
     url: &str,
 ) -> Result<(), V8BindingError> {
     let pending = state.permission_elements.borrow().prompt.clone();
-    if let Some((node, id)) = pending {
-        if state
+    if let Some((node, id)) = pending
+        && state
             .dom
             .borrow()
             .permission_prompt_snapshot(node)?
@@ -155,10 +155,9 @@ pub(super) fn cancel_protocol(
                 prompt.protocol.as_deref() == Some(scheme)
                     && prompt.protocol_url.as_deref() == Some(url)
             })
-        {
-            native_platform::prompt_request(state, Request::PromptCancel { id })?;
-            close(state, node);
-        }
+    {
+        native_platform::prompt_request(state, Request::PromptCancel { id })?;
+        close(state, node);
     }
     Ok(())
 }
@@ -362,10 +361,10 @@ pub(super) fn keyboard(
     key: &str,
 ) -> Result<bool, V8BindingError> {
     let (handled, job) = prepare_keyboard(state, key)?;
-    if let Some(mut job) = job {
-        if !job.poll(scope)? {
-            return Err(V8BindingError::JavaScriptException);
-        }
+    if let Some(mut job) = job
+        && !job.poll(scope)?
+    {
+        return Err(V8BindingError::JavaScriptException);
     }
     Ok(handled)
 }
@@ -476,20 +475,6 @@ pub(super) fn prepare_accessibility(
     job.activate = true;
     job.security = true;
     Ok(Some(job))
-}
-pub(super) fn accessibility(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    node: NodeId,
-    expected: &oryn_dom::PermissionPrompt,
-    choice: PromptChoice,
-) -> Result<(), V8BindingError> {
-    if let Some(mut job) = prepare_accessibility(scope, state, node, expected, choice)? {
-        if !job.poll(scope)? {
-            return Err(V8BindingError::JavaScriptException);
-        }
-    }
-    Ok(())
 }
 
 /// A single process-native namespace is shared by all retained popup inputs.
@@ -683,16 +668,6 @@ impl Pointer {
             }
         }
     }
-}
-pub(super) fn pointer(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    input: &NativePointerInput,
-    action: NativePointerAction,
-) -> Result<Option<NodeId>, V8BindingError> {
-    let mut job = Pointer::new(state, input, action);
-    job.poll(scope)?
-        .ok_or(V8BindingError::Allocation("permission pointer suspended"))
 }
 
 #[cfg(test)]

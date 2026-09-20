@@ -7,6 +7,7 @@ use std::sync::{
 #[derive(Clone, Default)]
 pub(crate) struct Status(Arc<AtomicU8>);
 impl Status {
+    #[cfg(feature = "v8-host")]
     pub(crate) fn new(blocking: bool) -> Self {
         Self(Arc::new(AtomicU8::new(u8::from(blocking))))
     }
@@ -15,6 +16,7 @@ impl Status {
             .0
             .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire);
     }
+    #[cfg(test)]
     pub(crate) fn blocking(&self) -> bool {
         self.0.load(Ordering::Acquire) & 1 != 0
     }

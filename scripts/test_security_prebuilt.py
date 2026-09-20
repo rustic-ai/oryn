@@ -331,9 +331,18 @@ if name=='jq':
     if '-r' in args:
         key=args[args.index('-r')+1]
         print(cfg['paths']['engine_profile'] if key.endswith('_path') else 'a'*64)
+        sys.exit(0)
+    # Consume the producer pipe before exiting, just as jq does. Otherwise
+    # plutil can fail with BrokenPipeError under the shell's pipefail mode.
+    value=sys.stdin.read()
+    if any('com.apple.security.app-sandbox' in arg for arg in args):
+        entitlements=json.loads(value)
+        expected={'com.apple.security.app-sandbox':True,'com.apple.security.cs.allow-jit':True}
+        sys.exit(0 if set(entitlements)==set(expected) and all(entitlements[key] is True for key in expected) else 1)
     sys.exit(0)
 if name=='plutil':
-    if '-convert' in args: print('{}')
+    if '-convert' in args:
+        print(json.dumps(plistlib.loads(pathlib.Path(args[-1]).read_bytes())))
     sys.exit(0)
 if name=='PlistBuddy':
     if args[1] in ('Print :com.apple.security.app-sandbox','Print :com.apple.security.cs.allow-jit'):

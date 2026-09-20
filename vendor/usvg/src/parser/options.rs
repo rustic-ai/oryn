@@ -8,6 +8,24 @@ use std::sync::Arc;
 use crate::FontResolver;
 use crate::{ImageHrefResolver, ImageRendering, ShapeRendering, Size, TextRendering};
 
+/// Source identity plus the outer-to-inner use instance ancestry. Identities
+/// are supplied by the embedding native style engine, never inferred from CSS.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NativeInstanceKey {
+    pub ancestry: Vec<u64>,
+    pub source: u64,
+}
+
+/// Resolve the same local IRI spelling accepted by use expansion.
+pub fn native_instance_reference(value: &str) -> Option<&str> {
+    svgtypes::IRI::from_str(value).ok().map(|iri| iri.0)
+}
+
+pub type NativeInstanceStyles = std::collections::BTreeMap<NativeInstanceKey, String>;
+
+/// A selected native vector subtree, or no content for an empty instance.
+pub type NativeInstanceContent = std::collections::BTreeMap<NativeInstanceKey, Option<String>>;
+
 /// Processing options.
 #[derive(Debug)]
 pub struct Options<'a> {
@@ -98,6 +116,15 @@ pub struct Options<'a> {
     /// A CSS stylesheet that should be injected into the SVG. Can be used to overwrite
     /// certain attributes.
     pub style_sheet: Option<String>,
+    /// Already cascaded presentation values for secure native use instances.
+    /// Source elements carry embedding-generated data-oryn-native-style-id
+    /// markers. The embedding must replace authored markers and bind this map
+    /// to this document only; independently loaded SVGs use a fresh map.
+    pub native_instance_styles: NativeInstanceStyles,
+    pub native_instance_content: NativeInstanceContent,
+    /// Generated native vector roots whose descendants already have computed paint.
+    /// Supplied by the compositor, never inferred from authored XML markers.
+    pub native_style_roots: std::collections::BTreeSet<String>,
 }
 
 impl Default for Options<'_> {
@@ -119,6 +146,9 @@ impl Default for Options<'_> {
             #[cfg(feature = "text")]
             fontdb: Arc::new(fontdb::Database::new()),
             style_sheet: None,
+            native_instance_styles: NativeInstanceStyles::new(),
+            native_instance_content: NativeInstanceContent::new(),
+            native_style_roots: std::collections::BTreeSet::new(),
         }
     }
 }

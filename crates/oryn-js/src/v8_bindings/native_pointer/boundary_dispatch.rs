@@ -144,12 +144,13 @@ pub(super) fn drain_owned(
     }
     if source_current(state, &pending.source) {
         state.native_pointers.borrow_mut().boundary_draining = false;
-        if result.is_err() && current(state, pending.identity) {
-            if let Some(pointer) = state.native_pointers.borrow_mut().pointers.get_mut(&id) {
-                pointer.boundary_retry =
-                    Some(std::time::Instant::now() + std::time::Duration::from_millis(25));
-                pointer.boundary_pending = Some(pending);
-            }
+        if result.is_err()
+            && current(state, pending.identity)
+            && let Some(pointer) = state.native_pointers.borrow_mut().pointers.get_mut(&id)
+        {
+            pointer.boundary_retry =
+                Some(std::time::Instant::now() + std::time::Duration::from_millis(25));
+            pointer.boundary_pending = Some(pending);
         }
     }
     result
@@ -237,12 +238,12 @@ pub(super) fn dispatch_owned(
             related,
         });
     };
-    if old != new {
-        if let Some(old) = old {
-            add(old, "pointerout", true, new);
-            if input.primary {
-                add(old, "mouseout", true, new);
-            }
+    if old != new
+        && let Some(old) = old
+    {
+        add(old, "pointerout", true, new);
+        if input.primary {
+            add(old, "mouseout", true, new);
         }
     }
     for node in leaves {
@@ -251,12 +252,12 @@ pub(super) fn dispatch_owned(
             add(node, "mouseleave", false, new);
         }
     }
-    if old != new {
-        if let Some(new) = new {
-            add(new, "pointerover", true, old);
-            if input.primary {
-                add(new, "mouseover", true, old);
-            }
+    if old != new
+        && let Some(new) = new
+    {
+        add(new, "pointerover", true, old);
+        if input.primary {
+            add(new, "mouseover", true, old);
         }
     }
     for node in enters {

@@ -173,6 +173,13 @@ fn foreign_node_allocation_retains_exact_owner_through_adoption_then_collects() 
                 if same_arena { &source } else { &target }
             ));
             eval(scope, "delete globalThis.kept");
+            // The host consumes native mutation journals after publication.
+            // Their removal leases are independent roots until that checkpoint.
+            for dom in [&source.dom, &target.dom] {
+                let mut dom = dom.borrow_mut();
+                let mutations = dom.drain_mutations();
+                dom.release_mutation_roots(&mutations).unwrap();
+            }
             source.retire_execution();
             source.refresh_connected_wrapper_roots(scope);
             target.retire_execution();
@@ -210,7 +217,10 @@ fn foreign_node_allocation_retains_exact_owner_through_adoption_then_collects() 
         isolate.low_memory_notification();
         isolate.low_memory_notification();
         v8::scope!(let handles,&mut isolate);
-        assert!(source_context.to_local(handles).is_none());
+        assert!(
+            source_context.to_local(handles).is_none(),
+            "same_arena={same_arena}"
+        );
         assert!(target_context.to_local(handles).is_none());
         assert!(source.upgrade().is_none());
         assert!(target.upgrade().is_none());
@@ -240,9 +250,52 @@ fn cached_html_templates_do_not_keep_an_empty_retired_realm_alive() {
     };
     isolate.low_memory_notification();
     isolate.low_memory_notification();
-    v8::scope!(let handles,&mut isolate);
+    let collected = {
+        v8::scope!(let handles,&mut isolate);
+        context.to_local(handles).is_none()
+    };
+    if !collected {
+        // Drop the observation handle before taking the snapshot, so the
+        // diagnostic does not itself add a strong Context root. Preserve the
+        // pre-snapshot verdict even if snapshot collection changes the heap.
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "oryn-retired-realm-{}-{stamp}.heapsnapshot",
+            std::process::id()
+        ));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                let mut write_error = None;
+                isolate.take_heap_snapshot(|bytes| {
+                    match std::io::Write::write_all(&mut file, bytes) {
+                        Ok(()) => true,
+                        Err(error) => {
+                            write_error = Some(error);
+                            false
+                        }
+                    }
+                });
+                if let Some(error) = write_error {
+                    eprintln!(
+                        "retired realm heap snapshot incomplete at {}: {error}",
+                        path.display()
+                    );
+                } else {
+                    eprintln!("retired realm heap snapshot: {}", path.display());
+                }
+            }
+            Err(error) => eprintln!("retired realm heap snapshot could not be created: {error}"),
+        }
+    }
     assert!(
-        context.to_local(handles).is_none(),
+        collected,
         "native cached templates and primitive callback data must not root their retired Context"
     );
     assert!(
@@ -325,6 +378,13 @@ fn cross_arena_owner_survives_adoption_and_releases_after_last_wrapper() {
                 if same_arena { &source } else { &target }
             ));
             eval(scope, "delete globalThis.kept");
+            // The host consumes native mutation journals after publication.
+            // Their removal leases are independent roots until that checkpoint.
+            for dom in [&source.dom, &target.dom] {
+                let mut dom = dom.borrow_mut();
+                let mutations = dom.drain_mutations();
+                dom.release_mutation_roots(&mutations).unwrap();
+            }
             source.retire_execution();
             source.refresh_connected_wrapper_roots(scope);
             target.retire_execution();
@@ -367,4 +427,58 @@ fn cross_arena_owner_survives_adoption_and_releases_after_last_wrapper() {
         assert!(source.upgrade().is_none());
         assert!(target.upgrade().is_none());
     }
+}
+
+#[test]
+fn retired_document_allocates_original_interfaces_after_public_constructor_deletion() {
+    super::tests::initialize_v8();
+    let mut isolate = v8::Isolate::new(Default::default());
+    let (context, document, state) = {
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let state =
+            install_generated_bindings(scope, context, runtime("<body></body>"), RealmId(957), 1)
+                .unwrap();
+        let source = v8::String::new(scope, "document.savedNavigationEntry=navigation.currentEntry; delete globalThis.navigation; delete globalThis.HTMLDivElement; delete globalThis.HTMLSpanElement; document.querySelectorAll('body'); document").unwrap();
+        let document = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .try_cast::<v8::Object>()
+            .unwrap();
+        state.retire_execution();
+        state.refresh_connected_wrapper_roots(scope);
+        (
+            v8::Weak::new(scope, context),
+            v8::Global::new(scope, document),
+            state,
+        )
+    };
+    isolate.low_memory_notification();
+    isolate.low_memory_notification();
+    {
+        v8::scope!(let handles, &mut isolate);
+        let context = context
+            .to_local(handles)
+            .expect("retained document must preserve its owner");
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let source = v8::String::new(scope, "(()=>{const a=document.createElement('div'),b=document.createElement('span');return a.constructor.name==='HTMLDivElement'&&b.constructor.name==='HTMLSpanElement'&&a instanceof HTMLElement&&document.querySelectorAll('body').item(0)===document.body&&document.savedNavigationEntry.getState()===undefined})()").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        state.refresh_connected_wrapper_roots(scope);
+    }
+    drop(document);
+    isolate.low_memory_notification();
+    isolate.low_memory_notification();
+    v8::scope!(let handles, &mut isolate);
+    assert!(
+        context.to_local(handles).is_none(),
+        "Rust template caches must not retain the owner after its last document wrapper is gone"
+    );
 }

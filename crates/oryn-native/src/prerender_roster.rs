@@ -1,5 +1,17 @@
 //! One page actor owns all nonactive parser drivers. Candidate turns lend the
 //! same isolate host; neither a pending IPC nor a failed driver owns that host.
+
+/// Inputs retained together for poll prerender roster.
+pub struct PrerenderPollInput<'a> {
+    pub snapshot: Option<crate::host::PrerenderSourceSnapshot>,
+    pub host: &'a mut Option<crate::host::RawV8Host>,
+    pub client: SharedContextClient,
+    pub page: PageId,
+    pub broker: SharedNetworkBroker,
+    pub source_url: &'a str,
+    pub policy: crate::referrer::ReferrerPolicy,
+    pub config: &'a BrowserConfig,
+}
 use super::*;
 use prerender_load::{CandidateDocument, PendingCandidate, PendingReservation};
 use std::task::Poll;
@@ -15,6 +27,8 @@ pub(super) struct Roster {
     retry: Option<Instant>,
     interest_pending: bool,
     accepted_blank: bool,
+    #[cfg(test)]
+    diagnostic_failure: Option<String>,
 }
 struct Job {
     rule: oryn_js::speculation_rules::Candidate,
@@ -38,6 +52,12 @@ fn is_blank(rule: &oryn_js::speculation_rules::Candidate) -> bool {
     rule.target == Some(oryn_js::speculation_rules::TargetHint::Blank)
 }
 impl Roster {
+    #[cfg(test)]
+    fn retain_diagnostic_failure(&mut self, error: &impl std::fmt::Display) {
+        if self.diagnostic_failure.is_none() {
+            self.diagnostic_failure = Some(repair44_bounded_diagnostic(format_args!("{error}")));
+        }
+    }
     #[cfg(test)]
     pub(super) fn loaded_for_test(&self) -> bool {
         self.jobs
@@ -71,13 +91,14 @@ impl Roster {
             }
         }
         format!(
-            "source={:?} jobs={} phases[reserve,fetch,failed,document,ready,ready_ack,loaded,load_ack_or_next]={phases:?} retiring={} retry_pending={} interest_pending={} accepted_blank={}",
+            "source={:?} jobs={} phases[reserve,fetch,failed,document,ready,ready_ack,loaded,load_ack_or_next]={phases:?} retiring={} retry_pending={} interest_pending={} accepted_blank={} first_failure={:?}",
             self.source,
             self.jobs.len(),
             self.retiring.len(),
             self.retry.is_some(),
             self.interest_pending,
-            self.accepted_blank
+            self.accepted_blank,
+            self.diagnostic_failure
         )
     }
     /// Consume the exact source record after native navigation admission. The
@@ -89,6 +110,7 @@ impl Roster {
     ) -> bool {
         self.matching_target_pending(source, url, false)
     }
+    #[cfg(test)]
     pub fn matching_blank_pending(
         &self,
         source: &crate::host::PrerenderSourceSnapshot,
@@ -199,17 +221,18 @@ impl Roster {
             drop(document);
         }
     }
-    pub fn poll(
-        &mut self,
-        snapshot: Option<crate::host::PrerenderSourceSnapshot>,
-        host: &mut Option<crate::host::RawV8Host>,
-        client: SharedContextClient,
-        page: PageId,
-        broker: SharedNetworkBroker,
-        source_url: &str,
-        policy: crate::referrer::ReferrerPolicy,
-        config: &BrowserConfig,
-    ) -> (u64, Vec<String>) {
+    pub fn poll(&mut self, params: PrerenderPollInput<'_>) -> (u64, Vec<String>) {
+        let PrerenderPollInput {
+            snapshot,
+            host,
+            client,
+            page,
+            broker,
+            source_url,
+            policy,
+            config,
+        } = params;
+
         let mut diagnostics = Vec::new();
         let mut high = 0;
         // A source navigation in the same author turn cannot revoke a blank
@@ -229,6 +252,10 @@ impl Roster {
                 self.dispose(job)
             }
             self.source = identity;
+            #[cfg(test)]
+            {
+                self.diagnostic_failure = None;
+            }
         }
         self.interest_pending = snapshot.as_ref().is_some_and(|source| {
             source
@@ -270,6 +297,8 @@ impl Roster {
             let realm = self.retiring.pop_front().unwrap();
             if let Err(error) = native.retire_agent_root(realm) {
                 self.retiring.push_back(realm);
+                #[cfg(test)]
+                self.retain_diagnostic_failure(&error);
                 diagnostics.push(error.to_string());
             }
         }
@@ -301,6 +330,8 @@ impl Roster {
             ) {
                 Ok(pending) => Phase::Reserve(Box::new(pending)),
                 Err(error) => {
+                    #[cfg(test)]
+                    self.retain_diagnostic_failure(&error);
                     diagnostics.push(error.to_string());
                     Phase::Failed
                 }
@@ -387,15 +418,16 @@ impl Roster {
                         Poll::Ready(Ok(prepared)) => {
                             let mut provisional = None;
                             let (destination_client, destination_page) = prepared.endpoint();
-                            let result = prepared.construct(
-                                source.realm,
-                                destination_client,
-                                destination_page,
-                                config.max_v8_heap_bytes,
-                                job.deadline,
-                                host,
-                                &mut provisional,
-                            );
+                            let result =
+                                prepared.construct(prerender_load::PrerenderConstructionInput {
+                                    previous: source.realm,
+                                    client: destination_client,
+                                    page: destination_page,
+                                    max_heap: config.max_v8_heap_bytes,
+                                    deadline: job.deadline,
+                                    host,
+                                    provisional: &mut provisional,
+                                });
                             if let Some(realm) = provisional {
                                 self.retiring.push_back(realm)
                             }
@@ -504,11 +536,13 @@ impl Roster {
             job.phase = match result {
                 Ok(phase) => phase,
                 Err(error) => {
-                    if let Some(realm) = document_realm {
-                        if !self.retiring.contains(&realm) {
-                            self.retiring.push_back(realm)
-                        }
+                    if let Some(realm) = document_realm
+                        && !self.retiring.contains(&realm)
+                    {
+                        self.retiring.push_back(realm)
                     }
+                    #[cfg(test)]
+                    self.retain_diagnostic_failure(&error);
                     diagnostics.push(error.to_string());
                     Phase::Failed
                 }
@@ -524,10 +558,14 @@ impl Roster {
                 let realm = self.retiring.pop_front().unwrap();
                 if let Err(error) = host.retire_agent_root(realm) {
                     self.retiring.push_back(realm);
+                    #[cfg(test)]
+                    self.retain_diagnostic_failure(&error);
                     diagnostics.push(error.to_string());
                 }
             }
             if let Err(error) = host.activate_realm(source.realm) {
+                #[cfg(test)]
+                self.retain_diagnostic_failure(&error);
                 diagnostics.push(error.to_string())
             }
         }
@@ -548,6 +586,17 @@ mod retained_phase_size_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn first_roster_failure_is_bounded_and_later_errors_do_not_replace_it() {
+        let mut roster = Roster::default();
+        roster.retain_diagnostic_failure(&format!("first:{}", "é".repeat(4096)));
+        let first = roster.diagnostic_failure.clone().unwrap();
+        assert!(first.len() <= 1024);
+        assert!(first.starts_with("first:"));
+        assert!(first.ends_with(" [truncated]"));
+        roster.retain_diagnostic_failure(&"later retry");
+        assert_eq!(roster.diagnostic_failure.as_deref(), Some(first.as_str()));
+    }
     #[test]
     fn failed_rule_tombstone_does_not_suppress_reused_rule_in_new_document() {
         let rule = oryn_js::speculation_rules::Candidate {
@@ -582,8 +631,10 @@ mod tests {
                 eligibility_delay: None,
             }],
         };
-        let mut roster = Roster::default();
-        roster.source = Some((source.realm, source.identity));
+        let mut roster = Roster {
+            source: Some((source.realm, source.identity)),
+            ..Default::default()
+        };
         roster.jobs.insert(
             (1, 0),
             Job {
@@ -632,8 +683,10 @@ mod tests {
                 eligibility_delay: None,
             }],
         };
-        let mut roster = Roster::default();
-        roster.source = Some((source.realm, source.identity));
+        let roster = Roster {
+            source: Some((source.realm, source.identity)),
+            ..Default::default()
+        };
         assert!(!roster.matching_pending(&source, "https://example.test/next"));
         assert!(!roster.matching_blank_pending(&source, "https://example.test/next"));
         source.candidates[0].eligible = true;

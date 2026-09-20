@@ -1,4 +1,450 @@
+## Current checkpoint — complete repair130 integrated; successor validation pending
+
+Initial implementation and test generation is complete across all nine packages and 51 parent requirements. Repair130 integrates the complete 17-source-file batch plus these status documents. All source lanes and the combined runtime merge passed independent source review. Formatting passed. Compilation, regression execution and final qualification of this successor remain pending.
+
+- [x] Preserve candidate63 results: runtime and signed worker prepared; default native **1,212 passed, 0 failed, 1 ignored**; Python **811 passed, 5 failed out of 816**. All-feature compilation failed on one fixture type error; strict Clippy stopped on one lint. These are historical results, not successor passes.
+- [x] Repair popup initial navigation admission with the required native operation identity; add autonomous child-fetch/history/cleanup coverage.
+- [x] Repair the concrete-provider compiler fixture and equivalent chunk-iteration lint.
+- [x] Generate, review and integrate cooperative WaitFor/WaitForUntil and WebDriver script/action continuations, including scoped frames, retained deadlines, FIFO, navigation/capture completion and related-root progress.
+- [x] Integrate a bounded private completion mailbox with idle wakeup and terminal reply draining.
+- [x] Integrate nested frame-paint planning and authority-preserving image worker descriptors. Retain worker/join/reply custody through cancellation; shared retirement and fallback close acknowledgement wait for settlement. Gated regression sources cover blocked reads/aborts and delayed worker completion. Actual close-ack integration remains runtime-unverified.
+- [x] Verify Chromium normal pre-author pause capability in diagnostic05, then generate, independently review and integrate the production focus barrier with redirect/context/lifecycle/timeout/cleanup regressions. Original fixture and report-ready focus assertions are preserved.
+- [x] Reconcile the shared runtime changes and format the complete source batch. Add one Python test method in an existing source (expected next population **817**, subject to actual discovery; 104 Python sources).
+- [ ] Publish the successor declaration and whole-source lease; build and sign its matching runtime/worker artifacts.
+- [ ] Pass full default/native/all-feature workspace and Python regressions, workspace formatting and all three strict Clippy configurations; execute separately required media and original capacity coverage.
+- [ ] Qualify all **16,737 Core obligations** in each required profile; all five families/eight frameworks, 24 framework originals, 688 reliability originals across 29 cells and 210 performance/churn samples.
+- [ ] Complete security, architecture, actual fixture routing/TLS, native/manual, media and remaining release gates; reconcile evidence and finish the requested commit.
+
+Cancellation coverage distinguishes direct-actor receiver drop from signed-worker explicit closure. Aborting an outer Tokio task is not claimed to cancel a blocking worker protocol call. Synchronous image RPCs are not interruptible mid-call; tracked cleanup waits for the call and owned stream cleanup to return without blocking other shared roots.
+
+Evidence under `artifacts/completion-validation-2026-09-18/`: candidate63 terminal summaries, `canonical63-chromium-normal-pause-terminal-summary-01.json`, accepted focus/image source proposals, and `repair130-application/result.json`. No failure, ignored obligation, required profile or denominator is waived. Historical checkpoints below keep their original scope.
+
+---
+
+## Current checkpoint — repair129 compiler correction integrated; validation pending
+
+Canonical62 runtime build finished with exit 101 and two Rust E0027 errors: exhaustive `PageOpened` patterns in `host.rs` and `rust_executable.rs` omitted the new `related_navigation_url` field. No runtime tests ran. The owned build process settled cleanly and all 19,561 source inputs remained unchanged.
+
+- [x] Publish canonical62 with all 51 requirements and 104 Python sources; pass integrated workspace formatting.
+- [x] Complete the runtime build attempt and preserve both compiler diagnostics and cleanup/source evidence.
+- [x] Generate, independently review, format and integrate both response-pattern corrections. These callers explicitly disable local transfer; unexpected transferred URLs are rejected. Native `Window.open` behavior is unchanged.
+- [x] Strengthen the existing producer selection matrix to require parent-owned navigation for form/deferred/default-false requests. No tests or assertions removed; expected Python population remains 816.
+- [ ] Publish the successor candidate, build its runtime and signed worker, and pass complete regression/formatting/strict Clippy checks.
+- [ ] Complete all Core profiles, five families/eight frameworks and every release/qualification gate listed below, then final evidence reconciliation and requested commit.
+
+Source review is not execution verification. Candidate61 results below remain historical and must not be promoted to successor passes. Evidence: `artifacts/completion-validation-2026-09-18/canonical62-runtime-launch-01/result.json`, `canonical62-runtime-provenance-01/build-receipt.json`, `repair129-source-review-01.json`, and `repair129-application/result.json`.
+
+---
+
+## Current checkpoint — repair128 source integrated; successor validation pending
+
+Initial implementation and test generation is complete across all nine packages and 51 parent requirements. Repair128 integrates the complete reviewed 18-file source batch and seven new Rust / three new Python regressions. Its compilation and execution remain unverified. Candidate-specific results below belong to canonical61 / repair127 and do not qualify the successor.
+
+- [x] Admit canonical61 with 19,561 source inputs; build its runtime and matching signed worker.
+- [x] Compile default-native and all-feature workspace tests; prepare release WebDriver, workflow and benchmark executables.
+- [x] Complete default native: **1,211 passed, 0 failed, 1 ignored**.
+- [x] Complete all-feature native: **3,135 passed, 0 failed, 7 ignored**.
+- [x] Finish the workspace attempt: **4,821 passed, 0 failed, 13 ignored across completed targets**; exit 101 because the JavaScript library was deliberately interrupted during its capacity regression. JavaScript coverage remains incomplete. All process cleanup and source/runtime/signed-artifact checks passed.
+- [x] Complete all 813 Python regressions: **810 passed, 3 failed**, no skips or collection errors. Preserve Chromium focus, popup capacity and concurrent session failures.
+- [x] Execute the separately ignored VP9/Opus test: **0 passed, 1 failed**; preserve this failure.
+- [x] Complete exclusive Chromium diagnostic after workspace settlement: the original method and all six reference fixture runs passed, with diagnostic-only instrumentation and original assertions. This does not prove the earlier failure was repaired or establish final reference qualification.
+- [x] Generate, independently review, format and integrate popup navigation ownership, local fixture backlog, VP9 registration, Chromium diagnostics, masked-alpha reuse, registry witness reuse and conservative detached-fragment graph growth. Preserve all original regressions and the 2,049-by-six capacity matrix.
+- [ ] Admit the successor generation and whole-source lease with all 51 requirements, 104 Python sources and expected 816 Python tests.
+- [ ] Build and sign matching runtime artifacts for context protocol 54; worker 19 and broker 8 remain unchanged.
+- [ ] Pass the full unchanged default/native/workspace/Python suites, formatting and strict Clippy. Run reference/Python checks separately from native GUI tests. Validate proposed optimized test compilation from actual compiler evidence with debug assertions and overflow checks enabled.
+- [ ] Qualify all 16,737 Core obligations separately in standard-block, standard-allow and legacy-block profiles.
+- [ ] Qualify five families/eight frameworks: 24 framework originals, 688 reliability originals across 29 cells and 210 performance/churn samples.
+- [ ] Complete security, architecture, actual fixture routing/TLS, native/manual, media and all remaining gates; reconcile final evidence and complete the requested commit/clean-source acceptance.
+
+The new production repairs are source-reviewed, not proven fixes. Isolated reference success suggests possible execution contention but does not establish causality. No failure, ignored obligation, required profile or denominator is waived.
+
+Evidence under `artifacts/completion-validation-2026-09-18/`: `canonical61-workspace-terminal-summary-01.json`, `canonical61-default-native-terminal-summary.json`, `canonical61-native-completed-target-01/summary.json`, `canonical61-python-terminal-summary.json`, `canonical61-ignored-media-checks-01/result.json`, `canonical61-chromium-focus-diagnostic-01/result.json`, `canonical61-release-staging-01/result.json`, `repair128-combined-source-02/review.json`, and `repair128-application/result.json`. Historical checkpoints below retain their original scope.
+
+---
+
+## Current checkpoint — repair127 integrated; canonical61 validation pending
+
+Initial implementation and test generation is complete across all nine packages and 51 parent requirements. Results below are candidate-specific and do not establish final qualification. This checkpoint supersedes earlier snapshots.
+
+- [x] Admit canonical generation60 and verify its whole-source custody.
+- [x] Complete canonical60 release runtime build and provenance: exit 0, 1,411.16 seconds overall, 19,560 source inputs unchanged; producer status complete.
+- [x] Complete isolated repair126 default-native diagnostics: **1,201 passed, 1 failed, 1 ignored**. Retained worker124 was used; this is not same-candidate final qualification.
+- [x] Identify remaining failure: parent broker overwrites sealed service-navigation initiator/top-level metadata with destination about:blank.
+- [x] Generate, independently review and integrate repair126/127: 14 files, nine Rust regressions and three Python regressions. Both service-navigation paths retain authenticated source metadata, redirect and cancellation ownership; original service assertions remain intact.
+- [ ] Publish canonical61 successor admission and build/sign matching runtime and worker artifacts (worker19/context53/broker8).
+- [ ] Pass full default/all-feature native, full workspace, formatting, strict Clippy and all 104 Python regression sources / 813 expected tests on the final candidate.
+- [ ] Qualify all 16,737 Core obligations in required profiles, five families/eight frameworks, 24 framework originals, 688 family/reliability originals and 210 performance/churn samples.
+- [ ] Complete all remaining security, architecture, native/manual and fixture gates; reconcile evidence and complete requested commit/clean-source acceptance.
+
+Evidence: `artifacts/completion-validation-2026-09-18/canonical60-runtime-provenance-01/build-receipt.json`, `canonical60-runtime-provenance-01/runtime-provenance.json`, and `repair126-default-native-terminal-summary.json`. Earlier all-feature native repair123 remains **3,125 passed, 0 failed, 7 ignored**; last full workspace repair118 remains **6,613 passed, 5 failed, 16 ignored**. Do not combine cross-candidate counts.
+
+## Current implementation and qualification checkpoint — repair125
+
+Initial implementation and test generation is complete across all nine packages and 51 parent requirements. Repair125 is integrated; its execution validation and final qualification remain open. This section supersedes older process and checklist snapshots below. Results remain candidate-specific.
+
+- [x] Complete repair118 full workspace execution: **6,613 passed, 5 failed, 16 ignored**, exit101, unchanged inputs. Preserve its five SVG/print failures.
+- [x] Correct those failures and pass the full repair123 all-feature native suite: **3,125 passed, 0 failed, 7 ignored**, unchanged inputs.
+- [x] Pass repair122 strict workspace/all-target Clippy for default, probe and all-feature configurations.
+- [x] Generate and independently review repair124 fixture corrections; pass its formatting, runtime-profile preparation and signed-worker build/signature/smoke checks.
+- [x] Complete repair124 default-feature native execution against the signed worker: **1,198 passed, 4 failed, 1 ignored**, unchanged inputs. This is a failed suite, not acceptance.
+- [x] Generate and review all four residual corrections: async offloading for blocking page-close IPC, and native source/authority fixtures for three service navigation tests. Preserve all behavioral assertions.
+- [x] Format both repair125 files and integrate the cumulative **80-file** batch into the original checkout with verified staged hashes and backup.
+- [x] Restore and verify the pinned V8/ICU source tree and GN/Ninja tooling required after the reported clean.
+- [ ] Validate repair125 with fresh compilation, default/all-feature runtime tests, full workspace checks, strict Clippy and formatting.
+- [ ] Admit canonical generation60 (successor of59) with current source, reviewed bindings and complete whole-source lease.
+- [ ] Produce matching canonical runtime/signed-artifact provenance; execute all104 Python regression sources /810 expected tests without skipped obligations.
+- [ ] Qualify all16,737 Core obligations in required profiles; five families/eight frameworks;24 framework originals;688 family/reliability originals;210 performance/churn samples.
+- [ ] Complete security, architecture, booking, native/media, fixture, manual and independent qualification gates; reconcile final evidence and complete the requested commit/clean-source acceptance.
+
+Evidence under `artifacts/completion-validation-2026-09-18/`: `repair118-workspace-terminal-summary.json`, `repair123-native-terminal-summary.json`, the three repair122 strict Clippy receipts, `repair124-format-check-01/result.json`, `repair124-runtime-profile-recovery-01/result.json`, `repair124-signed-worker-01/result.json`, `repair124-default-native-terminal-summary.json`, `repair125-source-review.json`, `repair125-application.json`, and `repair60-engine-source-restoration.json` / `repair60-engine-tools-restoration.json`. The isolated signing/runtime results establish diagnostic preparation, not final canonical qualification. Cross-candidate test counts overlap and must not be summed as coverage.
+
+## Historical checkpoints
+
+## Repair118 integrated repair validation
+
+The complete 43-file repair batch is applied; all file hashes matched the reviewed staged images. Workspace Clippy automatic repair completed successfully across all targets/features after two boxed-recovery integration fixes. Warnings remain; this is not a strict lint pass. Formatting completed and the full integrated workspace test run started with --no-fail-fast; no terminal aggregate yet. Isolated checks passed before integration: networking 69/69, historical pointer/drag adapter 2/2, retention-tree equivalence 1/1.
+
+Repair117 baseline executions are terminal and incomplete: the workspace exited 101 after its JavaScript process received SIGINT, and the independent native process exited -2. They were deliberately stopped after three confirmed failures and successful isolated repair checks, to validate the repaired candidate sooner. No source changed during those runs. Preserve the original failures and logs; do not report a complete workspace/native pass. Completed independent layout 544/544 and render-core 215/215 results remain valid for repair117 only.
+
+## Repair117 independent remaining-suite diagnostics
+
+The exact-candidate layout binary passed **544/544** and render-core passed **215/215**, both with no source changes. Native tests are running independently while the workspace JavaScript capacity regression continues. These results are separate from the incomplete workspace aggregate. Read-only Clippy finished with 253 unique owned warning locations; strict lint remains open. Repair118 is staged in a temporary copy (43 files) and is not applied to the workspace. Isolated validation passed: staged networking 69/69, historical adapter 2/2 through the existing native runtime, and retention-tree equivalence 1/1. Full integrated compilation, lint and runtime verification remain pending. Original repair117 networking had 68 passes/1 failure, and native execution has reported two historical input failures so far; their raw failures remain preserved.
+
+## Repair117 completed library checkpoint
+
+**Oryn library: 105 passed, 0 failed, 0 ignored** in the full workspace run (421.14 seconds). Both previously failing regressions pass in the combined formatted candidate. Also completed: CLI 4/4, workflow-qualification binary unit tests 8/8, common 143/143, core 33/33, two core integration tests 1/1 each. These unit tests do not constitute workflow qualification. DOM passed 449/449. Completed workspace targets total 806 passed, 0 failed, 6 ignored; JavaScript remains active, so no full workspace aggregate exists yet. See repair117-completed-targets.json for target-specific evidence.
+
+## Repair117 — full workspace validation started
+
+- Native permission-popup regression passes (repair114, 1/1): retain admitted capture through native label resize stability; consume the matching keyup after popup closure.
+- Implicit-find regression passes (repair116, 1/1): diagnostic evidence showed epoch 0 became epoch 1 before lookup admission. The test now synchronizes replacement after the first empty lookup, preserving the no-such-frame assertion. Production identity checks remain unchanged; the observation hook is test-only.
+- Temporary media, permission and lookup logging removed. Workspace formatting completed successfully.
+- Full `cargo test --workspace --all-features --locked -- --test-threads=1 --nocapture` started in repair117-workspace-tests-01. No aggregate yet.
+
+The repair110 Oryn library result (103 passed, 2 failed) is historical and superseded by the combined repair117 result (105 passed, 0 failed). This is not a complete workspace pass. Strict lint, release/provenance, full Core and five-family qualification remain open.
+
+## Completed repair110 result — September 20, 2026
+
+Full Oryn library suite completed: **103 passed, 2 failed, 0 ignored**; exit 101 after 427.33 seconds including build, with unchanged source inputs. Remaining failures: native permission-popup stream rejection (InvalidStateError) and implicit-find document identity (replacement element returned instead of no such frame). Camera/install, canvas alpha/filter visibility, and media stream lifecycle all passed. The run completed before the attempted stop; it was not interrupted. This supersedes the pending-run snapshot below. Full workspace and final qualification remain open.
+
+## Repair110 validation update — September 20, 2026
+
+- [x] Diagnose the permission projection rejection using captured matrices and native flatten_children source; accept the unchanged z=0 control plane.
+- [x] Verify camera/install and canvas alpha/filter visibility regressions pass in repair109 and again in repair110.
+- [x] Remove repeated default-font parsing from projected ink bounds using the existing immutable font cache.
+- [x] Diagnose repeated PNG adaptive filtering; implement fast lossless internal encoding with original-encoder fallback to preserve resource-budget admission.
+- [x] Compile repair110 and retain immediate failure diagnostics.
+- [ ] Resolve permission-popup stream rejection (InvalidStateError at server.rs:988).
+- [ ] Complete media lifecycle and remaining session tests; current full library run is active in session 53027.
+- [ ] Complete fresh full workspace, strict Clippy/formatting, release/provenance, all Core profiles and five-family qualification.
+
+Latest completed full library aggregate remains repair107: 100 passed, 5 failed. Repair108 and repair109 were intentionally interrupted after stack sampling (357.33 and 392.46 seconds); neither supplies a complete aggregate. Repair110 source inputs remain frozen while tests execute. Passing named tests do not establish full conformance.
+
+## Repair59 source checkpoint — September 19, 2026
+
+Root is handling this phase without subagents. Repair58 passed the full runtime build, signed parent/worker compilation, signature verification, signed HTML loading and DOM mutation, and five V8-free policy regressions. Brokered HTTP navigation failed because parent response policy was installed before initial-document preservation. Full native test compilation then produced ten errors in three JavaScript test files; no runtime assertion totals were produced. All processes settled and source/runtime/signed-worker identities remained intact.
+
+- [x] Preserve complete repair58 results and diagnose HTTP policy ordering and ten test compiler errors.
+- [x] Generate and locally review all ten compiler corrections: publication import and correct V8 context scopes, preserving assertions.
+- [x] Generate route-owned response-grant registry, native source/commit checks and authenticated commit/discard routing (protocol 52); twenty-six regression sources generated (twenty-five Rust, one signed CLI), not executed.
+- [x] Integrate HTTP producer staging, private buffered/streaming metadata, MIME sniffing and actor/legacy commit callers; preserve the source document until native commit.
+- [x] Generate observed-response cleanup and retired-route acknowledgement; remove the test-only policy admission shortcut.
+- [x] Integrate shared ownership for unread/late/rejected IPC headers, token-specific cleanup, commit disarming and channel-close revocation; generate cancellation, body-completion, rollback and prerender regressions.
+- [x] Complete local source review of HTTP/prerender admission, commit and cleanup callers, wire protocols and trusted direct-runtime fixtures.
+- [x] Generate and locally review all HTTP lifecycle and signed CLI regression sources; no repair59 runtime results yet.
+- [x] Run canonical workspace formatting successfully; preserve preformat bytes and formatting deltas.
+- [ ] Freeze the complete repair59 batch, then build and execute all required checks.
+- [ ] Resolve original failures and qualify all Core profiles, five families/eight frameworks and the final release.
+
+Repair59 source generation, integration and local review are complete. Workspace formatting passed. Candidate freeze, compilation, runtime tests and qualification remain pending; subsequent immutable artifact receipts record execution without mutating the frozen source. Evidence: `artifacts/completion-validation-2026-09-18/repair58-root-terminal-diagnostics-01.json`, `repair59-root-test-compiler-source-review-01.json`, `repair59-http-policy-integration-scope-01.md`, `repair59-http-policy-foundation-01.json`, and `repair59-http-policy-integration-03.json`. Earlier checkpoints below are historical.
+
+---
+
+## Repair57: parent HTML-policy grant repair — September 19, 2026
+
+Root continues compilation, diagnostics, formatting and repairs without subagents. Repair56 passed workspace formatting, parent purity, 19 Python and two Rust targeted regressions, and the complete runtime/profile build. Signed parent and worker compilation and strict macOS signature verification passed. The prior manifest/handshake rejection is resolved. The subsequent HTML mutation smoke failed with `load HTML policy grant missing`; all source/runtime checks remained intact and the failed signed bundle is preserved.
+
+The complete repair57 source batch makes the parent-owned grant and cleanup lease available on Unix without requiring embedded V8. Worker-backed HTML loads stage and retain their real native payload-bound grant across dispatch. Direct V8-free pages retain local policy installation. Worker-side missing-grant rejection and foreign, substituted, replayed and stale grant checks remain. Three existing authority regressions now also compile without V8; two new Rust regressions cover worker-backed staging/cleanup and repeated direct loads, and a signed CLI regression covers actual HTML loading/evaluation.
+
+- [x] Pass repair56 runtime and signed-package compilation and signature checks.
+- [x] Resolve and verify the prior parent/worker render-contract handshake failure.
+- [x] Preserve and diagnose the HTML-policy failure through staging, forwarding, commit and cleanup callers.
+- [x] Generate repair57 implementation, caller integration and regression coverage locally.
+- [ ] Complete repair57 source reconciliation, formatting, freeze and execution.
+- [ ] Pass signed startup, full native/Python/engine/workspace/Clippy checks and repair remaining failures.
+- [ ] Verify every required Core profile, five families/eight frameworks and final release qualification.
+
+Repair57 has not yet been built or tested. Earlier repair54 distinct24 failing test names, broad native88 failures/691 missing terminal results, Python12 skips and final qualification obligations remain open. See `artifacts/completion-validation-2026-09-18/repair56-execution-status-01.json` and `repair56-root-signed-startup-diagnosis-01.json` for terminal evidence. Earlier checkpoints below are historical.
+
+---
+
+## Repair56: shared worker render-contract repair — September 19, 2026
+
+Root is performing compilation, diagnostics, formatting and repairs without subagents, as requested. Repair55 production builds and the full V8 runtime/snapshot/page-worker build passed, with source custody intact. Workspace formatting passed. Both signed-package compilation stages and strict macOS signature verification passed, but signed startup failed manifest validation: the V8-free parent compared the worker render version 3 with its own local renderer metadata (`None`). The initialization handshake repeated the same comparison.
+
+The complete repair56 source batch is generated and locally reviewed: version 3 now lives in the V8-free common contract, the renderer preserves its public constant through a re-export, and both parent checks use that shared protocol expectation. Local renderer capability reporting remains unchanged. The release provenance reader and its fixture now read the common declaration. One new Rust regression, expanded manifest rejection controls and two new Python regressions cover renderer-free parents and missing, unsupported or ambiguous versions. These are source changes, not passing execution evidence yet.
+
+- [x] Compile repair55 production executable and full V8 runtime, startup snapshot and worker.
+- [x] Pass repair55 workspace formatting and runtime provenance/source checks.
+- [x] Retain signed startup failure, signed bundle, parent executable and exact manifest evidence.
+- [x] Diagnose and integrate the complete shared-contract repair, both callers and regression sources locally.
+- [ ] Format, freeze and execute repair56 validation.
+- [ ] Complete signed-input preparation, full native35, Python14, engine30 and required workspace/Clippy checks.
+- [ ] Resolve original failures and verify all Core profiles, five families/eight frameworks, release and qualification gates.
+
+The repair54 no-V8 runs compiled and completed: no-default features had 1,141 passes/22 failures/one ignored; probe mode had 1,226 passes/24 failures/one ignored. There are 24 distinct failing test names in that batch. Earlier broad native 88 failures, 691 missing terminal results and Python12 prerequisite skips remain open; no failures or obligations are waived. Native35 and Python14 have not started. Full conformance and final release remain unverified.
+
+Current evidence: `artifacts/completion-validation-2026-09-18/repair55-execution-status-03.json`, `repair55-root-signed-startup-diagnosis-01.json`, and `repair55-root-native-failure-triage-01.json`. Historical checkpoints below retain their original candidate scope.
+
+---
+
 # Full-plan granular generation checklist
+
+## Current checkpoint — September 19: isolated no-V8 failures diagnosed; complete repair54 source batch integrated
+
+**Repair53 passed canonical generation/format checks and froze all 51 requirements.** Both isolated no-V8 attempts passed parent dependency purity. Attempt01 then failed all three build configurations during libvpx configuration because the selected linker could not read the ambient macOS27 SDK stubs. Attempt02 used the existing Xcode toolchain and macOS26.5 SDK, passed that configuration stage, and exposed Rust errors: one production-parent diagnostic, 33 no-default test-build diagnostics, and seven explicit-probe test-build diagnostics. These are **41 diagnostic occurrences across 33 distinct sites**, not runtime failures. All commands terminated, process groups settled, and all 19,494 source and 8,659 review identities matched. No runtime tests ran in either attempt.
+
+**The complete repair54 implementation and regression batch is generated, integrated and independently source-reviewed.** Shared actor dispatch drains input receipts only when the V8 input state exists; the no-V8 path preserves its explicit unsupported-operation result and returns empty feedback/receipts. The probe constructor is available to internal unit tests without exposing it in a production build lacking the probe feature, preserving all 26 affected test functions. Image-loader helpers and their complete type/request-ID chain are available to tests, constructor argument guards match their declarations, and the portable mixed-content check preserves the existing algorithm and error. The original data-image, redirect, cookie and request-budget assertions remain. Two new regressions cover actor reply/lifetime behavior and rejection of cancelled or mixed-content image requests before broker admission.
+
+All 14 observed owned Rust warning sites have source corrections with no warning suppression or lost tests. Six dependency/generated Rust warning groups and 15 prior Clang warning sites remain separately recorded. The shared runtime source combines the three reviewed proposals without overlapping edits. The next admission assembler and isolated no-V8 recorder preserve their existing checks; execution uses explicit Xcode SDK settings. No repair54 build, test, formatter or generator has run.
+
+### Current execution checklist
+
+- [x] Pass repair53 canonical checks and freeze the complete reviewed source candidate.
+- [x] Run both complete isolated no-V8 attempts and retain every result and diagnostic.
+- [x] Verify parent dependency purity and diagnose/correct the SDK selection for the second attempt.
+- [x] Map all 41 compiler diagnostics to 33 sites and preserve the four complete repair groups.
+- [x] Integrate and independently review actor receipts, internal probe construction, image-helper fixtures and all 14 owned warning corrections.
+- [x] Preserve original tests/assertions and generate two new behavioral regressions.
+- [ ] Reconcile final repair54 source/status proofs and preserve the complete source checkpoint.
+- [ ] Complete canonical generation/format checks, derivative review and immutable freeze.
+- [ ] Run parent purity, the production-parent build and both complete isolated no-V8 native test configurations using explicit Xcode SDK settings.
+- [ ] Complete fresh runtime/profile/snapshot/worker, signed inputs, native/Python/workspace/Clippy validation and resulting repairs.
+- [ ] Verify full Core, all five families/eight frameworks and every qualification gate.
+- [ ] Produce signed reproducible clean-source release artifacts and the final code commit.
+
+Latest broad native evidence remains **5,392 named passes, 88 failures, seven ignored and 691 missing terminal results**. Python remains **727 passes and 12 prerequisite skips out of 739**, with its strict gate failing. Those observations remain open; these source repairs do not establish new runtime passes. Repair52 runtime and 30 engine passes, and repair49 isolated SVG passes, remain historical candidate-specific results. Native35 and Python14 have not started.
+
+Full qualification still requires **16,737 Core obligations in each of standard-block, standard-allow and legacy-block**, all five families/eight frameworks, 24 framework originals, 688 family/reliability originals across 29 cells, 210 performance/churn samples and every other plan gate. Actual private/public fixture routing and manual/native prerequisites remain open. No required result, profile, denominator or original failure is waived.
+
+Evidence: [first no-V8 attempt](../../artifacts/completion-validation-2026-09-18/repair53-no-v8-terminal-summary-01.json), [second no-V8 attempt](../../artifacts/completion-validation-2026-09-18/repair53-no-v8-terminal-summary-02.json), [SDK diagnosis](../../artifacts/completion-validation-2026-09-18/repair53-no-v8-sdk-toolchain-diagnosis-01/diagnosis.json), [actor integration](../../artifacts/completion-validation-2026-09-18/repair54-integration-receipts/01.json), [warning integration](../../artifacts/completion-validation-2026-09-18/repair54-integration-receipts/03.json), [combined runtime integration](../../artifacts/completion-validation-2026-09-18/repair54-integration-receipts/04.json), [combined source review](../../artifacts/completion-validation-2026-09-18/repair54-runtime-composition-independent-review-01.json), [next execution recorder review](../../artifacts/completion-validation-2026-09-18/repair54-no-v8-dispatch-independent-review-01.json). All checkpoints below are historical snapshots.
+
+
+## Current checkpoint — September 19: runtime and engine passed; complete parent repair integrated
+
+**Repair52 passed its complete runtime build and engine regressions.** All four canonical generation/format checks passed before the reviewed freeze of 51 requirements, 1,037 bound paths, 19,493 whole-source inputs and 104 Python test files. The canonical core-full runtime build exited zero after 622.25 seconds: startup snapshot, page worker and schema-6 runtime/profile provenance validated. All 30 engine invocations passed (20 baseline, five Liftoff-only and five without Liftoff). Independent source, ABI, production-output and process-cleanup checks passed. These are candidate-specific results, not final Core or family qualification.
+
+**Signed preparation failed before signing, during the V8-free parent CLI build.** Its wrapper exited one and Cargo exited 101 with exactly 50 diagnostics: 47 layout/helper references, one worker history-adapter trait and two stale executor paths. The parent must remain V8-free; enabling V8 there is not the repair. All source and runtime/profile identities remained intact, and the process group settled cleanly. Native35 and Python14 have not started.
+
+**The complete repair53 code and regression batch is generated, integrated and independently source-reviewed:** nine repository files plus the next-candidate assembler. The native parent shares the existing V8-free selector and Unicode algorithms; worker layout bridges retain worker/test guards, including the original canvas test. Pure node packing is available to real parent selectors. Shared I/O uses the existing singleton executor directly, and only the concrete V8 history adapter is gated; parent authority handlers and wire messages remain. The private resolved-accessibility module keeps its worker/test consumers. All six observed Rust warning groups have source corrections. Existing tests and assertions are preserved; two new consumer regressions cover no-V8 CSS/XPath/action identity and locale-sensitive text across inline nodes. No repair53 build, test, generator or formatter has run.
+
+### Current execution checklist
+
+- [x] Freeze reviewed repair52 and pass all four canonical checks.
+- [x] Build and validate the complete repair52 runtime, startup snapshot and page worker.
+- [x] Pass all 30 required engine invocations with independent custody review.
+- [x] Preserve the signed-parent compilation failure and map all 50 diagnostics.
+- [x] Generate, integrate and independently review all parent/layout/semantic/I/O/history repairs and two new regressions.
+- [x] Correct the six known Rust warning groups without suppressions or lost tests.
+- [x] Preserve the complete isolated no-V8 and V8 qualification matrix and prepare the next assembler/handoff.
+- [ ] Reconcile final repair53 source/status proofs and preserve the full source checkpoint.
+- [ ] Complete repair53 canonical checks, derivative review and immutable freeze.
+- [ ] Run parent-purity, production-parent build and isolated complete no-V8 native suites, including in-process-probe.
+- [ ] Build the next complete runtime, prepare signed inputs and execute full native/Python/workspace/Clippy validation; repair failures.
+- [ ] Verify full Core, all five families/eight frameworks and every qualification gate.
+- [ ] Produce signed reproducible clean-source release artifacts and the final code commit.
+
+The latest full native runtime observations remain **5,392 named passes, 88 failures, seven ignored and 691 missing terminal results**. Python12 remains **727 passes and 12 prerequisite skips out of 739**, with its strict gate failing. Those failures and missing results remain open despite source repairs. Isolated SVG results remain seven unit tests plus one documentation test passed under repair49. No complete native/Python passing aggregate or final qualification is claimed.
+
+The next validation explicitly includes separate complete native invocations with no default features, and with no default features plus in-process-probe. Workspace feature unification and V8-enabled tests cannot establish those paths. The exact V8-free production parent build and parent-purity checks remain required; existing tests and all V8/workspace/profile checks are retained.
+
+Full qualification still requires **16,737 Core obligations in each of standard-block, standard-allow and legacy-block**, all five families/eight frameworks, 24 framework originals, 688 family/reliability originals, 210 performance/churn samples and every other plan gate. Actual private/public fixture routing and manual/native prerequisites remain open. No failures or required denominators are waived.
+
+Evidence: [runtime52 audit](../../artifacts/completion-validation-2026-09-18/repair52-runtime-terminal-summary-01.json), [signed52 audit](../../artifacts/completion-validation-2026-09-18/repair52-signed-terminal-summary-01.json), [engine52 review](../../artifacts/completion-validation-2026-09-18/repair52-cctest-independent-review-01.json), [I/O/history and assembler integration](../../artifacts/completion-validation-2026-09-18/repair53-integration-receipts/01.json), [JS feature integration](../../artifacts/completion-validation-2026-09-18/repair53-integration-receipts/02.json), [layout/semantic integration](../../artifacts/completion-validation-2026-09-18/repair53-integration-receipts/03.json), [no-V8 coverage plan](../../artifacts/completion-validation-2026-09-18/repair53-no-v8-qualification-coverage-01/report.json). All checkpoints below are historical snapshots.
+
+## Current checkpoint — September 19: runtime51 terminal; repair52 integrated
+
+**Repair51 was independently reviewed and frozen:** all 51 requirements, 1,036 bound paths, 19,492 whole-source inputs and 104 Python test files were reconciled. All four canonical generation/formatting commands passed; the sole formatting delta was independently reviewed. All 8,132 declaration review references matched.
+
+The canonical runtime build finished with **exit 101 after 89.39 seconds**. The earlier accessibility constructor errors no longer appeared. Native compilation reported exactly three diagnostics from two causes: a contextless V8 scope passed to the CSP trace helper, and two obsolete `EquivalentJob` initializer fields. No runtime tests ran. All 19,492 source inputs matched before and after, and the owned process group settled without cleanup errors. Complete runtime/profile, snapshot and signed-worker qualification remain pending.
+
+**The complete repair52 source batch is generated, integrated and individually reviewed:** four source files plus the next-candidate assembler. The CSP helper accepts either incoming handle-scope marker and still enters the explicit report-owner context before tracing. Two new regressions cover context restoration, separate root ownership and once-only DOM event delivery. Service-worker job identity remains owned by the profile coordinator; both stale production and test initializers are corrected, and the existing soft-update test now also checks equivalent-job coalescing, no duplicate fetch and marker cleanup. Related cleanup review identified obsolete layout test helper calls; those now exercise the retained production geometry/resolver paths with all original assertions preserved. All 64 existing test methods across these files remain, including the extended service-worker test. Canonical runtime/signing/native/Python helpers need no source changes.
+
+### Current execution checklist
+
+- [x] Complete repair51 source/review reconciliation, canonical checks and freeze.
+- [x] Execute repair51 canonical runtime build and preserve its terminal failure.
+- [x] Diagnose all three emitted compiler diagnostics without claiming runtime passes.
+- [x] Generate, independently review and integrate CSP scope/realm repair and two regressions.
+- [x] Correct both service-worker constructors and strengthen real coalescing coverage.
+- [x] Review related cleanup callers and integrate both additional layout test corrections.
+- [x] Review and adopt the repair52 assembler; retain current parameterized execution helpers.
+- [ ] Complete repair52 source/status reconciliation and full prederivative checkpoint.
+- [ ] Run canonical generation/formatting, review derivatives and freeze repair52.
+- [ ] Build complete runtime profile, startup snapshot and worker; prepare signed inputs.
+- [ ] Run complete native/Python/workspace/Clippy validation and repair failures.
+- [ ] Verify full Core, all five families/eight frameworks and every qualification gate.
+- [ ] Produce signed reproducible clean-source release and final code commit.
+
+The last full native results remain **5,392 named passes, 88 failures, seven ignored and 691 missing terminal results**. Python12 remains **727 passes and 12 prerequisite skips out of 739**, with its strict gate failing. Native35 and Python14 have not started. Separate repair49 engine results remain 30 passing invocations and isolated SVG results remain seven passing unit tests plus one documentation test. These historical results do not establish repair52 correctness. No repair52 build, test, formatter or generator has run.
+
+Full qualification still requires **16,737 Core obligations in each of standard-block, standard-allow and legacy-block**, all five families/eight frameworks, 24 framework originals, 688 family/reliability originals, 210 performance/churn samples and every other plan gate. Real private/public fixture routing and manual/native prerequisites remain open. No failures or required denominators are waived.
+
+Evidence: [repair51 execution status](../../artifacts/completion-validation-2026-09-18/repair51-execution-status-02.json), [runtime terminal audit](../../artifacts/completion-validation-2026-09-18/repair51-runtime-terminal-summary-01.json), [repair51 freeze receipt](../../artifacts/completion-validation-2026-09-18/repair51-root-write-receipt-01.json), [service-worker/assembler integration](../../artifacts/completion-validation-2026-09-18/repair52-integration-receipts/01.json), [CSP/layout integration](../../artifacts/completion-validation-2026-09-18/repair52-integration-receipts/02.json), [service-worker review](../../artifacts/completion-validation-2026-09-18/repair52-equivalent-job-independent-review-01.json), [CSP review](../../artifacts/completion-validation-2026-09-18/repair52-native-csp-scope-independent-review-01.json), [layout caller review](../../artifacts/completion-validation-2026-09-18/repair52-layout-test-caller-independent-review-01.json). All checkpoints below are historical snapshots.
+
+## Current checkpoint — repair48 canonical generation and formatting passed
+
+The complete authored batch is integrated and source-reviewed: **29 integration receipts, 165 selected paths and 76 new tests** (59 Rust, two V8 cctests and 15 Python). All 51 requirements retain their source and test roles. The full prederivative checkpoint preserves 19,477 source files.
+
+**All four canonical commands passed:** WebIDL generation, generated-output freshness check, workspace formatting and formatting check. Generation changed one file; formatting changed 53 Rust files. Neither command reported an unexpected source change. Independent review of these deltas and final source-hash reconciliation are in progress; repair48 is not yet frozen.
+
+The latest runtime evidence remains native33: 5,392 named passes, 88 failures and seven ignored tests, with 691 tests lacking terminal results in aborted targets. These are not complete aggregate results. Source repairs cover 61 failures, one is partially corrected and 26 have diagnostics only; none is newly runtime-verified. Python12 remains 727 passes and 12 prerequisite skips out of 739; Python13 has not run.
+
+Next: complete derivative review and candidate reconciliation, freeze repair48, build fresh patched V8/runtime artifacts, run the full Rust/Python/workspace/Clippy checks and repair failures. Full Core in every required profile, all five families/eight frameworks, all qualification gates and signed reproducible release remain open. Azure access works, but discovery did not identify the required WPT fixture deployment/routing; the existing configuration request remains unresolved.
+
+Evidence: [authored batch closure](../../artifacts/completion-validation-2026-09-18/repair48-authored-source-complete-01.json), [WebIDL generation](../../artifacts/completion-validation-2026-09-18/repair48-webidl-generate-01.json), [WebIDL check](../../artifacts/completion-validation-2026-09-18/repair48-webidl-check-01.json), [formatting](../../artifacts/completion-validation-2026-09-18/repair48-workspace-format-01.json), [formatting check](../../artifacts/completion-validation-2026-09-18/repair48-workspace-format-check-01.json). All checkpoints below are historical snapshots.
+
+### Current batch checklist
+
+- [x] Generate, integrate and independently review all selected repair code, callers and regression sources.
+- [x] Reconcile the original failures, all 51 requirements and the native34/Python13 execution tooling.
+- [x] Preserve the full prederivative checkpoint and independently review whole-source/status custody.
+- [x] Close the authored batch and authorize canonical generation and formatting.
+- [x] Run canonical WebIDL generation and freshness check successfully.
+- [x] Run workspace formatting and formatting check successfully.
+- [ ] Independently review generated-code and all formatting deltas.
+- [ ] Reconcile final source hashes, requirement bindings and admission records; freeze repair48.
+- [ ] Build fresh patched V8/archive/ABI/snapshot/runtime artifacts and execute engine regressions.
+- [ ] Run native34, Python13, all required workspace/Clippy checks and vendored regression suites; repair failures.
+- [ ] Verify the full required Core profiles, five families/eight frameworks and every qualification gate.
+- [ ] Complete signed reproducible release and final code/evidence reconciliation.
+
+## Current source checkpoint — repair48 integration and tooling adoption 29
+
+**The complete authored repair code and tests are integrated and individually reviewed:**29 receipts cover165 selected source paths and76 new tests (59 Rust, two V8 cctests,15 Python). The final reviewed bindings preserve all51 requirements, with1,018 paths and1,674 roles. Python13 retains all103 prior test sources and adds one, for104. No repair48 build, test, formatter or canonical generator has run.
+
+The complete88-case map records61 source corrections, one partial correction (case61) and26 diagnostic-only cases.27 cases remain materially unresolved; none is newly runtime-verified. Original failures, ignored tests, panic-only observations and691 missing terminal results remain preserved. Latest runtime evidence is still native33; Python12 remains727 passes and12 prerequisite skips out of739.
+
+Next: preserve the complete source checkpoint, finish the whole-source/status readback and authorize canonical WebIDL generation/check plus formatting. Independently review the resulting source changes, freeze the candidate, build fresh engine/runtime artifacts, execute full Rust/Python/workspace/Clippy validation, and repair remaining failures. Full Core in all required profiles, all five families/eight frameworks, every qualification gate and signed reproducible release remain outstanding.
+
+Evidence: [source readback09](../../artifacts/completion-validation-2026-09-18/repair48-current-source-readback-09.json), [complete failure-map review](../../artifacts/completion-validation-2026-09-18/repair48-native33-case-reconciliation-independent-review-02.json), [final helper/requirement review](../../artifacts/completion-validation-2026-09-18/repair48-helper-binding-independent-review-01.json), [tooling adoption29](../../artifacts/completion-validation-2026-09-18/repair48-integration-receipts/29.json). All older checkpoints below are historical.
+
+### Current batch checklist
+
+- [x] Generate, integrate and review all selected functional repairs and regression sources.
+- [x] Review all shared-source compositions through28; integrate exact reviewed tooling and harness sources in29.
+- [x] Reconcile every original88 failure, separate panic/missing results and prior174/143 comparisons.
+- [x] Reconcile all51 requirements, preserved source roles/reviews, new callers and all regression sources.
+- [x] Generate and review the admission assembler, fresh-runtime custody, native34 and Python13 launchers, and15 new Python regressions.
+- [ ] Preserve full prederivative checkpoint and complete whole-source/status review; authorize derivatives.
+- [ ] Run canonical WebIDL generate/check and formatting/check; independently review all resulting changes.
+- [ ] Reconcile final hashes and freeze the actual repair48 candidate.
+- [ ] Build fresh patched engine/runtime artifacts; run all required tests/workspace/Clippy checks and fix failures.
+- [ ] Verify all required Core profiles, five families/eight frameworks, qualification gates and signed release.
+
+## Current source checkpoint — repair48 integration 28
+
+**All selected functional repairs are integrated: 28 receipts, 158 source paths and 61 new tests (59 Rust, two V8 cctests).** Exact readback matches every latest receipt. Combined-source review is accepted through28. The complete batch remains open for execution-tooling generation and final source reconciliation. No repair48 build or test has run.
+
+- [x] Complete and integrate the functional repairs listed in the historical26 checkpoint, including native CSP report trace propagation (27).
+- [x] Integrate failed-constructor authority retirement, exact queued-transfer cleanup and quarantine of native admission during lost-ACK retries; preserve predecessor rebinding and sibling authority (28).
+- [x] Generate all five new failed-constructor/retirement regressions and all four CSP trace regressions; retain original failing test assertions.
+- [x] Finish independent combined-source review through28 and final88-case reconciliation.61 cases have corrective source, case61 has a partial correction, and26 have diagnostics only;27 remain materially unresolved, and no repair is runtime-verified.
+- [x] Complete functional51-parent binding review, including new lifetime/retirement test roles:1,012 bound paths and1,667 roles; original roles/reviews preserved. Helper and derivative bindings remain below.
+- [ ] Complete and review repair48 admission assembler, fresh-runtime/native34 custody, Python13 launcher and new runtime-admission regression coverage; enroll exact helper/test sources.
+- [ ] Close authored batch, preserve full prederivative source checkpoint, run canonical WebIDL generate/check and formatting, and independently review derivative changes.
+- [ ] Freeze the complete candidate; build fresh engine/runtime artifacts; run full Rust/Python/workspace/Clippy checks and repair failures.
+- [ ] Complete all required Core profiles, five families/eight frameworks, qualification gates and signed reproducible release.
+
+Evidence: [exact readback08](../../artifacts/completion-validation-2026-09-18/repair48-current-source-readback-08.json), [integration28](../../artifacts/completion-validation-2026-09-18/repair48-integration-receipts/28.json), [accepted combined review through28](../../artifacts/completion-validation-2026-09-18/repair48-merged-source-independent-review-04.json), [functional bindings](../../artifacts/completion-validation-2026-09-18/repair48-source-binding-independent-review-03.json), [complete failure map review](../../artifacts/completion-validation-2026-09-18/repair48-native33-case-reconciliation-independent-review-02.json). Python13 is now required because the execution tooling adds a new Python regression source; Python12 results remain historical. Latest runtime results remain native33; no repair48 fix is execution-verified. All checkpoints below are historical.
+
+## Current source checkpoint — repair48 integration 26
+
+**154 source paths and 52 new tests (50 Rust, two V8 cctests) are integrated across 26 receipts.** Individual proposals have source acceptance; combined-source review through receipt 16 is accepted and review of the later compositions is underway. No repair48 build or test has run. Earlier checkpoints below are historical.
+
+- [x] Integrate reviewed warning cleanups, including the four JavaScript helpers retained for existing tests (receipts 15–16, 20 and 22).
+- [x] Integrate per-realm message polling and initial-document/lifecycle fixture corrections (17–18).
+- [x] Correct the object named-access fixture against pinned WPT contracts (19).
+- [x] Integrate installed native generation handoff and close-admission identity validation (21–22).
+- [x] Integrate private-frame authority propagation and its public-parent negative regression (23).
+- [x] Integrate concurrent deferred source preparation, ordered execution and deterministic fixture coverage (24).
+- [x] Integrate bounded loading diagnostics with detached-host safety (25). These eight cases remain unresolved.
+- [x] Integrate hyperlink-audit cancellation and exact admitted-operation fixture coverage (26).
+- [ ] Finish failed-constructor authority retirement, including preventing sibling mutation while retirement ACKs are pending; integrate and review all callers.
+- [ ] Finish native CSP report trace propagation and its regression sources; integrate and review.
+- [ ] Reconcile all 88 failures, separate panic/missing-result records, source bindings and final combined review.
+- [ ] Close the complete repair batch, generate canonical outputs, format and freeze the candidate.
+- [ ] Build fresh patched engine artifacts; run complete tests, workspace/Clippy checks and repairs.
+- [ ] Verify full pinned Core, all five families/eight frameworks and every signed release/qualification gate.
+
+Evidence: [current exact readback](../../artifacts/completion-validation-2026-09-18/repair48-current-source-readback-07.json), [latest integration](../../artifacts/completion-validation-2026-09-18/repair48-integration-receipts/26.json), and [combined review through 16](../../artifacts/completion-validation-2026-09-18/repair48-merged-source-independent-review-02.json). Latest execution remains native33: 5,392 named passes, 88 failures, seven ignored, with 691 tests lacking terminal results across two aborted targets. No repair48 fix is execution-verified.
+
+## Current source checkpoint — repair48 integration 18
+
+**114 source paths and 43 new tests are integrated across 18 integration receipts.** Combined-source review through receipt 16 is accepted; receipts 17–18 exactly match their independently reviewed proposals. No repair48 build or test has run. The detailed cutoff14 checklist below remains historical source evidence.
+
+- [x] Integrate reviewed loading-warning cleanup; coalesce the duplicate test-only attribute (receipts 15–16).
+- [x] Correct native message polling to admit each visited realm's endpoint and retain connected-creator rejection checks (receipt 17; two new tests).
+- [ ] Correct four JavaScript cleanup helpers still needed by preserved tests, complete review and integrate the cleanup proposal.
+- [ ] Complete loading authority, failed-constructor retirement, deferred-fetch concurrency, named-access and remaining cause/diagnostic reconciliation.
+- [x] Review and integrate initial-document/lifecycle fixture corrections (receipt 18; original behavioral checks retained).
+- [ ] Reconcile all source bindings and final combined review.
+- [ ] Close the complete batch, generate canonical outputs, freeze, build fresh engine artifacts, run full tests and qualification.
+
+Evidence: [current exact readback](../../artifacts/completion-validation-2026-09-18/repair48-current-source-readback-05.json) and [combined review through 16](../../artifacts/completion-validation-2026-09-18/repair48-merged-source-independent-review-02.json). Latest runtime results remain native33; no failure is newly verified as passing.
+
+## Current repair48 integration — September 19
+
+**Source work remains open.** Fourteen reviewed repair groups are integrated across **96 unique source paths**, with **41 new tests (39 Rust methods and two V8 cctests)**. Exact current bytes match integration receipts 01–14. Combined-source review through receipt 11 is accepted; composition review for receipts 12–13 remains in progress. Engine receipt 14 exactly matches the reviewed proposal. These are source milestones, not runtime passes.
+
+### Integrated source checklist
+
+- [x] Public policy payload API and macOS FFI correction — receipt 01; two new tests.
+- [x] SVG/render/layout corrections and warning cleanup — receipt 02; six new tests.
+- [x] Native service warning cleanup — receipt 03; original behavioral assertions retained.
+- [x] V8 snapshot/ordinary-isolate lifetime guard — receipt 04; six existing teardown tests retained.
+- [x] Document policy origin preservation and caller updates — receipt 05; four new tests.
+- [x] JavaScript lifetime, streams, DOM reflection, sanitizer and selection repairs — receipt 06; ten new tests.
+- [x] SRI encoded-size metadata propagation through all three callers — receipt 07; two new tests.
+- [x] Service-worker/cache corrective changes and bounded diagnostics — receipt 08; three new tests. Cases 66/74 remain diagnostic-only.
+- [x] Native shared warning cleanup — receipt 09; production replacements and feature gates retained.
+- [x] Loading-readiness receipt refresh and fixture corrections — receipt 10; one new test. Timeout diagnostics do not prove the unresolved failures fixed.
+
+- [x] Bounded Window/close diagnostics — receipt 11; four cases remain unresolved, with original assertions and deadlines retained.
+- [x] Window sandbox, navigation URL ownership, MessagePort and native-authority fixtures — receipt 12; five new tests.
+- [x] Native runtime, reflection, suspension, geometry and fixture corrections — receipt 13; six new tests. OIL29/30 remain unresolved.
+- [x] V8 safelisted enumeration engine source and patch-chain metadata — receipt 14; two new cctests. Fresh archive/ABI/profile and actual execution remain required.
+
+### Remaining complete-batch obligations
+
+- [x] Independently review combined source through receipt 11.
+- [ ] Finish independent review of shared-file composition in receipts 12–13.
+- [x] Complete Window engine enumeration and Window/native runtime proposal reviews and integration.
+- [ ] Complete native document-generation authority handoff and regression sources.
+- [ ] Resolve remaining loading, close-lifecycle and OIL causes; preserve explicitly diagnostic-only cases until execution resolves them.
+- [ ] Complete JavaScript warning cleanup generation and loading-warning review, including unresolved close-admission contracts.
+- [ ] Reconcile all 88 named failures, panic-only cases, aborted-target missing results, new regressions and requirement/source bindings for the full batch.
+- [ ] Close complete-batch source review; perform canonical WebIDL generation, formatting and final source reconciliation before candidate freeze.
+- [ ] Build a fresh patched V8 archive and matching ABI/profile for the proposed engine change; execute engine regressions and explicit vendored usvg tests with the complete validation batch.
+- [ ] Run full Rust/workspace/Clippy checks, fix failures, then complete pinned Core and five-family/eight-framework qualification and signed release gates.
+
+Latest execution remains **native33: 5,392 named passes, 88 failures, seven ignored; 691 tests lack terminal results across two aborted targets**. No repair48 build, test, formatter or generator has run. Full qualification remains unverified.
+
+Evidence: [current source readback](../../artifacts/completion-validation-2026-09-18/repair48-current-source-readback-03.json), [integration receipts](../../artifacts/completion-validation-2026-09-18/repair48-integration-receipts/14.json), and [terminal result inventory](../../artifacts/completion-validation-2026-09-18/repair47-native33-terminal-inventory-01.json). Earlier checkpoints below are historical.
+
+## Latest checkpoint — September 19: native33 terminal; complete repair48 in preparation
+
+The complete native/JavaScript batch under repair47 finished with **exit 101 after 907.58 seconds**. Compilation and WebIDL freshness passed. All **19,469 whole-source inputs** matched before and after execution; process cleanup completed without errors. The source is committed through **`f8f73c5a491b4d2047445424b79a7a0c6bc791c4`**, following the requested implementation snapshot **`30e0b15383d3a2d46866e19044d9797329c434b7`**. Both commits have verified GPG signatures.
+
+**Native library:** 2,919 passed, 63 failed, seven ignored; all four long editing matrices completed and passed. **Window integration:** seven passed, one failed. **Render core:** 169 passed, 11 failed. JavaScript and V8 teardown targets aborted, so neither has a complete aggregate. Across named observations there are **5,392 passes, 88 failures and seven ignored**; the separate explicit completed-target totals are **4,309 passes, 75 failures and seven ignored**. These counts must not be presented as a complete all-target pass rate. Panic-only observations and tests without terminal results in aborted targets remain separately tracked.
+
+Of the original native29 **174 failures, 104 now pass and 70 still fail**. Of the earlier native27 143 failures, 131 now pass and 12 still fail. These are exact named comparisons, not proof that the whole implementation is correct. Passing completed targets include common141, DOM447, parser2, layout521, CSS10, semantic-action2, style2, net69 and WebIDL20.
+
+Repair48 is preparing one complete implementation/regression batch across JS lifetime/streams, loading/navigation, services/storage, OIL/input/accessibility, Window/GC and render failures, together with the audited owned warnings. Eight parallel lanes cover diagnosis, generation, warning reconciliation and failure evidence; root owns integration and checklist updates. Reviewed diagnoses include a Selection projection variable-shadowing defect, promise settlement under active native borrow guards, the V8 snapshot concurrency contract, and SRI encoded-size metadata loss. Source diagnoses and proposed repairs are **not runtime passes**. Complete all repairs, caller integration and independent review before formatting, freezing and executing the next candidate.
+
+Python12 remains **727 passed, zero failures/errors, 12 skipped out of 739**. Required signed-runtime prerequisites for those skips are open. Full Core conformance in every required profile, all five families/eight frameworks, workspace/Clippy checks and signed reproducible release qualification remain outstanding. No final qualification or completion is claimed.
+
+Evidence: [native33 result](../../artifacts/completion-validation-2026-09-18/native-js-tests-33.json), [original log](../../artifacts/completion-validation-2026-09-18/native-js-tests-33.log), [source custody](../../artifacts/completion-validation-2026-09-18/repair47-native33-whole-custody.json), [process cleanup](../../artifacts/completion-validation-2026-09-18/repair47-native33-process.json). Earlier checkpoints below are historical.
 
 ## Latest checkpoint — September 19: source committed; native32 compile result
 
@@ -1917,3 +2363,414 @@ Parser-preloaded frames now retain actual response referrer and original request
 ## Final repair39 source review closure
 
 Anonymous getter/setter/deleter parsing and four generated metadata entries are corrected, with four parser regressions and additive dataset.undefined behavior checks. Independent review accepted current source hashes and preserved original assertions. DOM native-root helper delta matches the repair38 hash; the generated file lacks a verified historical before-image, so whole-file current structural review and affected-path review are recorded separately. Canonical whole-registry freshness and runtime behavior remain test25 obligations. No repair39 test has run at this checkpoint.
+
+
+## Execution update — repair76, September 19, 2026
+
+Initial global source generation remains closed; acceptance remains open. Native ordinary navigation now waits for published Load. New and existing settlement regressions pass, compilation and workspace formatting check pass. All40 residual native tests completed:12passed28failed. Original162 diagnostic ledger is133passed28failed1pending; this is combined repair evidence, not final whole-suite qualification. See `artifacts/completion-validation-2026-09-18/repair76-status-2026-09-19.md` and `repair60-open-rust-failure-ledger-23.json` for exact evidence and remaining priorities. No parent requirement is marked qualified solely from these targeted checks.
+
+
+## Execution update — repair77, September 19, 2026
+
+Document assembly now returns heap-owned construction custody before parser callbacks run. Original prerender activation passes; constructor host recovery/transfer3/3 and lifecycle publication1/1 pass. Compilation and workspace formatting pass. Other27 original residuals still fail; original162 diagnostic ledger134passed27failed1pending. See `artifacts/completion-validation-2026-09-18/repair77-status-2026-09-19.md` and ledger24 for current evidence. This does not qualify a parent requirement or replace full conformance.
+
+
+## Execution update — repair78, September 19, 2026
+
+Standalone blank native-origin/base inheritance and ordered Commit/readiness trace implemented. Compilation and formatting pass. Regression8:6passed2failed; original blank-history and Navigation API accepted-state cases now pass. Original162 diagnostic ledger136passed25failed1pending. See `artifacts/completion-validation-2026-09-18/repair78-status-2026-09-19.md` and ledger25. Full qualification remains open; no parent acceptance is inferred from these targeted runs.
+
+
+## Execution update — repair79, September 19, 2026
+
+Joint traversal supersedes older pending navigation before registering its receipt; original complete forward-history regression passes. Semantic fixture now checks exact native authority and replacement progression, and passes. JS history54/54, final compilation and formatting pass. Original162 ledger138passed23failed1pending. Queued script traversal remains failed. See `artifacts/completion-validation-2026-09-18/repair79-status-2026-09-19.md` and ledger26. Full qualification remains open.
+
+
+## Execution update — repair80, September 19, 2026
+
+Queued Navigation API history tasks retain exact admission, and scheduled shared-cache fixtures wait for real readiness. Queued traversal and child/root retirement originals pass. Native11/12, JS history55/55 and broader navigation71/71 (overlapping), compilation and formatting pass. Original162 ledger140passed21failed1pending. Shared rollback custody assertion remains failed. See `artifacts/completion-validation-2026-09-18/repair80-status-2026-09-19.md` and ledger27. Full qualification remains open.
+
+
+## Execution update — repair81, September 19, 2026
+
+Shared rollback fixture verifies current authority/host transfer ordering and explicitly exercises extraction from a nonreusable driver. Shared-cache/queued-history12/12, compilation and formatting pass. Original162 diagnostic ledger141passed20failed1pending. See `artifacts/completion-validation-2026-09-18/repair81-status-2026-09-19.md` and ledger28. Full qualification remains open.
+
+
+## Execution update — repair82, September 19, 2026
+
+Same-actor named-form fixture now uses native Window.open and asserts matching actor routes, preserving all captured-data/cancellation assertions. Compilation and formatting pass. Named-form module4/5 passes; auxiliary-frame initial-document replacement remains failed. Original162 diagnostic ledger142passed19failed1pending. See `artifacts/completion-validation-2026-09-18/repair82-status-2026-09-19.md` and ledger29. Full qualification remains open.
+
+
+## Execution update — repair83, September 19, 2026
+
+Native Window.open of exact about:blank to a new auxiliary preserves its exposed initial Document. Original auxiliary-frame activation passes unchanged; new document-identity/edit retention regression passes. Named-form6/6 and related-actor5/5, compilation and formatting pass. Original162 diagnostic ledger143passed18failed1pending. See `artifacts/completion-validation-2026-09-18/repair83-status-2026-09-19.md` and ledger30. Full qualification remains open.
+
+
+## Execution update — repair84, September 19, 2026
+
+Prerender recovery preserves unexpired retry deadlines so early actor polls cannot postpone recovery forever. New deadline assertion and all original cancellation checks pass. Complete prerender-commit12/12, compilation and formatting pass. Original162 diagnostic ledger147passed14failed1pending. See `artifacts/completion-validation-2026-09-18/repair84-status-2026-09-19.md` and ledger31. Full qualification remains open.
+
+
+## Execution update — repair85, September 19, 2026
+
+Prerender construction retains its response-owning destination broker; blank transfer reads live identity from the actor-owned host before consuming the detached driver. Original blank handoff plus prerender-commit13/13, final compilation and formatting pass. Original162 diagnostic ledger148passed13failed1pending. See `artifacts/completion-validation-2026-09-18/repair85-status-2026-09-19.md` and ledger32. Full qualification remains open.
+
+
+## Execution update — repair86, September 19, 2026
+
+Queued-close fixture now publishes destination policy through response-aware navigation after departure and waits for scheduled parser readiness; new creator/body preconditions strengthen the unchanged original close assertions. Retained-close2/2, final compilation and formatting pass. Original162 diagnostic ledger149passed12failed1pending. See `artifacts/completion-validation-2026-09-18/repair86-status-2026-09-19.md` and ledger33. Full qualification remains open.
+
+
+## Execution update — repair87, September 19, 2026
+
+Shared-agent teardown fixture uses loaded native identities and a persistent termination fault. It verifies withheld close acknowledgement and retained process during failure, exactly one successful termination/drop after repair, lock-free broker reentry and repeated-close idempotence. Regression1/1, compilation and formatting pass. Original162 diagnostic ledger150passed11failed1pending. See `artifacts/completion-validation-2026-09-18/repair87-status-2026-09-19.md` and ledger34. Full qualification remains open.
+
+
+## Execution update — repair89, September 19, 2026
+
+Root semantic publication uses the live selected DOM. Subtree removal now retires matching accessibility nodes/upserts atomically, with a new subtree/sibling/delta regression. Compilation and formatting pass;87/88regressions pass, including original navigation interception. Same-URL replacement readiness remains failed. Original162 diagnostic ledger151passed10failed1pending. See `artifacts/completion-validation-2026-09-18/repair89-status-2026-09-19.md` and ledger35. Full qualification remains open.
+
+
+## Execution update — repair90, September 19, 2026
+
+Shared actor grants due document work after queued commands, preserving poll deadlines and close handling. Original same-URL reload/fragment regression and new continuous-observation timer regression pass. Final compilation/formatting pass; actor/publication40/40pass. Initial broader run retains3 original residual failures and a subsequently corrected test setup failure. Original162 diagnostic ledger152passed9failed1pending. See `artifacts/completion-validation-2026-09-18/repair90-status-2026-09-19.md` and ledger36. Full qualification remains open.
+
+
+## Execution update — repair91, September 19, 2026
+
+Timer fixture now arms replacement after confirmed held-header admission. Lifecycle fixture verifies unload-counter rejection for beforeunload/pagehide, exact restored identity and both rejected promises; pageswap preserves supersession and verifies the actor-retained replacement. Production unchanged. Compilation/formatting pass;17/17regressions pass. Original162 diagnostic ledger154passed7failed1pending. See `artifacts/completion-validation-2026-09-18/repair91-status-2026-09-19.md` and ledger37. Full qualification remains open.
+
+
+## Execution update — repair92, September 19, 2026
+
+All7original native residuals rechecked and failed on repair91. Cached-parent fixture now resets the directly installed document projection and verifies correlated receipts after both commit responses. Original rollback/input/lifecycle assertions pass unchanged. Production unchanged; compilation/formatting pass; cache/semantic26/26pass. Original162 diagnostic ledger155passed6failed1pending. See `artifacts/completion-validation-2026-09-18/repair92-status-2026-09-19.md` and ledger38. Full qualification remains open.
+
+
+## Execution update — repair93, September 19, 2026
+
+Appended native diagnostics publish exactly once after successful semantic projection, retaining retry custody and capability inspection. Original font error reporting nowpasses; quota fixture verifies the existing diagnostic rejection/fallback contract through page APIs. Compilation/formatting pass; native26/26 and layout quota1/1pass. Original162 diagnostic ledger156passed5failed1pending. See `artifacts/completion-validation-2026-09-18/repair93-status-2026-09-19.md` and ledger39. Full qualification remains open.
+
+
+## Repair94 — generated-image actor delay diagnosis (September 19, 2026)
+
+- Reproduced the original 250 ms responsiveness failure against unchanged repair93 source.
+- Broker stack traces place the slow request on a background thread. Lightweight actor timing identifies a 523.214 ms polling command delaying queued evaluation; evaluation subsequently completes in 64.190 ms. Exact expensive polling/layout subphase remains to be diagnosed; no fix or passing disposition is claimed.
+- Removed all temporary instrumentation; runtime.rs and page_actor_turn.rs hashes match repair93. Restored-source native/JS/layout test compilation passed in 46.741 seconds, inputs unchanged. All executions terminal.
+- Original ledger unchanged: **156 passing reruns, 5 failing, 1 pending**. Full workspace/Core/profile/family/release qualification remains outstanding. Root only.
+- Evidence: `artifacts/completion-validation-2026-09-18/repair94-status-2026-09-19.md`, diagnosis01–05 outputs and restored-compile-01/result.json. The stack-formatted diagnosis03 perturbed the fixture startup deadline and is explicitly not treated as an equivalent original-test outcome.
+
+
+## Repair95 — static native layout reuse (September 19, 2026)
+
+- Implemented one-entry static layout reuse keyed by full input and limits; animation control/effects invalidate it, animated sessions retain normal sampling. Added coverage for static equality, sample time, mutation, quota and animation changes.
+- Full layout **543 passed, 0 failed**; focused native **26 passed, 1 failed**. The original image responsiveness deadline remains failing and is not marked complete.
+- Final native/JS/layout compilation passed in30.991seconds, source unchanged. Temporary timing diagnostics removed. All runs terminal.
+- Phase timings locate excess polling/layout checkpoint work; next audit safe convergence of the unconditional eight-pass checkpoint while preserving cross-realm delivery.
+- Original ledger unchanged: **156 passing reruns, 5 failing, 1 pending**. Complete Core/profile/family/release qualification remains open. Root only.
+- Evidence: `artifacts/completion-validation-2026-09-18/repair95-status-2026-09-19.md` and its linked results.
+
+
+## Repair96 — generated-image responsiveness repaired (September 19, 2026)
+
+- Replaced whole-viewport content coverage work with an existential tile probe; backdrop-dependent scenes retain full rendering. Reused exact bundled-font bytes across fallback and shaped-text rendering, preparing immutable resources before page work.
+- Original250 ms image deadline and navigation/capture cancellation assertions pass in a fresh process. No checkpoint scheduling or test deadline changed.
+- Final results: cold image **1/1**, native selection **27/27**, full renderer **215/215**, native presentation **14/14**. Compilation and workspace formatting pass; source unchanged during every final run. All terminal.
+- Original162 ledger: **157 passing reruns,4 failing,1 pending**. Remaining: custom-element pointer interaction, popup close reporting, service-worker persistence/lifecycle and pending window target. Full workspace/Core/profile/family/release qualification remains open. Root only.
+- Evidence: `artifacts/completion-validation-2026-09-18/repair96-status-2026-09-19.md` and `repair60-open-rust-failure-ledger-40.json`.
+
+
+## Repair97 — custom-element pointer interaction repaired (September 19, 2026)
+
+- Ancestor clipping incorrectly hid visible descendants of a boxless inline shop-container. The walk now continues through eligible boxless inline ancestors while preserving real outer clips and hidden/unsupported rejection.
+- Added positive pointer, outer overflow clipping and display:none coverage. Original search and Price/Rating/Name sort assertions remain unchanged.
+- Final results: full layout **544/544**, complete OIL group **49/49**, native presentation **14/14**. Compilation and formatting pass; source frozen for every run. All executions terminal.
+- Original162 ledger: **158 passing reruns,3 failing,1 pending**. Remaining originals are popup close and two service-worker cases; the window-target case remains pending. Full workspace/Core/profile/family/release qualification remains open. Root only.
+- Evidence: `artifacts/completion-validation-2026-09-18/repair97-status-2026-09-19.md` and `repair60-open-rust-failure-ledger-41.json`.
+
+## Repair98 — terminal verification, September 19
+
+- [x] Geometry projection separates layout updates from author-task checkpoints; regression verifies normal polling still delivers timers.
+- [x] Native/window compilation and formatting passed; native selection 42/42, window integration 8/8, OIL 49/49, navigation lifecycle 17/17 passed with unchanged source inputs.
+- [x] Original window-target failure verified fixed at its unchanged deadline. Ledger42: 159 passing diagnostic reruns, 3 failing, 0 pending.
+- [ ] Resolve popup completion reporting and both service-worker failures.
+- [ ] Complete fresh workspace, Core/profile, five-family/eight-framework and release qualification.
+
+Evidence: `artifacts/completion-validation-2026-09-18/repair98-status-2026-09-19.md`. Candidate-specific checks do not establish complete conformance.
+
+## Repair99 — terminal verification, September 19
+
+- [x] Propagate active HTTP cleanup cancellation to pending service-response waits without transferring cleanup ownership.
+- [x] Regression verifies cancellation observer lifetime; original lifecycle test preserves worker/client retention and bounds abort completion.
+- [x] Compilation and formatting passed; lifecycle/cleanup 5/5 and neighboring HTTP cancellation 6/6 passed with unchanged input hashes.
+- [x] Ledger43 records 160 passing diagnostic reruns, 2 failing, 0 pending.
+- [ ] Resolve popup completion reporting and persisted service-worker startup.
+- [ ] Complete fresh workspace and all required release/Core/profile/family qualification.
+
+Evidence: `artifacts/completion-validation-2026-09-18/repair99-status-2026-09-19.md`.
+
+## Repair100 — retained maintenance authority, September 19
+
+- [x] Identified old-process maintenance error poisoning replacement registration access.
+- [x] Capture admitted update authority before event completion; preserve nonblocking cleanup and deferred update execution.
+- [x] Compilation and formatting passed; six maintenance/update/lifecycle tests passed.
+- [x] Persistence now passes saved-graph restart and sibling fetch stages.
+- [ ] Resolve later stale-context persistence assertion; whole persistence test remains failing.
+- [ ] Resolve popup completion and complete all workspace/release/conformance qualification.
+
+Ledger44 remains 160 passing diagnostic reruns, 2 failing, 0 pending. Evidence: `artifacts/completion-validation-2026-09-18/repair100-status-2026-09-19.md`.
+
+## Repair101 — service verification, September 19
+
+- [x] Proved live persistence snapshot had refreshed; retain an explicit stale test snapshot and preserve rejection/graph/update assertions.
+- [x] Registry shutdown drains an existing retirement owner, then verifies remaining versions without acknowledging incomplete cleanup.
+- [x] Final compilation and formatting passed; complete service-registry group 40/40 passed with unchanged inputs. Earlier 39/40 failure retained.
+- [x] Ledger45: 161 passing diagnostic reruns, 1 failing, 0 pending.
+- [ ] Resolve popup global-close action completion reporting.
+- [ ] Complete fresh workspace and all required release/Core/profile/family qualification.
+
+Evidence: `artifacts/completion-validation-2026-09-18/repair101-status-2026-09-19.md`.
+
+## Repair102 update — September20,2026
+
+- [x] Generate and integrate action-owned physical-close completion for local/worker/batch/OIL responses.
+- [x] Repair authenticated cached-document discard after logical page retirement; preserve park/restore rejection and retry custody.
+- [x] Compile native and window targets; verify22 close/cached-authority tests and8 window integration tests, all passing.
+- [x] Reconcile original162 failures:162 passing diagnostic reruns,0 failing,0 pending (ledger46).
+- [x] Full OIL regression group49/49 passed with unchanged inputs; workspace formatting check passed.
+- [ ] Fresh whole-workspace verification and every required release/Core/family qualification gate remain outstanding.
+
+See artifacts/completion-validation-2026-09-18/repair102-status-2026-09-20.md. Passing diagnostic reruns are not final qualification.
+
+## Repair103 update — September20,2026
+
+- [x] Review fallback command starvation; integrate command-first bounded due-work dispatch.
+- [x] Generate timer-under-queued-traffic and Close-precedence regressions.
+- [x] Compile;31 scheduler/presentation/close tests pass; formatting passes.
+- [ ] Fresh workspace checks completed but failed:2 default-feature compile errors plus strict Clippy diagnostics; repair inventory recorded in repair103-workspace-diagnostics-01.json.
+- [x] Prior security-prebuilt Python failure rerun passes1/1; two signed-session cases remain to recheck.
+- [ ] Full release/Core/family qualification remains outstanding.
+
+Evidence: artifacts/completion-validation-2026-09-18/repair103-status-2026-09-20.md.
+
+## Repair104 update — September20,2026
+
+- [x] Generate and integrate fixes for the reported default-feature/lint diagnostics, including30 named input interfaces, wire payload sizing, type aliases, initializers and test-module placement.
+- [x] Repair two caller omissions and unused mut found by attempt01; original logs retained.
+- [x] Attempt02 default workspace build passed.
+- [ ] Expanded V8 test compilation failed on two missed integrations; both now source-repaired, rebuild pending.
+- [ ] Strict Clippy reached498 downstream unique diagnostics; inventory retained.
+- [ ] Complete release/Core/family and remaining qualification gates.
+
+Source generation does not establish passing execution. See repair104-status-2026-09-20.md and source-review-01.json in artifacts/completion-validation-2026-09-18.
+
+## Repair105 update — September20,2026
+
+- [x] Apply200 reviewed source replacements across68 files; move test modules in18 files.
+- [x] Preserve test-only form-restoration fault injection in a manual refactor; repair two missed V8 integrations.
+- [ ] Finish remaining type/interface/enum/feature-configuration source repairs before the next frozen validation.
+- [ ] Fresh runtime and complete release/Core/five-family qualification remain open.
+
+Current source work is unverified; no tests/builds running. See artifacts/completion-validation-2026-09-18/repair105-status-2026-09-20.md.
+
+
+### Repair105 source integration update — September 20, 2026
+
+Added named types for complex callbacks, cache/cleanup records and test fixtures (54 aliases/82 replacements in the first inventory; eight further aliases plus one existing-alias integration/10 replacements in the second). Converted three renderer interfaces to named inputs and integrated all 14 located production/regression calls. Source evidence: `repair105-type-aliases-01.json`, `repair105-type-aliases-02.json`, and `repair105-render-interfaces-01.json` under `artifacts/completion-validation-2026-09-18/`.
+
+- [x] Generate and integrate the recorded alias and renderer-interface changes.
+- [ ] Complete remaining repair105 interfaces, enum payloads, initializers/loops and feature-specific diagnostics.
+- [ ] Format, freeze and compile the complete repair105 candidate; run runtime suites and required workspace checks.
+- [ ] Complete final release/Core/family qualification against the final candidate.
+
+Current changes are source-reviewed only. No build or tests were run for this update; the 498 reached compiler/lint diagnostics are historical and have not been re-counted. The original 162 failures passed separate historical diagnostic reruns, which does not establish current-candidate or final conformance success.
+
+
+### Repair105 native interface integration — September 20, 2026
+
+- [x] Generate named input records for nine additional native interfaces and integrate all 43 located production/regression callers. Evidence: `repair105-native-interfaces-01.json` and `repair105-native-interfaces-02.json` in `artifacts/completion-validation-2026-09-18/`.
+- [x] Source-review retained transaction normalization, wait identity/cancellation checks and retirement validation; preserve existing regression assertions.
+- [ ] Finish remaining repair105 diagnostics, format/freeze the full candidate, then compile and execute required checks.
+
+These are source changes only. No new compile, runtime or conformance pass is claimed; full Core and family qualification remain outstanding.
+
+
+### Repair105 renderer traversal integration — September 20, 2026
+
+- [x] Generate six additional named renderer interfaces and integrate all 53 located production/regression calls, including projected painting, bounds/text traversal and generic sampling.
+- [x] Source-review retained recursion limits, geometry/clipping guards and generic sampling closures; preserve the unrelated SVG source walker.
+- [ ] Complete the remaining native/JS interfaces and other repair105 diagnostics before formatting, freezing, compilation and runtime validation.
+
+Source evidence: `artifacts/completion-validation-2026-09-18/repair105-render-interfaces-02.json`. These changes are uncompiled and untested. Full Core, family and release qualification remain open.
+
+
+### Repair105 progress reconciliation — September 20, 2026
+
+- [x] Integrate five JavaScript interfaces and eight located callers (`repair105-js-interfaces-01.json`).
+- [x] Reconcile interface inventories: 23/59 historically reported long interfaces have source repairs; 118 callers integrated across repair105. This is source progress, not verified passes.
+- [ ] Complete the remaining 36 reported interfaces and other compiler/lint repair categories.
+- [ ] Format/freeze the complete candidate, compile and run full required suites, then complete release/Core/family qualification.
+
+No reliable overall percentage or delivery ETA is established. Initial implementation/test generation is complete; current-candidate correctness and qualification remain unproven.
+
+
+### Repair105 clipboard/canvas/input integration — September 20, 2026
+
+- [x] Generate five further JavaScript interface records and integrate all 36 located production/regression calls. Evidence: `repair105-js-interfaces-02.json` and `repair105-js-interfaces-03.json` under `artifacts/completion-validation-2026-09-18/`.
+- [x] Review caller imports and retained retirement, allocation-budget and geometry checks in source.
+- [ ] Complete the remaining 31/59 reported long interfaces and other repair105 diagnostic categories.
+- [ ] Format/freeze and validate the complete candidate, followed by release/Core/family qualification.
+
+Cumulative source progress: 28/59 long interfaces and 154 callers integrated. These figures are not passing test counts or an overall completion percentage. Current changes remain uncompiled and untested.
+
+
+### Repair105 native service/loading integration — September 20, 2026
+
+- [x] Integrate twelve more native interfaces and all 56 located callers, including service jobs, HTTP/inline policy and script loading. Evidence: `repair105-native-interfaces-03.json` and `repair105-native-interfaces-04.json` in `artifacts/completion-validation-2026-09-18/`.
+- [x] Source-review preserved queue ordering, admitted owner authority, cancellation/error classification and script-load deadline; correct preload caller import and test-only record guards.
+- [ ] Complete remaining 19/59 reported long interfaces and other repair105 diagnostic categories.
+- [ ] Format/freeze and validate the full candidate, then finish release/Core/family qualification.
+
+Cumulative interface source progress: 40/59, with 210 integrated callers. Current changes remain uncompiled and untested; these counts do not establish runtime or conformance success.
+
+
+### Repair105 runtime/frame integration — September 20, 2026
+
+- [x] Integrate nine more interfaces and 61 located callers for navigation, image loading and frame policy. Evidence: `repair105-native-interfaces-05.json` and `repair105-native-interfaces-06.json` under `artifacts/completion-validation-2026-09-18/`.
+- [x] Review retained container/URL validation, prepared-resource ownership checks, MIME handling, timing propagation and feature guards in source.
+- [ ] Finish remaining 10/59 reported long interfaces and other repair105 compiler/lint categories.
+- [ ] Format/freeze, compile and execute the full candidate; finish release/Core/family qualification.
+
+Cumulative source progress: 49/59 long interfaces and 271 integrated callers. Current edits remain uncompiled and untested.
+
+
+### Repair105 allocation/reporting integration — September 20, 2026
+
+- [x] Integrate three additional interfaces and 39 callers for shared allocation, response policy and page registration (`repair105-native-interfaces-07.json`).
+- [x] Inspect call arities and preserve unrelated overloads and the Unix allocation guard.
+- [ ] Complete seven remaining reported interfaces plus other repair105 diagnostics before full-candidate validation.
+
+Cumulative source progress: 52/59 long interfaces, 310 callers. Current edits remain uncompiled and untested; release/Core/family qualification remains open.
+
+
+### Repair105 recorded interface integration — September 20, 2026
+
+- [x] Integrate final seven recorded interfaces and 29 callers (`repair105-js-interfaces-04.json`, `repair105-native-interfaces-08.json`). Cumulative source work: 59/59 historically reported interfaces, 339 callers.
+- [x] Scan affected source files for other long signatures and inspect annotations (`repair105-interface-source-scan-01.json`). Five pre-existing explicit allowances remain unchanged.
+- [ ] Repair/reconcile two additional V8-gated signatures: `adopt_agent_document` and `capture_svg_paint_tree`.
+- [ ] Finish other repair105 diagnostics, format/freeze and validate the complete candidate; complete release/Core/family qualification.
+
+Recorded interface source integration is complete; the repair batch and verification are not. No new builds/tests ran.
+
+
+### Repair105 V8 and enum payload integration — September 20, 2026
+
+- [x] Integrate both additional V8 interfaces and six callers (`repair105-native-interfaces-09.json`). Original 59 interfaces plus two source findings now have source repairs; 345 callers integrated.
+- [x] Box oversized payloads in three reported enums and update ten constructors, preserving consumer ownership and keyboard poll/cancel paths (`repair105-enum-payloads-01.json`).
+- [ ] Finish remaining 20 reported oversized enums and residual complex-type, initializer/loop and feature-specific diagnostics.
+- [ ] Format/freeze and validate the full candidate, then complete release/Core/family qualification.
+
+These are source changes only. No builds or tests ran for this update.
+
+
+### Repair105 retained-command and worker enums — September 20, 2026
+
+- [x] Integrate five more reported enum payload repairs, including constructors and worker-event ownership extraction (`repair105-enum-payloads-02.json`, `repair105-enum-payloads-03.json`).
+- [x] Source-review preserved command poll/cancel ownership and receive-guard handoff before deserialization.
+- [ ] Finish 15 remaining reported oversized enums and residual compiler/lint repair categories.
+- [ ] Format/freeze and validate the full candidate; finish release/Core/family qualification.
+
+Eight of 23 reported oversized enums have source repairs. Current changes remain uncompiled and untested.
+
+
+### Repair105 timing/submission/IPC enums — September 20, 2026
+
+- [x] Integrate three more enum payload repairs and consumer ownership transfers (`repair105-enum-payloads-04.json`).
+- [x] Generate exact wire-format/framing and existing-payload decoding regression for parent agent commands.
+- [ ] Finish twelve remaining reported oversized enums and other compiler/lint repairs.
+- [ ] Compile and execute the full candidate and new regression, then finish release/Core/family qualification.
+
+Eleven of 23 reported oversized enums have source repairs. Current changes are uncompiled and untested.
+
+
+### Repair105 history/broker/publication enums — September 20, 2026
+
+- [x] Integrate three more reported enum payload repairs and consumer ownership transfers (`repair105-enum-payloads-05.json`).
+- [x] Update existing broker framing regression constructors and strengthen generated agent IPC decode assertions.
+- [ ] Complete nine remaining reported oversized enums plus other compiler/lint categories.
+- [ ] Format/freeze, compile and test the complete candidate, then finish release/Core/family qualification.
+
+Fourteen of 23 reported oversized enums have source repairs. Current changes remain uncompiled and untested.
+
+
+### Repair105 pending-action/platform-root enums — September 20, 2026
+
+- [x] Integrate source repairs for three additional reported enums, including initial insertion, media-track migration and existing boxed retry ownership (`repair105-enum-payloads-06.json`).
+- [ ] Complete six remaining reported oversized enums and residual compiler/lint categories.
+- [ ] Check actual enum sizes through fresh compiler diagnostics when validating the full candidate; complete runtime and release/Core/family qualification.
+
+Seventeen of 23 reported enums have source changes. No new build/tests ran; source repair is not proof that the lint or behavior passes.
+
+
+### Repair105 navigation-admission enum — September 20, 2026
+
+- [x] Box optional navigation destination snapshots and integrate producer/consumer ownership transfers (`repair105-enum-payloads-07.json`), preserving operation tokens and hidden-destination None behavior.
+- [x] Inventory native/encoded network header source sites for remaining integration (`repair105-network-header-callers-01.json`).
+- [ ] Finish five remaining reported enums and other compiler/lint repair categories.
+- [ ] Format/freeze and validate the complete candidate; finish release/Core/family qualification.
+
+Eighteen of 23 reported enums have source repairs. No new build or test result is available.
+
+
+### Repair105 encoded network timing — September 20, 2026
+
+- [x] Box encoded-header timing and integrate encode/decode boundaries and invalid-timing fixture (`repair105-enum-payloads-08.json`).
+- [x] Add explicit timing JSON shape assertions to the existing broker round-trip regression.
+- [ ] Complete four remaining reported oversized enums and other compiler/lint repairs.
+- [ ] Format/freeze, compile and execute full candidate checks, then complete release/Core/family qualification.
+
+Nineteen of 23 reported enums have source repairs. Current changes and regression updates remain uncompiled and untested.
+
+### Repair105 native network timing — September 20, 2026
+
+- [x] Box native header timing and integrate producers, wire transfers and response/metadata collectors (`repair105-enum-payloads-09.json`).
+- [x] Generate worker-event timing preservation regression; integrate existing broker round-trip fixtures.
+- [ ] Complete the three remaining reported oversized enums and residual compiler/lint categories.
+- [ ] Format/freeze, compile and test the complete candidate, then complete release/Core/family qualification.
+
+Twenty of 23 reported oversized enums have source repairs. Current changes are uncompiled and untested; earlier chronological remaining-count entries are superseded by this entry.
+
+### Repair105 frame responses and resource requests — September 20, 2026
+
+- [x] Box document timing and integrate producers/navigation borrowing with explicit retained allocation accounting (`repair105-enum-payloads-10.json`).
+- [x] Box resource initiators and integrate 15 constructors, consumer review and retained allocation accounting (`repair105-enum-payloads-11.json`).
+- [x] Extend accounting regressions and request serialization assertions.
+- [ ] Complete ContextServiceResponse and residual compiler/lint repairs.
+- [ ] Format/freeze and validate the complete candidate, then finish release/Core/family qualification.
+
+Twenty-two of 23 reported oversized enums have source repairs. Current changes are uncompiled and untested; this count supersedes earlier chronological counts.
+
+### Repair105 reported enum source integration complete
+
+- [x] Integrate final ContextServiceResponse timing enum and wire/frame regression (`repair105-enum-payloads-12.json`): 23/23 reported enum source repairs.
+- [x] Box rejected publication custody while retaining cleanup ordering.
+- [ ] Run and review compiler-assisted mechanical fixes, resolve compilation and remaining diagnostics.
+- [ ] Format/freeze and execute complete tests and release/Core/family qualification.
+
+No current passing build/test claim; earlier remaining-enum counts are superseded.
+
+### Repair105 execution progress
+
+- [x] Resolve reached compiler errors and format the workspace.
+- [x] Complete all-feature/all-target workspace Clippy-fix pass05; review six automatic edits in two files.
+- [x] Complete explicit native/JS/renderer Clippy-fix pass06 (no additional edits).
+- [ ] Complete current full workspace test run and repair failures.
+- [ ] Resolve remaining strict lint warnings; complete all release/Core/family qualification.
+
+The old requirement to finish a whole repair batch before compilation/testing is superseded by the user's repair-phase clarification. Checks passed with warnings; runtime results are pending.
+
+### WebDriver runtime verification — repair106/107
+
+- [x] Resolve V8 keyboard fatal check; isolated regression passed and full oryn library completed without process abort.
+- [x] Record complete library result:99passed,6failed,0ignored (`repair106-oryn-lib-tests-01`).
+- [x] Integrate closed-window navigation diagnostics prompt-gate fix; improve media/permission failure detail.
+- [ ] Verify repair107 rerun and resolve remaining functional failures.
+- [ ] Complete full workspace tests, strict lints and release/Core/family qualification.

@@ -942,6 +942,7 @@ interface Element : Node {
   readonly attribute Element? nextElementSibling;
   [CEReactions] attribute DOMString id;
   [CEReactions] attribute DOMString className;
+  [CEReactions] attribute DOMString slot;
   [SameObject, PutForwards=value] readonly attribute DOMTokenList classList;
   [CEReactions] attribute DOMString innerHTML;
   [CEReactions] attribute DOMString outerHTML;
@@ -1044,6 +1045,7 @@ interface DocumentType : Node {
 
 [Exposed=Window]
 interface SVGElement : Element {
+  [CEReactions] attribute boolean autofocus;
   attribute DOMString nonce;
   attribute EventListener? ondragstart;
   attribute EventListener? ondrag;
@@ -1255,6 +1257,7 @@ interface DOMTokenList {
 
 [Exposed=Window]
 interface HTMLElement : Element {
+  [CEReactions] attribute boolean autofocus;
   attribute DOMString nonce;
   [CEReactions] attribute DOMString? popover;
   attribute EventListener? oncommand;
@@ -1913,6 +1916,8 @@ interface HTMLAnchorElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLAreaElement : HTMLElement {
+  [CEReactions] attribute DOMString coords;
+  [CEReactions] attribute DOMString shape;
   [CEReactions] attribute DOMString download;
   [SameObject, PutForwards=value] readonly attribute DOMTokenList relList;
   [CEReactions] attribute DOMString rel;

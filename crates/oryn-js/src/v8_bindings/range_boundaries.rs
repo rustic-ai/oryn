@@ -281,7 +281,7 @@ pub(super) fn operation<'s>(
             _ => unreachable!(),
         };
         return Ok(Some(
-            v8::Integer::new(scope, compare_boundary_points(&dom, left, right)? as i32).into(),
+            v8::Integer::new(scope, compare_boundary_points(&dom, left, right)?).into(),
         ));
     }
     node_identity::argument(scope, args.get(0))?.ok_or_else(|| error("TypeError"))?;

@@ -174,6 +174,29 @@ thread_local!{static CACHED_COMPLETION_FAULT:std::cell::Cell<bool>=const{std::ce
 mod cached_completion_tests {
     use super::*;
     #[test]
+    fn retired_page_discard_keeps_exact_capability_and_retry_custody() {
+        use oryn_js::message_wire::{MessageRequest as Q, MessageResponse as R};
+        let context = Browser::in_process_probe().new_context();
+        let page = context.new_page().page_id();
+        let foreign = context.new_page().page_id();
+        let oryn_js::worker_wire::Creator::Window { document_generation, stream_epoch, .. } =
+            context.native_initial_document_creator(page).unwrap() else { unreachable!() };
+        let R::DocumentParked(token) = context.handle_cached_document_authority(
+            page, Q::ParkDocument { document_generation, stream_epoch }).unwrap() else { panic!() };
+        assert!(context.inner.group.close(page));
+        assert!(context.handle_cached_document_authority(page, Q::RestoreDocument { token: token.clone() }).is_err());
+        assert!(context.handle_cached_document_authority(page, Q::ParkDocument { document_generation, stream_epoch }).is_err());
+        assert!(context.handle_cached_document_authority(foreign, Q::DiscardDocument { token: token.clone() }).is_err());
+        CACHED_COMPLETION_FAULT.with(|fault| fault.set(true));
+        assert!(context.handle_cached_document_authority(page, Q::DiscardDocument { token: token.clone() }).unwrap_err().contains("injected cached completion suffix failure"));
+        assert!(context.inner.cached_document_security.lock().unwrap().contains_key(&token));
+        assert!(matches!(context.handle_cached_document_authority(page, Q::DiscardDocument { token: token.clone() }).unwrap(), R::Done));
+        assert!(!context.inner.cached_document_security.lock().unwrap().contains_key(&token));
+        assert!(matches!(context.handle_cached_document_authority(page, Q::DiscardDocument { token: token.clone() }).unwrap(), R::Done));
+        assert!(context.handle_cached_document_authority(foreign, Q::DiscardDocument { token }).is_err());
+        assert_eq!(context.inner.group.messages.lock().unwrap().root_document_identity(page.0), None);
+    }
+    #[test]
     fn pruned_completed_ack_is_typed_expiry_and_never_rebinds(){
         use oryn_js::message_wire::{MessageRequest as Q,MessageResponse as R};
         let context=Browser::in_process_probe().new_context();let page=context.new_page().page_id();

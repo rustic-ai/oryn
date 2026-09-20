@@ -429,11 +429,10 @@ pub(super) fn materialize_for_media(
             }
         }
         let scope = input.shadow_trees.node_scopes.get(&id).copied();
-        if !counter_registries.contains_key(&scope) {
-            counter_registries.insert(
-                scope,
-                generated_counter_styles::Registry::read_for_scope(input, print, scope)?,
-            );
+        if let std::collections::btree_map::Entry::Vacant(e) = counter_registries.entry(scope) {
+            e.insert(generated_counter_styles::Registry::read_for_scope(
+                input, print, scope,
+            )?);
         }
         counters.styles = counter_registries[&scope].clone();
         let marker_fallback = style.clone();
@@ -455,15 +454,14 @@ pub(super) fn materialize_for_media(
                 })?),
                 None => scope,
             };
-            if !counter_registries.contains_key(&content_scope) {
-                counter_registries.insert(
+            if let std::collections::btree_map::Entry::Vacant(e) =
+                counter_registries.entry(content_scope)
+            {
+                e.insert(generated_counter_styles::Registry::read_for_scope(
+                    input,
+                    print,
                     content_scope,
-                    generated_counter_styles::Registry::read_for_scope(
-                        input,
-                        print,
-                        content_scope,
-                    )?,
-                );
+                )?);
             }
             counters.styles = counter_registries[&content_scope].clone();
             counters.values = counter_states.get(&(id, name)).cloned().unwrap_or_default();
@@ -480,13 +478,12 @@ pub(super) fn materialize_for_media(
                     })?),
                     None => scope,
                 };
-                if !counter_registries.contains_key(&list_scope) {
-                    counter_registries.insert(
-                        list_scope,
-                        generated_counter_styles::Registry::read_for_scope(
-                            input, print, list_scope,
-                        )?,
-                    );
+                if let std::collections::btree_map::Entry::Vacant(e) =
+                    counter_registries.entry(list_scope)
+                {
+                    e.insert(generated_counter_styles::Registry::read_for_scope(
+                        input, print, list_scope,
+                    )?);
                 }
                 let text = counter_registries[&list_scope].marker(
                     counters
@@ -911,10 +908,10 @@ pub(super) fn finish(generated: &Materialized, output: &mut LayoutOutput) {
         let Some(geometry) = output.geometry.get(id).cloned() else {
             continue;
         };
-        if let Some(node) = generated.input.nodes.iter().find(|node| node.id == *id) {
-            if node.parent != Some(entry.owner) {
-                output.paint_parent_overrides.insert(*id, node.parent);
-            }
+        if let Some(node) = generated.input.nodes.iter().find(|node| node.id == *id)
+            && node.parent != Some(entry.owner)
+        {
+            output.paint_parent_overrides.insert(*id, node.parent);
         }
         output.generated_nodes.push(PaintNodeSnapshot {
             builtin_image: generated.builtin_images.get(id).cloned(),

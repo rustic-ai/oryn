@@ -41,7 +41,7 @@ fn members(value: &str) -> Option<Vec<String>> {
         if let Some(quoted) = rest.strip_prefix('"') {
             let end = quoted.find('"')?;
             let token = &quoted[..end];
-            if token.contains('\\') || token.bytes().any(|byte| byte < 0x20 || byte > 0x7e) {
+            if token.contains('\\') || token.bytes().any(|byte| !(0x20..=0x7e).contains(&byte)) {
                 return None;
             }
             result.push(token.to_owned());
@@ -586,10 +586,10 @@ impl List {
                         } else {
                             None
                         };
-                        if let Some(value) = value {
-                            if !values.contains(&value) {
-                                values.push(value)
-                            }
+                        if let Some(value) = value
+                            && !values.contains(&value)
+                        {
+                            values.push(value)
                         }
                     }
                 }

@@ -1,4 +1,17 @@
 //! SVG semantic text uses the same positioned clusters and glyph paint as resvg.
+
+/// Inputs for semantic text traversal.
+struct SvgTextWalk<'a> {
+    group: &'a resvg::usvg::Group,
+    tree: &'a resvg::usvg::Tree,
+    snapshot: &'a PaintSnapshot,
+    xml: &'a roxmltree::Document<'a>,
+    scale: f64,
+    budget: &'a mut crate::svg_coverage::Budget,
+    output: &'a mut Vec<PdfText>,
+    resource: usize,
+    depth: usize,
+}
 use super::*;
 use crate::print::text_layer::{PdfCluster, PdfText};
 
@@ -21,17 +34,19 @@ pub(super) fn collect(
         .map_err(|error| RenderError::InvalidPrint(error.to_string()))?;
     let mut output = Vec::new();
     let mut budget = crate::svg_coverage::Budget::default();
-    fn walk(
-        group: &resvg::usvg::Group,
-        tree: &resvg::usvg::Tree,
-        snapshot: &PaintSnapshot,
-        xml: &roxmltree::Document<'_>,
-        scale: f64,
-        budget: &mut crate::svg_coverage::Budget,
-        output: &mut Vec<PdfText>,
-        resource: usize,
-        depth: usize,
-    ) -> Result<(), RenderError> {
+    fn walk(params: SvgTextWalk<'_>) -> Result<(), RenderError> {
+        let SvgTextWalk {
+            group,
+            tree,
+            snapshot,
+            xml,
+            scale,
+            budget,
+            output,
+            resource,
+            depth,
+        } = params;
+
         if depth > 128 {
             return Err(RenderError::InvalidPrint("SVG semantic tree depth".into()));
         }
@@ -40,7 +55,7 @@ pub(super) fn collect(
         }
         for node in group.children() {
             match node {
-                resvg::usvg::Node::Group(group) => walk(
+                resvg::usvg::Node::Group(group) => walk(SvgTextWalk {
                     group,
                     tree,
                     snapshot,
@@ -49,8 +64,8 @@ pub(super) fn collect(
                     budget,
                     output,
                     resource,
-                    depth + 1,
-                )?,
+                    depth: depth + 1,
+                })?,
                 resvg::usvg::Node::Text(text) => {
                     let source = text
                         .chunks()
@@ -187,17 +202,17 @@ pub(super) fn collect(
         }
         Ok(())
     }
-    walk(
-        tree.root(),
+    walk(SvgTextWalk {
+        group: tree.root(),
         tree,
         snapshot,
-        &xml,
+        xml: &xml,
         scale,
-        &mut budget,
-        &mut output,
+        budget: &mut budget,
+        output: &mut output,
         resource,
-        0,
-    )?;
+        depth: 0,
+    })?;
     Ok(output)
 }
 
@@ -280,6 +295,7 @@ mod tests {
         let mut snapshot = crate::tests::empty_snapshot();
         snapshot.images.push(oryn_common::v4::PaintImageResource {
             svg_document_snapshot: false,
+            svg_instances: Vec::new(),
             content_type: None,
             url_aliases: Vec::new(),
             url: "https://example.test/native-text.svg".into(),

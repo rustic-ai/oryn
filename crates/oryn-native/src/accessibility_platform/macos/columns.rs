@@ -13,7 +13,7 @@ struct Column {
     window: Id,
     identity: String,
 }
-thread_local! {static COLUMNS:RefCell<BTreeMap<usize,Column>>=RefCell::new(BTreeMap::new());}
+thread_local! {static COLUMNS:RefCell<BTreeMap<usize,Column>>=const { RefCell::new(BTreeMap::new()) };}
 pub(super) fn prepare(snapshot: &Snapshot) -> Result<Vec<Key>, String> {
     let references = snapshot
         .tables

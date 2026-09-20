@@ -1388,6 +1388,21 @@ impl Stylist {
     where
         E: TElement,
     {
+        self.resolve_position_try_with_parent(style, guards, scope, element, fallback_item, None)
+    }
+
+    fn resolve_position_try_with_parent<E>(
+        &self,
+        style: &ComputedValues,
+        guards: &StylesheetGuards,
+        scope: CascadeLevel,
+        element: E,
+        fallback_item: &PositionTryFallbacksItem,
+        parent_override: Option<&ComputedValues>,
+    ) -> Option<Arc<ComputedValues>>
+    where
+        E: TElement,
+    {
         let name_and_try_tactic = match *fallback_item {
             PositionTryFallbacksItem::PositionArea(area) => {
                 // We don't bother passing the parent_style argument here since
@@ -1448,8 +1463,8 @@ impl Stylist {
                     pseudo.as_ref(),
                     &inputs,
                     guards,
-                    parent_style,
-                    layout_parent_style,
+                    parent_override.or(parent_style),
+                    parent_override.or(layout_parent_style),
                     FirstLineReparenting::No,
                     &name_and_try_tactic.try_tactic,
                     /* rule_cache = */ None,
@@ -1463,13 +1478,13 @@ impl Stylist {
     /// Resolve native positioned fallback tactics in the actual containing
     /// block writing mode, retaining the querying element's inherited mode.
     #[cfg(feature = "servo")]
-    pub fn resolve_position_try_native<E: TElement>(&self,style:&ComputedValues,guards:&StylesheetGuards,scope:CascadeLevel,element:E,item:&PositionTryFallbacksItem,cb_wm:crate::logical_geometry::WritingMode)->Option<Arc<ComputedValues>>{
+    pub fn resolve_position_try_native<E: TElement>(&self,style:&ComputedValues,guards:&StylesheetGuards,scope:CascadeLevel,element:E,item:&PositionTryFallbacksItem,cb_wm:crate::logical_geometry::WritingMode,parent:Option<&ComputedValues>)->Option<Arc<ComputedValues>>{
         let mut untacticed=item.clone();
         let tactic=match &mut untacticed{
             PositionTryFallbacksItem::IdentAndOrTactic(value)=>std::mem::take(&mut value.try_tactic),
             PositionTryFallbacksItem::PositionArea(_)=>Default::default(),
         };
-        let result=self.resolve_position_try(style,guards,scope,element,&untacticed)?;
+        let result=self.resolve_position_try_with_parent(style,guards,scope,element,&untacticed,parent)?;
         if tactic.is_empty(){return Some(result);}
         let mut builder=StyleBuilder::for_derived_style(&self.device,Some(self),&result,None);builder.rules=result.rules.clone();
         let own_wm=builder.writing_mode;builder.writing_mode=cb_wm;

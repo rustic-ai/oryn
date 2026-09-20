@@ -334,7 +334,7 @@ impl NativeContextOilSession {
                     self.revision(page_id),
                     format!("failed:{error}"),
                 );
-                Err(error.into())
+                Err(error)
             }
         }
     }
@@ -1558,7 +1558,7 @@ impl NativeOilSession {
         }
         selected
             .map(|(_, target, container)| (target, container))
-            .ok_or_else(|| NativeOilError::TargetNotFound(requested))
+            .ok_or(NativeOilError::TargetNotFound(requested))
     }
 
     fn cache_v4_observation(&mut self, observation: &oryn_common::v4::Observation) {
@@ -2612,7 +2612,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn action_alias_refresh_preserves_unobserved_delta_until_public_read() {
-        let page = Browser::new().new_context().new_page();
+        let page = Browser::native_test_with_config(crate::runtime::BrowserConfig::default())
+            .new_context()
+            .new_page();
         page.load_html(
             "https://example.test/action-delta",
             "<input aria-label=Email><button>Save</button>",
@@ -2964,6 +2966,7 @@ mod tests {
         page.evaluate("globalThis.nativeClickErrors=[];addEventListener('error',e=>nativeClickErrors.push([e.message,e.filename,e.lineno,e.colno]));document.addEventListener('click',e=>nativeClickTrace.push(['bubble',e.target.localName,e.target.closest('[data-product-id]')?.getAttribute('data-product-id'),e.clientX,e.clientY,e.detail,e.defaultPrevented,e.isTrusted].join(':')))").await.unwrap();
         // Observe the actual native candidate ranking; do not dispatch a CSS
         // replacement click or change the original multi-command workflow.
+        let near_geometry = page.evaluate(r#"JSON.stringify([...document.querySelectorAll('[data-product-id] strong,[data-product-id] button[aria-label=\"Increase quantity\"]')].slice(0,8).map(n=>{const r=n.getBoundingClientRect();return {text:n.textContent.slice(0,40),product:n.closest('[data-product-id]').getAttribute('data-product-id'),x:r.x,y:r.y,width:r.width,height:r.height}}))"#).await;
         let plus_resolution = page
             .resolve_target(
                 oryn_common::agent::Target::Near {
@@ -2996,7 +2999,7 @@ mod tests {
             page.evaluate("document.getElementById('qty-1').textContent")
                 .await
                 .unwrap(),
-            "2", "native plus resolution: {plus_resolution:?}; intended product resolution: {intended_resolution:?}; action receipts: {action_receipts:?}; native page trace: {:?}; fixture state: {:?}",
+            "2", "native plus resolution: {plus_resolution:?}; intended product resolution: {intended_resolution:?}; action receipts: {action_receipts:?}; native page trace: {:?}; fixture state: {:?}; near geometry: {near_geometry:?}",
             page.trace().await,
             page.evaluate("JSON.stringify({events:nativeClickTrace,errors:nativeClickErrors,updateQuantity:typeof updateQuantity,applyCoupon:typeof applyCoupon,readyState:document.readyState,qty1:document.getElementById('qty-1').textContent,qty2:document.getElementById('qty-2').textContent,coupon:document.getElementById('coupon-code').value,message:document.getElementById('coupon-message').textContent,subtotal:document.getElementById('subtotal').textContent,total:document.getElementById('total').textContent})").await
         );
@@ -3216,18 +3219,28 @@ mod tests {
                 "load custom-element fixture: {error}; post-failure state (1s bound): {diagnostic:?}"
             );
         }
-        let mut session = NativeOilSession::new(page);
-        for command in [
-            "type css(#search) \"wireless\"",
-            "type css(#search) \"\"",
-            "click css(#sort-price)",
-            "click css(#sort-rating)",
-            "click css(#sort-name)",
+        // Document CSS selectors do not cross the component's shadow root.
+        // OIL's semantic targets reach the composed controls by their ID hint
+        // or accessible name, preserving the document selector boundary.
+        assert_eq!(
+            page.evaluate("String(document.querySelector('#search')===null)")
+                .await
+                .unwrap(),
+            "true"
+        );
+        let mut session = NativeOilSession::new(page.clone());
+        for (command, count, sort) in [
+            ("type \"search\" \"wireless\"", 2, "rating"),
+            ("type \"search\" \"\"", 8, "rating"),
+            ("click \"Price\"", 8, "price"),
+            ("click \"Rating\"", 8, "rating"),
+            ("click \"Name\"", 8, "name"),
         ] {
             session
                 .execute(command)
                 .await
                 .unwrap_or_else(|error| panic!("{command} failed: {error}"));
+            assert_eq!(page.evaluate("document.getElementById('product-grid').children.length+','+document.querySelector('search-bar').shadowRoot.querySelector('button.active').dataset.sort").await.unwrap(), format!("{count},{sort}"), "{command}");
         }
     }
 

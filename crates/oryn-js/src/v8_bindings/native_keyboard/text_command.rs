@@ -2,9 +2,9 @@
 use super::*;
 use crate::composition::{TextCommand, TextDirection};
 enum Work {
-    Selection(receipt::SelectionJob),
-    Edit(receipt::EditJob),
-    Focus(super::super::retained_focus::Transition),
+    Selection(Box<receipt::SelectionJob>),
+    Edit(Box<receipt::EditJob>),
+    Focus(Box<super::super::retained_focus::Transition>),
 }
 pub(in super::super) struct Receipt {
     owner: Rc<V8BindingState>,
@@ -32,9 +32,6 @@ impl Receipt {
             done: false,
         })
     }
-    pub(in super::super) fn owner(&self) -> Rc<V8BindingState> {
-        self.owner.clone()
-    }
     pub(in super::super) fn retry_safe(&self) -> bool {
         true
     }
@@ -59,10 +56,9 @@ impl Receipt {
             match self.command {
                 TextCommand::Tab { backward } => {
                     let next = focus_navigation::next_sequential(&self.owner, backward)?;
-                    self.work = Some(Work::Focus(super::super::retained_focus::Transition::new(
-                        &self.owner,
-                        next,
-                    )?));
+                    self.work = Some(Work::Focus(Box::new(
+                        super::super::retained_focus::Transition::new(&self.owner, next)?,
+                    )));
                 }
                 TextCommand::Move {
                     direction,
@@ -95,10 +91,10 @@ impl Receipt {
                         direction,
                         text_unit(unit),
                     )? {
-                        self.work = Some(Work::Selection(receipt::SelectionJob::new(
+                        self.work = Some(Work::Selection(Box::new(receipt::SelectionJob::new(
                             &self.owner,
                             plan,
-                        )))
+                        ))))
                     } else {
                         self.done = true;
                         return Ok(true);
@@ -113,11 +109,11 @@ impl Receipt {
                         Some(unit),
                     )?;
                     if let Some(description) = description {
-                        self.work = Some(Work::Edit(receipt::EditJob::new(
+                        self.work = Some(Work::Edit(Box::new(receipt::EditJob::new(
                             &self.owner,
                             target,
                             description,
-                        )?));
+                        )?)));
                     } else {
                         self.done = true;
                         return Ok(true);
@@ -135,11 +131,11 @@ impl Receipt {
                         None,
                     )?;
                     if let Some(description) = description {
-                        self.work = Some(Work::Edit(receipt::EditJob::new(
+                        self.work = Some(Work::Edit(Box::new(receipt::EditJob::new(
                             &self.owner,
                             target,
                             description,
-                        )?));
+                        )?)));
                     } else {
                         self.done = true;
                         return Ok(true);

@@ -6,7 +6,7 @@ use super::*;
 pub(super) fn dispatch(
     state: &mut PageState,
     command: PageCommand,
-    context_owner: &BrowserContext,
+    _context_owner: &BrowserContext,
     #[cfg(feature = "v8-host")] pending_navigations: &mut Vec<PendingNavigationReply>,
     #[cfg(feature = "v8-host")] pending_captures: &mut VecDeque<capture_readiness::Pending>,
     #[cfg(feature = "v8-host")] paint_completion_sender: &mpsc::WeakSender<PageCommand>,
@@ -19,10 +19,12 @@ pub(super) fn dispatch(
     };
     match command {
         PageCommand::LoadHtml {
+            #[cfg(all(unix, feature = "v8-host"))]
             policy_token,
             url,
             html,
             reply,
+            ..
         } => {
             #[cfg(feature = "v8-host")]
             state.cancel_navigation_transaction(RuntimeError::NavigationCancelled);
@@ -33,7 +35,7 @@ pub(super) fn dispatch(
             );
             #[cfg(not(all(unix, feature = "v8-host")))]
             if let Err(error) =
-                context_owner.install_document_security(state.page_id, url.clone(), &[])
+                _context_owner.install_document_security(state.page_id, url.clone(), &[])
             {
                 let _ = reply.send(Err(error));
                 return None;
@@ -115,11 +117,11 @@ pub(super) fn dispatch(
             emitter,
             reply,
         } => {
+            #[cfg(feature = "v8-host")]
             let strategy = request.strategy;
             let result = state.controlled_navigation(request, emitter.clone());
             #[cfg(feature="v8-host")]
-                        if result.is_ok()&&state.pending_navigation_transaction.is_some()&&!state.pending_execution_replies.iter().any(|pending|matches!(&pending.reply,NavigationReply::JointEvents(owner,_)if owner.same_job(&emitter))){
-                            let transaction=state.pending_navigation_transaction.as_mut().unwrap();
+                        if result.is_ok()&&let Some(transaction)=state.pending_navigation_transaction.as_mut()&&!state.pending_execution_replies.iter().any(|pending|matches!(&pending.reply,NavigationReply::JointEvents(owner,_)if owner.same_job(&emitter))){
                             if strategy==crate::navigation_control::PageLoadStrategy::None{transaction.admission_reply=Some(reply);}
                             else{transaction.reply=Some(NavigationReply::Controlled(reply));}
                         }else if result.is_ok(){
@@ -241,7 +243,10 @@ pub(super) fn dispatch(
         } => {
             let result = state.execute_webdriver_actions(command, context, cancellation);
             let feedback = state.take_drag_feedback();
+            #[cfg(feature = "v8-host")]
             let receipts = state.webdriver_input.take_os_receipts();
+            #[cfg(not(feature = "v8-host"))]
+            let receipts = Vec::new();
             let _ = reply.send((result, feedback, receipts));
         }
         PageCommand::WebdriverScript {
@@ -290,9 +295,12 @@ pub(super) fn dispatch(
         }
         #[cfg(unix)]
         PageCommand::PrepareScriptClose {
+            #[cfg(feature = "v8-host")]
             token,
+            #[cfg(feature = "v8-host")]
             expected,
             reply,
+            ..
         } => {
             #[cfg(feature = "v8-host")]
             let result = state.poll_script_close_preparation(token, expected);
@@ -423,7 +431,7 @@ pub(super) fn dispatch(
                     .and_then(|page| page.root_paint_inventory_stamp())
                     == stamp;
             let _ = reply.send(if current {
-                result
+                *result
             } else {
                 Err(RuntimeError::StaleSemanticRef)
             });
@@ -471,14 +479,13 @@ pub(super) fn dispatch(
             result,
             reply,
         } => {
-            if generation == state.document_generation {
-                if let (Some(page), Some(stamp), Ok(snapshot)) =
+            if generation == state.document_generation
+                && let (Some(page), Some(stamp), Ok(snapshot)) =
                     (state.executable.as_ref(), stamp, result.as_ref())
-                {
-                    // Stale native cursor/epoch is discarded by the
-                    // executable without replacing the last inventory.
-                    let _ = page.install_root_paint_capture_inventory(stamp, snapshot);
-                }
+            {
+                // Stale native cursor/epoch is discarded by the
+                // executable without replacing the last inventory.
+                let _ = page.install_root_paint_capture_inventory(stamp, snapshot);
             }
             let _ = reply.send(result);
         }
@@ -574,11 +581,30 @@ pub(super) fn dispatch(
             return Some(reply);
         }
     }
+    #[cfg(feature = "v8-host")]
+    finish_turn(
+        state,
+        pending_navigations,
+        pending_captures,
+        paint_completion_sender,
+    );
+    None
+}
+
+// Shared by ordinary commands and retained wait/WebDriver turns. Page tasks
+// are pumped by the command; this bounded suffix owns reply/capture progress.
+#[cfg(feature = "v8-host")]
+fn finish_turn(
+    state: &mut PageState,
+    pending_navigations: &mut Vec<PendingNavigationReply>,
+    pending_captures: &mut VecDeque<capture_readiness::Pending>,
+    paint_completion_sender: &mpsc::WeakSender<PageCommand>,
+) {
     // Retain preexisting reply/capture custody for Close teardown;
     // no author work may run between departure ACK and destruction.
     #[cfg(all(unix, feature = "v8-host"))]
     if state.script_close_departure_completed() {
-        return None;
+        return;
     }
     #[cfg(feature = "v8-host")]
     if let Some(pending) = state.poll_navigation_transaction() {
@@ -604,13 +630,12 @@ pub(super) fn dispatch(
         // expired or cancelled later requests without starting any
         // callbacks or acquiring shared CSS capture custody.
         retire_queued_captures(pending_captures, state);
-        if let Some(pending) = pending_captures.pop_front() {
-            if let Some(pending) = pending.poll(state, paint_completion_sender) {
-                pending_captures.push_front(pending);
-            }
+        if let Some(pending) = pending_captures.pop_front()
+            && let Some(pending) = pending.poll(state, paint_completion_sender)
+        {
+            pending_captures.push_front(pending);
         }
     }
-    None
 }
 
 /// All root-local pending state stays together when an agent selects a root.
@@ -621,6 +646,11 @@ pub(super) struct Root {
     // agent queues must not copy the full document/prerender state onto every
     // scheduler frame (including unoptimized builds).
     pub(super) state: Box<PageState>,
+    pending_wait: Option<wait_fairness::Pending>,
+    #[cfg(feature = "v8-host")]
+    pending_webdriver: Option<webdriver_fairness::Pending>,
+    #[cfg(feature = "v8-host")]
+    terminal_cleanup: Vec<webdriver_fairness::PaintCleanup>,
     receiver: mpsc::Receiver<PageCommand>,
     #[cfg(feature = "v8-host")]
     pending_navigations: Vec<PendingNavigationReply>,
@@ -628,14 +658,27 @@ pub(super) struct Root {
     pending_captures: VecDeque<capture_readiness::Pending>,
     #[cfg(feature = "v8-host")]
     paint_completion_sender: mpsc::WeakSender<PageCommand>,
+    #[cfg(feature = "v8-host")]
+    _paint_completion_owner: mpsc::Sender<PageCommand>,
+    #[cfg(feature = "v8-host")]
+    paint_completions: mpsc::Receiver<PageCommand>,
 }
 impl Root {
     pub(super) fn new(
         state: PageState,
         receiver: mpsc::Receiver<PageCommand>,
-        #[cfg(feature = "v8-host")] paint_completion_sender: mpsc::WeakSender<PageCommand>,
+        #[cfg(feature = "v8-host")] _paint_completion_sender: mpsc::WeakSender<PageCommand>,
     ) -> Self {
+        #[cfg(feature = "v8-host")]
+        let (paint_completion_owner, paint_completions) = mpsc::channel(32);
+        #[cfg(feature = "v8-host")]
+        let paint_completion_sender = paint_completion_owner.downgrade();
         Self {
+            pending_wait: None,
+            #[cfg(feature = "v8-host")]
+            pending_webdriver: None,
+            #[cfg(feature = "v8-host")]
+            terminal_cleanup: Vec::new(),
             state: Box::new(state),
             receiver,
             #[cfg(feature = "v8-host")]
@@ -644,9 +687,81 @@ impl Root {
             pending_captures: VecDeque::new(),
             #[cfg(feature = "v8-host")]
             paint_completion_sender,
+            #[cfg(feature = "v8-host")]
+            _paint_completion_owner: paint_completion_owner,
+            #[cfg(feature = "v8-host")]
+            paint_completions,
         }
     }
+    fn try_actor_command(&mut self) -> Result<PageCommand, tokio::sync::mpsc::error::TryRecvError> {
+        #[cfg(feature = "v8-host")]
+        if let Ok(completion) = self.paint_completions.try_recv() {
+            return Ok(completion);
+        }
+        if self.has_pending_command() {
+            if self.receiver.is_closed() && self.receiver.is_empty() {
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected)
+            } else {
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+            }
+        } else {
+            self.receiver.try_recv()
+        }
+    }
+    fn poll_terminal_cleanup(&mut self) -> bool {
+        #[cfg(feature = "v8-host")]
+        {
+            self.terminal_cleanup.retain_mut(|cleanup| !cleanup.poll());
+            self.terminal_cleanup.is_empty()
+        }
+        #[cfg(not(feature = "v8-host"))]
+        {
+            true
+        }
+    }
+    fn finish_pending_turn(&mut self, context: &BrowserContext) {
+        if context
+            .page_prompt_controller(self.state.page_id)
+            .map_or(true, |controller| controller.inspect().is_err())
+        {
+            return;
+        }
+        #[cfg(feature = "v8-host")]
+        finish_turn(
+            &mut self.state,
+            &mut self.pending_navigations,
+            &mut self.pending_captures,
+            &self.paint_completion_sender,
+        );
+    }
+    fn has_pending_command(&self) -> bool {
+        let pending = self.pending_wait.is_some();
+        #[cfg(feature = "v8-host")]
+        let pending =
+            pending || self.pending_webdriver.is_some() || !self.terminal_cleanup.is_empty();
+        pending
+    }
+    fn pending_command_delay(&self) -> Option<Duration> {
+        let delay = self
+            .pending_wait
+            .as_ref()
+            .map(|pending| pending.next_delay());
+        #[cfg(feature = "v8-host")]
+        let delay = delay
+            .into_iter()
+            .chain(
+                self.pending_webdriver
+                    .as_ref()
+                    .map(|pending| pending.next_delay()),
+            )
+            .chain((!self.terminal_cleanup.is_empty()).then_some(Duration::from_millis(1)))
+            .min();
+        delay
+    }
     fn has_pending_work(&mut self) -> bool {
+        if self.has_pending_command() {
+            return true;
+        }
         #[cfg(all(unix, feature = "v8-host"))]
         if self.state.script_close_departure_completed() {
             return false;
@@ -662,10 +777,15 @@ impl Root {
         if self.state.script_close_departure_completed() {
             return None;
         }
-        let delay = self.state.next_timer_delay();
+        let delay = self
+            .state
+            .next_timer_delay()
+            .into_iter()
+            .chain(self.pending_command_delay())
+            .min();
         #[cfg(feature = "v8-host")]
         {
-            return delay
+            delay
                 .into_iter()
                 .chain(
                     self.pending_captures
@@ -680,12 +800,18 @@ impl Root {
                         }),
                 )
                 .chain((!self.pending_navigations.is_empty()).then_some(Duration::from_millis(10)))
-                .min();
+                .min()
         }
         #[cfg(not(feature = "v8-host"))]
         delay
     }
     fn has_runnable_work(&mut self) -> bool {
+        if self
+            .pending_command_delay()
+            .is_some_and(|delay| delay.is_zero())
+        {
+            return true;
+        }
         #[cfg(all(unix, feature = "v8-host"))]
         if self.state.script_close_departure_completed() {
             return false;
@@ -721,14 +847,32 @@ impl Root {
         &mut self,
         scheduler: &Option<tokio::runtime::Runtime>,
     ) -> Option<PageCommand> {
-        return if self.has_pending_work() {
+        #[cfg(feature = "v8-host")]
+        if let Ok(completion) = self.paint_completions.try_recv() {
+            return Some(completion);
+        }
+        if self.has_pending_command() {
+            if self.receiver.is_closed() && self.receiver.is_empty() {
+                return None;
+            }
+            // Keep later same-page commands in the bounded receiver. Only the
+            // retained command advances; related roots still get actor turns.
+            let delay = self
+                .pending_command_delay()
+                .unwrap_or(Duration::from_millis(1));
+            if !delay.is_zero() {
+                std::thread::sleep(delay);
+            }
+            return Some(PageCommand::PollContextEvents);
+        }
+        if self.has_pending_work() {
             let timer_delay = self.next_work_delay();
             let delay = self.poll_delay(timer_delay);
             // A due timer is runnable now. Passing it through Tokio's
             // timer wheel adds a tick even for a zero-duration sleep.
             // Keep commands ahead of timer work, including shutdown.
             if timer_delay.is_some_and(|delay| delay.is_zero()) {
-                match self.receiver.try_recv() {
+                match self.try_actor_command() {
                     Ok(command) => Some(command),
                     Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
                         Some(PageCommand::PollContextEvents)
@@ -738,25 +882,131 @@ impl Root {
             } else {
                 scheduler.as_ref().and_then(|runtime| {
                     runtime.block_on(async {
-                        tokio::select! {
+                        #[cfg(feature = "v8-host")]
+                        let command = tokio::select! {
+                            biased;
+                            completion = self.paint_completions.recv() => completion,
+                            command = self.receiver.recv() => command,
+                            _ = tokio::time::sleep(delay) => Some(PageCommand::PollContextEvents),
+                        };
+                        #[cfg(not(feature = "v8-host"))]
+                        let command = tokio::select! {
                             biased;
                             command = self.receiver.recv() => command,
-                            _ = tokio::time::sleep(delay) => {
-                                Some(PageCommand::PollContextEvents)
-                            }
-                        }
+                            _ = tokio::time::sleep(delay) => Some(PageCommand::PollContextEvents),
+                        };
+                        command
                     })
                 })
             }
         } else {
-            self.receiver.blocking_recv()
-        };
+            #[cfg(feature = "v8-host")]
+            {
+                if scheduler.is_none() {
+                    loop {
+                        match self.try_actor_command() {
+                            Ok(command) => return Some(command),
+                            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                                return None;
+                            }
+                            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                                std::thread::sleep(Duration::from_millis(1))
+                            }
+                        }
+                    }
+                }
+                scheduler.as_ref().and_then(|runtime| {
+                    runtime.block_on(async {
+                        tokio::select! {
+                            biased;
+                            completion = self.paint_completions.recv() => completion,
+                            command = self.receiver.recv() => command,
+                        }
+                    })
+                })
+            }
+            #[cfg(not(feature = "v8-host"))]
+            {
+                self.receiver.blocking_recv()
+            }
+        }
+    }
+    /// Fallback actors use the same command-first fairness as shared actors.
+    pub(super) fn dispatch_fallback(
+        &mut self,
+        command: PageCommand,
+        context: &BrowserContext,
+        next_poll: &mut std::time::Instant,
+    ) -> Option<oneshot::Sender<()>> {
+        let polled = matches!(&command, PageCommand::PollContextEvents);
+        let close = self.dispatch(command, context);
+        if close.is_some() {
+            return close;
+        }
+        if polled || (self.has_pending_work() && std::time::Instant::now() >= *next_poll) {
+            if !polled {
+                self.dispatch(PageCommand::PollContextEvents, context);
+            }
+            let timer_delay = self.next_work_delay();
+            let delay = self.poll_delay(timer_delay);
+            let finished = std::time::Instant::now();
+            *next_poll = finished.checked_add(delay).unwrap_or(finished);
+        }
+        None
     }
     pub(super) fn dispatch(
         &mut self,
         command: PageCommand,
         context: &BrowserContext,
     ) -> Option<oneshot::Sender<()>> {
+        self.poll_terminal_cleanup();
+        #[cfg(all(unix, feature = "v8-host"))]
+        let command = if self.state.script_close_departure_completed() {
+            self.cancel_pending_commands();
+            reject_after_departure(command)?
+        } else {
+            command
+        };
+        if matches!(&command, PageCommand::PollContextEvents) && self.has_pending_command() {
+            if let Some(pending) = self.pending_wait.take() {
+                self.pending_wait = pending.poll(&mut self.state);
+            }
+            #[cfg(feature = "v8-host")]
+            if let Some(pending) = self.pending_webdriver.take() {
+                self.pending_webdriver = pending.poll(&mut self.state);
+            }
+            self.finish_pending_turn(context);
+            return None;
+        }
+        let mut command = Some(command);
+        if let Some(pending) = wait_fairness::Pending::from_command(&mut command, &self.state) {
+            match context.page_prompt_controller(self.state.page_id) {
+                Ok(controller) => {
+                    self.pending_wait = pending.with_cancellation(controller).poll(&mut self.state)
+                }
+                Err(error) => pending.reject(error),
+            }
+            self.finish_pending_turn(context);
+            return None;
+        }
+        #[cfg(feature = "v8-host")]
+        if let Some(pending) = webdriver_fairness::Pending::from_command(&mut command, &self.state)
+        {
+            match context.page_prompt_controller(self.state.page_id) {
+                Ok(controller) => {
+                    self.pending_webdriver =
+                        pending.with_cancellation(controller).poll(&mut self.state)
+                }
+                Err(error) => {
+                    if let Some(cleanup) = pending.reject(&mut self.state, error) {
+                        self.terminal_cleanup.push(cleanup);
+                    }
+                }
+            }
+            self.finish_pending_turn(context);
+            return None;
+        }
+        let command = command.expect("unclaimed command retained");
         dispatch(
             &mut self.state,
             command,
@@ -771,7 +1021,34 @@ impl Root {
     }
 }
 impl Root {
+    fn cancel_pending_commands(&mut self) {
+        if let Some(pending) = self.pending_wait.take() {
+            pending.reject(RuntimeError::Closed);
+        }
+        #[cfg(feature = "v8-host")]
+        if let Some(pending) = self.pending_webdriver.take() {
+            if let Some(cleanup) = pending.reject(&mut self.state, RuntimeError::Closed) {
+                self.terminal_cleanup.push(cleanup);
+            }
+        }
+    }
     fn shutdown(&mut self) {
+        self.cancel_pending_commands();
+        #[cfg(feature = "v8-host")]
+        {
+            self.paint_completions.close();
+            while let Ok(completion) = self.paint_completions.try_recv() {
+                match completion {
+                    PageCommand::PaintSnapshotCompleted { reply, .. } => {
+                        let _ = reply.send(Err(RuntimeError::Closed));
+                    }
+                    PageCommand::AccessibilitySnapshotCompleted { reply, .. } => {
+                        let _ = reply.send(Err(RuntimeError::Closed));
+                    }
+                    _ => unreachable!("private capture completion channel"),
+                }
+            }
+        }
         #[cfg(feature = "v8-host")]
         {
             // A rejected/retired root may no longer acquire the shared host.
@@ -840,6 +1117,12 @@ fn actor_poll_delay(
 impl Drop for Root {
     fn drop(&mut self) {
         self.shutdown();
+        // Shared actors reach Drop only after their nonblocking retirement
+        // check joins cleanup. Fallback/direct ownership still cannot detach
+        // native workers or acknowledge Close before their cancellation ends.
+        while !self.poll_terminal_cleanup() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 }
 
@@ -859,6 +1142,92 @@ mod tests {
         );
         (Root::new(state, receiver, sender.downgrade()), sender)
     }
+    fn timer_root(page: u64) -> (Root, mpsc::Sender<PageCommand>) {
+        use crate::host::JavaScriptHost;
+        let (mut root, sender) = root(page);
+        root.state
+            .load_document(
+                "https://scheduler.test/".into(),
+                "<body>timer</body>",
+                None,
+                None,
+                HistoryUpdate::Push,
+                &BTreeMap::new(),
+                Vec::new(),
+            )
+            .unwrap();
+        let executable = root.state.executable.as_mut().unwrap();
+        let mut host = executable.take_agent_host().unwrap();
+        host.execute("globalThis.fallbackTicks=0;setTimeout(()=>fallbackTicks++,0)")
+            .unwrap();
+        assert!(matches!(
+            executable.return_agent_host_after_turn(host),
+            Ok(None)
+        ));
+        (root, sender)
+    }
+    fn timer_ticks(root: &mut Root) -> String {
+        use crate::host::JavaScriptHost;
+        let executable = root.state.executable.as_mut().unwrap();
+        let mut host = executable.take_agent_host().unwrap();
+        let ticks = host.evaluate_string("String(fallbackTicks)").unwrap();
+        assert!(matches!(
+            executable.return_agent_host_after_turn(host),
+            Ok(None)
+        ));
+        ticks
+    }
+    #[test]
+    fn fallback_command_traffic_cannot_starve_due_timer() {
+        let context = Browser::in_process_with_config(Default::default()).new_context();
+        let (mut root, sender) = timer_root(430);
+        let (reply, mut first) = oneshot::channel();
+        sender
+            .try_send(PageCommand::Capabilities { reply })
+            .unwrap();
+        let (reply, mut second) = oneshot::channel();
+        sender
+            .try_send(PageCommand::Capabilities { reply })
+            .unwrap();
+        assert_eq!(timer_ticks(&mut root), "0");
+        let mut next_poll = std::time::Instant::now();
+        let command = root.next_command(&None).unwrap();
+        assert!(matches!(&command, PageCommand::Capabilities { .. }));
+        assert!(
+            root.dispatch_fallback(command, &context, &mut next_poll)
+                .is_none()
+        );
+        assert!(first.try_recv().is_ok());
+        assert!(matches!(
+            second.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        assert_eq!(
+            timer_ticks(&mut root),
+            "1",
+            "due work progresses while commands remain queued"
+        );
+    }
+    #[test]
+    fn fallback_close_does_not_run_due_author_timer() {
+        let context = Browser::in_process_with_config(Default::default()).new_context();
+        let (mut root, sender) = timer_root(431);
+        let (reply, mut closed) = oneshot::channel();
+        sender.try_send(PageCommand::Close { reply }).unwrap();
+        let command = root.next_command(&None).unwrap();
+        let acknowledgement = root
+            .dispatch_fallback(command, &context, &mut std::time::Instant::now())
+            .unwrap();
+        assert_eq!(timer_ticks(&mut root), "0");
+        assert!(matches!(
+            closed.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        drop(root);
+        acknowledgement.send(()).unwrap();
+        assert!(closed.try_recv().is_ok());
+    }
+
     #[test]
     fn moving_actor_roots_keeps_document_state_at_one_heap_address() {
         let (first, first_sender) = root(401);
@@ -995,6 +1364,9 @@ mod tests {
             context.clone(),
             id,
         ));
+        context
+            .install_document_security(id, "https://close.test/".into(), &[])
+            .unwrap();
         root.state
             .load_document(
                 "https://close.test/".into(),
@@ -1409,14 +1781,13 @@ mod related_actor {
                             .map(|host| host.agent_host_identity())
                     });
             }
-            if host.is_none() {
-                if let Ok(Some(owned)) = entry.root.state.extract_agent_host(host_identity.as_ref())
-                {
-                    if host_identity.is_none() {
-                        host_identity = Some(owned.agent_host_identity());
-                    }
-                    host = Some(owned);
+            if host.is_none()
+                && let Ok(Some(owned)) = entry.root.state.extract_agent_host(host_identity.as_ref())
+            {
+                if host_identity.is_none() {
+                    host_identity = Some(owned.agent_host_identity());
                 }
+                host = Some(owned);
             }
             if entry.retiring {
                 if entry.root.state.pending_agent_host.is_none() {
@@ -1426,7 +1797,7 @@ mod related_actor {
                 if !executable.has_agent_host() {
                     if let Some(owned) = host.take() {
                         if let Err((_error, owned)) = executable.install_agent_host(owned) {
-                            host = Some(owned);
+                            host = Some(*owned);
                             retire = true;
                         }
                     } else {
@@ -1437,41 +1808,40 @@ mod related_actor {
                 entry.root.state.pending_agent_host = host.take();
             }
             if !retire {
-                match entry.root.receiver.try_recv() {
+                let command = entry.root.try_actor_command();
+                match command {
                     Ok(command) => {
                         if let Some(context) = entry.context.upgrade() {
                             close = entry.root.dispatch(command, &context);
                         } else {
                             retire = true;
                         }
-                        // Commands can restore a parked document or admit work
-                        // with an earlier deadline than the previous queue.
-                        entry.next_poll = std::time::Instant::now();
                     }
                     Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => retire = true,
-                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
-                        let now = std::time::Instant::now();
-                        if entry.root.has_pending_work() {
-                            let timer_delay = entry.root.next_work_delay();
-                            let delay = entry.root.poll_delay(timer_delay);
-                            // A sibling sharing this agent can make this root
-                            // runnable without sending a command to its queue.
-                            entry.next_poll =
-                                entry.next_poll.min(now.checked_add(delay).unwrap_or(now));
-                            if now >= entry.next_poll {
-                                if let Some(context) = entry.context.upgrade() {
-                                    close = entry
-                                        .root
-                                        .dispatch(PageCommand::PollContextEvents, &context);
-                                } else {
-                                    retire = true;
-                                }
-                                let timer_delay = entry.root.next_work_delay();
-                                let delay = entry.root.poll_delay(timer_delay);
-                                let finished = std::time::Instant::now();
-                                entry.next_poll = finished.checked_add(delay).unwrap_or(finished);
-                            }
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
+                }
+                // A busy command queue must not starve parser, timer, or
+                // lifecycle work. Keep commands (especially Close) first, then
+                // grant one bounded work turn when this root's deadline is due.
+                // Preserve a future deadline across commands instead of moving
+                // it forward on every observation.
+                if !retire && close.is_none() && entry.root.has_pending_work() {
+                    let now = std::time::Instant::now();
+                    let timer_delay = entry.root.next_work_delay();
+                    let delay = entry.root.poll_delay(timer_delay);
+                    entry.next_poll = entry.next_poll.min(now.checked_add(delay).unwrap_or(now));
+                    if now >= entry.next_poll {
+                        if let Some(context) = entry.context.upgrade() {
+                            close = entry
+                                .root
+                                .dispatch(PageCommand::PollContextEvents, &context);
+                        } else {
+                            retire = true;
                         }
+                        let timer_delay = entry.root.next_work_delay();
+                        let delay = entry.root.poll_delay(timer_delay);
+                        let finished = std::time::Instant::now();
+                        entry.next_poll = finished.checked_add(delay).unwrap_or(finished);
                     }
                 }
             }
@@ -1552,7 +1922,9 @@ mod related_actor {
                         .retire_realms
                         .retain(|realm| owned.retire_agent_root(*realm).is_err());
                 }
-                if entry.retire_realms.is_empty() && !entry.root.state.has_retired_agent_documents()
+                if entry.retire_realms.is_empty()
+                    && !entry.root.state.has_retired_agent_documents()
+                    && entry.root.poll_terminal_cleanup()
                 {
                     if let Some(route) = entry.route.as_ref() {
                         registry()
@@ -1654,16 +2026,16 @@ mod related_actor {
                         .get(history.current)
                         .map(|entry| entry.url.clone())
                         .unwrap_or(url);
-                    state.adopt_agent_document(
+                    state.adopt_agent_document(crate::runtime::AgentDocumentInputs {
                         executable,
                         url,
                         generation,
-                        origin.unwrap(),
+                        origin: origin.unwrap(),
                         history,
                         policy,
                         referrer,
                         isolation,
-                    );
+                    });
                     let weak = if let Some(sender) = sender.as_ref() {
                         sender.downgrade()
                     } else {
@@ -1907,4 +2279,200 @@ fn reject_after_departure(command: PageCommand) -> Option<PageCommand> {
         }
     }
     None
+}
+
+#[cfg(all(test, not(feature = "v8-host")))]
+mod no_v8_input_tests {
+    use super::*;
+    use crate::host::webdriver_script::ScriptContext;
+    use crate::webdriver_actions::{Action, ActionCommand, ActionsRequest, Source, SourceKind};
+
+    #[test]
+    fn unsupported_actions_reply_without_receipts_and_keep_the_actor_root_live() {
+        let owner = Browser::in_process_with_config(BrowserConfig::default()).new_context();
+        let state = PageState::new(
+            PageId(401),
+            None,
+            BrowserConfig {
+                document_generation_base: 7,
+                ..Default::default()
+            },
+            Default::default(),
+            None,
+        );
+        let (sender, receiver) = mpsc::channel(4);
+        let mut root = Root::new(state, receiver);
+        let request = ActionsRequest {
+            sources: vec![Source {
+                id: "keyboard".into(),
+                kind: SourceKind::Key,
+                actions: vec![Action::Key {
+                    down: true,
+                    value: vec![u16::from(b'x')],
+                }],
+            }],
+        };
+        request.validate().unwrap();
+        for command in [
+            ActionCommand::Perform(request),
+            ActionCommand::Release,
+            ActionCommand::Cancel,
+        ] {
+            let (reply, mut response) = oneshot::channel();
+            assert!(
+                root.dispatch(
+                    PageCommand::WebdriverActions {
+                        command,
+                        context: ScriptContext::default(),
+                        cancellation: None,
+                        reply,
+                    },
+                    &owner,
+                )
+                .is_none()
+            );
+            let (result, feedback, receipts) = response.try_recv().unwrap();
+            let error = result.unwrap_err();
+            assert_eq!(error.code, "unsupported operation");
+            assert_eq!(error.message, "native input actions require V8");
+            assert!(receipts.is_empty());
+            assert!(feedback.updates.is_empty());
+            assert_eq!(feedback.page_generation, 7);
+            assert_eq!(root.state.document_generation, 7);
+            assert!(
+                !sender.is_closed(),
+                "unsupported input must not retire the actor root"
+            );
+        }
+        drop(root);
+        assert!(
+            sender.is_closed(),
+            "ordinary root teardown still closes its receiver"
+        );
+    }
+}
+
+#[cfg(all(test, feature = "v8-host"))]
+mod retained_command_mailbox_tests {
+    use super::*;
+    fn idle_root() -> (Root, mpsc::Sender<PageCommand>) {
+        let (sender, receiver) = mpsc::channel(4);
+        let mut state = PageState::new(
+            PageId(590),
+            None,
+            Default::default(),
+            Default::default(),
+            None,
+            #[cfg(unix)]
+            None,
+        );
+        state.network_quiet_since = None;
+        (Root::new(state, receiver, sender.downgrade()), sender)
+    }
+    fn completion(
+        generation: u64,
+    ) -> (
+        PageCommand,
+        oneshot::Receiver<Result<PaintSnapshot, RuntimeError>>,
+    ) {
+        let (reply, result) = oneshot::channel();
+        (
+            PageCommand::PaintSnapshotCompleted {
+                generation,
+                stamp: None,
+                result: Err(RuntimeError::PaintUnavailable("worker completed".into())),
+                reply,
+            },
+            result,
+        )
+    }
+    #[test]
+    fn delayed_private_completion_wakes_idle_actor_without_a_user_command() {
+        let (mut root, ordinary) = idle_root();
+        let parked = Arc::new(AtomicBool::new(false));
+        let notify = parked.clone();
+        let scheduler = Some(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .on_thread_park(move || {
+                    notify.store(true, Ordering::Release);
+                })
+                .build()
+                .unwrap(),
+        );
+        let sender = root._paint_completion_owner.clone();
+        let (message, _result) = completion(root.state.document_generation);
+        let worker = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !parked.load(Ordering::Acquire) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            if !parked.load(Ordering::Acquire) {
+                // Fail boundedly if the actor waited on only its ordinary queue.
+                let (reply, _) = oneshot::channel();
+                ordinary
+                    .blocking_send(PageCommand::Capabilities { reply })
+                    .unwrap();
+            }
+            sender.blocking_send(message).unwrap();
+        });
+        let message = root.next_command(&scheduler).unwrap();
+        assert!(matches!(
+            message,
+            PageCommand::PaintSnapshotCompleted { .. }
+        ));
+        worker.join().unwrap();
+    }
+    #[test]
+    fn private_completion_bypasses_wait_barrier_but_user_fifo_does_not() {
+        let (mut root, ordinary) = idle_root();
+        let (reply, waiting) = oneshot::channel();
+        root.pending_wait = wait_fairness::Pending::from_command(
+            &mut Some(PageCommand::WaitForUntil {
+                predicate: WaitPredicate::Lifecycle(LifecycleState::NetworkIdle),
+                timeout: None,
+                reply,
+            }),
+            &root.state,
+        );
+        let (reply, _following) = oneshot::channel();
+        ordinary
+            .try_send(PageCommand::Capabilities { reply })
+            .unwrap();
+        let (message, mut completed) = completion(root.state.document_generation);
+        root._paint_completion_owner.try_send(message).unwrap();
+        let message = root.try_actor_command().unwrap();
+        assert!(matches!(
+            message,
+            PageCommand::PaintSnapshotCompleted { .. }
+        ));
+        let context = Browser::in_process_with_config(Default::default()).new_context();
+        root.dispatch(message, &context);
+        assert!(matches!(
+            completed.try_recv(),
+            Ok(Err(RuntimeError::PaintUnavailable(_)))
+        ));
+        assert!(matches!(
+            root.try_actor_command(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+        drop(waiting);
+        root.dispatch(PageCommand::PollContextEvents, &context);
+        assert!(matches!(
+            root.try_actor_command(),
+            Ok(PageCommand::Capabilities { .. })
+        ));
+    }
+    #[test]
+    fn shutdown_completes_buffered_private_reply_before_root_drop() {
+        let (mut root, _ordinary) = idle_root();
+        let (message, mut completed) = completion(root.state.document_generation);
+        root._paint_completion_owner.try_send(message).unwrap();
+        root.shutdown();
+        assert!(matches!(
+            completed.try_recv(),
+            Ok(Err(RuntimeError::Closed))
+        ));
+        assert!(root.paint_completions.is_closed());
+    }
 }

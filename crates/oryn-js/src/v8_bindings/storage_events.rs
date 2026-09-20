@@ -343,14 +343,8 @@ pub(super) fn dispatch(
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_eval::eval;
     use super::*;
-    fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, text: &str) -> v8::Local<'s, v8::Value> {
-        let text = v8::String::new(scope, text).unwrap();
-        v8::Script::compile(scope, text, None)
-            .unwrap()
-            .run(scope)
-            .unwrap()
-    }
     struct NativeStorage(std::sync::atomic::AtomicBool);
     impl crate::platform_control::Backend for NativeStorage {
         fn request(
@@ -463,7 +457,7 @@ mod tests {
             eval(scope, "JSON.stringify(seen)").to_rust_string_lossy(scope),
             r#"[[true,true,"key",null,"new","https://writer.test/path#source",true,false,false]]"#
         );
-        assert!(eval(scope,r#"const e=new SE('old');e.initStorageEvent('new',true,true,'k','old','new','https://writer.test/',area);e.type==='new'&&e.key==='k'&&e.oldValue==='old'&&e.newValue==='new'&&e.storageArea===area&&e.bubbles&&e.cancelable&&!e.isTrusted"#).is_true());
+        assert!(eval(scope,r#"(()=>{const e=new SE('old');e.initStorageEvent('new',true,true,'k','old','new','https://writer.test/',area);return e.type==='new'&&e.key==='k'&&e.oldValue==='old'&&e.newValue==='new'&&e.storageArea===area&&e.bubbles&&e.cancelable&&!e.isTrusted})()"#).is_true());
     }
 }
 

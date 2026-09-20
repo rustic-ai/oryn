@@ -1,4 +1,44 @@
 //! Nonactive root authority. A reservation does not replace the visible root.
+
+/// Inputs for commit prerender frame origin.
+pub struct PrerenderFrameOrigin<'a> {
+    pub page: u64,
+    pub token: &'a PrerenderToken,
+    pub lifetime: (u64, u64),
+    pub frame: &'a str,
+    pub generation: u64,
+    pub epoch: u64,
+    pub origin: (String, String),
+}
+/// Inputs for register prerender frame.
+pub struct PrerenderFrameRegistration<'a> {
+    pub page: u64,
+    pub token: &'a PrerenderToken,
+    pub lifetime: (u64, u64),
+    pub parent: &'a WindowTarget,
+    pub parent_generation: u64,
+    pub parent_epoch: u64,
+    pub frame: String,
+    pub generation: u64,
+    pub epoch: u64,
+    pub frame_origin: String,
+    pub inherit_origin: Option<WindowTarget>,
+    pub origin: &'a str,
+    pub origin_key: &'a str,
+    pub partition: String,
+}
+/// Inputs for handle prerender.
+pub struct PrerenderMessage<'a> {
+    pub page: u64,
+    pub token: &'a PrerenderToken,
+    pub lifetime: (u64, u64),
+    pub request: MessageRequest,
+    pub live: &'a BTreeMap<u64, String>,
+    pub keys: &'a BTreeMap<u64, String>,
+    pub origin: &'a str,
+    pub origin_key: &'a str,
+    pub partition: String,
+}
 use super::*;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,16 +151,20 @@ impl MessageHub {
     /// or external transport occur while the projection is installed.
     pub fn handle_prerender(
         &mut self,
-        page: u64,
-        token: &PrerenderToken,
-        lifetime: (u64, u64),
-        request: MessageRequest,
-        live: &BTreeMap<u64, String>,
-        keys: &BTreeMap<u64, String>,
-        origin: &str,
-        origin_key: &str,
-        partition: String,
+        params: PrerenderMessage<'_>,
     ) -> Result<MessageResponse, String> {
+        let PrerenderMessage {
+            page,
+            token,
+            lifetime,
+            request,
+            live,
+            keys,
+            origin,
+            origin_key,
+            partition,
+        } = params;
+
         self.prerender_document_authority(page, token, lifetime)?;
         let MessageRequest::InDocument {
             target,
@@ -139,29 +183,41 @@ impl MessageHub {
             *document_generation,
             *stream_epoch,
         )?;
-        self.with_prerender_projection(
-            page, token, lifetime, request, live, keys, origin, origin_key, partition,
-        )
+        self.with_prerender_projection(PrerenderMessage {
+            page,
+            token,
+            lifetime,
+            request,
+            live,
+            keys,
+            origin,
+            origin_key,
+            partition,
+        })
     }
     /// Native parent caller only; the creator is validated against this exact
     /// private tree before the child can enter its registration table.
     pub fn register_prerender_frame(
         &mut self,
-        page: u64,
-        token: &PrerenderToken,
-        lifetime: (u64, u64),
-        parent: &WindowTarget,
-        parent_generation: u64,
-        parent_epoch: u64,
-        frame: String,
-        generation: u64,
-        epoch: u64,
-        frame_origin: String,
-        inherit_origin: Option<WindowTarget>,
-        origin: &str,
-        origin_key: &str,
-        partition: String,
+        params: PrerenderFrameRegistration<'_>,
     ) -> Result<(), String> {
+        let PrerenderFrameRegistration {
+            page,
+            token,
+            lifetime,
+            parent,
+            parent_generation,
+            parent_epoch,
+            frame,
+            generation,
+            epoch,
+            frame_origin,
+            inherit_origin,
+            origin,
+            origin_key,
+            partition,
+        } = params;
+
         self.prerender_target_authority(
             page,
             token,
@@ -191,17 +247,17 @@ impl MessageHub {
             origin: frame_origin,
             inherit_origin,
         };
-        let result = self.with_prerender_projection(
+        let result = self.with_prerender_projection(PrerenderMessage {
             page,
             token,
             lifetime,
             request,
-            &BTreeMap::from([(page, origin.into())]),
-            &BTreeMap::from([(page, origin_key.into())]),
+            live: &BTreeMap::from([(page, origin.into())]),
+            keys: &BTreeMap::from([(page, origin_key.into())]),
             origin,
             origin_key,
             partition,
-        )?;
+        })?;
         if !matches!(result, MessageResponse::Done) {
             return Err("prerender frame registration response mismatch".into());
         }
@@ -279,14 +335,18 @@ impl MessageHub {
     }
     pub fn commit_prerender_frame_origin(
         &mut self,
-        page: u64,
-        token: &PrerenderToken,
-        lifetime: (u64, u64),
-        frame: &str,
-        generation: u64,
-        epoch: u64,
-        origin: (String, String),
+        params: PrerenderFrameOrigin<'_>,
     ) -> Result<(), String> {
+        let PrerenderFrameOrigin {
+            page,
+            token,
+            lifetime,
+            frame,
+            generation,
+            epoch,
+            origin,
+        } = params;
+
         self.prerender_target_authority(
             page,
             token,
@@ -308,16 +368,20 @@ impl MessageHub {
     }
     fn with_prerender_projection(
         &mut self,
-        page: u64,
-        token: &PrerenderToken,
-        lifetime: (u64, u64),
-        request: MessageRequest,
-        live: &BTreeMap<u64, String>,
-        keys: &BTreeMap<u64, String>,
-        origin: &str,
-        origin_key: &str,
-        partition: String,
+        params: PrerenderMessage<'_>,
     ) -> Result<MessageResponse, String> {
+        let PrerenderMessage {
+            page,
+            token,
+            lifetime,
+            request,
+            live,
+            keys,
+            origin,
+            origin_key,
+            partition,
+        } = params;
+
         self.prerender_document_authority(page, token, lifetime)?;
         let old_root = self
             .roots
@@ -594,22 +658,22 @@ mod tests {
         hub.roots.insert(1, (1, 0));
         let token = hub.reserve_prerender_document(1, (1, 0), (2, 1)).unwrap();
         let frame = "a".repeat(64);
-        hub.register_prerender_frame(
-            1,
-            &token,
-            (2, 1),
-            &WindowTarget::Root,
-            2,
-            1,
-            frame.clone(),
-            1,
-            0,
-            "https://private.test".into(),
-            Some(WindowTarget::Root),
-            "https://private.test",
-            "private-origin",
-            "partition".into(),
-        )
+        hub.register_prerender_frame(PrerenderFrameRegistration {
+            page: 1,
+            token: &token,
+            lifetime: (2, 1),
+            parent: &WindowTarget::Root,
+            parent_generation: 2,
+            parent_epoch: 1,
+            frame: frame.clone(),
+            generation: 1,
+            epoch: 0,
+            frame_origin: "https://private.test".into(),
+            inherit_origin: Some(WindowTarget::Root),
+            origin: "https://private.test",
+            origin_key: "private-origin",
+            partition: "partition".into(),
+        })
         .unwrap();
         assert!(hub.frame_document_authority(1, &frame, 1, 0).is_err());
         assert_eq!(
@@ -625,22 +689,22 @@ mod tests {
             Some(("https://private.test".into(), "private-origin".into()))
         );
         assert!(
-            hub.register_prerender_frame(
-                1,
-                &token,
-                (2, 1),
-                &WindowTarget::Root,
-                1,
-                0,
-                "b".repeat(64),
-                1,
-                0,
-                "https://private.test".into(),
-                None,
-                "https://private.test",
-                "private-origin",
-                "partition".into()
-            )
+            hub.register_prerender_frame(PrerenderFrameRegistration {
+                page: 1,
+                token: &token,
+                lifetime: (2, 1),
+                parent: &WindowTarget::Root,
+                parent_generation: 1,
+                parent_epoch: 0,
+                frame: "b".repeat(64),
+                generation: 1,
+                epoch: 0,
+                frame_origin: "https://private.test".into(),
+                inherit_origin: None,
+                origin: "https://private.test",
+                origin_key: "private-origin",
+                partition: "partition".into()
+            })
             .is_err()
         );
         assert!(!hub.retire_prerender_frame(1, &frame, 0, 0));
@@ -681,17 +745,17 @@ mod tests {
         };
         hub.handle_with_origin_keys(1, post(), &live, &keys)
             .unwrap();
-        hub.handle_prerender(
-            1,
-            &token,
-            (2, 1),
-            scoped(post()),
-            &live,
-            &keys,
-            "null",
-            "private-opaque",
-            "private-partition".into(),
-        )
+        hub.handle_prerender(PrerenderMessage {
+            page: 1,
+            token: &token,
+            lifetime: (2, 1),
+            request: scoped(post()),
+            live: &live,
+            keys: &keys,
+            origin: "null",
+            origin_key: "private-opaque",
+            partition: "private-partition".into(),
+        })
         .unwrap();
         assert_eq!(hub.root_document_identity(1), Some((1, 0)));
         let MessageResponse::WindowMessages(visible) = hub
@@ -709,37 +773,37 @@ mod tests {
             panic!("visible queue")
         };
         assert_eq!(visible.len(), 1);
-        let result = hub.handle_prerender(
-            1,
-            &token,
-            (2, 1),
-            scoped(MessageRequest::RegisterRootDocument {
+        let result = hub.handle_prerender(PrerenderMessage {
+            page: 1,
+            token: &token,
+            lifetime: (2, 1),
+            request: scoped(MessageRequest::RegisterRootDocument {
                 document_generation: 99,
                 stream_epoch: 0,
             }),
-            &live,
-            &keys,
-            "null",
-            "private-opaque",
-            "private-partition".into(),
-        );
+            live: &live,
+            keys: &keys,
+            origin: "null",
+            origin_key: "private-opaque",
+            partition: "private-partition".into(),
+        });
         assert!(result.is_err());
         assert_eq!(hub.root_document_identity(1), Some((1, 0)));
         let MessageResponse::WindowMessages(private) = hub
-            .handle_prerender(
-                1,
-                &token,
-                (2, 1),
-                scoped(MessageRequest::PollWindow {
+            .handle_prerender(PrerenderMessage {
+                page: 1,
+                token: &token,
+                lifetime: (2, 1),
+                request: scoped(MessageRequest::PollWindow {
                     target: WindowTarget::Root,
                     max: 8,
                 }),
-                &live,
-                &keys,
-                "null",
-                "private-opaque",
-                "private-partition".into(),
-            )
+                live: &live,
+                keys: &keys,
+                origin: "null",
+                origin_key: "private-opaque",
+                partition: "private-partition".into(),
+            })
             .unwrap()
         else {
             panic!("private queue")

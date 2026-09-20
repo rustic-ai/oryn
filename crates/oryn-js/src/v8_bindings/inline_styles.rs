@@ -258,7 +258,7 @@ pub(super) fn install_properties(
         .instance_templates
         .borrow()
         .get("CSSStyleDeclaration")
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface("CSSStyleDeclaration"))?;
     // Obtain the canonical prototype from the realm's template rather than a
     // replaceable global constructor, including when the provider is refreshed.

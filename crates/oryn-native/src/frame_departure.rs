@@ -1,5 +1,16 @@
 //! Departing frame callbacks retain the accepted response before body ownership
 //! passes to parsing. No author callback can cause an implicit response refetch.
+
+/// Inputs retained together for admit frame departure.
+pub(super) struct FrameDepartureAdmission<'a> {
+    pub(super) parent: RealmId,
+    pub(super) frame: NodeId,
+    pub(super) previous: Option<RealmId>,
+    pub(super) url: String,
+    pub(super) child_origin: oryn_js::origin::Origin,
+    pub(super) context: &'a mut Option<FrameNavigationContext>,
+    pub(super) response: &'a mut Option<frame_resource_preparation::FrameResourceCompletion>,
+}
 use super::*;
 use oryn_js::v8_bindings::NativePageSwap;
 use std::{sync::Arc, time::Instant};
@@ -174,14 +185,18 @@ impl RustExecutableDocument {
     }
     pub(super) fn admit_frame_departure(
         &mut self,
-        parent: RealmId,
-        frame: NodeId,
-        previous: Option<RealmId>,
-        url: String,
-        child_origin: oryn_js::origin::Origin,
-        context: &mut Option<FrameNavigationContext>,
-        response: &mut Option<frame_resource_preparation::FrameResourceCompletion>,
+        params: FrameDepartureAdmission<'_>,
     ) -> Result<bool, HostError> {
+        let FrameDepartureAdmission {
+            parent,
+            frame,
+            previous,
+            url,
+            child_origin,
+            context,
+            response,
+        } = params;
+
         let key = (parent, frame);
         if self
             .completed_frame_departures

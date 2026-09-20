@@ -1,6 +1,7 @@
 //! Native frame resource results shared by portable and parent-backed loaders.
 //! Socket serialization stays in context_service; frame consumers do not need
 //! a Unix transport merely to carry document bytes or a no-commit outcome.
+#[cfg(any(test, feature = "v8-host"))]
 #[derive(Debug, Clone)]
 pub(crate) enum FrameResourceResponse {
     EmbeddedResourceUnavailable,
@@ -19,7 +20,7 @@ pub(crate) enum FrameResourceResponse {
         response_headers: Vec<(String, String)>,
         raw_body_base64: Option<String>,
         request_state: Option<oryn_common::navigation_request::NavigationRequestState>,
-        timing: Option<oryn_js::platform::ResourceTimingMetadata>,
+        timing: Option<Box<oryn_js::platform::ResourceTimingMetadata>>,
         content_language: Option<String>,
         stream_id: Option<u64>,
         native_origin: Option<oryn_js::worker_wire::AgentOrigin>,
@@ -38,7 +39,9 @@ pub(crate) enum FrameResourceResponse {
 }
 
 // Charge retained allocations, including capacity reserved beyond the visible
-// payload. Fixed inline storage is charged once by size_of::<Self>().
+// payload. Fixed inline storage is charged once by size_of::<Self>(); boxed
+// document timing contributes its pointee storage in addition to nested allocations.
+#[cfg(any(test, feature = "v8-host"))]
 impl FrameResourceResponse {
     pub(crate) fn retained_bytes(&self) -> Result<usize, String> {
         let mut size = RetainedBytes(std::mem::size_of::<Self>());
@@ -56,7 +59,7 @@ impl FrameResourceResponse {
                     size.string(value)?;
                 }
                 size.optional(content_type)?;
-                size.timing(timing)?;
+                size.timing(timing.as_ref())?;
             }
             Self::PageResource {
                 inherited_encoding,
@@ -119,13 +122,18 @@ impl FrameResourceResponse {
                     size.vector(&post.bytes)?;
                     size.string(&post.content_type)?;
                 }
-                size.timing(timing)?;
+                if timing.is_some() {
+                    size.add(std::mem::size_of::<oryn_js::platform::ResourceTimingMetadata>())?;
+                }
+                size.timing(timing.as_deref())?;
             }
         }
         Ok(size.0)
     }
 }
+#[cfg(any(test, feature = "v8-host"))]
 struct RetainedBytes(usize);
+#[cfg(any(test, feature = "v8-host"))]
 impl RetainedBytes {
     fn add(&mut self, value: usize) -> Result<(), String> {
         self.0 = self
@@ -164,7 +172,7 @@ impl RetainedBytes {
     }
     fn timing(
         &mut self,
-        timing: &Option<oryn_js::platform::ResourceTimingMetadata>,
+        timing: Option<&oryn_js::platform::ResourceTimingMetadata>,
     ) -> Result<(), String> {
         if let Some(timing) = timing {
             self.string(&timing.origin)?;
@@ -187,7 +195,7 @@ impl RetainedBytes {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, any(test, feature = "v8-host")))]
 impl TryFrom<crate::context_service::ContextServiceResponse> for FrameResourceResponse {
     type Error = String;
     fn try_from(
@@ -320,14 +328,14 @@ mod tests {
             content_type: String::new(),
         };
         let mut baseline = RetainedBytes(0);
-        baseline.timing(&Some(timing.clone())).unwrap();
+        baseline.timing(Some(&timing)).unwrap();
         assert_eq!(baseline.0, 0);
         timing.hops.push(TimingHop {
             url: "https://redirect.test/".into(),
             allow_origin: vec!["https://source.test".into()],
         });
         let mut response_only = RetainedBytes(0);
-        response_only.timing(&Some(timing.clone())).unwrap();
+        response_only.timing(Some(&timing)).unwrap();
         assert!(response_only.0 > 0);
         timing.transport = Some(TransportTiming {
             exposure: Some(TimingExposure {
@@ -344,8 +352,39 @@ mod tests {
             duration: 1.,
         });
         let mut all = RetainedBytes(0);
-        all.timing(&Some(timing)).unwrap();
+        all.timing(Some(&timing)).unwrap();
         assert!(all.0 > response_only.0);
+        let nested_charge = all.0;
+        let mut document = FrameResourceResponse::PageResource {
+            inherited_encoding: None,
+            response_headers: Vec::new(),
+            raw_body_base64: None,
+            request_state: None,
+            timing: None,
+            content_language: None,
+            stream_id: None,
+            native_origin: None,
+            effective_post: None,
+            worker_policy_token: None,
+            url: String::new(),
+            source: String::new(),
+            encoding: String::new(),
+            modals_allowed: false,
+            destination: String::new(),
+            content_type: None,
+            document_referrer: String::new(),
+            referrer_policy: String::new(),
+            refresh_url: None,
+        };
+        let empty_charge = document.retained_bytes().unwrap();
+        assert_eq!(empty_charge, std::mem::size_of::<FrameResourceResponse>());
+        if let FrameResourceResponse::PageResource { timing: slot, .. } = &mut document {
+            *slot = Some(Box::new(timing));
+        }
+        assert_eq!(
+            document.retained_bytes().unwrap() - empty_charge,
+            std::mem::size_of::<oryn_js::platform::ResourceTimingMetadata>() + nested_charge
+        );
     }
     #[test]
     fn overflow_is_an_error_not_a_wrapped_or_saturated_charge() {
@@ -373,6 +412,61 @@ mod tests {
             assert!(!embedded_document_mime(mime), "{mime:?}");
         }
     }
+    #[cfg(unix)]
+    #[test]
+    fn wire_document_timing_keeps_json_shape_and_transfers_allocation() {
+        use crate::context_service::ContextServiceResponse as Wire;
+        let mut wire: Wire = serde_json::from_value(serde_json::json!({
+            "result": "page_resource",
+            "url": "https://timing.test/",
+            "source": "body",
+            "encoding": "utf-8",
+            "destination": "frame"
+        }))
+        .unwrap();
+        let Wire::PageResource { timing, .. } = &mut wire else {
+            panic!("document response expected")
+        };
+        assert!(timing.is_none());
+        *timing = Some(Box::new(oryn_js::platform::ResourceTimingMetadata {
+            server_timing: Vec::new(),
+            response_end_micros: None,
+            navigation_phases: None,
+            producer_clock_micros: None,
+            decoded_body_size: None,
+            origin: "https://timing.test".into(),
+            hops: Vec::new(),
+            transport: None,
+            allow_details: true,
+            response_status: 200,
+            response_start_micros: 123,
+            encoded_body_size: Some(4),
+            content_type: "text/html".into(),
+        }));
+        let value = serde_json::to_value(&wire).unwrap();
+        assert_eq!(value["timing"]["origin"], "https://timing.test");
+        assert_eq!(value["timing"]["response_start_micros"], 123);
+        let decoded: Wire = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), value);
+        let allocation = match &wire {
+            Wire::PageResource {
+                timing: Some(timing),
+                ..
+            } => timing.as_ref() as *const _,
+            _ => panic!("timing missing"),
+        };
+        let FrameResourceResponse::PageResource {
+            timing: Some(timing),
+            ..
+        } = FrameResourceResponse::try_from(wire).unwrap()
+        else {
+            panic!("timing lost in adapter")
+        };
+        assert_eq!(timing.as_ref() as *const _, allocation);
+        assert_eq!(timing.response_start_micros, 123);
+        assert_eq!(timing.encoded_body_size, Some(4));
+    }
+
     #[cfg(unix)]
     #[test]
     fn wire_adapter_preserves_original_document_and_request_custody() {

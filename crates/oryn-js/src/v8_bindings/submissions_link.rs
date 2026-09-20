@@ -180,38 +180,38 @@ impl LinkActivation {
                                             }
                                     })
                             });
-                    if self.destination.is_none() {
-                        if let SubmissionTarget::Parent(selected) = &navigation.navigation_target {
-                            if selected.local_realm.is_some() {
-                                self.cancel();
-                                return Ok(true);
-                            }
-                            if let Some(dispatch) = state.selected_link_dispatcher.get() {
-                                let source = navigation.document_source.as_deref().ok_or(
-                                    V8BindingError::Allocation("selected link source provenance"),
-                                )?;
-                                let audit = navigation.audit.as_ref().map(|audit| {
-                                    let token = audit.token();
-                                    audit.transferred();
-                                    token
-                                });
-                                match dispatch(
-                                    scope,
-                                    selected,
-                                    source,
-                                    &navigation.url,
-                                    navigation.referrer_policy.as_deref(),
-                                    target.user_initiated,
-                                    audit,
-                                ) {
-                                    Ok(()) => {
-                                        self.cancel();
-                                        return Ok(true);
-                                    }
-                                    Err(error) => {
-                                        self.terminal = Some(error.to_string());
-                                        return Err(error);
-                                    }
+                    if self.destination.is_none()
+                        && let SubmissionTarget::Parent(selected) = &navigation.navigation_target
+                    {
+                        if selected.local_realm.is_some() {
+                            self.cancel();
+                            return Ok(true);
+                        }
+                        if let Some(dispatch) = state.selected_link_dispatcher.get() {
+                            let source = navigation.document_source.as_deref().ok_or(
+                                V8BindingError::Allocation("selected link source provenance"),
+                            )?;
+                            let audit = navigation.audit.as_ref().map(|audit| {
+                                let token = audit.token();
+                                audit.transferred();
+                                token
+                            });
+                            match dispatch(
+                                scope,
+                                selected,
+                                source,
+                                &navigation.url,
+                                navigation.referrer_policy.as_deref(),
+                                target.user_initiated,
+                                audit,
+                            ) {
+                                Ok(()) => {
+                                    self.cancel();
+                                    return Ok(true);
+                                }
+                                Err(error) => {
+                                    self.terminal = Some(error.to_string());
+                                    return Err(error);
                                 }
                             }
                         }
@@ -316,7 +316,7 @@ impl LinkActivation {
                             navigation.admission = Some(AcceptedLinkNavigation {
                                 realm: destination.realm(),
                                 operation,
-                                destination: entry,
+                                destination: entry.map(|entry| *entry),
                                 script_authority: self.authority.take(),
                             });
                             self.phase = 4;
@@ -336,7 +336,7 @@ impl LinkActivation {
                     }
                     let reservation = self.reservation.take().unwrap();
                     let target = self.target.take().unwrap();
-                    reservation.publish(PendingDefaultAction::Click(target));
+                    reservation.publish(PendingDefaultAction::Click(Box::new(target)));
                     self.phase = 5;
                     #[cfg(test)]
                     if FAIL_PUBLICATION.with(|flag| flag.replace(false)) {
@@ -548,6 +548,14 @@ mod tests {
                 install_generated_bindings(scope, destination_context, dom, RealmId(258), 1)
                     .unwrap();
             history(scope, &state);
+            state.set_document_provenance_capture(Rc::new(|_, _, _| {
+                Ok(oryn_dom::DocumentProvenance {
+                    capability: vec![2],
+                    origin: "https://example.test".into(),
+                    origin_key: "tuple:https://example.test".into(),
+                    inert: false,
+                })
+            }));
             let source_global = source.global_object.to_local(scope).unwrap();
             let callback = v8::Function::builder(retire_source)
                 .data(source_global.into())

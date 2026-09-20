@@ -9,7 +9,7 @@ build = "build.rs"
 [features]
 historical-test-input = ["oryn-js/historical-test-input"]
 default = []
-v8-host = ["dep:oryn-render-core", "dep:v8", "dep:oryn-layout", "oryn-js/v8-host"]
+v8-host = ["dep:oryn-render-core", "dep:v8", "oryn-js/v8-host"]
 v8-sandbox = ["v8/v8_enable_sandbox", "oryn-js/v8-sandbox"]
 in-process-probe = []
 core-full = []
@@ -22,7 +22,8 @@ symphonia = { version = "=0.5.5", default-features = false, features = ["flac", 
 oryn-render-core = { path = "../oryn-render-core", optional = true }
 oryn-common = { path = "../oryn-common" }
 oryn-core = { path = "../oryn-core" }
-oryn-layout = { path = "../oryn-layout", optional = true }
+# V8-free canonical selectors and accessibility text transforms are shared.
+oryn-layout = { path = "../oryn-layout" }
 oryn-dom = { path = "../oryn-dom" }
 oryn-js = { path = "../oryn-js" }
 oryn-net = { path = "../oryn-net" }

@@ -114,14 +114,33 @@ pub fn snapshot_native_paint_resources(
                 return Err(V8BindingError::Allocation("drag decoded resource budget"));
             }
             let mut png = Vec::new();
-            image::codecs::png::PngEncoder::new(&mut png)
-                .write_image(
-                    &image.rgba,
-                    image.width,
-                    image.height,
-                    image::ExtendedColorType::Rgba8,
-                )
-                .map_err(|_| V8BindingError::Allocation("drag image resource encoding"))?;
+            // These PNGs transport pixels to the native renderer. Avoid an
+            // adaptive compression search on every visibility checkpoint.
+            image::codecs::png::PngEncoder::new_with_quality(
+                &mut png,
+                image::codecs::png::CompressionType::Fast,
+                image::codecs::png::FilterType::NoFilter,
+            )
+            .write_image(
+                &image.rgba,
+                image.width,
+                image.height,
+                image::ExtendedColorType::Rgba8,
+            )
+            .map_err(|_| V8BindingError::Allocation("drag image resource encoding"))?;
+            // Retain the previous encoder's resource-budget admission for
+            // images that need stronger compression to fit.
+            if png.len() > MAX_BYTES.saturating_sub(bytes) {
+                png.clear();
+                image::codecs::png::PngEncoder::new(&mut png)
+                    .write_image(
+                        &image.rgba,
+                        image.width,
+                        image.height,
+                        image::ExtendedColorType::Rgba8,
+                    )
+                    .map_err(|_| V8BindingError::Allocation("drag image resource encoding"))?;
+            }
             bytes = bytes.saturating_add(png.len());
             if bytes > MAX_BYTES {
                 return Err(V8BindingError::Allocation("drag image resource budget"));

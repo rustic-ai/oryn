@@ -11,22 +11,23 @@ pub fn data_bytes(url: &str) -> Option<Vec<u8>> {
     let raw = data.as_bytes();
     let mut i = 0;
     while i < raw.len() {
-        if raw[i] == b'%' && i + 2 < raw.len() {
-            if let (Some(a), Some(b)) = (
+        if raw[i] == b'%'
+            && i + 2 < raw.len()
+            && let (Some(a), Some(b)) = (
                 (raw[i + 1] as char).to_digit(16),
                 (raw[i + 2] as char).to_digit(16),
-            ) {
-                decoded.push((a * 16 + b) as u8);
-                i += 3;
-                continue;
-            }
+            )
+        {
+            decoded.push((a * 16 + b) as u8);
+            i += 3;
+            continue;
         }
         decoded.push(raw[i]);
         i += 1;
     }
     let bytes = if metadata
         .split(';')
-        .last()
+        .next_back()
         .is_some_and(|value| value.eq_ignore_ascii_case("base64"))
     {
         decoded.retain(|byte| !matches!(*byte, b' ' | b'\t' | b'\n' | b'\r' | b'\x0c'));
@@ -291,116 +292,117 @@ pub fn install(options: &mut usvg::Options<'_>, fonts: &[WebFont]) -> Result<(),
         }
     }));
     let default = usvg::FontResolver::default_font_selector();
-    let select: std::sync::Arc<
-        dyn Fn(
-                &usvg::Font,
-                &str,
-                &mut std::sync::Arc<usvg::fontdb::Database>,
-            ) -> Option<usvg::fontdb::ID>
-            + Send
-            + Sync,
-    > = std::sync::Arc::new(move |font, cluster, db| {
-        let width: f32 = match font.stretch() {
-            usvg::FontStretch::UltraCondensed => 50.,
-            usvg::FontStretch::ExtraCondensed => 62.5,
-            usvg::FontStretch::Condensed => 75.,
-            usvg::FontStretch::SemiCondensed => 87.5,
-            usvg::FontStretch::Normal => 100.,
-            usvg::FontStretch::SemiExpanded => 112.5,
-            usvg::FontStretch::Expanded => 125.,
-            usvg::FontStretch::ExtraExpanded => 150.,
-            usvg::FontStretch::UltraExpanded => 200.,
-        };
-        let style = BTreeMap::from([
-            ("font-weight".into(), font.weight().to_string()),
-            ("font-stretch".into(), format!("{width}%")),
-            (
-                "font-style".into(),
-                match font.style() {
-                    usvg::FontStyle::Normal => "normal",
-                    usvg::FontStyle::Italic => "italic",
-                    usvg::FontStyle::Oblique => "oblique",
+    type ClusterFontSelector = dyn Fn(
+            &usvg::Font,
+            &str,
+            &mut std::sync::Arc<usvg::fontdb::Database>,
+        ) -> Option<usvg::fontdb::ID>
+        + Send
+        + Sync;
+    let select: std::sync::Arc<ClusterFontSelector> = std::sync::Arc::new(
+        move |font, cluster, db| {
+            let width: f32 = match font.stretch() {
+                usvg::FontStretch::UltraCondensed => 50.,
+                usvg::FontStretch::ExtraCondensed => 62.5,
+                usvg::FontStretch::Condensed => 75.,
+                usvg::FontStretch::SemiCondensed => 87.5,
+                usvg::FontStretch::Normal => 100.,
+                usvg::FontStretch::SemiExpanded => 112.5,
+                usvg::FontStretch::Expanded => 125.,
+                usvg::FontStretch::ExtraExpanded => 150.,
+                usvg::FontStretch::UltraExpanded => 200.,
+            };
+            let style = BTreeMap::from([
+                ("font-weight".into(), font.weight().to_string()),
+                ("font-stretch".into(), format!("{width}%")),
+                (
+                    "font-style".into(),
+                    match font.style() {
+                        usvg::FontStyle::Normal => "normal",
+                        usvg::FontStyle::Italic => "italic",
+                        usvg::FontStyle::Oblique => "oblique",
+                    }
+                    .into(),
+                ),
+            ]);
+            let supports = |id, db: &usvg::fontdb::Database| {
+                db.with_face_data(id, |bytes, index| {
+                    use skrifa::MetadataProvider;
+                    let Ok(face) = skrifa::FontRef::from_index(bytes, index) else {
+                        return false;
+                    };
+                    let map = face.charmap();
+                    use unicode_normalization::UnicodeNormalization;
+                    let supported = |ch: char| {
+                        matches!(u32::from(ch),0x200c..=0x200d|0xfe00..=0xfe0f|0xe0100..=0xe01ef)
+                            || map.map(ch).is_some()
+                    };
+                    cluster.chars().all(supported)
+                        || cluster.nfc().all(supported)
+                        || cluster.nfd().all(supported)
+                })
+                .unwrap_or(false)
+            };
+            for family in font.families() {
+                let candidates=faces.iter().filter(|(face,_)|matches!(family,usvg::FontFamily::Named(name)if face.family.eq_ignore_ascii_case(name))).collect::<Vec<_>>();
+                if candidates.is_empty() {
+                    let family = match family {
+                        usvg::FontFamily::Named(name) => usvg::fontdb::Family::Name(name),
+                        usvg::FontFamily::Serif => usvg::fontdb::Family::Serif,
+                        usvg::FontFamily::SansSerif => usvg::fontdb::Family::SansSerif,
+                        usvg::FontFamily::Cursive => usvg::fontdb::Family::Cursive,
+                        usvg::FontFamily::Fantasy => usvg::fontdb::Family::Fantasy,
+                        usvg::FontFamily::Monospace => usvg::fontdb::Family::Monospace,
+                    };
+                    if let Some(id) = db.query(&usvg::fontdb::Query {
+                        families: &[family],
+                        weight: usvg::fontdb::Weight(font.weight()),
+                        stretch: font.stretch().into(),
+                        style: font.style().into(),
+                    }) && !private_ids.contains(&id)
+                        && supports(id, db)
+                    {
+                        return Some(id);
+                    }
+                    continue;
                 }
-                .into(),
-            ),
-        ]);
-        let supports = |id, db: &usvg::fontdb::Database| {
-            db.with_face_data(id, |bytes, index| {
-                use skrifa::MetadataProvider;
-                let Ok(face) = skrifa::FontRef::from_index(bytes, index) else {
-                    return false;
+                let Some(best) = candidates
+                    .iter()
+                    .map(|(face, _)| face.rank(&style))
+                    .min_by(|a, b| a.partial_cmp(b).unwrap())
+                else {
+                    continue;
                 };
-                let map = face.charmap();
-                use unicode_normalization::UnicodeNormalization;
-                let supported = |ch: char| {
-                    matches!(u32::from(ch),0x200c..=0x200d|0xfe00..=0xfe0f|0xe0100..=0xe01ef)
-                        || map.map(ch).is_some()
-                };
-                cluster.chars().all(supported)
-                    || cluster.nfc().all(supported)
-                    || cluster.nfd().all(supported)
-            })
-            .unwrap_or(false)
-        };
-        for family in font.families() {
-            let candidates=faces.iter().filter(|(face,_)|matches!(family,usvg::FontFamily::Named(name)if face.family.eq_ignore_ascii_case(name))).collect::<Vec<_>>();
-            if candidates.is_empty() {
-                let family = match family {
-                    usvg::FontFamily::Named(name) => usvg::fontdb::Family::Name(name),
-                    usvg::FontFamily::Serif => usvg::fontdb::Family::Serif,
-                    usvg::FontFamily::SansSerif => usvg::fontdb::Family::SansSerif,
-                    usvg::FontFamily::Cursive => usvg::fontdb::Family::Cursive,
-                    usvg::FontFamily::Fantasy => usvg::fontdb::Family::Fantasy,
-                    usvg::FontFamily::Monospace => usvg::fontdb::Family::Monospace,
-                };
-                if let Some(id) = db.query(&usvg::fontdb::Query {
-                    families: &[family],
-                    weight: usvg::fontdb::Weight(font.weight()),
-                    stretch: font.stretch().into(),
-                    style: font.style().into(),
-                }) {
-                    if !private_ids.contains(&id) && supports(id, db) {
+                for (_, ids) in candidates
+                    .into_iter()
+                    .rev()
+                    .filter(|(face, _)| face.rank(&style) == best && face.covers_cluster(cluster))
+                {
+                    if let Some(id) = ids.iter().copied().find(|id| supports(*id, db)) {
                         return Some(id);
                     }
                 }
-                continue;
             }
-            let Some(best) = candidates
-                .iter()
-                .map(|(face, _)| face.rank(&style))
-                .min_by(|a, b| a.partial_cmp(b).unwrap())
-            else {
-                continue;
-            };
-            for (face, ids) in candidates
-                .into_iter()
-                .rev()
-                .filter(|(face, _)| face.rank(&style) == best && face.covers_cluster(cluster))
+            let fallback = default(font, db);
+            if let Some(id) = fallback
+                && supports(id, db)
             {
-                if let Some(id) = ids.iter().copied().find(|id| supports(*id, db)) {
-                    return Some(id);
-                }
-            }
-        }
-        let fallback = default(font, db);
-        if let Some(id) = fallback {
-            if supports(id, db) {
                 return Some(id);
             }
-        }
-        db.faces()
-            .find(|face| !private_ids.contains(&face.id) && supports(face.id, db))
-            .map(|face| face.id)
-            .or(fallback)
-            // Missing glyphs still have source ranges and bidi direction. If
-            // the generic requested family is absent, keep the admitted public
-            // fallback's .notdef glyph instead of dropping the whole cluster.
-            .or_else(|| {
-                db.faces()
-                    .find(|face| !private_ids.contains(&face.id))
-                    .map(|face| face.id)
-            })
-    });
+            db.faces()
+                .find(|face| !private_ids.contains(&face.id) && supports(face.id, db))
+                .map(|face| face.id)
+                .or(fallback)
+                // Missing glyphs still have source ranges and bidi direction. If
+                // the generic requested family is absent, keep the admitted public
+                // fallback's .notdef glyph instead of dropping the whole cluster.
+                .or_else(|| {
+                    db.faces()
+                        .find(|face| !private_ids.contains(&face.id))
+                        .map(|face| face.id)
+                })
+        },
+    );
     let initial = select.clone();
     options.font_resolver.select_font = Box::new(move |font, db| initial(font, "", db));
     options.font_resolver.select_cluster_font =

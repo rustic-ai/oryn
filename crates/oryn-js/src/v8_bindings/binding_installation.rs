@@ -287,7 +287,6 @@ pub(super) fn create_state(
         audio_worklet: RefCell::new(audio_worklet::WindowState::default()),
         cache_storage: RefCell::new(cache_storage::Bindings::default()),
         blob_urls: RefCell::new(BTreeMap::new()),
-        next_blob_url_id: Cell::new(1),
         idb_transactions_to_deactivate: RefCell::new(BTreeSet::new()),
         next_traversal_id: Cell::new(1),
         node_iterators: RefCell::new(BTreeMap::new()),
@@ -1095,13 +1094,24 @@ pub(super) fn install_interfaces(
             state
                 .instance_templates
                 .borrow_mut()
-                .insert(interface.name, v8::Global::new(scope, instance));
+                .insert(interface.name, v8::Weak::new(scope, instance));
             if interface.name.starts_with("HTML") && interface.name.ends_with("Element") {
                 state
                     .html_constructors
                     .borrow_mut()
                     .insert(interface.name, v8::Weak::new(scope, constructor));
             }
+            // The Context owns original constructors through its traced graph.
+            // Native template caches must not turn that graph into a GC root.
+            context_intrinsics::retain_function_in_context(
+                scope,
+                context,
+                &format!(
+                    "owner-{}-instance-constructor-{}",
+                    state.instance_id, interface.name
+                ),
+                constructor,
+            )?;
             constructors.insert(interface.name, v8::Global::new(scope, constructor));
             templates.insert(interface.name, v8::Global::new(scope, template));
             remaining.remove(index);
@@ -1124,12 +1134,12 @@ pub(super) fn publish_objects(
     binding_global: BindingGlobal,
     constructors: &BTreeMap<&'static str, v8::Global<v8::Function>>,
 ) -> Result<(), V8BindingError> {
-    web_crypto::install(scope, &state, context, &constructors)?;
-    submit_behavior::install(scope, &state, &constructors)?;
+    web_crypto::install(scope, state, context, constructors)?;
+    submit_behavior::install(scope, state, constructors)?;
     if binding_global == BindingGlobal::Window {
         // Establish the document wrapper graph at installation, as for the
         // other realm-owned objects; the accessor must not defer this lifetime.
-        wrap_node(scope, &state, document)?;
+        wrap_node(scope, state, document)?;
         window_document::install(scope, context)?;
         storage_access::install(scope, context)?;
         window_messages::install(scope, context)?;
@@ -1138,20 +1148,20 @@ pub(super) fn publish_objects(
         native_user_activation::install(scope, context)?;
         native_platform::install(scope, context)?;
         reporting::install(scope, context)?;
-        fetch_later::install(scope, context, &state)?;
+        fetch_later::install(scope, context, state)?;
         native_media::install(scope, context)?;
         service_workers::install(scope, context)?;
-        cache_storage::install(scope, &state)?;
-        navigation_api::install(scope, &state)?;
-        publish_named_window_properties(scope, context, &state, document)?;
-        let history = new_stateful_object(scope, &state, "History", 1)?;
+        cache_storage::install(scope, state)?;
+        navigation_api::install(scope, state)?;
+        publish_named_window_properties(scope, context, state, document)?;
+        let history = new_stateful_object(scope, state, "History", 1)?;
         let name =
             v8::String::new(scope, "history").ok_or(V8BindingError::Allocation("history name"))?;
         context
             .global(scope)
             .set(scope, name.into(), history.into());
         for (name, id) in [("localStorage", 1), ("sessionStorage", 2)] {
-            let storage = new_stateful_object(scope, &state, "Storage", id)?;
+            let storage = new_stateful_object(scope, state, "Storage", id)?;
             storage_events::retain(scope, context, storage, id == 1)?;
             storage_events::install_accessor(scope, context, name, id == 1)?;
         }
@@ -1167,8 +1177,8 @@ pub(super) fn publish_objects(
         binding_global,
         BindingGlobal::Window | BindingGlobal::Worker
     ) {
-        let factory_id = register_platform_object(&state, PlatformObjectRecord::IdbFactory);
-        let factory = new_platform_object(scope, &state, "IDBFactory", factory_id)?;
+        let factory_id = register_platform_object(state, PlatformObjectRecord::IdbFactory);
+        let factory = new_platform_object(scope, state, "IDBFactory", factory_id)?;
         let name = v8::String::new(scope, "indexedDB")
             .ok_or(V8BindingError::Allocation("indexedDB name"))?;
         context
@@ -1189,7 +1199,7 @@ pub(super) fn publish_objects(
         origin_name.into(),
         v8::Number::new(scope, state.time_origin_ms.get()).into(),
     );
-    resource_timing::install(scope, &state, context)?;
+    resource_timing::install(scope, state, context)?;
     install_dom_exception_intrinsics(scope, context)?;
     // These constructors are exposed only to Window and Worker by the IDL.
     if matches!(
@@ -1214,7 +1224,7 @@ pub(super) fn publish_objects(
         context.global(scope).set(scope, key.into(), media.into());
 
         install_script_statics(scope, context)?;
-        permission_elements::install_legacy_statics(scope, context, &state)?;
+        permission_elements::install_legacy_statics(scope, context, state)?;
         let get_computed_style = v8::Function::new(scope, get_computed_style_callback)
             .ok_or(V8BindingError::Allocation("getComputedStyle function"))?;
         let name = v8::String::new(scope, "getComputedStyle")
@@ -1259,14 +1269,14 @@ pub(super) fn publish_objects(
         .global(scope)
         .set(scope, name.into(), revoke_object_url.into());
     if binding_global == BindingGlobal::Window {
-        custom_elements::install(scope, &state)?;
+        custom_elements::install(scope, state)?;
     }
     global_events::install(scope, context)?;
     structured_clone::install(scope, context)?;
     image_bitmap::install(scope, context)?;
     css_registration::install(scope, context)?;
     if binding_global == BindingGlobal::Window {
-        location::install(scope, &state)?;
+        location::install(scope, state)?;
         window_scroll::install(scope, context)?;
     }
     Ok(())

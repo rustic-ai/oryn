@@ -1,5 +1,8 @@
 //! Parent-owned deferred Fetch. Only preparation reads a live Window identity;
 //! an accepted capability retains its original policy through document retirement.
+#[cfg(test)]
+type FixtureResponses = Arc<Mutex<std::collections::VecDeque<(u16, Vec<(String, String)>)>>>;
+
 use super::*;
 use crate::http_cleanup_custody::{Scope, Ticket};
 use oryn_js::{
@@ -523,11 +526,9 @@ impl Scheduler {
                     if job
                         .deadline
                         .is_some_and(|deadline| deadline <= Instant::now())
+                        && let Some(state) = job.activation.upgrade()
                     {
-                        if let Some(state) = job.activation.upgrade() {
-                            let _ =
-                                state.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire);
-                        }
+                        let _ = state.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire);
                     }
                 }
                 jobs.iter()
@@ -756,13 +757,15 @@ fn deliver(
         .map_err(|error| error.to_string())?;
         cleanup.finish_keepalive();
         report(SecurityReport::Coep(plan.coep.response(
-            &plan.origin,
-            plan.opaque,
-            &target,
-            cors,
-            credentials,
-            &response.headers,
-            "",
+            crate::coep_reporting::ResponsePolicyInputs {
+                origin: &plan.origin,
+                opaque: plan.opaque,
+                target: &target,
+                cors,
+                credentials,
+                headers: &response.headers,
+                destination: "",
+            },
         )));
         plan.embedder.authorize_response(
             &plan.origin,
@@ -1290,7 +1293,7 @@ mod tests {
     #[derive(Clone)]
     struct Broker {
         requests: Arc<Mutex<Vec<NetworkRequest>>>,
-        responses: Arc<Mutex<std::collections::VecDeque<(u16, Vec<(String, String)>)>>>,
+        responses: FixtureResponses,
     }
     impl crate::network::NetworkBroker for Broker {
         fn send(
@@ -1306,6 +1309,7 @@ mod tests {
                 .pop_front()
                 .expect("unexpected deferred Fetch IO");
             Ok(crate::network::NetworkResponse {
+                response_policy: None,
                 request_id: id,
                 status,
                 headers,
@@ -1527,17 +1531,29 @@ mod tests {
                 .bind_frame_worker_policy(id, frame.clone(), 1, 0, url, &policy)
                 .unwrap();
             context
-                .register_activation_parent(id, frame.clone(), 1, 0, WindowTarget::Root, 1, 0)
+                .register_activation_parent(
+                    crate::runtime::worker_service::ActivationParentInputs {
+                        page: id,
+                        frame: frame.clone(),
+                        generation: 1,
+                        epoch: 0,
+                        parent: WindowTarget::Root,
+                        parent_generation: 1,
+                        parent_epoch: 0,
+                    },
+                )
                 .unwrap();
             context
                 .register_isolation_container(
-                    id,
-                    frame.clone(),
-                    1,
-                    0,
-                    allow.into(),
-                    url.into(),
-                    None,
+                    crate::runtime::worker_service::IsolationContainerInputs {
+                        page: id,
+                        frame: frame.clone(),
+                        generation: 1,
+                        epoch: 0,
+                        allow: allow.into(),
+                        source: url.into(),
+                        sandbox: None,
+                    },
                 )
                 .unwrap();
             let creator = Creator::Window {
@@ -1704,6 +1720,7 @@ mod tests {
             ) -> Result<crate::network::NetworkResponse, crate::network::NetworkError> {
                 self.0.send(()).unwrap();
                 Ok(crate::network::NetworkResponse {
+                    response_policy: None,
                     request_id: request.request_id,
                     status: 204,
                     headers: Vec::new(),

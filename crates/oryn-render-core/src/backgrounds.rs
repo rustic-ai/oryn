@@ -1,5 +1,30 @@
 //! Layer geometry is resolved once; repeated tiles sample a single captured
 //! source. Tiny repeat periods never allocate a display command for every tile.
+
+/// Inputs for commands for fragment.
+pub(super) struct BackgroundFragmentInputs<'a> {
+    pub(super) snapshot: &'a PaintSnapshot,
+    pub(super) style: &'a std::collections::BTreeMap<String, String>,
+    pub(super) model: &'a oryn_common::v4::BoxModel,
+    pub(super) radii: [f64; 8],
+    pub(super) scroll: Option<&'a oryn_common::v4::PaintScrollGeometry>,
+    pub(super) transformed_ancestor: bool,
+    pub(super) canvas_clip: Option<CssRect>,
+    pub(super) fragment: Option<&'a oryn_common::v4::BoxModel>,
+}
+/// Inputs for source image.
+struct BackgroundImageInputs<'a> {
+    snapshot: &'a PaintSnapshot,
+    value: &'a str,
+    rect: CssRect,
+    color: &'a str,
+    font: f64,
+    rendering: ImageRendering,
+    environment: SvgEnvironment,
+    depth: usize,
+}
+type RepeatAxisPlacement = (f64, Option<f64>, Option<[f64; 2]>);
+
 use super::*;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BackgroundTile {
@@ -307,10 +332,9 @@ pub(super) fn selected_image(value: &str, density: f64) -> Option<(String, f64)>
                     number.parse().ok()?
                 } else if let Some(number) = part.strip_suffix("dpi") {
                     number.parse::<f64>().ok()? / 96.
-                } else if let Some(number) = part.strip_suffix("dpcm") {
-                    number.parse::<f64>().ok()? * 2.54 / 96.
                 } else {
-                    return None;
+                    let number = part.strip_suffix("dpcm")?;
+                    number.parse::<f64>().ok()? * 2.54 / 96.
                 };
             }
         }
@@ -405,16 +429,18 @@ fn fade_components(value: &str) -> Result<Option<Vec<(f64, &str)>>, String> {
             .collect(),
     ))
 }
-fn source_image(
-    snapshot: &PaintSnapshot,
-    value: &str,
-    rect: CssRect,
-    color: &str,
-    font: f64,
-    rendering: ImageRendering,
-    environment: SvgEnvironment,
-    depth: usize,
-) -> Result<BackgroundSource, String> {
+fn source_image(params: BackgroundImageInputs<'_>) -> Result<BackgroundSource, String> {
+    let BackgroundImageInputs {
+        snapshot,
+        value,
+        rect,
+        color,
+        font,
+        rendering,
+        environment,
+        depth,
+    } = params;
+
     if depth > 16 {
         return Err("cross-fade nesting exceeds 16".into());
     }
@@ -427,7 +453,7 @@ fn source_image(
             .map(|(weight, value)| {
                 Ok((
                     weight,
-                    source_image(
+                    source_image(BackgroundImageInputs {
                         snapshot,
                         value,
                         rect,
@@ -435,8 +461,8 @@ fn source_image(
                         font,
                         rendering,
                         environment,
-                        depth + 1,
-                    )?,
+                        depth: depth + 1,
+                    })?,
                 ))
             })
             .collect::<Result<Vec<_>, String>>()
@@ -632,16 +658,17 @@ pub(super) fn canvas_source(snapshot: &PaintSnapshot) -> Option<(u64, u64)> {
             .get("contain")
             .is_none_or(|value| value == "none")
     };
-    if transparent && no_image && uncontained(root) {
-        if let Some(body) = snapshot
+    if transparent
+        && no_image
+        && uncontained(root)
+        && let Some(body) = snapshot
             .nodes
             .iter()
             .find(|node| node.parent_id == Some(root.node_id) && node.tag == "body")
-        {
-            if boxed(body) && uncontained(body) {
-                return Some((root.node_id, body.node_id));
-            }
-        }
+        && boxed(body)
+        && uncontained(body)
+    {
+        return Some((root.node_id, body.node_id));
     }
     Some((root.node_id, root.node_id))
 }
@@ -797,7 +824,7 @@ pub(super) fn commands(
     transformed_ancestor: bool,
     canvas_clip: Option<CssRect>,
 ) -> Result<Vec<PaintCommand>, String> {
-    commands_for_fragment(
+    commands_for_fragment(BackgroundFragmentInputs {
         snapshot,
         style,
         model,
@@ -805,19 +832,23 @@ pub(super) fn commands(
         scroll,
         transformed_ancestor,
         canvas_clip,
-        None,
-    )
+        fragment: None,
+    })
 }
 pub(super) fn commands_for_fragment(
-    snapshot: &PaintSnapshot,
-    style: &std::collections::BTreeMap<String, String>,
-    model: &oryn_common::v4::BoxModel,
-    radii: [f64; 8],
-    scroll: Option<&oryn_common::v4::PaintScrollGeometry>,
-    transformed_ancestor: bool,
-    canvas_clip: Option<CssRect>,
-    fragment: Option<&oryn_common::v4::BoxModel>,
+    params: BackgroundFragmentInputs<'_>,
 ) -> Result<Vec<PaintCommand>, String> {
+    let BackgroundFragmentInputs {
+        snapshot,
+        style,
+        model,
+        radii,
+        scroll,
+        transformed_ancestor,
+        canvas_clip,
+        fragment,
+    } = params;
+
     if snapshot.images.iter().any(|image| {
         image.url_aliases.len() > 16
             || image.url_aliases.iter().map(String::len).sum::<usize>() > 64 * 1024
@@ -874,42 +905,42 @@ pub(super) fn commands_for_fragment(
                 list(style, "background-clip", "border-box", index),
             )
         });
-        if attachment == "local" {
-            if let Some(scroll) = scroll {
-                if ![
-                    scroll.offset_x,
-                    scroll.offset_y,
-                    scroll.scrollable.x,
-                    scroll.scrollable.y,
-                    scroll.scrollable.width,
-                    scroll.scrollable.height,
-                ]
-                .iter()
-                .all(|v| v.is_finite())
-                    || scroll.scrollable.width < 0.
-                    || scroll.scrollable.height < 0.
-                {
-                    return Err("invalid native background scroll geometry".into());
-                }
-                let right = scroll.scrollport.right() - origin.right();
-                let bottom = scroll.scrollport.bottom() - origin.bottom();
-                let left = origin.x - scroll.scrollport.x;
-                let top = origin.y - scroll.scrollport.y;
-                origin = CssRect {
-                    x: scroll.scrollable.x + left - scroll.offset_x,
-                    y: scroll.scrollable.y + top - scroll.offset_y,
-                    width: (scroll.scrollable.width - left - right).max(0.),
-                    height: (scroll.scrollable.height - top - bottom).max(0.),
-                };
-                // Local background ink is clipped at the stationary scrollport, while its
-                // positioning rectangle follows the authoritative content translation.
-                let right = clip.right().min(scroll.scrollport.right());
-                let bottom = clip.bottom().min(scroll.scrollport.bottom());
-                clip.x = clip.x.max(scroll.scrollport.x);
-                clip.y = clip.y.max(scroll.scrollport.y);
-                clip.width = (right - clip.x).max(0.);
-                clip.height = (bottom - clip.y).max(0.);
+        if attachment == "local"
+            && let Some(scroll) = scroll
+        {
+            if ![
+                scroll.offset_x,
+                scroll.offset_y,
+                scroll.scrollable.x,
+                scroll.scrollable.y,
+                scroll.scrollable.width,
+                scroll.scrollable.height,
+            ]
+            .iter()
+            .all(|v| v.is_finite())
+                || scroll.scrollable.width < 0.
+                || scroll.scrollable.height < 0.
+            {
+                return Err("invalid native background scroll geometry".into());
             }
+            let right = scroll.scrollport.right() - origin.right();
+            let bottom = scroll.scrollport.bottom() - origin.bottom();
+            let left = origin.x - scroll.scrollport.x;
+            let top = origin.y - scroll.scrollport.y;
+            origin = CssRect {
+                x: scroll.scrollable.x + left - scroll.offset_x,
+                y: scroll.scrollable.y + top - scroll.offset_y,
+                width: (scroll.scrollable.width - left - right).max(0.),
+                height: (scroll.scrollable.height - top - bottom).max(0.),
+            };
+            // Local background ink is clipped at the stationary scrollport, while its
+            // positioning rectangle follows the authoritative content translation.
+            let right = clip.right().min(scroll.scrollport.right());
+            let bottom = clip.bottom().min(scroll.scrollport.bottom());
+            clip.x = clip.x.max(scroll.scrollport.x);
+            clip.y = clip.y.max(scroll.scrollport.y);
+            clip.width = (right - clip.x).max(0.);
+            clip.height = (bottom - clip.y).max(0.);
         }
         let native = image_intrinsic(snapshot, image, 0)?
             .map(|(width, height)| (width / resolution, height / resolution));
@@ -976,18 +1007,20 @@ pub(super) fn commands_for_fragment(
         };
         if rx == "round" {
             width = origin.width / (origin.width / width).round().max(1.);
-            if parts.get(1).copied().unwrap_or("auto") == "auto" && ry != "round" {
-                if let Some((nw, nh)) = native {
-                    height = width * nh / nw;
-                }
+            if parts.get(1).copied().unwrap_or("auto") == "auto"
+                && ry != "round"
+                && let Some((nw, nh)) = native
+            {
+                height = width * nh / nw;
             }
         }
         if ry == "round" {
             height = origin.height / (origin.height / height).round().max(1.);
-            if parts.first().copied().unwrap_or("auto") == "auto" && rx != "round" {
-                if let Some((nw, nh)) = native {
-                    width = height * nw / nh;
-                }
+            if parts.first().copied().unwrap_or("auto") == "auto"
+                && rx != "round"
+                && let Some((nw, nh)) = native
+            {
+                width = height * nw / nh;
             }
         }
         let (px, py) = positions(
@@ -1002,7 +1035,7 @@ pub(super) fn commands_for_fragment(
                     extent: f64,
                     size: f64,
                     position: f64|
-         -> Result<(f64, Option<f64>, Option<[f64; 2]>), String> {
+         -> Result<RepeatAxisPlacement, String> {
             match repeat {
                 "no-repeat" => Ok((start + position, None, None)),
                 "repeat" | "round" => Ok((start + position, Some(size), None)),
@@ -1035,16 +1068,16 @@ pub(super) fn commands_for_fragment(
             limit_x,
             limit_y,
         };
-        let source = source_image(
+        let source = source_image(BackgroundImageInputs {
             snapshot,
-            image,
-            tile.rect,
-            style.get("color").map(String::as_str).unwrap_or("black"),
+            value: image,
+            rect: tile.rect,
+            color: style.get("color").map(String::as_str).unwrap_or("black"),
             font,
-            ImageRendering::from_style(style.get("image-rendering")),
-            SvgEnvironment::for_style(style, tile.rect, snapshot.viewport),
-            0,
-        )?;
+            rendering: ImageRendering::from_style(style.get("image-rendering")),
+            environment: SvgEnvironment::for_style(style, tile.rect, snapshot.viewport),
+            depth: 0,
+        })?;
         let radii = if canvas_clip.is_some() {
             [0.; 8]
         } else {
@@ -1195,7 +1228,7 @@ mod tests {
     #[test]
     fn captured_redirect_alias_keeps_final_svg_base_and_original_lookup() {
         let mut snapshot = crate::tests::empty_snapshot();
-        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url_aliases:vec!["https://example.test/original.svg".into()],url:"https://example.test/final/image.svg".into(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>"#.to_vec()});
+        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url_aliases:vec!["https://example.test/original.svg".into()],url:"https://example.test/final/image.svg".into(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>"#.to_vec()});
         let style = std::collections::BTreeMap::from([
             (
                 "background-image".into(),
@@ -1579,6 +1612,7 @@ mod tests {
             let mut snapshot = crate::tests::empty_snapshot();
             snapshot.images.push(oryn_common::v4::PaintImageResource {
                 svg_document_snapshot: false,
+                svg_instances: Vec::new(),
                 content_type: None,
                 url: "https://image.test/native".into(),
                 url_aliases: Vec::new(),

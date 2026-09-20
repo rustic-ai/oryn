@@ -67,18 +67,17 @@ fn matches(entry: &Entry, request: &CacheRequest, query: CacheQuery) -> Result<b
     {
         return Ok(false);
     }
-    if !query.ignore_vary {
-        if let Some(vary) = header(&entry.response.headers, "vary") {
-            for name in vary
-                .split(',')
-                .map(str::trim)
-                .filter(|name| !name.is_empty())
+    if !query.ignore_vary
+        && let Some(vary) = header(&entry.response.headers, "vary")
+    {
+        for name in vary
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        {
+            if name == "*" || header(&entry.request.headers, name) != header(&request.headers, name)
             {
-                if name == "*"
-                    || header(&entry.request.headers, name) != header(&request.headers, name)
-                {
-                    return Ok(false);
-                }
+                return Ok(false);
             }
         }
     }
@@ -484,15 +483,14 @@ pub(crate) fn execute_owned(
         | CacheOperation::PutAll { cache, .. } => Some(*cache),
         _ => None,
     };
-    if let Some(handle) = handle {
-        if !coordinator
+    if let Some(handle) = handle
+        && !coordinator
             .owners
             .get(&owner)
             .and_then(|namespaces| namespaces.get(&namespace))
             .is_some_and(|handles| handles.contains(&handle))
-        {
-            return Err(invalid("foreign or retired native cache handle"));
-        }
+    {
+        return Err(invalid("foreign or retired native cache handle"));
     }
     let result = execute(store, partition, origin, operation)?;
     if let CacheResult::Cache(id) = &result {

@@ -7,13 +7,14 @@ use style::{
     shared_lock::SharedRwLockReadGuard,
     stylesheets::{CssRule, PagePseudoClassFlags, PageSelectors},
 };
+type PageDeclarations = BTreeMap<String, (String, bool)>;
 #[derive(Clone)]
 pub(super) struct Rule {
     selectors: PageSelectors,
-    declarations: BTreeMap<String, (String, bool)>,
-    pub margins: Vec<(String, BTreeMap<String, (String, bool)>)>,
+    declarations: PageDeclarations,
+    pub margins: Vec<(String, PageDeclarations)>,
 }
-fn declarations(block: &PropertyDeclarationBlock) -> BTreeMap<String, (String, bool)> {
+fn declarations(block: &PropertyDeclarationBlock) -> PageDeclarations {
     block
         .declaration_importance_iter()
         .map(|(value, importance)| {
@@ -139,7 +140,7 @@ pub(super) fn read(input: &LayoutInput) -> Vec<Rule> {
     result
 }
 fn specificity(rule: &Rule, name: &str, index: usize, blank: bool) -> Option<u32> {
-    let mut flags = if index % 2 == 0 {
+    let mut flags = if index.is_multiple_of(2) {
         PagePseudoClassFlags::RIGHT
     } else {
         PagePseudoClassFlags::LEFT
@@ -290,101 +291,6 @@ pub(super) fn dimensions(
         content,
     })
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn document_scope_roots_keep_page_margin_resources_and_shadow_sheets_do_not() {
-        for scope in [
-            StylesheetScopeRoot::DocumentElement,
-            StylesheetScopeRoot::Element(1),
-            StylesheetScopeRoot::Constructed,
-        ] {
-            let mut input = super::super::tests::fixture();
-            input.stylesheets = vec![
-                "@page {margin:2cm;@top-left {content:\"Header\";background-image:url(data:image/png;base64,AA==)}}".into(),
-                "@page {margin:0;@top-left {content:\"Shadow leak\";background-image:none}}".into(),
-            ];
-            input.stylesheet_scope_roots.insert(0, scope.clone());
-            input.stylesheet_scope_roots.insert(1, scope);
-            input.shadow_trees.stylesheet_scopes.insert(1, 99);
-            let rules = read(&input);
-            assert_eq!(rules.len(), 1, "only document page context is admitted");
-            assert_eq!(cascade(&rules, "", 0, false)["margin-top"], "2cm");
-            let margins = margin_styles(&rules, "", 0, false);
-            assert_eq!(
-                margin_content(&margins["top-left"]["content"], 1, 1).as_deref(),
-                Some("Header")
-            );
-            assert!(margins["top-left"]["background-image"].contains("data:image/png"));
-            // The isolated read above proves shadow rejection. Full formatting
-            // below uses only the admitted document sheet and its native scope.
-            input.stylesheets.pop();
-            input.stylesheet_scope_roots.remove(&1);
-            input.shadow_trees.stylesheet_scopes.clear();
-            let printed = super::super::compute(
-                &input,
-                &LayoutLimits::default(),
-                &PrintOptions {
-                    background: true,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-            assert!(
-                printed
-                    .pages
-                    .iter()
-                    .flat_map(|page| &page.generated_nodes)
-                    .any(|node| {
-                        node.text.iter().any(|text| text.text == "Header")
-                            && node
-                                .style
-                                .get("background-image")
-                                .is_some_and(|value| value.contains("data:image/png"))
-                    })
-            );
-            assert!(
-                !printed
-                    .pages
-                    .iter()
-                    .flat_map(|page| &page.generated_nodes)
-                    .flat_map(|node| &node.text)
-                    .any(|text| text.text.contains("Shadow leak"))
-            );
-        }
-    }
-    #[test]
-    fn margin_content_decodes_css_strings_and_uses_unfiltered_page_numbers() {
-        assert_eq!(
-            margin_content(r#""Page " counter(page) " / " counter(pages)"#, 3, 7).as_deref(),
-            Some("Page 3 / 7")
-        );
-        assert_eq!(
-            margin_content(r#""\41 \1f600 ""#, 1, 1).as_deref(),
-            Some("A😀")
-        );
-        assert_eq!(margin_content("none", 1, 1), None);
-        assert_eq!(margin_content("counter(chapter)", 1, 1), None);
-    }
-    #[test]
-    fn native_page_cascade_respects_names_specificity_importance_and_print_media() {
-        let mut input = super::super::tests::fixture();
-        input.stylesheets=vec!["@page {margin: 1cm;size:A4} @page :first {margin-top:2cm} @page report:first {margin-top:3cm} @page {margin-left:4cm!important} @media screen {@page {size:A3}}".into()];
-        let rules = read(&input);
-        let generic = cascade(&rules, "", 0, false);
-        let named = cascade(&rules, "report", 0, false);
-        assert_eq!(generic["margin-top"], "2cm");
-        assert_eq!(named["margin-top"], "3cm");
-        let page = dimensions(
-            validate_options(&PrintOptions::default()).unwrap(),
-            &generic,
-        )
-        .unwrap();
-        assert!((page.width - 210. * 96. / 25.4).abs() < 0.01);
-        assert!((page.content.x - 4. * PX_PER_CM).abs() < 0.01);
-    }
-}
 
 pub(super) fn margin_styles(
     rules: &[Rule],
@@ -480,4 +386,99 @@ pub(super) fn margin_content(value: &str, page: usize, total: usize) -> Option<S
 
 pub(super) fn needs_continuations(rules: &[Rule]) -> bool {
     rules.iter().any(|rule| !rule.selectors.is_empty())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn document_scope_roots_keep_page_margin_resources_and_shadow_sheets_do_not() {
+        for scope in [
+            StylesheetScopeRoot::DocumentElement,
+            StylesheetScopeRoot::Element(1),
+            StylesheetScopeRoot::Constructed,
+        ] {
+            let mut input = super::super::tests::fixture();
+            input.stylesheets = vec![
+                "@page {margin:2cm;@top-left {content:\"Header\";background-image:url(data:image/png;base64,AA==)}}".into(),
+                "@page {margin:0;@top-left {content:\"Shadow leak\";background-image:none}}".into(),
+            ];
+            input.stylesheet_scope_roots.insert(0, scope.clone());
+            input.stylesheet_scope_roots.insert(1, scope);
+            input.shadow_trees.stylesheet_scopes.insert(1, 99);
+            let rules = read(&input);
+            assert_eq!(rules.len(), 1, "only document page context is admitted");
+            assert_eq!(cascade(&rules, "", 0, false)["margin-top"], "2cm");
+            let margins = margin_styles(&rules, "", 0, false);
+            assert_eq!(
+                margin_content(&margins["top-left"]["content"], 1, 1).as_deref(),
+                Some("Header")
+            );
+            assert!(margins["top-left"]["background-image"].contains("data:image/png"));
+            // The isolated read above proves shadow rejection. Full formatting
+            // below uses only the admitted document sheet and its native scope.
+            input.stylesheets.pop();
+            input.stylesheet_scope_roots.remove(&1);
+            input.shadow_trees.stylesheet_scopes.clear();
+            let printed = super::super::compute(
+                &input,
+                &LayoutLimits::default(),
+                &PrintOptions {
+                    background: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert!(
+                printed
+                    .pages
+                    .iter()
+                    .flat_map(|page| &page.generated_nodes)
+                    .any(|node| {
+                        node.text.iter().any(|text| text.text == "Header")
+                            && node
+                                .style
+                                .get("background-image")
+                                .is_some_and(|value| value.contains("data:image/png"))
+                    })
+            );
+            assert!(
+                !printed
+                    .pages
+                    .iter()
+                    .flat_map(|page| &page.generated_nodes)
+                    .flat_map(|node| &node.text)
+                    .any(|text| text.text.contains("Shadow leak"))
+            );
+        }
+    }
+    #[test]
+    fn margin_content_decodes_css_strings_and_uses_unfiltered_page_numbers() {
+        assert_eq!(
+            margin_content(r#""Page " counter(page) " / " counter(pages)"#, 3, 7).as_deref(),
+            Some("Page 3 / 7")
+        );
+        assert_eq!(
+            margin_content(r#""\41 \1f600 ""#, 1, 1).as_deref(),
+            Some("A😀")
+        );
+        assert_eq!(margin_content("none", 1, 1), None);
+        assert_eq!(margin_content("counter(chapter)", 1, 1), None);
+    }
+    #[test]
+    fn native_page_cascade_respects_names_specificity_importance_and_print_media() {
+        let mut input = super::super::tests::fixture();
+        input.stylesheets=vec!["@page {margin: 1cm;size:A4} @page :first {margin-top:2cm} @page report:first {margin-top:3cm} @page {margin-left:4cm!important} @media screen {@page {size:A3}}".into()];
+        let rules = read(&input);
+        let generic = cascade(&rules, "", 0, false);
+        let named = cascade(&rules, "report", 0, false);
+        assert_eq!(generic["margin-top"], "2cm");
+        assert_eq!(named["margin-top"], "3cm");
+        let page = dimensions(
+            validate_options(&PrintOptions::default()).unwrap(),
+            &generic,
+        )
+        .unwrap();
+        assert!((page.width - 210. * 96. / 25.4).abs() < 0.01);
+        assert!((page.content.x - 4. * PX_PER_CM).abs() < 0.01);
+    }
 }

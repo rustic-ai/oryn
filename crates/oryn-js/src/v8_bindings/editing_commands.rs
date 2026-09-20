@@ -25,6 +25,21 @@ impl Command {
     ) -> Pin<Box<dyn Future<Output = Result<(), V8BindingError>>>> {
         Box::pin(async move {
             let state: &V8BindingState = &context.state;
+            let preserve_typing = match &self {
+                Self::Delete { .. } | Self::LineBreak | Self::Paragraph => true,
+                Self::Execute { command, .. } => matches!(
+                    command.as_str(),
+                    "delete"
+                        | "forwarddelete"
+                        | "insertlinebreak"
+                        | "insertparagraph"
+                        | "formatblock"
+                        | "insertorderedlist"
+                        | "insertunorderedlist"
+                ),
+                _ => false,
+            };
+            let overrides = preserve_typing.then(|| state.editing_overrides.borrow().clone());
             match self {
                 Self::ReplaceSelection(text) => {
                     editing_algorithms::replace_selection_with_text(&context, &text).await?
@@ -36,15 +51,15 @@ impl Command {
                     editing_algorithms::replace_selection_with_html(&context, &html, true).await?
                 }
                 Self::Delete { forward, unit } => {
-                    if let Some(unit) = unit {
-                        if state.selection_anchor.get() == state.selection_focus.get() {
-                            selection_movement::modify(
-                                state,
-                                "extend",
-                                if forward { "forward" } else { "backward" },
-                                &unit,
-                            )?;
-                        }
+                    if let Some(unit) = unit
+                        && state.selection_anchor.get() == state.selection_focus.get()
+                    {
+                        selection_movement::modify(
+                            state,
+                            "extend",
+                            if forward { "forward" } else { "backward" },
+                            &unit,
+                        )?;
                     }
                     editing_algorithms::delete_selection_direction(&context, forward).await?;
                 }
@@ -151,6 +166,11 @@ impl Command {
                     }
                 }
             }
+            // Internal range movement belongs to the edit. Publish preserved
+            // typing state through the continuation so undo and retry keep it.
+            if let Some(overrides) = overrides {
+                context.overrides(overrides).await?;
+            }
             Ok(())
         })
     }
@@ -239,14 +259,14 @@ pub(super) fn delay(state: &V8BindingState) -> Option<std::time::Duration> {
     }
     let registry = state.editing_continuations.upgrade()?;
     let now = std::time::Instant::now();
-    let delay = registry
+
+    registry
         .borrow()
         .queue
         .iter()
         .filter(|job| job.owner == state.instance_id)
         .map(|job| job.retry.saturating_duration_since(now))
-        .min();
-    delay
+        .min()
 }
 pub(super) fn poll(
     scope: &mut v8::PinScope,
@@ -281,9 +301,7 @@ pub(super) fn poll(
             result => {
                 queued.retry = std::time::Instant::now() + std::time::Duration::from_millis(10);
                 registry.borrow_mut().queue.push_back(queued);
-                if let Err(error) = result {
-                    return Err(error);
-                }
+                result?;
             }
         }
     }

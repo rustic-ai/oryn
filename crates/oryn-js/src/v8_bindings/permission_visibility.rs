@@ -254,15 +254,6 @@ fn native_coverage(
 pub(super) fn assess(state: &V8BindingState, node: NodeId) -> Result<Status, V8BindingError> {
     assess_native(state, node, true, None)
 }
-/// IO visibility shares physical paint evidence, not permission eligibility.
-/// Inert content can remain visible, and viewport clipping does not itself
-/// imply visual compromise for an intersecting target.
-pub(super) fn intersection_visible(
-    state: &V8BindingState,
-    node: NodeId,
-) -> Result<bool, V8BindingError> {
-    Ok(assess_native(state, node, false, None)? == Status::Visible)
-}
 pub(super) fn intersection_region_visible(
     state: &V8BindingState,
     node: NodeId,
@@ -442,7 +433,9 @@ fn assess_native(
         || [1, 2, 3, 4, 6, 7, 8, 9, 11, 14]
             .iter()
             .any(|index| matrix[*index] != 0.)
-        || matrix[10] != 1.
+        // Native flat-tree projection flattens child depth to zero. This
+        // leaves the control plane (z = 0) unchanged in screen space.
+        || (matrix[10] != 0. && matrix[10] != 1.)
         || matrix[15] != 1.
     {
         return Ok(Status::Occluded);

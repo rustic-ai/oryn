@@ -224,10 +224,10 @@ pub(super) fn cancel_stream(
         v8::tc_scope!(let scope,scope);
         let result = service_worker_events::cancel_body(scope, owner, stream, reason);
         if result.is_err() || scope.exception().is_some() {
-            if let Some(stream) = host_stream {
-                if let Some(host) = owner.platform_host.borrow().as_ref() {
-                    host.abandon_http_stream(stream);
-                }
+            if let Some(stream) = host_stream
+                && let Some(host) = owner.platform_host.borrow().as_ref()
+            {
+                host.abandon_http_stream(stream);
             }
             scope.reset();
         }
@@ -361,25 +361,22 @@ pub(super) fn retire(state: &V8BindingState) {
         if let Some(requester) = requester
             .upgrade()
             .filter(|requester| !requester.execution_retired())
+            && requester.fetch_bodies.borrow().pending.contains_key(&id)
         {
-            if requester.fetch_bodies.borrow().pending.contains_key(&id) {
-                requester
-                    .deferred_platform_tasks
-                    .borrow_mut()
-                    .push_back(DeferredPlatformTask::FetchBodySourceRetired { request: id });
-            }
+            requester
+                .deferred_platform_tasks
+                .borrow_mut()
+                .push_back(DeferredPlatformTask::FetchBodySourceRetired { request: id });
         }
     }
     for pending in pending.into_values() {
         if let Some(owner) = pending.owner.upgrade() {
-            if let Ok(record) = platform_object(&owner, pending.stream) {
-                if let PlatformObjectRecord::ReadableStream(stream) = &*record {
-                    if let Some(host_stream) = stream.host_stream_id {
-                        if let Some(host) = owner.platform_host.borrow().as_ref() {
-                            host.abandon_http_stream(host_stream);
-                        }
-                    }
-                }
+            if let Ok(record) = platform_object(&owner, pending.stream)
+                && let PlatformObjectRecord::ReadableStream(stream) = &*record
+                && let Some(host_stream) = stream.host_stream_id
+                && let Some(host) = owner.platform_host.borrow().as_ref()
+            {
+                host.abandon_http_stream(host_stream);
             }
             if !owner.execution_retired() {
                 owner.deferred_platform_tasks.borrow_mut().push_back(

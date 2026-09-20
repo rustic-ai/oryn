@@ -117,7 +117,7 @@ impl ScriptHashEvidence {
 /// Network-only Reporting API payload. It is not a violation event and must
 /// never enter ReportingObserver or SecurityPolicyViolationEvent delivery.
 #[derive(Debug, Clone)]
-pub(crate) struct ScriptHashReport {
+pub struct ScriptHashReport {
     pub endpoint: String,
     pub document_url: String,
     pub body: Vec<u8>,
@@ -188,6 +188,7 @@ pub struct CspPolicySet {
 }
 
 impl CspPolicySet {
+    #[cfg(feature = "v8-host")]
     pub(crate) fn retained_bytes(&self) -> Result<usize, String> {
         let mut size = crate::retained_size::Size(std::mem::size_of::<Self>());
         size.string(&self.document_url)?;
@@ -266,6 +267,7 @@ impl CspPolicySet {
                 .map(|policy| policy.self_url.clone())
                 .collect(),
             policy_self_url: self.policy_self_url.clone(),
+            document_self_url: self.document_self_url.clone(),
             url: self.document_url.clone(),
             headers,
         }
@@ -321,11 +323,18 @@ impl CspPolicySet {
         }
         result.document_url = policy.url.clone();
         result.policy_self_url = policy.policy_self_url.clone();
+        // A sandbox-derived opaque origin takes precedence over supplied or
+        // missing optional wire metadata, including historical policy records.
+        if result.document_self_url.is_none() {
+            result.document_self_url = policy.document_self_url.clone();
+        }
         // Blank/srcdoc inherit their creator's document origin. Reconstituting
         // the policy must retain that origin for newly parsed meta directives;
         // data documents deliberately keep their distinct (opaque) origin.
-        if Url::parse(&policy.url)
-            .is_ok_and(|url| url.scheme() == "about" && matches!(url.path(), "blank" | "srcdoc"))
+        if result.document_self_url.is_none()
+            && Url::parse(&policy.url).is_ok_and(|url| {
+                url.scheme() == "about" && matches!(url.path(), "blank" | "srcdoc")
+            })
         {
             result.document_self_url = policy.policy_self_url.clone();
         }
@@ -1601,15 +1610,16 @@ fn csp_path_matches(allowed: &str, target: &str) -> bool {
         let bytes = value.as_bytes();
         let (mut result, mut index) = (Vec::new(), 0);
         while index < bytes.len() {
-            if bytes[index] == b'%' && index + 2 < bytes.len() {
-                if let (Some(a), Some(b)) = (
+            if bytes[index] == b'%'
+                && index + 2 < bytes.len()
+                && let (Some(a), Some(b)) = (
                     (bytes[index + 1] as char).to_digit(16),
                     (bytes[index + 2] as char).to_digit(16),
-                ) {
-                    result.push((a * 16 + b) as u8);
-                    index += 3;
-                    continue;
-                }
+                )
+            {
+                result.push((a * 16 + b) as u8);
+                index += 3;
+                continue;
             }
             result.push(bytes[index]);
             index += 1;
@@ -2514,7 +2524,8 @@ mod tests {
         use oryn_js::trusted_types::{PolicyCheck, SourceLocation};
         // Explicit expected outcomes follow pinned should-block-create-policy
         // cases, rather than deriving the oracle from native directive parsing.
-        let cases: Vec<(Vec<(&str, CspDisposition)>, [bool; 4], [usize; 4])> = vec![
+        type PolicyCase<'a> = (Vec<(&'a str, CspDisposition)>, [bool; 4], [usize; 4]);
+        let cases: Vec<PolicyCase<'_>> = vec![
             (
                 vec![("trusted-types B", CspDisposition::Enforce)],
                 [false, false, true, false],
@@ -3749,5 +3760,70 @@ mod inherited_meta_roundtrip_tests {
         );
         assert_eq!(data.meta_self_url(), "data:text/html,child");
         assert!(!data.contains_meta("style-src 'self'"));
+    }
+}
+
+#[cfg(test)]
+mod native_meta_origin_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_retains_meta_origin_separately_from_inherited_policy_origins() {
+        for (url, origin) in [
+            ("https://prerender.test/path", "https://prerender.test"),
+            ("about:srcdoc", "https://parent.test"),
+            ("data:text/html,child", "null"),
+        ] {
+            let mut policy = CspPolicySet::from_headers(
+                "https://policy.test/original",
+                &[("content-security-policy".into(), "script-src 'self'".into())],
+            );
+            policy.rebase_document(url);
+            policy.set_document_self_origin(origin);
+            policy.install_meta("img-src 'none'");
+            let snapshot = policy.worker_snapshot();
+            let roundtrip = CspPolicySet::from_agent_policy(&snapshot);
+            assert!(roundtrip.contains_meta("img-src 'none'"), "{url}");
+            assert_eq!(roundtrip.worker_snapshot(), snapshot);
+            assert_eq!(roundtrip.policy_self_url, policy.policy_self_url);
+            assert_eq!(roundtrip.policies, policy.policies);
+            let request = CspRequest {
+                destination: CspDestination::Image,
+                url: "https://parent.test/image.png".into(),
+                nonce: None,
+                inline_source: None,
+                parser_inserted: false,
+                initiated_by_trusted_script: false,
+            };
+            assert!(!roundtrip.authorize(&request).allowed);
+        }
+    }
+    #[test]
+    fn legacy_sandbox_snapshot_never_admits_http_self_for_new_meta() {
+        for url in ["https://sandbox.test/path", "about:blank", "about:srcdoc"] {
+            for supplied in [None, Some("https://sandbox.test")] {
+                let mut wire = serde_json::json!({"url":url, "policy_self_url":"https://sandbox.test/path",
+                    "headers":[["content-security-policy","sandbox allow-scripts"]]});
+                if let Some(origin) = supplied {
+                    wire["document_self_url"] = origin.into();
+                }
+                let snapshot: oryn_js::worker_wire::AgentPolicy =
+                    serde_json::from_value(wire).unwrap();
+                let mut policy = CspPolicySet::from_agent_policy(&snapshot);
+                assert_eq!(policy.meta_self_url(), "data:,");
+                policy.install_meta("img-src 'self'");
+                let request = CspRequest {
+                    destination: CspDestination::Image,
+                    url: "https://sandbox.test/image.png".into(),
+                    nonce: None,
+                    inline_source: None,
+                    parser_inserted: false,
+                    initiated_by_trusted_script: false,
+                };
+                assert!(!policy.authorize(&request).allowed, "{url}");
+                let roundtrip = CspPolicySet::from_agent_policy(&policy.worker_snapshot());
+                assert!(!roundtrip.authorize(&request).allowed);
+            }
+        }
     }
 }

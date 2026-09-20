@@ -141,26 +141,23 @@ impl Advance {
                     };
                 }
                 Phase::Enter => {
-                    if let Some(target) = self.target {
-                        if self
+                    if let Some(target) = self.target
+                        && self
                             .emit(scope, target, "dragenter", self.previous)?
                             .is_none()
-                        {
-                            return Ok(false);
-                        }
+                    {
+                        return Ok(false);
                     }
                     self.phase = Phase::Leave;
                 }
                 Phase::Leave => {
                     if let Some(previous) =
                         self.previous.filter(|node| session.present(&state, *node))
-                    {
-                        if self
+                        && self
                             .emit(scope, previous, "dragleave", self.target)?
                             .is_none()
-                        {
-                            return Ok(false);
-                        }
+                    {
+                        return Ok(false);
                     }
                     self.phase = Phase::OverPrepare;
                 }

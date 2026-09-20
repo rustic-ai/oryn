@@ -2,7 +2,7 @@
   "status": "generation_pending_build_and_qualification",
   "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
   "rusty_v8_version": "150.4.0",
-  "patch_sha256": "42332f3f8b47282c6074e0f0175e30700ab67d5691b8c77659bff629629d6579",
+  "patch_sha256": "9aad2f472de612f6f08f34c139d04428a54963c7c279da4f9d62665dbf869f6b",
   "base_files": {
     "include/v8-template.h": "fd4c13b90a534a569bdfa96fd97e8bf1eb65e2d096d77bdc9073b46da1737437",
     "src/objects/templates.tq": "810d30ae58abcbeb184ee773510d41c4bf81f1ca143610cd1d9abaacfb61570c",
@@ -10,7 +10,8 @@
     "src/objects/templates-inl.h": "3f867235e83a9cc0afd2ba02c278f253341cb0e2156608d7274954872f654e8f",
     "src/api/api.cc": "28c17ea3a6895b392dd8176f09fa90c53b1c03f04a4f7455e9da54aadaf2f685",
     "src/objects/js-objects.cc": "f9396331f8cba5e6f0bef80d6069b5c34e11573ccfc883b7851409755e2ddcd8",
-    "include/v8-context.h": "8308231c7a12561476a46a4c7d264e4a04b3f03a98a7adfc9442df681e7e467d"
+    "include/v8-context.h": "8308231c7a12561476a46a4c7d264e4a04b3f03a98a7adfc9442df681e7e467d",
+    "src/objects/keys.cc": "8416b9ce874522e3992d3d123406da86ff5fb6306310240491496a4ff345a76c"
   },
   "patched_files": {
     "include/v8-template.h": "159dcdc32b90610651ef54d485cc2a5a153e65fe8553081559509451d507f337",
@@ -19,6 +20,7 @@
     "src/objects/templates-inl.h": "3e4b29f7dfe5365fdb09b944d2d3f53ad6a310b99b3e556e1ef7f726d3d05ad8",
     "src/api/api.cc": "af92a0ece3693a5cc219c4f7046fde13f4180f5b35c64604dfc5d7bdb1064c3b",
     "src/objects/js-objects.cc": "e8d281478e659fa42696dcb23f6eac435d5266eca9f03b652a1ddab55ac6498c",
-    "include/v8-context.h": "648978877f2e21195d226a977418bd41c8ac93c96f66343f69af6c037cc0fea5"
+    "include/v8-context.h": "648978877f2e21195d226a977418bd41c8ac93c96f66343f69af6c037cc0fea5",
+    "src/objects/keys.cc": "5ffb0be6a38c592a1aa86d3e7eb6cdf583dde211de0b001cfba5022eb043e63e"
   }
 }

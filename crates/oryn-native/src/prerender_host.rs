@@ -1,3 +1,14 @@
+
+/// Inputs retained together for create prerender root.
+pub(crate) struct PrerenderRootInput {
+    pub(crate) previous: RealmId,
+    pub(crate) broker: Option<SharedNetworkBroker>,
+    pub(crate) client: SharedContextClient,
+    pub(crate) page_id: PageId,
+    pub(crate) token: oryn_js::message_wire::PrerenderToken,
+    pub(crate) generation: u64,
+    pub(crate) epoch: u64,
+}
 // Same-agent nonactive root preparation. The candidate gets its own context;
 // preloading must never detach the incumbent's public WindowProxy.
 pub(crate) struct NativePrerenderActivationTree{
@@ -138,8 +149,9 @@ impl RawV8Host {
         self.binding_states.get(&self.active_realm).is_some_and(|state|state.document_prerendering())
     }
 
-    pub(crate) fn create_prerender_root(&mut self,previous:RealmId,broker:Option<SharedNetworkBroker>,client:SharedContextClient,page_id:PageId,
-        token:oryn_js::message_wire::PrerenderToken,generation:u64,epoch:u64)->Result<RealmId,HostError>{
+    pub(crate) fn create_prerender_root(&mut self, params: PrerenderRootInput)->Result<RealmId,HostError>{
+        let PrerenderRootInput { previous, broker, client, page_id, token, generation, epoch } = params;
+
         let response=client.request(ContextServiceRequest::ReadPrerenderAuthority{page_id,token:token.clone(),generation,epoch})
             .map_err(|error|HostError::Execution(error.to_string()))?;
         let ContextServiceResponse::PrerenderAuthority{initiator_page,url,policy:_,origin}=response else{return Err(HostError::Execution("prerender authority response mismatch".into()))};
@@ -200,8 +212,8 @@ mod prerender_host_tests {
         host.sync_session_history(session.clone()).unwrap();
         let creator=host.native_script_creator().unwrap();
         let ContextServiceResponse::PrerenderReserved{token,generation,epoch}=client.request(ContextServiceRequest::ReservePrerender{page_id:page,creator,url:"https://prerender.test/next".into()}).unwrap()else{panic!("reserve")};
-        client.request(ContextServiceRequest::CommitPrerenderResponse{page_id:page,token:token.clone(),generation,epoch,url:"https://prerender.test/next".into(),headers:Vec::new()}).unwrap();
-        let candidate=host.create_prerender_root(source,None,client.clone(),page,token.clone(),generation,epoch).unwrap();
+        client.request(ContextServiceRequest::CommitPrerenderResponse{response_policy:None,page_id:page,token:token.clone(),generation,epoch,url:"https://prerender.test/next".into(),headers:Vec::new()}).unwrap();
+        let candidate=host.create_prerender_root(PrerenderRootInput { previous: source, broker: None, client: client.clone(), page_id: page, token: token.clone(), generation, epoch }).unwrap();
         host.install_dom(Rc::new(RefCell::new(oryn_dom::html::parse("<body>candidate</body>").into_runtime().unwrap())),generation).unwrap();
         host.execute("globalThis.savedWindow=window;globalThis.savedDocument=document;globalThis.marker='candidate';globalThis.order=[];addEventListener('pageshow',()=>order.push('pageshow'));document.addEventListener('prerenderingchange',()=>order.push('prerenderingchange'))").unwrap();
         // Public discovery must retain the incumbent while the hidden candidate
@@ -263,6 +275,8 @@ mod prerender_host_tests {
             None, Some(Url::parse("https://prerender.test/source").unwrap()), client.clone(), page, 128*1024*1024,
         ).unwrap();
         let source = host.active_realm();
+        assert_eq!(host.navigation_roots.get(&page), Some(&source));
+        assert_eq!(host.navigation_root_for_page(page), Some(source));
         let source_generation = host.realm_descriptor(source).unwrap().document_generation;
         host.install_dom(Rc::new(RefCell::new(oryn_dom::html::parse("<body>source</body>").into_runtime().unwrap())), source_generation).unwrap();
         host.execute("globalThis.originalDocument=document").unwrap();
@@ -271,9 +285,9 @@ mod prerender_host_tests {
             ContextServiceRequest::ReservePrerender { page_id: page, creator: source_creator.clone(), url: "https://prerender.test/candidate".into() },
         ).unwrap() else { panic!("private reservation"); };
         client.request(ContextServiceRequest::CommitPrerenderResponse {
-            page_id: page, token: token.clone(), generation, epoch, url: "https://prerender.test/candidate".into(), headers: Vec::new(),
+            response_policy: None,            page_id: page, token: token.clone(), generation, epoch, url: "https://prerender.test/candidate".into(), headers: Vec::new(),
         }).unwrap();
-        let candidate = host.create_prerender_root(source, None, client.clone(), page, token.clone(), generation, epoch).unwrap();
+        let candidate = host.create_prerender_root(PrerenderRootInput { previous: source, broker: None, client: client.clone(), page_id: page, token: token.clone(), generation, epoch }).unwrap();
         let parent_dom = Rc::new(RefCell::new(oryn_dom::html::parse("<body><iframe id='child' src='https://child.test/response'></iframe></body>").into_runtime().unwrap()));
         host.install_dom(parent_dom.clone(), generation).unwrap();
         host.commit_location("https://prerender.test/candidate").unwrap();
@@ -291,12 +305,22 @@ mod prerender_host_tests {
         let child = host.commit_frame_document_with_url(frame, Origin::from_url(response_url), child_dom, child_document, Some(response_url)).unwrap();
         host.activate_realm(child).unwrap();
         host.commit_location(response_url).unwrap();
+        // This must already be private before policy binding or any author
+        // read; setting the flag after publication would hide the actual bug.
+        assert!(host.binding_states[&child].document_prerendering());
+        assert!(!host.binding_states[&child].document_rendering_allowed());
+        let prepared_before = context.prepared_frame_resource_policy(page, &ticket).unwrap();
         assert!(host.bind_frame_worker_policy("https://child.test/wrong", &ticket).is_err());
+        assert_eq!(context.prepared_frame_resource_policy(page, &ticket).unwrap(), prepared_before);
+        assert!(host.prerender_root_current(candidate).unwrap());
+        assert_eq!(host.navigation_roots.get(&page), Some(&source));
         host.bind_frame_worker_policy(response_url, &ticket).unwrap();
         let child_creator = host.native_creator_for_realm(child).unwrap();
         let Creator::Window { target: WindowTarget::Frame(frame_token), document_generation, stream_epoch } = &child_creator else { panic!("private frame creator"); };
         let (_, _, origin) = context.window_worker_creator(page, &WindowTarget::Frame(frame_token.clone()), *document_generation, *stream_epoch).unwrap();
         assert_eq!(origin.serialized, "https://child.test");
+        assert!(context.read_related_window(page, &source_creator, page,
+            &WindowTarget::Frame(frame_token.clone()), None).is_err());
         let policy = context.window_worker_policy(page, &WindowTarget::Frame(frame_token.clone()), *document_generation, *stream_epoch).unwrap();
         assert_eq!(policy.url, response_url);
         assert!(policy.headers.iter().any(|(name, value)| name.eq_ignore_ascii_case("content-security-policy") && value == "img-src 'none'"));
@@ -313,6 +337,53 @@ mod prerender_host_tests {
         assert_eq!(host.evaluate_string("String(originalDocument===document)").unwrap(), "true");
         assert_eq!(host.native_creator_for_realm(source).unwrap(), source_creator);
     }
+    #[test]
+    fn http_child_replacement_under_public_parent_keeps_public_discovery() {
+        use oryn_js::worker_wire::Creator;
+        use oryn_js::message_wire::WindowTarget;
+        let context = crate::Browser::in_process_probe().new_context();
+        let page = context.new_page().page_id();
+        let parent_url = "https://public-frame.test/source";
+        let response_url = "https://child.test/response";
+        context.install_document_security(page, parent_url.into(), &[]).unwrap();
+        let client = SharedContextClient::direct(context.clone(), page);
+        let mut host = RawV8Host::new_with_network_context_and_heap_limit(
+            None, Some(Url::parse(parent_url).unwrap()), client, page, 128*1024*1024,
+        ).unwrap();
+        let parent = host.active_realm();
+        assert_eq!(host.navigation_roots.get(&page), Some(&parent));
+        assert_eq!(host.navigation_root_for_page(page), Some(parent));
+        let generation = host.realm_descriptor(parent).unwrap().document_generation;
+        let dom = Rc::new(RefCell::new(oryn_dom::html::parse(
+            "<body><iframe id='child' src='https://child.test/response'></iframe></body>",
+        ).into_runtime().unwrap()));
+        host.install_dom(dom.clone(), generation).unwrap();
+        let parent_creator = host.native_creator_for_realm(parent).unwrap();
+        let frame = dom.borrow().find_by_id("child").unwrap();
+        host.ensure_provisional_frame_window(frame).unwrap();
+        let ticket = context.prepare_frame_worker_policy_for_creator(
+            page, response_url, &[], "", Some(&parent_creator),
+        ).unwrap();
+        let child_dom = Rc::new(RefCell::new(oryn_dom::html::parse(
+            "<title>public child</title><body>response</body>",
+        ).into_runtime().unwrap()));
+        let document = child_dom.borrow().document();
+        let child = host.commit_frame_document_with_url(
+            frame, Origin::from_url(response_url), child_dom, document, Some(response_url),
+        ).unwrap();
+        assert!(!host.binding_states[&child].document_prerendering());
+        host.activate_realm(child).unwrap();
+        host.commit_location(response_url).unwrap();
+        host.bind_frame_worker_policy(response_url, &ticket).unwrap();
+        let creator = host.native_creator_for_realm(child).unwrap();
+        let Creator::Window { target, .. } = &creator else { panic!("public frame creator"); };
+        assert!(matches!(target, WindowTarget::Frame(_)));
+        assert_eq!(context.read_related_window(page, &parent_creator, page, target, None).unwrap().creator, creator);
+        assert_eq!(host.evaluate_string("String(document.title==='public child'&&!document.prerendering)").unwrap(), "true");
+        assert_eq!(host.navigation_roots.get(&page), Some(&parent));
+        host.activate_realm(parent).unwrap();
+        assert_eq!(host.native_creator_for_realm(parent).unwrap(), parent_creator);
+    }
     #[test]fn private_root_preparation_never_replaces_live_proxy_and_sets_identity_before_script(){
         let context=crate::Browser::in_process_probe().new_context();let page=context.new_page().page_id();
         context.install_document_security(page,"https://prerender.test/start".into(),&[]).unwrap();
@@ -323,8 +394,8 @@ mod prerender_host_tests {
         host.execute("globalThis.sourceIdentity=window;globalThis.originalDocument=document").unwrap();
         let creator=host.native_script_creator().unwrap();
         let ContextServiceResponse::PrerenderReserved{token,generation,epoch}=client.request(ContextServiceRequest::ReservePrerender{page_id:page,creator,url:"https://prerender.test/next".into()}).unwrap()else{panic!("reserve")};
-        client.request(ContextServiceRequest::CommitPrerenderResponse{page_id:page,token:token.clone(),generation,epoch,url:"https://prerender.test/next".into(),headers:Vec::new()}).unwrap();
-        let candidate=host.create_prerender_root(previous,None,client.clone(),page,token.clone(),generation,epoch).unwrap();
+        client.request(ContextServiceRequest::CommitPrerenderResponse{response_policy:None,page_id:page,token:token.clone(),generation,epoch,url:"https://prerender.test/next".into(),headers:Vec::new()}).unwrap();
+        let candidate=host.create_prerender_root(PrerenderRootInput { previous, broker: None, client: client.clone(), page_id: page, token: token.clone(), generation, epoch }).unwrap();
         host.install_dom(Rc::new(RefCell::new(oryn_dom::html::parse("<body>candidate</body>").into_runtime().unwrap())),generation).unwrap();
         let state=host.binding_states[&candidate].clone();assert!(state.document_prerendering());assert_eq!(state.document_authority_epoch(),epoch);
         assert!(host.prerender_root_current(candidate).unwrap());
@@ -390,8 +461,8 @@ mod blank_prerender_host_tests{
         let ContextServiceResponse::BlankPrerenderReserved{page_id:destination,admission,token,generation,epoch}=client.request(ContextServiceRequest::ReserveBlankPrerender{page_id:page,creator:creator.clone(),url:"https://prerender.test/next".into()}).unwrap()else{panic!("blank reserve")};
         assert_ne!(destination,page);assert!(context.hidden_prerender_page(destination));
         let destination_client=client.related_endpoint(&admission).unwrap();
-        destination_client.request(ContextServiceRequest::CommitPrerenderResponse{page_id:destination,token:token.clone(),generation,epoch,url:"https://prerender.test/next".into(),headers:Vec::new()}).unwrap();
-        let candidate=host.create_prerender_root(source,None,destination_client.clone(),destination,token.clone(),generation,epoch).unwrap();
+        destination_client.request(ContextServiceRequest::CommitPrerenderResponse{response_policy:None,page_id:destination,token:token.clone(),generation,epoch,url:"https://prerender.test/next".into(),headers:Vec::new()}).unwrap();
+        let candidate=host.create_prerender_root(PrerenderRootInput { previous: source, broker: None, client: destination_client.clone(), page_id: destination, token: token.clone(), generation, epoch }).unwrap();
         host.install_dom(Rc::new(RefCell::new(oryn_dom::html::parse("<body>candidate</body>").into_runtime().unwrap())),generation).unwrap();
         host.execute("globalThis.saved=document;globalThis.savedWindow=window;globalThis.count=0;document.addEventListener('prerenderingchange',()=>count++)").unwrap();
         destination_client.request(ContextServiceRequest::MarkPrerenderReady{page_id:destination,token:token.clone(),generation,epoch}).unwrap();

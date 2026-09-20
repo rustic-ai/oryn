@@ -1,4 +1,22 @@
 //! Parent-authorized worker entry/import loading, independent of PageId.
+
+/// Inputs for load with cache.
+struct CachedScriptLoad<'a> {
+    network: &'a SharedNetworkBroker,
+    authority: ScriptAuthority<'a>,
+    requested: &'a str,
+    kind: ScriptLoadKind,
+    cancel: &'a AtomicBool,
+    controller: Option<(
+        &'a crate::service_registry::ServiceRegistry,
+        &'a crate::agent_registry::AgentOwner,
+    )>,
+    revalidate: bool,
+    service: bool,
+}
+type ViolationReporter<'a> =
+    &'a dyn Fn(&CspPolicySet, Vec<crate::csp::CspViolation>) -> Result<(), WorkerError>;
+
 use crate::{
     cookies::{CookieCredentials, CookieRequestContext, CookieRequestKind},
     csp::{CspDestination, CspPolicySet, CspRequest},
@@ -57,8 +75,7 @@ pub struct ScriptAuthority<'a> {
     pub hash_report: Option<&'a dyn Fn(Vec<crate::csp::ScriptHashReport>)>,
     pub worker_destination: &'static str,
     pub coep_report: Option<&'a dyn Fn(Vec<crate::coep_reporting::Report>)>,
-    pub report:
-        Option<&'a dyn Fn(&CspPolicySet, Vec<crate::csp::CspViolation>) -> Result<(), WorkerError>>,
+    pub report: Option<ViolationReporter<'a>>,
     pub cookie_ancestor_urls: &'a [String],
     pub referrer_source: Option<&'a str>,
     pub origin: &'a AgentOrigin,
@@ -247,9 +264,16 @@ pub(crate) fn load_controlled(
         &crate::agent_registry::AgentOwner,
     )>,
 ) -> Result<LoadedAgentScript, WorkerError> {
-    load_with_cache(
-        network, authority, requested, kind, cancel, controller, false, false,
-    )
+    load_with_cache(CachedScriptLoad {
+        network,
+        authority,
+        requested,
+        kind,
+        cancel,
+        controller,
+        revalidate: false,
+        service: false,
+    })
 }
 /// Service update cache policy is supplied by the native registration job.
 /// Revalidation bypasses local reuse but allows storing the new response.
@@ -261,30 +285,36 @@ pub(crate) fn load_service(
     cancel: &AtomicBool,
     revalidate: bool,
 ) -> Result<LoadedAgentScript, WorkerError> {
-    load_with_cache(
-        network, authority, requested, kind, cancel, None, revalidate, true,
-    )
+    load_with_cache(CachedScriptLoad {
+        network,
+        authority,
+        requested,
+        kind,
+        cancel,
+        controller: None,
+        revalidate,
+        service: true,
+    })
 }
-fn load_with_cache(
-    network: &SharedNetworkBroker,
-    authority: ScriptAuthority<'_>,
-    requested: &str,
-    kind: ScriptLoadKind,
-    cancel: &AtomicBool,
-    controller: Option<(
-        &crate::service_registry::ServiceRegistry,
-        &crate::agent_registry::AgentOwner,
-    )>,
-    revalidate: bool,
-    service: bool,
-) -> Result<LoadedAgentScript, WorkerError> {
+fn load_with_cache(params: CachedScriptLoad<'_>) -> Result<LoadedAgentScript, WorkerError> {
+    let CachedScriptLoad {
+        network,
+        authority,
+        requested,
+        kind,
+        cancel,
+        controller,
+        revalidate,
+        service,
+    } = params;
+
     let base = Url::parse(authority.script_url)
         .map_err(|failure| error(ScriptFailureKind::Fetch, "SyntaxError", failure.to_string()))?;
     let mut url = base
         .join(requested)
         .map_err(|failure| error(ScriptFailureKind::Fetch, "SyntaxError", failure.to_string()))?;
     let hash_request_url = url.to_string();
-    let policy = CspPolicySet::from_agent_policy(&authority.policy);
+    let policy = CspPolicySet::from_agent_policy(authority.policy);
     let embedder =
         crate::agent_isolation::DocumentIsolationPolicy::from_headers(&authority.policy.headers);
     let mut referrer_policy = ReferrerPolicy::parse_list(authority.referrer_policy);
@@ -372,6 +402,7 @@ fn load_with_cache(
                     )
                 })?;
             let response = NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: 0,
                 status: 200,
@@ -418,10 +449,10 @@ fn load_with_cache(
                     "worker script loading cancelled during decoding",
                 ));
             }
-            if result.is_ok() {
-                if let Some(report) = authority.hash_report {
-                    report(hashes);
-                }
+            if result.is_ok()
+                && let Some(report) = authority.hash_report
+            {
+                report(hashes);
             }
             return result;
         }
@@ -546,6 +577,7 @@ fn load_with_cache(
                 ));
             }
             NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id,
                 status: response.status,
@@ -624,19 +656,19 @@ fn load_with_cache(
                     &authority.policy.url,
                     &authority.policy.headers,
                 )
-                .response(
-                    &authority.origin.serialized,
-                    authority.origin.opaque,
-                    &url,
-                    kind.module(),
-                    use_credentials,
-                    &response.headers,
-                    if kind.entry() || authority.worker_destination == "audioworklet" {
+                .response(crate::coep_reporting::ResponsePolicyInputs {
+                    origin: &authority.origin.serialized,
+                    opaque: authority.origin.opaque,
+                    target: &url,
+                    cors: kind.module(),
+                    credentials: use_credentials,
+                    headers: &response.headers,
+                    destination: if kind.entry() || authority.worker_destination == "audioworklet" {
                         authority.worker_destination
                     } else {
                         "script"
                     },
-                ),
+                }),
             );
         }
         embedder
@@ -726,10 +758,10 @@ fn load_with_cache(
                 "worker script loading cancelled during decoding",
             ));
         }
-        if result.is_ok() {
-            if let Some(report) = authority.hash_report {
-                report(hashes);
-            }
+        if result.is_ok()
+            && let Some(report) = authority.hash_report
+        {
+            report(hashes);
         }
         return result;
     }
@@ -751,6 +783,7 @@ mod tests {
         impl NetworkBroker for Reply {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -810,6 +843,7 @@ mod tests {
             (vec![0xff, 0xfe, b't', 0], "\u{fffd}\u{fffd}t\0"),
         ] {
             let response = NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: 0,
                 status: 200,
@@ -829,6 +863,7 @@ mod tests {
     #[test]
     fn json_module_http_failure_is_fetch_provenance_and_limits_are_capacity() {
         let response = NetworkResponse {
+            response_policy: None,
             timing: None,
             request_id: 1,
             status: 404,
@@ -871,6 +906,7 @@ mod tests {
             }
             self.requests.lock().unwrap().push(request.clone());
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -984,6 +1020,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(request.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -1055,6 +1092,7 @@ mod tests {
         assert!(
             decode_imported_source(
                 &NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: 0,
                     status: 200,
@@ -1093,6 +1131,7 @@ mod tests {
     #[test]
     fn durable_import_provenance_roundtrip_keeps_mime_and_request_response_policy_separate() {
         let response = NetworkResponse {
+            response_policy: None,
             timing: None,
             request_id: 0,
             status: 200,
@@ -1135,6 +1174,7 @@ mod tests {
     fn loaded_worker_preserves_enforcing_embedder_policy_and_inherited_blob_policy() {
         let url = Url::parse("https://a.test/worker.js").unwrap();
         let response = NetworkResponse {
+            response_policy: None,
             timing: None,
             request_id: 0,
             status: 200,
@@ -1170,6 +1210,7 @@ mod tests {
         let inherited = script.policy;
         let blob = loaded(
             NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: 0,
                 status: 200,
@@ -1200,6 +1241,7 @@ mod tests {
             hide_nonces: false,
             policy_sources: Vec::new(),
             policy_self_urls: Vec::new(),
+            document_self_url: None,
             policy_self_url: None,
             url: "https://a.test/page".into(),
             headers: vec![("content-security-policy".into(), "worker-src 'self'".into())],
@@ -1251,6 +1293,7 @@ mod tests {
             hide_nonces: false,
             policy_sources: Vec::new(),
             policy_self_urls: Vec::new(),
+            document_self_url: None,
             policy_self_url: None,
             url: "https://a.test/page".into(),
             headers: vec![("content-security-policy".into(), "worker-src 'none'".into())],
@@ -1418,6 +1461,7 @@ mod csp_delivery_tests {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             self.0.lock().unwrap().push(request.url.clone());
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: if request.url.ends_with("start.js") {

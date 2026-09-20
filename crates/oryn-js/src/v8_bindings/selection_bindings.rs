@@ -300,6 +300,16 @@ pub(super) fn operation<'s>(
             container: node,
             offset: converted,
         };
+        // extend() collapses both public endpoints when the new focus has a
+        // different tree root. Other composed-selection operations retain
+        // their separate cross-root behavior.
+        let anchor = if tree_root(&state.dom.borrow(), anchor.container)?
+            != tree_root(&state.dom.borrow(), focus.container)?
+        {
+            focus
+        } else {
+            anchor
+        };
         replace(&state, anchor, focus)?;
         return Ok(None);
     }

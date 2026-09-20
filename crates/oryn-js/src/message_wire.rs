@@ -292,13 +292,12 @@ impl WireValue {
         }
         let mut buffer_ids = BTreeSet::new();
         for host in &self.hosts {
-            if let WireHost::TransferredArrayBuffer { index, bytes } = host {
-                if bytes.is_empty()
+            if let WireHost::TransferredArrayBuffer { index, bytes } = host
+                && (bytes.is_empty()
                     || !self.buffers.get(*index as usize).is_some_and(Vec::is_empty)
-                    || !buffer_ids.insert(*index)
-                {
-                    return Err("invalid transferred buffer metadata".into());
-                }
+                    || !buffer_ids.insert(*index))
+            {
+                return Err("invalid transferred buffer metadata".into());
             }
         }
         let mut stream_ports = BTreeSet::new();
@@ -315,10 +314,10 @@ impl WireValue {
             }
         }
         for host in &self.hosts {
-            if let WireHost::MediaSourceHandle(index) = host {
-                if *index as usize >= self.ports.len() || !stream_ports.insert(*index) {
-                    return Err("invalid media source endpoint".into());
-                }
+            if let WireHost::MediaSourceHandle(index) = host
+                && (*index as usize >= self.ports.len() || !stream_ports.insert(*index))
+            {
+                return Err("invalid media source endpoint".into());
             }
         }
         for host in &self.hosts {
@@ -622,7 +621,9 @@ pub struct ParkedDocumentToken([u8; 32]);
 #[path = "message_prerender.rs"]
 mod message_prerender;
 use message_prerender::PrerenderDocument;
-pub use message_prerender::PrerenderToken;
+pub use message_prerender::{
+    PrerenderFrameOrigin, PrerenderFrameRegistration, PrerenderMessage, PrerenderToken,
+};
 impl std::fmt::Debug for ParkedDocumentToken {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ParkedDocumentToken([redacted])")
@@ -636,6 +637,14 @@ struct ParkedDocument {
     queues: BTreeMap<WindowTarget, VecDeque<QueuedWindow>>,
     bytes: BTreeMap<WindowTarget, usize>,
 }
+type PendingSharedDisposals = BTreeMap<
+    (Principal, crate::shared_memory::SharedMemoryHandoff),
+    (
+        Option<std::sync::Arc<dyn crate::shared_memory::SharedMessageBackend>>,
+        crate::shared_memory::SharedMemoryReference,
+    ),
+>;
+
 #[derive(Default)]
 pub struct MessageHub {
     prerender_token_key: Option<[u8; 32]>,
@@ -645,13 +654,7 @@ pub struct MessageHub {
     park_token_key: Option<[u8; 32]>,
     park_token_sequence: u64,
     broadcast_sequence: u64,
-    pending_shared_disposals: BTreeMap<
-        (Principal, crate::shared_memory::SharedMemoryHandoff),
-        (
-            Option<std::sync::Arc<dyn crate::shared_memory::SharedMessageBackend>>,
-            crate::shared_memory::SharedMemoryReference,
-        ),
-    >,
+    pending_shared_disposals: PendingSharedDisposals,
     shared_backend: Option<std::sync::Arc<dyn crate::shared_memory::SharedMessageBackend>>,
     parked: BTreeMap<[u8; 32], ParkedDocument>,
     parked_frame_lifetimes: BTreeMap<(u64, String), (u64, u64)>,
@@ -1477,20 +1480,20 @@ impl MessageHub {
                 ) {
                     return Err("invalid scoped message operation".into());
                 }
-                if let MessageRequest::PostWindow { source, .. } = request.as_ref() {
-                    if source != &target {
-                        return Err("scoped Window message source mismatch".into());
-                    }
+                if let MessageRequest::PostWindow { source, .. } = request.as_ref()
+                    && source != &target
+                {
+                    return Err("scoped Window message source mismatch".into());
                 }
-                if let MessageRequest::BroadcastOpen { target: opened, .. } = request.as_ref() {
-                    if opened != &target {
-                        return Err("scoped broadcast source mismatch".into());
-                    }
+                if let MessageRequest::BroadcastOpen { target: opened, .. } = request.as_ref()
+                    && opened != &target
+                {
+                    return Err("scoped broadcast source mismatch".into());
                 }
-                if let MessageRequest::PollWindow { target: polled, .. } = request.as_ref() {
-                    if polled != &target {
-                        return Err("scoped Window message target mismatch".into());
-                    }
+                if let MessageRequest::PollWindow { target: polled, .. } = request.as_ref()
+                    && polled != &target
+                {
+                    return Err("scoped Window message target mismatch".into());
                 }
                 self.handle_bound(
                     caller,
@@ -1574,6 +1577,15 @@ impl MessageHub {
                 );
                 if self.roots.get(&page) == Some(&(document_generation, stream_epoch)) {
                     self.retire_active_frame_broadcasts(page);
+                    // This queue belongs to the exact active document being
+                    // retired. Preserve parked and newer document queues.
+                    let key = (page, WindowTarget::Root);
+                    if let Some(queue) = self.windows.remove(&key) {
+                        for item in queue {
+                            self.discard(item.message.payload);
+                        }
+                    }
+                    self.window_bytes.remove(&key);
                     self.roots.remove(&page);
                     let old = self
                         .retired_roots
@@ -2715,10 +2727,11 @@ impl MessageHub {
         self.enqueue_transfers(value);
         if let Err(error) = self.receive(recipient, value, document) {
             for token in &value.ports {
-                if let Some(endpoint) = self.ports.get_mut(&token.id) {
-                    if endpoint.secret == token.secret && endpoint.owner == Owner::Queued {
-                        endpoint.owner = Owner::Transit(sender)
-                    }
+                if let Some(endpoint) = self.ports.get_mut(&token.id)
+                    && endpoint.secret == token.secret
+                    && endpoint.owner == Owner::Queued
+                {
+                    endpoint.owner = Owner::Transit(sender)
                 }
             }
             return Err(error);
@@ -3206,6 +3219,127 @@ mod broadcast_tests {
     }
 
     #[test]
+    fn exact_root_retirement_discards_queued_transfers_and_preserves_parked_and_newer_queues() {
+        let live = BTreeMap::from([(1, "https://root.test".into())]);
+        let mut hub = MessageHub::default();
+        let register = |generation| MessageRequest::RegisterRootDocument {
+            document_generation: generation,
+            stream_epoch: 0,
+        };
+        let retire = |generation| MessageRequest::RetireRootDocument {
+            document_generation: generation,
+            stream_epoch: 0,
+        };
+        let post = |payload| MessageRequest::PostWindow {
+            target_page: 1,
+            target: WindowTarget::Root,
+            source: WindowTarget::Root,
+            target_origin: TargetOrigin::Any,
+            payload,
+        };
+        hub.handle(1, register(1), &live).unwrap();
+        hub.handle(1, post(payload()), &live).unwrap();
+        let parked_bytes = hub.retained_bytes();
+        let parked = hub.park_document_authority(1, 1, 0).unwrap();
+        hub.handle(1, register(2), &live).unwrap();
+        let MessageResponse::Channel([peer, transferred]) =
+            hub.handle(1, MessageRequest::CreateChannel, &live).unwrap()
+        else {
+            panic!("channel")
+        };
+        let MessageResponse::Transferred(ports) = hub
+            .handle(
+                1,
+                MessageRequest::Transfer {
+                    ports: vec![transferred],
+                },
+                &live,
+            )
+            .unwrap()
+        else {
+            panic!("transfer")
+        };
+        hub.handle(
+            1,
+            post(WireValue {
+                ports,
+                hosts: vec![WireHost::Port(0)],
+                ..payload()
+            }),
+            &live,
+        )
+        .unwrap();
+        let failed_bytes = hub.retained_bytes();
+        assert!(failed_bytes > parked_bytes);
+        hub.handle(1, retire(1), &live).unwrap();
+        assert_eq!(hub.root_document_identity(1), Some((2, 0)));
+        assert_eq!(
+            hub.retained_bytes(),
+            failed_bytes,
+            "stale retirement cannot discard active queued values"
+        );
+        hub.handle(1, retire(2), &live).unwrap();
+        hub.handle(1, retire(2), &live).unwrap();
+        assert_eq!(hub.root_document_identity(1), None);
+        assert_eq!(hub.retained_bytes(), parked_bytes);
+        assert!(matches!(
+            hub.handle(1, MessageRequest::PollPort { port: peer, max: 1 }, &live)
+                .unwrap(),
+            MessageResponse::PortMessages {
+                peer_closed: true,
+                ..
+            }
+        ));
+        hub.handle(1, register(3), &live).unwrap();
+        hub.handle(
+            1,
+            post(WireValue {
+                bytes: vec![9],
+                ..payload()
+            }),
+            &live,
+        )
+        .unwrap();
+        let newer_bytes = hub.retained_bytes();
+        hub.handle(1, retire(2), &live).unwrap();
+        assert_eq!(hub.root_document_identity(1), Some((3, 0)));
+        assert_eq!(hub.retained_bytes(), newer_bytes);
+        let MessageResponse::WindowMessages(messages) = hub
+            .handle(
+                1,
+                MessageRequest::PollWindow {
+                    target: WindowTarget::Root,
+                    max: 1,
+                },
+                &live,
+            )
+            .unwrap()
+        else {
+            panic!("newer queue")
+        };
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].payload.bytes, vec![9]);
+        hub.handle(1, retire(3), &live).unwrap();
+        assert_eq!(hub.restore_document_authority(1, &parked).unwrap(), (1, 0));
+        let MessageResponse::WindowMessages(messages) = hub
+            .handle(
+                1,
+                MessageRequest::PollWindow {
+                    target: WindowTarget::Root,
+                    max: 1,
+                },
+                &live,
+            )
+            .unwrap()
+        else {
+            panic!("parked queue")
+        };
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].payload.bytes, vec![1]);
+        assert_eq!(hub.retained_bytes(), 0);
+    }
+
+    #[test]
     fn root_worker_creator_epochs_cannot_be_resurrected_after_retirement() {
         let live = BTreeMap::from([(1, "https://root.test".into())]);
         let mut hub = MessageHub::default();
@@ -3343,12 +3477,12 @@ mod broadcast_tests {
         }
         let mut received = Vec::new();
         for _ in 0..3 {
-            for index in 0..3 {
+            for (index, channel) in channels.iter().enumerate() {
                 let MessageResponse::BroadcastMessages(messages) = hub
                     .handle(
                         1,
                         MessageRequest::BroadcastPoll {
-                            channel: channels[index].clone(),
+                            channel: channel.clone(),
                             max: 32,
                         },
                         &live,

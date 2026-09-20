@@ -372,20 +372,22 @@ impl NavigationControl {
 #[derive(Clone)]
 pub(crate) struct PendingNavigationAck(Arc<Mutex<Option<Result<(), NavigationStop>>>>);
 impl PendingNavigationAck {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "v8-host"))]
     pub(crate) fn test_pending() -> Self {
         Self::pending()
     }
-    #[cfg(test)]
+    #[cfg(all(test, feature = "v8-host"))]
     pub(crate) fn test_finish(&self, result: Result<(), NavigationStop>) {
         self.finish(result)
     }
+    #[cfg(feature = "v8-host")]
     fn pending() -> Self {
         Self(Arc::new(Mutex::new(None)))
     }
     fn ready(result: Result<(), NavigationStop>) -> Self {
         Self(Arc::new(Mutex::new(Some(result))))
     }
+    #[cfg(feature = "v8-host")]
     fn finish(&self, result: Result<(), NavigationStop>) {
         *self.0.lock().unwrap_or_else(|error| error.into_inner()) = Some(result);
     }
@@ -434,12 +436,11 @@ impl RemoteNavigation {
         if let Some(stop) = &state.stopped {
             return Err(stop.clone());
         }
-        if event.is_none() {
-            if let Some(ack) = &state.checkpoint {
-                if ack.poll().is_pending() {
-                    return Ok(ack.clone());
-                }
-            }
+        if event.is_none()
+            && let Some(ack) = &state.checkpoint
+            && ack.poll().is_pending()
+        {
+            return Ok(ack.clone());
         }
         if state.outstanding >= 256 {
             let error = NavigationStop::Failed("navigation acknowledgement queue exceeded".into());
@@ -589,6 +590,7 @@ pub(crate) enum NavigationEmitter {
     Remote(Arc<RemoteNavigation>),
 }
 impl NavigationEmitter {
+    #[cfg(any(feature = "v8-host", test))]
     pub(crate) fn same_job(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Local(left), Self::Local(right)) => Arc::ptr_eq(left, right),
@@ -628,6 +630,7 @@ impl NavigationEmitter {
     pub(crate) fn checkpoint(&self) -> Result<(), NavigationStop> {
         self.cached_stop().map_or(Ok(()), Err)
     }
+    #[cfg(any(feature = "v8-host", test))]
     pub(crate) fn checkpoint_pending(&self) -> Result<PendingNavigationAck, NavigationStop> {
         match self {
             Self::Local(job) => Ok(PendingNavigationAck::ready(job.checkpoint())),
@@ -637,6 +640,7 @@ impl NavigationEmitter {
     }
     /// Flush prior publications. A latched failure is a completed negative
     /// acknowledgement, never a successful flush or a reason to retry events.
+    #[cfg(any(feature = "v8-host", test))]
     pub(crate) fn flush_pending(&self) -> Result<PendingNavigationAck, NavigationStop> {
         if let Some(stop) = self.cached_stop() {
             return Ok(PendingNavigationAck::ready(Err(stop)));

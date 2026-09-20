@@ -90,6 +90,18 @@ export function createDiagnostics(url, {clock=() => performance.now(), limit=256
       record('browser', {event:text(value), pid:number(fields.pid), code:number(fields.code),
         signal:text(fields.signal), error_code:text(fields.error_code)});
     },
+    completion(value) {
+      // Preserve the observed outcome even when an independent focus gate rejects
+      // reference admission. Never retain test names/messages or page payloads.
+      if (!value || !Array.isArray(value.tests)) return;
+      record('completion_observed', {
+        harness_status:Number.isInteger(value.harness) ? value.harness : undefined,
+        completion_count:Number.isSafeInteger(value.completion_count) ? value.completion_count : undefined,
+        test_count:value.tests.length,
+        passed_tests:value.tests.filter(test => test?.status === 0).length,
+        failed_tests:value.tests.filter(test => test?.status !== 0).length,
+      });
+    },
     failure(error) {
       if (!failure) { failure = {phase, name:errorName(error)}; record('failure', failure); }
     },
@@ -120,6 +132,16 @@ export function createDiagnostics(url, {clock=() => performance.now(), limit=256
         (message.sessionId === undefined || (typeof message.sessionId === 'string' && message.sessionId.length <= 256))
         ? JSON.stringify([message.sessionId || '', p.requestId]) : null;
       switch (message.method) {
+        case 'Runtime.bindingCalled': {
+          if (p.name !== '__oryn_reference_focus' || typeof p.payload !== 'string' || p.payload.length > 1024) break;
+          try {
+            const observation = JSON.parse(p.payload);
+            if (!['document_created','report_ready'].includes(observation?.phase) || typeof observation.focused !== 'boolean') break;
+            record('focus_observed', {session_id, context_id:number(p.executionContextId),
+              phase:observation.phase, focused:observation.focused});
+          } catch { /* malformed page payload is not diagnostic evidence */ }
+          break;
+        }
         case 'Target.attachedToTarget':
           record('target_attached', {session_id, child_session_id:text(p.sessionId),
             type:text(p.targetInfo?.type), target_id:text(p.targetInfo?.targetId),

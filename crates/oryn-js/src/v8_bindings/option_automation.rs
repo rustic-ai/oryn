@@ -28,20 +28,22 @@ fn mouse(
     let event = create_native_input_event(
         scope,
         state,
-        "MouseEvent",
-        kind,
-        true,
-        true,
-        true,
-        1,
-        None,
-        &[
-            ("button", NativeInputValue::Number(0.)),
-            (
-                "buttons",
-                NativeInputValue::Number(if kind == "mousedown" { 1. } else { 0. }),
-            ),
-        ],
+        NativeInputEventInputs {
+            interface: "MouseEvent",
+            event_type: kind,
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            detail: 1,
+            related: None,
+            fields: &[
+                ("button", NativeInputValue::Number(0.)),
+                (
+                    "buttons",
+                    NativeInputValue::Number(if kind == "mousedown" { 1. } else { 0. }),
+                ),
+            ],
+        },
     )?;
     // The WebDriver algorithm owns selectedness; a second HTML activation would
     // reopen the picker or toggle the selection again.

@@ -375,6 +375,13 @@ mod tests {
                 .query_selector(state.document_root(), "body")
                 .unwrap()
                 .unwrap();
+            // Complete the host checkpoint for the removed media subtree.
+            // The explicit lease below is then the sole independent custody.
+            {
+                let mut dom = state.dom.borrow_mut();
+                let mutations = dom.drain_mutations();
+                dom.release_mutation_roots(&mutations).unwrap();
+            }
             let lease = oryn_dom::TrackedNodeLease::new(&state.dom, body).unwrap();
             state.retire_execution();
             state.refresh_connected_wrapper_roots(scope);
@@ -418,7 +425,7 @@ mod tests {
                 .query_selector(state.document_root(), "body")
                 .unwrap()
                 .unwrap();
-            let roots = Snapshot::capture(&[state.clone()]).unwrap();
+            let roots = Snapshot::capture(std::slice::from_ref(&state)).unwrap();
             assert!(!roots.independent(&state.dom.borrow(), body).unwrap());
         }
         isolate.low_memory_notification();

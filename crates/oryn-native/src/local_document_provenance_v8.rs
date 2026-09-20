@@ -38,7 +38,7 @@ struct LocalDomainAccess(Rc<RefCell<oryn_js::origin::DomainAccessIdentity>>,oryn
 fn inherit_local_document_domain(creator:v8::Local<v8::Context>,child:v8::Local<v8::Context>){
     let(Some(parent),Some(target))=(creator.get_slot::<RealmDescriptor>(),child.get_slot::<RealmDescriptor>())else{return};
     if parent.origin!=target.origin{return} // Opaque sandbox replacement is distinct.
-    if let Some(access)=creator.get_slot::<LocalDomainAccess>(){if access.0.borrow().origin()==&target.origin{child.set_slot(access);}}
+    if let Some(access)=creator.get_slot::<LocalDomainAccess>()&& access.0.borrow().origin()==&target.origin{child.set_slot(access);}
 }
 fn authorize_local_document_domain(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,candidate:&str)->Result<Option<String>,oryn_js::v8_bindings::V8BindingError>{
     use oryn_js::v8_bindings::V8BindingError;

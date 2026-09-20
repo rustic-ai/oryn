@@ -41,7 +41,10 @@ impl Drop for Client {
     }
 }
 enum Payload {
-    Raw(AgentEvent, Option<structured_clone::SharedReceiveGuard>),
+    Raw(
+        Box<AgentEvent>,
+        Option<structured_clone::SharedReceiveGuard>,
+    ),
     Message(Option<(v8::Global<v8::Value>, Vec<v8::Global<v8::Object>>)>),
     Empty,
 }
@@ -64,7 +67,7 @@ impl Pending {
         };
         Self {
             activation,
-            payload: Payload::Raw(event, cleanup),
+            payload: Payload::Raw(Box::new(event), cleanup),
             dispatch: None,
         }
     }
@@ -82,7 +85,7 @@ impl Drop for PollGuard {
         client.polling = false;
         if let Some(pending) = self.pending.take() {
             if (!client.suppressed
-                || matches!(&pending.payload, Payload::Raw(AgentEvent::Closed, _)))
+                || matches!(&pending.payload, Payload::Raw(event, _) if matches!(event.as_ref(), AgentEvent::Closed)))
                 && client.connection.is_some()
                 && !self.state.execution_retired()
             {
@@ -351,13 +354,13 @@ pub(super) fn retire(state: &V8BindingState) {
             discard_pending(state, &mut owner);
             (owner.transport.clone(), owner.connection.clone())
         };
-        if let Some(connection) = connection {
-            if matches!(
+        if let Some(connection) = connection
+            && matches!(
                 transport.request(AgentServiceRequest::Release { connection }),
                 Ok(AgentServiceResponse::Done)
-            ) {
-                client.borrow_mut().connection = None;
-            }
+            )
+        {
+            client.borrow_mut().connection = None;
         }
     }
 }
@@ -425,10 +428,14 @@ pub(super) fn poll(
         let Some(pending) = guard.pending.as_mut() else {
             continue;
         };
-        if let Payload::Raw(AgentEvent::Message { .. }, _) = &pending.payload {
-            let Payload::Raw(AgentEvent::Message { value, .. }, mut cleanup) =
+        if matches!(&pending.payload, Payload::Raw(event, _) if matches!(event.as_ref(), AgentEvent::Message { .. }))
+        {
+            let Payload::Raw(event, mut cleanup) =
                 std::mem::replace(&mut pending.payload, Payload::Empty)
             else {
+                unreachable!()
+            };
+            let AgentEvent::Message { value, .. } = *event else {
                 unreachable!()
             };
             if let Some(cleanup) = &mut cleanup {
@@ -450,8 +457,8 @@ pub(super) fn poll(
         }
         if pending.dispatch.is_none() {
             let prepared = match &pending.payload {
-                Payload::Raw(AgentEvent::Ready, _) => None,
-                Payload::Raw(AgentEvent::Closed, _) => {
+                Payload::Raw(event, _) if matches!(event.as_ref(), AgentEvent::Ready) => None,
+                Payload::Raw(event, _) if matches!(event.as_ref(), AgentEvent::Closed) => {
                     let released = transport.request(AgentServiceRequest::Release {
                         connection: connection.clone(),
                     });
@@ -493,15 +500,16 @@ pub(super) fn poll(
                     };
                     Some((event, name))
                 }
-                Payload::Raw(
-                    AgentEvent::Error {
+                Payload::Raw(event, _) if matches!(event.as_ref(), AgentEvent::Error { .. }) => {
+                    let AgentEvent::Error {
                         message,
                         filename,
                         line,
                         column,
-                    },
-                    _,
-                ) => {
+                    } = event.as_ref()
+                    else {
+                        unreachable!()
+                    };
                     let event = create_event_object_with_interface(
                         scope,
                         state,
@@ -616,7 +624,7 @@ pub(super) fn native_creator(state: &V8BindingState) -> Result<Creator, V8Bindin
                 "native creator lifetime registration",
             ));
         };
-        messages
+        let response = messages
             .request(crate::message_wire::MessageRequest::RegisterRootDocument {
                 document_generation: *document_generation,
                 stream_epoch: *stream_epoch,
@@ -624,6 +632,11 @@ pub(super) fn native_creator(state: &V8BindingState) -> Result<Creator, V8Bindin
             .map_err(|error| {
                 V8BindingError::Message(format!("native creator lifetime registration: {error}"))
             })?;
+        if !matches!(response, crate::message_wire::MessageResponse::Done) {
+            return Err(V8BindingError::Message(
+                "native creator lifetime registration: invalid acknowledgement".into(),
+            ));
+        }
     }
     Ok(creator)
 }
@@ -907,5 +920,86 @@ mod delivery_tests {
         assert_eq!(poll(scope, &state).unwrap(), 0);
         assert!(eval(scope, "seen.join(',')==='first'&&saved.eventPhase===0").is_true());
         assert!(!has_pending(&state));
+    }
+}
+
+#[cfg(test)]
+mod creator_registration_tests {
+    use super::*;
+    use crate::message_wire::{MessageRequest, MessageResponse, MessageTransport};
+    use std::sync::{Arc, Mutex};
+
+    struct Registration {
+        reply: u8,
+        requests: Mutex<Vec<MessageRequest>>,
+    }
+    impl MessageTransport for Registration {
+        fn request(&self, request: MessageRequest) -> Result<MessageResponse, String> {
+            let retiring = matches!(request, MessageRequest::RetireRootDocument { .. });
+            assert!(retiring || matches!(request, MessageRequest::RegisterRootDocument { .. }));
+            self.requests.lock().unwrap().push(request);
+            if retiring {
+                return Ok(MessageResponse::Done);
+            }
+            match self.reply {
+                0 => Ok(MessageResponse::Done),
+                1 => Ok(MessageResponse::PortPending(false)),
+                _ => Err("registration denied".into()),
+            }
+        }
+    }
+
+    #[test]
+    fn creator_requires_exact_registration_acknowledgement_and_never_registers_after_retirement() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        for reply in 0..3 {
+            v8::scope!(let scope, &mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+            ));
+            let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+            let generation = state.document_generation();
+            let epoch = state.document_authority_epoch();
+            let transport = Arc::new(Registration {
+                reply,
+                requests: Mutex::new(Vec::new()),
+            });
+            state.set_message_transport(transport.clone());
+            let result = state.scoped_message_request(MessageRequest::CreateChannel);
+            if reply == 0 {
+                assert!(matches!(result, Ok(MessageRequest::InDocument {
+                    target: crate::message_wire::WindowTarget::Root,
+                    document_generation, stream_epoch, request,
+                }) if document_generation == generation && stream_epoch == epoch && matches!(*request, MessageRequest::CreateChannel)));
+            } else {
+                let expected = if reply == 1 {
+                    "invalid acknowledgement"
+                } else {
+                    "registration denied"
+                };
+                assert!(
+                    matches!(result, Err(V8BindingError::Message(message)) if message.contains(expected))
+                );
+            }
+            {
+                let requests = transport.requests.lock().unwrap();
+                assert!(
+                    matches!(requests.as_slice(), [MessageRequest::RegisterRootDocument {
+                    document_generation, stream_epoch,
+                }] if *document_generation == generation && *stream_epoch == epoch)
+                );
+            }
+            state.retire_execution();
+            let calls = transport.requests.lock().unwrap().len();
+            assert!(
+                state
+                    .scoped_message_request(MessageRequest::CreateChannel)
+                    .is_err()
+            );
+            assert_eq!(transport.requests.lock().unwrap().len(), calls);
+        }
     }
 }

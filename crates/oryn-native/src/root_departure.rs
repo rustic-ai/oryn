@@ -169,9 +169,8 @@ mod retained_root_departure_tests {
         arm();let mut paused=false;
         for _ in 0..16{
             assert!(next(&mut page,&mut transaction).is_pending());
-            if let NavigationTransactionPhase::Departure{input:RootNavigationInput::Buffered{bytes,..},job:Some(job),..}=&transaction.phase{
-                if job.phase==1{assert!(String::from_utf8_lossy(bytes).contains("retained-body"));assert_eq!(page.document_generation,generation);assert_eq!(page.executable.as_mut().unwrap().evaluate("departures.join(',')").unwrap(),"swap");paused=true;break;}
-            }
+            if let NavigationTransactionPhase::Departure{input:RootNavigationInput::Buffered{bytes,..},job:Some(job),..}=&transaction.phase
+                && job.phase==1{assert!(String::from_utf8_lossy(bytes).contains("retained-body"));assert_eq!(page.document_generation,generation);assert_eq!(page.executable.as_mut().unwrap().evaluate("departures.join(',')").unwrap(),"swap");paused=true;break;}
         }
         assert!(paused);let expected=match &transaction.phase{NavigationTransactionPhase::Departure{job:Some(job),..}=>job.history[job.index].navigation.as_ref().unwrap().id.clone(),_=>unreachable!()};
         let mut complete=false;for _ in 0..16{match next(&mut page,&mut transaction){std::task::Poll::Pending=>{},std::task::Poll::Ready(result)=>{result.unwrap();complete=true;break}}}assert!(complete);
@@ -203,7 +202,7 @@ mod retained_root_departure_tests {
     fn failed_provisional_executable_stays_owned_until_rollback_can_run(){
         let mut page=page();let index=page.history_index.unwrap();let generation=page.document_generation;page.suspend_document(true).unwrap();
         let failed=crate::executable::RustExecutableDocument::load("<p>failed provisional</p>").unwrap();
-        page.failed_install_recovery=Some(FailedInstallRecovery{executable:Some(failed),failed_realm:None,source:Some((index,generation,true)),source_published:false,discard_cache:None,retry:None});
+        page.failed_install_recovery=Some(FailedInstallRecovery{executable:Some(failed),failed_realm:None,failed_authority_retired:false,#[cfg(unix)]failed_authority_requests:None,source:Some((index,generation,true)),source_published:false,discard_cache:None,retry:None});
         FAILED_INSTALL_FAULT.with(|fault|fault.set(true));page.poll_failed_install_recovery();
         assert!(page.failed_install_recovery.as_ref().unwrap().executable.is_some());assert!(page.executable.is_none());assert!(page.back_forward_cache.contains_key(&index));
         page.failed_install_recovery.as_mut().unwrap().retry=None;page.poll_failed_install_recovery();
@@ -261,7 +260,9 @@ impl PageState {
         })();
         if matches!(&result,Err(RuntimeError::NavigationCancelled)){
             let executable=self.executable.take();
-            self.failed_install_recovery=Some(FailedInstallRecovery{executable,failed_realm:Some(pending.realm),source:None,source_published:false,discard_cache:None,retry:None});
+            // No predecessor will be restored on this cancellation path;
+            // retain the existing queued physical-retirement ownership.
+            self.failed_install_recovery=Some(FailedInstallRecovery{executable,failed_realm:Some(pending.realm),failed_authority_retired:true,#[cfg(unix)]failed_authority_requests:None,source:None,source_published:false,discard_cache:None,retry:None});
             self.poll_failed_install_recovery();
         }else if result.is_err(){pending.retry=Some(Instant::now()+Duration::from_millis(25));self.root_source_resume=Some(pending);}
     }
@@ -272,6 +273,9 @@ impl PageState {
 struct FailedInstallRecovery {
     executable:Option<crate::executable::RustExecutableDocument>,
     failed_realm:Option<oryn_js::realm::RealmId>,
+    failed_authority_retired:bool,
+    #[cfg(unix)]
+    failed_authority_requests:Option<(crate::context_service::SharedContextClient,PageId,std::collections::VecDeque<oryn_js::message_wire::MessageRequest>)>,
     source:Option<(usize,u64,bool)>,source_published:bool,discard_cache:Option<(usize,u64)>,retry:Option<Instant>,
 }
 #[cfg(feature="v8-host")]
@@ -288,14 +292,26 @@ impl PageState {
                 }
                 pending.executable.take();
             }
+            if let Some(realm)=pending.failed_realm
+                && !pending.failed_authority_retired{
+                    #[cfg(unix)]
+                    if self.standalone_root.is_none(){
+                        self.pending_agent_host.as_mut()
+                            .ok_or_else(||RuntimeError::ProtocolViolation("failed root host unavailable".into()))?
+                            .revoke_failed_agent_root_authority(realm,&mut pending.failed_authority_requests).map_err(map_host_error)?;
+                    }
+                    #[cfg(not(unix))] let _=realm;
+                    // This ACK phase precedes any predecessor restore. Keep the
+                    // realm itself until restore has detached/rebound its proxy.
+                    pending.failed_authority_retired=true;
+                }
             if let Some((index,generation,persisted))=pending.source{
                 if self.executable.is_none(){
                     if self.back_forward_cache.get(&index).is_some_and(|entry|entry.document_generation==generation){
-                        if let Some((destination,destination_generation))=pending.discard_cache{
-                            if self.back_forward_cache.get(&destination).is_some_and(|entry|entry.document_generation==destination_generation){
+                        if let Some((destination,destination_generation))=pending.discard_cache
+                            && self.back_forward_cache.get(&destination).is_some_and(|entry|entry.document_generation==destination_generation){
                                 self.repark_failed_cached_destination(destination)?;
                             }
-                        }
                         match self.restore_parked_incumbent(index){
                             Ok(())=>pending.source_published=true,
                             Err(RuntimeError::NavigationCancelled)=>{self.evict_cached_document(index);pending.source=None;},
@@ -306,7 +322,7 @@ impl PageState {
                 }
                 if self.executable.is_some()&&self.document_generation==generation&&!pending.source_published{self.queue_rollback_pageshow(persisted)?;pending.source_published=true;}
             }
-            if let Some((index,generation))=pending.discard_cache.take(){if self.back_forward_cache.get(&index).is_some_and(|entry|entry.document_generation==generation){self.evict_cached_document(index);}}
+            if let Some((index,generation))=pending.discard_cache.take()&& self.back_forward_cache.get(&index).is_some_and(|entry|entry.document_generation==generation){self.evict_cached_document(index);}
             if let Some(realm)=pending.failed_realm.take(){self.enqueue_retired_agent_root(realm);}
             Ok(())
         })();

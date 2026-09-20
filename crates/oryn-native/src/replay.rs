@@ -215,6 +215,7 @@ impl NetworkBroker for ControlledNetworkBroker {
                 }
                 state.cursor += 1;
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: exchange.response.status,
@@ -243,6 +244,7 @@ impl NetworkBroker for ControlledNetworkBroker {
                     let length = response.body.len();
                     if sender
                         .blocking_send(NetworkEvent::Headers {
+                            response_policy: None,
                             timing: None,
                             request_id,
                             status: response.status,
@@ -300,6 +302,7 @@ impl NetworkBroker for ControlledNetworkBroker {
                                     && let Ok(mut state) = controller.0.lock()
                                 {
                                     let response = NetworkResponse {
+                                        response_policy: None,
                                         timing: None,
                                         request_id,
                                         status,
@@ -592,6 +595,7 @@ mod tests {
     impl NetworkBroker for FixtureBroker {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,

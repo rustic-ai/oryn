@@ -1,6 +1,24 @@
 //! Native Navigation API identities, entry state and navigation lifecycle.
 //! This module is a child of the binding implementation so no script property
 //! is used as an authority or as a substitute for a cached platform wrapper.
+struct NavigateEventInputs<'a, 's> {
+    object: v8::Local<'s, v8::Object>,
+    event_type: &'a str,
+    init: v8::Local<'s, v8::Object>,
+    bubbles: bool,
+    cancelable: bool,
+    composed: bool,
+}
+
+struct NavigateDispatchInputs<'a, 's> {
+    destination: &'a NavigationHistorySnapshot,
+    kind: &'a str,
+    _index: usize,
+    from: &'a NavigationHistorySnapshot,
+    options: Option<v8::Local<'s, v8::Object>>,
+    hash_change: Option<bool>,
+}
+
 #[path = "history_projection.rs"]
 mod history_projection;
 use super::*;
@@ -36,7 +54,7 @@ pub enum NativeNavigationAdmission {
     Handled,
     Proceed {
         operation: Option<NativeNavigationToken>,
-        destination: Option<NavigationHistorySnapshot>,
+        destination: Option<Box<NavigationHistorySnapshot>>,
     },
 }
 
@@ -66,12 +84,12 @@ impl AdmissionDocument {
 
 struct Entry {
     snapshot: NavigationHistorySnapshot,
-    object: v8::Global<v8::Object>,
+    object: v8::Weak<v8::Object>,
     platform_id: u64,
     disposed: bool,
 }
 struct Activation {
-    object: v8::Global<v8::Object>,
+    object: v8::Weak<v8::Object>,
     entry: String,
     from: Option<String>,
     navigation_type: String,
@@ -151,7 +169,7 @@ pub(super) struct NavigationState {
     detaching: bool,
     detach_busy: bool,
     native_source: Option<NativeNavigationSource>,
-    object: Option<v8::Global<v8::Object>>,
+    object: Option<v8::Weak<v8::Object>>,
     platform_id: Option<u64>,
     entries: BTreeMap<String, Entry>,
     order: Vec<String>,
@@ -212,7 +230,7 @@ impl ScrollRestore {
         let navigation = state.navigation_api.borrow();
         navigation.current.as_ref() == Some(&self.entry)
             && navigation.entries.get(&self.entry).is_some_and(|entry| {
-                (!self.honor_manual || entry.snapshot.scroll.mode == HistoryScrollMode::Auto)
+                !self.honor_manual || entry.snapshot.scroll.mode == HistoryScrollMode::Auto
             })
     }
     fn apply(&self, state: &V8BindingState) -> Result<(), V8BindingError> {
@@ -333,10 +351,10 @@ impl Drop for HistoryPublication {
             if let Some(admission) = &self.admission {
                 admission.notification.cancel(&owner);
             }
-            if let Some(completion) = &self.completion {
-                if let Some(focus) = &completion.focus {
-                    focus.cancel(&owner);
-                }
+            if let Some(completion) = &self.completion
+                && let Some(focus) = &completion.focus
+            {
+                focus.cancel(&owner);
             }
         }
     }
@@ -580,20 +598,20 @@ pub(super) fn poll_publications(
                     settlement.transition_committed = true;
                 }
             }
-            if let Some(admission) = pending.admission.as_mut() {
-                if !admission.resume(scope, state)? {
-                    return Ok(false);
-                }
+            if let Some(admission) = pending.admission.as_mut()
+                && !admission.resume(scope, state)?
+            {
+                return Ok(false);
             }
-            if let Some(script) = pending.script.as_mut() {
-                if !script.resume(scope, state)? {
-                    return Ok(false);
-                }
+            if let Some(script) = pending.script.as_mut()
+                && !script.resume(scope, state)?
+            {
+                return Ok(false);
             }
-            if let Some(completion) = pending.completion.as_mut() {
-                if !completion.resume(scope, state)? {
-                    return Ok(false);
-                }
+            if let Some(completion) = pending.completion.as_mut()
+                && !completion.resume(scope, state)?
+            {
+                return Ok(false);
             }
             loop {
                 if state.execution_retired()
@@ -648,18 +666,17 @@ pub(super) fn poll_publications(
                     }
                     barrier.get() == 3
                 });
-                if let Some((id, stream)) = pending.joint_finish.take().filter(|_| joint_ready) {
-                    if !state.execution_retired()
-                        && state.document_stream_epoch() == stream
-                        && state.document_generation() == pending.generation
-                        && state.document_authority_epoch() == pending.epoch
-                    {
-                        let group = state.joint_history.borrow().clone();
-                        let route = state.joint_history_route();
-                        group.borrow_mut().record_publication(&route, &id);
-                        if state.document_completely_loaded.get() {
-                            group.borrow_mut().record_load(&route, &id);
-                        }
+                if let Some((id, stream)) = pending.joint_finish.take().filter(|_| joint_ready)
+                    && !state.execution_retired()
+                    && state.document_stream_epoch() == stream
+                    && state.document_generation() == pending.generation
+                    && state.document_authority_epoch() == pending.epoch
+                {
+                    let group = state.joint_history.borrow().clone();
+                    let route = state.joint_history_route();
+                    group.borrow_mut().record_publication(&route, &id);
+                    if state.document_completely_loaded.get() {
+                        group.borrow_mut().record_load(&route, &id);
                     }
                 }
                 if let Some(event) = pending.deferred_hash.take() {
@@ -667,30 +684,28 @@ pub(super) fn poll_publications(
                     task.events.push_back(event);
                     state.navigation_api.borrow_mut().hash_tasks.push_back(task);
                 }
-                if let Some((stream, content_loaded)) = pending.lifecycle_complete {
-                    if !state.execution_retired()
-                        && state.document_stream_epoch() == stream
-                        && state.document_generation() == pending.generation
-                        && state.document_authority_epoch() == pending.epoch
-                    {
-                        if content_loaded {
-                            service_workers::enable_messages(state);
-                            joint_document_interactive(state);
-                        } else {
-                            state.document_completely_loaded.set(true);
-                            joint_document_loaded(state);
-                        }
+                if let Some((stream, content_loaded)) = pending.lifecycle_complete
+                    && !state.execution_retired()
+                    && state.document_stream_epoch() == stream
+                    && state.document_generation() == pending.generation
+                    && state.document_authority_epoch() == pending.epoch
+                {
+                    if content_loaded {
+                        service_workers::enable_messages(state);
+                        joint_document_interactive(state);
+                    } else {
+                        state.document_completely_loaded.set(true);
+                        joint_document_loaded(state);
                     }
                 }
-                if let Some(receipt) = pending.receipt {
-                    if let Some(completed) = state
+                if let Some(receipt) = pending.receipt
+                    && let Some(completed) = state
                         .navigation_api
                         .borrow_mut()
                         .native_receipts
                         .get_mut(&receipt)
-                    {
-                        *completed = true;
-                    }
+                {
+                    *completed = true;
                 }
                 count += 1;
             }
@@ -765,15 +780,54 @@ struct StagedEntries {
     state: Rc<V8BindingState>,
     entries: Vec<Entry>,
     registrations: Vec<u64>,
+    roots: Vec<(String, v8::Global<v8::Object>)>,
+    published: bool,
     committed: bool,
 }
 impl StagedEntries {
-    fn commit(mut self) {
+    fn stage_object(
+        &mut self,
+        scope: &mut v8::PinScope,
+        name: String,
+        object: v8::Local<v8::Object>,
+    ) -> Result<v8::Weak<v8::Object>, V8BindingError> {
+        self.roots
+            .try_reserve(1)
+            .map_err(|_| V8BindingError::Allocation("navigation staged roots"))?;
+        self.roots.push((name, v8::Global::new(scope, object)));
+        Ok(v8::Weak::new(scope, object))
+    }
+    fn revoke(&mut self, scope: &mut v8::PinScope) -> Result<(), V8BindingError> {
+        for (name, _) in &self.roots {
+            context_intrinsics::release_object_for(scope, &self.state, name)?;
+        }
+        self.published = false;
+        Ok(())
+    }
+    fn publish(&mut self, scope: &mut v8::PinScope) -> Result<(), V8BindingError> {
+        if self.published {
+            return Ok(());
+        }
+        for (name, object) in &self.roots {
+            let object = v8::Local::new(scope, object);
+            if let Err(error) =
+                context_intrinsics::retain_object_for(scope, &self.state, name, object)
+            {
+                self.revoke(scope)?;
+                return Err(error);
+            }
+        }
+        self.published = true;
+        Ok(())
+    }
+    fn commit(mut self, scope: &mut v8::PinScope) -> Result<(), V8BindingError> {
+        self.publish(scope)?;
         let mut navigation = self.state.navigation_api.borrow_mut();
         for entry in self.entries.drain(..) {
             navigation.entries.insert(entry.snapshot.id.clone(), entry);
         }
         self.committed = true;
+        Ok(())
     }
 }
 impl Drop for StagedEntries {
@@ -821,6 +875,8 @@ fn stage_entries(
         state: state.clone(),
         entries: Vec::new(),
         registrations: Vec::new(),
+        roots: Vec::new(),
+        published: false,
         committed: false,
     };
     batch
@@ -851,9 +907,10 @@ fn stage_entries(
         let id = register_platform_object(state, PlatformObjectRecord::EventTarget);
         batch.registrations.push(id);
         let object = new_platform_object(scope, state, "NavigationHistoryEntry", id)?;
+        let object = batch.stage_object(scope, format!("navigation-entry-{id}"), object)?;
         batch.entries.push(Entry {
             snapshot,
-            object: v8::Global::new(scope, object),
+            object,
             platform_id: id,
             disposed: false,
         });
@@ -867,7 +924,7 @@ fn add_entry(
     state: &Rc<V8BindingState>,
     snapshot: NavigationHistorySnapshot,
 ) -> Result<(), V8BindingError> {
-    stage_entries(scope, state, &[snapshot])?.commit();
+    stage_entries(scope, state, &[snapshot])?.commit(scope)?;
     Ok(())
 }
 pub(super) fn ensure(
@@ -879,7 +936,12 @@ pub(super) fn ensure(
         let object = new_platform_object(scope, state, "Navigation", id)?;
         let mut navigation = state.navigation_api.borrow_mut();
         navigation.platform_id = Some(id);
-        navigation.object = Some(v8::Global::new(scope, object));
+        navigation.object = Some(context_intrinsics::retain_object_for(
+            scope,
+            state,
+            "navigation",
+            object,
+        )?);
     }
     if state.navigation_api.borrow().current.is_none() {
         let url = state.request_initiator_url()?;
@@ -939,7 +1001,17 @@ pub(super) fn object<'s>(
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
     ensure(scope, state)?;
     let navigation = state.navigation_api.borrow();
-    Ok(v8::Local::new(scope, navigation.object.as_ref().unwrap()).into())
+    Ok(cached_object(scope, navigation.object.as_ref().unwrap())?.into())
+}
+
+// Identity caches are traced by their owner Context, not native GC roots.
+fn cached_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    object: &v8::Weak<v8::Object>,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    object
+        .to_local(scope)
+        .ok_or_else(|| failure("InvalidStateError"))
 }
 
 fn entry_object<'s>(
@@ -952,7 +1024,7 @@ fn entry_object<'s>(
         .entries
         .get(key)
         .ok_or_else(|| failure("InvalidStateError"))?;
-    Ok(v8::Local::new(scope, &entry.object))
+    cached_object(scope, &entry.object)
 }
 /// Validate the native brand without reading prototypes, constructors or traps.
 pub fn validate_activation(
@@ -971,7 +1043,7 @@ pub fn validate_activation(
         .activations
         .get(&id)
         .ok_or_else(|| failure("TypeError"))?;
-    if v8::Local::new(scope, &activation.object) != object {
+    if cached_object(scope, &activation.object)? != object {
         return Err(failure("TypeError"));
     }
     Ok(())
@@ -1024,12 +1096,13 @@ pub fn activation_for_swap<'s>(
     };
     {
         let navigation = state.navigation_api.borrow();
-        if let Some((entry, kind, source, id)) = &navigation.staged_swap_activation {
-            if entry == &key && kind == navigation_type && source == &from {
-                if let Some(activation) = navigation.activations.get(id) {
-                    return Ok(v8::Local::new(scope, &activation.object));
-                }
-            }
+        if let Some((entry, kind, source, id)) = &navigation.staged_swap_activation
+            && entry == &key
+            && kind == navigation_type
+            && source == &from
+            && let Some(activation) = navigation.activations.get(id)
+        {
+            return cached_object(scope, &activation.object);
         }
         if navigation.activations.len() >= 256 {
             return Err(failure("QuotaExceededError"));
@@ -1047,14 +1120,15 @@ pub fn activation_for_swap<'s>(
     let id = register_platform_object(&state, PlatformObjectRecord::EventTarget);
     staged.registrations.push(id);
     let object = new_platform_object(scope, &state, "NavigationActivation", id)?;
-    staged.commit();
+    let cached = staged.stage_object(scope, format!("navigation-activation-{id}"), object)?;
+    staged.commit(scope)?;
     let mut navigation = state.navigation_api.borrow_mut();
     navigation.staged_swap_activation =
         Some((key.clone(), navigation_type.into(), from.clone(), id));
     navigation.activations.insert(
         id,
         Activation {
-            object: v8::Global::new(scope, object),
+            object: cached,
             entry: key,
             from,
             navigation_type: navigation_type.into(),
@@ -1081,15 +1155,6 @@ pub(super) fn is_interface(interface: &str) -> bool {
             | "NavigationCurrentEntryChangeEvent"
     )
 }
-fn entry_id(state: &V8BindingState, platform_id: u64) -> Option<String> {
-    state
-        .navigation_api
-        .borrow()
-        .entries
-        .iter()
-        .find(|(_, entry)| entry.platform_id == platform_id)
-        .map(|(id, _)| id.clone())
-}
 fn checked_receiver(
     scope: &mut v8::PinScope,
     state: &V8BindingState,
@@ -1105,32 +1170,33 @@ fn checked_receiver(
         "Navigation" => navigation
             .platform_id
             .filter(|actual| *actual == id)
-            .and(navigation.object.as_ref()),
+            .and(navigation.object.as_ref())
+            .and_then(|value| value.to_local(scope)),
         "NavigationHistoryEntry" => navigation
             .entries
             .values()
             .find(|entry| entry.platform_id == id)
-            .map(|entry| &entry.object),
+            .and_then(|entry| entry.object.to_local(scope)),
         "NavigationActivation" => navigation
             .activations
             .get(&id)
-            .map(|activation| &activation.object),
+            .and_then(|activation| activation.object.to_local(scope)),
         "NavigationTransition" => navigation
             .transitions
             .get(&id)
-            .map(|transition| &transition.object),
+            .map(|transition| v8::Local::new(scope, &transition.object)),
         "NavigationDestination" => navigation
             .destinations
             .get(&id)
-            .map(|destination| &destination.object),
+            .map(|destination| v8::Local::new(scope, &destination.object)),
         "NavigationPrecommitController" => navigation
             .controllers
             .get(&id)
-            .map(|controller| &controller.object),
+            .map(|controller| v8::Local::new(scope, &controller.object)),
         _ => None,
     }
     .ok_or_else(|| failure("TypeError"))?;
-    if v8::Local::new(scope, expected) != object {
+    if expected != object {
         return Err(failure("TypeError"));
     }
     Ok(id)
@@ -1143,12 +1209,9 @@ pub(super) fn attribute<'s>(
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
     let id = checked_receiver(scope, state, object, interface)?;
-    if member.starts_with("on") {
+    if let Some(event_type) = member.strip_prefix("on") {
         return Ok(platform_listener_graph::handler_get(
-            scope,
-            state,
-            id,
-            &member[2..],
+            scope, state, id, event_type,
         ));
     }
     match interface {
@@ -1166,12 +1229,14 @@ pub(super) fn attribute<'s>(
                 "currentEntry" => navigation
                     .current
                     .as_ref()
-                    .map(|id| v8::Local::new(scope, &navigation.entries[id].object).into())
+                    .and_then(|id| navigation.entries[id].object.to_local(scope))
+                    .map(Into::into)
                     .ok_or_else(|| failure("InvalidStateError")),
                 "activation" => Ok(navigation
                     .activation
                     .and_then(|id| navigation.activations.get(&id))
-                    .map(|activation| v8::Local::new(scope, &activation.object).into())
+                    .and_then(|activation| activation.object.to_local(scope))
+                    .map(Into::into)
                     .unwrap_or_else(|| v8::null(scope).into())),
                 "transition" => Ok(navigation
                     .pending
@@ -1254,7 +1319,7 @@ pub(super) fn attribute<'s>(
             match member {
                 "navigationType" => v8_string(scope, &transition.navigation_type),
                 "from" => {
-                    Ok(v8::Local::new(scope, &navigation.entries[&transition.from].object).into())
+                    Ok(cached_object(scope, &navigation.entries[&transition.from].object)?.into())
                 }
                 "to" => Ok(
                     v8::Local::new(scope, &navigation.destinations[&transition.to].object).into(),
@@ -1276,13 +1341,14 @@ pub(super) fn attribute<'s>(
             match member {
                 "navigationType" => v8_string(scope, &activation.navigation_type),
                 "entry" => {
-                    Ok(v8::Local::new(scope, &navigation.entries[&activation.entry].object).into())
+                    Ok(cached_object(scope, &navigation.entries[&activation.entry].object)?.into())
                 }
                 "from" => Ok(activation
                     .from
                     .as_ref()
                     .and_then(|id| navigation.entries.get(id))
-                    .map(|entry| v8::Local::new(scope, &entry.object).into())
+                    .and_then(|entry| entry.object.to_local(scope))
+                    .map(Into::into)
                     .unwrap_or_else(|| v8::null(scope).into())),
                 _ => Err(failure("TypeError")),
             }
@@ -1589,23 +1655,25 @@ pub fn start_native_document_lifecycle_publication(
             after_events: if traversed { batch.events.len() } else { 0 },
         });
     }
-    if !content_loaded && restore.is_none() && pageshow {
-        if let Some(entry) = state.navigation_history_snapshot().filter(|entry| {
+    if !content_loaded
+        && restore.is_none()
+        && pageshow
+        && let Some(entry) = state.navigation_history_snapshot().filter(|entry| {
             Url::parse(&entry.url)
                 .ok()
                 .is_some_and(|url| url.fragment().is_some())
-        }) {
-            // A newly loaded fragment is navigation scrolling, independent of
-            // history.scrollRestoration. Resolve it after parsing and before
-            // load handlers, which may deliberately scroll elsewhere.
-            batch.scroll_restore = Some(ScrollRestore {
-                honor_manual: false,
-                document: AdmissionDocument::capture(&state),
-                entry: entry.id,
-                position: None,
-                after_events: 0,
-            });
-        }
+        })
+    {
+        // A newly loaded fragment is navigation scrolling, independent of
+        // history.scrollRestoration. Resolve it after parsing and before
+        // load handlers, which may deliberately scroll elsewhere.
+        batch.scroll_restore = Some(ScrollRestore {
+            honor_manual: false,
+            document: AdmissionDocument::capture(&state),
+            entry: entry.id,
+            position: None,
+            after_events: 0,
+        });
     }
     if changed {
         let mut dom = state.dom.borrow_mut();
@@ -1871,7 +1939,7 @@ pub enum NativePublicationEvent {
         traversed: bool,
     },
     HistoryRestore {
-        entry: NavigationHistorySnapshot,
+        entry: Box<NavigationHistorySnapshot>,
     },
 }
 pub fn start_native_event_publication(
@@ -1946,6 +2014,7 @@ pub fn start_native_event_publication(
             events.push((kind, event));
         }
         NativePublicationEvent::HistoryRestore { entry } => {
+            let entry = *entry;
             batch.joint_finish = Some((entry.id.clone(), state.document_stream_epoch()));
             if !entry.scroll.valid() {
                 return Err(failure("InvalidStateError"));
@@ -2292,10 +2361,10 @@ fn sync_history_inner(
             })
     };
     let mut snapshots = entries.clone();
-    if let Some((_, Some(Some(from)))) = &native {
-        if !snapshots.iter().any(|entry| entry.id == from.id) {
-            snapshots.push(from.clone());
-        }
+    if let Some((_, Some(Some(from)))) = &native
+        && !snapshots.iter().any(|entry| entry.id == from.id)
+    {
+        snapshots.push(from.clone());
     }
     let mut staged = stage_entries(scope, &state, &snapshots)?;
     let disposed = state
@@ -2313,15 +2382,14 @@ fn sync_history_inner(
         .unwrap_or_default();
     let session_current = session_entries.len() + current;
     session_entries.extend(entries.iter().map(|entry| HistoryEntry {
+        #[cfg(test)]
         url: entry.url.clone(),
-        state_json: entry.history_state.clone(),
         navigation_id: entry.id.clone(),
-        document_id: entry.document_id.clone(),
     }));
-    if navigation_type != "push" {
-        if let Some((_, suffix)) = full_history_span {
-            session_entries.extend(suffix);
-        }
+    if navigation_type != "push"
+        && let Some((_, suffix)) = full_history_span
+    {
+        session_entries.extend(suffix);
     }
     let mut replacement = HistoryRecord {
         entries: session_entries,
@@ -2347,10 +2415,9 @@ fn sync_history_inner(
             .entries
             .into_iter()
             .map(|entry| HistoryEntry {
+                #[cfg(test)]
                 url: entry.url,
-                state_json: entry.history_state,
                 navigation_id: entry.id,
-                document_id: entry.document_id,
             })
             .collect();
         replacement.index = session.current;
@@ -2368,7 +2435,11 @@ fn sync_history_inner(
             activation = Some((
                 id,
                 Activation {
-                    object: v8::Global::new(scope, object),
+                    object: staged.stage_object(
+                        scope,
+                        format!("navigation-activation-{id}"),
+                        object,
+                    )?,
                     entry: entries[current].id.clone(),
                     from: from.map(|entry| entry.id),
                     navigation_type: navigation_type.into(),
@@ -2389,55 +2460,56 @@ fn sync_history_inner(
         .as_ref()
         .filter(|pending| pending.destination.id == entries[current].id)
         .cloned();
-    if let Some(pending) = pending {
-        if let Some(event) = pending.event_id {
-            let object = state
+    if let Some(pending) = pending
+        && let Some(event) = pending.event_id
+    {
+        let object = state
+            .navigation_api
+            .borrow()
+            .entries
+            .get(&entries[current].id)
+            .map(|entry| entry.object.clone())
+            .or_else(|| {
+                staged
+                    .entries
+                    .iter()
+                    .find(|entry| entry.snapshot.id == entries[current].id)
+                    .map(|entry| entry.object.clone())
+            })
+            .ok_or_else(|| failure("InvalidStateError"))?;
+        let transition = pending.transition.and_then(|id| {
+            state
                 .navigation_api
                 .borrow()
-                .entries
-                .get(&entries[current].id)
-                .map(|entry| entry.object.clone())
-                .or_else(|| {
-                    staged
-                        .entries
-                        .iter()
-                        .find(|entry| entry.snapshot.id == entries[current].id)
-                        .map(|entry| entry.object.clone())
-                })
-                .ok_or_else(|| failure("InvalidStateError"))?;
-            let transition = pending.transition.and_then(|id| {
-                state
-                    .navigation_api
-                    .borrow()
-                    .transitions
-                    .get(&id)
-                    .map(|transition| transition.committed.clone())
-            });
-            delivery.settlement = Some(CommitSettlement {
-                event,
-                entry: object,
-                pending,
-                transition,
-                committed: false,
-                transition_committed: false,
-            });
-        }
+                .transitions
+                .get(&id)
+                .map(|transition| transition.committed.clone())
+        });
+        delivery.settlement = Some(CommitSettlement {
+            event,
+            entry: object
+                .to_global(scope)
+                .ok_or_else(|| failure("InvalidStateError"))?,
+            pending,
+            transition,
+            committed: false,
+            transition_committed: false,
+        });
     }
     if initialized && !entries_disabled(&state) {
-        if from.as_deref() != Some(entries[current].id.as_str()) {
-            if let Some(from) = &from {
-                let (id, event) =
-                    create_current_change(scope, &state, from, Some(navigation_type))?;
-                delivery
-                    .events
-                    .push_back(native_platform::publication::prepare_platform_dispatch(
-                        scope,
-                        &state,
-                        id,
-                        "currententrychange",
-                        event,
-                    )?);
-            }
+        if from.as_deref() != Some(entries[current].id.as_str())
+            && let Some(from) = &from
+        {
+            let (id, event) = create_current_change(scope, &state, from, Some(navigation_type))?;
+            delivery
+                .events
+                .push_back(native_platform::publication::prepare_platform_dispatch(
+                    scope,
+                    &state,
+                    id,
+                    "currententrychange",
+                    event,
+                )?);
         }
         for id in &disposed {
             let platform = state.navigation_api.borrow().entries[id].platform_id;
@@ -2451,8 +2523,12 @@ fn sync_history_inner(
     }
     delivery.receipt = receipt;
     let projection = history_projection::prepare(&state, replacement.entries.len())?;
-    sync_joint_history(&state, &entries, current, navigation_type)?;
-    staged.commit();
+    staged.publish(scope)?;
+    if let Err(error) = sync_joint_history(&state, &entries, current, navigation_type) {
+        staged.revoke(scope)?;
+        return Err(error);
+    }
+    staged.commit(scope)?;
     {
         let mut navigation = state.navigation_api.borrow_mut();
         for entry in &entries {
@@ -2584,12 +2660,14 @@ pub(super) fn construct<'s>(
         return construct_navigate(
             scope,
             &state,
-            args.this(),
-            &event_type,
-            init,
-            bubbles,
-            cancelable,
-            composed,
+            NavigateEventInputs {
+                object: args.this(),
+                event_type: &event_type,
+                init,
+                bubbles,
+                cancelable,
+                composed,
+            },
         );
     }
     if interface == "NavigationCurrentEntryChangeEvent" {
@@ -2979,12 +3057,14 @@ pub(super) fn history_mutated(
     let dispatched = dispatch_navigate_with_hash(
         scope,
         state,
-        &entry,
-        kind,
-        current,
-        &current_snapshot,
-        None,
-        Some(false),
+        NavigateDispatchInputs {
+            destination: &entry,
+            kind,
+            _index: current,
+            from: &current_snapshot,
+            options: None,
+            hash_change: Some(false),
+        },
     );
     if !document.current(state)
         && matches!(&dispatched,Err(V8BindingError::Unsupported{member,..}) if member=="AbortError")
@@ -3062,12 +3142,12 @@ pub(super) fn stop_navigation(
         .pending
         .as_ref()
         .and_then(|pending| pending.event_id);
-    if let Some(id) = event {
-        if let Some(event) = state.events.borrow_mut().get_mut(&id) {
-            if event.dispatching && event.cancelable {
-                event.default_prevented = true;
-            }
-        }
+    if let Some(id) = event
+        && let Some(event) = state.events.borrow_mut().get_mut(&id)
+        && event.dispatching
+        && event.cancelable
+    {
+        event.default_prevented = true;
     }
     let reason = dom_exception_value(scope, "AbortError")?;
     reject_pending(scope, state, reason)
@@ -3210,8 +3290,8 @@ pub(super) fn operation<'s>(
             navigation
                 .order
                 .iter()
-                .map(|id| v8::Local::new(scope, &navigation.entries[id].object).into())
-                .collect::<Vec<v8::Local<v8::Value>>>()
+                .map(|id| cached_object(scope, &navigation.entries[id].object).map(Into::into))
+                .collect::<Result<Vec<v8::Local<v8::Value>>, _>>()?
         };
         return Ok(Some(v8::Array::new_with_elements(scope, &values).into()));
     }
@@ -3517,7 +3597,9 @@ pub(super) fn operation<'s>(
                 .iter()
                 .position(|entry| entry.id == destination.id)
                 .ok_or_else(|| failure("InvalidStateError"))?;
-            history_tasks::enqueue(state, selected as i64 - index as i64)?;
+            let admission = capture_native_operation(state, &destination.id)
+                .ok_or_else(|| failure("AbortError"))?;
+            history_tasks::enqueue_navigation(state, selected as i64 - index as i64, admission)?;
         } else {
             location::navigate_from_api(
                 scope,
@@ -3533,10 +3615,9 @@ pub(super) fn operation<'s>(
                     .pending
                     .as_ref()
                     .is_some_and(|pending| pending.event_id == Some(event_id))
+                && let Some(request) = state.pending_location_navigation.borrow_mut().as_mut()
             {
-                if let Some(request) = state.pending_location_navigation.borrow_mut().as_mut() {
-                    request.navigation_destination = Some(destination);
-                }
+                request.navigation_destination = Some(destination);
             }
         }
         Ok(())
@@ -3637,12 +3718,12 @@ pub fn sync_activation(
     staged.registrations.push(id);
     let object = new_platform_object(scope, &state, "NavigationActivation", id)?;
     let activation = Activation {
-        object: v8::Global::new(scope, object),
+        object: staged.stage_object(scope, format!("navigation-activation-{id}"), object)?,
         entry,
         from: from_id,
         navigation_type: navigation_type.into(),
     };
-    staged.commit();
+    staged.commit(scope)?;
     let mut navigation = state.navigation_api.borrow_mut();
     navigation.activations.insert(id, activation);
     navigation.activation = Some(id);
@@ -3690,18 +3771,33 @@ fn dispatch_navigate<'s>(
     from: &NavigationHistorySnapshot,
     options: Option<v8::Local<'s, v8::Object>>,
 ) -> Result<u64, V8BindingError> {
-    dispatch_navigate_with_hash(scope, state, destination, kind, index, from, options, None)
+    dispatch_navigate_with_hash(
+        scope,
+        state,
+        NavigateDispatchInputs {
+            destination,
+            kind,
+            _index: index,
+            from,
+            options,
+            hash_change: None,
+        },
+    )
 }
 fn dispatch_navigate_with_hash<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
-    destination: &NavigationHistorySnapshot,
-    kind: &str,
-    _index: usize,
-    from: &NavigationHistorySnapshot,
-    options: Option<v8::Local<'s, v8::Object>>,
-    hash_change: Option<bool>,
+    params: NavigateDispatchInputs<'_, 's>,
 ) -> Result<u64, V8BindingError> {
+    let NavigateDispatchInputs {
+        destination,
+        kind,
+        _index,
+        from,
+        options,
+        hash_change,
+    } = params;
+
     let mut admission =
         prepare_navigate_dispatch(scope, state, destination, kind, from, options, hash_change)?;
     let result = admission.notification.resume(scope, state);
@@ -3919,10 +4015,10 @@ fn retain_failed_navigate_dispatch(
     {
         record.admission_failed = true;
     }
-    if let Some(record) = state.events.borrow_mut().get_mut(&admission.event) {
-        if record.cancelable {
-            record.default_prevented = true;
-        }
+    if let Some(record) = state.events.borrow_mut().get_mut(&admission.event)
+        && record.cancelable
+    {
+        record.default_prevented = true;
     }
     let mut batch = publication(state);
     batch.admission = Some(admission);
@@ -4423,7 +4519,7 @@ impl HandlerPublication {
             staged.registrations.push(id);
             let object = new_platform_object(scope, state, "NavigationPrecommitController", id)?;
             let object = v8::Global::new(scope, object);
-            staged.commit();
+            staged.commit(scope)?;
             state.navigation_api.borrow_mut().controllers.insert(
                 id,
                 PrecommitController {
@@ -4673,10 +4769,10 @@ impl Completion {
                     self.stage = 4;
                 }
                 4 => {
-                    if let Some(focus) = &mut self.focus {
-                        if !focus.resume(scope, state)? {
-                            return Ok(false);
-                        }
+                    if let Some(focus) = &mut self.focus
+                        && !focus.resume(scope, state)?
+                    {
+                        return Ok(false);
                     }
                     self.stage = 5;
                 }
@@ -4720,13 +4816,13 @@ impl Completion {
                     self.stage = 8;
                 }
                 8 => {
-                    if reason.is_none() {
-                        if let Some((_, finished)) = &self.transition {
-                            let value = v8::undefined(scope);
-                            v8::Local::new(scope, finished)
-                                .resolve(scope, value.into())
-                                .ok_or(V8BindingError::JavaScriptException)?;
-                        }
+                    if reason.is_none()
+                        && let Some((_, finished)) = &self.transition
+                    {
+                        let value = v8::undefined(scope);
+                        v8::Local::new(scope, finished)
+                            .resolve(scope, value.into())
+                            .ok_or(V8BindingError::JavaScriptException)?;
                     }
                     self.stage = 9;
                 }
@@ -4771,17 +4867,17 @@ fn complete_navigation(
             pending.destination.id.clone(),
             state.document_stream_epoch(),
         ));
-        if intercepted {
-            if let Some(barrier) = pending.event_id.and_then(|id| {
+        if intercepted
+            && let Some(barrier) = pending.event_id.and_then(|id| {
                 state
                     .navigation_api
                     .borrow()
                     .intercepted_history_barriers
                     .get(&id)
                     .cloned()
-            }) {
-                batch.joint_barrier = Some((barrier, 2));
-            }
+            })
+        {
+            batch.joint_barrier = Some((barrier, 2));
         }
     }
     let entry = if reason.is_none() {
@@ -4831,11 +4927,10 @@ fn complete_navigation(
             if autofocus
                 && focus_navigation::eligible_for(state, node, false)?
                 && !css_suppresses_focus(state, node)?
+                && let Some(node) = focus_navigation::delegated_target(state, node)?
             {
-                if let Some(node) = focus_navigation::delegated_target(state, node)? {
-                    target = node;
-                    break;
-                }
+                target = node;
+                break;
             }
         }
         Some(native_platform::focus_publication::Transition::new(
@@ -4844,7 +4939,7 @@ fn complete_navigation(
     } else {
         None
     };
-    let signal = reason.and_then(|_| pending.event_id).and_then(|id| {
+    let signal = reason.and(pending.event_id).and_then(|id| {
         state
             .navigation_api
             .borrow()
@@ -4931,8 +5026,7 @@ fn perform_navigation_scroll(state: &V8BindingState) -> Result<(), V8BindingErro
             if target.is_none() {
                 for node in traversal_nodes(&dom, state.document_root())? {
                     if matches!(&dom.arena().get(node)?.kind,NodeKind::Element{name}if name.local.as_ref()=="a"&&name.ns.as_ref()=="http://www.w3.org/1999/xhtml")
-                        && dom.attribute_in_null_namespace(node, "name")?.as_deref()
-                            == Some(fragment.as_str())
+                        && dom.attribute_in_null_namespace(node, "name")? == Some(fragment.as_str())
                     {
                         target = Some(node);
                         break;
@@ -4984,13 +5078,17 @@ fn navigate_event_attribute<'s>(
 fn construct_navigate<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
-    object: v8::Local<'s, v8::Object>,
-    event_type: &str,
-    init: v8::Local<'s, v8::Object>,
-    bubbles: bool,
-    cancelable: bool,
-    composed: bool,
+    params: NavigateEventInputs<'_, 's>,
 ) -> Result<(), V8BindingError> {
+    let NavigateEventInputs {
+        object,
+        event_type,
+        init,
+        bubbles,
+        cancelable,
+        composed,
+    } = params;
+
     let can_intercept = event_init_member(scope, Some(init), "canIntercept")
         .ok_or(V8BindingError::JavaScriptException)?
         .boolean_value(scope);
@@ -5134,15 +5232,16 @@ fn decode_fragment(fragment: &str) -> String {
     let mut bytes = Vec::with_capacity(input.len());
     let mut index = 0;
     while index < input.len() {
-        if input[index] == b'%' && index + 2 < input.len() {
-            if let (Some(high), Some(low)) = (
+        if input[index] == b'%'
+            && index + 2 < input.len()
+            && let (Some(high), Some(low)) = (
                 (input[index + 1] as char).to_digit(16),
                 (input[index + 2] as char).to_digit(16),
-            ) {
-                bytes.push((high * 16 + low) as u8);
-                index += 3;
-                continue;
-            }
+            )
+        {
+            bytes.push((high * 16 + low) as u8);
+            index += 3;
+            continue;
         }
         bytes.push(input[index]);
         index += 1;
@@ -6142,7 +6241,7 @@ pub(super) fn poll_joint_tasks(
                         destination: Some(destination),
                         operation,
                     }) => {
-                        target.destination = destination;
+                        target.destination = *destination;
                         target.operation = operation;
                     }
                     Ok(_) => {
@@ -6213,7 +6312,15 @@ pub fn run_history_task(
         task.acknowledge();
         return location::navigate(scope, &state, url, true, true);
     }
-    let result = run_joint_history_delta(scope, task.delta());
+    let admission = task.navigation_admission().cloned();
+    if admission
+        .as_ref()
+        .is_some_and(|token| !native_navigation_matches(&state, token))
+    {
+        task.acknowledge();
+        return Ok(());
+    }
+    let result = run_joint_history_delta_with_admission(scope, task.delta(), admission);
     if result.is_ok() {
         task.acknowledge();
     }
@@ -6224,6 +6331,13 @@ pub fn run_history_task(
 pub fn run_joint_history_delta(
     scope: &mut v8::PinScope,
     delta: i64,
+) -> Result<Option<crate::joint_history::NativeJointTraversalReceipt>, V8BindingError> {
+    run_joint_history_delta_with_admission(scope, delta, None)
+}
+fn run_joint_history_delta_with_admission(
+    scope: &mut v8::PinScope,
+    delta: i64,
+    admission: Option<NativeNavigationToken>,
 ) -> Result<Option<crate::joint_history::NativeJointTraversalReceipt>, V8BindingError> {
     let state = current_state(scope)?;
     if state.execution_retired() || state.execution_suspended() {
@@ -6274,6 +6388,36 @@ pub fn run_joint_history_delta(
             .joint_tasks
             .try_reserve(1)
             .map_err(|_| failure("QuotaExceededError: joint traversals"))?;
+    }
+    // Abort predecessor navigations before registering the new receipt. A
+    // restored document can still hold a pending navigation to this same entry;
+    // rejecting it must retire only older traversals, not the one being admitted.
+    for target in &targets {
+        if Rc::ptr_eq(&target.owner, &state)
+            && let Some(token) = &admission
+        {
+            if token.destination.as_deref() != Some(target.destination.id.as_str())
+                || !native_navigation_matches(&state, token)
+            {
+                return Err(failure("AbortError: queued traversal admission superseded"));
+            }
+            // The Navigation API has already dispatched this exact operation.
+            // Reuse it; only browser/History requests supersede old admission.
+            continue;
+        }
+        if !target.document.current(&target.owner) {
+            return Err(failure("InvalidStateError: joint traversal source retired"));
+        }
+        let context = target
+            .owner
+            .global_object
+            .to_local(scope)
+            .and_then(|window| window.get_creation_context(scope))
+            .ok_or_else(|| failure("InvalidStateError: joint traversal context"))?;
+        let scope = &mut v8::ContextScope::new(scope, context);
+        if !abort_ongoing(scope, &target.owner)? {
+            return Err(failure("InvalidStateError: joint traversal superseded"));
+        }
     }
     let receipt = group
         .borrow_mut()
@@ -6485,14 +6629,14 @@ pub fn admit_native_navigation(
     // The loader, rather than the abandoned source promises, owns terminal
     // execution after admission. Keeping a clone in pending would suppress
     // failure publication when a later resource preparation is discarded.
-    if let Some(pending) = state.navigation_api.borrow_mut().pending.as_mut() {
-        if let Some(observer) = pending.execution_observer.take() {
-            observer.loader_owned();
-        }
+    if let Some(pending) = state.navigation_api.borrow_mut().pending.as_mut()
+        && let Some(observer) = pending.execution_observer.take()
+    {
+        observer.loader_owned();
     }
     Ok(NativeNavigationAdmission::Proceed {
         operation,
-        destination,
+        destination: destination.map(Box::new),
     })
 }
 fn advance_native_revision(state: &V8BindingState) -> Result<(), V8BindingError> {
@@ -6736,7 +6880,7 @@ pub fn admit_native_history_traversal(
         }
         return Ok(NativeNavigationAdmission::Proceed {
             operation: capture_native_history_operation(&state, &destination.id),
-            destination: Some(destination),
+            destination: Some(Box::new(destination)),
         });
     }
     let previous = state
@@ -6751,7 +6895,7 @@ pub fn admit_native_history_traversal(
         if destination.document_id != previous.document_id {
             return Ok(NativeNavigationAdmission::Proceed {
                 operation: capture_native_history_operation(&state, &destination.id),
-                destination: Some(destination),
+                destination: Some(Box::new(destination)),
             });
         }
         state.commit_location(&destination.url)?;
@@ -6805,7 +6949,7 @@ pub fn admit_native_history_traversal(
     }
     Ok(NativeNavigationAdmission::Proceed {
         operation,
-        destination: Some(destination),
+        destination: Some(Box::new(destination)),
     })
 }
 
@@ -6877,10 +7021,9 @@ pub fn sync_session_history(
             .entries
             .iter()
             .map(|entry| HistoryEntry {
+                #[cfg(test)]
                 url: entry.url.clone(),
-                state_json: entry.history_state.clone(),
                 navigation_id: entry.id.clone(),
-                document_id: entry.document_id.clone(),
             })
             .collect(),
         index: update.current,
@@ -7487,7 +7630,9 @@ mod history_publication_tests {
         stage_swap_destination(scope, replacement).unwrap();
         let reload = activation_for_swap(scope, "https://example.test/a", "reload").unwrap();
         let current: v8::Local<v8::Value> =
-            v8::Local::new(scope, &state.navigation_api.borrow().entries["a"].object).into();
+            cached_object(scope, &state.navigation_api.borrow().entries["a"].object)
+                .unwrap()
+                .into();
         assert_eq!(
             attribute(scope, &state, reload, "NavigationActivation", "entry").unwrap(),
             current
@@ -7577,6 +7722,46 @@ mod history_publication_tests {
             [crate::navigation::NavigationExecutionOutcome::Failed { .. }]
         ));
     }
+    #[test]
+    fn discarded_and_revoked_staging_release_wrappers_but_commit_retains_identity() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        for mode in ["discard", "revoke", "commit"] {
+            let weak = {
+                v8::scope!(let inner, scope);
+                let mut staged = stage_entries(inner, &state, &[entry(mode)]).unwrap();
+                let weak = staged.entries[0].object.clone();
+                if mode == "commit" {
+                    staged.commit(inner).unwrap();
+                } else if mode == "revoke" {
+                    staged.publish(inner).unwrap();
+                    staged.revoke(inner).unwrap();
+                }
+                weak
+            };
+            scope.low_memory_notification();
+            scope.low_memory_notification();
+            assert_eq!(
+                weak.to_local(scope).is_some(),
+                mode == "commit",
+                "{mode} wrapper lifetime"
+            );
+            assert_eq!(
+                state.navigation_api.borrow().entries.contains_key(mode),
+                mode == "commit"
+            );
+        }
+    }
+
     #[test]
     fn entry_staging_failure_leaves_history_and_native_registrations_unchanged() {
         super::super::tests::initialize_v8();
@@ -8429,6 +8614,77 @@ mod native_source_origin_admission_tests {
         });
         state
     }
+    #[test]
+    fn new_joint_traversal_survives_aborting_prior_navigation_to_same_entry() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = scroll_fixture(scope);
+        let mut destination = entry("a");
+        destination.document_id = "previous-document".into();
+        let current = entry("b");
+        state.commit_location(&current.url).unwrap();
+        sync_history(scope, vec![destination.clone(), current], 1, "push").unwrap();
+        let NativeNavigationAdmission::Proceed {
+            operation: Some(old),
+            ..
+        } = admit_native_history_traversal(scope, destination.clone()).unwrap()
+        else {
+            panic!("old cross-document navigation must be pending")
+        };
+        assert!(native_navigation_matches(&state, &old));
+        let receipt = run_joint_history_delta(scope, -1).unwrap().unwrap();
+        assert!(
+            receipt.poll().is_none(),
+            "new traversal must wait for its destination"
+        );
+        assert!(!native_navigation_matches(&state, &old));
+        assert_eq!(
+            state.pending_navigation_destination().unwrap().id,
+            destination.id
+        );
+        assert!(state.has_location_navigation());
+        receipt.cancel();
+    }
+
+    #[test]
+    fn queued_navigation_api_traversal_preserves_admission_and_rejects_stale_task() {
+        super::super::tests::initialize_v8();
+        for superseded in [false, true] {
+            let mut isolate = v8::Isolate::new(Default::default());
+            isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+            v8::scope!(let scope, &mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let state = scroll_fixture(scope);
+            let mut destination = entry("a");
+            destination.document_id = "previous-document".into();
+            state.commit_location("https://example.test/b").unwrap();
+            sync_history(scope, vec![destination.clone(), entry("b")], 1, "push").unwrap();
+            eval(
+                scope,
+                "globalThis.calls=0;globalThis.rejected=false;navigation.onnavigate=()=>calls++;navigation.back().finished.catch(()=>rejected=true)",
+            );
+            let task = history_tasks::take(&state).expect("queued API traversal");
+            let operation = task.navigation_admission().unwrap().clone();
+            assert!(native_navigation_matches(&state, &operation));
+            if superseded {
+                advance_native_revision(&state).unwrap();
+            }
+            run_history_task(scope, task, None).unwrap();
+            scope.perform_microtask_checkpoint();
+            assert!(eval(scope, "calls===1&&!rejected").is_true());
+            assert_eq!(state.has_location_navigation(), !superseded);
+            assert!(!history_tasks::pending(&state));
+            if !superseded {
+                assert!(native_navigation_matches(&state, &operation));
+            }
+        }
+    }
+
     fn opaque_history_fixture(scope: &mut v8::PinScope) -> Rc<V8BindingState> {
         let context = scope.get_current_context();
         let dom = Rc::new(RefCell::new(
@@ -8629,7 +8885,7 @@ mod native_source_origin_admission_tests {
         v8::scope!(let scope,&mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        let state = scroll_fixture(scope);
+        let _state = scroll_fixture(scope);
         eval(
             scope,
             "history.pushState(null,'','#b');addEventListener('popstate',()=>{document.open();document.write('<p>replacement</p>');document.close()})",
@@ -8845,7 +9101,9 @@ mod native_source_origin_admission_tests {
             );
             let receipt = start_native_event_publication(
                 scope,
-                NativePublicationEvent::HistoryRestore { entry },
+                NativePublicationEvent::HistoryRestore {
+                    entry: Box::new(entry),
+                },
             )
             .unwrap();
             let _ = resume_native_history_publication(scope, receipt);
@@ -8905,7 +9163,9 @@ mod native_source_origin_admission_tests {
             sync_history(scope, vec![entry.clone()], 0, "traverse").unwrap();
             let receipt = start_native_event_publication(
                 scope,
-                NativePublicationEvent::HistoryRestore { entry },
+                NativePublicationEvent::HistoryRestore {
+                    entry: Box::new(entry),
+                },
             )
             .unwrap();
             assert!(resume_native_history_publication(scope, receipt).unwrap());
@@ -8950,9 +9210,13 @@ mod native_source_origin_admission_tests {
             ..Default::default()
         });
         eval(scope, "globalThis.pops=0;onpopstate=()=>pops++");
-        let receipt =
-            start_native_event_publication(scope, NativePublicationEvent::HistoryRestore { entry })
-                .unwrap();
+        let receipt = start_native_event_publication(
+            scope,
+            NativePublicationEvent::HistoryRestore {
+                entry: Box::new(entry),
+            },
+        )
+        .unwrap();
         assert!(resume_native_history_publication(scope, receipt).unwrap());
         assert_eq!(state.document_scroll_offset(), (100.0, 100.0));
         assert!(state.navigation_api.borrow().growing_scroll.is_some());
@@ -9010,7 +9274,9 @@ mod native_source_origin_admission_tests {
             });
             let receipt = start_native_event_publication(
                 scope,
-                NativePublicationEvent::HistoryRestore { entry },
+                NativePublicationEvent::HistoryRestore {
+                    entry: Box::new(entry),
+                },
             )
             .unwrap();
             assert!(resume_native_history_publication(scope, receipt).unwrap());

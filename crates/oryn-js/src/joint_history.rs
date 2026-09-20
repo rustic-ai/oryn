@@ -119,15 +119,14 @@ fn settle_completion(token: &str, result: Result<(), JointTraversalFailure>) {
         .lock()
         .ok()
         .and_then(|registry| registry.get(token).and_then(std::sync::Weak::upgrade));
-    if let Some(completion) = completion {
-        if let Ok(mut value) = completion.lock() {
-            if value.terminal.is_none() {
-                if result.is_ok() {
-                    value.interactive = true;
-                }
-                value.terminal = Some(result);
-            }
+    if let Some(completion) = completion
+        && let Ok(mut value) = completion.lock()
+        && value.terminal.is_none()
+    {
+        if result.is_ok() {
+            value.interactive = true;
         }
+        value.terminal = Some(result);
     }
 }
 impl Timeline {
@@ -237,18 +236,14 @@ impl Timeline {
                     } else {
                         entry.published
                     }
-            }) {
-                if let Some(completion) = completions()
-                    .lock()
-                    .ok()
-                    .and_then(|registry| registry.get(token).and_then(std::sync::Weak::upgrade))
-                {
-                    if let Ok(mut value) = completion.lock() {
-                        if value.terminal.is_none() {
-                            value.interactive = true;
-                        }
-                    }
-                }
+            }) && let Some(completion) = completions()
+                .lock()
+                .ok()
+                .and_then(|registry| registry.get(token).and_then(std::sync::Weak::upgrade))
+                && let Ok(mut value) = completion.lock()
+                && value.terminal.is_none()
+            {
+                value.interactive = true;
             }
         }
     }
@@ -327,13 +322,14 @@ impl Timeline {
         self.release_finished_custody();
     }
     fn rollback_uncommitted(&mut self, token: &str) {
-        if let Some((from, to, revision)) = self.execution_origins.remove(token) {
-            if self.current == to && self.revision == revision && self.steps().contains(&from) {
-                if let Ok(revision) = self.next_revision() {
-                    self.current = from;
-                    self.revision = revision;
-                }
-            }
+        if let Some((from, to, revision)) = self.execution_origins.remove(token)
+            && self.current == to
+            && self.revision == revision
+            && self.steps().contains(&from)
+            && let Ok(revision) = self.next_revision()
+        {
+            self.current = from;
+            self.revision = revision;
         }
     }
     pub fn reconcile_executions(&mut self) {

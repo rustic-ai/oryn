@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn media_viewport_is_css_image_size_not_viewbox_or_output_raster() {
         let snapshot = crate::tests::empty_snapshot();
-        let source=oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url_aliases:Vec::new(),url:"https://example.test/media.svg".into(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 1000 1000"><style>rect {fill:red} @media (min-width: 30px) {rect {fill:lime}} @media (prefers-color-scheme:dark) {rect {fill:blue}} @media (prefers-reduced-motion:reduce) {rect {fill:white}}</style><rect width="1000" height="1000"/></svg>"#.to_vec()};
+        let source=oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url_aliases:Vec::new(),url:"https://example.test/media.svg".into(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 1000 1000"><style>rect {fill:red} @media (min-width: 30px) {rect {fill:lime}} @media (prefers-color-scheme:dark) {rect {fill:blue}} @media (prefers-reduced-motion:reduce) {rect {fill:white}}</style><rect width="1000" height="1000"/></svg>"#.to_vec()};
         for (width, dark, reduced, expected) in [
             (20., false, false, [255, 0, 0, 255]),
             (40., false, false, [0, 255, 0, 255]),
@@ -167,6 +167,7 @@ mod nested_media_tests {
         );
         let source = oryn_common::v4::PaintImageResource {
             svg_document_snapshot: false,
+            svg_instances: Vec::new(),
             content_type: None,
             url_aliases: Vec::new(),
             url: "https://example.test/nested-media.svg".into(),

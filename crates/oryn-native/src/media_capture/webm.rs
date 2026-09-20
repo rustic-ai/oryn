@@ -1,5 +1,17 @@
 //! Bounded WebM demux. Offsets refer only to the admitted, immutable response.
 //! The platform decoder never opens a URL or follows a container reference.
+
+/// Inputs for block.
+struct BlockInputs<'a> {
+    b: &'a [u8],
+    start: usize,
+    end: usize,
+    cluster: u64,
+    scale: f64,
+    key: bool,
+    discard: f64,
+    tracks: &'a mut [Track],
+}
 use serde::Serialize;
 #[derive(Debug, Serialize)]
 pub(super) struct Packet {
@@ -151,16 +163,18 @@ fn opus_duration(b: &[u8]) -> Result<f64> {
         Ok(seconds)
     }
 }
-fn block(
-    b: &[u8],
-    start: usize,
-    end: usize,
-    cluster: u64,
-    scale: f64,
-    key: bool,
-    discard: f64,
-    tracks: &mut [Track],
-) -> Result<()> {
+fn block(params: BlockInputs<'_>) -> Result<()> {
+    let BlockInputs {
+        b,
+        start,
+        end,
+        cluster,
+        scale,
+        key,
+        discard,
+        tracks,
+    } = params;
+
     let mut at = start;
     let (number, _) = vint(&b[..end], &mut at, false)?;
     if end.saturating_sub(at) < 3 {
@@ -195,7 +209,7 @@ fn block(
             lengths.push(n)
         }
     } else if lace == 2 {
-        if (end - at) % count != 0 {
+        if !(end - at).is_multiple_of(count) {
             return Err(BAD);
         }
         lengths.resize(count - 1, (end - at) / count);
@@ -388,7 +402,16 @@ pub(super) fn parse(b: &[u8]) -> Result<Movie> {
                 let mut p = s;
                 vint(&b[..e], &mut p, false)?;
                 let key = *b.get(p + 2).filter(|_| p + 2 < e).ok_or(BAD)? & 128 != 0;
-                block(b, s, e, cluster, scale, key, 0., &mut tracks)?;
+                block(BlockInputs {
+                    b,
+                    start: s,
+                    end: e,
+                    cluster,
+                    scale,
+                    key,
+                    discard: 0.,
+                    tracks: &mut tracks,
+                })?;
             } else if id == 0xa0 {
                 let group = elements(b, s, e)?;
                 let key = !group.iter().any(|x| x.0 == 0xfb);
@@ -401,7 +424,16 @@ pub(super) fn parse(b: &[u8]) -> Result<Movie> {
                     / 1e9;
                 for (id, s, e) in group {
                     if id == 0xa1 {
-                        block(b, s, e, cluster, scale, key, discard, &mut tracks)?
+                        block(BlockInputs {
+                            b,
+                            start: s,
+                            end: e,
+                            cluster,
+                            scale,
+                            key,
+                            discard,
+                            tracks: &mut tracks,
+                        })?
                     }
                 }
             }
@@ -446,7 +478,17 @@ mod tests {
             packets: vec![],
         }];
         let b = [0x81, 0xff, 0xfe, 0x04, 1, 0x80, 0x80];
-        block(&b, 0, b.len(), 2, 0.001, true, 0.001, &mut tracks).unwrap();
+        block(BlockInputs {
+            b: &b,
+            start: 0,
+            end: b.len(),
+            cluster: 2,
+            scale: 0.001,
+            key: true,
+            discard: 0.001,
+            tracks: &mut tracks,
+        })
+        .unwrap();
         assert_eq!(tracks[0].packets.len(), 2);
         assert_eq!(tracks[0].packets[0].time, -0.0065);
         assert_eq!(tracks[0].packets[1].discard, 0.001);
@@ -551,22 +593,34 @@ mod tests {
             &[0x81, 0, 0, 0x06, 1, 0x81, 0x80, 0x80][..],
         ] {
             let mut t = make();
-            block(
-                block_bytes,
-                0,
-                block_bytes.len(),
-                0,
-                0.001,
-                true,
-                0.,
-                &mut t,
-            )
+            block(BlockInputs {
+                b: block_bytes,
+                start: 0,
+                end: block_bytes.len(),
+                cluster: 0,
+                scale: 0.001,
+                key: true,
+                discard: 0.,
+                tracks: &mut t,
+            })
             .unwrap();
             assert_eq!(t[0].packets.len(), 2);
             assert_eq!(t[0].packets[1].time, 0.0025);
         }
         let b = [0x81, 0, 0, 0x02, 1, 255];
-        assert!(block(&b, 0, b.len(), 0, 0.001, true, 0., &mut make()).is_err());
+        assert!(
+            block(BlockInputs {
+                b: &b,
+                start: 0,
+                end: b.len(),
+                cluster: 0,
+                scale: 0.001,
+                key: true,
+                discard: 0.,
+                tracks: &mut make()
+            })
+            .is_err()
+        );
     }
     #[test]
     fn opus_private_mapping_version_and_codec_mismatch_fail_before_decode() {
@@ -617,7 +671,19 @@ mod tests {
             &[0x81, 0, 0, 0x04, 255][..],
             &[0x81, 0, 0, 0x06, 2, 0x81, 0x80, 0x98, 0x98][..],
         ] {
-            assert!(block(b, 0, b.len(), 0, 0.001, true, 0., &mut make()).is_err());
+            assert!(
+                block(BlockInputs {
+                    b,
+                    start: 0,
+                    end: b.len(),
+                    cluster: 0,
+                    scale: 0.001,
+                    key: true,
+                    discard: 0.,
+                    tracks: &mut make()
+                })
+                .is_err()
+            );
         }
     }
 }

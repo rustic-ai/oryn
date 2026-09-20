@@ -92,6 +92,7 @@ impl Loader {
         self.declared_type = None;
     }
 
+    #[cfg(test)]
     pub(super) fn capture(
         page: &mut RustExecutableDocument,
         parent: RealmId,
@@ -319,6 +320,7 @@ impl Loader {
                 let (mime, body) =
                     crate::network::decode_data_url(&url).map_err(|error| error.to_string())?;
                 crate::network::NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: self.next,
                     status: 200,
@@ -337,6 +339,7 @@ impl Loader {
                     .as_ref()
                     .ok_or("standalone blob response unavailable or revoked")?;
                 crate::network::NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: self.next,
                     status: 200,
@@ -615,15 +618,15 @@ impl Loader {
                         &response.headers,
                     )
                 } else {
-                    reporting.response(
-                        &self.document_policy.origin,
+                    reporting.response(crate::coep_reporting::ResponsePolicyInputs {
+                        origin: &self.document_policy.origin,
                         opaque,
-                        &url,
-                        false,
+                        target: &url,
+                        cors: false,
                         credentials,
-                        &response.headers,
-                        self.kind.resource_destination(),
-                    )
+                        headers: &response.headers,
+                        destination: self.kind.resource_destination(),
+                    })
                 });
                 self.isolation.authorize_response(
                     &self.document_policy.origin,
@@ -703,7 +706,7 @@ impl Loader {
                             .and_then(|source| policy.header(source, &url)),
                         referrer_policy: policy.as_str().into(),
                     }),
-                    timing: Some(timing),
+                    timing: Some(Box::new(timing)),
                     effective_post: post,
                     stream_id: None,
                     native_origin: Some(native_origin),
@@ -917,17 +920,17 @@ mod tests {
         let error = page
             .agent
             .host
-            .commit_frame_document_with_resource_owners(
+            .commit_frame_document_with_resource_owners(crate::host::FrameResourceCommitInput {
                 frame,
-                oryn_js::origin::Origin::from_url("https://example.test/child"),
+                origin: oryn_js::origin::Origin::from_url("https://example.test/child"),
                 dom,
                 document,
-                Some("https://example.test/child"),
-                Some(SharedNetworkBroker::new(crate::network::UnavailableBroker)),
+                committed_url: Some("https://example.test/child"),
+                resource_broker: Some(SharedNetworkBroker::new(crate::network::UnavailableBroker)),
                 #[cfg(unix)]
-                None,
-                None,
-            )
+                resource_client: None,
+                ancestor_capture: None,
+            })
             .unwrap_err();
         assert!(
             error
@@ -968,6 +971,7 @@ mod tests {
                 return Err(NetworkError::Transport("unmatched fixture resource".into()));
             };
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -1028,6 +1032,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(request.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -1090,12 +1095,11 @@ mod tests {
             .find(|realm| {
                 page.agent.host.automation_dom(*realm).is_some_and(|dom| {
                     let document = page.agent.host.automation_realm_identity(*realm).unwrap().0;
-                    let found = dom
-                        .borrow()
+
+                    dom.borrow()
                         .query_selector(document, "#inner")
                         .unwrap()
-                        .is_some();
-                    found
+                        .is_some()
                 })
             })
             .unwrap();
@@ -1152,6 +1156,7 @@ mod tests {
                 self.0.lock().unwrap().push(request.clone());
                 let first = request.url.ends_with("start");
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if first { self.1 } else { 200 },
@@ -1232,6 +1237,7 @@ mod tests {
                     None
                 };
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if location.is_some() { 302 } else { 200 },
@@ -1302,6 +1308,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(request.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -1385,6 +1392,7 @@ mod tests {
         impl NetworkBroker for Attachment {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -1422,6 +1430,7 @@ mod tests {
                 let binary = request.url.ends_with("binary");
                 let unknown = request.url.ends_with("unknown");
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -1494,6 +1503,7 @@ mod tests {
                     "text/html"
                 };
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if location.is_some() { 302 } else { 200 },
@@ -1632,7 +1642,7 @@ mod tests {
         struct PolicyFixture;
         impl NetworkBroker for PolicyFixture {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
-                Ok(NetworkResponse{timing:None,request_id:request.request_id,status:200,headers:vec![("content-type".into(),"text/html".into()),("permissions-policy".into(),"document-domain=()".into())],body:br#"<script>globalThis.policyOutcome='allowed';try{document.domain='example.test'}catch(e){policyOutcome=e.name}</script>"#.to_vec()})
+                Ok(NetworkResponse{response_policy: None,timing:None,request_id:request.request_id,status:200,headers:vec![("content-type".into(),"text/html".into()),("permissions-policy".into(),"document-domain=()".into())],body:br#"<script>globalThis.policyOutcome='allowed';try{document.domain='example.test'}catch(e){policyOutcome=e.name}</script>"#.to_vec()})
             }
         }
         let mut page = RustExecutableDocument::load_with_environment(
@@ -1685,6 +1695,7 @@ mod tests {
                 }
                 self.returned.store(true, Ordering::Release);
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,

@@ -332,186 +332,195 @@ pub fn with_parser_construction<R>(
         state.document_generation(),
         state.document_stream_epoch(),
     );
-    let mut action = |action: html::ParserAction| -> Option<html::ParserNode> {
-        if let html::ParserAction::Failed(failure) = action {
-            if error.is_none() {
-                error = Some(failure.into());
+    let result = {
+        let mut action = |action: html::ParserAction| -> Option<html::ParserNode> {
+            if let html::ParserAction::Failed(failure) = action {
+                if error.is_none() {
+                    error = Some(failure.into());
+                }
+                return None;
             }
-            return None;
-        }
-        if error.is_some()
-            || state.execution_retired()
-            || state.execution_suspended()
-            || (
-                state.document_root(),
-                state.document_generation(),
-                state.document_stream_epoch(),
-            ) != identity
-            || scope.is_execution_terminating()
-        {
-            html::interrupt_element_construction(&state.dom);
-            return None;
-        }
-        let result = (|| -> Result<Option<html::ParserNode>, V8BindingError> {
-            match action {
-                html::ParserAction::Failed(_) => unreachable!(),
-                html::ParserAction::Checkpoint => {
-                    node_migration::resume_publications(scope)?;
-                    Ok(Some(html::ParserNode {
-                        owner: state.dom.clone(),
-                        node: state.document_root(),
-                    }))
-                }
-                html::ParserAction::Adopt { target, parent } => {
-                    let source = parser_owner(scope, state, &target)?;
-                    let destination = parser_owner(scope, state, &parent)?;
-                    let document = parent
-                        .owner
-                        .borrow()
-                        .node_document(parent.node)?
-                        .unwrap_or(parent.node);
-                    let node =
-                        node_migration::adopt(scope, &destination, document, &source, target.node)?;
-                    Ok(Some(html::ParserNode {
-                        owner: destination.dom.clone(),
-                        node,
-                    }))
-                }
-                html::ParserAction::Construct { target, parent: _ } => {
-                    // Formatting reconstruction can construct several elements in
-                    // one tokenizer call. Complete the prior element's queue before
-                    // pushing another; overwriting the guard would pop the new queue.
-                    if let Some(previous) = boundary.take() {
-                        for (owner, document, start) in spans.drain(..) {
-                            let end = owner.dom.borrow().mutation_cursor().0;
-                            custom_elements::retain_parser_reaction_span(
-                                &owner, start, end, document,
-                            );
+            if error.is_some()
+                || state.execution_retired()
+                || state.execution_suspended()
+                || (
+                    state.document_root(),
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                ) != identity
+                || scope.is_execution_terminating()
+            {
+                html::interrupt_element_construction(&state.dom);
+                return None;
+            }
+            let result = (|| -> Result<Option<html::ParserNode>, V8BindingError> {
+                match action {
+                    html::ParserAction::Failed(_) => unreachable!(),
+                    html::ParserAction::Checkpoint => {
+                        node_migration::resume_publications(scope)?;
+                        Ok(Some(html::ParserNode {
+                            owner: state.dom.clone(),
+                            node: state.document_root(),
+                        }))
+                    }
+                    html::ParserAction::Adopt { target, parent } => {
+                        let source = parser_owner(scope, state, &target)?;
+                        let destination = parser_owner(scope, state, &parent)?;
+                        let document = parent
+                            .owner
+                            .borrow()
+                            .node_document(parent.node)?
+                            .unwrap_or(parent.node);
+                        let node = node_migration::adopt(
+                            scope,
+                            &destination,
+                            document,
+                            &source,
+                            target.node,
+                        )?;
+                        Ok(Some(html::ParserNode {
+                            owner: destination.dom.clone(),
+                            node,
+                        }))
+                    }
+                    html::ParserAction::Construct { target, parent: _ } => {
+                        // Formatting reconstruction can construct several elements in
+                        // one tokenizer call. Complete the prior element's queue before
+                        // pushing another; overwriting the guard would pop the new queue.
+                        if let Some(previous) = boundary.take() {
+                            for (owner, document, start) in spans.drain(..) {
+                                let end = owner.dom.borrow().mutation_cursor().0;
+                                custom_elements::retain_parser_reaction_span(
+                                    &owner, start, end, document,
+                                );
+                            }
+                            let completion = previous.complete_result(scope);
+                            depth_guards.clear();
+                            completion?;
+                            if state.execution_retired()
+                                || state.execution_suspended()
+                                || scope.is_execution_terminating()
+                                || (
+                                    state.document_root(),
+                                    state.document_generation(),
+                                    state.document_stream_epoch(),
+                                ) != identity
+                            {
+                                html::interrupt_element_construction(&state.dom);
+                                return Ok(None);
+                            }
                         }
-                        let completion = previous.complete_result(scope);
-                        depth_guards.clear();
-                        completion?;
+                        let owner = parser_owner(scope, state, &target)?;
+                        let node = target.node;
+                        if !custom_elements::has_definition(scope, &owner, node)? {
+                            owner
+                                .dom
+                                .borrow_mut()
+                                .arena_mut()
+                                .get_mut(node)?
+                                .custom_element_shadow_disabled = Some(false);
+                            return Ok(Some(target));
+                        }
+                        // Retain identity before authored construction; customized
+                        // built-ins can adopt themselves or any open parser ancestor.
+                        let original = oryn_dom::TrackedNodeLease::new(&owner.dom, node)?;
+                        let owner_identity = (
+                            owner.document_root(),
+                            owner.document_generation(),
+                            owner.document_stream_epoch(),
+                        );
+                        state.commit_parser_author_effect();
+                        owner.commit_parser_author_effect();
+                        let document = owner
+                            .dom
+                            .borrow()
+                            .node_document(node)?
+                            .unwrap_or(owner.document_root());
+                        *owner
+                            .parser_custom_construction_depth
+                            .borrow_mut()
+                            .entry(document)
+                            .or_default() += 1;
+                        depth_guards.push(Depth(owner.clone(), document));
+                        let start = owner.dom.borrow().mutation_cursor().0;
+                        spans.push((owner.clone(), document, start));
+                        if v8::StackTrace::current_stack_trace(scope, 1)
+                            .is_some_and(|trace| trace.get_frame_count() == 0)
+                        {
+                            queue_mutation_observer_microtask(scope);
+                            scope.perform_microtask_checkpoint();
+                        }
                         if state.execution_retired()
                             || state.execution_suspended()
+                            || owner.execution_retired()
+                            || owner.execution_suspended()
                             || scope.is_execution_terminating()
                             || (
                                 state.document_root(),
                                 state.document_generation(),
                                 state.document_stream_epoch(),
                             ) != identity
+                            || (
+                                owner.document_root(),
+                                owner.document_generation(),
+                                owner.document_stream_epoch(),
+                            ) != owner_identity
                         {
+                            // No constructor was entered. Preserve Initialize.custom so
+                            // a suspended parser can attempt construction on resumption.
                             html::interrupt_element_construction(&state.dom);
                             return Ok(None);
                         }
-                    }
-                    let owner = parser_owner(scope, state, &target)?;
-                    let node = target.node;
-                    if !custom_elements::has_definition(scope, &owner, node)? {
-                        owner
-                            .dom
-                            .borrow_mut()
-                            .arena_mut()
-                            .get_mut(node)?
-                            .custom_element_shadow_disabled = Some(false);
-                        return Ok(Some(target));
-                    }
-                    // Retain identity before authored construction; customized
-                    // built-ins can adopt themselves or any open parser ancestor.
-                    let original = oryn_dom::TrackedNodeLease::new(&owner.dom, node)?;
-                    let owner_identity = (
-                        owner.document_root(),
-                        owner.document_generation(),
-                        owner.document_stream_epoch(),
-                    );
-                    state.commit_parser_author_effect();
-                    owner.commit_parser_author_effect();
-                    let document = owner
-                        .dom
-                        .borrow()
-                        .node_document(node)?
-                        .unwrap_or(owner.document_root());
-                    *owner
-                        .parser_custom_construction_depth
-                        .borrow_mut()
-                        .entry(document)
-                        .or_default() += 1;
-                    depth_guards.push(Depth(owner.clone(), document));
-                    let start = owner.dom.borrow().mutation_cursor().0;
-                    spans.push((owner.clone(), document, start));
-                    if v8::StackTrace::current_stack_trace(scope, 1)
-                        .is_some_and(|trace| trace.get_frame_count() == 0)
-                    {
-                        queue_mutation_observer_microtask(scope);
-                        scope.perform_microtask_checkpoint();
-                    }
-                    if state.execution_retired()
-                        || state.execution_suspended()
-                        || owner.execution_retired()
-                        || owner.execution_suspended()
-                        || scope.is_execution_terminating()
-                        || (
-                            state.document_root(),
-                            state.document_generation(),
-                            state.document_stream_epoch(),
-                        ) != identity
-                        || (
-                            owner.document_root(),
-                            owner.document_generation(),
-                            owner.document_stream_epoch(),
-                        ) != owner_identity
-                    {
-                        // No constructor was entered. Preserve Initialize.custom so
-                        // a suspended parser can attempt construction on resumption.
-                        html::interrupt_element_construction(&state.dom);
-                        return Ok(None);
-                    }
-                    boundary = Some(custom_elements::ReactionBoundary::begin_parser_token(scope));
-                    let (created, failure, entered, fallback_root) =
-                        custom_elements::create_synchronously_parser_outcome(scope, &owner, node);
-                    if let Some(root) = fallback_root {
-                        result_roots.push(root);
-                    }
-                    if let Some(failure) = failure {
-                        if !entered {
-                            return Err(failure);
+                        boundary =
+                            Some(custom_elements::ReactionBoundary::begin_parser_token(scope));
+                        let (created, failure, entered, fallback_root) =
+                            custom_elements::create_synchronously_parser_outcome(
+                                scope, &owner, node,
+                            );
+                        if let Some(root) = fallback_root {
+                            result_roots.push(root);
                         }
+                        if let Some(failure) = failure {
+                            if !entered {
+                                return Err(failure);
+                            }
+                            error = Some(failure);
+                        }
+                        let (current, current_node) = if created == node {
+                            original.current()
+                        } else {
+                            (owner.dom.clone(), created)
+                        };
+                        html::interrupt_element_construction(&state.dom);
+                        Ok(Some(html::ParserNode {
+                            owner: current,
+                            node: current_node,
+                        }))
+                    }
+                }
+            })();
+            match result {
+                Ok(result) => result,
+                Err(failure) => {
+                    if error.is_none() {
                         error = Some(failure);
                     }
-                    let (current, current_node) = if created == node {
-                        original.current()
-                    } else {
-                        (owner.dom.clone(), created)
-                    };
                     html::interrupt_element_construction(&state.dom);
-                    Ok(Some(html::ParserNode {
-                        owner: current,
-                        node: current_node,
-                    }))
+                    None
                 }
             }
-        })();
-        match result {
-            Ok(result) => result,
-            Err(failure) => {
-                if error.is_none() {
-                    error = Some(failure);
-                }
-                html::interrupt_element_construction(&state.dom);
-                None
-            }
-        }
+        };
+        html::with_parser_actions(&state.dom, &mut action, parse)
     };
-    let result = html::with_parser_actions(&state.dom, &mut action, parse);
-    drop(action);
     if let Some(boundary) = boundary {
         for (owner, document, start) in spans {
             let end = owner.dom.borrow().mutation_cursor().0;
             custom_elements::retain_parser_reaction_span(&owner, start, end, document);
         }
-        if let Err(failure) = boundary.complete_result(scope) {
-            if error.is_none() {
-                error = Some(failure);
-            }
+        if let Err(failure) = boundary.complete_result(scope)
+            && error.is_none()
+        {
+            error = Some(failure);
         }
     }
     drop(depth_guards);
@@ -761,10 +770,7 @@ impl V8BindingState {
         *self.script_report_retirement.borrow_mut() = Some(cancel);
     }
 
-    pub fn set_meta_csp_policy(
-        &self,
-        policy: Rc<dyn Fn(&V8BindingState, &str) -> Result<(), String>>,
-    ) {
+    pub fn set_meta_csp_policy(&self, policy: MetaCspPolicy) {
         let previous = self.meta_csp_policy.borrow_mut().take();
         *self.meta_csp_policy.borrow_mut() = Some(match previous {
             Some(previous) => Rc::new(move |state, source| {
@@ -778,7 +784,7 @@ impl V8BindingState {
     pub fn set_local_script_policy(
         &self,
         capture: Rc<dyn Fn() -> Result<std::sync::Arc<ScriptPolicySnapshot>, String>>,
-        inline: Rc<dyn Fn(&V8BindingState, &str, Option<&str>, bool, bool) -> Result<bool, String>>,
+        inline: LocalInlinePolicy,
     ) {
         *self.local_script_policy_capture.borrow_mut() = Some(capture);
         *self.local_inline_script_policy.borrow_mut() = Some(inline);
@@ -815,19 +821,7 @@ impl V8BindingState {
             .transpose()
     }
 
-    pub fn set_parser_inline_policy(
-        &self,
-        policy: Rc<
-            dyn Fn(
-                crate::worker_wire::Creator,
-                &str,
-                Option<&str>,
-                Option<&str>,
-                bool,
-                bool,
-            ) -> Result<bool, String>,
-        >,
-    ) {
+    pub fn set_parser_inline_policy(&self, policy: ParserInlinePolicy) {
         *self.parser_inline_policy.borrow_mut() = Some(policy);
     }
     pub fn authorize_inline_script(
@@ -875,6 +869,34 @@ impl V8BindingState {
         let gate = self.document_parser_gate.borrow().clone()?;
         if !gate.unclaimed() { None } else { Some(gate) }
     }
+}
+
+/// Preserve the per-realm aggregate bound as well as each parser's process
+/// reservation. A rejected write changes neither the parser nor either budget.
+pub(super) fn write_detached(
+    state: &V8BindingState,
+    document: NodeId,
+    markup: &str,
+) -> Result<bool, V8BindingError> {
+    let mut parsers = state.detached_document_parsers.borrow_mut();
+    if !parsers.contains_key(&document) {
+        return Ok(false);
+    }
+    let retained = parsers
+        .values()
+        .try_fold(0usize, |used, (_, budget)| used.checked_add(budget.0));
+    if retained
+        .and_then(|used| used.checked_add(markup.len()))
+        .is_none_or(|next| next > 1024 * 1024)
+    {
+        return Err(V8BindingError::DocumentWriteLimit {
+            resource: "aggregate detached parser input",
+        });
+    }
+    let (parser, budget) = parsers.get_mut(&document).unwrap();
+    budget.reserve(markup.len())?;
+    parser.push_dom_string(markup);
+    Ok(true)
 }
 
 /// Detached inert parsers share the same process input admission as live gates.

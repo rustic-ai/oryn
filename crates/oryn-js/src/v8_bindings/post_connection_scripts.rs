@@ -272,8 +272,8 @@ fn job(
     };
     Ok(Some(Job {
         target,
-        owner: Rc::downgrade(&initial),
-        origin: Rc::downgrade(&initial),
+        owner: Rc::downgrade(initial),
+        origin: Rc::downgrade(initial),
         document,
         generation: initial.document_generation(),
         stream_epoch: initial.document_stream_epoch(),
@@ -404,8 +404,8 @@ impl PreparedInsertion {
                 if let Some(mut batch) = self.batch.take() {
                     let connected = |job: &Job| {
                         let (dom, node) = job.target.current();
-                        let connected = dom.borrow().is_connected(node).unwrap_or(false);
-                        connected
+
+                        dom.borrow().is_connected(node).unwrap_or(false)
                     };
                     batch.resources.retain(|resource| connected(&resource.job));
                     batch.jobs.retain(connected);
@@ -415,7 +415,7 @@ impl PreparedInsertion {
                         self.registry.borrow_mut().queue.push_back(batch);
                     }
                 }
-                Err(error.into())
+                Err(error)
             }
         }
     }
@@ -544,22 +544,23 @@ fn capture_batch(
         jobs.try_reserve(candidates.len())
             .map_err(|_| V8BindingError::Allocation("post-connection script jobs"))?;
         for (node, meta) in candidates {
-            if script_jobs.insert(node) {
-                if let Some(job) = job(scope, &initial, node, meta)? {
-                    jobs.push_back(job);
-                }
+            if script_jobs.insert(node)
+                && let Some(job) = job(scope, &initial, node, meta)?
+            {
+                jobs.push_back(job);
             }
         }
     }
     // Children-changed preparation belongs to the connected parent script,
     // independently of whether any inserted root is itself a script.
-    if let Some(parent) = changed_parent {
-        if script_children_changed::is_script_parent(state, parent)? && script_jobs.insert(parent) {
-            jobs.try_reserve(1)
-                .map_err(|_| V8BindingError::Allocation("script children-changed job"))?;
-            if let Some(job) = job(scope, state, parent, false)? {
-                jobs.push_back(job);
-            }
+    if let Some(parent) = changed_parent
+        && script_children_changed::is_script_parent(state, parent)?
+        && script_jobs.insert(parent)
+    {
+        jobs.try_reserve(1)
+            .map_err(|_| V8BindingError::Allocation("script children-changed job"))?;
+        if let Some(job) = job(scope, state, parent, false)? {
+            jobs.push_back(job);
         }
     }
     if resources.is_empty() && jobs.is_empty() {
@@ -695,9 +696,7 @@ pub(super) fn poll(
             pending => {
                 batch.retry = std::time::Instant::now() + std::time::Duration::from_millis(10);
                 registry.borrow_mut().queue.push_back(batch);
-                if let Err(error) = pending {
-                    return Err(error);
-                }
+                pending?;
             }
         }
     }

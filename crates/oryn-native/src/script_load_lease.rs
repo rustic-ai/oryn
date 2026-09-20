@@ -37,6 +37,7 @@ impl ScriptLoadRegistry {
             .entries
             .is_empty())
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub fn reserve(&self) -> Result<u64, RuntimeError> {
         self.reserve_owner(None)
     }
@@ -75,6 +76,7 @@ impl ScriptLoadRegistry {
         );
         Ok(token)
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub fn claim(&self, token: u64) -> Result<ScriptLoadLease, RuntimeError> {
         self.claim_owner(token, None)
     }

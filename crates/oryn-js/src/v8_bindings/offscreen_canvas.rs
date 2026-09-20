@@ -213,7 +213,7 @@ fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
                     .instance_templates
                     .borrow()
                     .get("OffscreenCanvasRenderingContext2D")
-                    .cloned()
+                    .and_then(|template| template.to_global(scope))
                     .ok_or(V8BindingError::MissingInterface(
                         "OffscreenCanvasRenderingContext2D",
                     ))?;

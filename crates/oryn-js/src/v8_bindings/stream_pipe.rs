@@ -57,7 +57,7 @@ fn pipe(state: &V8BindingState, id: u64) -> Result<Rc<RefCell<Pipe>>, V8BindingE
 fn destination(pipe: &Pipe) -> Result<Rc<V8BindingState>, V8BindingError> {
     pipe.destination
         .upgrade()
-        .filter(|state| stream_graph::algorithms_available(&state))
+        .filter(|state| stream_graph::algorithms_available(state))
         .ok_or_else(|| error("pipe destination has retired"))
 }
 fn observe(
@@ -278,7 +278,7 @@ fn run_shutdown(
         (
             pipe.destination
                 .upgrade()
-                .filter(|state| stream_graph::algorithms_available(&state)),
+                .filter(|state| stream_graph::algorithms_available(state)),
             pipe.writer,
             pipe.reader,
             pipe.stop.ok_or_else(|| error("pipe shutdown state"))?,
@@ -302,10 +302,11 @@ fn run_shutdown(
             record.borrow_mut().reason = Some(stream_graph::Owned::new(scope, reason));
         }
     }
-    if matches!(stop, Stop::Source | Stop::Signal) && !options.prevent_abort {
-        if let (Some(destination), Some(target)) = (&destination, target) {
-            actions.push(writable_streams::abort(scope, destination, target, reason)?);
-        }
+    if matches!(stop, Stop::Source | Stop::Signal)
+        && !options.prevent_abort
+        && let (Some(destination), Some(target)) = (&destination, target)
+    {
+        actions.push(writable_streams::abort(scope, destination, target, reason)?);
     }
     if matches!(stop, Stop::Destination | Stop::Signal) && !options.prevent_cancel {
         actions.push(cancel_source(scope, state, reader, reason)?);
@@ -383,13 +384,12 @@ fn finish(
                 }
                 _ => None,
             };
-            if let Some(stream) = stream {
-                if let PlatformObjectRecord::WritableStream(record) =
+            if let Some(stream) = stream
+                && let PlatformObjectRecord::WritableStream(record) =
                     &mut *platform_object_mut(&destination, stream)?
-                {
-                    record.locked = false;
-                    record.writer_id = None;
-                }
+            {
+                record.locked = false;
+                record.writer_id = None;
             }
         } else {
             writable_writers::release(scope, &destination, writer)?;
@@ -543,7 +543,7 @@ pub(super) fn start<'s>(
             signal_id = Some(id);
         }
     }
-    if !stream_graph::algorithms_available(&state)
+    if !stream_graph::algorithms_available(state)
         || !stream_graph::algorithms_available(&destination)
     {
         return Err(error("pipe environment retired"));
@@ -671,6 +671,47 @@ pub(super) fn start<'s>(
     Ok(promise)
 }
 
+pub(super) fn retire_destination(state: &V8BindingState) {
+    if state.binding_global == BindingGlobal::Window {
+        return;
+    }
+    for (source, pipe_id) in std::mem::take(&mut *state.pipe_dependents.borrow_mut()) {
+        if let Some(source) = source
+            .upgrade()
+            .filter(|source| stream_graph::algorithms_available(source))
+        {
+            source
+                .deferred_platform_tasks
+                .borrow_mut()
+                .push_back(DeferredPlatformTask::PipeDestinationRetired { pipe_id });
+        }
+    }
+}
+pub(super) fn destination_retired(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    id: u64,
+) -> Result<(), V8BindingError> {
+    let Ok(record) = pipe(state, id) else {
+        return Ok(());
+    };
+    {
+        let mut pipe = record.borrow_mut();
+        if !pipe.active {
+            return Ok(());
+        }
+        pipe.writing = false;
+        pipe.actions = 0;
+        pipe.stop = None;
+        pipe.action_epoch = pipe
+            .action_epoch
+            .checked_add(1)
+            .ok_or_else(|| error("pipe action identity exhausted"))?;
+    }
+    let reason = dom_exception_value(scope, "AbortError")?;
+    shutdown(scope, state, id, Stop::Destination, Some(reason))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -784,8 +825,12 @@ mod tests {
             );
             let name = v8::String::new(inner, "target").unwrap();
             let target = context.global(inner).get(inner, name.into()).unwrap();
-            let source_global = state.global_object.to_local(inner).unwrap();
-            source_global.set(inner, name.into(), target).unwrap();
+            let source_context = state.realm_context.to_local(inner).unwrap();
+            let source_scope = &mut v8::ContextScope::new(inner, source_context);
+            let source_global = state.global_object.to_local(source_scope).unwrap();
+            source_global
+                .set(source_scope, name.into(), target)
+                .unwrap();
         }
         eval(
             scope,
@@ -819,11 +864,13 @@ mod tests {
             for property in ["target", "inspect"] {
                 let name = v8::String::new(inner, property).unwrap();
                 let value = context.global(inner).get(inner, name.into()).unwrap();
+                let source_context = state.realm_context.to_local(inner).unwrap();
+                let source_scope = &mut v8::ContextScope::new(inner, source_context);
                 state
                     .global_object
-                    .to_local(inner)
+                    .to_local(source_scope)
                     .unwrap()
-                    .set(inner, name.into(), value)
+                    .set(source_scope, name.into(), value)
                     .unwrap();
             }
         }
@@ -849,45 +896,4 @@ mod tests {
         assert_eq!(eval(scope, "failure||result"), "ok");
         let _ = state;
     }
-}
-
-pub(super) fn retire_destination(state: &V8BindingState) {
-    if state.binding_global == BindingGlobal::Window {
-        return;
-    }
-    for (source, pipe_id) in std::mem::take(&mut *state.pipe_dependents.borrow_mut()) {
-        if let Some(source) = source
-            .upgrade()
-            .filter(|source| stream_graph::algorithms_available(&source))
-        {
-            source
-                .deferred_platform_tasks
-                .borrow_mut()
-                .push_back(DeferredPlatformTask::PipeDestinationRetired { pipe_id });
-        }
-    }
-}
-pub(super) fn destination_retired(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    id: u64,
-) -> Result<(), V8BindingError> {
-    let Ok(record) = pipe(state, id) else {
-        return Ok(());
-    };
-    {
-        let mut pipe = record.borrow_mut();
-        if !pipe.active {
-            return Ok(());
-        }
-        pipe.writing = false;
-        pipe.actions = 0;
-        pipe.stop = None;
-        pipe.action_epoch = pipe
-            .action_epoch
-            .checked_add(1)
-            .ok_or_else(|| error("pipe action identity exhausted"))?;
-    }
-    let reason = dom_exception_value(scope, "AbortError")?;
-    shutdown(scope, state, id, Stop::Destination, Some(reason))
 }

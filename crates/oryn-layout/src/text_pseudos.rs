@@ -25,10 +25,10 @@ pub(super) fn read(style: &BTreeMap<String, String>) -> Variants {
 fn serialize(style: &style::properties::ComputedValues) -> BTreeMap<String, String> {
     let mut values = BTreeMap::new();
     for name in COMPUTED_PROPERTIES {
-        if let Ok(property) = PropertyId::parse_enabled_for_all_content(name) {
-            if let Err(longhand) = property.as_shorthand() {
-                values.insert((*name).to_owned(), style.computed_value_to_string(longhand));
-            }
+        if let Ok(property) = PropertyId::parse_enabled_for_all_content(name)
+            && let Err(longhand) = property.as_shorthand()
+        {
+            values.insert((*name).to_owned(), style.computed_value_to_string(longhand));
         }
     }
     values
@@ -102,10 +102,10 @@ fn first_block(
                 if block(style) {
                     return Some(id);
                 }
-                if style_value(style, "display", "inline") == "contents" {
-                    if let Some(id) = first_block(child, nodes, styles, pseudos) {
-                        return Some(id);
-                    }
+                if style_value(style, "display", "inline") == "contents"
+                    && let Some(id) = first_block(child, nodes, styles, pseudos)
+                {
+                    return Some(id);
                 }
                 // A replaced or text-bearing inline participates in the first line.
                 if is_replaced_box(child)
@@ -140,7 +140,99 @@ pub(super) fn cascade(
     styles: &mut ComputedStyles,
     pseudos: &mut BTreeMap<u64, BTreeMap<String, ComputedStyle>>,
 ) {
-    cascade_context(document, input, mirrors, styles, pseudos, None);
+    cascade_from_source(
+        document,
+        input,
+        mirrors,
+        styles,
+        pseudos,
+        NativeSources::default(),
+    );
+}
+
+pub(super) fn cascade_instances(
+    document: &mut BaseDocument,
+    input: &LayoutInput,
+    mirrors: &BTreeMap<u64, blitz_traits::node_id::NodeId>,
+    styles: &mut ComputedStyles,
+    pseudos: &mut BTreeMap<u64, BTreeMap<String, ComputedStyle>>,
+    primary: &BTreeMap<u64, ServoArc<style::properties::ComputedValues>>,
+) {
+    cascade_from_source(
+        document,
+        input,
+        mirrors,
+        styles,
+        pseudos,
+        NativeSources {
+            primary: Some(primary),
+        },
+    );
+}
+
+#[derive(Clone, Copy, Default)]
+struct NativeSources<'a> {
+    primary: Option<&'a BTreeMap<u64, ServoArc<style::properties::ComputedValues>>>,
+}
+impl NativeSources<'_> {
+    fn primary(
+        &self,
+        document: &BaseDocument,
+        mirror: blitz_traits::node_id::NodeId,
+        id: u64,
+    ) -> Option<ServoArc<style::properties::ComputedValues>> {
+        match self.primary {
+            Some(styles) => styles.get(&id).cloned(),
+            None => document.resolved_primary_style(mirror),
+        }
+    }
+    fn pseudo(
+        &self,
+        document: &mut BaseDocument,
+        mirror: blitz_traits::node_id::NodeId,
+        id: u64,
+        pseudo: &PseudoElement,
+        nested: bool,
+    ) -> Option<ServoArc<style::properties::ComputedValues>> {
+        if self.primary.is_some() {
+            let primary = self.primary(document, mirror, id)?;
+            if nested {
+                let picker = document.resolved_instance_pseudo_style(
+                    mirror,
+                    &PseudoElement::PickerSelect,
+                    primary,
+                )?;
+                document.resolved_nested_pseudo_style_with_origin(mirror, pseudo, picker)
+            } else {
+                document.resolved_instance_pseudo_style(mirror, pseudo, primary)
+            }
+        } else if nested {
+            document.resolved_nested_pseudo_style(mirror, &PseudoElement::PickerSelect, pseudo)
+        } else {
+            document.resolved_pseudo_style(mirror, pseudo)
+        }
+    }
+    fn first_line(
+        &self,
+        document: &BaseDocument,
+        mirror: blitz_traits::node_id::NodeId,
+        id: u64,
+        parent: &style::properties::ComputedValues,
+    ) -> Option<ServoArc<style::properties::ComputedValues>> {
+        let original = self.primary(document, mirror, id)?;
+        document.reparent_first_line_style_from(mirror, &original, parent)
+    }
+}
+
+fn cascade_from_source(
+    document: &mut BaseDocument,
+    input: &LayoutInput,
+    mirrors: &BTreeMap<u64, blitz_traits::node_id::NodeId>,
+    styles: &mut ComputedStyles,
+    pseudos: &mut BTreeMap<u64, BTreeMap<String, ComputedStyle>>,
+    source: NativeSources<'_>,
+) {
+    cascade_context(document, input, mirrors, styles, pseudos, None, source);
     for entry in &input.top_layer {
         if entry.kind != oryn_common::v4::TopLayerKind::SelectPicker {
             continue;
@@ -151,16 +243,16 @@ pub(super) fn cascade(
         let mut included = BTreeSet::new();
         let mut pending = vec![owner.id];
         while let Some(id) = pending.pop() {
-            if included.insert(id) {
-                if let Some(node) = input.nodes.iter().find(|node| node.id == id) {
-                    pending.extend(node.children.iter().copied().filter(|child| {
-                        input
-                            .nodes
-                            .iter()
-                            .find(|node| node.id == *child)
-                            .is_some_and(|node| node.tag != "button")
-                    }));
-                }
+            if included.insert(id)
+                && let Some(node) = input.nodes.iter().find(|node| node.id == id)
+            {
+                pending.extend(node.children.iter().copied().filter(|child| {
+                    input
+                        .nodes
+                        .iter()
+                        .find(|node| node.id == *child)
+                        .is_some_and(|node| node.tag != "button")
+                }));
             }
         }
         let mut local = input.clone();
@@ -193,15 +285,15 @@ pub(super) fn cascade(
             &mut local_styles,
             pseudos,
             Some(owner.id),
+            source,
         );
         for id in included {
             if let Some(value) = local_styles
                 .get(&id)
                 .and_then(|style| style.get(PICKER_KEY))
+                && let Some(style) = styles.get_mut(&id)
             {
-                if let Some(style) = styles.get_mut(&id) {
-                    Arc::make_mut(style).insert(PICKER_KEY.into(), value.clone());
-                }
+                Arc::make_mut(style).insert(PICKER_KEY.into(), value.clone());
             }
         }
     }
@@ -213,6 +305,7 @@ fn cascade_context(
     styles: &mut ComputedStyles,
     pseudos: &mut BTreeMap<u64, BTreeMap<String, ComputedStyle>>,
     picker: Option<u64>,
+    source: NativeSources<'_>,
 ) {
     let nodes = input
         .nodes
@@ -261,30 +354,22 @@ fn cascade_context(
                 inherited = Native::default();
             }
             let line = if picker == Some(id) {
-                document.resolved_nested_pseudo_style(
-                    mirror,
-                    &PseudoElement::PickerSelect,
-                    &PseudoElement::FirstLine,
-                )
+                source.pseudo(document, mirror, id, &PseudoElement::FirstLine, true)
             } else if own_block {
-                document.resolved_pseudo_style(mirror, &PseudoElement::FirstLine)
+                source.pseudo(document, mirror, id, &PseudoElement::FirstLine, false)
             } else {
                 None
             };
             let letter = if picker == Some(id) {
-                document.resolved_nested_pseudo_style(
-                    mirror,
-                    &PseudoElement::PickerSelect,
-                    &PseudoElement::FirstLetter,
-                )
+                source.pseudo(document, mirror, id, &PseudoElement::FirstLetter, true)
             } else if own_block {
-                document.resolved_pseudo_style(mirror, &PseudoElement::FirstLetter)
+                source.pseudo(document, mirror, id, &PseudoElement::FirstLetter, false)
             } else {
                 None
             };
             let mut current = inherited;
             if let Some(parent) = &current.line {
-                current.line = document.reparent_first_line_style(mirror, parent);
+                current.line = source.first_line(document, mirror, id, parent);
             }
             if let Some(own) = line {
                 current.line = Some(if let Some(parent) = &current.line {
@@ -300,14 +385,13 @@ fn cascade_context(
                 current.letter = Some(own);
                 current.letter_origin = Some(id);
             }
-            if let Some(letter) = &current.letter {
-                if let Some(parent) = current
+            if let Some(letter) = &current.letter
+                && let Some(parent) = current
                     .line
                     .clone()
-                    .or_else(|| document.resolved_primary_style(mirror))
-                {
-                    current.letter = document.reparent_text_pseudo_style(mirror, letter, &parent);
-                }
+                    .or_else(|| source.primary(document, mirror, id))
+            {
+                current.letter = document.reparent_text_pseudo_style(mirror, letter, &parent);
             }
             current.active = own_block && (current.line.is_some() || current.letter.is_some());
             if current.line.is_some() || current.letter.is_some() {
@@ -331,7 +415,7 @@ fn cascade_context(
                 current
                     .letter
                     .as_ref()
-                    .and_then(|_| document.resolved_primary_style(mirror))
+                    .and_then(|_| source.primary(document, mirror, id))
             }) {
                 for (name, pseudo) in [
                     ("before", PseudoElement::Before),
@@ -343,15 +427,7 @@ fn cascade_context(
                     } else {
                         name.into()
                     };
-                    let original = if nested {
-                        document.resolved_nested_pseudo_style(
-                            mirror,
-                            &PseudoElement::PickerSelect,
-                            &pseudo,
-                        )
-                    } else {
-                        document.resolved_pseudo_style(mirror, &pseudo)
-                    };
+                    let original = source.pseudo(document, mirror, id, &pseudo, nested);
                     let Some(original) = original else { continue };
                     let Some(reparented) =
                         document.reparent_text_pseudo_style(mirror, &original, &line)
@@ -439,11 +515,7 @@ type OwnedRange = (
 fn ranges(
     text: &str,
     style: &BTreeMap<String, String>,
-    source: &[(
-        std::ops::Range<usize>,
-        &BTreeMap<String, String>,
-        Option<fontique::Language>,
-    )],
+    source: &[StyledTextRange<'_>],
     variants: &Variants,
     line_end: usize,
     letter: Option<&std::ops::Range<usize>>,
@@ -473,25 +545,25 @@ fn ranges(
             .unwrap_or((style, None));
         let span = read(base);
         let mut resolved = base.clone();
-        if range.start < line_end {
-            if let Some(line) = if span.line_origin == variants.line_origin {
+        if range.start < line_end
+            && let Some(line) = if span.line_origin == variants.line_origin {
                 span.line.as_ref().or(variants.line.as_ref())
             } else {
                 None
-            } {
-                text_decoration::add_pseudo(&mut resolved, line, viewport);
-                resolved.extend(line.clone());
             }
+        {
+            text_decoration::add_pseudo(&mut resolved, line, viewport);
+            resolved.extend(line.clone());
         }
-        if letter.is_some_and(|letter| letter.contains(&range.start)) {
-            if let Some(letter) = if span.letter_origin == variants.letter_origin {
+        if letter.is_some_and(|letter| letter.contains(&range.start))
+            && let Some(letter) = if span.letter_origin == variants.letter_origin {
                 span.letter.as_ref().or(variants.letter.as_ref())
             } else {
                 None
-            } {
-                text_decoration::add_pseudo(&mut resolved, letter, viewport);
-                resolved.extend(letter.clone());
             }
+        {
+            text_decoration::add_pseudo(&mut resolved, letter, viewport);
+            resolved.extend(letter.clone());
         }
         resolved.insert(
             "-oryn-text-pseudo-kind".into(),
@@ -509,21 +581,20 @@ fn ranges(
         }
         // Pseudo background belongs to the formatted text fragments, not the
         // enclosing block background. Ordinary inline backgrounds paint as boxes.
-        if range.start < line_end {
-            if let Some(color) = variants
+        if range.start < line_end
+            && let Some(color) = variants
                 .line
                 .as_ref()
                 .and_then(|line| line.get("background-color"))
-            {
-                resolved.insert("-oryn-text-background".into(), color.clone());
-            }
+        {
+            resolved.insert("-oryn-text-background".into(), color.clone());
         }
-        if letter.is_some_and(|letter| letter.contains(&range.start)) {
-            if let Some(color) = resolved.get("background-color").cloned().filter(|color| {
+        if letter.is_some_and(|letter| letter.contains(&range.start))
+            && let Some(color) = resolved.get("background-color").cloned().filter(|color| {
                 oryn_common::color::parse_color(color).is_some_and(|color| color[3] != 0)
-            }) {
-                resolved.insert("-oryn-text-background".into(), color);
-            }
+            })
+        {
+            resolved.insert("-oryn-text-background".into(), color);
         }
         if letter.is_some_and(|letter| letter.contains(&range.start))
             && variants
@@ -546,13 +617,7 @@ fn ranges(
     }
     output
 }
-fn refs(
-    ranges: &[OwnedRange],
-) -> Vec<(
-    std::ops::Range<usize>,
-    &BTreeMap<String, String>,
-    Option<fontique::Language>,
-)> {
+fn refs(ranges: &[OwnedRange]) -> Vec<StyledTextRange<'_>> {
     ranges
         .iter()
         .map(|(range, style, language)| (range.clone(), style, *language))
@@ -566,11 +631,7 @@ pub(super) fn shape(
     font_size: f64,
     style: &BTreeMap<String, String>,
     viewport: ViewportState,
-    source: &[(
-        std::ops::Range<usize>,
-        &BTreeMap<String, String>,
-        Option<fontique::Language>,
-    )],
+    source: &[StyledTextRange<'_>],
 ) -> TextLayout {
     let variants = read(style);
     let mut plain = style.clone();
@@ -693,15 +754,15 @@ pub(super) fn shape(
         );
         let old_context = engine.float_context.take();
         let old_boxes = std::mem::take(&mut engine.active_inline_boxes);
-        let dropcap = engine.shape_paragraph(
-            &text[range.clone()],
-            1_000_000.,
-            font,
-            &local,
+        let dropcap = engine.shape_paragraph(crate::ParagraphShapeInputs {
+            text: &text[range.clone()],
+            width: 1_000_000.,
+            font_size: font,
+            style: &local,
             viewport,
-            &[],
-            true,
-        );
+            ranges: &[],
+            first_paragraph: true,
+        });
         engine.float_context = old_context;
         engine.active_inline_boxes = old_boxes;
         let margin = edge(style, "margin", width, font, viewport);
@@ -816,15 +877,15 @@ pub(super) fn shape(
         // First-line style may change the break itself. Probe the complete
         // candidate line using native fonts and exactly the same float bands.
         let saved = engine.float_context.clone();
-        let probe = engine.shape_paragraph(
-            paragraph_text,
+        let probe = engine.shape_paragraph(crate::ParagraphShapeInputs {
+            text: paragraph_text,
             width,
             font_size,
-            &plain,
+            style: &plain,
             viewport,
-            &refs(&full),
-            true,
-        );
+            ranges: &refs(&full),
+            first_paragraph: true,
+        });
         engine.float_context = saved;
         probe.line_ranges.first().map_or(0, |range| range.end)
     } else {
@@ -842,15 +903,15 @@ pub(super) fn shape(
     if line_end > 0 && line_end < text.len() {
         plain.insert("-oryn-first-line-end".into(), line_end.to_string());
     }
-    let mut result = engine.shape_paragraph(
-        paragraph_text,
+    let mut result = engine.shape_paragraph(crate::ParagraphShapeInputs {
+        text: paragraph_text,
         width,
         font_size,
-        &plain,
+        style: &plain,
         viewport,
-        &refs(&selected),
-        true,
-    );
+        ranges: &refs(&selected),
+        first_paragraph: true,
+    });
     if masked.is_some() {
         for (line, range) in result.lines.iter_mut().zip(&result.line_ranges) {
             if let Some(original) = text.get(range.clone()) {
@@ -944,23 +1005,24 @@ pub(super) fn shape(
         for (runs, provenance) in result.glyph_runs.iter_mut().zip(&result.provenance) {
             let mut bounds: Option<CssRect> = None;
             for (run, source) in runs.iter().zip(provenance) {
-                if source.bytes.start < range.end && source.bytes.end > range.start {
-                    if let Some(rect) = run.decoration_rect {
-                        bounds = Some(
-                            bounds
-                                .map(|old| {
-                                    let x = old.x.min(rect.x);
-                                    let y = old.y.min(rect.y);
-                                    CssRect {
-                                        x,
-                                        y,
-                                        width: old.right().max(rect.right()) - x,
-                                        height: old.bottom().max(rect.bottom()) - y,
-                                    }
-                                })
-                                .unwrap_or(rect),
-                        );
-                    }
+                if source.bytes.start < range.end
+                    && source.bytes.end > range.start
+                    && let Some(rect) = run.decoration_rect
+                {
+                    bounds = Some(
+                        bounds
+                            .map(|old| {
+                                let x = old.x.min(rect.x);
+                                let y = old.y.min(rect.y);
+                                CssRect {
+                                    x,
+                                    y,
+                                    width: old.right().max(rect.right()) - x,
+                                    height: old.bottom().max(rect.bottom()) - y,
+                                }
+                            })
+                            .unwrap_or(rect),
+                    );
                 }
             }
             if let Some(content) = bounds {
@@ -1000,76 +1062,59 @@ pub(super) fn shape(
             }
         }
     }
-    if line_end > 0 {
-        if let (Some(line_style), Some(line)) = (variants.line.as_ref(), result.lines.first()) {
-            let background_style = line_style
-                .iter()
-                .filter(|(key, _)| {
-                    key.starts_with("background-") || matches!(key.as_str(), "color" | "font-size")
-                })
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect();
-            let vertical =
-                writing_mode::Axes::new(style_value(style, "writing-mode", "horizontal-tb"), false)
-                    .vertical;
-            let rect = CssRect {
-                x: 0.,
-                y: 0.,
-                width: if vertical { line.2 } else { line.1 },
-                height: if vertical { line.1 } else { line.2 },
-            };
-            if let (Some(runs), Some(provenance)) =
-                (result.glyph_runs.first_mut(), result.provenance.first())
-            {
-                for (run, source) in runs.iter_mut().zip(provenance) {
-                    if !letter.as_ref().is_some_and(|letter| {
-                        source.bytes.start < letter.end
-                            && source.bytes.end > letter.start
-                            && variants
-                                .letter
-                                .as_ref()
-                                .and_then(|style| style.get("background-color"))
-                                .and_then(|color| oryn_common::color::parse_color(color))
-                                .is_some_and(|color| color[3] > 0)
-                    }) {
-                        run.background = None;
-                    }
+    if line_end > 0
+        && let (Some(line_style), Some(line)) = (variants.line.as_ref(), result.lines.first())
+    {
+        let background_style = line_style
+            .iter()
+            .filter(|(key, _)| {
+                key.starts_with("background-") || matches!(key.as_str(), "color" | "font-size")
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        let vertical =
+            writing_mode::Axes::new(style_value(style, "writing-mode", "horizontal-tb"), false)
+                .vertical;
+        let rect = CssRect {
+            x: 0.,
+            y: 0.,
+            width: if vertical { line.2 } else { line.1 },
+            height: if vertical { line.1 } else { line.2 },
+        };
+        if let (Some(runs), Some(provenance)) =
+            (result.glyph_runs.first_mut(), result.provenance.first())
+        {
+            for (run, source) in runs.iter_mut().zip(provenance) {
+                if !letter.as_ref().is_some_and(|letter| {
+                    source.bytes.start < letter.end
+                        && source.bytes.end > letter.start
+                        && variants
+                            .letter
+                            .as_ref()
+                            .and_then(|style| style.get("background-color"))
+                            .and_then(|color| oryn_common::color::parse_color(color))
+                            .is_some_and(|color| color[3] > 0)
+                }) {
+                    run.background = None;
                 }
-                if let Some(run) = runs.first_mut() {
-                    run.line_box = Some(oryn_common::v4::PaintTextBox {
-                        owner: variants.line_origin.unwrap_or(0),
-                        model: BoxModel {
-                            content_box: rect,
-                            padding_box: rect,
-                            border_box: rect,
-                            margin: Default::default(),
-                            padding: Default::default(),
-                            border: Default::default(),
-                        },
-                        style: background_style,
-                    });
-                }
+            }
+            if let Some(run) = runs.first_mut() {
+                run.line_box = Some(oryn_common::v4::PaintTextBox {
+                    owner: variants.line_origin.unwrap_or(0),
+                    model: BoxModel {
+                        content_box: rect,
+                        padding_box: rect,
+                        border_box: rect,
+                        margin: Default::default(),
+                        padding: Default::default(),
+                        border: Default::default(),
+                    },
+                    style: background_style,
+                });
             }
         }
     }
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn first_letter_keeps_flags_combining_clusters_and_punctuation() {
-        for (text, expected) in [
-            ("  ‘A’bc", "‘A’"),
-            ("🇬🇧 UK flag", "🇬🇧"),
-            ("A\u{301}bc", "A\u{301}"),
-            ("\u{feff}Ab", "A"),
-        ] {
-            assert_eq!(&text[letter_range(text).unwrap()], expected);
-        }
-        assert!(letter_range("  \n").is_none());
-    }
 }
 
 /// Read demand from final line runs, after pseudo styling and transformations.
@@ -1140,17 +1185,17 @@ fn transforms(
                 .unwrap_or(default);
             let local = read(base);
             let mut chosen = base;
-            if span.bytes.start < line_end && local.line_origin == variants.line_origin {
-                if let Some(line) = local.line.as_ref().or(variants.line.as_ref()) {
-                    chosen = line;
-                }
+            if span.bytes.start < line_end
+                && local.line_origin == variants.line_origin
+                && let Some(line) = local.line.as_ref().or(variants.line.as_ref())
+            {
+                chosen = line;
             }
             if letter.is_some_and(|letter| letter.contains(&span.bytes.start))
                 && local.letter_origin == variants.letter_origin
+                && let Some(letter) = local.letter.as_ref().or(variants.letter.as_ref())
             {
-                if let Some(letter) = local.letter.as_ref().or(variants.letter.as_ref()) {
-                    chosen = letter;
-                }
+                chosen = letter;
             }
             (
                 span.bytes.start,
@@ -1332,4 +1377,21 @@ pub(super) fn demand_bytes(demands: &BTreeMap<String, BTreeSet<u32>>) -> usize {
             .saturating_add(family.len() + 128)
             .saturating_add(characters.len().saturating_mul(32))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn first_letter_keeps_flags_combining_clusters_and_punctuation() {
+        for (text, expected) in [
+            ("  ‘A’bc", "‘A’"),
+            ("🇬🇧 UK flag", "🇬🇧"),
+            ("A\u{301}bc", "A\u{301}"),
+            ("\u{feff}Ab", "A"),
+        ] {
+            assert_eq!(&text[letter_range(text).unwrap()], expected);
+        }
+        assert!(letter_range("  \n").is_none());
+    }
 }

@@ -133,15 +133,19 @@ fn size(event: &ContextEvent) -> Result<usize, String> {
     Ok(size.bytes)
 }
 impl Journal {
+    #[cfg(test)]
     pub(crate) fn iter(&self) -> impl Iterator<Item = &ContextEventRecord> {
         self.entries.iter().map(|entry| &entry.record)
     }
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.entries.len()
     }
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+    #[cfg(test)]
     pub(crate) fn evidence(&self) -> Evidence {
         self.evidence.clone()
     }
@@ -516,7 +520,7 @@ mod tests {
     fn acknowledgement_cannot_cross_channel_or_unreceived_cursor() {
         let mut journal = Journal::default();
         let a = recipient(1, 1);
-        publish(&mut journal, storage(&[a.clone()], "value"));
+        publish(&mut journal, storage(std::slice::from_ref(&a), "value"));
         assert!(
             journal
                 .poll(a.clone(), Channel::Storage, 100, 32, |_| true)
@@ -539,7 +543,7 @@ mod tests {
     fn compatibility_inspection_cannot_consume_native_storage_or_csp_ack() {
         let mut journal = Journal::default();
         let a = recipient(1, 1);
-        publish(&mut journal, storage(&[a.clone()], "native"));
+        publish(&mut journal, storage(std::slice::from_ref(&a), "native"));
         let mut policy = crate::csp::CspPolicySet::new("https://example.test/");
         policy.install(
             "script-src 'none'",
@@ -606,12 +610,12 @@ mod tests {
         let mut journal = Journal::default();
         let a = recipient(1, 1);
         for _ in 0..MAX_EVENTS {
-            publish(&mut journal, storage(&[a.clone()], "v"));
+            publish(&mut journal, storage(std::slice::from_ref(&a), "v"));
         }
         let next = journal.next;
         assert!(
             journal
-                .prepare(vec![storage(&[a.clone()], "rejected")])
+                .prepare(vec![storage(std::slice::from_ref(&a), "rejected")])
                 .is_err()
         );
         assert_eq!(journal.next, next);
@@ -632,12 +636,12 @@ mod tests {
         let a = recipient(1, 1);
         journal.next = MAX_ID;
         let cancelled = journal
-            .prepare(vec![storage(&[a.clone()], "cancel")])
+            .prepare(vec![storage(std::slice::from_ref(&a), "cancel")])
             .unwrap();
         drop(cancelled);
         assert_eq!(journal.next, MAX_ID);
         assert!(journal.is_empty());
-        publish(&mut journal, storage(&[a.clone()], "last"));
+        publish(&mut journal, storage(std::slice::from_ref(&a), "last"));
         assert_eq!(journal[0].event_id, MAX_ID);
         assert!(journal.prepare(vec![storage(&[a], "overflow")]).is_err());
         assert_eq!(journal.next, MAX_ID + 1);
@@ -648,12 +652,12 @@ mod tests {
         let old = recipient(1, 1);
         let successor = recipient(1, 2);
         let prepared = journal
-            .prepare(vec![storage(&[old.clone()], "late")])
+            .prepare(vec![storage(std::slice::from_ref(&old), "late")])
             .unwrap();
         journal.commit(prepared, |recipient| recipient == &successor);
         assert!(journal.is_empty());
         assert_eq!(journal.evidence.retired_deliveries, 1);
-        publish(&mut journal, storage(&[old.clone()], "parked"));
+        publish(&mut journal, storage(std::slice::from_ref(&old), "parked"));
         journal.prune(|recipient| recipient == &old);
         assert_eq!(journal.len(), 1, "parked retained authority keeps custody");
         assert!(
@@ -689,7 +693,10 @@ mod tests {
         let value = "\0".repeat(MAX_EVENT_BYTES / 6 + 1);
         assert!(
             journal
-                .prepare(vec![storage(&[a.clone()], "prefix"), storage(&[a], &value)])
+                .prepare(vec![
+                    storage(std::slice::from_ref(&a), "prefix"),
+                    storage(&[a], &value)
+                ])
                 .is_err()
         );
         assert!(journal.is_empty());

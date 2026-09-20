@@ -1,19 +1,35 @@
 //! Sticky offsets are paint/geometry translations; normal-flow sizes and sibling
 //! positions remain unchanged. All inputs here precede CSS transforms.
+
+/// Inputs for resolve sticky axis.
+pub(crate) struct StickyAxis {
+    pub(crate) normal: f64,
+    pub(crate) size: f64,
+    pub(crate) port_start: f64,
+    pub(crate) port_size: f64,
+    pub(crate) start: Option<f64>,
+    pub(crate) end: Option<f64>,
+    pub(crate) cb_start: f64,
+    pub(crate) cb_size: f64,
+    pub(crate) margin_start: f64,
+    pub(crate) margin_end: f64,
+}
 use super::*;
 
-fn axis(
-    normal: f64,
-    size: f64,
-    port_start: f64,
-    port_size: f64,
-    start: Option<f64>,
-    end: Option<f64>,
-    cb_start: f64,
-    cb_size: f64,
-    margin_start: f64,
-    margin_end: f64,
-) -> f64 {
+fn resolve_sticky_axis(params: StickyAxis) -> f64 {
+    let StickyAxis {
+        normal,
+        size,
+        port_start,
+        port_size,
+        start,
+        end,
+        cb_start,
+        cb_size,
+        margin_start,
+        margin_end,
+    } = params;
+
     if start.is_none() && end.is_none() {
         return 0.;
     }
@@ -131,20 +147,20 @@ pub(super) fn translation(
                     margin_start: f64,
                     margin_end: f64| {
         if reverse {
-            -axis(
-                -normal - size,
+            -resolve_sticky_axis(StickyAxis {
+                normal: -normal - size,
                 size,
-                -port_start - port_size,
+                port_start: -port_start - port_size,
                 port_size,
-                end,
-                start,
-                -cb_start - cb_size,
+                start: end,
+                end: start,
+                cb_start: -cb_start - cb_size,
                 cb_size,
-                margin_end,
-                margin_start,
-            )
+                margin_start: margin_end,
+                margin_end: margin_start,
+            })
         } else {
-            axis(
+            resolve_sticky_axis(StickyAxis {
                 normal,
                 size,
                 port_start,
@@ -155,7 +171,7 @@ pub(super) fn translation(
                 cb_size,
                 margin_start,
                 margin_end,
-            )
+            })
         }
     };
     (
@@ -194,41 +210,96 @@ mod tests {
     #[test]
     fn sticky_axis_pins_then_releases_at_containing_block_end() {
         assert_eq!(
-            axis(30., 20., 0., 100., Some(10.), None, 0., 300., 0., 0.),
+            resolve_sticky_axis(StickyAxis {
+                normal: 30.,
+                size: 20.,
+                port_start: 0.,
+                port_size: 100.,
+                start: Some(10.),
+                end: None,
+                cb_start: 0.,
+                cb_size: 300.,
+                margin_start: 0.,
+                margin_end: 0.
+            }),
             0.
         );
         assert_eq!(
-            axis(-30., 20., 0., 100., Some(10.), None, -60., 300., 0., 0.),
+            resolve_sticky_axis(StickyAxis {
+                normal: -30.,
+                size: 20.,
+                port_start: 0.,
+                port_size: 100.,
+                start: Some(10.),
+                end: None,
+                cb_start: -60.,
+                cb_size: 300.,
+                margin_start: 0.,
+                margin_end: 0.
+            }),
             40.
         );
         assert_eq!(
-            axis(-250., 20., 0., 100., Some(10.), None, -280., 300., 0., 0.),
+            resolve_sticky_axis(StickyAxis {
+                normal: -250.,
+                size: 20.,
+                port_start: 0.,
+                port_size: 100.,
+                start: Some(10.),
+                end: None,
+                cb_start: -280.,
+                cb_size: 300.,
+                margin_start: 0.,
+                margin_end: 0.
+            }),
             250.
         );
     }
     #[test]
     fn end_inset_and_oversized_view_rectangle_preserve_start_constraint() {
         assert_eq!(
-            axis(95., 20., 0., 100., None, Some(5.), 0., 300., 0., 0.),
+            resolve_sticky_axis(StickyAxis {
+                normal: 95.,
+                size: 20.,
+                port_start: 0.,
+                port_size: 100.,
+                start: None,
+                end: Some(5.),
+                cb_start: 0.,
+                cb_size: 300.,
+                margin_start: 0.,
+                margin_end: 0.
+            }),
             -20.
         );
         assert_eq!(
-            axis(
-                -30.,
-                150.,
-                0.,
-                100.,
-                Some(10.),
-                Some(10.),
-                -60.,
-                300.,
-                0.,
-                0.
-            ),
+            resolve_sticky_axis(StickyAxis {
+                normal: -30.,
+                size: 150.,
+                port_start: 0.,
+                port_size: 100.,
+                start: Some(10.),
+                end: Some(10.),
+                cb_start: -60.,
+                cb_size: 300.,
+                margin_start: 0.,
+                margin_end: 0.
+            }),
             40.
         );
         assert_eq!(
-            axis(-30., 20., 0., 100., None, None, -60., 300., 0., 0.),
+            resolve_sticky_axis(StickyAxis {
+                normal: -30.,
+                size: 20.,
+                port_start: 0.,
+                port_size: 100.,
+                start: None,
+                end: None,
+                cb_start: -60.,
+                cb_size: 300.,
+                margin_start: 0.,
+                margin_end: 0.
+            }),
             0.
         );
     }

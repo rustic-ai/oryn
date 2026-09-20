@@ -7,12 +7,12 @@ use std::{
     io,
     net::Shutdown,
     os::unix::net::UnixStream,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
-    },
+    sync::{Arc, Mutex},
     time::Duration,
 };
+
+#[cfg(any(feature = "v8-host", test))]
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 fn failure(error: impl std::fmt::Display) -> WorkerError {
     WorkerError::new("OperationError", error.to_string())
@@ -20,12 +20,14 @@ fn failure(error: impl std::fmt::Display) -> WorkerError {
 
 /// One native isolate serializes callbacks, while the cancellation socket stays
 /// independent of the request mutex so teardown can wake a blocked import.
+#[cfg(any(feature = "v8-host", test))]
 struct ChildServices {
     stream: Mutex<UnixStream>,
     cancel: UnixStream,
     next: AtomicU64,
     retired: AtomicBool,
 }
+#[cfg(any(feature = "v8-host", test))]
 impl ChildServices {
     fn new(stream: UnixStream) -> io::Result<Self> {
         Ok(Self {
@@ -36,6 +38,7 @@ impl ChildServices {
         })
     }
 }
+#[cfg(any(feature = "v8-host", test))]
 impl WorkerTransport for ChildServices {
     fn request(&self, request: AgentServiceRequest) -> Result<AgentServiceResponse, WorkerError> {
         if self.retired.load(Ordering::Acquire) {
@@ -66,15 +69,15 @@ impl WorkerTransport for ChildServices {
             self.retire();
             return Err(failure("agent service response correlation mismatch"));
         }
-        if let Ok(AgentServiceResponse::SharedMemory(memory)) = &mut response.result {
-            if memory.descriptor.is_some() {
-                memory.native_descriptor = Some(Arc::new(
-                    crate::shared_memory_fd::receive(&stream, id).map_err(|error| {
-                        self.retire();
-                        failure(error)
-                    })?,
-                ));
-            }
+        if let Ok(AgentServiceResponse::SharedMemory(memory)) = &mut response.result
+            && memory.descriptor.is_some()
+        {
+            memory.native_descriptor = Some(Arc::new(
+                crate::shared_memory_fd::receive(&stream, id).map_err(|error| {
+                    self.retire();
+                    failure(error)
+                })?,
+            ));
         }
         write_frame(&mut *stream, &ServiceReceipt { received_id: id }).map_err(|error| {
             self.retire();
@@ -112,10 +115,10 @@ fn publish_service_response(
         response,
     };
     write_frame(stream, response)?;
-    if let Ok(AgentServiceResponse::SharedMemory(memory)) = &response.result {
-        if let Some(fd) = &memory.native_descriptor {
-            crate::shared_memory_fd::send(stream, response.id, fd.as_ref())?;
-        }
+    if let Ok(AgentServiceResponse::SharedMemory(memory)) = &response.result
+        && let Some(fd) = &memory.native_descriptor
+    {
+        crate::shared_memory_fd::send(stream, response.id, fd.as_ref())?;
     }
     let receipt: ServiceReceipt = read_frame(stream)?;
     if receipt.received_id != response.id {
@@ -138,6 +141,7 @@ pub fn serve_child(mut control: UnixStream, services: UnixStream) -> io::Result<
     if version != VERSION {
         return Err(io::Error::other("agent protocol mismatch"));
     }
+    let bootstrap = *bootstrap;
     let digest = bootstrap_digest(&bootstrap).map_err(io::Error::other)?;
     let id = bootstrap.id;
     let service = Arc::new(ChildServices::new(services)?);
@@ -186,12 +190,11 @@ pub fn serve_child(mut control: UnixStream, services: UnixStream) -> io::Result<
                         .map(|suspended| (pump_epoch.load(Ordering::Acquire), suspended))
                 });
                 if suspension != last_suspension {
-                    if let Some((epoch, suspended)) = suspension {
-                        if write_frame(&mut writer, &ChildFrame::Suspension { epoch, suspended })
+                    if let Some((epoch, suspended)) = suspension
+                        && write_frame(&mut writer, &ChildFrame::Suspension { epoch, suspended })
                             .is_err()
-                        {
-                            break;
-                        }
+                    {
+                        break;
                     }
                     last_suspension = suspension;
                 }
@@ -245,11 +248,13 @@ pub fn serve_child(mut control: UnixStream, services: UnixStream) -> io::Result<
                     process.set_suspended(suspended).map_err(io::Error::other)?;
                     suspension_epoch.store(epoch, Ordering::Release);
                 }
-                ParentFrame::Command(AgentCommand::Stop) => {
+                ParentFrame::Command(command) if matches!(command.as_ref(), AgentCommand::Stop) => {
                     stopped.store(true, Ordering::Release);
                     break;
                 }
-                ParentFrame::Command(command) => process.send(command).map_err(io::Error::other)?,
+                ParentFrame::Command(command) => {
+                    process.send(*command).map_err(io::Error::other)?
+                }
                 ParentFrame::Bootstrap { .. } => {
                     return Err(io::Error::other("duplicate agent bootstrap"));
                 }
@@ -370,7 +375,7 @@ impl AgentChildProcess {
             &mut control,
             &ParentFrame::Bootstrap {
                 version: VERSION,
-                bootstrap: bootstrap.clone(),
+                bootstrap: Box::new(bootstrap.clone()),
             },
         )
         .map_err(failure)?;
@@ -513,10 +518,10 @@ impl AgentChildProcess {
                             }
                         };
                         if let Err(error) = write_frame(&mut writer, &frame) {
-                            if let Ok(mut state) = queue.state.lock() {
-                                if !state.stopping {
-                                    state.failure = Some(failure(error));
-                                }
+                            if let Ok(mut state) = queue.state.lock()
+                                && !state.stopping
+                            {
+                                state.failure = Some(failure(error));
                             }
                             queue.changed.notify_all();
                             let _ = writer.shutdown(Shutdown::Both);
@@ -724,7 +729,7 @@ impl AgentProcess for AgentChildProcess {
                 .validate()
                 .map_err(|error| WorkerError::new("DataCloneError", error))?;
         }
-        self.enqueue(ParentFrame::Command(command))
+        self.enqueue(ParentFrame::Command(Box::new(command)))
     }
     fn poll(&mut self, max: usize) -> Result<Vec<AgentEvent>, WorkerError> {
         let mut state = self
@@ -733,10 +738,10 @@ impl AgentProcess for AgentChildProcess {
             .lock()
             .map_err(|_| failure("agent mailbox poisoned"))?;
         // Child Events frames precede Failure on the ordered control stream.
-        if state.events.is_empty() {
-            if let Some(error) = &state.failure {
-                return Err(error.clone());
-            }
+        if state.events.is_empty()
+            && let Some(error) = &state.failure
+        {
+            return Err(error.clone());
         }
         let mut events = Vec::new();
         for _ in 0..max {

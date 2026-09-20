@@ -4,7 +4,8 @@ use super::super::retained_dom_event::Event;
 use super::*;
 
 pub(in super::super) struct Finish {
-    owner: Rc<V8BindingState>,
+    // Retains the originating binding while target identity may migrate.
+    _owner: Rc<V8BindingState>,
     target: v8::Global<v8::Object>,
     source: v8::Global<v8::Object>,
     activation: Option<Activation>,
@@ -35,7 +36,7 @@ impl Finish {
         let done = !is_click(scope, source)?;
         let target = wrap_node(scope, state, target)?;
         Ok(Self {
-            owner: state.clone(),
+            _owner: state.clone(),
             target: v8::Global::new(scope, target),
             source: v8::Global::new(scope, source),
             activation,
@@ -243,7 +244,7 @@ impl Finish {
     ) -> Result<bool, V8BindingError> {
         if !self.accepted {
             let source = v8::Local::new(scope, &self.source);
-            finish_legacy(scope, &owner, self.activation.clone(), node, source, false)?;
+            finish_legacy(scope, owner, self.activation.clone(), node, source, false)?;
             self.done = true;
             return Ok(true);
         }
@@ -307,7 +308,7 @@ impl Finish {
             };
             self.link = submissions::LinkActivation::new(
                 scope,
-                &owner,
+                owner,
                 node,
                 trusted,
                 suffix.as_deref(),
@@ -320,15 +321,15 @@ impl Finish {
             self.done = true;
             return Ok(true);
         }
-        if let Some(command) = command::Job::new(scope, &owner, node)? {
+        if let Some(command) = command::Job::new(scope, owner, node)? {
             self.command = Some(command);
             self.phase = 12;
             return Ok(false);
         }
-        if let Some((target, force)) = top_layer::invoker_target(&owner, node)? {
+        if let Some((target, force)) = top_layer::invoker_target(owner, node)? {
             self.popover = Some((
                 owner.clone(),
-                top_layer::PendingToggle::new(&owner, target, force, Some(node))?,
+                top_layer::PendingToggle::new(owner, target, force, Some(node))?,
             ));
             self.phase = 13;
             return Ok(false);
@@ -352,7 +353,7 @@ impl Finish {
         };
         if let Some(form) = reset {
             if let Some(form) = form {
-                self.reset = Some(retained_form_reset::Reset::new(scope, &owner, form)?);
+                self.reset = Some(retained_form_reset::Reset::new(scope, owner, form)?);
                 self.phase = 10;
                 return Ok(false);
             }
@@ -370,8 +371,8 @@ impl Finish {
             };
             if let Some(form) = form {
                 let source = v8::Local::new(scope, &self.source);
-                select_image_coordinate(scope, &owner, node, source)?;
-                let form_object = wrap_node(scope, &owner, form)?;
+                select_image_coordinate(scope, owner, node, source)?;
+                let form_object = wrap_node(scope, owner, form)?;
                 self.form = Some(v8::Global::new(scope, form_object));
                 let id = event_id(scope, source)?;
                 let source_owner = binding_state_for_receiver(scope, source)
@@ -383,7 +384,7 @@ impl Finish {
                     .is_some_and(|event| event.is_trusted);
                 self.submission = Some(submissions::Request::new(
                     scope,
-                    &owner,
+                    owner,
                     form,
                     Some(node),
                     submissions::SubmissionSource::Activation,
@@ -435,7 +436,7 @@ impl Finish {
                 if !recursive {
                     let source = v8::Local::new(scope, &self.source);
                     self.child =
-                        retained_activation::Click::from_source(scope, &owner, control, source)?
+                        retained_activation::Click::from_source(scope, owner, control, source)?
                             .map(Box::new);
                     if self.child.is_some() {
                         self.phase = 14;
@@ -471,10 +472,10 @@ impl Finish {
         if self.done {
             return;
         }
-        if !self.accepted {
-            if let Some(activation) = &self.activation {
-                activation.cancel_native();
-            }
+        if !self.accepted
+            && let Some(activation) = &self.activation
+        {
+            activation.cancel_native();
         }
         if let Some(link) = &mut self.link {
             link.cancel();

@@ -128,16 +128,3 @@ pub(super) fn create<'s>(
         .is_trusted = true;
     Ok(event)
 }
-
-pub(super) fn dispatch<'s>(
-    scope: &mut v8::PinScope<'s, '_>,
-    state: &Rc<V8BindingState>,
-    event_type: &str,
-    properties: &[(&str, v8::Local<'s, v8::Value>)],
-) -> Result<(), V8BindingError> {
-    if state.execution_retired() {
-        return Ok(());
-    }
-    let event = create(scope, state, event_type, properties)?;
-    global_events::dispatch(scope, state, event).map(|_| ())
-}

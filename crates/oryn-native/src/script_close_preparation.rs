@@ -42,9 +42,17 @@ mod retained_script_close_tests{
   let handle=context.new_page();let id=handle.page_id();
   let client=crate::context_service::SharedContextClient::direct(context.clone(),id);
   let mut page=PageState::new(id,None,BrowserConfig::default(),ContextOptions::default(),None,Some(client));
+  context.install_document_security(id,"https://close.test/".into(),&[]).unwrap();
   page.load_document("https://close.test/".into(),"<body>original</body>",None,None,HistoryUpdate::Push,&BTreeMap::new(),Vec::new()).unwrap();
   let admitted=page.executable.as_ref().unwrap().script_close_history().unwrap().creator;
-  page.load_document("https://close.test/new".into(),"<body>current</body>",None,None,HistoryUpdate::Push,&BTreeMap::new(),Vec::new()).unwrap();
+  // The navigation publishes the destination authority after departure.
+  // Pre-publishing it here retires the incumbent before its unload can finish.
+  page.load_document_with_redirect_history("https://close.test/new".into(),"<body>current</body>",None,None,HistoryUpdate::Push,&BTreeMap::new(),Vec::new(),false,Some(Vec::new())).unwrap();
+  // Buffered response construction still schedules parser continuation.
+  let deadline=Instant::now()+page.config.navigation_timeout;
+  while !page.executable.as_ref().unwrap().document_load_complete(){page.poll_page_tasks().unwrap();assert!(Instant::now()<deadline,"replacement Document must finish loading before close listeners are installed");std::thread::park_timeout(Duration::from_millis(1));}
+  assert_eq!(page.executable.as_mut().unwrap().evaluate("document.body.textContent").unwrap(),"current");
+  assert_ne!(page.executable.as_ref().unwrap().script_close_history().unwrap().creator,admitted,"the queued admission must precede the replacement Document");
   page.executable.as_mut().unwrap().evaluate("globalThis.closedEvents=[];onbeforeunload=()=>{closedEvents.push('before');document.open();document.write('<body>replacement</body>');document.close()};onpagehide=()=>closedEvents.push('hide');onunload=()=>closedEvents.push('unload');true").unwrap();
   assert!(matches!(page.poll_script_close_preparation(1,admitted.clone()).unwrap(),crate::context_service::ScriptClosePreparation::Allowed(_)));
   assert!(matches!(page.poll_script_close_preparation(1,admitted).unwrap(),crate::context_service::ScriptClosePreparation::Allowed(_)));
@@ -58,6 +66,7 @@ mod retained_script_close_tests{
   let handle=context.new_page();let id=handle.page_id();
   let client=crate::context_service::SharedContextClient::direct(context.clone(),id);
   let mut page=PageState::new(id,None,BrowserConfig::default(),ContextOptions::default(),Some(broker),Some(client));
+  context.install_document_security(id,"https://close.test/source".into(),&[]).unwrap();
   page.load_document("https://close.test/source".into(),"<body>source</body>",None,None,HistoryUpdate::Push,&BTreeMap::new(),Vec::new()).unwrap();
   let creator=page.executable.as_ref().unwrap().script_close_history().unwrap().creator;
   page.begin_navigation_resource("https://close.test/destination".into(),HistoryUpdate::Push,None,None,None,None).unwrap();

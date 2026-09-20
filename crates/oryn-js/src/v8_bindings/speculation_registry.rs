@@ -163,14 +163,13 @@ fn link_url(
         }
         let record = dom.arena().get(node)?;
         if matches!(&record.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&matches!(name.local.as_ref(),"a"|"area"))
+            && let Some(href) = record.attributes.get_null("href")
         {
-            if let Some(href) = record.attributes.get_null("href") {
-                let value = String::from_utf16_lossy(&oryn_dom::dom_string::units(href));
-                return Ok(hyperlinks::parse(&value, Some(&base), encoding)
-                    .ok()
-                    .filter(|url| matches!(url.scheme(), "http" | "https"))
-                    .map(|url| (node, url.to_string())));
-            }
+            let value = String::from_utf16_lossy(&oryn_dom::dom_string::units(href));
+            return Ok(hyperlinks::parse(&value, Some(&base), encoding)
+                .ok()
+                .filter(|url| matches!(url.scheme(), "http" | "https"))
+                .map(|url| (node, url.to_string())));
         }
         cursor = dom.parent(node)?;
     }
@@ -341,10 +340,7 @@ mod tests {
     use super::*;
     fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, source: &str) -> v8::Local<'s, v8::Value> {
         let source = v8::String::new(scope, source).unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap()
+        super::super::test_eval::run(scope, source)
     }
     fn eligibility_fixture(scope: &mut v8::PinScope) -> (Rc<V8BindingState>, NodeId) {
         let context = scope.get_current_context();
@@ -525,6 +521,7 @@ mod tests {
         ));
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state.commit_location("https://rules.test/source").unwrap();
+        super::test_eval::register_document(&state, "https://rules.test");
         let kinds = Rc::new(RefCell::new(Vec::new()));
         let observed = kinds.clone();
         state.set_parser_inline_policy(Rc::new(move |_, _, _, _, _, rules| {

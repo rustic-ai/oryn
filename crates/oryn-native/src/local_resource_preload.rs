@@ -1,5 +1,6 @@
 //! Standalone native preload response custody. Each store belongs to one
 //! document report queue; neither URL strings nor authored properties select it.
+#![cfg(any(feature = "v8-host", test))]
 use crate::host::HostError;
 use crate::script_load_failure::ScriptLoadFailure;
 use std::{
@@ -63,12 +64,14 @@ impl Key {
 #[derive(Clone)]
 pub(crate) enum Response {
     Script(String, String, bool, String),
+    #[cfg(feature = "v8-host")]
     Style(String, String, String, String),
 }
 impl Response {
     fn bytes(&self) -> usize {
         match self {
             Self::Script(url, source, _, policy) => url.len() + source.len() + policy.len(),
+            #[cfg(feature = "v8-host")]
             Self::Style(url, source, encoding, policy) => {
                 url.len() + source.len() + encoding.len() + policy.len()
             }
@@ -94,9 +97,11 @@ impl Entry {
     pub(crate) fn same_request(&self, key: &Key) -> bool {
         self.key == key.clone().normalize()
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn trace(&self) -> Vec<String> {
         self.trace.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn set_trace(&self, trace: Vec<String>) {
         if trace.len() <= 11 && trace.iter().map(String::len).sum::<usize>() <= 256 * 1024 {
             *self.trace.lock().unwrap_or_else(|e| e.into_inner()) = trace;
@@ -114,6 +119,7 @@ impl Entry {
             *slot = Some(evidence);
         }
     }
+    #[cfg(test)]
     pub(crate) fn publish_hash_once(
         &self,
         key: &Key,
@@ -407,6 +413,7 @@ pub(crate) struct Snapshot {
     restored: AtomicBool,
 }
 impl Snapshot {
+    #[cfg(feature = "v8-host")]
     pub(crate) fn retained_bytes(&self) -> usize {
         self.owners.iter().map(|entry| entry.key.bytes()).sum()
     }
@@ -552,7 +559,7 @@ mod tests {
             "origin".into(),
         )));
         assert!(
-            matches!(consumer.wait(&AtomicBool::new(false)).unwrap(),Response::Script(_,source,_,_)if source=="original")
+            matches!(consumer.wait(&AtomicBool::new(false)).unwrap(),Response::Script(_,source,muted,_)if source=="original" && !muted)
         );
         assert!(store.claim(key(), true).is_none());
         store.retire();

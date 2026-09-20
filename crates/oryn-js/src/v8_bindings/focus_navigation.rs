@@ -344,10 +344,11 @@ pub(super) fn delegated_target(
     let mut nodes = Vec::new();
     flat_nodes(&state.dom.borrow(), root, &mut nodes)?;
     let focused = state.dom.borrow().focused();
-    if let Some(focused) = focused {
-        if nodes.contains(&focused) && eligible_for(state, focused, false)? {
-            return Ok(Some(focused));
-        }
+    if let Some(focused) = focused
+        && nodes.contains(&focused)
+        && eligible_for(state, focused, false)?
+    {
+        return Ok(Some(focused));
     }
     for autofocus in [true, false] {
         for node in &nodes {

@@ -2,6 +2,212 @@
 //!
 //! This module never exports or reconstructs a JavaScript-owned node graph.
 
+/// Inputs retained together for finish parser resources.
+struct ParserResourceFinishInput<'a> {
+    host: &'a mut RawV8Host,
+    live_dom: &'a SharedDomRuntime,
+    resources: &'a mut BTreeMap<String, String>,
+    diagnostics: &'a mut Vec<oryn_common::v3::CapabilityDiagnostic>,
+    top_realm: RealmId,
+    base_url: &'a Option<Url>,
+    frame_sources: Vec<(NodeId, Option<String>)>,
+    loaded_frames: &'a BTreeMap<NodeId, LoadedFrameResource>,
+    script_limits: &'a DynamicScriptScheduler,
+    #[cfg(unix)]
+    context_handle: &'a Option<(
+        crate::context_service::SharedContextClient,
+        oryn_common::v3::PageId,
+        Option<oryn_common::v3::PageId>,
+    )>,
+}
+/// Inputs retained together for load with options and host.
+struct DocumentConstructionInput<'a> {
+    input: DocumentLoad,
+    resources: &'a BTreeMap<String, String>,
+    broker: Option<SharedNetworkBroker>,
+    base_url: Option<Url>,
+    max_heap_bytes: usize,
+    #[cfg(unix)]
+    context: Option<(
+        crate::context_service::SharedContextClient,
+        oryn_common::v3::PageId,
+        Option<oryn_common::v3::PageId>,
+    )>,
+    recovery: Option<&'a mut Option<RawV8Host>>,
+    inherited_origin: Option<oryn_js::origin::Origin>,
+}
+/// Inputs retained together for load in agent.
+pub(crate) struct AgentDocumentLoadInput<'a> {
+    pub(crate) parsed: Option<ParsedDocument>,
+    pub(crate) source: Option<DocumentStream>,
+    pub(crate) html: &'a str,
+    pub(crate) resources: &'a BTreeMap<String, String>,
+    pub(crate) broker: Option<SharedNetworkBroker>,
+    pub(crate) base_url: Option<Url>,
+    pub(crate) max_heap_bytes: usize,
+    #[cfg(unix)]
+    pub(crate) context: Option<(
+        crate::context_service::SharedContextClient,
+        oryn_common::v3::PageId,
+        Option<oryn_common::v3::PageId>,
+    )>,
+    pub(crate) recovery: &'a mut Option<RawV8Host>,
+}
+/// Inputs retained together for load with inherited origin.
+pub(crate) struct InheritedOriginLoadInput<'a> {
+    pub(crate) parsed: Option<ParsedDocument>,
+    pub(crate) source: Option<DocumentStream>,
+    pub(crate) html: &'a str,
+    pub(crate) resources: &'a BTreeMap<String, String>,
+    pub(crate) broker: Option<SharedNetworkBroker>,
+    pub(crate) base_url: Option<Url>,
+    pub(crate) max_heap_bytes: usize,
+    pub(crate) scheduled: bool,
+    pub(crate) origin: oryn_js::origin::Origin,
+}
+/// Inputs retained together for load dynamic script source.
+struct DynamicScriptSourceInput<'a> {
+    src: Option<&'a str>,
+    module: bool,
+    nonce: Option<&'a str>,
+    integrity: Option<&'a str>,
+    cross_origin: Option<&'a str>,
+    inline: &'a str,
+    base: &'a str,
+    url_encoding: &'a str,
+    referrer_policy: Option<&'a str>,
+    script_policy: Option<&'a str>,
+    local_script_policy: Option<&'a oryn_js::v8_bindings::ScriptPolicySnapshot>,
+}
+/// Inputs retained together for apply completion.
+#[cfg(unix)]
+struct ParserCompletionInput<'a> {
+    completion: ParserResourceCompletion,
+    live_dom: &'a SharedDomRuntime,
+    host: &'a mut RawV8Host,
+    resources: &'a mut BTreeMap<String, String>,
+    deferred: &'a mut BTreeMap<u64, ScriptRecord>,
+    diagnostics: &'a mut Vec<oryn_common::v3::CapabilityDiagnostic>,
+    context: Option<&'a (
+        crate::context_service::SharedContextClient,
+        oryn_common::v3::PageId,
+        Option<oryn_common::v3::PageId>,
+    )>,
+}
+/// Inputs retained together for publish parser stylesheet completion.
+struct StylesheetPublicationInput<'a> {
+    identity: ParserDocumentIdentity,
+    node: NodeId,
+    revision: u64,
+    result: &'a Result<StylesheetSource, String>,
+    live_dom: &'a SharedDomRuntime,
+    host: &'a mut RawV8Host,
+    resources: &'a mut BTreeMap<String, String>,
+    diagnostics: &'a mut Vec<oryn_common::v3::CapabilityDiagnostic>,
+}
+/// Inputs retained together for schedule inline stylesheet.
+#[cfg(unix)]
+struct InlineStylesheetScheduleInput {
+    client: crate::context_service::SharedContextClient,
+    page_id: oryn_common::v3::PageId,
+    node: NodeId,
+    revision: u64,
+    fetch: ParserFetchContext,
+    source: String,
+    environment_encoding: String,
+}
+/// Inputs retained together for schedule stylesheet.
+#[cfg(unix)]
+struct StylesheetScheduleInput {
+    client: crate::context_service::SharedContextClient,
+    page_id: oryn_common::v3::PageId,
+    node: NodeId,
+    revision: u64,
+    requested_url: String,
+    environment_encoding: String,
+    fetch: ParserFetchContext,
+}
+/// Inputs retained together for schedule stylesheet auto.
+#[cfg(unix)]
+struct AutomaticStylesheetScheduleInput<'a> {
+    context: Option<&'a ParserContext>,
+    node: NodeId,
+    revision: u64,
+    href: Option<String>,
+    css: String,
+    encoding: String,
+    fetch: ParserFetchContext,
+    host: &'a mut RawV8Host,
+    resources: &'a BTreeMap<String, String>,
+}
+/// Inputs retained together for schedule script.
+#[cfg(unix)]
+struct ParserScriptScheduleInput<'a> {
+    client: crate::context_service::SharedContextClient,
+    page_id: oryn_common::v3::PageId,
+    order: u64,
+    record: ScriptRecord,
+    asynchronous: bool,
+    fetch: ParserFetchContext,
+    host: &'a mut RawV8Host,
+}
+/// Inputs retained together for load inline css resources.
+#[cfg(unix)]
+struct InlineCssResourceInput<'a> {
+    client: &'a crate::context_service::SharedContextClient,
+    page_id: oryn_common::v3::PageId,
+    initiator: &'a crate::context_service::ResourceInitiator,
+    document_url: &'a str,
+    base_url: &'a str,
+    referrer_policy: &'a str,
+    css: &'a str,
+    environment_encoding: &'a str,
+    budget: &'a mut StylesheetExpansionBudget,
+}
+/// Inputs retained together for expand stylesheet imports.
+#[cfg(unix)]
+struct StylesheetImportInput<'a> {
+    client: &'a crate::context_service::SharedContextClient,
+    page_id: oryn_common::v3::PageId,
+    initiator: &'a crate::context_service::ResourceInitiator,
+    url: &'a str,
+    initiator_url: &'a str,
+    referrer_policy: &'a str,
+    source: &'a str,
+    encoding: &'a str,
+    depth: usize,
+    ancestors: &'a mut Vec<String>,
+    dependencies: &'a mut CssDependencies,
+    budget: &'a mut StylesheetExpansionBudget,
+}
+/// Inputs retained together for load parser stylesheet inner.
+#[cfg(unix)]
+struct ParserStylesheetWalkInput<'a> {
+    client: &'a crate::context_service::SharedContextClient,
+    page_id: oryn_common::v3::PageId,
+    initiator: &'a crate::context_service::ResourceInitiator,
+    requested_url: &'a str,
+    initiator_url: Option<String>,
+    referrer_policy: Option<String>,
+    environment_encoding: &'a str,
+    depth: usize,
+    ancestors: &'a mut Vec<String>,
+    dependencies: &'a mut CssDependencies,
+    budget: &'a mut StylesheetExpansionBudget,
+}
+/// Inputs retained together for load parser stylesheet.
+#[cfg(unix)]
+struct ParserStylesheetInput<'a> {
+    client: &'a crate::context_service::SharedContextClient,
+    page_id: oryn_common::v3::PageId,
+    initiator: &'a crate::context_service::ResourceInitiator,
+    requested_url: &'a str,
+    initiator_url: Option<String>,
+    referrer_policy: Option<String>,
+    environment_encoding: &'a str,
+    depth: usize,
+    budget: &'a mut StylesheetExpansionBudget,
+}
 #[cfg(test)]
 #[path = "production_input_regressions.rs"]
 mod production_input_regressions;
@@ -47,11 +253,8 @@ use std::{
     time::Duration,
 };
 
-use html5ever::{QualName, local_name, ns};
 use oryn_common::v3::SemanticAction;
-use oryn_dom::{
-    DomError, DomRuntime, Mutation, MutationCursor, NodeId, NodeKind, SharedDomRuntime, html,
-};
+use oryn_dom::{DomError, DomRuntime, MutationCursor, NodeId, NodeKind, SharedDomRuntime, html};
 use oryn_js::realm::RealmId;
 use oryn_js::v8_bindings::{
     BindingAccessibility, BindingGeometry, BindingLayout, BindingLayoutProvider, BindingRect,
@@ -155,24 +358,30 @@ impl Drop for PointerDispatchRoute {
     }
 }
 
+type LayoutEnvironmentKey = (u64, u64, u64, u64, u64, u64, u64, bool, bool);
+type RetainedLayoutFont = (
+    NodeId,
+    NodeId,
+    u64,
+    oryn_layout::WebFont,
+    std::sync::Arc<dyn std::any::Any + Send + Sync>,
+);
+type RootFormHistory = (
+    (RealmId, u64, u64),
+    Vec<oryn_js::form_state::SavedFormControl>,
+    bool,
+);
+
 struct LiveLayoutProvider {
     style_engine: RefCell<oryn_layout::StyleEngine>,
     animation_time: Cell<f64>,
     animation_revision: Cell<u64>,
     font_revision: Cell<u64>,
     layout_generation: Cell<u64>,
-    layout_environment: RefCell<Option<(u64, u64, u64, u64, u64, u64, u64, bool, bool)>>,
+    layout_environment: RefCell<Option<LayoutEnvironmentKey>>,
     owner_thread: std::thread::ThreadId,
     paint_inventory: RefCell<Option<drag_image_capture::Inventory>>,
-    fonts: RefCell<
-        Vec<(
-            NodeId,
-            NodeId,
-            u64,
-            oryn_layout::WebFont,
-            std::sync::Arc<dyn std::any::Any + Send + Sync>,
-        )>,
-    >,
+    fonts: RefCell<Vec<RetainedLayoutFont>>,
     dom: SharedDomRuntime,
     document: NodeId,
     viewport: Cell<oryn_common::v4::ViewportState>,
@@ -180,12 +389,6 @@ struct LiveLayoutProvider {
     native_media: Cell<(bool, bool)>,
 }
 
-fn populate_validation_states(
-    dom: &DomRuntime,
-    input: &mut oryn_layout::LayoutInput,
-) -> Result<(), DomError> {
-    populate_validation_states_for_root(dom, input, dom.document())
-}
 fn populate_validation_states_for_root(
     dom: &DomRuntime,
     input: &mut oryn_layout::LayoutInput,
@@ -365,13 +568,13 @@ fn populate_validation_states_for_root(
                 .insert(node.id, pack(slot));
         }
         for child in &dom.arena().get(id)?.children {
-            if matches!(dom.arena().get(*child)?.kind, NodeKind::Text { .. }) {
-                if let Some(slot) = dom.assigned_slot(*child, false)? {
-                    input
-                        .shadow_trees
-                        .assigned_slots
-                        .insert(pack(*child), pack(slot));
-                }
+            if matches!(dom.arena().get(*child)?.kind, NodeKind::Text { .. })
+                && let Some(slot) = dom.assigned_slot(*child, false)?
+            {
+                input
+                    .shadow_trees
+                    .assigned_slots
+                    .insert(pack(*child), pack(slot));
             }
         }
     }
@@ -442,19 +645,38 @@ pub(crate) fn initial_layout_provider(
 }
 
 impl LiveLayoutProvider {
-    fn sample_layout(
+    fn sample_layout_with_style(
         &self,
         input: &oryn_layout::LayoutInput,
         limits: &oryn_layout::LayoutLimits,
-    ) -> Result<oryn_layout::LayoutOutput, oryn_layout::LayoutError> {
+    ) -> Result<
+        (
+            oryn_layout::LayoutOutput,
+            oryn_layout::svg_instances::StyleSample,
+        ),
+        oryn_layout::LayoutError,
+    > {
         let mut engine = self.style_engine.borrow_mut();
         let active = engine.has_active_animations();
-        let output = engine.compute_at(input, limits, self.animation_time.get() / 1000.)?;
+        let mut output = engine.compute_at(input, limits, self.animation_time.get() / 1000.)?;
+        let sample = engine.instance_style_sample().ok_or_else(|| {
+            oryn_layout::LayoutError::StyleTraversal(
+                "successful layout lacks native style sample".into(),
+            )
+        })?;
+        drop(engine);
+        crate::svg_capture::publish_instance_fonts_with_sample(
+            &self.dom.borrow(),
+            input,
+            limits,
+            &mut output,
+            Some(&sample),
+        )?;
         if active {
             self.animation_revision
                 .set(self.animation_revision.get().wrapping_add(1));
         }
-        Ok(output)
+        Ok((output, sample))
     }
     fn native_layout(
         &self,
@@ -463,6 +685,23 @@ impl LiveLayoutProvider {
         scroll: (f64, f64),
         element_scrolls: &BTreeMap<NodeId, (f64, f64)>,
     ) -> Result<oryn_layout::LayoutOutput, String> {
+        self.native_layout_with_input(document, custom_states, scroll, element_scrolls)
+            .map(|(_, output, _)| output)
+    }
+    fn native_layout_with_input(
+        &self,
+        document: Option<NodeId>,
+        custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
+        scroll: (f64, f64),
+        element_scrolls: &BTreeMap<NodeId, (f64, f64)>,
+    ) -> Result<
+        (
+            oryn_layout::LayoutInput,
+            oryn_layout::LayoutOutput,
+            oryn_layout::svg_instances::StyleSample,
+        ),
+        String,
+    > {
         let (dom, _) = self.dom.borrow().snapshot();
         let document = document.unwrap_or(self.document);
         let parsed = ParsedDocument {
@@ -573,21 +812,22 @@ impl LiveLayoutProvider {
         // while parser re-entry is replacing nested documents; translate an
         // upstream panic into the same explicit unavailable result as a
         // normal layout error.
-        let output = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.sample_layout(&input, &oryn_layout::LayoutLimits::default())
+        let (output, sample) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.sample_layout_with_style(&input, &oryn_layout::LayoutLimits::default())
         }))
         .map_err(|_| "synchronous layout flush panicked on a transient DOM shape".to_owned())?
         .map_err(|error| format!("synchronous layout flush failed: {error}"))?;
-        Ok(output)
+        Ok((input, output, sample))
     }
 }
 #[path = "drag_image_capture.rs"]
 mod drag_image_capture;
 #[path = "frame_paint_resources.rs"]
 mod frame_paint_resources;
-pub(crate) use frame_paint_resources::{
-    NativeCssCapture, NativeCssCaptureGuard, NativePaintCancellation,
-};
+pub(crate) use frame_paint_resources::{NativeCssCapture, NativePaintCancellation};
+#[path = "selected_paint_image_load.rs"]
+mod selected_paint_image_load;
+pub(crate) use selected_paint_image_load::SelectedPaintImageLoad;
 
 impl BindingLayoutProvider for LiveLayoutProvider {
     fn publish_animation_effects(
@@ -784,20 +1024,20 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         auto_width: Option<f64>,
     ) -> Result<f64, String> {
         let (dark, reduced) = self.native_media.get();
-        oryn_layout::media::source_size(
+        oryn_layout::media::source_size(oryn_layout::media::SourceSizeInputs {
             sizes,
-            base,
-            false,
-            self.viewport.get(),
-            if dark {
+            base_url: base,
+            quirks: false,
+            viewport: self.viewport.get(),
+            color_scheme: if dark {
                 oryn_layout::ColorScheme::Dark
             } else {
                 oryn_layout::ColorScheme::Light
             },
-            reduced,
-            false,
+            reduced_motion: reduced,
+            print_media: false,
             auto_width,
-        )
+        })
     }
     fn native_media_matches(&self, query: &str, base: &str, quirks: bool) -> Result<bool, String> {
         let (dark, reduced) = self.native_media.get();
@@ -1227,7 +1467,7 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         scroll: (f64, f64),
         element_scrolls: &BTreeMap<NodeId, (f64, f64)>,
     ) -> Result<Option<bool>, String> {
-        let capture = drag_image_capture::capture_filtered(
+        let (capture, has_ink) = drag_image_capture::capture_filtered(
             self,
             request,
             custom_states,
@@ -1235,6 +1475,9 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             element_scrolls,
             Some(paint_keys),
         )?;
+        if let Some(has_ink) = has_ink {
+            return Ok(Some(has_ink));
+        }
         oryn_render_core::captured_png_has_ink(&capture.png, capture.width, capture.height)
             .map(Some)
             .map_err(|error| error.to_string())
@@ -1518,26 +1761,27 @@ fn prepare_parser_module_graph(
     let parent = context.is_some();
     #[cfg(not(unix))]
     let parent = false;
-    if !parent && record.1.is_none() {
-        if let Some(snapshot) = &record.8.local_script_policy {
-            let policy = snapshot
-                .native::<crate::csp::CspPolicySet>()
-                .ok_or_else(|| HostError::Execution("native inline module policy absent".into()))?;
-            let request = crate::csp::CspRequest {
-                destination: crate::csp::CspDestination::Script,
-                url: "inline".into(),
-                nonce: record.8.nonce.clone(),
-                inline_source: Some(record.3.policy_text().into_owned()),
-                parser_inserted: true,
-                initiated_by_trusted_script: false,
-            };
-            if !host.authorize_captured_local_script(policy, &request)? {
-                return Err(HostError::ScriptLoad(
-                    crate::script_load_failure::ScriptLoadFailure::Fetch(
-                        "inline module blocked by Content-Security-Policy".into(),
-                    ),
-                ));
-            }
+    if !parent
+        && record.1.is_none()
+        && let Some(snapshot) = &record.8.local_script_policy
+    {
+        let policy = snapshot
+            .native::<crate::csp::CspPolicySet>()
+            .ok_or_else(|| HostError::Execution("native inline module policy absent".into()))?;
+        let request = crate::csp::CspRequest {
+            destination: crate::csp::CspDestination::Script,
+            url: "inline".into(),
+            nonce: record.8.nonce.clone(),
+            inline_source: Some(record.3.policy_text().into_owned()),
+            parser_inserted: true,
+            initiated_by_trusted_script: false,
+        };
+        if !host.authorize_captured_local_script(policy, &request)? {
+            return Err(HostError::ScriptLoad(
+                crate::script_load_failure::ScriptLoadFailure::Fetch(
+                    "inline module blocked by Content-Security-Policy".into(),
+                ),
+            ));
         }
     }
     let backend = if !parent {
@@ -1577,15 +1821,17 @@ fn prepare_parser_module_graph(
             .filter(|value| !value.is_empty())
             .or_else(|| host.module_integrity(requested));
         let mut graph = module_graph_load::ModuleGraphLoad::external_root(
-            requested,
-            &base,
-            crate::ModuleType::JavaScript,
-            include,
-            &policy,
-            integrity,
-            budget,
-            slots,
-            registry,
+            crate::executable::module_graph_load::ExternalModuleRootInput {
+                requested,
+                parent: &base,
+                kind: crate::ModuleType::JavaScript,
+                include,
+                policy: &policy,
+                integrity,
+                budget,
+                slots,
+                registry,
+            },
         )?
         .with_root_request_metadata(record.8.nonce.clone(), true)?
         .with_render_blocking_root(record.8.render_blocking);
@@ -1675,7 +1921,7 @@ fn collect_prepared_scripts(
     document: NodeId,
 ) -> Result<Vec<ScriptRecord>, HostError> {
     let realm = host.active_realm();
-    let identity = host.automation_realm_identity(realm).ok_or_else(|| {
+    let identity = host.automation_realm_identity(realm).ok_or({
         HostError::ScriptLoad(crate::script_load_failure::ScriptLoadFailure::Cancelled)
     })?;
     let nodes = {
@@ -1725,38 +1971,6 @@ fn collect_prepared_scripts(
         records.push(record);
     }
     Ok(records)
-}
-
-fn collect_frames(dom: &SharedDomRuntime) -> Result<Vec<(NodeId, Option<String>)>, HostError> {
-    let dom = dom.borrow();
-    Ok(dom
-        .query_selector_all(dom.document(), "iframe, frame, object, embed")
-        .map_err(|error| HostError::Execution(error.to_string()))?
-        .into_iter()
-        .filter(|node| {
-            dom.embedded_content_kind(*node).is_some() && dom.embedded_content_allowed(*node)
-        })
-        .map(|node| {
-            (
-                node,
-                if dom
-                    .embedded_content_kind(node)
-                    .is_some_and(|kind| kind.supports_srcdoc())
-                    && dom.attribute(node, "srcdoc").ok().flatten().is_some()
-                {
-                    None
-                } else {
-                    dom.attribute(
-                        node,
-                        dom.embedded_content_kind(node).unwrap().source_attribute(),
-                    )
-                    .ok()
-                    .flatten()
-                    .map(str::to_owned)
-                },
-            )
-        })
-        .collect())
 }
 
 fn prepare_parsed_child_frames(
@@ -2142,7 +2356,7 @@ fn run_script_record_retained(
 
 fn execute_script_record(
     host: &mut RawV8Host,
-    live_dom: &SharedDomRuntime,
+    _live_dom: &SharedDomRuntime,
     resources: &mut BTreeMap<String, String>,
     record: &ScriptRecord,
     diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
@@ -2171,11 +2385,11 @@ fn execute_script_record(
     let (_, src, script_type, inline, _parser_blocking, no_module, _, _, fetch_policy) = record;
     let current_script = script_record_node(record);
     let script = &current_script;
-    let mut fetched_muted_errors = fetch_policy
+    let fetched_muted_errors = fetch_policy
         .loaded
         .as_ref()
         .map(|loaded| loaded.muted_errors);
-    let mut fetched_referrer_policy = fetch_policy
+    let fetched_referrer_policy = fetch_policy
         .loaded
         .as_ref()
         .map(|loaded| loaded.referrer_policy.clone());
@@ -2262,7 +2476,7 @@ fn execute_script_record(
             initiated_by_trusted_script: false,
         };
         if !host.authorize_captured_local_script_kind(
-            &policy,
+            policy,
             &request,
             script_type.as_deref() == Some("speculationrules"),
         )? {
@@ -2469,12 +2683,14 @@ fn execute_script_record(
         let executed = host.execute_browser_classic_script_with_started(
             *script,
             source,
-            &resource_name,
-            muted_errors,
-            include,
-            &policy,
-            &import_base,
-            &mut || progress.entered = true,
+            oryn_js::v8_bindings::StartedClassicScriptInputs {
+                resource_name: &resource_name,
+                muted_errors,
+                include_credentials: include,
+                referrer_policy: &policy,
+                base_url: &import_base,
+                started: &mut || progress.entered = true,
+            },
         );
         let executed = match executed {
             Err(error) if !progress.entered => return Err(error),
@@ -2502,9 +2718,8 @@ fn execute_script_record(
         return Ok(());
     }
     host.activate_realm(execution_realm)?;
-    match result {
-        Err(diagnostic) => diagnostics.push(diagnostic),
-        Ok(()) => {}
+    if let Err(diagnostic) = result {
+        diagnostics.push(diagnostic)
     }
     // The external/module body suppresses destructive writes. Its load/error
     // listeners run after that counter is restored, including on retry.
@@ -2573,33 +2788,32 @@ impl BufferedNavigationInput {
     }
     fn poll(&mut self) -> std::task::Poll<Result<ParsedDocument, HostError>> {
         use std::task::Poll;
-        if self.xml.is_none() {
-            if let (Some(stream), Some((dom, document))) =
+        if self.xml.is_none()
+            && let (Some(stream), Some((dom, document))) =
                 (self.stream.as_ref(), self.live_xml_target.as_ref())
+        {
+            let essence = stream
+                .content_type
+                .as_deref()
+                .unwrap_or("text/html")
+                .split(';')
+                .next()
+                .unwrap_or("text/html")
+                .trim()
+                .to_ascii_lowercase();
+            if matches!(essence.as_str(), "application/xml" | "text/xml")
+                || essence.ends_with("+xml")
             {
-                let essence = stream
-                    .content_type
-                    .as_deref()
-                    .unwrap_or("text/html")
-                    .split(';')
-                    .next()
-                    .unwrap_or("text/html")
-                    .trim()
-                    .to_ascii_lowercase();
-                if matches!(essence.as_str(), "application/xml" | "text/xml")
-                    || essence.ends_with("+xml")
-                {
-                    let mut parser = oryn_dom::xml::XmlDocumentParser::streaming_with_document(
-                        &essence,
-                        dom.clone(),
-                        *document,
-                    );
-                    self.xml_source_bytes = self.source.len();
-                    parser.push_decoded(std::mem::take(&mut self.source));
-                    self.xml = Some(parser);
-                    self.xml_encoding = *stream.encoding.lock().expect("navigation encoding");
-                    return Poll::Pending;
-                }
+                let mut parser = oryn_dom::xml::XmlDocumentParser::streaming_with_document(
+                    &essence,
+                    dom.clone(),
+                    *document,
+                );
+                self.xml_source_bytes = self.source.len();
+                parser.push_decoded(std::mem::take(&mut self.source));
+                self.xml = Some(parser);
+                self.xml_encoding = *stream.encoding.lock().expect("navigation encoding");
+                return Poll::Pending;
             }
         }
         if let Some(parser) = self.xml.take() {
@@ -2613,15 +2827,15 @@ impl BufferedNavigationInput {
                 )),
                 oryn_dom::xml::XmlParseStep::Complete(parsed) => {
                     let mut parsed = *parsed;
-                    if let Ok(node) = parsed.dom.get_mut(parsed.document) {
-                        if let Some(metadata) = node.document_metadata.as_mut() {
-                            metadata.content_language = self.content_language.clone();
-                        }
+                    if let Ok(node) = parsed.dom.get_mut(parsed.document)
+                        && let Some(metadata) = node.document_metadata.as_mut()
+                    {
+                        metadata.content_language = self.content_language.clone();
                     }
-                    if let Some(encoding) = self.xml_encoding.take() {
-                        if let Err(error) = set_parsed_encoding(&mut parsed, encoding) {
-                            return Poll::Ready(Err(error));
-                        }
+                    if let Some(encoding) = self.xml_encoding.take()
+                        && let Err(error) = set_parsed_encoding(&mut parsed, encoding)
+                    {
+                        return Poll::Ready(Err(error));
                     }
                     Poll::Ready(Ok(parsed))
                 }
@@ -2699,16 +2913,16 @@ impl BufferedNavigationInput {
                     stream.content_type.as_deref(),
                     &self.url,
                 );
-                if let Ok(node) = parsed.dom.get_mut(parsed.document) {
-                    if let Some(metadata) = node.document_metadata.as_mut() {
-                        metadata.content_language = self.content_language.clone();
-                    }
+                if let Ok(node) = parsed.dom.get_mut(parsed.document)
+                    && let Some(metadata) = node.document_metadata.as_mut()
+                {
+                    metadata.content_language = self.content_language.clone();
                 }
                 self.source = String::new();
-                if let Some(encoding) = encoding {
-                    if let Err(error) = set_parsed_encoding(&mut parsed, encoding) {
-                        return Poll::Ready(Err(error));
-                    }
+                if let Some(encoding) = encoding
+                    && let Err(error) = set_parsed_encoding(&mut parsed, encoding)
+                {
+                    return Poll::Ready(Err(error));
                 }
                 Poll::Ready(Ok(parsed))
             }
@@ -2881,6 +3095,7 @@ struct DynamicScriptCompletions {
     ready: BTreeMap<usize, DynamicScriptResult>,
 }
 impl DynamicScriptCompletions {
+    #[cfg(test)]
     fn new(entries: impl IntoIterator<Item = (usize, RealmId, bool)>) -> Self {
         let mut queue = Self::default();
         queue.admit(entries);
@@ -3146,7 +3361,6 @@ impl Default for DynamicScriptScheduler {
 
 #[derive(Clone)]
 struct ParserFrameOwner {
-    kind: oryn_dom::EmbeddedContentKind,
     ancestor_capture: oryn_js::v8_bindings::LocationAncestorCapture,
     identity: ParserDocumentIdentity,
     navigation: std::sync::Arc<()>,
@@ -3167,14 +3381,14 @@ impl ParserFrameOwner {
             })
             .collect()
     }
+    #[cfg(test)]
     fn capture(host: &RawV8Host, dom: &SharedDomRuntime, node: NodeId) -> Result<Self, HostError> {
         let identity = capture_live_parser_identity(host, dom)?;
         let navigation = dom.borrow_mut().frame_navigation_identity(node);
+        dom.borrow()
+            .embedded_content_kind(node)
+            .ok_or_else(|| HostError::Execution("embedded parser owner missing".into()))?;
         Ok(Self {
-            kind: dom
-                .borrow()
-                .embedded_content_kind(node)
-                .ok_or_else(|| HostError::Execution("embedded parser owner missing".into()))?,
             ancestor_capture: host.capture_frame_location_ancestors(identity.realm, node)?,
             identity,
             navigation,
@@ -3311,12 +3525,13 @@ enum ParserResourceCompletion<R = ScriptRecord> {
         revision: u64,
         result: Result<StylesheetSource, String>,
     },
+    #[cfg(test)]
     Frame {
         identity: ParserDocumentIdentity,
         owner: ParserFrameOwner,
         node: NodeId,
         requested_url: String,
-        result: Result<LoadedFrameResource, String>,
+        result: Box<Result<LoadedFrameResource, String>>,
     },
 }
 
@@ -3352,8 +3567,13 @@ struct ParserAsyncExecution {
 #[cfg(all(test, unix))]
 thread_local! {static FAIL_PARSER_RESOURCE_PUBLICATION:Cell<u8>=const{Cell::new(0)};}
 #[cfg(unix)]
+type LocalStylesheetCustody = (
+    standalone_stylesheet::Cancel,
+    std::sync::Arc<std::sync::Mutex<Option<ScriptSourceReservation>>>,
+);
+
+#[cfg(unix)]
 struct ParserResourceScheduler {
-    frame_cancels: BTreeMap<NodeId, (ParserFrameOwner, standalone_stylesheet::Cancel)>,
     stylesheet_identities: BTreeMap<(NodeId, u64), ParserDocumentIdentity>,
     render_stylesheets: BTreeMap<(NodeId, u64), (Option<oryn_dom::RenderBlocker>, bool)>,
     published_stylesheets: BTreeMap<(NodeId, u64), Option<bool>>,
@@ -3361,6 +3581,7 @@ struct ParserResourceScheduler {
     sender: std::sync::mpsc::Sender<ParserResourceCompletion<u64>>,
     receiver: std::sync::mpsc::Receiver<ParserResourceCompletion<u64>>,
     pending: usize,
+    #[cfg(test)]
     next_order: u64,
     // Isolate-only custody: tracked DOM leases and parser callbacks must never
     // travel through the resource executor. Tickets are unique across retries.
@@ -3371,13 +3592,7 @@ struct ParserResourceScheduler {
     source_bytes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     module_sources: BTreeMap<u64, ParserModuleSource>,
     local_source_cancels: BTreeMap<u64, LocalParserSourceCancel>,
-    local_stylesheets: BTreeMap<
-        (NodeId, u64),
-        (
-            standalone_stylesheet::Cancel,
-            std::sync::Arc<std::sync::Mutex<Option<ScriptSourceReservation>>>,
-        ),
-    >,
+    local_stylesheets: BTreeMap<(NodeId, u64), LocalStylesheetCustody>,
     module_source_cursor: usize,
     ready_completions: std::collections::VecDeque<(ParserResourceCompletion, bool)>,
     async_modules: Vec<(ScriptRecord, module_graph_load::ModuleGraphLoad)>,
@@ -3596,6 +3811,7 @@ impl ParserResourceScheduler {
             receiver,
             pending: 0,
             lifetime: std::sync::Arc::new(()),
+            #[cfg(test)]
             next_order: 0,
             next_preparation: 0,
             preparations: BTreeMap::new(),
@@ -3605,7 +3821,6 @@ impl ParserResourceScheduler {
             module_sources: BTreeMap::new(),
             local_source_cancels: BTreeMap::new(),
             local_stylesheets: BTreeMap::new(),
-            frame_cancels: BTreeMap::new(),
             stylesheet_identities: BTreeMap::new(),
             render_stylesheets: BTreeMap::new(),
             published_stylesheets: BTreeMap::new(),
@@ -3648,6 +3863,7 @@ impl ParserResourceScheduler {
             Ok(())
         }
     }
+    #[cfg(test)]
     fn queue_async_module(
         &mut self,
         record: ScriptRecord,
@@ -3707,18 +3923,18 @@ impl ParserResourceScheduler {
 
     fn apply_completion(
         &mut self,
-        completion: ParserResourceCompletion,
-        live_dom: &SharedDomRuntime,
-        host: &mut RawV8Host,
-        resources: &mut BTreeMap<String, String>,
-        deferred: &mut BTreeMap<u64, ScriptRecord>,
-        diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
-        context: Option<&(
-            crate::context_service::SharedContextClient,
-            oryn_common::v3::PageId,
-            Option<oryn_common::v3::PageId>,
-        )>,
+        params: ParserCompletionInput<'_>,
     ) -> Result<Option<(NodeId, LoadedFrameResource)>, HostError> {
+        let ParserCompletionInput {
+            completion,
+            live_dom,
+            host,
+            resources,
+            deferred,
+            diagnostics,
+            context,
+        } = params;
+
         if let ParserResourceCompletion::Script {
             asynchronous: true,
             order,
@@ -3876,18 +4092,21 @@ impl ParserResourceScheduler {
                         "injected stylesheet publication admission".into(),
                     ));
                 }
-                if !self.published_stylesheets.contains_key(&key) {
-                    let accepted = publish_parser_stylesheet_completion(
-                        *identity,
-                        *node,
-                        *revision,
-                        result,
-                        live_dom,
-                        host,
-                        resources,
-                        diagnostics,
-                    )?;
-                    self.published_stylesheets.insert(key, accepted);
+                if let std::collections::btree_map::Entry::Vacant(e) =
+                    self.published_stylesheets.entry(key)
+                {
+                    let accepted =
+                        publish_parser_stylesheet_completion(StylesheetPublicationInput {
+                            identity: *identity,
+                            node: *node,
+                            revision: *revision,
+                            result,
+                            live_dom,
+                            host,
+                            resources,
+                            diagnostics,
+                        })?;
+                    e.insert(accepted);
                 }
                 if let Some(success) = self.published_stylesheets[&key] {
                     host.queue_stylesheet_event(*node, *revision, success)?;
@@ -4006,11 +4225,11 @@ impl ParserResourceScheduler {
                     && !job.record.8.graph_preloaded
                     && parser_script_owner_live(host, live_dom, &job.record)
                 {
-                    if let Some(identity) = job.record.7 {
-                        if let Err(error) = host.activate_realm(identity.realm) {
-                            self.async_executions.push_front(job);
-                            return Err(error);
-                        }
+                    if let Some(identity) = job.record.7
+                        && let Err(error) = host.activate_realm(identity.realm)
+                    {
+                        self.async_executions.push_front(job);
+                        return Err(error);
                     }
                     match prepare_parser_module_graph(
                         host,
@@ -4175,6 +4394,7 @@ impl ParserResourceScheduler {
                 revision,
                 result,
             },
+            #[cfg(test)]
             ParserResourceCompletion::Frame {
                 identity,
                 owner,
@@ -4192,6 +4412,7 @@ impl ParserResourceScheduler {
         self.receive_completion(completion);
     }
 
+    #[cfg(test)]
     fn next_order(&mut self) -> Result<u64, HostError> {
         let order = self.next_order;
         self.next_order = order
@@ -4212,15 +4433,15 @@ impl ParserResourceScheduler {
         host: &mut RawV8Host,
     ) -> Result<(), HostError> {
         if let Some((_, page_id, _)) = context {
-            return self.schedule_script(
-                host.resource_client_for_realm(fetch.realm, *page_id)?,
-                *page_id,
+            return self.schedule_script(ParserScriptScheduleInput {
+                client: host.resource_client_for_realm(fetch.realm, *page_id)?,
+                page_id: *page_id,
                 order,
                 record,
                 asynchronous,
                 fetch,
                 host,
-            );
+            });
         }
         self.ensure_capacity()?;
         if self.local_source_cancels.contains_key(&order)
@@ -4272,15 +4493,17 @@ impl ParserResourceScheduler {
         record.8.integrity = fetch.integrity.clone();
         if module {
             let graph = module_graph_load::ModuleGraphLoad::external_source(
-                &url,
-                &fetch.initiator_url,
-                fetch.cross_origin.as_deref() == Some("use-credentials"),
-                &fetch.referrer_policy,
-                fetch.integrity.clone(),
-                record.8.nonce.clone(),
-                self.source_bytes.clone(),
-                self.graph_slots.clone(),
-                self.graph_fetches.clone(),
+                crate::executable::module_graph_load::ExternalModuleSourceInput {
+                    requested: &url,
+                    parent: &fetch.initiator_url,
+                    include: fetch.cross_origin.as_deref() == Some("use-credentials"),
+                    policy: &fetch.referrer_policy,
+                    integrity: fetch.integrity.clone(),
+                    nonce: record.8.nonce.clone(),
+                    budget: self.source_bytes.clone(),
+                    slots: self.graph_slots.clone(),
+                    registry: self.graph_fetches.clone(),
+                },
             )?
             .parser_inserted_root()
             .with_render_blocking_root(record.8.render_blocking);
@@ -4339,20 +4562,20 @@ impl ParserResourceScheduler {
             metadata,
             move || {
                 let result = backend
-                    .fetch_classic(
-                        &requested,
-                        &fetch.initiator_url,
+                    .fetch_classic(crate::executable::module_graph_load::ClassicFetchInput {
+                        requested: &requested,
+                        initiator_url: &fetch.initiator_url,
                         url,
-                        fetch.integrity,
-                        fetch.cross_origin,
-                        fetch.referrer_policy,
-                        fetch.nonce,
-                        true,
+                        integrity: fetch.integrity,
+                        cross_origin: fetch.cross_origin,
+                        policy: fetch.referrer_policy,
+                        nonce: fetch.nonce,
+                        parser_inserted: true,
                         render_blocking,
-                        fallback_encoding.as_deref(),
+                        fallback_encoding: fallback_encoding.as_deref(),
                         request_id,
-                        &cancel,
-                    )
+                        cancel: &cancel,
+                    })
                     .map_err(|error| match error {
                         HostError::ScriptLoad(failure) => {
                             ParserScriptFailure::native(failure, &budget)
@@ -4378,16 +4601,17 @@ impl ParserResourceScheduler {
         Ok(())
     }
 
-    fn schedule_script(
-        &mut self,
-        client: crate::context_service::SharedContextClient,
-        page_id: oryn_common::v3::PageId,
-        order: u64,
-        mut record: ScriptRecord,
-        asynchronous: bool,
-        mut fetch: ParserFetchContext,
-        host: &mut RawV8Host,
-    ) -> Result<(), HostError> {
+    fn schedule_script(&mut self, params: ParserScriptScheduleInput<'_>) -> Result<(), HostError> {
+        let ParserScriptScheduleInput {
+            client,
+            page_id,
+            order,
+            mut record,
+            asynchronous,
+            mut fetch,
+            host,
+        } = params;
+
         let sender = self.sender.clone();
         self.ensure_capacity()?;
         let nonce = record.8.nonce.clone();
@@ -4439,15 +4663,17 @@ impl ParserResourceScheduler {
         }
         if module && let Ok(requested) = &requested_url {
             let graph = module_graph_load::ModuleGraphLoad::external_source(
-                requested,
-                &fetch.initiator_url,
-                fetch.cross_origin.as_deref() == Some("use-credentials"),
-                &fetch.referrer_policy,
-                fetch.integrity.clone(),
-                nonce,
-                self.source_bytes.clone(),
-                self.graph_slots.clone(),
-                self.graph_fetches.clone(),
+                crate::executable::module_graph_load::ExternalModuleSourceInput {
+                    requested,
+                    parent: &fetch.initiator_url,
+                    include: fetch.cross_origin.as_deref() == Some("use-credentials"),
+                    policy: &fetch.referrer_policy,
+                    integrity: fetch.integrity.clone(),
+                    nonce,
+                    budget: self.source_bytes.clone(),
+                    slots: self.graph_slots.clone(),
+                    registry: self.graph_fetches.clone(),
+                },
             )?
             .parser_inserted_root()
             .with_render_blocking_root(record.8.render_blocking);
@@ -4599,16 +4825,20 @@ impl ParserResourceScheduler {
 
     fn schedule_stylesheet_auto(
         &mut self,
-        context: Option<&ParserContext>,
-        node: NodeId,
-        revision: u64,
-        href: Option<String>,
-        css: String,
-        encoding: String,
-        mut fetch: ParserFetchContext,
-        host: &mut RawV8Host,
-        resources: &BTreeMap<String, String>,
+        params: AutomaticStylesheetScheduleInput<'_>,
     ) -> Result<(), HostError> {
+        let AutomaticStylesheetScheduleInput {
+            context,
+            node,
+            revision,
+            href,
+            css,
+            encoding,
+            mut fetch,
+            host,
+            resources,
+        } = params;
+
         if self.local_stylesheets.contains_key(&(node, revision)) {
             return Ok(());
         }
@@ -4634,11 +4864,24 @@ impl ParserResourceScheduler {
         if let Some((_, page_id, _)) = context {
             let client = host.resource_client_for_realm(fetch.realm, *page_id)?;
             return match href {
-                Some(href) => self
-                    .schedule_stylesheet(client, *page_id, node, revision, href, encoding, fetch),
-                None => self.schedule_inline_stylesheet(
-                    client, *page_id, node, revision, fetch, css, encoding,
-                ),
+                Some(href) => self.schedule_stylesheet(StylesheetScheduleInput {
+                    client,
+                    page_id: *page_id,
+                    node,
+                    revision,
+                    requested_url: href,
+                    environment_encoding: encoding,
+                    fetch,
+                }),
+                None => self.schedule_inline_stylesheet(InlineStylesheetScheduleInput {
+                    client,
+                    page_id: *page_id,
+                    node,
+                    revision,
+                    fetch,
+                    source: css,
+                    environment_encoding: encoding,
+                }),
             };
         }
         if href.is_none()
@@ -4710,16 +4953,17 @@ impl ParserResourceScheduler {
         Ok(())
     }
 
-    fn schedule_stylesheet(
-        &mut self,
-        client: crate::context_service::SharedContextClient,
-        page_id: oryn_common::v3::PageId,
-        node: NodeId,
-        revision: u64,
-        requested_url: String,
-        environment_encoding: String,
-        fetch: ParserFetchContext,
-    ) -> Result<(), HostError> {
+    fn schedule_stylesheet(&mut self, params: StylesheetScheduleInput) -> Result<(), HostError> {
+        let StylesheetScheduleInput {
+            client,
+            page_id,
+            node,
+            revision,
+            requested_url,
+            environment_encoding,
+            fetch,
+        } = params;
+
         self.ensure_capacity()?;
         let identity = fetch.identity();
         let resource_initiator = fetch.stylesheet_initiator()?;
@@ -4762,17 +5006,17 @@ impl ParserResourceScheduler {
                     StylesheetExpansionBudget::new(budget.clone(), cancel).with_native(native);
                 let result = requested_url
                     .and_then(|requested_url| {
-                        load_parser_stylesheet(
-                            &client,
+                        load_parser_stylesheet(ParserStylesheetInput {
+                            client: &client,
                             page_id,
-                            &resource_initiator,
-                            &requested_url,
-                            Some(fetch.initiator_url),
-                            Some(fetch.referrer_policy),
-                            &environment_encoding,
-                            0,
-                            &mut expansion,
-                        )
+                            initiator: &resource_initiator,
+                            requested_url: &requested_url,
+                            initiator_url: Some(fetch.initiator_url),
+                            referrer_policy: Some(fetch.referrer_policy),
+                            environment_encoding: &environment_encoding,
+                            depth: 0,
+                            budget: &mut expansion,
+                        })
                     })
                     .map_err(|error| error.to_string());
                 drop(expansion);
@@ -4802,14 +5046,18 @@ impl ParserResourceScheduler {
 
     fn schedule_inline_stylesheet(
         &mut self,
-        client: crate::context_service::SharedContextClient,
-        page_id: oryn_common::v3::PageId,
-        node: NodeId,
-        revision: u64,
-        fetch: ParserFetchContext,
-        source: String,
-        environment_encoding: String,
+        params: InlineStylesheetScheduleInput,
     ) -> Result<(), HostError> {
+        let InlineStylesheetScheduleInput {
+            client,
+            page_id,
+            node,
+            revision,
+            fetch,
+            source,
+            environment_encoding,
+        } = params;
+
         self.ensure_capacity()?;
         let identity = fetch.identity();
         let sender = self.sender.clone();
@@ -4869,17 +5117,17 @@ impl ParserResourceScheduler {
                 expansion
                     .retain(source.len())
                     .map_err(|error| error.to_string())?;
-                let result = load_inline_css_resources(
-                    &client,
+                let result = load_inline_css_resources(InlineCssResourceInput {
+                    client: &client,
                     page_id,
-                    &resource_initiator,
-                    &fetch.initiator_url,
-                    &fetch.base_url,
-                    &fetch.referrer_policy,
-                    &source,
-                    &environment_encoding,
-                    &mut expansion,
-                )
+                    initiator: &resource_initiator,
+                    document_url: &fetch.initiator_url,
+                    base_url: &fetch.base_url,
+                    referrer_policy: &fetch.referrer_policy,
+                    css: &source,
+                    environment_encoding: &environment_encoding,
+                    budget: &mut expansion,
+                })
                 .map_err(|error| error.to_string());
                 drop(expansion);
                 let mut held = response_bytes
@@ -4900,133 +5148,6 @@ impl ParserResourceScheduler {
                 identity,
                 node,
                 revision,
-                result,
-            },
-        );
-        Ok(())
-    }
-
-    fn schedule_frame(
-        &mut self,
-        client: crate::context_service::SharedContextClient,
-        page_id: oryn_common::v3::PageId,
-        node: NodeId,
-        requested_url: String,
-        parent_encoding: String,
-        fetch: ParserFetchContext,
-        owner: ParserFrameOwner,
-    ) -> Result<(), HostError> {
-        self.ensure_capacity()?;
-        let navigation_timing = oryn_js::navigation_timing::NavigationTiming::new(
-            std::time::Instant::now(),
-            oryn_js::navigation_timing::Kind::Navigate,
-        );
-        let destination = owner.kind.resource_destination();
-        let identity = fetch.identity();
-        let completion_owner = owner.clone();
-        let mut resource_initiator = fetch
-            .resource_initiator
-            .clone()
-            .ok_or_else(|| HostError::Execution("resource native creator unavailable".into()))?;
-        resource_initiator.embedded_type = owner
-            .kind
-            .selects_response_representation()
-            .then(|| owner.attributes.get(3).cloned().flatten())
-            .flatten();
-        let request_url = fetch.resolve(&requested_url);
-        let budget = self.source_bytes.clone();
-        let request_bytes = ScriptSourceReservation::reserve(
-            &budget,
-            requested_url.len().saturating_add(
-                resource_initiator
-                    .embedded_type
-                    .as_ref()
-                    .map_or(0, String::len),
-            ),
-        )
-        .ok_or_else(|| HostError::LimitExceeded {
-            resource: "parser frame request bytes".into(),
-        })?;
-        let response_lease = client
-            .reserve_frame_response(page_id)
-            .map_err(|error| HostError::Execution(error.to_string()))?;
-        let body_client = client.clone();
-        let sender = self.sender.clone();
-        let resource_job = client
-            .track_resource_job()
-            .map_err(|error| HostError::Execution(error.to_string()))?;
-        let native = std::sync::Arc::new(crate::context_service::ResourceCancellation::default());
-        self.frame_cancels.insert(
-            node,
-            (
-                owner.clone(),
-                standalone_stylesheet::Cancel::native(native.clone()),
-            ),
-        );
-        self.pending = self.pending.saturating_add(1);
-        spawn_parser_resource(
-            sender,
-            std::sync::Arc::downgrade(&self.lifetime),
-            resource_job,
-            move || {
-                let _request_bytes = request_bytes;
-                request_url.map_err(|error| error.to_string()).and_then(|request_url| native
-                .run_resource(&client,
-                    crate::context_service::ContextServiceRequest::LoadPageResource {
-                download:None,                            script_authority:None,
-                        initiator:resource_initiator,
-                        form_authority:None,
-                        parent_encoding: Some(parent_encoding),
-                        page_id,
-                        url: request_url,
-                        destination: destination.into(),
-                        initiator_url: Some(fetch.initiator_url),
-                        referrer_policy: Some(fetch.referrer_policy),
-                        post: None,
-                    },
-                )
-                .map_err(|error| error.to_string()))
-                .and_then(|response| match response {
-                    crate::context_service::ContextServiceResponse::PageResource {
-                        inherited_encoding,response_headers,raw_body_base64,url,request_state,document_referrer,timing,
-                        source,
-                        destination,
-                        content_type,
-                        encoding,
-                        referrer_policy,
-                        modals_allowed,
-                        worker_policy_token,
-                        stream_id,
-                        native_origin,content_language,
-                        ..
-                    } if matches!(destination.as_str(),"frame"|"object"|"embed") => {
-                        let body=if let(Some(id),Some(policy))=(stream_id,worker_policy_token.as_ref()){response_lease.attach(id,policy);Some(frame_response_stream::FrameResponseBody{client:body_client.clone(),page_id,id,lease:response_lease.clone()})}else{None};
-                        let request_bytes=request_state.as_ref().map(|state|state.retained_bytes()).transpose().map_err(str::to_owned)?.unwrap_or(0);
-                        let bytes=ScriptSourceReservation::reserve(&budget,url.len().saturating_add(source.len()).saturating_add(inherited_encoding.as_ref().map_or(0,String::len)).saturating_add(raw_body_base64.as_ref().map_or(0,String::len)).saturating_add(response_headers.iter().map(|(name,value)|name.len().saturating_add(value.len())).sum::<usize>()).saturating_add(document_referrer.len()).saturating_add(request_bytes))
-                            .ok_or_else(||"parser frame response bytes exceeded".to_owned())?;
-                        crate::network::install_frame_navigation_timing(&navigation_timing,&url,&response_headers,timing.as_ref(),&referrer_policy,stream_id.is_none())?;
-                        Ok(LoadedFrameResource {timing:Some(navigation_timing),
-                        inherited_encoding,response_headers,raw_body_base64,content_language,body,request_state,document_referrer,
-                        native_origin,
-                        no_commit:false,embedded_unavailable:false,                        owner,_bytes:Some(std::sync::Arc::new(bytes)),terminal_error:None,
-                        worker_policy_token,
-                        modals_allowed,
-                        url,
-                        source,
-                        content_type,
-                        encoding,
-                        referrer_policy,
-                    })},
-                    crate::context_service::ContextServiceResponse::EmbeddedResourceUnavailable=>Ok(LoadedFrameResource{timing:None,inherited_encoding:None,response_headers:Vec::new(),request_state:None,document_referrer:String::new(),raw_body_base64:None,content_language:None,body:None,native_origin:None,no_commit:true,embedded_unavailable:true,owner,_bytes:None,terminal_error:None,worker_policy_token:None,modals_allowed:false,referrer_policy:String::new(),url:String::new(),source:String::new(),encoding:"UTF-8".into(),content_type:None}),
-                    crate::context_service::ContextServiceResponse::PageResourceNoCommit{..}=>Ok(LoadedFrameResource{timing:None,inherited_encoding:None,response_headers:Vec::new(),request_state:None,document_referrer:String::new(),raw_body_base64:None,content_language:None,body:None,native_origin:None,no_commit:true,embedded_unavailable:false,owner,_bytes:None,terminal_error:None,worker_policy_token:None,modals_allowed:false,referrer_policy:String::new(),url:String::new(),source:String::new(),encoding:"UTF-8".into(),content_type:None}),
-                    _ => Err("parent returned an invalid frame response".into()),
-                })
-            },
-            move |result| ParserResourceCompletion::Frame {
-                identity,
-                owner: completion_owner,
-                node,
-                requested_url,
                 result,
             },
         );
@@ -5067,9 +5188,6 @@ impl ParserResourceScheduler {
                 self.script_leases.remove(order);
                 self.local_source_cancels.remove(order);
                 self.async_sources.remove(order);
-            }
-            if let ParserResourceCompletion::Frame { node, .. } = &completion {
-                self.frame_cancels.remove(node);
             }
             if let ParserResourceCompletion::Stylesheet { node, revision, .. } = &completion {
                 self.local_stylesheets.remove(&(*node, *revision));
@@ -5112,10 +5230,6 @@ impl ParserResourceScheduler {
             self.complete_render_stylesheet(key.0, key.1);
         }
 
-        self.frame_cancels.retain(|_, (owner, _)| {
-            host.automation_dom(owner.identity.realm)
-                .is_some_and(|dom| owner.live(host, &dom))
-        });
         let previous = host.active_realm();
         let all: Vec<_> = self.module_sources.keys().copied().collect();
         let count = all.len().min(MAX_SCRIPT_COMPLETIONS_PER_SLICE);
@@ -5326,18 +5440,9 @@ impl StylesheetExpansionBudget {
 }
 #[cfg(unix)]
 fn load_parser_stylesheet(
-    client: &crate::context_service::SharedContextClient,
-    page_id: oryn_common::v3::PageId,
-    initiator: &crate::context_service::ResourceInitiator,
-    requested_url: &str,
-    initiator_url: Option<String>,
-    referrer_policy: Option<String>,
-    environment_encoding: &str,
-    depth: usize,
-    budget: &mut StylesheetExpansionBudget,
+    params: ParserStylesheetInput<'_>,
 ) -> Result<StylesheetSource, HostError> {
-    let mut dependencies = Vec::new();
-    let (url, css) = load_parser_stylesheet_inner(
+    let ParserStylesheetInput {
         client,
         page_id,
         initiator,
@@ -5346,10 +5451,23 @@ fn load_parser_stylesheet(
         referrer_policy,
         environment_encoding,
         depth,
-        &mut Vec::new(),
-        &mut dependencies,
         budget,
-    )?;
+    } = params;
+
+    let mut dependencies = Vec::new();
+    let (url, css) = load_parser_stylesheet_inner(ParserStylesheetWalkInput {
+        client,
+        page_id,
+        initiator,
+        requested_url,
+        initiator_url,
+        referrer_policy,
+        environment_encoding,
+        depth,
+        ancestors: &mut Vec::new(),
+        dependencies: &mut dependencies,
+        budget,
+    })?;
     Ok((url, css, dependencies))
 }
 
@@ -5379,18 +5497,22 @@ fn with_stylesheet_ancestor<T>(
 
 #[cfg(unix)]
 fn load_parser_stylesheet_inner(
-    client: &crate::context_service::SharedContextClient,
-    page_id: oryn_common::v3::PageId,
-    initiator: &crate::context_service::ResourceInitiator,
-    requested_url: &str,
-    initiator_url: Option<String>,
-    referrer_policy: Option<String>,
-    environment_encoding: &str,
-    depth: usize,
-    ancestors: &mut Vec<String>,
-    dependencies: &mut CssDependencies,
-    budget: &mut StylesheetExpansionBudget,
+    params: ParserStylesheetWalkInput<'_>,
 ) -> Result<(String, String), HostError> {
+    let ParserStylesheetWalkInput {
+        client,
+        page_id,
+        initiator,
+        requested_url,
+        initiator_url,
+        referrer_policy,
+        environment_encoding,
+        depth,
+        ancestors,
+        dependencies,
+        budget,
+    } = params;
+
     with_stylesheet_ancestor(ancestors, requested_url, |ancestors| {
         if depth > 8 {
             return Err(HostError::LimitExceeded {
@@ -5425,7 +5547,7 @@ fn load_parser_stylesheet_inner(
                 crate::context_service::ContextServiceRequest::LoadPageResource {
                     download: None,
                     script_authority: None,
-                    initiator: current_initiator,
+                    initiator: Box::new(current_initiator),
                     form_authority: None,
                     parent_encoding: Some(environment_encoding.into()),
                     page_id,
@@ -5456,38 +5578,38 @@ fn load_parser_stylesheet_inner(
             ));
         }
         let expanded = if stylesheet_cycle_key(&url) == stylesheet_cycle_key(requested_url) {
-            expand_stylesheet_imports(
+            expand_stylesheet_imports(StylesheetImportInput {
                 client,
                 page_id,
                 initiator,
-                &url,
-                &url,
-                &referrer_policy,
-                &source,
-                &encoding,
+                url: &url,
+                initiator_url: &url,
+                referrer_policy: &referrer_policy,
+                source: &source,
+                encoding: &encoding,
                 depth,
                 ancestors,
                 dependencies,
                 budget,
-            )?
+            })?
         } else {
             // Redirect aliases also participate in ancestry, without suppressing
             // a separate sibling import of the same sheet after this branch ends.
             with_stylesheet_ancestor(ancestors, &url, |ancestors| {
-                expand_stylesheet_imports(
+                expand_stylesheet_imports(StylesheetImportInput {
                     client,
                     page_id,
                     initiator,
-                    &url,
-                    &url,
-                    &referrer_policy,
-                    &source,
-                    &encoding,
+                    url: &url,
+                    initiator_url: &url,
+                    referrer_policy: &referrer_policy,
+                    source: &source,
+                    encoding: &encoding,
                     depth,
                     ancestors,
                     dependencies,
                     budget,
-                )
+                })
             })?
             .unwrap_or_default()
         };
@@ -5515,20 +5637,22 @@ fn wrap_imported_stylesheet(rule: &oryn_layout::cssom::RuleView, css: &str) -> S
 }
 
 #[cfg(unix)]
-fn expand_stylesheet_imports(
-    client: &crate::context_service::SharedContextClient,
-    page_id: oryn_common::v3::PageId,
-    initiator: &crate::context_service::ResourceInitiator,
-    url: &str,
-    initiator_url: &str,
-    referrer_policy: &str,
-    source: &str,
-    encoding: &str,
-    depth: usize,
-    ancestors: &mut Vec<String>,
-    dependencies: &mut CssDependencies,
-    budget: &mut StylesheetExpansionBudget,
-) -> Result<String, HostError> {
+fn expand_stylesheet_imports(params: StylesheetImportInput<'_>) -> Result<String, HostError> {
+    let StylesheetImportInput {
+        client,
+        page_id,
+        initiator,
+        url,
+        initiator_url,
+        referrer_policy,
+        source,
+        encoding,
+        depth,
+        ancestors,
+        dependencies,
+        budget,
+    } = params;
+
     budget.retain(source.len())?;
     let rules = oryn_layout::cssom::read_stylesheet(source, url, false, true)
         .map_err(HostError::Execution)?;
@@ -5546,19 +5670,19 @@ fn expand_stylesheet_imports(
                 continue;
             };
             let dependency_start = dependencies.len();
-            let (_, imported) = load_parser_stylesheet_inner(
+            let (_, imported) = load_parser_stylesheet_inner(ParserStylesheetWalkInput {
                 client,
                 page_id,
                 initiator,
-                href,
-                Some(initiator_url.into()),
-                Some(referrer_policy.into()),
-                encoding,
-                depth + 1,
+                requested_url: href,
+                initiator_url: Some(initiator_url.into()),
+                referrer_policy: Some(referrer_policy.into()),
+                environment_encoding: encoding,
+                depth: depth + 1,
                 ancestors,
                 dependencies,
                 budget,
-            )?;
+            })?;
             for (_, _, _, css) in &mut dependencies[dependency_start..] {
                 let wrapped = wrap_imported_stylesheet(&rule, css);
                 budget.retain(wrapped.len().saturating_sub(css.len()))?;
@@ -5614,7 +5738,7 @@ fn css_subresource_request(
     crate::context_service::ContextServiceRequest::LoadPageResource {
         download: None,
         script_authority: None,
-        initiator: resource_initiator,
+        initiator: Box::new(resource_initiator),
         form_authority: None,
         parent_encoding: None,
         page_id,
@@ -5628,31 +5752,35 @@ fn css_subresource_request(
 
 #[cfg(unix)]
 fn load_inline_css_resources(
-    client: &crate::context_service::SharedContextClient,
-    page_id: oryn_common::v3::PageId,
-    initiator: &crate::context_service::ResourceInitiator,
-    document_url: &str,
-    base_url: &str,
-    referrer_policy: &str,
-    css: &str,
-    environment_encoding: &str,
-    budget: &mut StylesheetExpansionBudget,
+    params: InlineCssResourceInput<'_>,
 ) -> Result<StylesheetSource, HostError> {
-    let mut dependencies = Vec::new();
-    let css = expand_stylesheet_imports(
+    let InlineCssResourceInput {
         client,
         page_id,
         initiator,
-        base_url,
         document_url,
+        base_url,
         referrer_policy,
         css,
         environment_encoding,
-        0,
-        &mut Vec::new(),
-        &mut dependencies,
         budget,
-    )?;
+    } = params;
+
+    let mut dependencies = Vec::new();
+    let css = expand_stylesheet_imports(StylesheetImportInput {
+        client,
+        page_id,
+        initiator,
+        url: base_url,
+        initiator_url: document_url,
+        referrer_policy,
+        source: css,
+        encoding: environment_encoding,
+        depth: 0,
+        ancestors: &mut Vec::new(),
+        dependencies: &mut dependencies,
+        budget,
+    })?;
     Ok((base_url.into(), css, dependencies))
 }
 
@@ -6026,15 +6154,19 @@ fn adopt_parser_module_result(
 }
 
 fn publish_parser_stylesheet_completion(
-    identity: ParserDocumentIdentity,
-    node: NodeId,
-    revision: u64,
-    result: &Result<StylesheetSource, String>,
-    live_dom: &SharedDomRuntime,
-    host: &mut RawV8Host,
-    resources: &mut BTreeMap<String, String>,
-    diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
+    params: StylesheetPublicationInput<'_>,
 ) -> Result<Option<bool>, HostError> {
+    let StylesheetPublicationInput {
+        identity,
+        node,
+        revision,
+        result,
+        live_dom,
+        host,
+        resources,
+        diagnostics,
+    } = params;
+
     if !host.realm_execution_live(identity.realm)
         || host.document_stream_epoch(identity.realm) != Some(identity.stream_epoch)
         || !host
@@ -6094,20 +6226,20 @@ fn publish_parser_stylesheet_completion(
                 resources.insert(url.clone(), css.clone());
             }
             drop(dom);
-            if installed && !dependencies.is_empty() {
-                if let Err(error) =
+            if installed
+                && !dependencies.is_empty()
+                && let Err(error) =
                     host.queue_css_dependencies(node, revision, dependencies.clone())
-                {
-                    diagnostics.push(script_diagnostic(error));
-                }
+            {
+                diagnostics.push(script_diagnostic(error));
             }
-            return Ok(installed.then_some(true));
+            Ok(installed.then_some(true))
         }
         Err(error) => {
             diagnostics.push(script_diagnostic(HostError::Execution(format!(
                 "scheduled stylesheet failed: {error}"
             ))));
-            return Ok(Some(false));
+            Ok(Some(false))
         }
     }
 }
@@ -6120,7 +6252,7 @@ fn apply_parser_resource_completion(
     resources: &mut BTreeMap<String, String>,
     deferred_scripts: &mut BTreeMap<u64, ScriptRecord>,
     diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
-    context: Option<&(
+    _context: Option<&(
         crate::context_service::SharedContextClient,
         oryn_common::v3::PageId,
         Option<oryn_common::v3::PageId>,
@@ -6192,19 +6324,22 @@ fn apply_parser_resource_completion(
             revision,
             result,
         } => {
-            if let Some(success) = publish_parser_stylesheet_completion(
-                identity,
-                node,
-                revision,
-                &result,
-                live_dom,
-                host,
-                resources,
-                diagnostics,
-            )? {
+            if let Some(success) =
+                publish_parser_stylesheet_completion(StylesheetPublicationInput {
+                    identity,
+                    node,
+                    revision,
+                    result: &result,
+                    live_dom,
+                    host,
+                    resources,
+                    diagnostics,
+                })?
+            {
                 host.queue_stylesheet_event(node, revision, success)?;
             }
         }
+        #[cfg(test)]
         ParserResourceCompletion::Frame {
             identity,
             owner,
@@ -6228,7 +6363,7 @@ fn apply_parser_resource_completion(
             if owner.node != node || !owner.live(host, live_dom) {
                 return Ok(None);
             }
-            match result {
+            match *result {
                 Ok(frame) => {
                     if frame.owner.node != node || !frame.owner.live(host, live_dom) {
                         return Ok(None);
@@ -6362,21 +6497,12 @@ struct LiveParserState {
     script_leases: Vec<ParserScriptLease>,
     all_events: Vec<html::ParserEvent>,
     identity: ParserDocumentIdentity,
-    parsing_finished: bool,
     #[cfg(unix)]
     resource_scheduler: ParserResourceScheduler,
     #[cfg(unix)]
     deferred_scripts: BTreeMap<u64, ScriptRecord>,
-    #[cfg(unix)]
-    blocking_script: Option<PendingParserScript>,
     #[cfg(not(unix))]
     ordered_scripts: Vec<ScriptRecord>,
-}
-#[cfg(unix)]
-struct PendingParserScript {
-    order: u64,
-    suffix: String,
-    ready: bool,
 }
 fn capture_live_parser_identity(
     host: &RawV8Host,
@@ -6480,9 +6606,6 @@ impl LiveParserState {
             false,
         );
         host.install_document_parser_gate(parser.clone())?;
-        let parsing_finished = false;
-        #[cfg(unix)]
-        let blocking_script = None;
         Ok(Self {
             encoding_policy,
             parser,
@@ -6493,13 +6616,10 @@ impl LiveParserState {
             script_leases,
             all_events,
             identity,
-            parsing_finished,
             #[cfg(unix)]
             resource_scheduler,
             #[cfg(unix)]
             deferred_scripts,
-            #[cfg(unix)]
-            blocking_script,
             #[cfg(not(unix))]
             ordered_scripts,
         })
@@ -6731,6 +6851,7 @@ impl Drop for ParserTurnGuard {
 pub struct RustExecutableDocument {
     pub document: ParsedDocument,
     pub diagnostics: Vec<oryn_common::v3::CapabilityDiagnostic>,
+    published_diagnostics: usize,
     agent: crate::agent::AgentRuntime,
     top_realm: RealmId,
     standalone_roots: std::rc::Weak<RefCell<crate::runtime::standalone_root_driver::Roots>>,
@@ -6749,7 +6870,7 @@ pub struct RustExecutableDocument {
     node_realms: BTreeMap<NodeId, RealmId>,
     frame_realms: BTreeMap<RealmId, FrameRealm>,
     archived_frame_sources:
-        BTreeMap<(RealmId, NodeId, String), Arc<frame_navigation_history::ArchivedSource>>,
+        BTreeMap<(RealmId, NodeId, String), Rc<frame_navigation_history::ArchivedSource>>,
     archived_frame_controls:
         BTreeMap<(RealmId, NodeId, String), Arc<frame_navigation_history::ArchivedControls>>,
     ready_frame_jobs: std::collections::VecDeque<(
@@ -6775,11 +6896,7 @@ pub struct RustExecutableDocument {
     pending_parser_completion: Option<PendingParserCompletion>,
     #[cfg(unix)]
     parser_async_modules: Option<PendingParserAsyncModules>,
-    pending_root_form_history: Option<(
-        (RealmId, u64, u64),
-        Vec<oryn_js::form_state::SavedFormControl>,
-        bool,
-    )>,
+    pending_root_form_history: Option<RootFormHistory>,
     pending_document_loads: BTreeMap<RealmId, (u64, u64)>,
     retained_default_actions:
         std::collections::VecDeque<(RealmId, u64, oryn_js::v8_bindings::PendingDefaultAction)>,
@@ -6808,7 +6925,7 @@ struct FrameRealm {
         (NodeId, u64, u64, bool),
     )>,
     session: Option<frame_navigation_history::SessionHistory>,
-    source: Option<Arc<frame_navigation_history::ArchivedSource>>,
+    source: Option<Rc<frame_navigation_history::ArchivedSource>>,
     parent_realm: RealmId,
     frame: NodeId,
     committed_url: String,
@@ -6844,7 +6961,7 @@ struct FrameNavigationContext {
     execution_observer: Option<oryn_js::navigation::NavigationExecutionObserver>,
     download: Option<String>,
     session: Option<frame_navigation_history::SessionHistory>,
-    archived_source: Option<Arc<frame_navigation_history::ArchivedSource>>,
+    archived_source: Option<Rc<frame_navigation_history::ArchivedSource>>,
     destination: Option<oryn_js::navigation_api::NavigationHistorySnapshot>,
     history: Option<oryn_js::navigation_api::NavigationHistoryUpdate>,
     replace: bool,
@@ -6903,6 +7020,11 @@ struct ConstructionHost<'a> {
     host: Option<RawV8Host>,
     recovery: Option<&'a mut Option<RawV8Host>>,
 }
+impl ConstructionHost<'_> {
+    fn restore_owned_host(&mut self, host: RawV8Host) {
+        self.host = Some(host);
+    }
+}
 impl std::ops::Deref for ConstructionHost<'_> {
     type Target = RawV8Host;
     fn deref(&self) -> &RawV8Host {
@@ -6928,13 +7050,13 @@ fn finish_document_construction<T>(finish: impl FnOnce() -> T) -> T {
     finish()
 }
 struct ConstructionPage<'a> {
-    page: Option<RustExecutableDocument>,
+    page: Option<Box<RustExecutableDocument>>,
     recovery: Option<&'a mut Option<RawV8Host>>,
 }
 impl ConstructionPage<'_> {
     fn finish(mut self) -> RustExecutableDocument {
         self.recovery.take();
-        self.page.take().expect("constructed page")
+        *self.page.take().expect("constructed page")
     }
 }
 impl std::ops::Deref for ConstructionPage<'_> {
@@ -6977,8 +7099,10 @@ impl RustExecutableDocument {
             ));
         }
         let (dom, document) = root.dom.borrow().snapshot();
-        let mut dynamic_scripts = DynamicScriptScheduler::default();
-        dynamic_scripts.source_bytes = host.source_allocation_budget();
+        let dynamic_scripts = DynamicScriptScheduler {
+            source_bytes: host.source_allocation_budget(),
+            ..Default::default()
+        };
         host.set_dynamic_import_limits(
             root.realm,
             dynamic_scripts.source_bytes.clone(),
@@ -6994,6 +7118,7 @@ impl RustExecutableDocument {
                 events: Vec::new(),
             },
             diagnostics: Vec::new(),
+            published_diagnostics: 0,
             agent: crate::agent::AgentRuntime::detached(root.dom, host.agent_host_identity()),
             top_realm: root.realm,
             standalone_roots: Rc::downgrade(&host.standalone_root_drivers()),
@@ -7057,8 +7182,10 @@ impl RustExecutableDocument {
             ));
         }
         let (dom, document) = root.dom.borrow().snapshot();
-        let mut dynamic_scripts = DynamicScriptScheduler::default();
-        dynamic_scripts.source_bytes = host.source_allocation_budget();
+        let dynamic_scripts = DynamicScriptScheduler {
+            source_bytes: host.source_allocation_budget(),
+            ..Default::default()
+        };
         host.set_dynamic_import_limits(
             root.realm,
             dynamic_scripts.source_bytes.clone(),
@@ -7074,6 +7201,7 @@ impl RustExecutableDocument {
                 events: Vec::new(),
             },
             diagnostics: Vec::new(),
+            published_diagnostics: 0,
             agent: crate::agent::AgentRuntime::detached(root.dom, host.agent_host_identity()),
             top_realm: root.realm,
             standalone_roots: Rc::downgrade(&host.standalone_root_drivers()),
@@ -7206,7 +7334,7 @@ impl RustExecutableDocument {
         match self.return_agent_host_after_turn(host) {
             Ok(_) => result,
             Err((error, host)) => {
-                let _ = self.agent.host.install(host);
+                let _ = self.agent.host.install(*host);
                 Err(error)
             }
         }
@@ -7235,17 +7363,17 @@ impl RustExecutableDocument {
     pub(crate) fn return_agent_host_after_turn(
         &mut self,
         mut host: RawV8Host,
-    ) -> Result<Option<HostError>, (HostError, RawV8Host)> {
+    ) -> Result<Option<HostError>, (HostError, Box<RawV8Host>)> {
         if self.agent.host.is_attached() {
             return Err((
                 HostError::Execution("agent turn return slot occupied".into()),
-                host,
+                Box::new(host),
             ));
         }
         if !Rc::ptr_eq(&self.agent.identity, &host.agent_host_identity()) {
             return Err((
                 HostError::Execution("foreign agent turn return".into()),
-                host,
+                Box::new(host),
             ));
         }
         let error = host.activate_realm(self.top_realm).err().or_else(|| {
@@ -7266,21 +7394,21 @@ impl RustExecutableDocument {
     pub(crate) fn install_agent_host(
         &mut self,
         mut host: RawV8Host,
-    ) -> Result<(), (HostError, RawV8Host)> {
+    ) -> Result<(), (HostError, Box<RawV8Host>)> {
         if self.agent.host.is_attached() {
             return Err((
                 HostError::Execution("document already owns an agent turn".into()),
-                host,
+                Box::new(host),
             ));
         }
         if !Rc::ptr_eq(&self.agent.identity, &host.agent_host_identity()) {
             return Err((
                 HostError::Execution("foreign agent host for document turn".into()),
-                host,
+                Box::new(host),
             ));
         }
         if let Err(error) = host.activate_realm(self.top_realm) {
-            return Err((error, host));
+            return Err((error, Box::new(host)));
         }
         if !host.realm_execution_live(self.top_realm)
             || !host
@@ -7289,7 +7417,7 @@ impl RustExecutableDocument {
         {
             return Err((
                 HostError::Execution("agent turn document ownership mismatch".into()),
-                host,
+                Box::new(host),
             ));
         }
         self.agent.host.install(host).map_err(|host| {
@@ -7370,6 +7498,7 @@ impl RustExecutableDocument {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn load_parsed_with_limits(
         parsed: ParsedDocument,
         resources: &BTreeMap<String, String>,
@@ -7442,6 +7571,7 @@ impl RustExecutableDocument {
     }
 
     #[cfg(unix)]
+    #[cfg(test)]
     pub(crate) fn load_parsed_with_context_and_limits(
         parsed: ParsedDocument,
         resources: &BTreeMap<String, String>,
@@ -7496,21 +7626,22 @@ impl RustExecutableDocument {
     /// Kept separate from construction so a task-owned parser can use this same
     /// frame/script publication path after it yields and resumes.
     fn finish_parser_resources(
-        host: &mut RawV8Host,
-        live_dom: &SharedDomRuntime,
-        resources: &mut BTreeMap<String, String>,
-        diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
-        top_realm: RealmId,
-        base_url: &Option<Url>,
-        frame_sources: Vec<(NodeId, Option<String>)>,
-        loaded_frames: &BTreeMap<NodeId, LoadedFrameResource>,
-        script_limits: &DynamicScriptScheduler,
-        #[cfg(unix)] context_handle: &Option<(
-            crate::context_service::SharedContextClient,
-            oryn_common::v3::PageId,
-            Option<oryn_common::v3::PageId>,
-        )>,
+        params: ParserResourceFinishInput<'_>,
     ) -> Result<PreparedParserRealms, HostError> {
+        let ParserResourceFinishInput {
+            host,
+            live_dom,
+            resources,
+            diagnostics,
+            top_realm,
+            base_url,
+            frame_sources,
+            loaded_frames,
+            script_limits,
+            #[cfg(unix)]
+            context_handle,
+        } = params;
+
         #[cfg(unix)]
         let context_identity = context_handle
             .as_ref()
@@ -7717,25 +7848,26 @@ impl RustExecutableDocument {
                     .map_err(|error| HostError::Execution(error.to_string()))?;
                 (Rc::new(RefCell::new(runtime)), document)
             };
-            let realm = host.commit_frame_document_with_timing(
-                frame,
-                child_origin.clone(),
-                frame_dom.clone(),
-                child_document,
-                Some(frame_url.as_ref().map_or("about:blank", Url::as_str)),
-                None,
-                #[cfg(unix)]
-                loaded_frames
-                    .get(&frame)
-                    .and_then(|loaded| loaded.body.as_ref())
-                    .map(|body| body.client.clone()),
-                loaded_frames
-                    .get(&frame)
-                    .map(|loaded| loaded.owner.ancestor_capture.clone()),
-                loaded_frames
-                    .get(&frame)
-                    .and_then(|loaded| loaded.timing.clone()),
-            )?;
+            let realm =
+                host.commit_frame_document_with_timing(crate::host::FrameTimingCommitInput {
+                    frame,
+                    origin: child_origin.clone(),
+                    dom: frame_dom.clone(),
+                    document: child_document,
+                    committed_url: Some(frame_url.as_ref().map_or("about:blank", Url::as_str)),
+                    resource_broker: None,
+                    #[cfg(unix)]
+                    resource_client: loaded_frames
+                        .get(&frame)
+                        .and_then(|loaded| loaded.body.as_ref())
+                        .map(|body| body.client.clone()),
+                    ancestor_capture: loaded_frames
+                        .get(&frame)
+                        .map(|loaded| loaded.owner.ancestor_capture.clone()),
+                    timing: loaded_frames
+                        .get(&frame)
+                        .and_then(|loaded| loaded.timing.clone()),
+                })?;
             if same_origin {
                 for node in subtree_nodes(&frame_dom.borrow(), child_document)? {
                     node_realms.insert(node, realm);
@@ -7764,6 +7896,12 @@ impl RustExecutableDocument {
                     url.starts_with("about:"),
                     &allow,
                 )?;
+                let sandbox = live_dom
+                    .borrow()
+                    .attribute_in_null_namespace(frame, "sandbox")
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+                    .map(str::to_owned);
+                host.constrain_standalone_frame_sandbox(sandbox.as_deref())?;
             }
             let forms_allowed = live_dom
                 .borrow()
@@ -7829,7 +7967,7 @@ impl RustExecutableDocument {
                 scrollbar_width: Cell::new(0.),
                 native_media: Cell::new((false, false)),
             }))?;
-            host.set_module_sources(&resources);
+            host.set_module_sources(resources);
             host.prepare_refresh_headers(&response_headers)?;
             host.prepare_module_preload_headers(&response_headers)?;
             #[cfg(unix)]
@@ -7915,17 +8053,18 @@ impl RustExecutableDocument {
                         resource: "frame script preparation documents".into(),
                     });
                 }
-                let mut preparation = FrameScriptPreparation::new(
-                    load,
-                    top_realm,
-                    frame,
-                    frame_dom.clone(),
-                    imported_scripts,
-                    false,
-                    None,
-                    script_limits,
-                    host,
-                )?;
+                let mut preparation =
+                    FrameScriptPreparation::new(frame_script_preparation::FrameScriptInput {
+                        load,
+                        parent: top_realm,
+                        frame,
+                        dom: frame_dom.clone(),
+                        records: imported_scripts,
+                        lifecycle_allowed: false,
+                        _refresh_url: None,
+                        limits: script_limits,
+                        host,
+                    })?;
                 let inherited_encoding = loaded_frames
                     .get(&frame)
                     .and_then(|loaded| loaded.inherited_encoding.clone());
@@ -8092,7 +8231,7 @@ impl RustExecutableDocument {
             Option<oryn_common::v3::PageId>,
         )>,
     ) -> Result<Self, HostError> {
-        Self::load_with_options_and_host(
+        Self::load_with_options_and_host(DocumentConstructionInput {
             input,
             resources,
             broker,
@@ -8100,27 +8239,27 @@ impl RustExecutableDocument {
             max_heap_bytes,
             #[cfg(unix)]
             context,
-            None,
-        )
+            recovery: None,
+            inherited_origin: None,
+        })
     }
 
     /// Construct against an already prepared root in the existing agent. On
     /// every error the unique host is returned through `recovery`.
-    pub(crate) fn load_in_agent(
-        parsed: Option<ParsedDocument>,
-        source: Option<DocumentStream>,
-        html: &str,
-        resources: &BTreeMap<String, String>,
-        broker: Option<SharedNetworkBroker>,
-        base_url: Option<Url>,
-        max_heap_bytes: usize,
-        #[cfg(unix)] context: Option<(
-            crate::context_service::SharedContextClient,
-            oryn_common::v3::PageId,
-            Option<oryn_common::v3::PageId>,
-        )>,
-        recovery: &mut Option<RawV8Host>,
-    ) -> Result<Self, HostError> {
+    pub(crate) fn load_in_agent(params: AgentDocumentLoadInput<'_>) -> Result<Self, HostError> {
+        let AgentDocumentLoadInput {
+            parsed,
+            source,
+            html,
+            resources,
+            broker,
+            base_url,
+            max_heap_bytes,
+            #[cfg(unix)]
+            context,
+            recovery,
+        } = params;
+
         let input = match (parsed, source) {
             (Some(parsed), _) => DocumentLoad::ScheduledSnapshot(Box::new(parsed)),
             (None, Some(source)) => DocumentLoad::Scheduled(source),
@@ -8128,7 +8267,7 @@ impl RustExecutableDocument {
                 std::iter::once(Ok(html.to_owned())),
             ))),
         };
-        Self::load_with_options_and_host(
+        Self::load_with_options_and_host(DocumentConstructionInput {
             input,
             resources,
             broker,
@@ -8136,23 +8275,68 @@ impl RustExecutableDocument {
             max_heap_bytes,
             #[cfg(unix)]
             context,
-            Some(recovery),
-        )
+            recovery: Some(recovery),
+            inherited_origin: None,
+        })
+    }
+
+    pub(crate) fn load_with_inherited_origin(
+        params: InheritedOriginLoadInput<'_>,
+    ) -> Result<Self, HostError> {
+        let InheritedOriginLoadInput {
+            parsed,
+            source,
+            html,
+            resources,
+            broker,
+            base_url,
+            max_heap_bytes,
+            scheduled,
+            origin,
+        } = params;
+
+        let input = match (parsed, source, scheduled) {
+            (Some(parsed), _, true) => DocumentLoad::ScheduledSnapshot(Box::new(parsed)),
+            (Some(parsed), _, false) => DocumentLoad::Snapshot(Box::new(parsed)),
+            (None, source, scheduled) => {
+                let source = source.unwrap_or_else(|| {
+                    DocumentStream::html(Box::new(std::iter::once(Ok(html.to_owned()))))
+                });
+                if scheduled {
+                    DocumentLoad::Scheduled(source)
+                } else {
+                    DocumentLoad::Live(source)
+                }
+            }
+        };
+        Self::load_with_options_and_host(DocumentConstructionInput {
+            input,
+            resources,
+            broker,
+            base_url,
+            max_heap_bytes,
+            #[cfg(unix)]
+            context: None,
+            recovery: None,
+            inherited_origin: Some(origin),
+        })
     }
 
     fn load_with_options_and_host(
-        input: DocumentLoad,
-        resources: &BTreeMap<String, String>,
-        broker: Option<SharedNetworkBroker>,
-        base_url: Option<Url>,
-        max_heap_bytes: usize,
-        #[cfg(unix)] context: Option<(
-            crate::context_service::SharedContextClient,
-            oryn_common::v3::PageId,
-            Option<oryn_common::v3::PageId>,
-        )>,
-        mut recovery: Option<&mut Option<RawV8Host>>,
+        params: DocumentConstructionInput<'_>,
     ) -> Result<Self, HostError> {
+        let DocumentConstructionInput {
+            input,
+            resources,
+            broker,
+            base_url,
+            max_heap_bytes,
+            #[cfg(unix)]
+            context,
+            mut recovery,
+            inherited_origin,
+        } = params;
+
         let navigation_started = std::time::Instant::now();
         // Decoded native sources without transport instrumentation still own
         // actual EOF. Wrap once, before parser mode selection, without deriving
@@ -8214,8 +8398,10 @@ impl RustExecutableDocument {
             })?;
         let mut resources = resources.clone();
         if !resources.contains_key("oryn:standalone-root-config") {
-            let mut config = crate::BrowserConfig::default();
-            config.max_v8_heap_bytes = max_heap_bytes;
+            let config = crate::BrowserConfig {
+                max_v8_heap_bytes: max_heap_bytes,
+                ..Default::default()
+            };
             resources.insert(
                 "oryn:standalone-root-config".into(),
                 serde_json::to_string(&config)
@@ -8316,6 +8502,8 @@ impl RustExecutableDocument {
             slot.take().ok_or_else(|| {
                 HostError::Execution("shared constructor has no agent host".into())
             })?
+        } else if let Some(origin) = inherited_origin {
+            RawV8Host::new_with_inherited_origin(broker, base_url.clone(), origin, max_heap_bytes)
         } else {
             #[cfg(unix)]
             let host = match context.clone() {
@@ -8587,73 +8775,64 @@ impl RustExecutableDocument {
                 RUST_RUNTIME_GLOBALS,
                 crate::observable::OBSERVABLE_GLOBALS,
             )?;
-            finish_document_construction(move || {
-                host.set_module_sources(&resources);
-                if {
-                    #[cfg(unix)]
-                    {
-                        context_handle.is_none()
-                    }
-                    #[cfg(not(unix))]
-                    {
-                        true
-                    }
-                } {
-                    let policy = resources
-                        .get("oryn:csp-policy")
-                        .map(|serialized| {
-                            serde_json::from_str(serialized).map_err(|error| {
-                                HostError::Execution(format!(
-                                    "invalid standalone CSP snapshot: {error}"
-                                ))
-                            })
+            host.set_module_sources(&resources);
+            if context_handle.is_none() {
+                let policy = resources
+                    .get("oryn:csp-policy")
+                    .map(|serialized| {
+                        serde_json::from_str(serialized).map_err(|error| {
+                            HostError::Execution(format!(
+                                "invalid standalone CSP snapshot: {error}"
+                            ))
                         })
-                        .transpose()?
-                        .unwrap_or_else(|| {
-                            crate::csp::CspPolicySet::new(
-                                base_url.as_ref().map_or("about:blank", Url::as_str),
-                            )
-                        });
-                    host.set_standalone_resource_policy(policy)?;
-                }
-                if let Some(base_url) = &base_url {
-                    // Initial URL hydration is a native commit, not script navigation.
-                    host.commit_location(base_url.as_str())?;
-                    #[cfg(unix)]
-                    if let Some((client, page_id, _)) = &context_handle
-                        && !host.active_document_prerendering()
-                    {
-                        client
-                            .request(crate::context_service::ContextServiceRequest::CommitPage {
-                                page_id: *page_id,
-                                url: base_url.to_string(),
-                            })
-                            .map_err(|error| HostError::Execution(error.to_string()))?;
-                    }
-                }
+                    })
+                    .transpose()?
+                    .unwrap_or_else(|| {
+                        crate::csp::CspPolicySet::new(
+                            base_url.as_ref().map_or("about:blank", Url::as_str),
+                        )
+                    });
+                host.set_standalone_resource_policy(policy)?;
+            }
+            if let Some(base_url) = &base_url {
+                // Initial URL hydration is a native commit, not script navigation.
+                host.commit_location(base_url.as_str())?;
                 #[cfg(unix)]
-                if let Some((page_id, opener_page_id)) = context_identity {
-                    let opener_page_id = if host.active_document_prerendering() {
-                        None
-                    } else {
-                        opener_page_id
-                    };
-                    host.configure_native_page_opener(opener_page_id)?;
-                    host.execute(&format!(
-                        "__oryn_configure_context({}, {})",
-                        page_id.0,
-                        opener_page_id
-                            .map(|page_id| page_id.0.to_string())
-                            .unwrap_or_else(|| "null".into())
-                    ))?;
-                }
-                if let Some(serialized) = resources.get("oryn:response-policy-headers") {
-                    let headers: Vec<(String, String)> = serde_json::from_str(serialized)
+                if let Some((client, page_id, _)) = &context_handle
+                    && !host.active_document_prerendering()
+                {
+                    client
+                        .request(crate::context_service::ContextServiceRequest::CommitPage {
+                            page_id: *page_id,
+                            url: base_url.to_string(),
+                        })
                         .map_err(|error| HostError::Execution(error.to_string()))?;
-                    host.prepare_refresh_headers(&headers)?;
-                    host.prepare_module_preload_headers(&headers)?;
                 }
-                let mut diagnostics = Vec::new();
+            }
+            #[cfg(unix)]
+            if let Some((page_id, opener_page_id)) = context_identity {
+                let opener_page_id = if host.active_document_prerendering() {
+                    None
+                } else {
+                    opener_page_id
+                };
+                host.configure_native_page_opener(opener_page_id)?;
+                host.execute(&format!(
+                    "__oryn_configure_context({}, {})",
+                    page_id.0,
+                    opener_page_id
+                        .map(|page_id| page_id.0.to_string())
+                        .unwrap_or_else(|| "null".into())
+                ))?;
+            }
+            if let Some(serialized) = resources.get("oryn:response-policy-headers") {
+                let headers: Vec<(String, String)> = serde_json::from_str(serialized)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                host.prepare_refresh_headers(&headers)?;
+                host.prepare_module_preload_headers(&headers)?;
+            }
+            let mut page = finish_document_construction(move || {
+                let diagnostics = Vec::new();
                 let pending_buffered = if let Some(source) = buffered_source {
                     host.set_parser_input_active(true)?;
                     Some((
@@ -8670,8 +8849,10 @@ impl RustExecutableDocument {
                 } else {
                     None
                 };
-                let mut dynamic_scripts = DynamicScriptScheduler::default();
-                dynamic_scripts.source_bytes = host.source_allocation_budget();
+                let dynamic_scripts = DynamicScriptScheduler {
+                    source_bytes: host.source_allocation_budget(),
+                    ..Default::default()
+                };
                 let dynamic_import_realm = host.active_realm();
                 host.set_dynamic_import_limits(
                     dynamic_import_realm,
@@ -8697,7 +8878,6 @@ impl RustExecutableDocument {
                 let parser_async_modules = None;
                 let node_realms = BTreeMap::new();
                 let frame_realms = BTreeMap::new();
-                let initial_frame_realms = Vec::new();
                 let mut frame_script_preparations = std::collections::VecDeque::new();
                 if !has_stream {
                     let identity = host.automation_realm_identity(top_realm).ok_or_else(|| {
@@ -8729,6 +8909,7 @@ impl RustExecutableDocument {
                         events: parser_events,
                     },
                     diagnostics,
+                    published_diagnostics: 0,
                     agent: crate::agent::AgentRuntime::detached(
                         live_dom,
                         host.agent_host_identity(),
@@ -8785,92 +8966,94 @@ impl RustExecutableDocument {
                     .host
                     .install(host.host.take().expect("constructor owns host"))
                 {
-                    host.host = Some(returned);
+                    host.restore_owned_host(*returned);
                     return Err(HostError::Execution(
                         "constructor driver unexpectedly occupied".into(),
                     ));
                 }
-                let mut page = ConstructionPage {
-                    page: Some(page),
+                // Return heap-owned custody before running parser callbacks.
+                // The large assembly frame must be gone when author code runs.
+                Ok::<_, HostError>(ConstructionPage {
+                    page: Some(Box::new(page)),
                     recovery: host.recovery.take(),
-                };
-                if let Some(encoded) = page.resources.remove("oryn:frame-history") {
-                    if encoded.len() > oryn_js::form_state::MAX_FORM_SNAPSHOT_BYTES {
-                        return Err(HostError::LimitExceeded {
-                            resource: "serialized frame history bytes".into(),
-                        });
-                    }
-                    let saved: Vec<oryn_js::form_state::SavedFrameFormState> =
-                        serde_json::from_str(&encoded).map_err(|error| {
-                            HostError::Execution(format!("invalid frame history resource: {error}"))
-                        })?;
-                    oryn_js::form_state::frame_snapshot_bytes(&saved).map_err(|resource| {
-                        HostError::LimitExceeded {
-                            resource: resource.into(),
-                        }
+                })
+            })?;
+            if let Some(encoded) = page.resources.remove("oryn:frame-history") {
+                if encoded.len() > oryn_js::form_state::MAX_FORM_SNAPSHOT_BYTES {
+                    return Err(HostError::LimitExceeded {
+                        resource: "serialized frame history bytes".into(),
+                    });
+                }
+                let saved: Vec<oryn_js::form_state::SavedFrameFormState> =
+                    serde_json::from_str(&encoded).map_err(|error| {
+                        HostError::Execution(format!("invalid frame history resource: {error}"))
                     })?;
-                    page.pending_frame_navigation_restore = saved;
-                    page.bind_pending_frame_history_owners()?;
-                }
-                if page.pending_parser.is_none()
-                    && page.pending_buffered.is_none()
-                    && !page
-                        .frame_script_preparations
-                        .iter()
-                        .any(|owner| owner.root_parser_pending())
-                {
-                    let realm = page.top_realm;
-                    page.schedule_document_pi_stylesheets(realm)?;
-                }
-                if !page.parser_pending() {
-                    page.finish_parser_lifecycle(initial_frame_realms)?;
-                }
-                if !scheduled {
-                    // Compatibility construction waits for the native document load
-                    // barrier, including descendant parsers. Parent tokenizer EOF
-                    // alone does not mean its child documents have executed or loaded.
-                    let parser_wait_started = std::time::Instant::now();
-                    let setup_elapsed =
-                        parser_wait_started.saturating_duration_since(construction_started);
-                    let mut construction_polls = 0usize;
-                    while page.construction_pending() {
-                        if std::time::Instant::now() >= construction_deadline {
-                            let progress = page
-                                .frame_script_preparations
-                                .iter()
-                                .filter(|owner| owner.root_parser_pending())
-                                .map(|owner| owner.construction_progress())
-                                .collect::<Vec<_>>()
-                                .join("; ");
-                            let detail = format!(
-                                "document construction deadline exceeded (setup_ms={},parser_wait_ms={},polls={},legacy_parser={},buffered_parser={},pending_completion={},owners=[{}])",
-                                setup_elapsed.as_millis(),
-                                parser_wait_started.elapsed().as_millis(),
-                                construction_polls,
-                                page.pending_parser.is_some(),
-                                page.pending_buffered.is_some(),
-                                page.pending_parser_completion.is_some(),
-                                progress
-                            );
-                            page.stop_pending_document_load()?;
-                            return Err(HostError::Execution(detail));
-                        }
-                        construction_polls = construction_polls.saturating_add(1);
-                        // Timers and parent completions can unblock parsing. Servicing
-                        // only parser input here strands those independent task sources.
-                        page.poll_context_events()?;
-                        if page.construction_pending() && !page.has_runnable_page_work() {
-                            std::thread::park_timeout(
-                                Duration::from_millis(1).min(
-                                    construction_deadline
-                                        .saturating_duration_since(std::time::Instant::now()),
-                                ),
-                            );
-                        }
+                oryn_js::form_state::frame_snapshot_bytes(&saved).map_err(|resource| {
+                    HostError::LimitExceeded {
+                        resource: resource.into(),
+                    }
+                })?;
+                page.pending_frame_navigation_restore = saved;
+                page.bind_pending_frame_history_owners()?;
+            }
+            if page.pending_parser.is_none()
+                && page.pending_buffered.is_none()
+                && !page
+                    .frame_script_preparations
+                    .iter()
+                    .any(|owner| owner.root_parser_pending())
+            {
+                let realm = page.top_realm;
+                page.schedule_document_pi_stylesheets(realm)?;
+            }
+            if !page.parser_pending() {
+                page.finish_parser_lifecycle(Vec::new())?;
+            }
+            if !scheduled {
+                // Compatibility construction waits for the native document load
+                // barrier, including descendant parsers. Parent tokenizer EOF
+                // alone does not mean its child documents have executed or loaded.
+                let parser_wait_started = std::time::Instant::now();
+                let setup_elapsed =
+                    parser_wait_started.saturating_duration_since(construction_started);
+                let mut construction_polls = 0usize;
+                while page.construction_pending() {
+                    if std::time::Instant::now() >= construction_deadline {
+                        let progress = page
+                            .frame_script_preparations
+                            .iter()
+                            .filter(|owner| owner.root_parser_pending())
+                            .map(|owner| owner.construction_progress())
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        let detail = format!(
+                            "document construction deadline exceeded (setup_ms={},parser_wait_ms={},polls={},legacy_parser={},buffered_parser={},pending_completion={},owners=[{}])",
+                            setup_elapsed.as_millis(),
+                            parser_wait_started.elapsed().as_millis(),
+                            construction_polls,
+                            page.pending_parser.is_some(),
+                            page.pending_buffered.is_some(),
+                            page.pending_parser_completion.is_some(),
+                            progress
+                        );
+                        page.stop_pending_document_load()?;
+                        return Err(HostError::Execution(detail));
+                    }
+                    construction_polls = construction_polls.saturating_add(1);
+                    // Timers and parent completions can unblock parsing. Servicing
+                    // only parser input here strands those independent task sources.
+                    page.poll_context_events()?;
+                    if page.construction_pending() && !page.has_runnable_page_work() {
+                        std::thread::park_timeout(
+                            Duration::from_millis(1).min(
+                                construction_deadline
+                                    .saturating_duration_since(std::time::Instant::now()),
+                            ),
+                        );
                     }
                 }
-                Ok(page.finish())
-            })
+            }
+            Ok(page.finish())
         })
     }
 
@@ -8985,6 +9168,7 @@ impl RustExecutableDocument {
         }
         result
     }
+    #[cfg(test)]
     fn publish_ready_parser_frames(
         &mut self,
         parser: &mut LiveParserState,
@@ -9004,11 +9188,11 @@ impl RustExecutableDocument {
         let mut loaded = BTreeMap::new();
         let mut sources = Vec::new();
         for node in nodes {
-            if let Some(frame) = parser.loaded_frames.remove(&node) {
-                if frame.owner.live(&self.agent.host, dom) {
-                    sources.push((node, frame.owner.attributes.first().cloned().flatten()));
-                    loaded.insert(node, frame);
-                }
+            if let Some(frame) = parser.loaded_frames.remove(&node)
+                && frame.owner.live(&self.agent.host, dom)
+            {
+                sources.push((node, frame.owner.attributes.first().cloned().flatten()));
+                loaded.insert(node, frame);
             }
             // A consumed response belongs to exactly this parser insertion.
             // EOF must neither replay its policy ticket nor overwrite a later navigation.
@@ -9022,19 +9206,19 @@ impl RustExecutableDocument {
             self.agent.host.acknowledge_parser_frame_navigation(node)?;
         }
         let base = Url::parse(&self.agent.host.document_base_url()?).ok();
-        let mut prepared = Self::finish_parser_resources(
-            &mut self.agent.host,
-            dom,
-            &mut self.resources,
-            &mut self.diagnostics,
-            parser.identity.realm,
-            &base,
-            sources,
-            &loaded,
-            &self.dynamic_scripts,
+        let mut prepared = Self::finish_parser_resources(ParserResourceFinishInput {
+            host: &mut self.agent.host,
+            live_dom: dom,
+            resources: &mut self.resources,
+            diagnostics: &mut self.diagnostics,
+            top_realm: parser.identity.realm,
+            base_url: &base,
+            frame_sources: sources,
+            loaded_frames: &loaded,
+            script_limits: &self.dynamic_scripts,
             #[cfg(unix)]
-            &self.context,
-        )?;
+            context_handle: &self.context,
+        })?;
         for child in &mut prepared.frame_script_preparations {
             child.lifecycle_allowed = true;
         }
@@ -9163,7 +9347,7 @@ impl RustExecutableDocument {
                     .agent
                     .host
                     .automation_realm_identity(self.top_realm)
-                    .ok_or_else(|| {
+                    .ok_or({
                         HostError::ScriptLoad(
                             crate::script_load_failure::ScriptLoadFailure::Cancelled,
                         )
@@ -9215,19 +9399,19 @@ impl RustExecutableDocument {
             .collect();
         self.document.quirks_mode = document.quirks_mode;
         self.document.events = document.events;
-        let prepared = Self::finish_parser_resources(
-            &mut self.agent.host,
-            &self.agent.dom,
-            &mut self.resources,
-            &mut self.diagnostics,
-            self.top_realm,
-            &self.base_url,
+        let prepared = Self::finish_parser_resources(ParserResourceFinishInput {
+            host: &mut self.agent.host,
+            live_dom: &self.agent.dom,
+            resources: &mut self.resources,
+            diagnostics: &mut self.diagnostics,
+            top_realm: self.top_realm,
+            base_url: &self.base_url,
             frame_sources,
-            &frames,
-            &self.dynamic_scripts,
+            loaded_frames: &frames,
+            script_limits: &self.dynamic_scripts,
             #[cfg(unix)]
-            &self.context,
-        )?;
+            context_handle: &self.context,
+        })?;
         self.node_realms.extend(prepared.node_realms);
         self.frame_realms.extend(prepared.frame_realms);
         self.frame_script_preparations
@@ -9315,13 +9499,16 @@ impl RustExecutableDocument {
     }
 
     pub fn execute(&mut self, source: &str) -> Result<(), HostError> {
+        self.activate_selected_script_realm()?;
         self.agent.host.execute(source)?;
         self.checkpoint()
     }
 
     pub fn evaluate(&mut self, source: &str) -> Result<String, HostError> {
+        self.activate_selected_script_realm()?;
         if source.contains("__oryn_drain(true)") {
             self.drain_tasks()?;
+            self.activate_selected_script_realm()?;
         }
         let value = self.agent.host.evaluate_string(source)?;
         self.checkpoint()?;
@@ -9640,6 +9827,16 @@ impl RustExecutableDocument {
             ))
         }
     }
+    fn activate_selected_script_realm(&mut self) -> Result<(), HostError> {
+        // Parser and related-root turns share the host. Its last active realm
+        // is not authority to select the recipient of a new page command.
+        if let Some(selected) = &self.automation_scope {
+            self.validate_automation_scope(selected)?;
+        }
+        let realm = self.automation_realm();
+        self.agent.host.activate_realm(realm)
+    }
+
     fn automation_realm(&self) -> RealmId {
         self.automation_scope
             .as_ref()
@@ -9657,7 +9854,18 @@ impl RustExecutableDocument {
     }
     pub(crate) fn semantic_snapshot(&self) -> Result<ParsedDocument, HostError> {
         let Some(scope) = &self.automation_scope else {
-            return Ok(self.document.clone());
+            // Native navigation admission can run author handlers without a
+            // full executable checkpoint. Pair the mutation journal and live
+            // control projection with the current arena, not the last cached
+            // checkpoint (whose nodes may already have been removed).
+            let (dom, document) = self.selected_dom()?.borrow().snapshot();
+            return Ok(ParsedDocument {
+                dom,
+                document,
+                errors: self.document.errors.clone(),
+                quirks_mode: self.document.quirks_mode,
+                events: self.document.events.clone(),
+            });
         };
         self.validate_automation_scope(scope)?;
         let dom = self.selected_dom()?;
@@ -9868,7 +10076,7 @@ impl RustExecutableDocument {
                 .schedule_navigation(oryn_js::v8_bindings::LocationNavigation {
                     execution_observer: execution_observer.clone(),
                     navigation_operation: operation,
-                    navigation_destination: destination,
+                    navigation_destination: destination.map(|entry| *entry),
                     script_authority: Some(authority),
                     form_authority: None,
                     url,
@@ -10281,15 +10489,9 @@ impl RustExecutableDocument {
                 message: "selected input document changed".into(),
             });
         }
-        self.agent.host.webdriver_action_coordinates(
-            selected.realm,
-            selected.document_generation,
-            selected.stream_epoch,
-            origin,
-            x,
-            y,
-            pointer,
-        )
+        self.agent
+            .host
+            .webdriver_action_coordinates(selected, origin, x, y, pointer)
     }
 
     /// Resolve native focus only through live descendants of the session's
@@ -10369,6 +10571,7 @@ impl RustExecutableDocument {
         self.agent.host.poll_webdriver_keyboard_receipt(receipt)
     }
 
+    #[cfg(test)]
     pub(crate) fn dispatch_webdriver_keyboard_in_context(
         &mut self,
         selected: &AutomationRealmSnapshot,
@@ -11258,11 +11461,11 @@ impl RustExecutableDocument {
             return Err(error);
         }
         loop {
-            if let Some(target) = &route.boundary_target {
-                if let Err(error) = self.validate_action_context(target) {
-                    route.cancel();
-                    return Err(error);
-                }
+            if let Some(target) = &route.boundary_target
+                && let Err(error) = self.validate_action_context(target)
+            {
+                route.cancel();
+                return Err(error);
             }
             while let Some((context, receipt)) = route.boundaries.get_mut(route.next) {
                 if let Err(error) = self.validate_action_context(context) {
@@ -11276,11 +11479,11 @@ impl RustExecutableDocument {
                     route.cancel();
                     return Err(ScriptError::retired());
                 }
-                if let Some(target) = &route.boundary_target {
-                    if let Err(error) = self.validate_action_context(target) {
-                        route.cancel();
-                        return Err(error);
-                    }
+                if let Some(target) = &route.boundary_target
+                    && let Err(error) = self.validate_action_context(target)
+                {
+                    route.cancel();
+                    return Err(error);
                 }
                 route.next += 1;
             }
@@ -11382,6 +11585,7 @@ impl RustExecutableDocument {
             })
     }
 
+    #[cfg(test)]
     pub(crate) fn dispatch_webdriver_wheel_in_context(
         &mut self,
         selected: &AutomationRealmSnapshot,
@@ -11415,10 +11619,10 @@ impl RustExecutableDocument {
         let (target, x, y) = if let Some(cached) = cached {
             cached
         } else {
-            if route.is_some() {
-                if let Some(transaction) = &input.transaction {
-                    transaction.clear();
-                }
+            if route.is_some()
+                && let Some(transaction) = &input.transaction
+            {
+                transaction.clear();
             }
             let (target, x, y, _, _) =
                 self.webdriver_pointer_context(selected, None, input.x, input.y, 0., 0.)?;
@@ -11882,15 +12086,15 @@ impl RustExecutableDocument {
                 else {
                     break;
                 };
-                pending.scheduler.apply_completion(
+                pending.scheduler.apply_completion(ParserCompletionInput {
                     completion,
-                    &self.agent.dom,
-                    &mut self.agent.host,
-                    &mut self.resources,
-                    &mut unexpected_deferred,
-                    &mut self.diagnostics,
-                    self.context.as_ref(),
-                )?;
+                    live_dom: &self.agent.dom,
+                    host: &mut self.agent.host,
+                    resources: &mut self.resources,
+                    deferred: &mut unexpected_deferred,
+                    diagnostics: &mut self.diagnostics,
+                    context: self.context.as_ref(),
+                })?;
             }
             if !unexpected_deferred.is_empty() {
                 return Err(HostError::Execution(
@@ -12145,8 +12349,8 @@ impl RustExecutableDocument {
         }
         {
             #[cfg(unix)]
-            if let Some(pending) = &mut self.parser_async_modules {
-                if pending.scheduler.has_ready_completion()
+            if let Some(pending) = &mut self.parser_async_modules
+                && (pending.scheduler.has_ready_completion()
                     || pending.scheduler.live_script_records().all(|record| {
                         !parser_script_owner_live(&self.agent.host, &self.agent.dom, record)
                     })
@@ -12157,10 +12361,9 @@ impl RustExecutableDocument {
                         .any(|(record, graph)| {
                             !parser_script_owner_live(&self.agent.host, &self.agent.dom, record)
                                 || graph.is_runnable()
-                        })
-                {
-                    return true;
-                }
+                        }))
+            {
+                return true;
             }
             #[cfg(unix)]
             if self.pending_parser.as_mut().is_some_and(|parser| {
@@ -12320,7 +12523,16 @@ impl RustExecutableDocument {
             .map_err(|error| HostError::Execution(error.to_string()))?;
         // Native denials remain owned by the top Window until the legacy read
         // and parse succeed. A failing author hook cannot erase them on retry.
+        // Reserved native CSP records are never accepted from the author's
+        // legacy trace array. Retain native custody until read and parse succeed.
+        entries.retain(|entry| {
+            !matches!(
+                entry.kind.as_str(),
+                "native_csp_violation" | "native_csp_trace_overflow"
+            )
+        });
         entries.extend(self.agent.host.take_window_open_trace_entries());
+        entries.extend(self.agent.host.take_native_csp_trace_entries());
         Ok(entries)
     }
 
@@ -12947,6 +13159,16 @@ impl RustExecutableDocument {
         self.semantic_snapshot()
     }
 
+    /// Keep capability inspection intact while publishing each appended native
+    /// diagnostic once. The cursor travels with this document through BFCache.
+    pub(crate) fn take_unpublished_diagnostics(
+        &mut self,
+    ) -> Vec<oryn_common::v3::CapabilityDiagnostic> {
+        let pending = self.diagnostics[self.published_diagnostics..].to_vec();
+        self.published_diagnostics = self.diagnostics.len();
+        pending
+    }
+
     /// Read without advancing custody: publication commits this cursor only
     /// after the snapshot and live control projection both succeed.
     pub(crate) fn semantic_mutations(&self) -> oryn_dom::MutationBatch {
@@ -13019,7 +13241,13 @@ impl RustExecutableDocument {
         &self,
         input: &oryn_layout::LayoutInput,
         limits: &oryn_layout::LayoutLimits,
-    ) -> Result<oryn_layout::LayoutOutput, oryn_layout::LayoutError> {
+    ) -> Result<
+        (
+            oryn_layout::LayoutOutput,
+            oryn_layout::svg_instances::StyleSample,
+        ),
+        oryn_layout::LayoutError,
+    > {
         let provider = self
             .agent
             .host
@@ -13037,8 +13265,7 @@ impl RustExecutableDocument {
                     "native document style backend absent".into(),
                 )
             })?;
-        let result = backend.sample_layout(input, limits);
-        result
+        backend.sample_layout_with_style(input, limits)
     }
     pub fn install_layout(
         &mut self,
@@ -13158,14 +13385,16 @@ impl RustExecutableDocument {
                 });
             }
             let owner = frame_script_preparation::FrameScriptPreparation::written(
-                PreparedDocumentLoad { realm, identity },
-                parent,
-                frame,
-                dom,
-                root,
-                gate.clone(),
-                &self.dynamic_scripts,
-                &mut self.agent.host,
+                frame_script_preparation::WrittenFrameScriptInput {
+                    load: PreparedDocumentLoad { realm, identity },
+                    parent,
+                    frame,
+                    dom,
+                    root,
+                    gate: gate.clone(),
+                    limits: &self.dynamic_scripts,
+                    host: &mut self.agent.host,
+                },
             )?;
             gate.claim_for_execution();
             self.frame_script_preparations.push_back(owner);
@@ -13428,10 +13657,10 @@ impl RustExecutableDocument {
                     self.frame_realms.insert(realm, owner.clone());
                 }
             }
-            if !self.agent.host.has_location_navigation() {
-                if let Some(task) = self.agent.host.take_history_traversal()? {
-                    self.agent.host.run_history_task(task, None)?;
-                }
+            if !self.agent.host.has_location_navigation()
+                && let Some(task) = self.agent.host.take_history_traversal()?
+            {
+                self.agent.host.run_history_task(task, None)?;
             }
             let Some(request) = self.agent.host.take_location_navigation() else {
                 continue;
@@ -13846,15 +14075,18 @@ impl RustExecutableDocument {
                             .filter(|value| !value.is_empty())
                             .or_else(|| self.agent.host.module_integrity(&requested));
                         let graph = module_graph_load::ModuleGraphLoad::external_source(
-                            &requested,
-                            &initiator,
-                            prepared.cross_origin.as_deref() == Some("use-credentials"),
-                            prepared.referrer_policy.as_deref().unwrap_or(""),
-                            integrity,
-                            prepared.nonce.clone(),
-                            scheduler.source_bytes.clone(),
-                            scheduler.graph_slots.clone(),
-                            scheduler.graph_fetches.clone(),
+                            crate::executable::module_graph_load::ExternalModuleSourceInput {
+                                requested: &requested,
+                                parent: &initiator,
+                                include: prepared.cross_origin.as_deref()
+                                    == Some("use-credentials"),
+                                policy: prepared.referrer_policy.as_deref().unwrap_or(""),
+                                integrity,
+                                nonce: prepared.nonce.clone(),
+                                budget: scheduler.source_bytes.clone(),
+                                slots: scheduler.graph_slots.clone(),
+                                registry: scheduler.graph_fetches.clone(),
+                            },
                         )?
                         .with_render_blocking_root(prepared.render_blocking);
                         Ok::<_, HostError>(DynamicModuleSource {
@@ -14057,36 +14289,38 @@ impl RustExecutableDocument {
                         (),
                         move || {
                             backend.fetch_classic(
-                                &requested,
-                                &initiator_url,
-                                url,
-                                integrity,
-                                cross_origin,
-                                policy,
-                                nonce,
-                                false,
-                                blocking,
-                                Some(&encoding),
-                                request_id,
-                                &lease.cancel,
+                                crate::executable::module_graph_load::ClassicFetchInput {
+                                    requested: &requested,
+                                    initiator_url: &initiator_url,
+                                    url,
+                                    integrity,
+                                    cross_origin,
+                                    policy,
+                                    nonce,
+                                    parser_inserted: false,
+                                    render_blocking: blocking,
+                                    fallback_encoding: Some(&encoding),
+                                    request_id,
+                                    cancel: &lease.cancel,
+                                },
                             )
                         },
                     );
                     continue;
                 }
-                let loaded = self.load_dynamic_script_source(
-                    src.as_deref(),
+                let loaded = self.load_dynamic_script_source(DynamicScriptSourceInput {
+                    src: src.as_deref(),
                     module,
-                    nonce.as_deref(),
-                    prepared.integrity.as_deref(),
-                    prepared.cross_origin.as_deref(),
-                    &inline,
-                    &prepared.base_url,
-                    &prepared.url_encoding,
-                    prepared.referrer_policy.as_deref(),
-                    prepared.script_policy.as_deref(),
-                    prepared.local_script_policy.as_deref(),
-                );
+                    nonce: nonce.as_deref(),
+                    integrity: prepared.integrity.as_deref(),
+                    cross_origin: prepared.cross_origin.as_deref(),
+                    inline: &inline,
+                    base: &prepared.base_url,
+                    url_encoding: &prepared.url_encoding,
+                    referrer_policy: prepared.referrer_policy.as_deref(),
+                    script_policy: prepared.script_policy.as_deref(),
+                    local_script_policy: prepared.local_script_policy.as_deref(),
+                });
                 let (loaded, reservation) = retain_script_source(loaded, &scheduler.source_bytes);
                 if let Some(reservation) = reservation {
                     scheduler.source_reservations.insert(index, reservation);
@@ -14185,7 +14419,7 @@ impl RustExecutableDocument {
             let (result, reservation) = retain_script_source(result, &scheduler.source_bytes);
             if result
                 .as_ref()
-                .is_err_and(|error| frame_script_preparation::retryable_script_preparation(error))
+                .is_err_and(frame_script_preparation::retryable_script_preparation)
                 && source.graph.defer_retry(&mut self.agent.host)
             {
                 scheduler.module_sources.insert(index, source);
@@ -14529,10 +14763,8 @@ impl RustExecutableDocument {
                 pending.extend(self.poll_frame_departures());
                 pending
             };
-            if pending.is_empty() {
-                if self.ready_frame_jobs.is_empty() {
-                    return Ok(());
-                }
+            if pending.is_empty() && self.ready_frame_jobs.is_empty() {
+                return Ok(());
             }
             {
                 if self.ready_frame_jobs.len().saturating_add(pending.len()) > 4096 {
@@ -14577,59 +14809,55 @@ impl RustExecutableDocument {
                 // element's fallback/image selection algorithm on failure.
                 if let Some(completion) = resource_completion.as_ref().filter(|completion| {
                     completion.navigation_context.is_some() && completion.response.is_err()
-                }) {
-                    if self
-                        .agent
-                        .host
-                        .automation_dom(scheduled_realm)
-                        .is_some_and(|dom| {
-                            dom.borrow()
-                                .embedded_content_kind(frame)
-                                .is_some_and(|kind| kind.selects_response_representation())
-                        })
-                    {
-                        let current = completion.current(&self.agent.host, scheduled_realm, frame);
-                        let error = completion.response.as_ref().unwrap_err().clone();
-                        if current {
-                            if let Some(destination) = completion
-                                .navigation_context
-                                .as_ref()
-                                .and_then(|context| context.destination.as_ref())
-                            {
-                                for (realm, owner) in &self.frame_realms {
-                                    if owner.parent_realm == scheduled_realm && owner.frame == frame
-                                    {
-                                        self.agent.host.fail_joint_history_entry(
-                                            *realm,
-                                            &destination.id,
-                                            oryn_js::joint_history::JointTraversalFailure::Failed(
-                                                error.clone(),
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        if let Some(observer) = completion
+                }) && self
+                    .agent
+                    .host
+                    .automation_dom(scheduled_realm)
+                    .is_some_and(|dom| {
+                        dom.borrow()
+                            .embedded_content_kind(frame)
+                            .is_some_and(|kind| kind.selects_response_representation())
+                    })
+                {
+                    let current = completion.current(&self.agent.host, scheduled_realm, frame);
+                    let error = completion.response.as_ref().unwrap_err().clone();
+                    if current
+                        && let Some(destination) = completion
                             .navigation_context
                             .as_ref()
-                            .and_then(|context| context.execution_observer.as_ref())
-                        {
-                            observer.complete(if current {
-                                oryn_js::navigation::NavigationExecutionOutcome::Failed {
-                                    message: error,
-                                }
-                            } else {
-                                oryn_js::navigation::NavigationExecutionOutcome::Canceled
-                            });
+                            .and_then(|context| context.destination.as_ref())
+                    {
+                        for (realm, owner) in &self.frame_realms {
+                            if owner.parent_realm == scheduled_realm && owner.frame == frame {
+                                self.agent.host.fail_joint_history_entry(
+                                    *realm,
+                                    &destination.id,
+                                    oryn_js::joint_history::JointTraversalFailure::Failed(
+                                        error.clone(),
+                                    ),
+                                );
+                            }
                         }
-                        continue;
                     }
+                    if let Some(observer) = completion
+                        .navigation_context
+                        .as_ref()
+                        .and_then(|context| context.execution_observer.as_ref())
+                    {
+                        observer.complete(if current {
+                            oryn_js::navigation::NavigationExecutionOutcome::Failed {
+                                message: error,
+                            }
+                        } else {
+                            oryn_js::navigation::NavigationExecutionOutcome::Canceled
+                        });
+                    }
+                    continue;
                 }
                 if let Some(completion)=resource_completion.as_ref().filter(|completion|matches!(&completion.response,Ok(crate::frame_resource_response::FrameResourceResponse::PageResourceNoCommit{..}))){
-                    if completion.current(&self.agent.host,scheduled_realm,frame){if let Some(destination)=completion.navigation_context.as_ref().and_then(|context|context.destination.as_ref()){
+                    if completion.current(&self.agent.host,scheduled_realm,frame)&& let Some(destination)=completion.navigation_context.as_ref().and_then(|context|context.destination.as_ref()){
                         for (realm,owner) in &self.frame_realms{if owner.parent_realm==scheduled_realm&&owner.frame==frame{self.agent.host.fail_joint_history_entry(*realm,&destination.id,oryn_js::joint_history::JointTraversalFailure::Canceled);}}
-                    }}
+                    }
                     if let Some(observer)=completion.navigation_context.as_ref().and_then(|context|context.execution_observer.as_ref()){
                         observer.complete(if completion.current(&self.agent.host,scheduled_realm,frame){oryn_js::navigation::NavigationExecutionOutcome::Completed}else{oryn_js::navigation::NavigationExecutionOutcome::Canceled});
                     }
@@ -14645,8 +14873,7 @@ impl RustExecutableDocument {
                     if completion.navigation_context.is_none()
                         && kind.is_some_and(|kind| kind.selects_response_representation())
                         && completion.current(&self.agent.host, scheduled_realm, frame)
-                    {
-                        if let Ok(
+                        && let Ok(
                             crate::frame_resource_response::FrameResourceResponse::PageResource {
                                 url,
                                 content_type,
@@ -14655,46 +14882,49 @@ impl RustExecutableDocument {
                                 ..
                             },
                         ) = &completion.response
-                        {
-                            if destination == kind.unwrap().resource_destination()
-                                && !crate::frame_resource_response::embedded_document_mime(
-                                    content_type.as_deref(),
-                                )
-                            {
-                                let result = (|| {
-                                    let bytes = base64::Engine::decode(
-                                        &base64::engine::general_purpose::STANDARD,
-                                        raw_body_base64.as_deref().ok_or_else(|| {
-                                            HostError::Execution(
-                                                "embedded binary response body absent".into(),
-                                            )
-                                        })?,
+                        && destination == kind.unwrap().resource_destination()
+                        && !crate::frame_resource_response::embedded_document_mime(
+                            content_type.as_deref(),
+                        )
+                    {
+                        let result = (|| {
+                            let bytes = base64::Engine::decode(
+                                &base64::engine::general_purpose::STANDARD,
+                                raw_body_base64.as_deref().ok_or_else(|| {
+                                    HostError::Execution(
+                                        "embedded binary response body absent".into(),
                                     )
-                                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                                    self.agent.host.activate_realm(scheduled_realm)?;
-                                    let origin_clean = self
-                                        .agent
-                                        .host
-                                        .realm_descriptor(scheduled_realm)
-                                        .is_some_and(|owner| {
-                                            owner.origin == oryn_js::origin::Origin::from_url(url)
-                                        });
-                                    self.agent.host.publish_embedded_image(frame,url,&bytes,origin_clean,oryn_js::v8_bindings::NativeEmbeddedNotification::ImageDecoded)
-                                })();
-                                if let Err(error) = result {
-                                    self.ready_frame_jobs.push_front((
-                                        scheduled_realm,
-                                        frame,
-                                        resource_completion,
-                                    ));
-                                    return Err(error);
-                                }
-                                self.frame_realms.retain(|_, owner| {
-                                    owner.parent_realm != scheduled_realm || owner.frame != frame
+                                })?,
+                            )
+                            .map_err(|error| HostError::Execution(error.to_string()))?;
+                            self.agent.host.activate_realm(scheduled_realm)?;
+                            let origin_clean = self
+                                .agent
+                                .host
+                                .realm_descriptor(scheduled_realm)
+                                .is_some_and(|owner| {
+                                    owner.origin == oryn_js::origin::Origin::from_url(url)
                                 });
-                                continue;
-                            }
+                            self.agent.host.publish_embedded_image(
+                                frame,
+                                url,
+                                &bytes,
+                                origin_clean,
+                                oryn_js::v8_bindings::NativeEmbeddedNotification::ImageDecoded,
+                            )
+                        })();
+                        if let Err(error) = result {
+                            self.ready_frame_jobs.push_front((
+                                scheduled_realm,
+                                frame,
+                                resource_completion,
+                            ));
+                            return Err(error);
                         }
+                        self.frame_realms.retain(|_, owner| {
+                            owner.parent_realm != scheduled_realm || owner.frame != frame
+                        });
+                        continue;
                     }
                 }
                 let mut response_request_state =
@@ -14808,7 +15038,14 @@ impl RustExecutableDocument {
                     .borrow()
                     .embedded_content_kind(frame)
                     .ok_or_else(|| HostError::Execution("embedded owner type changed".into()))?;
-                let (requested, mut srcdoc, opaque_sandbox, forms_allowed, element_referrer_policy) = {
+                let (
+                    requested,
+                    mut srcdoc,
+                    opaque_sandbox,
+                    forms_allowed,
+                    element_referrer_policy,
+                    container_sandbox,
+                ) = {
                     let dom = parent_dom.borrow();
                     let requested = dom
                         .attribute(frame, embedded_kind.source_attribute())
@@ -14844,6 +15081,7 @@ impl RustExecutableDocument {
                         opaque_sandbox,
                         forms_allowed,
                         element_referrer_policy,
+                        sandbox.map(str::to_owned),
                     )
                 };
                 if embedded_kind.selects_response_representation() && requested.is_none() {
@@ -14921,13 +15159,13 @@ impl RustExecutableDocument {
                 } else {
                     None
                 };
-                let inherited_about_blank = (((embedded_kind.creates_initial_document()
+                let inherited_about_blank = ((embedded_kind.creates_initial_document()
                     && requested
                         .as_deref()
                         .is_none_or(|value| value.trim().is_empty())
                     || explicit_about_blank.is_some())
                     && srcdoc.is_none())
-                    || javascript_url.is_some());
+                    || javascript_url.is_some();
                 if inherited_about_blank {
                     // An iframe without src creates an inherited-origin
                     // about:blank document and a fully usable child realm.
@@ -14980,39 +15218,41 @@ impl RustExecutableDocument {
                                     .map_or_else(|_| url.clone(), |url| url.to_string())
                                 })
                         });
-                    if javascript_url.is_none() {
-                        if let Some(url) = departure_url {
-                            let failed = resource_completion
-                                .as_ref()
-                                .is_some_and(|completion| completion.response.is_err());
-                            let supplied=resource_completion.as_ref().and_then(|completion|match &completion.response{Ok(crate::frame_resource_response::FrameResourceResponse::PageResource{native_origin,..})=>native_origin.as_ref(),_=>None});
-                            let origin = if opaque_sandbox || failed {
-                                oryn_js::origin::Origin::opaque()
-                            } else if let Some(origin) = supplied {
-                                native_frame_response_origin(origin)?
-                            } else if srcdoc.is_some() {
-                                parent_origin.clone()
-                            } else {
-                                oryn_js::origin::Origin::from_url(&url)
-                            };
-                            if !self.admit_frame_departure(
-                                parent_realm,
+                    if javascript_url.is_none()
+                        && let Some(url) = departure_url
+                    {
+                        let failed = resource_completion
+                            .as_ref()
+                            .is_some_and(|completion| completion.response.is_err());
+                        let supplied=resource_completion.as_ref().and_then(|completion|match &completion.response{Ok(crate::frame_resource_response::FrameResourceResponse::PageResource{native_origin,..})=>native_origin.as_ref(),_=>None});
+                        let origin = if opaque_sandbox || failed {
+                            oryn_js::origin::Origin::opaque()
+                        } else if let Some(origin) = supplied {
+                            native_frame_response_origin(origin)?
+                        } else if srcdoc.is_some() {
+                            parent_origin.clone()
+                        } else {
+                            oryn_js::origin::Origin::from_url(&url)
+                        };
+                        if !self.admit_frame_departure(
+                            frame_departure::FrameDepartureAdmission {
+                                parent: parent_realm,
                                 frame,
-                                replaced_realms.first().copied(),
+                                previous: replaced_realms.first().copied(),
                                 url,
-                                origin,
-                                &mut navigation_context,
-                                &mut resource_completion,
-                            )? {
-                                continue;
-                            }
-                            if let Some(completed) = self
-                                .completed_frame_departures
-                                .remove(&(parent_realm, frame))
-                            {
-                                departure_timing = Some(completed.timing);
-                                departure_done = true;
-                            }
+                                child_origin: origin,
+                                context: &mut navigation_context,
+                                response: &mut resource_completion,
+                            },
+                        )? {
+                            continue;
+                        }
+                        if let Some(completed) = self
+                            .completed_frame_departures
+                            .remove(&(parent_realm, frame))
+                        {
+                            departure_timing = Some(completed.timing);
+                            departure_done = true;
                         }
                     }
                 }
@@ -15128,42 +15368,46 @@ impl RustExecutableDocument {
                         &parent_encoding,
                     )
                     .map_or_else(|_| requested.clone(), |url| url.to_string());
-                    let completed = if let Some(completion) = resource_completion {
-                        completion
-                    } else {
-                        if !self.has_parent_frame_context() {
-                            self.schedule_standalone_frame_resource(
-                                parent_realm,
-                                frame,
-                                requested.clone(),
-                                request_referrer_policy.clone(),
-                                navigation_context
-                                    .as_ref()
-                                    .and_then(|context| context.post.clone()),
-                                navigation_context.as_ref().map_or_else(
-                                    Default::default,
-                                    FrameNavigationContext::fetch_navigation_flags,
-                                ),
-                                navigation_context
-                                    .as_ref()
-                                    .and_then(FrameNavigationContext::saved_request_state),
-                                navigation_context.is_some(),
-                            )?;
-                            if let Some(pending) = self
-                                .frame_resource_preparations
-                                .get_mut(&(parent_realm, frame))
-                            {
-                                pending.set_navigation_context(
-                                    navigation_context.take(),
-                                    &self.dynamic_scripts.source_bytes,
+                    let completed =
+                        if let Some(completion) = resource_completion {
+                            completion
+                        } else {
+                            if !self.has_parent_frame_context() {
+                                self.schedule_standalone_frame_resource(
+                                    frame_resource_preparation::StandaloneFrameResourceInput {
+                                        parent: parent_realm,
+                                        frame,
+                                        url: requested.clone(),
+                                        referrer: request_referrer_policy.clone(),
+                                        post: navigation_context
+                                            .as_ref()
+                                            .and_then(|context| context.post.clone()),
+                                        navigation: navigation_context.as_ref().map_or_else(
+                                            Default::default,
+                                            FrameNavigationContext::fetch_navigation_flags,
+                                        ),
+                                        request_state: navigation_context
+                                            .as_ref()
+                                            .and_then(FrameNavigationContext::saved_request_state),
+                                        document_navigation: navigation_context.is_some(),
+                                    },
                                 )?;
+                                if let Some(pending) = self
+                                    .frame_resource_preparations
+                                    .get_mut(&(parent_realm, frame))
+                                {
+                                    pending.set_navigation_context(
+                                        navigation_context.take(),
+                                        &self.dynamic_scripts.source_bytes,
+                                    )?;
+                                }
+                                continue;
                             }
-                            continue;
-                        }
-                        #[cfg(unix)]
-                        {
-                            let page_id = self.context.as_ref().expect("context-backed frame").1;
-                            let request =
+                            #[cfg(unix)]
+                            {
+                                let page_id =
+                                    self.context.as_ref().expect("context-backed frame").1;
+                                let request =
                                 crate::context_service::ContextServiceRequest::LoadPageResource {
                                     download: navigation_context
                                         .as_ref()
@@ -15171,7 +15415,7 @@ impl RustExecutableDocument {
                                     script_authority: navigation_context
                                         .as_ref()
                                         .and_then(|context| context.script_authority.clone()),
-                                    initiator: crate::context_service::ResourceInitiator {
+                                    initiator: Box::new(crate::context_service::ResourceInitiator {
                                         embedded_type: if navigation_context.is_none()
                                             && embedded_kind.selects_response_representation()
                                         {
@@ -15200,7 +15444,7 @@ impl RustExecutableDocument {
                                             .native_creator_for_realm(parent_realm)?,
                                         stylesheet: None,
                                         prepared_policy: None,
-                                    },
+                                    }),
                                     form_authority: navigation_context
                                         .as_ref()
                                         .and_then(|context| context.form_authority.clone()),
@@ -15222,28 +15466,28 @@ impl RustExecutableDocument {
                                         .as_ref()
                                         .and_then(|context| context.post.clone()),
                                 };
-                            self.schedule_frame_resource(
-                                parent_realm,
-                                frame,
-                                request,
-                                navigation_context.is_none(),
-                            )?;
-                            if let Some(pending) = self
-                                .frame_resource_preparations
-                                .get_mut(&(parent_realm, frame))
-                            {
-                                pending.set_navigation_context(
-                                    navigation_context.take(),
-                                    &self.dynamic_scripts.source_bytes,
+                                self.schedule_frame_resource(
+                                    parent_realm,
+                                    frame,
+                                    request,
+                                    navigation_context.is_none(),
                                 )?;
+                                if let Some(pending) = self
+                                    .frame_resource_preparations
+                                    .get_mut(&(parent_realm, frame))
+                                {
+                                    pending.set_navigation_context(
+                                        navigation_context.take(),
+                                        &self.dynamic_scripts.source_bytes,
+                                    )?;
+                                }
+                                continue;
                             }
-                            continue;
-                        }
-                        #[cfg(not(unix))]
-                        return Err(HostError::Execution(
-                            "parent frame transport unavailable".into(),
-                        ));
-                    };
+                            #[cfg(not(unix))]
+                            return Err(HostError::Execution(
+                                "parent frame transport unavailable".into(),
+                            ));
+                        };
                     match completed.response {
                         Ok(
                             crate::frame_resource_response::FrameResourceResponse::PageResource {
@@ -15427,21 +15671,20 @@ impl RustExecutableDocument {
                     metadata.content_language = response_content_language.clone();
                 }
                 set_parsed_encoding(&mut parsed, &encoding)?;
-                if is_srcdoc || inherited_about_blank {
-                    if let Some(metadata) = parsed
+                if (is_srcdoc || inherited_about_blank)
+                    && let Some(metadata) = parsed
                         .dom
                         .get_mut(parsed.document)
                         .map_err(|error| HostError::Execution(error.to_string()))?
                         .document_metadata
                         .as_mut()
-                    {
-                        metadata.inherited_base_url = navigation_context
-                            .as_ref()
-                            .and_then(|context| context.archived_source.as_ref())
-                            .and_then(|source| source.base_url.as_ref())
-                            .or(parent_base_url.as_ref())
-                            .map(Url::to_string);
-                    }
+                {
+                    metadata.inherited_base_url = navigation_context
+                        .as_ref()
+                        .and_then(|context| context.archived_source.as_ref())
+                        .and_then(|source| source.base_url.as_ref())
+                        .or(parent_base_url.as_ref())
+                        .map(Url::to_string);
                 }
                 if let Some(content) = parsed
                     .events
@@ -15499,86 +15742,82 @@ impl RustExecutableDocument {
                         .as_ref()
                         .and_then(|history| history.entries.get(history.current))
                         .is_some_and(|entry| entry.url == url);
-                if initial_document.is_none() && javascript_url.is_none() {
-                    if let Some(previous) = replaced_realms.first().copied() {
-                        let navigation_identity =
-                            parent_dom.borrow_mut().frame_navigation_identity(frame);
-                        let connection = self
+                if initial_document.is_none()
+                    && javascript_url.is_none()
+                    && let Some(previous) = replaced_realms.first().copied()
+                {
+                    let navigation_identity =
+                        parent_dom.borrow_mut().frame_navigation_identity(frame);
+                    let connection = self
+                        .agent
+                        .host
+                        .automation_frame_generation(parent_realm, frame);
+                    let previous_identity = self.agent.host.automation_realm_identity(previous);
+                    self.agent.host.activate_realm(previous)?;
+                    let destination = navigation_context
+                        .as_ref()
+                        .and_then(|context| context.destination.clone());
+                    let traverses = destination.as_ref().is_some_and(|destination| {
+                        previous_frame_history.as_ref().is_some_and(|history| {
+                            history
+                                .entries
+                                .iter()
+                                .any(|entry| entry.id == destination.id)
+                        })
+                    });
+                    let kind = if navigation_context
+                        .as_ref()
+                        .is_some_and(|context| context.reload)
+                    {
+                        "reload"
+                    } else if traverses {
+                        "traverse"
+                    } else if replaces_initial_document
+                        || replaces_same_srcdoc
+                        || navigation_context
+                            .as_ref()
+                            .is_some_and(|context| context.replace)
+                    {
+                        "replace"
+                    } else {
+                        "push"
+                    };
+                    if !departure_done {
+                        if let Some(destination) = destination {
+                            self.agent.host.stage_swap_destination(destination)?;
+                        }
+                        let disclose = previous_origin
+                            .as_ref()
+                            .is_some_and(|origin| *origin == child_origin)
+                            && !child_origin.is_opaque();
+                        self.agent.host.dispatch_page_swap(&url, kind, disclose)?;
+                        self.agent
+                            .host
+                            .dispatch_page_transition("pagehide", false)?;
+                    }
+                    let superseded = self.agent.host.has_location_navigation();
+                    self.agent.host.activate_realm(parent_realm)?;
+                    // Lifecycle listeners may remove or navigate this frame.
+                    if superseded
+                        || self.agent.host.automation_realm_identity(previous) != previous_identity
+                        || self
                             .agent
                             .host
-                            .automation_frame_generation(parent_realm, frame);
-                        let previous_identity = self.agent.host.automation_realm_identity(previous);
-                        self.agent.host.activate_realm(previous)?;
-                        let destination = navigation_context
-                            .as_ref()
-                            .and_then(|context| context.destination.clone());
-                        let traverses = destination.as_ref().is_some_and(|destination| {
-                            previous_frame_history.as_ref().is_some_and(|history| {
-                                history
-                                    .entries
-                                    .iter()
-                                    .any(|entry| entry.id == destination.id)
-                            })
-                        });
-                        let kind = if navigation_context
-                            .as_ref()
-                            .is_some_and(|context| context.reload)
-                        {
-                            "reload"
-                        } else if traverses {
-                            "traverse"
-                        } else if replaces_initial_document
-                            || replaces_same_srcdoc
-                            || navigation_context
-                                .as_ref()
-                                .is_some_and(|context| context.replace)
-                        {
-                            "replace"
-                        } else {
-                            "push"
-                        };
-                        if !departure_done {
-                            if let Some(destination) = destination {
-                                self.agent.host.stage_swap_destination(destination)?;
-                            }
-                            let disclose = previous_origin
-                                .as_ref()
-                                .is_some_and(|origin| *origin == child_origin)
-                                && !child_origin.is_opaque();
-                            self.agent.host.dispatch_page_swap(&url, kind, disclose)?;
-                            self.agent
-                                .host
-                                .dispatch_page_transition("pagehide", false)?;
-                        }
-                        let superseded = self.agent.host.has_location_navigation();
-                        self.agent.host.activate_realm(parent_realm)?;
-                        // Lifecycle listeners may remove or navigate this frame.
-                        if superseded
-                            || self.agent.host.automation_realm_identity(previous)
-                                != previous_identity
-                            || self
-                                .agent
-                                .host
-                                .automation_frame_generation(parent_realm, frame)
-                                != connection
-                            || !self.agent.host.automation_frame_live(parent_realm, frame)
-                            || !parent_dom
-                                .borrow()
-                                .frame_navigation_identity_is_current(frame, &navigation_identity)
-                        {
-                            continue;
-                        }
-                        if let (Some(session), Some(origin), Some(name)) = (
-                            previous_frame_session.as_mut(),
-                            previous_origin.as_ref(),
-                            self.agent.host.native_window_target_name(previous),
-                        ) {
-                            session.capture_name(
-                                origin,
-                                &name,
-                                &self.dynamic_scripts.source_bytes,
-                            )?;
-                        }
+                            .automation_frame_generation(parent_realm, frame)
+                            != connection
+                        || !self.agent.host.automation_frame_live(parent_realm, frame)
+                        || !parent_dom
+                            .borrow()
+                            .frame_navigation_identity_is_current(frame, &navigation_identity)
+                    {
+                        continue;
+                    }
+                    if let (Some(session), Some(origin), Some(name)) = (
+                        previous_frame_session.as_mut(),
+                        previous_origin.as_ref(),
+                        self.agent.host.native_window_target_name(previous),
+                    ) {
+                        session.capture_name(origin, &name, &self.dynamic_scripts.source_bytes)?;
                     }
                 }
                 if let (Some(previous), Some(history)) =
@@ -15638,16 +15877,18 @@ impl RustExecutableDocument {
                         (parent_dom.clone(), document)
                     };
                     let realm = self.agent.host.commit_frame_document_with_timing(
-                        frame,
-                        child_origin.clone(),
-                        frame_dom.clone(),
-                        child_document,
-                        Some(&url),
-                        response_broker,
-                        #[cfg(unix)]
-                        response_body.as_ref().map(|body| body.client.clone()),
-                        Some(ancestor_capture.clone()),
-                        response_timing.clone(),
+                        crate::host::FrameTimingCommitInput {
+                            frame,
+                            origin: child_origin.clone(),
+                            dom: frame_dom.clone(),
+                            document: child_document,
+                            committed_url: Some(&url),
+                            resource_broker: response_broker,
+                            #[cfg(unix)]
+                            resource_client: response_body.as_ref().map(|body| body.client.clone()),
+                            ancestor_capture: Some(ancestor_capture.clone()),
+                            timing: response_timing.clone(),
+                        },
                     )?;
                     (realm, frame_dom, child_document)
                 };
@@ -15661,6 +15902,12 @@ impl RustExecutableDocument {
                     self.dynamic_scripts.graph_slots.clone(),
                     self.dynamic_scripts.graph_fetches.clone(),
                 )?;
+                let adopted_policy = if adopted_initial_document && !self.has_parent_frame_context()
+                {
+                    self.agent.host.standalone_resource_policy()?
+                } else {
+                    None
+                };
                 if !self.has_parent_frame_context() && standalone_response_policy.is_none() {
                     let allow = parent_dom
                         .borrow()
@@ -15678,6 +15925,15 @@ impl RustExecutableDocument {
                     self.agent
                         .host
                         .set_standalone_document_policy(policy.document)?;
+                }
+                if let Some(policy) = adopted_policy {
+                    // Adoption keeps the already exposed Document's captured policy,
+                    // including a sandbox attribute removed after appendChild.
+                    self.agent.host.set_standalone_resource_policy(policy)?;
+                } else if !self.has_parent_frame_context() {
+                    self.agent
+                        .host
+                        .constrain_standalone_frame_sandbox(container_sandbox.as_deref())?;
                 }
                 self.agent.host.set_navigation_initial_document(false)?;
                 self.agent
@@ -15734,13 +15990,27 @@ impl RustExecutableDocument {
                     self.agent.host.inherit_frame_worker_policy()?;
                 }
                 #[cfg(unix)]
-                if navigation_failed {
-                    if let Some((client, page_id, _)) = &self.context {
-                        let response=client.request(crate::context_service::ContextServiceRequest::InstallRealmMetadata{
-                            page_id:*page_id,creator:self.agent.host.native_creator_for_realm(realm)?,
-                            meta_csp:Some("default-src 'none'; form-action 'none'; base-uri 'none'".into()),meta_referrer:Some("no-referrer".into())})
-                            .map_err(|error|HostError::Execution(error.to_string()))?;
-                        if !matches!(response,crate::context_service::ContextServiceResponse::DocumentSecurityInstalled){return Err(HostError::Execution("error document policy rejected".into()));}
+                if navigation_failed && let Some((client, page_id, _)) = &self.context {
+                    let response = client
+                        .request(
+                            crate::context_service::ContextServiceRequest::InstallRealmMetadata {
+                                page_id: *page_id,
+                                creator: self.agent.host.native_creator_for_realm(realm)?,
+                                meta_csp: Some(
+                                    "default-src 'none'; form-action 'none'; base-uri 'none'"
+                                        .into(),
+                                ),
+                                meta_referrer: Some("no-referrer".into()),
+                            },
+                        )
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    if !matches!(
+                        response,
+                        crate::context_service::ContextServiceResponse::DocumentSecurityInstalled
+                    ) {
+                        return Err(HostError::Execution(
+                            "error document policy rejected".into(),
+                        ));
                     }
                 }
                 if is_srcdoc || inherited_about_blank {
@@ -16010,15 +16280,12 @@ impl RustExecutableDocument {
                         .unwrap_or("")
                         .trim(),
                     "image/png" | "image/jpeg" | "image/gif" | "image/bmp" | "image/webp"
-                ) {
-                    if let Some(encoded) = response_raw_body.as_deref() {
-                        let bytes = base64::Engine::decode(
-                            &base64::engine::general_purpose::STANDARD,
-                            encoded,
-                        )
-                        .map_err(|error| HostError::Execution(error.to_string()))?;
-                        self.agent.host.seed_image_document(&bytes)?;
-                    }
+                ) && let Some(encoded) = response_raw_body.as_deref()
+                {
+                    let bytes =
+                        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+                            .map_err(|error| HostError::Execution(error.to_string()))?;
+                    self.agent.host.seed_image_document(&bytes)?;
                 }
                 prepare_parsed_child_frames(&mut self.agent.host, &frame_dom, child_document)?;
                 let child_scripts = if javascript_url.is_some() || adopted_initial_document {
@@ -16040,17 +16307,18 @@ impl RustExecutableDocument {
                             resource: "frame script preparation documents".into(),
                         });
                     }
-                    let mut preparation = FrameScriptPreparation::new(
-                        PreparedDocumentLoad { realm, identity },
-                        parent_realm,
-                        frame,
-                        frame_dom.clone(),
-                        child_scripts,
-                        true,
-                        refresh_url,
-                        &self.dynamic_scripts,
-                        &mut self.agent.host,
-                    )?;
+                    let mut preparation =
+                        FrameScriptPreparation::new(frame_script_preparation::FrameScriptInput {
+                            load: PreparedDocumentLoad { realm, identity },
+                            parent: parent_realm,
+                            frame,
+                            dom: frame_dom.clone(),
+                            records: child_scripts,
+                            lifecycle_allowed: true,
+                            _refresh_url: refresh_url,
+                            limits: &self.dynamic_scripts,
+                            host: &mut self.agent.host,
+                        })?;
                     preparation.restored_form_state = navigation_context
                         .as_ref()
                         .and_then(|context| context.archived_source.as_ref())
@@ -16174,15 +16442,15 @@ impl RustExecutableDocument {
                         if prepared.src.is_some() {
                             self.agent
                                 .host
-                                .set_module_credentials(&resource_name, include);
+                                .set_module_credentials(resource_name, include);
                         } else {
                             self.agent
                                 .host
-                                .set_inline_module_credentials(&resource_name, include);
+                                .set_inline_module_credentials(resource_name, include);
                         }
                         self.agent.host.set_module_referrer_policy(
-                            &resource_name,
-                            &referrer_policy,
+                            resource_name,
+                            referrer_policy,
                             prepared.src.is_none(),
                         );
                         #[cfg(unix)]
@@ -16208,8 +16476,8 @@ impl RustExecutableDocument {
                                 .unwrap_or_else(|_| requested.clone())
                         });
                         self.agent.host.execute_module_script_with_graph_error(
-                            &resource_name,
-                            &source,
+                            resource_name,
+                            source,
                             &self.resources,
                             requested.as_deref(),
                             prepared.graph_error,
@@ -16221,20 +16489,25 @@ impl RustExecutableDocument {
                             .host
                             .execute_browser_classic_script_with_started(
                                 script,
-                                &source,
-                                &resource_name,
-                                *muted_errors,
-                                prepared.cross_origin.as_deref().is_some_and(|value| {
-                                    value.eq_ignore_ascii_case("use-credentials")
-                                }),
-                                &referrer_policy,
-                                &resource_name,
-                                &mut || progress.entered = true,
+                                source,
+                                oryn_js::v8_bindings::StartedClassicScriptInputs {
+                                    resource_name,
+                                    muted_errors: *muted_errors,
+                                    include_credentials: prepared
+                                        .cross_origin
+                                        .as_deref()
+                                        .is_some_and(|value| {
+                                            value.eq_ignore_ascii_case("use-credentials")
+                                        }),
+                                    referrer_policy,
+                                    base_url: resource_name,
+                                    started: &mut || progress.entered = true,
+                                },
                             )?
                         {
                             self.diagnostics.push(script_diagnostic_at(
                                 HostError::Execution(detail),
-                                &resource_name,
+                                resource_name,
                             ));
                         }
                         self.agent.host.run_microtask_checkpoint()
@@ -16315,18 +16588,22 @@ impl RustExecutableDocument {
 
     fn load_dynamic_script_source(
         &mut self,
-        src: Option<&str>,
-        module: bool,
-        nonce: Option<&str>,
-        integrity: Option<&str>,
-        cross_origin: Option<&str>,
-        inline: &str,
-        base: &str,
-        url_encoding: &str,
-        referrer_policy: Option<&str>,
-        script_policy: Option<&str>,
-        local_script_policy: Option<&oryn_js::v8_bindings::ScriptPolicySnapshot>,
+        params: DynamicScriptSourceInput<'_>,
     ) -> Result<(String, String, bool, String), HostError> {
+        let DynamicScriptSourceInput {
+            src,
+            module,
+            nonce,
+            integrity,
+            cross_origin,
+            inline,
+            base,
+            url_encoding,
+            referrer_policy,
+            script_policy,
+            local_script_policy,
+        } = params;
+
         if let Some(snapshot) = local_script_policy {
             let policy = snapshot
                 .native::<crate::csp::CspPolicySet>()
@@ -16345,7 +16622,7 @@ impl RustExecutableDocument {
                 })
                 .unwrap_or_else(|| "inline".into());
             if !self.agent.host.authorize_captured_local_script(
-                &policy,
+                policy,
                 &crate::csp::CspRequest {
                     destination: crate::csp::CspDestination::Script,
                     url: requested,
@@ -16509,31 +16786,31 @@ impl RustExecutableDocument {
         }
         let mut form_authority = None;
         #[cfg(unix)]
-        if submission.is_some() {
-            if let Some((client, page_id, _)) = &self.context {
-                let request = if let Some(source) = document_source.as_ref() {
-                    crate::context_service::ContextServiceRequest::DocumentFormAuthority {
-                        page_id: *page_id,
-                        source: (**source).clone(),
-                    }
-                } else {
-                    return Err(HostError::Execution(
-                        "form document provenance was not installed before exposure".into(),
-                    ));
-                };
-                let response = client
-                    .request(request)
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                let crate::context_service::ContextServiceResponse::FormNavigationAuthority {
-                    authority,
-                } = response
-                else {
-                    return Err(HostError::Execution(
-                        "invalid native form source authority response".into(),
-                    ));
-                };
-                form_authority = Some(authority);
-            }
+        if submission.is_some()
+            && let Some((client, page_id, _)) = &self.context
+        {
+            let request = if let Some(source) = document_source.as_ref() {
+                crate::context_service::ContextServiceRequest::DocumentFormAuthority {
+                    page_id: *page_id,
+                    source: (**source).clone(),
+                }
+            } else {
+                return Err(HostError::Execution(
+                    "form document provenance was not installed before exposure".into(),
+                ));
+            };
+            let response = client
+                .request(request)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            let crate::context_service::ContextServiceResponse::FormNavigationAuthority {
+                authority,
+            } = response
+            else {
+                return Err(HostError::Execution(
+                    "invalid native form source authority response".into(),
+                ));
+            };
+            form_authority = Some(authority);
         }
         let post = submission.and_then(|transaction| transaction.navigation.post.clone());
         // GET form authorization is independent of target transport. POST
@@ -16608,6 +16885,7 @@ impl RustExecutableDocument {
                         user_initiated: link
                             .is_some_and(|link| link.navigation_source.user_initiated),
                         defer_navigation: false,
+                        local_related_navigation: false,
                         selected_target: parent_target.cloned(),
                         document_source: document_source.as_ref().map(|source| (**source).clone()),
                         creator: Some(self.agent.host.native_script_creator()?),
@@ -16630,7 +16908,13 @@ impl RustExecutableDocument {
                         opener_page_id,
                         related_root,
                         blank_prerender,
+                        related_navigation_url,
                     } => {
+                        if related_navigation_url.is_some() {
+                            return Err(HostError::Execution(
+                                "form or link target supplied local navigation".into(),
+                            ));
+                        }
                         if let Some(receipt) = blank_prerender {
                             if created || related_root.is_some() {
                                 return Err(HostError::Execution(
@@ -16694,16 +16978,15 @@ impl RustExecutableDocument {
         let standalone = self.context.is_none();
         #[cfg(not(unix))]
         let standalone = true;
-        if standalone && submission.is_some() {
-            if let Some(source) = document_source.as_ref() {
-                if !self.agent.host.local_document_form_allowed(
-                    source,
-                    &resolved,
-                    destination_realm,
-                )? {
-                    return Ok(());
-                }
-            }
+        if standalone
+            && submission.is_some()
+            && let Some(source) = document_source.as_ref()
+            && !self
+                .agent
+                .host
+                .local_document_form_allowed(source, &resolved, destination_realm)?
+        {
+            return Ok(());
         }
         let target_creator = self
             .agent
@@ -16769,30 +17052,30 @@ impl RustExecutableDocument {
                     oryn_js::navigation_api::NativeNavigationAdmission::Proceed {
                         operation,
                         destination,
-                    } => (operation, destination),
+                    } => (operation, destination.map(|entry| *entry)),
                 }
             };
         #[cfg(unix)]
-        if navigation_download.is_some() && link.and_then(|link| link.admission.as_ref()).is_none()
+        if navigation_download.is_some()
+            && link.and_then(|link| link.admission.as_ref()).is_none()
+            && let Some((client, page_id, _)) = &self.context
         {
-            if let Some((client, page_id, _)) = &self.context {
-                let creator = self.agent.host.native_script_creator()?;
-                match client
-                    .request(
-                        crate::context_service::ContextServiceRequest::AuthorizePageDownload {
-                            page_id: *page_id,
-                            creator,
-                            url: resolved.clone(),
-                        },
-                    )
-                    .map_err(|error| HostError::Execution(error.to_string()))?
-                {
-                    crate::context_service::ContextServiceResponse::PageDownloadAuthorized => {}
-                    _ => {
-                        return Err(HostError::Execution(
-                            "invalid download admission response".into(),
-                        ));
-                    }
+            let creator = self.agent.host.native_script_creator()?;
+            match client
+                .request(
+                    crate::context_service::ContextServiceRequest::AuthorizePageDownload {
+                        page_id: *page_id,
+                        creator,
+                        url: resolved.clone(),
+                    },
+                )
+                .map_err(|error| HostError::Execution(error.to_string()))?
+            {
+                crate::context_service::ContextServiceResponse::PageDownloadAuthorized => {}
+                _ => {
+                    return Err(HostError::Execution(
+                        "invalid download admission response".into(),
+                    ));
                 }
             }
         }
@@ -16992,6 +17275,56 @@ fn binding_rule_view(rule: oryn_layout::cssom::RuleView) -> oryn_js::v8_bindings
 mod tests {
     use super::*;
 
+    #[test]
+    fn native_csp_trace_survives_legacy_reader_failure_and_rejects_forged_entries() {
+        let mut page = crate::executable::RustExecutableDocument::load_with_environment(
+            "<body>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://example.test/").unwrap()),
+        )
+        .unwrap();
+        let policy = crate::csp::CspPolicySet::from_headers(
+            "https://example.test/",
+            &[("Content-Security-Policy".into(), "media-src 'none'".into())],
+        );
+        let violation = policy
+            .authorize(&crate::csp::CspRequest {
+                destination: crate::csp::CspDestination::Media,
+                url: "https://example.test/real.mp4".into(),
+                nonce: None,
+                inline_source: None,
+                parser_inserted: false,
+                initiated_by_trusted_script: false,
+            })
+            .violations
+            .into_iter()
+            .next()
+            .unwrap();
+        page.agent
+            .host
+            .script_report_queue()
+            .unwrap()
+            .push(vec![violation])
+            .unwrap();
+        page.agent.host.drain_scheduled_timers(false).unwrap();
+        page.execute("__oryn_take_context_trace=()=>{throw Error('legacy reader failed')}")
+            .unwrap();
+        assert!(page.take_context_trace_entries().is_err());
+        page.execute("__oryn_take_context_trace=()=>({wrong:'shape'})")
+            .unwrap();
+        assert!(page.take_context_trace_entries().is_err());
+        page.execute("__oryn_take_context_trace=()=>[{kind:'native_csp_violation',detail:{blocked_uri:'forged'}},{kind:'native_csp_trace_overflow',detail:{omitted:42}}]").unwrap();
+        let entries = page.take_context_trace_entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].kind, "native_csp_violation");
+        assert_eq!(
+            entries[0].detail["blocked_uri"],
+            "https://example.test/real.mp4"
+        );
+        assert!(page.take_context_trace_entries().unwrap().is_empty());
+    }
+
     #[cfg(unix)]
     #[test]
     fn embedded_response_mime_selects_one_image_or_svg_document_owner() {
@@ -17003,6 +17336,7 @@ mod tests {
                 let svg = request.url.contains("svg");
                 self.0.lock().unwrap().push(request.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -17125,13 +17459,27 @@ mod tests {
                 .unwrap(),
             "svg"
         );
-        page.execute("o.name='changedName'").unwrap();
         assert_eq!(
-            page.evaluate(
-                "String(initialName===o.contentWindow&&typeof changedName==='undefined')"
-            )
-            .unwrap(),
+            page.evaluate("String(initialName===o.contentWindow&&initialName!==o)")
+                .unwrap(),
             "true"
+        );
+        page.execute("o.name='changedName'").unwrap();
+        // The object's child keeps its initial target name; its current element
+        // name independently participates in Window named access.
+        assert_eq!(
+            page.evaluate("String(initialName===o.contentWindow)")
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            page.evaluate("String(changedName===o&&changedName!==o.contentWindow)")
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            page.evaluate("o.name+'|'+o.contentWindow.name").unwrap(),
+            "changedName|initialName"
         );
         page.execute("URL.revokeObjectURL(blob);o.data='';o.data=blob")
             .unwrap();
@@ -17158,6 +17506,7 @@ mod tests {
                 }
                 let raster = request.url.ends_with(".png");
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if request.url.ends_with("/empty") {
@@ -17298,6 +17647,7 @@ mod tests {
                     return Err(NetworkError::Transport("network failure".into()));
                 }
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -17360,6 +17710,7 @@ mod tests {
                     }
                     if self.2 {
                         Ok(NetworkResponse {
+                            response_policy: None,
                             timing: None,
                             request_id: request.request_id,
                             status: 204,
@@ -17439,6 +17790,7 @@ mod tests {
                 self.0.lock().unwrap().push(request.url.clone());
                 let failed = request.url.contains("failed");
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if failed { 404 } else { 200 },
@@ -19685,6 +20037,15 @@ mod tests {
         "#,
         )
         .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while !page.document_load_complete() {
+            page.drain_tasks().unwrap();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "document.close module continuation"
+            );
+            std::thread::park_timeout(Duration::from_millis(1));
+        }
         assert_eq!(page.evaluate("order.join(',')").unwrap(), "classic,module");
     }
 
@@ -19699,6 +20060,15 @@ mod tests {
         "#,
         )
         .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while !page.document_load_complete() {
+            page.drain_tasks().unwrap();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "document.close module continuation"
+            );
+            std::thread::park_timeout(Duration::from_millis(1));
+        }
         assert_eq!(
             page.evaluate("String(document.body!==null)+'|'+moduleRuns")
                 .unwrap(),
@@ -19811,19 +20181,19 @@ mod tests {
         )
         .unwrap();
         page.context = Some((client, oryn_common::v3::PageId(1), None));
-        let result = page.load_dynamic_script_source(
-            None,
-            false,
-            None,
-            None,
-            None,
-            "globalThis.deniedRan=true",
-            "https://inline.test/",
-            "UTF-8",
-            None,
-            None,
-            None,
-        );
+        let result = page.load_dynamic_script_source(DynamicScriptSourceInput {
+            src: None,
+            module: false,
+            nonce: None,
+            integrity: None,
+            cross_origin: None,
+            inline: "globalThis.deniedRan=true",
+            base: "https://inline.test/",
+            url_encoding: "UTF-8",
+            referrer_policy: None,
+            script_policy: None,
+            local_script_policy: None,
+        });
         assert!(
             matches!(result,Err(HostError::ScriptLoad(crate::script_load_failure::ScriptLoadFailure::Fetch(message))) if message=="native inline policy denial")
         );
@@ -19866,7 +20236,7 @@ mod tests {
             source_load: None,
         });
         assert!(
-            matches!(page.load_dynamic_script_source(Some("unprepared.js"),false,None,None,None,"","https://example.test/","UTF-8",None,None,None),
+            matches!(page.load_dynamic_script_source(DynamicScriptSourceInput { src: Some("unprepared.js"), module: false, nonce: None, integrity: None, cross_origin: None, inline: "", base: "https://example.test/", url_encoding: "UTF-8", referrer_policy: None, script_policy: None, local_script_policy: None }),
             Err(HostError::Execution(message)) if message.contains("asynchronous source preparation"))
         );
         page.dynamic_scripts
@@ -20022,8 +20392,8 @@ mod tests {
             &scheduler.source_bytes,
         );
         scheduler
-            .apply_completion(
-                ParserResourceCompletion::Script {
+            .apply_completion(ParserCompletionInput {
+                completion: ParserResourceCompletion::Script {
                     realm: identity.realm,
                     stream_epoch: identity.stream_epoch,
                     document_generation: identity.document_generation,
@@ -20033,13 +20403,13 @@ mod tests {
                     asynchronous: true,
                     result: loaded,
                 },
-                &dom,
-                &mut page.agent.host,
-                &mut page.resources,
-                &mut BTreeMap::new(),
-                &mut page.diagnostics,
-                page.context.as_ref(),
-            )
+                live_dom: &dom,
+                host: &mut page.agent.host,
+                resources: &mut page.resources,
+                deferred: &mut BTreeMap::new(),
+                diagnostics: &mut page.diagnostics,
+                context: page.context.as_ref(),
+            })
             .unwrap();
         assert_eq!(scheduler.async_modules.len(), 1);
         scheduler
@@ -20641,7 +21011,7 @@ mod tests {
 
     #[test]
     fn buffered_import_remaps_parser_events_without_reusing_existing_nodes() {
-        let mut page = RustExecutableDocument::load("<p id=old>old</p>").unwrap();
+        let page = RustExecutableDocument::load("<p id=old>old</p>").unwrap();
         let dom = page.agent.dom.clone();
         let old = dom.borrow().find_by_id("old").unwrap();
         let root = dom.borrow().document();
@@ -21110,8 +21480,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(budget.load(Ordering::Acquire), 15);
-        let mut first = ParserScriptFetch::default();
-        first.loaded = Some(loaded);
+        let first = ParserScriptFetch {
+            loaded: Some(loaded),
+            ..Default::default()
+        };
         let second = first.clone();
         assert!(Arc::ptr_eq(
             first.loaded.as_ref().unwrap(),
@@ -21341,15 +21713,15 @@ mod tests {
                 }
                 assert!(
                     scheduler
-                        .apply_completion(
+                        .apply_completion(ParserCompletionInput {
                             completion,
-                            &dom,
-                            &mut page.agent.host,
-                            &mut BTreeMap::new(),
-                            &mut BTreeMap::new(),
-                            &mut Vec::new(),
-                            None
-                        )
+                            live_dom: &dom,
+                            host: &mut page.agent.host,
+                            resources: &mut BTreeMap::new(),
+                            deferred: &mut BTreeMap::new(),
+                            diagnostics: &mut Vec::new(),
+                            context: None
+                        })
                         .is_err()
                 );
                 if stage == 3 {
@@ -21370,15 +21742,15 @@ mod tests {
             }
             let completion = scheduler.try_next().unwrap();
             scheduler
-                .apply_completion(
+                .apply_completion(ParserCompletionInput {
                     completion,
-                    &dom,
-                    &mut page.agent.host,
-                    &mut BTreeMap::new(),
-                    &mut BTreeMap::new(),
-                    &mut Vec::new(),
-                    None,
-                )
+                    live_dom: &dom,
+                    host: &mut page.agent.host,
+                    resources: &mut BTreeMap::new(),
+                    deferred: &mut BTreeMap::new(),
+                    diagnostics: &mut Vec::new(),
+                    context: None,
+                })
                 .unwrap();
             assert_eq!(scheduler.pending, 1);
             assert_eq!(scheduler.async_executions.len(), 1);
@@ -21425,15 +21797,15 @@ mod tests {
             FAIL_PARSER_RESOURCE_PUBLICATION.with(|flag| flag.set(3));
             assert!(
                 scheduler
-                    .apply_completion(
+                    .apply_completion(ParserCompletionInput {
                         completion,
-                        &dom,
-                        &mut page.agent.host,
-                        &mut BTreeMap::new(),
-                        &mut BTreeMap::new(),
-                        &mut Vec::new(),
-                        None
-                    )
+                        live_dom: &dom,
+                        host: &mut page.agent.host,
+                        resources: &mut BTreeMap::new(),
+                        deferred: &mut BTreeMap::new(),
+                        diagnostics: &mut Vec::new(),
+                        context: None
+                    })
                     .is_err()
             );
             assert_eq!(scheduler.pending, 1);
@@ -21710,6 +22082,7 @@ mod tests {
             ) -> Result<crate::network::NetworkResponse, crate::network::NetworkError> {
                 self.0.fetch_add(1, Ordering::AcqRel);
                 Ok(crate::network::NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -21765,6 +22138,7 @@ mod tests {
                 self.started.send(()).unwrap();
                 self.release.lock().unwrap().recv().unwrap();
                 Ok(crate::network::NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -21836,6 +22210,7 @@ mod tests {
                 self.started.send(()).unwrap();
                 self.release.lock().unwrap().recv().unwrap();
                 Ok(crate::network::NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -21903,11 +22278,11 @@ mod tests {
             fn request(&self, request: Q) -> Result<R, crate::RuntimeError> {
                 match request {
                     Q::MessageWire {
-                        source_page_id,
+                        source_page_id: oryn_common::v3::PageId(2),
                         request:
                             oryn_js::message_wire::MessageRequest::RegisterRootDocument { .. }
                             | oryn_js::message_wire::MessageRequest::RetireRootDocument { .. },
-                    } if source_page_id == oryn_common::v3::PageId(2) => Ok(R::MessageWire {
+                    } => Ok(R::MessageWire {
                         result: Ok(oryn_js::message_wire::MessageResponse::Done),
                     }),
                     unexpected => {
@@ -21995,15 +22370,15 @@ mod tests {
             record.2 = Some("module".into());
             let fetch = ParserFetchContext::capture(&page.agent.host, &dom, node).unwrap();
             scheduler
-                .schedule_script(
-                    client.clone(),
-                    oryn_common::v3::PageId(1),
+                .schedule_script(ParserScriptScheduleInput {
+                    client: client.clone(),
+                    page_id: oryn_common::v3::PageId(1),
                     order,
                     record,
-                    order == 1,
+                    asynchronous: order == 1,
                     fetch,
-                    &mut page.agent.host,
-                )
+                    host: &mut page.agent.host,
+                })
                 .unwrap();
         }
         assert_eq!(scheduler.module_sources.len(), 2);
@@ -22067,6 +22442,7 @@ mod tests {
                     .recv_timeout(Duration::from_secs(5))
                     .map_err(|error| crate::network::NetworkError::Transport(error.to_string()))?;
                 Ok(crate::network::NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -22158,15 +22534,15 @@ mod tests {
         );
         let mut parser = ParserResourceScheduler::with_page_limits(&page.dynamic_scripts);
         parser
-            .schedule_script(
-                client.clone(),
-                oryn_common::v3::PageId(1),
-                0,
+            .schedule_script(ParserScriptScheduleInput {
+                client: client.clone(),
+                page_id: oryn_common::v3::PageId(1),
+                order: 0,
                 record,
-                false,
+                asynchronous: false,
                 fetch,
-                &mut page.agent.host,
-            )
+                host: &mut page.agent.host,
+            })
             .unwrap();
         assert!(parser.try_next_with_host(&mut page.agent.host).is_none());
         page.agent.host.execute("const s=document.createElement('script');s.type='module';s.src='./shared.js';s.onload=()=>globalThis.dynamicLoaded=true;document.body.append(s)").unwrap();
@@ -22277,15 +22653,15 @@ mod tests {
             record.2 = Some("module".into());
             let fetch = ParserFetchContext::capture(&page.agent.host, &dom, node).unwrap();
             scheduler
-                .schedule_script(
-                    client.clone(),
-                    oryn_common::v3::PageId(1),
+                .schedule_script(ParserScriptScheduleInput {
+                    client: client.clone(),
+                    page_id: oryn_common::v3::PageId(1),
                     order,
                     record,
-                    false,
+                    asynchronous: false,
                     fetch,
-                    &mut page.agent.host,
-                )
+                    host: &mut page.agent.host,
+                })
                 .unwrap();
             assert!(scheduler.script_leases.is_empty());
             let ParserResourceCompletion::Script { result, .. } = scheduler.try_next().unwrap()
@@ -22390,15 +22766,15 @@ mod tests {
         let fetch = ParserFetchContext::capture(&page.agent.host, &dom, node).unwrap();
         let mut scheduler = ParserResourceScheduler::new();
         scheduler
-            .schedule_script(
-                client.clone(),
-                oryn_common::v3::PageId(1),
-                4,
+            .schedule_script(ParserScriptScheduleInput {
+                client: client.clone(),
+                page_id: oryn_common::v3::PageId(1),
+                order: 4,
                 record,
-                false,
+                asynchronous: false,
                 fetch,
-                &mut page.agent.host,
-            )
+                host: &mut page.agent.host,
+            })
             .unwrap();
         started.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(scheduler.pending, 1);
@@ -23378,6 +23754,7 @@ mod tests {
                     headers.push(("location".into(), "/final.js".into()));
                 }
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if redirect { 302 } else { 200 },
@@ -23459,6 +23836,7 @@ mod tests {
                     ("text/css", "@import './ignored.css'; p { color: red }")
                 };
                 Ok(crate::network::NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -23504,6 +23882,7 @@ mod tests {
                 request: crate::network::NetworkRequest,
             ) -> Result<crate::network::NetworkResponse, crate::network::NetworkError> {
                 Ok(crate::network::NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -23567,6 +23946,7 @@ mod tests {
                     )
                 };
                 Ok(crate::network::NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -23627,6 +24007,7 @@ mod tests {
                     "export const value=42;"
                 };
                 Ok(crate::network::NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -23718,6 +24099,7 @@ mod tests {
                     "export const value=42;"
                 };
                 Ok(crate::network::NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -24213,6 +24595,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(request.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -24335,6 +24718,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(request.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -24406,6 +24790,7 @@ mod tests {
                     _ => "export const value=42;",
                 };
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -24475,6 +24860,7 @@ mod tests {
         impl NetworkBroker for Scripts {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -24524,6 +24910,7 @@ mod tests {
         impl NetworkBroker for Scripts {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -24607,6 +24994,7 @@ mod tests {
         impl NetworkBroker for Scripts {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -24668,6 +25056,7 @@ mod tests {
                     .get(&request.url)
                     .ok_or_else(|| NetworkError::Transport("unexpected module request".into()))?;
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -26835,7 +27224,7 @@ mod tests {
                 globalThis.order=[];
                 Object.defineProperty(document,'baseURI',{value:'https://wrong.test/'});
                 for(const src of ['dynamic.js',' \t\n']) {
-                    const script=document.createElement('script');script.setAttribute('src',src);
+                    const script=document.createElement('script');script.async=false;script.setAttribute('src',src);
                     script.textContent='order.push("unexpected-inline")';
                     document.body.appendChild(script);
                 }
@@ -29811,6 +30200,7 @@ mod tests {
                     vec![("content-type".into(), "text/javascript".into())]
                 };
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if redirect { 302 } else { 200 },
@@ -29857,6 +30247,7 @@ mod tests {
         impl NetworkBroker for Scripts {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -31612,10 +32003,10 @@ mod tests {
             let raw = page
                 .evaluate("JSON.stringify(globalThis.__oryn_wpt_completion)")
                 .unwrap();
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
-                if value.get("complete").and_then(|value| value.as_bool()) == Some(true) {
-                    break value;
-                }
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw)
+                && value.get("complete").and_then(|value| value.as_bool()) == Some(true)
+            {
+                break value;
             }
             assert!(
                 std::time::Instant::now() < deadline,
@@ -33588,7 +33979,8 @@ mod frame_stylesheet_transfer_tests {
                     content_type: Some("text/html".into()),
                     referrer_policy: String::new(),
                     modals_allowed: true,
-                }),
+                })
+                .into(),
             };
             assert!(
                 apply_parser_resource_completion(
@@ -36383,17 +36775,16 @@ impl RustExecutableDocument {
         let form = dom
             .form_owner(focused)
             .map_err(|error| HostError::Execution(error.to_string()))?;
-        if let Some(form) = form {
-            if dom
+        if let Some(form) = form
+            && dom
                 .arena()
                 .node_document(form)
                 .map_err(|error| HostError::Execution(error.to_string()))?
                 != Some(selected.document_root)
-            {
-                return Err(HostError::Execution(
-                    "focused form belongs to another document".into(),
-                ));
-            }
+        {
+            return Err(HostError::Execution(
+                "focused form belongs to another document".into(),
+            ));
         }
         Ok(form)
     }
@@ -36437,13 +36828,11 @@ impl RustExecutableDocument {
                 .node_document(node)
                 .map_err(|error| HostError::Execution(error.to_string()))?
                 == Some(scope.document_root)
-            {
-                if let Some(picker) = dom
+                && let Some(picker) = dom
                     .file_picker_snapshot(node)
                     .map_err(|error| HostError::Execution(error.to_string()))?
-                {
-                    result.push((node, picker));
-                }
+            {
+                result.push((node, picker));
             }
         }
         Ok(result)
@@ -36466,13 +36855,11 @@ impl RustExecutableDocument {
                     .node_document(entry.node)
                     .map_err(|error| HostError::Execution(error.to_string()))?
                     == Some(scope.document_root)
-            {
-                if let Some(prompt) = dom
+                && let Some(prompt) = dom
                     .permission_prompt_snapshot(entry.node)
                     .map_err(|error| HostError::Execution(error.to_string()))?
-                {
-                    result.push((entry.node, prompt));
-                }
+            {
+                result.push((entry.node, prompt));
             }
         }
         Ok(result)
@@ -36495,13 +36882,11 @@ impl RustExecutableDocument {
                     .node_document(entry.node)
                     .map_err(|error| HostError::Execution(error.to_string()))?
                     == Some(scope.document_root)
-            {
-                if let Some(picker) = dom
+                && let Some(picker) = dom
                     .temporal_picker_snapshot(entry.node)
                     .map_err(|error| HostError::Execution(error.to_string()))?
-                {
-                    result.push((entry.node, picker));
-                }
+            {
+                result.push((entry.node, picker));
             }
         }
         Ok(result)
@@ -36674,6 +37059,45 @@ impl RustExecutableDocument {
 mod recoverable_shared_constructor_tests {
     use super::*;
 
+    #[test]
+    fn blank_constructor_preserves_native_origin_identity_and_inherited_base() {
+        for origin in [
+            oryn_js::origin::Origin::from_url("https://origin.test/source"),
+            oryn_js::origin::Origin::opaque(),
+        ] {
+            let resources = BTreeMap::from([(
+                "oryn:inherited-navigation-base".into(),
+                "https://origin.test/base/".into(),
+            )]);
+            let mut page =
+                RustExecutableDocument::load_with_inherited_origin(InheritedOriginLoadInput {
+                    parsed: None,
+                    source: None,
+                    html: "<!doctype html><script>globalThis.seenBase=document.baseURI</script>",
+                    resources: &resources,
+                    broker: None,
+                    base_url: Some(Url::parse("about:blank").unwrap()),
+                    max_heap_bytes: 256 * 1024 * 1024,
+                    scheduled: false,
+                    origin: origin.clone(),
+                })
+                .unwrap();
+            assert_eq!(
+                page.agent
+                    .host
+                    .realm_descriptor(page.top_realm)
+                    .unwrap()
+                    .origin,
+                origin
+            );
+            assert_eq!(
+                page.evaluate("seenBase").unwrap(),
+                "https://origin.test/base/"
+            );
+            assert_eq!(page.evaluate("document.URL").unwrap(), "about:blank");
+        }
+    }
+
     fn prepared_shared_host() -> (RawV8Host, RealmId, RealmId) {
         let mut incumbent =
             RustExecutableDocument::load("<!doctype html><p id=incumbent>retained</p>").unwrap();
@@ -36726,18 +37150,18 @@ mod recoverable_shared_constructor_tests {
                 }
                 _ => unreachable!(),
             };
-            let result = RustExecutableDocument::load_in_agent(
+            let result = RustExecutableDocument::load_in_agent(AgentDocumentLoadInput {
                 parsed,
-                None,
-                "<!doctype html><p>replacement</p>",
-                &resources,
-                None,
-                Some(Url::parse("https://constructor.test/new").unwrap()),
-                256 * 1024 * 1024,
+                source: None,
+                html: "<!doctype html><p>replacement</p>",
+                resources: &resources,
+                broker: None,
+                base_url: Some(Url::parse("https://constructor.test/new").unwrap()),
+                max_heap_bytes: 256 * 1024 * 1024,
                 #[cfg(unix)]
-                None,
-                &mut recovery,
-            );
+                context: None,
+                recovery: &mut recovery,
+            });
             let error = match result {
                 Ok(_) => panic!("invalid {failure} unexpectedly constructed"),
                 Err(error) => error.to_string(),
@@ -36762,18 +37186,18 @@ mod recoverable_shared_constructor_tests {
     fn successful_nonzero_root_construction_transfers_host_once_and_keeps_sibling() {
         let (host, original, destination) = prepared_shared_host();
         let mut recovery = Some(host);
-        let mut document = RustExecutableDocument::load_in_agent(
-            None,
-            None,
-            "<!doctype html><p id=new>new</p>",
-            &BTreeMap::new(),
-            None,
-            Some(Url::parse("https://constructor.test/new").unwrap()),
-            256 * 1024 * 1024,
+        let mut document = RustExecutableDocument::load_in_agent(AgentDocumentLoadInput {
+            parsed: None,
+            source: None,
+            html: "<!doctype html><p id=new>new</p>",
+            resources: &BTreeMap::new(),
+            broker: None,
+            base_url: Some(Url::parse("https://constructor.test/new").unwrap()),
+            max_heap_bytes: 256 * 1024 * 1024,
             #[cfg(unix)]
-            None,
-            &mut recovery,
-        )
+            context: None,
+            recovery: &mut recovery,
+        })
         .unwrap();
         assert!(recovery.is_none());
         assert!(document.has_agent_host());
@@ -36791,18 +37215,18 @@ mod recoverable_shared_constructor_tests {
     #[test]
     fn absent_recovery_host_fails_without_allocating_an_independent_isolate() {
         let mut recovery = None;
-        let result = RustExecutableDocument::load_in_agent(
-            None,
-            None,
-            "<p>never installed</p>",
-            &BTreeMap::new(),
-            None,
-            None,
-            256 * 1024 * 1024,
+        let result = RustExecutableDocument::load_in_agent(AgentDocumentLoadInput {
+            parsed: None,
+            source: None,
+            html: "<p>never installed</p>",
+            resources: &BTreeMap::new(),
+            broker: None,
+            base_url: None,
+            max_heap_bytes: 256 * 1024 * 1024,
             #[cfg(unix)]
-            None,
-            &mut recovery,
-        );
+            context: None,
+            recovery: &mut recovery,
+        });
         let error = match result {
             Ok(_) => panic!("missing agent host unexpectedly constructed"),
             Err(error) => error.to_string(),
@@ -37135,6 +37559,44 @@ mod retained_pointer_route_tests {
 mod retained_print_scope_tests {
     use super::*;
     #[test]
+    fn script_commands_reselect_their_scope_after_a_foreign_realm_turn() {
+        let mut page = RustExecutableDocument::load("<body></body>").unwrap();
+        page.execute("globalThis.marker='root';globalThis.frame=document.createElement('iframe');document.body.append(frame);frame.contentWindow.marker='child'").unwrap();
+        let child = page
+            .automation_realms()
+            .into_iter()
+            .find(|entry| entry.parent_realm == Some(page.top_realm))
+            .unwrap();
+        page.agent.host.activate_realm(child.realm).unwrap();
+        assert_eq!(page.evaluate("marker").unwrap(), "root");
+        page.agent.host.activate_realm(child.realm).unwrap();
+        page.execute("globalThis.marker='root-updated'").unwrap();
+        assert_eq!(
+            page.evaluate("frame.contentWindow.marker").unwrap(),
+            "child"
+        );
+        page.set_automation_scope(Some(child.clone())).unwrap();
+        page.agent.host.activate_realm(page.top_realm).unwrap();
+        assert_eq!(page.evaluate("marker").unwrap(), "child");
+        page.agent.host.activate_realm(page.top_realm).unwrap();
+        page.execute("globalThis.marker='child-updated'").unwrap();
+        page.set_automation_scope(None).unwrap();
+        assert_eq!(
+            page.evaluate("marker+','+frame.contentWindow.marker")
+                .unwrap(),
+            "root-updated,child-updated"
+        );
+        page.execute("frame.remove()").unwrap();
+        // Simulate a selection captured before retirement; reject it before
+        // executing source in whichever surviving realm is currently active.
+        page.automation_scope = Some(child);
+        assert!(page.execute("globalThis.marker='wrong'").is_err());
+        assert!(page.evaluate("globalThis.marker='wrong'").is_err());
+        page.set_automation_scope(None).unwrap();
+        assert_eq!(page.evaluate("marker").unwrap(), "root-updated");
+    }
+
+    #[test]
     fn selected_frame_print_delivers_only_its_original_descendant_tree() {
         let mut page = RustExecutableDocument::load("<body></body>").unwrap();
         page.execute("globalThis.trace=[];globalThis.f=document.createElement('iframe');document.body.append(f);const nested=f.contentDocument.createElement('iframe');f.contentDocument.body.append(nested);onbeforeprint=()=>trace.push('root-before');onafterprint=()=>trace.push('root-after');f.contentWindow.onbeforeprint=()=>trace.push('frame-before');f.contentWindow.onafterprint=()=>trace.push('frame-after');nested.contentWindow.onbeforeprint=()=>trace.push('nested-before');nested.contentWindow.onafterprint=()=>trace.push('nested-after')").unwrap();
@@ -37230,7 +37692,15 @@ mod prerender_host_return_tests {
         let mut other = RustExecutableDocument::load("<!doctype html><p>other</p>").unwrap();
         let foreign = other.take_agent_host().unwrap();
         let foreign_identity = foreign.agent_host_identity();
-        let Err((_, returned)) = source.return_agent_host_after_turn(foreign) else {
+        let Err((_, returned)) = source.install_agent_host(foreign) else {
+            panic!("foreign host installed")
+        };
+        assert!(Rc::ptr_eq(
+            &foreign_identity,
+            &returned.agent_host_identity()
+        ));
+        assert!(!source.has_agent_host());
+        let Err((_, returned)) = source.return_agent_host_after_turn(*returned) else {
             panic!("foreign host accepted")
         };
         assert!(Rc::ptr_eq(
@@ -37246,7 +37716,7 @@ mod prerender_host_return_tests {
         );
         assert!(
             other
-                .return_agent_host_after_turn(returned)
+                .return_agent_host_after_turn(*returned)
                 .unwrap_or_else(|(error, _)| panic!("foreign owner return rejected: {error}"))
                 .is_none()
         );

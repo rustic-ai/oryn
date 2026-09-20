@@ -159,13 +159,12 @@ fn expired(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v
     if state.execution_retired() {
         return;
     }
-    if let Some(pending) = state.document_refresh.borrow_mut().pending.as_mut() {
-        if pending.id == id
-            && pending.generation == state.document_generation()
-            && pending.epoch == state.document_stream_epoch()
-        {
-            pending.due = true;
-        }
+    if let Some(pending) = state.document_refresh.borrow_mut().pending.as_mut()
+        && pending.id == id
+        && pending.generation == state.document_generation()
+        && pending.epoch == state.document_stream_epoch()
+    {
+        pending.due = true;
     }
 }
 

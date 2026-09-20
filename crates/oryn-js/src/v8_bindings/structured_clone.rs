@@ -254,14 +254,14 @@ impl v8::ValueSerializerImpl for Serializer {
             clone_error(scope);
             return None;
         }
-        if let Some(identity) = message_ports::transfer_identity(scope, object.into()) {
-            if let Some(index) = self.ports.iter().position(|key| *key == identity) {
-                let mut hosts = self.hosts.borrow_mut();
-                let id = u32::try_from(hosts.len()).ok()?;
-                hosts.push(HostData::Port(index as u32));
-                writer.write_uint32(id);
-                return Some(true);
-            }
+        if let Some(identity) = message_ports::transfer_identity(scope, object.into())
+            && let Some(index) = self.ports.iter().position(|key| *key == identity)
+        {
+            let mut hosts = self.hosts.borrow_mut();
+            let id = u32::try_from(hosts.len()).ok()?;
+            hosts.push(HostData::Port(index as u32));
+            writer.write_uint32(id);
+            return Some(true);
         }
         if let Some(stream) = stream_transfer::identify(scope, object.into()) {
             let Some((_, _, index)) = self
@@ -541,7 +541,7 @@ impl v8::ValueSerializerImpl for Serializer {
                 backing: buffer.get_backing_store(),
                 lease,
             });
-            return Some(id);
+            Some(id)
         }
         #[cfg(not(unix))]
         {
@@ -674,7 +674,11 @@ impl v8::ValueDeserializerImpl for Deserializer<'_> {
                     point_components(scope, object)?;
                     points.set_index(scope, index, point);
                 }
-                let template = state.instance_templates.borrow().get("DOMQuad").cloned()?;
+                let template = state
+                    .instance_templates
+                    .borrow()
+                    .get("DOMQuad")
+                    .and_then(|template| template.to_global(scope))?;
                 let object = v8::Local::new(scope, &template).new_instance(scope)?;
                 set_quad_points(scope, object, points).ok()?;
                 return Some(object);
@@ -701,7 +705,7 @@ impl v8::ValueDeserializerImpl for Deserializer<'_> {
                     .instance_templates
                     .borrow()
                     .get("ImageData")
-                    .cloned()?;
+                    .and_then(|template| template.to_global(scope))?;
                 let object = v8::Local::new(scope, &template).new_instance(scope)?;
                 initialize_image_data(scope, object, *width, *height, pixels).ok()?;
                 return Some(object);
@@ -1357,7 +1361,13 @@ fn module_origin(scope: &mut v8::PinScope) -> Option<[u8; 32]> {
     let context = scope.get_current_context();
     let state = context.get_slot::<V8BindingState>()?;
     if let Some(transport) = state.worker_transport.borrow().clone() {
-        let creator = state.native_worker_creator().ok()?;
+        let creator = match state.native_worker_creator() {
+            Ok(creator) => creator,
+            Err(_) => {
+                clone_error(scope);
+                return None;
+            }
+        };
         return match transport.request(crate::worker_wire::AgentServiceRequest::SharedMemory {
             creator,
             request: crate::shared_memory::SharedMemoryRequest::CloneOrigin,
@@ -1406,11 +1416,11 @@ pub fn serialize_wire_with_activation(
     activation: impl FnOnce(&mut v8::PinScope) -> Option<[bool; 2]>,
 ) -> Option<crate::message_wire::WireValue> {
     for value in transfers {
-        if let Some((_, _, port)) = message_ports::transferable(scope, *value) {
-            if !message_ports::wire_transfer_supported(&port) {
-                clone_error(scope);
-                return None;
-            }
+        if let Some((_, _, port)) = message_ports::transferable(scope, *value)
+            && !message_ports::wire_transfer_supported(&port)
+        {
+            clone_error(scope);
+            return None;
         }
     }
     // For IPC let V8 serialize the buffer itself (including resizable metadata

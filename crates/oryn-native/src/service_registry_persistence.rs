@@ -422,20 +422,20 @@ impl ServiceRegistry {
                 ));
             }
             records.retain(|record| record.scope != scope);
-            if let Some(record) = &record {
-                if record.active.is_some() || record.waiting.is_some() {
-                    records.push(StoredRegistration {
-                        active_version: record.active_version,
-                        waiting_version: record.waiting_version,
-                        lineage: record.lineage.clone(),
-                        navigation_preload: record.navigation_preload.clone(),
-                        last_update_check_ms: record.last_update_check_ms,
-                        scope: record.scope.clone(),
-                        update_via_cache: record.update_via_cache.clone(),
-                        active: record.active.clone(),
-                        waiting: record.waiting.clone(),
-                    });
-                }
+            if let Some(record) = &record
+                && (record.active.is_some() || record.waiting.is_some())
+            {
+                records.push(StoredRegistration {
+                    active_version: record.active_version,
+                    waiting_version: record.waiting_version,
+                    lineage: record.lineage.clone(),
+                    navigation_preload: record.navigation_preload.clone(),
+                    last_update_check_ms: record.last_update_check_ms,
+                    scope: record.scope.clone(),
+                    update_via_cache: record.update_via_cache.clone(),
+                    active: record.active.clone(),
+                    waiting: record.waiting.clone(),
+                });
             }
             let bytes =
                 serde_json::to_vec(&records).map_err(|failure| error(failure.to_string()))?;
@@ -1004,6 +1004,35 @@ impl ServiceRegistry {
 #[cfg(all(test, feature = "v8-host"))]
 mod tests {
     use super::*;
+    fn worker_failure_diagnostic(failure: &WorkerError) -> String {
+        fn prefix(value: &str, cap: usize) -> &str {
+            let mut end = value.len().min(cap);
+            while !value.is_char_boundary(end) {
+                end -= 1;
+            }
+            &value[..end]
+        }
+        format!(
+            "name={:?} name_bytes={} message={:?} message_bytes={} script_failure={:?}",
+            prefix(&failure.name, 64),
+            failure.name.len(),
+            prefix(&failure.message, 512),
+            failure.message.len(),
+            failure.script_failure
+        )
+    }
+    #[test]
+    fn saved_service_failure_diagnostic_bounds_native_unicode_and_control_text() {
+        let mut failure = WorkerError::new(&"🧭".repeat(1000), "\u{0001}雪🧭".repeat(2000));
+        failure.script_failure = Some(oryn_js::worker_wire::ScriptFailureKind::Infrastructure);
+        let text = worker_failure_diagnostic(&failure);
+        assert!(text.len() < 4096);
+        assert!(text.contains("name_bytes=4000"));
+        assert!(text.contains("message_bytes=16000"));
+        assert!(text.contains("script_failure=Some(Infrastructure)"));
+        assert!(!text.contains('\u{0001}'));
+        assert_eq!(text.matches('🧭').count(), 80);
+    }
     struct NoNetwork;
     impl crate::network::NetworkBroker for NoNetwork {
         fn send(
@@ -1022,6 +1051,7 @@ mod tests {
             request: crate::network::NetworkRequest,
         ) -> Result<crate::network::NetworkResponse, crate::network::NetworkError> {
             Ok(crate::network::NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -1053,9 +1083,9 @@ mod tests {
         };
         let bootstrap=AgentBootstrap{cookie_ancestor_urls:Vec::new(),import_metadata:BTreeMap::from([("https://a.test/saved.js".into(),oryn_js::worker_wire::AgentImportMetadata{kind:oryn_js::worker_wire::AgentImportKind::Classic,response_url:"https://a.test/saved.js".into(),content_type:Some("text/javascript".into()),referrer_policy:"no-referrer".into(),request_referrer_source:None,request_referrer_policy:"no-referrer".into()})]),service_skip_waiting:false,resource_digests:Default::default(),secure_context:true,service_registration:Some(RegistrationId(999)),service_controller:None,id:AgentId(999),kind:AgentKind::Service,
             partition:"stale process partition".into(),origin:origin.clone(),script_url:"https://a.test/sw.js".into(),
-            source:"if(!registration.active)throw Error('version not published');importScripts('/saved.js');onfetch=e=>e.respondWith(new Response(saved));".encode_utf16().collect(),
+            source:"if(!registration.active)throw Error('version not published');\nimportScripts('/saved.js');\nonfetch=e=>e.respondWith(new Response(saved));".encode_utf16().collect(),
             modules:BTreeMap::from([("https://a.test/saved.js".into(),"globalThis.saved='restored graph'".encode_utf16().collect())]),options:WorkerOptions{script_type:ScriptType::Classic,..Default::default()},
-            policy:AgentPolicy{hide_nonces:false,policy_sources:Vec::new(),policy_self_urls:Vec::new(),policy_self_url:None,url:"https://a.test/sw.js".into(),headers:Vec::new()},referrer_policy:"no-referrer".into(),limits:AgentLimits::default(),top_level_url:Some("https://a.test/".into())};
+            policy:AgentPolicy{hide_nonces:false,policy_sources:Vec::new(),policy_self_urls:Vec::new(),document_self_url:None,policy_self_url:None,url:"https://a.test/sw.js".into(),headers:Vec::new()},referrer_policy:"no-referrer".into(),limits:AgentLimits::default(),top_level_url:Some("https://a.test/".into())};
         // Validate the complete saved namespace before launching any version.
         let record = |bootstrap: AgentBootstrap| StoredRegistration {
             active_version: None,
@@ -1264,8 +1294,15 @@ mod tests {
         assert_eq!(response.body, b"restored graph");
         let registration_before_restart = registry.controller_registration(&owner).unwrap();
         let version_before_restart = active.version_id;
+        let retained_update = {
+            let state = registry.state().unwrap();
+            SoftUpdateSource::from_bootstrap(&state.versions[&active.id].bootstrap).unwrap()
+        };
         registry.retire_version(active.id).unwrap();
         assert!(context.worker_bootstrap(active.id).is_err());
+        // Deferred functional-event maintenance retains admitted authority even
+        // when its process has already retired; it must not poison a restart.
+        registry.schedule_stale_update(retained_update).unwrap();
         registry
             .restore_for_owner(&owner, SharedNetworkBroker::new(NoNetwork))
             .unwrap();
@@ -1306,7 +1343,21 @@ mod tests {
                     redirect: "follow".into(),
                 },
             )
-            .unwrap()
+            .unwrap_or_else(|failure| {
+                let state = registry.state().unwrap();
+                let registration = state.registrations.get(&registration_before_restart);
+                let active = registration.and_then(|entry| entry.snapshot.active.as_ref());
+                let version = active.and_then(|active| state.versions.get(&active.id));
+                let failure_details = worker_failure_diagnostic(&failure);
+                panic!("restarted saved service fetch failed: {failure_details}; native active={:?}, version_owned={}, retiring={:?}, pending_admission={}, imports={:?}, metadata={:?}, clients={}, inflight={:?}",
+                    active.map(|active| (active.id, active.state)), version.is_some(),
+                    version.map(|version| version.retiring),
+                    active.is_some_and(|active| state.pending_restore_admissions.contains_key(&active.id)),
+                    version.map(|version| version.bootstrap.modules.len()),
+                    version.map(|version| version.bootstrap.import_metadata.len()),
+                    state.clients.len(),
+                    version.map(|version| version.inflight.load(Ordering::Acquire)));
+            })
             .unwrap();
         assert_eq!(
             restarted.body, b"restored graph",
@@ -1434,19 +1485,40 @@ mod tests {
             "remote native activation is consumed once"
         );
         sibling_registry.retire_client(&sibling_owner).unwrap();
+        // The live registry may refresh during background maintenance. Retain
+        // an explicit pre-update persistence snapshot so this negative case
+        // cannot accidentally become an up-to-date, valid write. Remote version
+        // references preserve the graph without owning another native process.
+        let stale_writer = ServiceRegistry::new(&context);
+        {
+            let state = registry.state().unwrap();
+            let mut stale = stale_writer.state().unwrap();
+            stale.registrations = state.registrations.clone();
+            stale.remote_versions = state.remote_versions.clone();
+            for version in state.versions.values() {
+                stale.remote_versions.insert(
+                    version.snapshot.version_id,
+                    RemoteVersion {
+                        owner: Arc::downgrade(&registry),
+                        snapshot: version.snapshot.clone(),
+                        bootstrap: version.bootstrap.clone(),
+                    },
+                );
+            }
+        }
         sibling_registry
-            .update(
-                0,
-                sibling_owner,
-                SharedNetworkBroker::new(UpdateNetwork),
+            .update(ServiceUpdateInputs {
+                operation: 0,
+                owner: sibling_owner,
+                network: SharedNetworkBroker::new(UpdateNetwork),
                 partition,
                 origin,
                 policy,
-                "/sw.js".into(),
-                Some("/".into()),
-                ScriptType::Classic,
-                "none".into(),
-            )
+                script: "/sw.js".into(),
+                scope: Some("/".into()),
+                script_type: ScriptType::Classic,
+                cache: "none".into(),
+            })
             .unwrap();
         let original_registration = registry
             .state()
@@ -1457,11 +1529,12 @@ mod tests {
             .copied()
             .unwrap();
         assert!(
-            registry
+            stale_writer
                 .persist_registration(original_registration)
                 .is_err(),
             "stale context must not overwrite sibling registration update"
         );
+        drop(stale_writer);
         registry
             .restore_for_owner(&owner, SharedNetworkBroker::new(NoNetwork))
             .unwrap();
@@ -1647,7 +1720,7 @@ pub(super) fn publication_fault() -> Result<(), WorkerError> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "v8-host"))]
 pub(super) fn fail_next_publication() {
     FAIL_PUBLICATION.with(|flag| flag.set(true));
 }

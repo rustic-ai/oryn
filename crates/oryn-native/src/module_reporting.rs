@@ -49,10 +49,10 @@ impl ModuleReport{
 #[cfg(test)]thread_local!{static FAIL_MODULE_REPORT_INSTALL:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
 impl RawV8Host{
  fn module_report_delay(&self)->Option<Duration>{
-    let now=Instant::now();self.isolate.get_slot::<ModuleReportQueue>()?.jobs.iter().filter_map(|job|{
-      if !self.isolate.get_slot::<AgentEnvironments>().is_some_and(|environments|environments.is_live(&job.environment)){return Some(Duration::ZERO);}
-      if self.realm_is_parked(job.environment.realm){return Some(job.deadline.saturating_duration_since(now));}
-      Some(job.retry.min(job.deadline).saturating_duration_since(now))
+    let now=Instant::now();self.isolate.get_slot::<ModuleReportQueue>()?.jobs.iter().map(|job|{
+      if !self.isolate.get_slot::<AgentEnvironments>().is_some_and(|environments|environments.is_live(&job.environment)){return Duration::ZERO;}
+      if self.realm_is_parked(job.environment.realm){return job.deadline.saturating_duration_since(now);}
+      job.retry.min(job.deadline).saturating_duration_since(now)
     }).min()
  }
  pub(crate) fn has_pending_script_reporting(&self)->bool{

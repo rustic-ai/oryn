@@ -305,6 +305,7 @@ fn raw_parent(dom: &DomRuntime, node: &Node) -> Result<Option<Node>> {
         Node::Attribute { owner, .. } | Node::Namespace { owner, .. } => Some(Node::Dom(*owner)),
         Node::Dom(id) => match &dom.arena().get(*id)?.kind {
             NodeKind::Attribute { owner, .. } => owner.map(Node::Dom),
+            NodeKind::ShadowRoot { .. } => None,
             _ => dom.arena().get(*id)?.parent.map(Node::Dom),
         },
     })
@@ -419,7 +420,11 @@ impl<'a> Evaluation<'a> {
             NodeKind::Attribute { owner: None, .. } => context,
             _ => context,
         };
-        while let Some(parent) = dom.arena().get(root)?.parent {
+        // Native shadow roots retain a host edge; XPath sees a separate tree.
+        while !matches!(dom.arena().get(root)?.kind, NodeKind::ShadowRoot { .. }) {
+            let Some(parent) = dom.arena().get(root)?.parent else {
+                break;
+            };
             root = parent;
         }
         if !tree_node(&dom.arena().get(root)?.kind)

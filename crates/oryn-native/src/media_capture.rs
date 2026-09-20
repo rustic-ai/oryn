@@ -96,7 +96,7 @@ fn synthetic(kind: Kind, constraints: serde_json::Value) -> Result<(Track, Arc<S
                 .as_u64()
                 .ok_or("NotReadableError: invalid height")? as u32;
             let mut rgba = vec![0u8; width as usize * height as usize * 4];
-            for (pixel, bytes) in rgba.chunks_exact_mut(4).enumerate() {
+            for (pixel, bytes) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 bytes.copy_from_slice(&[
                     ((pixel % width as usize) * 255 / width as usize) as u8,
                     ((pixel / width as usize) * 255 / height as usize) as u8,
@@ -596,21 +596,20 @@ impl Registry {
                 }
                 if sample["sequence"].as_u64().unwrap_or(0) <= after {
                     sample.as_object_mut().unwrap().remove("data");
-                } else if !track.track.enabled {
-                    if let Some(data) = sample["data"].as_str() {
-                        let mut bytes = base64::engine::general_purpose::STANDARD
-                            .decode(data)
-                            .map_err(|_| "NotReadableError: malformed native sample")?;
-                        bytes.fill(0);
-                        if track.track.kind == Kind::Video {
-                            for pixel in bytes.chunks_exact_mut(4) {
-                                pixel[3] = 255
-                            }
+                } else if !track.track.enabled
+                    && let Some(data) = sample["data"].as_str()
+                {
+                    let mut bytes = base64::engine::general_purpose::STANDARD
+                        .decode(data)
+                        .map_err(|_| "NotReadableError: malformed native sample")?;
+                    bytes.fill(0);
+                    if track.track.kind == Kind::Video {
+                        for pixel in bytes.as_chunks_mut::<4>().0 {
+                            pixel[3] = 255
                         }
-                        sample["data"] = serde_json::json!(
-                            base64::engine::general_purpose::STANDARD.encode(bytes)
-                        );
                     }
+                    sample["data"] =
+                        serde_json::json!(base64::engine::general_purpose::STANDARD.encode(bytes));
                 }
                 if let Some(id) = &track.pip {
                     if track.track.ended {
@@ -664,10 +663,10 @@ impl Registry {
                 track.enabled = enabled;
                 let mut unique = BTreeMap::new();
                 for (other_id, other) in &self.tracks {
-                    if other_id != &id {
-                        if let Some(source) = &other.source {
-                            unique.entry(Arc::as_ptr(source)).or_insert(source.bytes());
-                        }
+                    if other_id != &id
+                        && let Some(source) = &other.source
+                    {
+                        unique.entry(Arc::as_ptr(source)).or_insert(source.bytes());
                     }
                 }
                 if unique.values().sum::<usize>() + source.bytes() > 64 * 1024 * 1024 {
@@ -1046,7 +1045,13 @@ mod tests {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(disabled["data"].as_str().unwrap())
             .unwrap();
-        assert!(bytes.chunks_exact(4).all(|pixel| pixel == [0, 0, 0, 255]));
+        assert!(
+            bytes
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| *pixel == [0, 0, 0, 255])
+        );
         registry.end_kind(&owner, Kind::Video);
         let Response::Sample(ended) = registry
             .request(

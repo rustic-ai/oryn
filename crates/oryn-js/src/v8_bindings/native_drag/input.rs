@@ -19,9 +19,9 @@ enum Phase {
     Done,
 }
 enum DefaultEdit {
-    Copy(drop_default::DropDefault),
-    Control(control_move::ControlMove),
-    Rich(rich_move::RichMove),
+    Copy(Box<drop_default::DropDefault>),
+    Control(Box<control_move::ControlMove>),
+    Rich(Box<rich_move::RichMove>),
     Rejected,
 }
 impl DefaultEdit {
@@ -301,41 +301,48 @@ impl NativeDragInput {
                         session,
                         |scope, state, target, store| {
                             if edit.is_none() {
-                                *edit = Some(if effect == DragEffect::Move && selected.is_some() {
-                                    let source = selected.as_ref().unwrap();
-                                    if !source.move_target(state, target)
-                                        || default_effect(state, target, store).is_none()
+                                *edit = Some(
+                                    if effect == DragEffect::Move
+                                        && let Some(source) = selected.as_ref()
                                     {
-                                        DefaultEdit::Rejected
-                                    } else if let Some(caret) =
-                                        selection_movement::drop_caret(state, target, x, y)?
-                                    {
-                                        let text = oryn_dom::dom_string::from_units(
-                                            &store.get_data("text/plain"),
-                                        );
-                                        if matches!(&source.kind, SelectedKind::Control { .. })
-                                            && state.dom.borrow().is_text_control(target)
+                                        if !source.move_target(state, target)
+                                            || default_effect(state, target, store).is_none()
                                         {
-                                            DefaultEdit::Control(control_move::ControlMove::new(
-                                                state,
-                                                source,
-                                                target,
-                                                caret.offset,
-                                                &text,
-                                            ))
+                                            DefaultEdit::Rejected
+                                        } else if let Some(caret) =
+                                            selection_movement::drop_caret(state, target, x, y)?
+                                        {
+                                            let text = oryn_dom::dom_string::from_units(
+                                                &store.get_data("text/plain"),
+                                            );
+                                            if matches!(&source.kind, SelectedKind::Control { .. })
+                                                && state.dom.borrow().is_text_control(target)
+                                            {
+                                                DefaultEdit::Control(Box::new(
+                                                    control_move::ControlMove::new(
+                                                        state,
+                                                        source,
+                                                        target,
+                                                        caret.offset,
+                                                        &text,
+                                                    ),
+                                                ))
+                                            } else {
+                                                DefaultEdit::Rich(Box::new(
+                                                    rich_move::RichMove::new(
+                                                        state, source, target, store, caret, &text,
+                                                    ),
+                                                ))
+                                            }
                                         } else {
-                                            DefaultEdit::Rich(rich_move::RichMove::new(
-                                                state, source, target, store, caret, &text,
-                                            ))
+                                            DefaultEdit::Rejected
                                         }
                                     } else {
-                                        DefaultEdit::Rejected
-                                    }
-                                } else {
-                                    DefaultEdit::Copy(drop_default::DropDefault::new(
-                                        state, target, store, x, y,
-                                    ))
-                                });
+                                        DefaultEdit::Copy(Box::new(drop_default::DropDefault::new(
+                                            state, target, store, x, y,
+                                        )))
+                                    },
+                                );
                             }
                             edit.as_mut().unwrap().poll(scope)
                         },

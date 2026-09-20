@@ -52,15 +52,14 @@ impl Drop for ControlledInput {
         self.dropped.set(true);
     }
 }
-fn controlled(
-    chunks: Vec<String>,
-    ready: bool,
-) -> (
+type ControlledStreamFixture = (
     crate::host::DocumentStream,
     Rc<Cell<bool>>,
     Rc<Cell<usize>>,
     Rc<Cell<bool>>,
-) {
+);
+
+fn controlled(chunks: Vec<String>, ready: bool) -> ControlledStreamFixture {
     let ready = Rc::new(Cell::new(ready));
     let polls = Rc::new(Cell::new(0));
     let dropped = Rc::new(Cell::new(false));
@@ -363,7 +362,7 @@ fn pending_parser_script_resumes_original_insertion_point_after_success_or_failu
         ) -> Result<crate::network::NetworkResponse, crate::network::NetworkError> {
             self.requests
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(crate::network::NetworkResponse{timing:None,request_id:request.request_id,status:if self.success{200}else{404},headers:vec![("content-type".into(),"text/javascript".into())],body:b"globalThis.suffixHidden=!document.getElementById('following');document.write('<b id=inserted>inserted</b>');globalThis.blockingRuns=(globalThis.blockingRuns||0)+1".to_vec()})
+            Ok(crate::network::NetworkResponse{response_policy: None,timing:None,request_id:request.request_id,status:if self.success{200}else{404},headers:vec![("content-type".into(),"text/javascript".into())],body:b"globalThis.suffixHidden=!document.getElementById('following');document.write('<b id=inserted>inserted</b>');globalThis.blockingRuns=(globalThis.blockingRuns||0)+1".to_vec()})
         }
     }
     for success in [false, true] {

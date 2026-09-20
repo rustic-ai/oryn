@@ -195,15 +195,15 @@ impl ServiceVersionDirectory {
             .state
             .lock()
             .map_err(|_| StorageError::Persistent("service version directory poisoned".into()))?;
-        if let Some(entry) = state.entries.get(&key) {
-            if let Some(existing) = entry.owner.upgrade() {
-                if entry.scope != scope || entry.lineage != lineage {
-                    return Err(StorageError::Persistent(
-                        "service version identity conflicts with registration".into(),
-                    ));
-                }
-                return Ok(ServiceVersionClaim::Existing(existing));
+        if let Some(entry) = state.entries.get(&key)
+            && let Some(existing) = entry.owner.upgrade()
+        {
+            if entry.scope != scope || entry.lineage != lineage {
+                return Err(StorageError::Persistent(
+                    "service version identity conflicts with registration".into(),
+                ));
             }
+            return Ok(ServiceVersionClaim::Existing(existing));
         }
         state
             .entries
@@ -317,6 +317,13 @@ impl Drop for ServiceVersionReservation {
         }
     }
 }
+
+impl Drop for ServiceVersionDirectory {
+    fn drop(&mut self) {
+        let _ = self.bridges.shutdown();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,11 +471,5 @@ mod tests {
         );
         drop(replacement);
         assert!(directory.lookup("site", "origin", version).is_none());
-    }
-}
-
-impl Drop for ServiceVersionDirectory {
-    fn drop(&mut self) {
-        let _ = self.bridges.shutdown();
     }
 }

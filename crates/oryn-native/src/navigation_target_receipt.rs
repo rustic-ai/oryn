@@ -192,6 +192,7 @@ impl BrowserContext {
 
     /// Resolve only the captured connection. Names and document generations can
     /// change after selection; neither may redirect the operation to a new frame.
+    #[cfg(test)]
     pub(crate) fn resolve_navigation_target(
         &self,
         source: PageId,

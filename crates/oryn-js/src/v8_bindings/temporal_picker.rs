@@ -132,7 +132,7 @@ pub(super) fn prepare_keyboard(
                 "ArrowLeft" => -1,
                 "ArrowRight" => 1,
                 "ArrowUp" => -(picker.columns as i32),
-                _ => (picker.columns as i32),
+                _ => picker.columns as i32,
             };
             state
                 .dom
@@ -157,10 +157,10 @@ pub(super) fn keyboard(
     alt: bool,
 ) -> Result<bool, V8BindingError> {
     let (handled, job) = prepare_keyboard(state, node, key, alt)?;
-    if let Some(mut job) = job {
-        if !job.poll(scope)? {
-            return Err(V8BindingError::JavaScriptException);
-        }
+    if let Some(mut job) = job
+        && !job.poll(scope)?
+    {
+        return Err(V8BindingError::JavaScriptException);
     }
     Ok(handled)
 }
@@ -183,7 +183,7 @@ pub(super) fn prepare_click(
         return Ok((false, None));
     }
     let picker = state.dom.borrow().temporal_picker_snapshot(node)?;
-    let Some(picker) = picker else {
+    let Some(_picker) = picker else {
         open(state, node)?;
         return Ok((true, None));
     };
@@ -240,10 +240,10 @@ pub(super) fn click(
     event: v8::Local<v8::Object>,
 ) -> Result<bool, V8BindingError> {
     let (handled, job) = prepare_click(scope, state, node, event)?;
-    if let Some(mut job) = job {
-        if !job.poll(scope)? {
-            return Err(V8BindingError::JavaScriptException);
-        }
+    if let Some(mut job) = job
+        && !job.poll(scope)?
+    {
+        return Err(V8BindingError::JavaScriptException);
     }
     Ok(handled)
 }
@@ -309,21 +309,6 @@ pub(super) fn prepare_accessibility(
     }
     state.layout_cache_key.borrow_mut().take();
     Ok(None)
-}
-
-pub(super) fn accessibility(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    node: NodeId,
-    expected: &oryn_dom::TemporalPicker,
-    action: &crate::accessibility::PickerAction,
-) -> Result<(), V8BindingError> {
-    if let Some(mut job) = prepare_accessibility(state, node, expected, action)? {
-        if !job.poll(scope)? {
-            return Err(V8BindingError::JavaScriptException);
-        }
-    }
-    Ok(())
 }
 
 // Private native UI consumes its own wheel input before author event dispatch.

@@ -19,6 +19,7 @@ impl NetworkBroker for Documents {
             _ => "<!doctype html><title>empty</title>",
         };
         Ok(NetworkResponse {
+            response_policy: None,
             timing: None,
             request_id: request.request_id,
             status: 200,
@@ -194,6 +195,12 @@ fn initial_frame_popup_permission_uses_captured_container_policy() {
             .drivers_len(),
         0
     );
+    assert_eq!(
+        page.evaluate("String(child.open('about:blank')===null)")
+            .unwrap(),
+        "true",
+        "adopting the initial Document retains its captured sandbox"
+    );
     page.execute("globalThis.allowed=document.createElement('iframe');allowed.setAttribute('sandbox','allow-scripts allow-same-origin allow-popups');document.body.append(allowed);globalThis.permitted=allowed.contentWindow.open('about:blank');globalThis.nestedDenied=permitted.open('about:blank')===null").unwrap();
     assert_eq!(
         page.evaluate("String(permitted!==null&&permitted.opener===allowed.contentWindow)")
@@ -247,7 +254,7 @@ fn coop_response_severs_original_proxy_and_opener_without_stopping_document_driv
     struct Coop;
     impl NetworkBroker for Coop {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
-            Ok(NetworkResponse{timing:None,request_id:request.request_id,status:200,headers:vec![("content-type".into(),"text/html".into()),("cross-origin-opener-policy".into(),"same-origin".into())],body:b"<!doctype html><title>isolated</title><script>globalThis.hasOpener=opener!==null</script>".to_vec()})
+            Ok(NetworkResponse{response_policy: None,timing:None,request_id:request.request_id,status:200,headers:vec![("content-type".into(),"text/html".into()),("cross-origin-opener-policy".into(),"same-origin".into())],body:b"<!doctype html><title>isolated</title><script>globalThis.hasOpener=opener!==null</script>".to_vec()})
         }
     }
     let mut page = RustExecutableDocument::load_with_environment(
@@ -334,5 +341,125 @@ fn captured_popup_permission_survives_later_container_restriction() {
             .borrow()
             .drivers_len(),
         1
+    );
+}
+
+#[test]
+fn sandbox_popup_permission_survives_standalone_frame_adoption_and_srcdoc_commit() {
+    for srcdoc in [false, true] {
+        for popups in [false, true] {
+            let (mut page, _) = page();
+            let tokens = if popups {
+                "allow-scripts allow-same-origin allow-popups"
+            } else {
+                "allow-scripts allow-same-origin"
+            };
+            page.execute(&format!("globalThis.frame=document.createElement('iframe');frame.setAttribute('sandbox','{tokens}');{}document.body.append(frame);globalThis.initialResult=frame.contentWindow.open('','initial');",
+                if srcdoc { "frame.srcdoc='<p>child</p>';" } else { "" })).unwrap();
+            assert_eq!(
+                page.evaluate("String(initialResult!==null)").unwrap(),
+                popups.to_string()
+            );
+            until(
+                &mut page,
+                if srcdoc {
+                    "String(frame.contentWindow.location.href==='about:srcdoc')"
+                } else {
+                    "String(frame.contentWindow.document.readyState==='complete')"
+                },
+            );
+            assert_eq!(
+                page.evaluate("String(frame.contentWindow.open('','after')!==null)")
+                    .unwrap(),
+                popups.to_string()
+            );
+            page.drain_tasks().unwrap();
+            assert_eq!(
+                page.standalone_roots
+                    .upgrade()
+                    .unwrap()
+                    .borrow()
+                    .drivers_len(),
+                if popups { 2 } else { 0 }
+            );
+        }
+    }
+}
+#[test]
+fn parser_created_standalone_frame_keeps_container_sandbox() {
+    for source in ["", " srcdoc='<p>child</p>'"] {
+        let mut page = RustExecutableDocument::load_with_environment(
+            &format!(
+                "<body><iframe id=child sandbox='allow-scripts allow-same-origin'{source}></iframe>"
+            ),
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://example.test/").unwrap()),
+        )
+        .unwrap();
+        page.drain_tasks().unwrap();
+        assert_eq!(
+            page.evaluate("String(child.contentWindow.open('about:blank')===null)")
+                .unwrap(),
+            "true"
+        );
+        page.drain_tasks().unwrap();
+        assert_eq!(
+            page.standalone_roots
+                .upgrade()
+                .unwrap()
+                .borrow()
+                .drivers_len(),
+            0
+        );
+    }
+}
+
+#[test]
+fn standalone_frame_container_permission_cannot_relax_response_sandbox() {
+    struct SandboxedResponse;
+    impl NetworkBroker for SandboxedResponse {
+        fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+            Ok(NetworkResponse {
+                response_policy: None,
+                timing: None,
+                request_id: request.request_id,
+                status: 200,
+                headers: vec![
+                    ("Content-Type".into(), "text/html; charset=utf-8".into()),
+                    (
+                        "Content-Security-Policy".into(),
+                        "sandbox allow-scripts allow-same-origin".into(),
+                    ),
+                ],
+                body: b"<!doctype html><title>response</title><body>child</body>".to_vec(),
+            })
+        }
+    }
+    let mut page = RustExecutableDocument::load_with_environment(
+        "<body></body>",
+        &BTreeMap::new(),
+        Some(SharedNetworkBroker::new(SandboxedResponse)),
+        Some(Url::parse("https://example.test/").unwrap()),
+    )
+    .unwrap();
+    page.execute("globalThis.frame=document.createElement('iframe');frame.setAttribute('sandbox','allow-scripts allow-same-origin allow-popups');frame.src='/child';document.body.append(frame)").unwrap();
+    until(
+        &mut page,
+        "String(frame.contentWindow.location.href==='https://example.test/child'&&frame.contentDocument.readyState==='complete')",
+    );
+    assert_eq!(
+        page.evaluate("String(frame.contentWindow.open('about:blank')===null)")
+            .unwrap(),
+        "true"
+    );
+    page.drain_tasks().unwrap();
+    assert_eq!(
+        page.standalone_roots
+            .upgrade()
+            .unwrap()
+            .borrow()
+            .drivers_len(),
+        0
     );
 }

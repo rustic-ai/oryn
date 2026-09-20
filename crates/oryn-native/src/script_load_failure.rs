@@ -21,6 +21,7 @@ impl ScriptLoadFailure {
         matches!(self, Self::Fetch(_))
     }
 
+    #[cfg(any(test, feature = "v8-host"))]
     pub(crate) fn worker(error: oryn_js::worker_wire::WorkerError) -> Self {
         use oryn_js::worker_wire::ScriptFailureKind;
         match error.script_failure {

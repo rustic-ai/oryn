@@ -231,10 +231,11 @@ impl CrossHubPortBridge {
             || b.is_none_or(|endpoint| endpoint.peer.is_none());
         let empty = a.is_none_or(|endpoint| endpoint.queue.is_empty())
             && b.is_none_or(|endpoint| endpoint.queue.is_empty());
-        if closed && empty {
-            if let Err(error) = self.retire(left, right) {
-                first_error.get_or_insert(error);
-            }
+        if closed
+            && empty
+            && let Err(error) = self.retire(left, right)
+        {
+            first_error.get_or_insert(error);
         }
         first_error.map_or(Ok(()), Err)
     }

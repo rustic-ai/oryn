@@ -50,12 +50,11 @@ fn font_requests(
                 resource: "font face rule traversal".into(),
             });
         }
-        if rule.rule_type == 4 {
-            if let Some(query) = rule.properties.get("conditionText") {
-                if !host.native_media_matches(query)? {
-                    continue;
-                }
-            }
+        if rule.rule_type == 4
+            && let Some(query) = rule.properties.get("conditionText")
+            && !host.native_media_matches(query)?
+        {
+            continue;
         }
         if rule.rule_type == 12
             && rule
@@ -65,53 +64,49 @@ fn font_requests(
         {
             continue;
         }
-        if rule.rule_type == 5 {
-            if let Some(text) = rule.declaration_text {
-                let family = oryn_layout::cssom::read_font_face_declaration(
-                    &text,
-                    "font-family",
-                    base,
-                    false,
-                )
-                .map_err(HostError::Execution)?
-                .value;
-                if let Some(family) = oryn_layout::cssom::font_family_names(&family)
-                    .into_iter()
-                    .next()
+        if rule.rule_type == 5
+            && let Some(text) = rule.declaration_text
+        {
+            let family =
+                oryn_layout::cssom::read_font_face_declaration(&text, "font-family", base, false)
+                    .map_err(HostError::Execution)?
+                    .value;
+            if let Some(family) = oryn_layout::cssom::font_family_names(&family)
+                .into_iter()
+                .next()
+            {
+                use sha2::Digest;
+                let key = format!(
+                    "{:x}",
+                    sha2::Sha256::digest(format!("{base}\n{}", rule.css_text).as_bytes())
+                );
+                let ranges = oryn_layout::cssom::font_face_unicode_ranges(&text, base)
+                    .map_err(HostError::Execution)?;
+                for source in oryn_layout::cssom::font_face_sources(&text, base)
+                    .map_err(HostError::Execution)?
                 {
-                    use sha2::Digest;
-                    let key = format!(
-                        "{:x}",
-                        sha2::Sha256::digest(format!("{base}\n{}", rule.css_text).as_bytes())
-                    );
-                    let ranges = oryn_layout::cssom::font_face_unicode_ranges(&text, base)
-                        .map_err(HostError::Execution)?;
-                    for source in oryn_layout::cssom::font_face_sources(&text, base)
-                        .map_err(HostError::Execution)?
-                    {
-                        let url = match source {
-                            oryn_layout::cssom::FontFaceSource::Url(url) => url,
-                            oryn_layout::cssom::FontFaceSource::Local(name) => {
-                                if oryn_layout::local_font_bytes(&name).is_none() {
-                                    continue;
-                                }
-                                format!("oryn-local-font:{name}")
+                    let url = match source {
+                        oryn_layout::cssom::FontFaceSource::Url(url) => url,
+                        oryn_layout::cssom::FontFaceSource::Local(name) => {
+                            if oryn_layout::local_font_bytes(&name).is_none() {
+                                continue;
                             }
-                        };
-                        requests.push((
-                            oryn_layout::cssom::CssResourceReference {
-                                url,
-                                destination: oryn_layout::cssom::CssResourceDestination::Font,
-                            },
-                            FontCandidate {
-                                family: family.clone(),
-                                key: key.clone(),
-                                ranges: ranges.clone(),
-                                descriptors: text.clone(),
-                                order: seen as u64,
-                            },
-                        ));
-                    }
+                            format!("oryn-local-font:{name}")
+                        }
+                    };
+                    requests.push((
+                        oryn_layout::cssom::CssResourceReference {
+                            url,
+                            destination: oryn_layout::cssom::CssResourceDestination::Font,
+                        },
+                        FontCandidate {
+                            family: family.clone(),
+                            key: key.clone(),
+                            ranges: ranges.clone(),
+                            descriptors: text.clone(),
+                            order: seen as u64,
+                        },
+                    ));
                 }
             }
         }
@@ -296,7 +291,6 @@ impl CssDemand {
 }
 pub(super) struct CssBinary {
     pub url: String,
-    pub media_type: String,
     pub bytes: Vec<u8>,
 }
 struct StylesheetResult {
@@ -699,16 +693,16 @@ impl RustExecutableDocument {
                     if weak.upgrade().is_none(){return Err(HostError::Execution("CSS dependency owner retired".into()));}
                     if let Some(name)=reference.url.strip_prefix("oryn-local-font:"){
                         let bytes=oryn_layout::local_font_bytes(name).ok_or_else(||HostError::Execution("local font no longer available".into()))?;
-                        return Ok(CssBinary{url:reference.url.clone(),media_type:"font/ttf".into(),bytes:bytes.to_vec()});
+                        return Ok(CssBinary{url:reference.url.clone(),bytes:bytes.to_vec()});
                     }
                     if let Some(loader)=loader{return loader.load_dependency(&base,&initiator,&policy,reference);}
                     #[cfg(unix)] {
                     let(client,page_id,_)=context.expect("captured CSS endpoint");let creator=creator.ok_or_else(||HostError::Execution("CSS dependency native initiator absent".into()))?;
                     match native.run(&client,page_id,creator.creator.clone(),css_subresource_request(page_id,&creator,&base,&initiator,&policy,reference)).map_err(|error|HostError::Execution(error.to_string()))?{
-                        crate::context_service::ContextServiceResponse::PageBinaryResource{url,body_base64,content_type,..}=>{
+                        crate::context_service::ContextServiceResponse::PageBinaryResource{url,body_base64,..}=>{
                             if body_base64.len()>24*1024*1024{return Err(HostError::LimitExceeded{resource:"CSS binary response".into()});}
                             let bytes=base64::Engine::decode(&base64::engine::general_purpose::STANDARD,body_base64).map_err(|error|HostError::Execution(error.to_string()))?;
-                            Ok(CssBinary{url,media_type:content_type.unwrap_or_else(||"application/octet-stream".into()),bytes})
+                            Ok(CssBinary{url,bytes})
                         },
                         _=>Err(HostError::Execution("invalid CSS dependency response".into())),
                     }
@@ -1048,29 +1042,29 @@ impl RustExecutableDocument {
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         if linked {
                             let requested = fetch.resolve(&href)?;
-                            load_parser_stylesheet(
-                                &client,
+                            load_parser_stylesheet(crate::executable::ParserStylesheetInput {
+                                client: &client,
                                 page_id,
-                                &resource_initiator,
-                                &requested,
-                                Some(fetch.initiator_url.clone()),
-                                Some(fetch.referrer_policy.clone()),
-                                &encoding,
-                                0,
-                                &mut expansion,
-                            )
+                                initiator: &resource_initiator,
+                                requested_url: &requested,
+                                initiator_url: Some(fetch.initiator_url.clone()),
+                                referrer_policy: Some(fetch.referrer_policy.clone()),
+                                environment_encoding: &encoding,
+                                depth: 0,
+                                budget: &mut expansion,
+                            })
                         } else if inline {
-                            load_inline_css_resources(
-                                &client,
+                            load_inline_css_resources(crate::executable::InlineCssResourceInput {
+                                client: &client,
                                 page_id,
-                                &resource_initiator,
-                                &fetch.initiator_url,
-                                &fetch.base_url,
-                                &fetch.referrer_policy,
-                                &css,
-                                &encoding,
-                                &mut expansion,
-                            )
+                                initiator: &resource_initiator,
+                                document_url: &fetch.initiator_url,
+                                base_url: &fetch.base_url,
+                                referrer_policy: &fetch.referrer_policy,
+                                css: &css,
+                                environment_encoding: &encoding,
+                                budget: &mut expansion,
+                            })
                         } else {
                             Err(HostError::Execution(
                                 "non-sheet source bypassed dependency scheduler".into(),
@@ -1266,14 +1260,16 @@ impl RustExecutableDocument {
                         if job.published.is_none() {
                             let result = &job.ready.as_ref().expect("ready stylesheet").result;
                             job.published = Some(publish_parser_stylesheet_completion(
-                                job.identity,
-                                job.node,
-                                job.revision,
-                                result,
-                                &job.dom,
-                                &mut self.agent.host,
-                                &mut self.resources,
-                                &mut self.diagnostics,
+                                crate::executable::StylesheetPublicationInput {
+                                    identity: job.identity,
+                                    node: job.node,
+                                    revision: job.revision,
+                                    result,
+                                    live_dom: &job.dom,
+                                    host: &mut self.agent.host,
+                                    resources: &mut self.resources,
+                                    diagnostics: &mut self.diagnostics,
+                                },
                             )?);
                         }
                         if let Some(success) = job.published.flatten() {
@@ -1456,7 +1452,6 @@ mod tests {
             &mut job,
             CssBinary {
                 url: "https://example.test/late.ttf".into(),
-                media_type: "font/ttf".into(),
                 bytes,
             },
             Some(custody),
@@ -1702,7 +1697,6 @@ mod tests {
             &mut job,
             CssBinary {
                 url: "https://example.test/font.ttf".into(),
-                media_type: "font/ttf".into(),
                 bytes,
             },
             Some(permit),
@@ -1740,7 +1734,6 @@ mod tests {
             &mut job,
             CssBinary {
                 url: "https://example.test/stale.png".into(),
-                media_type: "image/png".into(),
                 bytes,
             },
             Some(permit),
@@ -1827,7 +1820,6 @@ pub(super) struct CachedCssBinary {
     dom: SharedDomRuntime,
     node: NodeId,
     revision: u64,
-    requested_url: Option<String>,
     family: Option<String>,
     font_group: Option<String>,
     font_descriptors: String,
@@ -1978,7 +1970,6 @@ impl RustExecutableDocument {
             dom: job.dom.clone(),
             node: job.node,
             revision: job.revision,
-            requested_url: job.requested_url.clone(),
             family: job.font_family.clone(),
             font_group: job.font_group.clone(),
             font_descriptors: job.font_descriptors.clone(),
@@ -2285,7 +2276,6 @@ mod retained_css_publication_tests {
         job.install = false;
         let binary = CssBinary {
             url: "https://example.test/resource.bin".into(),
-            media_type: "application/octet-stream".into(),
             bytes: vec![1, 2, 3],
         };
         let bytes =

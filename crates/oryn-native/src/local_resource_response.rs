@@ -1,10 +1,12 @@
 //! Fetch's single-range response for an already authenticated native Blob.
 //! Resolution and CSP remain at the calling destination's admission boundary.
+type LocalResponse = (u16, Vec<(String, String)>, Vec<u8>);
+
 pub(crate) fn blob(
     mut bytes: Vec<u8>,
     media_type: String,
     range: Option<&str>,
-) -> Result<(u16, Vec<(String, String)>, Vec<u8>), String> {
+) -> Result<LocalResponse, String> {
     let length = bytes.len();
     let mut headers = vec![("content-type".into(), media_type)];
     let Some(range) = range else {

@@ -4,25 +4,32 @@ use crate::{
     context_service::{ContextServiceRequest, ContextServiceResponse, SharedContextClient},
     runtime::RuntimeError,
 };
-use oryn_js::navigation::{
-    NavigationExecutionObserver, NavigationExecutionOutcome, NavigationExecutionToken,
-};
+#[cfg(feature = "v8-host")]
+use oryn_js::navigation::NavigationExecutionObserver;
+use oryn_js::navigation::{NavigationExecutionOutcome, NavigationExecutionToken};
+use std::sync::{Arc, Mutex};
+#[cfg(feature = "v8-host")]
 use std::sync::{
-    Arc, Condvar, Mutex,
+    Condvar,
     atomic::{AtomicUsize, Ordering},
 };
+#[cfg(feature = "v8-host")]
 static LIVE: AtomicUsize = AtomicUsize::new(0);
+#[cfg(feature = "v8-host")]
 enum Publication {
     Admitted,
     Terminal(NavigationExecutionOutcome),
 }
+#[cfg(feature = "v8-host")]
 struct Reservation;
+#[cfg(feature = "v8-host")]
 impl Drop for Reservation {
     fn drop(&mut self) {
         LIVE.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
+#[cfg(feature = "v8-host")]
 pub(crate) fn observer(
     client: SharedContextClient,
     page_id: oryn_common::v3::PageId,

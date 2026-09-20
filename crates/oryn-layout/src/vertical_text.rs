@@ -1,6 +1,30 @@
 //! Vertical paragraphs retain Parley's font fallback/style itemization, then use
 //! HarfRust's native TTB shaping for upright runs. Sideways runs retain horizontal
 //! shaping and carry an explicit per-glyph orientation to the paint consumer.
+
+/// Inputs for shape impl.
+pub(crate) struct VerticalParagraphInputs<'a> {
+    pub(crate) engine: &'a mut TextEngine,
+    pub(crate) text: &'a str,
+    pub(crate) inline_size: f64,
+    pub(crate) font_size: f64,
+    pub(crate) style: &'a BTreeMap<String, String>,
+    pub(crate) viewport: ViewportState,
+    pub(crate) ranges: &'a [StyledTextRange<'a>],
+    pub(crate) line_fragment: bool,
+}
+/// Inputs for shape segment.
+pub(crate) struct VerticalSegmentInputs<'a> {
+    pub(crate) source: &'a str,
+    pub(crate) start: usize,
+    pub(crate) run: &'a parley::layout::Run<'a, TextBrush>,
+    pub(crate) style: &'a BTreeMap<String, String>,
+    pub(crate) language: Option<fontique::Language>,
+    pub(crate) orientation: PaintGlyphOrientation,
+    pub(crate) font_key: String,
+    pub(crate) rank: usize,
+    pub(crate) viewport: ViewportState,
+}
 use super::*;
 use oryn_common::v4::{PaintGlyph, PaintGlyphOrientation, PaintGlyphRun};
 use unicode_segmentation::UnicodeSegmentation;
@@ -46,17 +70,19 @@ struct Cluster {
     rank: usize,
 }
 
-fn shape_segment(
-    source: &str,
-    start: usize,
-    run: &parley::layout::Run<'_, TextBrush>,
-    style: &BTreeMap<String, String>,
-    language: Option<fontique::Language>,
-    orientation: PaintGlyphOrientation,
-    font_key: String,
-    rank: usize,
-    viewport: ViewportState,
-) -> Vec<Cluster> {
+fn shape_segment(params: VerticalSegmentInputs<'_>) -> Vec<Cluster> {
+    let VerticalSegmentInputs {
+        source,
+        start,
+        run,
+        style,
+        language,
+        orientation,
+        font_key,
+        rank,
+        viewport,
+    } = params;
+
     let font = run.font();
     let Ok(face) = harfrust::FontRef::from_index(font.data.data(), font.index) else {
         return Vec::new();
@@ -242,13 +268,9 @@ pub(super) fn shape(
     font_size: f64,
     style: &BTreeMap<String, String>,
     viewport: ViewportState,
-    ranges: &[(
-        std::ops::Range<usize>,
-        &BTreeMap<String, String>,
-        Option<fontique::Language>,
-    )],
+    ranges: &[StyledTextRange<'_>],
 ) -> TextLayout {
-    shape_impl(
+    shape_impl(VerticalParagraphInputs {
         engine,
         text,
         inline_size,
@@ -256,23 +278,21 @@ pub(super) fn shape(
         style,
         viewport,
         ranges,
-        false,
-    )
+        line_fragment: false,
+    })
 }
-fn shape_impl(
-    engine: &mut TextEngine,
-    text: &str,
-    inline_size: f64,
-    font_size: f64,
-    style: &BTreeMap<String, String>,
-    viewport: ViewportState,
-    ranges: &[(
-        std::ops::Range<usize>,
-        &BTreeMap<String, String>,
-        Option<fontique::Language>,
-    )],
-    line_fragment: bool,
-) -> TextLayout {
+fn shape_impl(params: VerticalParagraphInputs<'_>) -> TextLayout {
+    let VerticalParagraphInputs {
+        engine,
+        text,
+        inline_size,
+        font_size,
+        style,
+        viewport,
+        ranges,
+        line_fragment,
+    } = params;
+
     let mut item_style = style.clone();
     item_style.remove("-oryn-first-line-end");
     if style_value(style, "text-orientation", "mixed") == "upright" {
@@ -357,17 +377,17 @@ fn shape_impl(
                 segments.reverse();
             }
             for (start, end, orient, segment_style, language) in segments {
-                clusters.extend(shape_segment(
-                    &text[start..end],
+                clusters.extend(shape_segment(VerticalSegmentInputs {
+                    source: &text[start..end],
                     start,
-                    &run,
-                    segment_style,
+                    run: &run,
+                    style: segment_style,
                     language,
-                    orient,
-                    key.clone(),
+                    orientation: orient,
+                    font_key: key.clone(),
                     rank,
                     viewport,
-                ));
+                }));
                 rank += 1;
             }
         }
@@ -388,11 +408,12 @@ fn shape_impl(
             {
                 continue;
             }
-            if let Some((range, previous)) = combined.last_mut() {
-                if range.end == offset && std::ptr::eq(*previous, local) {
-                    range.end += ch.len_utf8();
-                    continue;
-                }
+            if let Some((range, previous)) = combined.last_mut()
+                && range.end == offset
+                && std::ptr::eq(*previous, local)
+            {
+                range.end += ch.len_utf8();
+                continue;
             }
             combined.push((offset..offset + ch.len_utf8(), local));
         }
@@ -417,15 +438,15 @@ fn shape_impl(
         let local_range = [(0..range.len(), &horizontal, language)];
         let active_boxes = std::mem::take(&mut engine.active_inline_boxes);
         let saved_float_context = engine.float_context.take();
-        let shaped = engine.shape_paragraph(
-            &text[range.clone()],
-            1e9,
-            em,
-            &horizontal,
+        let shaped = engine.shape_paragraph(crate::ParagraphShapeInputs {
+            text: &text[range.clone()],
+            width: 1e9,
+            font_size: em,
+            style: &horizontal,
             viewport,
-            &local_range,
-            true,
-        );
+            ranges: &local_range,
+            first_paragraph: true,
+        });
         engine.float_context = saved_float_context;
         engine.active_inline_boxes = active_boxes;
         let scale = if shaped.width > em {
@@ -564,45 +585,43 @@ fn shape_impl(
                     .atomic
                     .and_then(|id| engine.inline_floats.get(&id).map(|spec| (id, *spec)))
                 {
-                    if placed.insert(id) {
-                        if let Some(context) = &mut float_context {
-                            let y = band
-                                .map(|slot| slot.y)
-                                .unwrap_or((float_origin + block_cursor) as f32);
-                            let mut trial = context.clone();
-                            let mut position =
-                                spec.place(&mut trial, f64::from(y), insets, engine.float_fragment);
-                            let narrowed = float_lines::fragment_slot(
-                                &trial,
-                                f64::from(y),
-                                required_block as f32,
+                    if placed.insert(id)
+                        && let Some(context) = &mut float_context
+                    {
+                        let y = band
+                            .map(|slot| slot.y)
+                            .unwrap_or((float_origin + block_cursor) as f32);
+                        let mut trial = context.clone();
+                        let mut position =
+                            spec.place(&mut trial, f64::from(y), insets, engine.float_fragment);
+                        let narrowed = float_lines::fragment_slot(
+                            &trial,
+                            f64::from(y),
+                            required_block as f32,
+                            insets,
+                            engine.float_fragment,
+                        );
+                        if advance > 0. && (f64::from(narrowed.width) < advance || narrowed.y > y) {
+                            position = spec.place(
+                                context,
+                                f64::from(y) + required_block,
                                 insets,
                                 engine.float_fragment,
                             );
-                            if advance > 0.
-                                && (f64::from(narrowed.width) < advance || narrowed.y > y)
-                            {
-                                position = spec.place(
-                                    context,
-                                    f64::from(y) + required_block,
-                                    insets,
-                                    engine.float_fragment,
-                                );
-                            } else {
-                                *context = trial;
-                                band = Some(narrowed);
-                            }
-                            float_placements.push(InlinePlacement {
-                                node: id,
-                                rect: CssRect {
-                                    x: f64::from(position.x - insets[0]),
-                                    y: f64::from(position.y) - float_origin,
-                                    width: spec.width,
-                                    height: spec.height,
-                                },
-                                line: usize::MAX,
-                            });
+                        } else {
+                            *context = trial;
+                            band = Some(narrowed);
                         }
+                        float_placements.push(InlinePlacement {
+                            node: id,
+                            rect: CssRect {
+                                x: f64::from(position.x - insets[0]),
+                                y: f64::from(position.y) - float_origin,
+                                width: spec.width,
+                                height: spec.height,
+                            },
+                            line: usize::MAX,
+                        });
                     }
                     end += 1;
                     continue;
@@ -692,16 +711,16 @@ fn shape_impl(
                     item
                 })
                 .collect();
-            let mut line = shape_impl(
+            let mut line = shape_impl(VerticalParagraphInputs {
                 engine,
-                &text[start..end],
-                line_width,
+                text: &text[start..end],
+                inline_size: line_width,
                 font_size,
                 style,
                 viewport,
-                &line_ranges,
-                true,
-            );
+                ranges: &line_ranges,
+                line_fragment: true,
+            });
             let line_offset = combined.lines.len();
             for rect in &mut line.lines {
                 rect.3 += line_y;

@@ -281,10 +281,10 @@ impl NativePageSwap {
         if self.complete {
             return;
         }
-        if let Some(state) = self.owner() {
-            if let Some(event) = self.event.take() {
-                event.cancel(&state);
-            }
+        if let Some(state) = self.owner()
+            && let Some(event) = self.event.take()
+        {
+            event.cancel(&state);
         }
         self.canceled = true;
         self.complete = true;

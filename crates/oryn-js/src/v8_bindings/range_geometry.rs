@@ -91,20 +91,19 @@ fn text_rects(clusters: &[TextClusterGeometry], start: usize, end: usize) -> Vec
         if cluster.end <= start || cluster.start >= end {
             continue;
         }
-        if let Some((previous, matrix, line, rtl)) = groups.last_mut() {
-            if *matrix == cluster.matrix
-                && *line == cluster.line
-                && *rtl == cluster.rtl
-                && (previous.y - rect.y).abs() < 1e-6
-                && (previous.height - rect.height).abs() < 1e-6
-                && ((previous.right() - rect.x).abs() < 1e-6
-                    || (rect.right() - previous.x).abs() < 1e-6)
-            {
-                let right = previous.right().max(rect.right());
-                previous.x = previous.x.min(rect.x);
-                previous.width = right - previous.x;
-                continue;
-            }
+        if let Some((previous, matrix, line, rtl)) = groups.last_mut()
+            && *matrix == cluster.matrix
+            && *line == cluster.line
+            && *rtl == cluster.rtl
+            && (previous.y - rect.y).abs() < 1e-6
+            && (previous.height - rect.height).abs() < 1e-6
+            && ((previous.right() - rect.x).abs() < 1e-6
+                || (rect.right() - previous.x).abs() < 1e-6)
+        {
+            let right = previous.right().max(rect.right());
+            previous.x = previous.x.min(rect.x);
+            previous.width = right - previous.x;
+            continue;
         }
         groups.push((rect, cluster.matrix, cluster.line, cluster.rtl));
     }

@@ -358,6 +358,7 @@ mod protected_placement_tests {
     }
 }
 
+#[cfg(any(feature = "v8-host", test))]
 #[path = "accessibility_resolved.rs"]
 mod resolved;
 #[cfg(feature = "v8-host")]

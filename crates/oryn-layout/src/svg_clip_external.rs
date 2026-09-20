@@ -1,23 +1,6 @@
 //! External clip documents are parsed only from successful native CSS resources.
 //! No author URL lookup or network operation occurs during geometry extraction.
 use super::*;
-pub(super) fn resolve(
-    input: &LayoutInput,
-    owner: &LayoutNode,
-    source: &str,
-    reference: CssRect,
-) -> Result<oryn_common::basic_shape::Shape, String> {
-    resolve_with_space(input, owner, source, reference, None, None)
-}
-pub(super) fn resolve_svg(
-    input: &LayoutInput,
-    owner: &LayoutNode,
-    source: &str,
-    reference: CssRect,
-    viewport: CssRect,
-) -> Result<oryn_common::basic_shape::Shape, String> {
-    resolve_with_space(input, owner, source, reference, Some(viewport), None)
-}
 pub(super) fn resolve_styled(
     input: &LayoutInput,
     owner: &LayoutNode,
@@ -109,7 +92,6 @@ fn resolve_with_space(
         roxmltree::ParsingOptions {
             allow_dtd: false,
             nodes_limit: 65536,
-            ..Default::default()
         },
     )
     .map_err(|e| e.to_string())?;
@@ -210,11 +192,28 @@ fn resolve_with_space(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn resolve(
+        input: &LayoutInput,
+        owner: &LayoutNode,
+        source: &str,
+        reference: CssRect,
+    ) -> Result<oryn_common::basic_shape::Shape, String> {
+        resolve_styled(
+            input,
+            owner,
+            source,
+            reference,
+            None,
+            &ComputedStyles::new(),
+        )
+    }
+
     #[test]
     fn admitted_external_clip_uses_resource_cascade_and_original_response_origin() {
         let mut input:LayoutInput=serde_json::from_value(serde_json::json!({"nodes":[],"stylesheets":[],"scroll":ScrollState::default(),"viewport":ViewportState::default()})).unwrap();
         let owner:LayoutNode=serde_json::from_value(serde_json::json!({"id":1,"parent":null,"tag":"div","text":"","document_url":"https://example.test/page"})).unwrap();
-        input.svg_clip_resources.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://example.test/clips.svg".into(),url_aliases:vec!["https://example.test/request.svg#part".into()],media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><style>rect { width: 20px; height: 30px }</style><clipPath id="part"><rect/></clipPath></svg>"#.to_vec()});
+        input.svg_clip_resources.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://example.test/clips.svg".into(),url_aliases:vec!["https://example.test/request.svg#part".into()],media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><style>rect { width: 20px; height: 30px }</style><clipPath id="part"><rect/></clipPath></svg>"#.to_vec()});
         let reference = CssRect {
             x: 0.,
             y: 0.,
@@ -262,6 +261,7 @@ mod tests {
             .svg_clip_resources
             .push(oryn_common::v4::PaintImageResource {
                 svg_document_snapshot: false,
+                svg_instances: Vec::new(),
                 content_type: None,
                 url: "https://example.test/c.svg".into(),
                 url_aliases: vec![],
@@ -287,7 +287,7 @@ mod tests {
     fn external_clip_rejects_dtd_and_invalid_document_before_geometry() {
         let mut input:LayoutInput=serde_json::from_value(serde_json::json!({"nodes":[],"stylesheets":[],"scroll":ScrollState::default(),"viewport":ViewportState::default()})).unwrap();
         let owner:LayoutNode=serde_json::from_value(serde_json::json!({"id":1,"parent":null,"tag":"div","text":"","document_url":"https://example.test/page"})).unwrap();
-        input.svg_clip_resources.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://example.test/c.svg".into(),url_aliases:vec![],media_type:"image/svg+xml".into(),bytes:br#"<!DOCTYPE svg [<!ENTITY x "payload">]><svg xmlns="http://www.w3.org/2000/svg"><clipPath id="c"/></svg>"#.to_vec()});
+        input.svg_clip_resources.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://example.test/c.svg".into(),url_aliases:vec![],media_type:"image/svg+xml".into(),bytes:br#"<!DOCTYPE svg [<!ENTITY x "payload">]><svg xmlns="http://www.w3.org/2000/svg"><clipPath id="c"/></svg>"#.to_vec()});
         assert!(
             resolve(
                 &input,
@@ -312,7 +312,7 @@ mod embedding_media_tests {
     fn shared_clip_document_resolves_owner_scheme_and_native_motion_independently() {
         let mut input:LayoutInput=serde_json::from_value(serde_json::json!({"nodes":[],"stylesheets":[],"scroll":ScrollState::default(),"viewport":ViewportState::default()})).unwrap();
         let owner:LayoutNode=serde_json::from_value(serde_json::json!({"id":1,"parent":null,"tag":"div","document_url":"https://example.test/page"})).unwrap();
-        input.svg_clip_resources.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://example.test/clip.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><style>rect{width:10px;height:10px}@media(prefers-color-scheme:dark){rect{width:40px}}@media(prefers-reduced-motion:reduce){rect{width:60px}}</style><clipPath id="clip"><rect/></clipPath></svg>"#.to_vec()});
+        input.svg_clip_resources.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://example.test/clip.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><style>rect{width:10px;height:10px}@media(prefers-color-scheme:dark){rect{width:40px}}@media(prefers-reduced-motion:reduce){rect{width:60px}}</style><clipPath id="clip"><rect/></clipPath></svg>"#.to_vec()});
         let bounds = CssRect {
             x: 0.,
             y: 0.,

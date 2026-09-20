@@ -105,10 +105,10 @@ fn register(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8
             .insert(name, v8::Global::new(scope, constructor));
         Ok(())
     })();
-    if let Err(error) = result {
-        if !scope.is_execution_terminating() {
-            throw_binding_error(scope, &error);
-        }
+    if let Err(error) = result
+        && !scope.is_execution_terminating()
+    {
+        throw_binding_error(scope, &error);
     }
 }
 fn processor(
@@ -185,7 +185,6 @@ pub(super) struct Context {
     worklet: Option<u64>,
     sample_rate: f64,
     length: u32,
-    channels: u32,
     transport: Arc<dyn WorkerTransport>,
     connection: Option<AgentConnection>,
     first: Option<u64>,
@@ -328,7 +327,6 @@ pub(super) fn construct_context(
         worklet: None,
         sample_rate,
         length,
-        channels,
         transport,
         connection: None,
         first: None,
@@ -535,7 +533,7 @@ pub(super) fn construct_node(
     let command = WorkletCommand::Construct {
         id: processor_id,
         name,
-        value: wire,
+        value: Box::new(wire),
     };
     match context
         .borrow()
@@ -579,15 +577,14 @@ pub(super) fn retire(state: &V8BindingState) {
         c.closed = true;
         c.pending.clear();
         c.events.clear();
-        if let Some(connection) = c.connection.take() {
-            if c.transport
+        if let Some(connection) = c.connection.take()
+            && c.transport
                 .request(AgentServiceRequest::Release {
                     connection: connection.clone(),
                 })
                 .is_err()
-            {
-                c.connection = Some(connection);
-            }
+        {
+            c.connection = Some(connection);
         }
     }
 }

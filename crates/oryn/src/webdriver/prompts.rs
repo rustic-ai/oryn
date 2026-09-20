@@ -148,8 +148,10 @@ fn pending(
 pub fn text(
     page: &oryn_native::PageHandle,
 ) -> Result<oryn_native::host::webdriver_script::ScriptValue, CommandError> {
+    let controller = controller(page)?;
+    let prompt = pending(&controller)?;
     Ok(oryn_native::host::webdriver_script::ScriptValue::String(
-        oryn_native::dom_string::units(&pending(&controller(page)?)?.request.text),
+        oryn_native::dom_string::units(&prompt.request.text),
     ))
 }
 pub fn accept(page: &oryn_native::PageHandle) -> Result<(), CommandError> {

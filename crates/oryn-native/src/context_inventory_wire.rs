@@ -114,6 +114,7 @@ mod tests {
                 link_navigation: false,
                 user_initiated: false,
                 defer_navigation: false,
+                local_related_navigation: false,
                 selected_target: None,
                 document_source: None,
                 opener_page_id: PageId(1),
@@ -144,11 +145,17 @@ mod tests {
         }
         let old_open = r#"{"operation":"open_page","opener_page_id":1,"noopener":false,"target_name":"x","form_authority":null,"url":null}"#;
         let ContextServiceRequest::OpenPage {
-            local_inventory, ..
+            local_inventory,
+            local_related_navigation,
+            ..
         } = serde_json::from_str(old_open).unwrap()
         else {
             panic!("open page")
         };
+        assert!(
+            !local_related_navigation,
+            "legacy callers retain parent navigation ownership"
+        );
         assert!(
             local_inventory.is_empty(),
             "omitted legacy inventory retains its default"

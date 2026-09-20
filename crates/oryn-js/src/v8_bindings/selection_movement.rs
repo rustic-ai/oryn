@@ -55,9 +55,9 @@ fn projected(x: f64, y: f64, m: [f64; 16]) -> Option<(f64, f64)> {
     if w <= 0. || !w.is_finite() {
         return None;
     }
-    let x = (m[0] * x + m[4] * y + m[12]) / w;
-    let y = (m[1] * x + m[5] * y + m[13]) / w;
-    (x.is_finite() && y.is_finite()).then_some((x, y))
+    let output_x = (m[0] * x + m[4] * y + m[12]) / w;
+    let output_y = (m[1] * x + m[5] * y + m[13]) / w;
+    (output_x.is_finite() && output_y.is_finite()).then_some((output_x, output_y))
 }
 
 fn scope_root(
@@ -785,7 +785,9 @@ fn visual_word(
             boundaries.contains(&(caret.point.container, caret.point.offset))
         })
         .collect();
-    Ok(visual_character(&eligible, current, right, base_rtl)
+    // Coincident bidi boundaries can name both the word just traversed and
+    // its neighboring run. Keep the traversed run's boundary for word motion.
+    Ok(visual_character(&eligible, current, right, current.rtl)
         .or_else(|| visual_wrap(&eligible, current, right, base_rtl)))
 }
 
@@ -1453,10 +1455,10 @@ pub(super) fn modify_admitted(
     let Some(plan) = prepare_movement(state, alter, direction, granularity)? else {
         return Ok(());
     };
-    if let Some((anchor, focus)) = plan.boundaries {
-        if !admit(anchor, focus)? {
-            return Ok(());
-        }
+    if let Some((anchor, focus)) = plan.boundaries
+        && !admit(anchor, focus)?
+    {
+        return Ok(());
     }
     plan.commit(state)
 }
@@ -1514,7 +1516,7 @@ pub(super) fn prepare_movement(
     let forward = if matches!(direction, "left" | "right")
         && matches!(granularity, "character" | "word" | "lineboundary")
     {
-        logical_forward == axis.map_or(true, |axis| axis.inline_sign > 0.)
+        logical_forward == axis.is_none_or(|axis| axis.inline_sign > 0.)
     } else {
         logical_forward
     };
@@ -2056,7 +2058,6 @@ pub(super) struct AccessibilityCaret {
     pub point: BoundaryPoint,
     pub position: (f64, f64),
     pub line: (u64, usize),
-    pub block_basis: (f64, f64),
     pub rect: Option<oryn_common::v4::CssRect>,
 }
 fn accessibility_stop(
@@ -2067,7 +2068,7 @@ fn accessibility_stop(
     let r = stop.rect;
     let origin = (r.x + r.width / 2., r.y + r.height / 2.);
     let position = projected(origin.0, origin.1, stop.matrix)?;
-    let (_, block_basis) = projected_axes(origin, axis, stop.matrix)?;
+    let (_, _block_basis) = projected_axes(origin, axis, stop.matrix)?;
     let (a, b) = if axis.vertical {
         ((r.x, r.y), (r.right(), r.y))
     } else {
@@ -2085,7 +2086,6 @@ fn accessibility_stop(
         },
         position,
         line: (stop.layout_node, stop.line),
-        block_basis,
         rect: Some(oryn_common::v4::CssRect {
             x: a.0.min(b.0),
             y: a.1.min(b.1),
@@ -2166,7 +2166,7 @@ pub(super) fn accessibility_control_caret_at(
             height: (a.1 - b.1).abs(),
         };
         let origin = (r.x + r.width / 2., r.y + r.height / 2.);
-        let Some((_, block_basis)) = projected_axes(origin, axis, cluster.matrix) else {
+        let Some(_) = projected_axes(origin, axis, cluster.matrix) else {
             continue;
         };
         return Ok(Some(AccessibilityCaret {
@@ -2176,7 +2176,6 @@ pub(super) fn accessibility_control_caret_at(
             },
             position: ((a.0 + b.0) / 2., (a.1 + b.1) / 2.),
             line: (cluster.layout_node, cluster.line),
-            block_basis,
             rect: Some(rect),
         }));
     }
@@ -2249,7 +2248,6 @@ pub(super) fn accessibility_carets(
                 point: caret.point,
                 position: caret.position,
                 line: caret.line,
-                block_basis: caret.block_basis,
                 rect,
             }
         })
@@ -2614,16 +2612,16 @@ pub(super) fn accessibility_document_text(
             }
             let units = mapped.map_or(raw_units.as_slice(), |mapped| mapped.units.as_slice());
             let current = paragraph_for(&dom, &layout, node, root)?;
-            if !units.is_empty() {
-                if let Some(previous) = paragraph.filter(|previous| *previous != current) {
-                    result.units.push(accessibility_paragraph_separator(
-                        &dom, &layout, previous, current,
-                    )?);
-                    result.points.push(BoundaryPoint {
-                        container: node,
-                        offset: 0,
-                    });
-                }
+            if !units.is_empty()
+                && let Some(previous) = paragraph.filter(|previous| *previous != current)
+            {
+                result.units.push(accessibility_paragraph_separator(
+                    &dom, &layout, previous, current,
+                )?);
+                result.points.push(BoundaryPoint {
+                    container: node,
+                    offset: 0,
+                });
             }
             if units.len() > (1024 * 1024usize).saturating_sub(result.units.len()) {
                 return Err(V8BindingError::Message(
@@ -2753,7 +2751,6 @@ pub(super) fn accessibility_document_carets(
                         point,
                         position: a,
                         line: (cluster.layout_node, cluster.line),
-                        block_basis: if axis.vertical { (1., 0.) } else { (0., 1.) },
                         rect: Some(oryn_common::v4::CssRect {
                             x: a.0.min(b.0),
                             y: a.1.min(b.1),
@@ -2771,10 +2768,10 @@ pub(super) fn accessibility_document_carets(
         }
     }
     for stop in &layout.caret_stops {
-        if let Some(caret) = accessibility_stop(&layout, stop) {
-            if text.offset(caret.point).is_some() {
-                result.push(caret);
-            }
+        if let Some(caret) = accessibility_stop(&layout, stop)
+            && text.offset(caret.point).is_some()
+        {
+            result.push(caret);
         }
         if result.len() > 262144 {
             return Err(V8BindingError::Message(
@@ -2784,4 +2781,19 @@ pub(super) fn accessibility_document_carets(
     }
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod projection_input_tests {
+    #[test]
+    fn both_projected_coordinates_use_the_original_input_and_same_w() {
+        let matrix = [
+            0., 1., 0., 0.5, -1., 0., 0., 0., 0., 0., 1., 0., 100., 20., 0., 1.,
+        ];
+        assert_eq!(super::projected(2., 4., matrix), Some((48., 11.)));
+        assert_eq!(super::projected(-2., 4., matrix), None);
+        let mut invalid = matrix;
+        invalid[5] = f64::INFINITY;
+        assert_eq!(super::projected(2., 4., invalid), None);
+    }
 }

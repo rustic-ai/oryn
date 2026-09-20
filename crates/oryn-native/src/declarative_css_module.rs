@@ -78,7 +78,7 @@ impl RawV8Host{
   struct Css(Arc<std::sync::atomic::AtomicUsize>);
   impl crate::network::NetworkBroker for Css{fn send(&self,request:crate::network::NetworkRequest)->Result<crate::network::NetworkResponse,crate::network::NetworkError>{
    self.0.fetch_add(1,std::sync::atomic::Ordering::SeqCst);let found=request.url=="https://example.test/sheet.css";
-   Ok(crate::network::NetworkResponse{timing:None,request_id:request.request_id,status:if found{200}else{404},headers:vec![("content-type".into(),"text/css".into())],body:if found{b"div{color:red}".to_vec()}else{Vec::new()}})
+   Ok(crate::network::NetworkResponse{response_policy: None,timing:None,request_id:request.request_id,status:if found{200}else{404},headers:vec![("content-type".into(),"text/css".into())],body:if found{b"div{color:red}".to_vec()}else{Vec::new()}})
   }}
   let requests=Arc::new(std::sync::atomic::AtomicUsize::new(0));let mut host=RawV8Host::new_with_network(SharedNetworkBroker::new(Css(requests.clone())),Url::parse("https://example.test/").unwrap());dynamic_import_continuation_tests::install_document(&mut host);(host,requests)
  }

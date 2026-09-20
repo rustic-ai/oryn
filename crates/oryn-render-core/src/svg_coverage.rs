@@ -52,11 +52,23 @@ impl Drop for CoverageDiagnosticsOnFailure {
 #[cfg(test)]
 fn alpha_diagnostic_counts(before: &[u8], after: &[u8]) -> [usize; 3] {
     [
-        before.chunks_exact(4).filter(|p| p[3] != 0).count(),
-        after.chunks_exact(4).filter(|p| p[3] != 0).count(),
         before
-            .chunks_exact(4)
-            .zip(after.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[3] != 0)
+            .count(),
+        after
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[3] != 0)
+            .count(),
+        before
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(after.as_chunks::<4>().0.iter())
             .filter(|(a, b)| a[3] != b[3])
             .count(),
     ]
@@ -726,7 +738,7 @@ pub(super) fn text_only(commands: &[PaintCommand]) -> Vec<PaintCommand> {
             }
             PaintCommand::Opacity { opacity, commands } => {
                 let commands = text_only(commands);
-                (!commands.is_empty()).then(|| PaintCommand::Opacity {
+                (!commands.is_empty()).then_some(PaintCommand::Opacity {
                     opacity: *opacity,
                     commands,
                 })
@@ -902,10 +914,12 @@ fn native_vectors(local: &PaintSnapshot, prefix: String) -> Result<String, Rende
 }
 fn intact_alpha(before: &[u8], after: &[u8]) -> bool {
     before.len() == after.len()
-        && before.chunks_exact(4).any(|pixel| pixel[3] != 0)
+        && before.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0)
         && before
-            .chunks_exact(4)
-            .zip(after.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(after.as_chunks::<4>().0.iter())
             .all(|(a, b)| a[3] == b[3])
 }
 pub(super) fn covered(
@@ -926,6 +940,7 @@ pub(super) fn covered(
     budget.bytes(before.len().saturating_add(after.len()))?;
     let resource = |bytes: String| oryn_common::v4::PaintImageResource {
         svg_document_snapshot: false,
+        svg_instances: Vec::new(),
         content_type: None,
         url_aliases: Vec::new(),
         url: "oryn-print://semantic-coverage.svg".into(),

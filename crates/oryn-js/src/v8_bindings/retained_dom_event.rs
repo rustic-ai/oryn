@@ -54,9 +54,6 @@ impl Event {
         self.result = Some(accepted);
         Ok(Some(accepted))
     }
-    pub(super) fn object<'s>(&self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Object> {
-        v8::Local::new(scope, &self.event)
-    }
     pub(super) fn owner(&self) -> Rc<V8BindingState> {
         self.owner.clone()
     }

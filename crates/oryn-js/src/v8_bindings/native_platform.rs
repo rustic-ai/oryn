@@ -1,5 +1,9 @@
 //! Native platform objects. All grants and window/location state stay in the
 //! BrowserContext backend; no author globals act as permission authority.
+type ContainerRefresh = Rc<dyn Fn(&V8BindingState) -> Result<(), String>>;
+
+type PermissionPolicy = Rc<dyn Fn(&str) -> bool>;
+
 use super::*;
 pub(super) mod abort_publication;
 pub(super) mod focus_publication;
@@ -55,9 +59,9 @@ pub(super) struct State {
     backend: Option<std::sync::Arc<dyn Backend>>,
     permissions_snapshot:
         Option<Rc<dyn Fn() -> Result<crate::permissions_policy::Snapshot, String>>>,
-    permissions_policy: Option<Rc<dyn Fn(&str) -> bool>>,
-    permissions_report_only: Option<Rc<dyn Fn(&str) -> bool>>,
-    container_refresh: Option<Rc<dyn Fn(&V8BindingState) -> Result<(), String>>>,
+    permissions_policy: Option<PermissionPolicy>,
+    permissions_report_only: Option<PermissionPolicy>,
+    container_refresh: Option<ContainerRefresh>,
     prototypes: BTreeMap<&'static str, v8::Weak<v8::Object>>,
     permissions: BTreeMap<u64, Permission>,
     objects: BTreeMap<u64, &'static str>,
@@ -242,13 +246,12 @@ pub(super) fn request(
                     }
                 }
             }
-            Request::BluetoothDevices => {
+            Request::BluetoothDevices
                 if report_only
                     .as_ref()
-                    .is_some_and(|check| !check("bluetooth"))
-                {
-                    reporting::permission_native(state, "bluetooth", "report");
-                }
+                    .is_some_and(|check| !check("bluetooth")) =>
+            {
+                reporting::permission_native(state, "bluetooth", "report");
             }
             _ => {}
         }
@@ -702,14 +705,14 @@ fn invoke_position_callback(
         }
         (exception, message)
     };
-    if let Some(exception) = exception {
-        if !scope.is_execution_terminating() {
-            if let Some(context) = context {
-                let scope = &mut v8::ContextScope::new(scope, context);
-                let _ = report_exception(scope, exception, message);
-            } else {
-                let _ = report_exception(scope, exception, message);
-            }
+    if let Some(exception) = exception
+        && !scope.is_execution_terminating()
+    {
+        if let Some(context) = context {
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let _ = report_exception(scope, exception, message);
+        } else {
+            let _ = report_exception(scope, exception, message);
         }
     }
 }
@@ -799,10 +802,10 @@ fn read<'s>(
                     return Ok(v8::undefined(scope).into());
                 }
                 let key = private(scope, "oryn.native.bluetooth.testing");
-                if let Some(value) = args.this().get_private(scope, key) {
-                    if value.is_object() {
-                        return Ok(value);
-                    }
+                if let Some(value) = args.this().get_private(scope, key)
+                    && value.is_object()
+                {
+                    return Ok(value);
                 }
                 let (_, testing) = wrap(scope, &state, "BluetoothTesting")?;
                 args.this().set_private(scope, key, testing.into());
@@ -944,7 +947,7 @@ fn position_options(
 }
 fn call(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let index = args.data().int32_value(scope).unwrap_or(-1);
-    if matches!(index, 5 | 6 | 7 | 8 | 9) {
+    if matches!(index, 5..=9) {
         v8::tc_scope!(let scope,scope);
         let Some(resolver) = v8::PromiseResolver::new(scope) else {
             throw_type_error(scope, "Promise allocation failed");
@@ -1113,10 +1116,10 @@ fn call(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v
                         }
                         _ => None,
                     };
-                    if let Some(name) = name {
-                        if let Ok(value) = dom_exception_value(scope, name) {
-                            return value;
-                        }
+                    if let Some(name) = name
+                        && let Ok(value) = dom_exception_value(scope, name)
+                    {
+                        return value;
                     }
                     let text = v8::String::new(scope, &error.to_string()).unwrap();
                     v8::Exception::type_error(scope, text)
@@ -1585,8 +1588,8 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
         Ok(response) => response,
         Err(_) => return Ok(count),
     };
-    let (mut hidden, mut revision) = match response {
-        Response::WindowState { hidden, revision } => (hidden, revision),
+    match response {
+        Response::WindowState { .. } => (),
         Response::WindowSuspended | Response::WindowRetired => return Ok(count),
         _ => return Err(failure("window state response mismatch")),
     };
@@ -1641,7 +1644,7 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
     let Some(current) = task_snapshot(scope, state, generation, epoch) else {
         return Ok(count);
     };
-    (hidden, revision) = current;
+    let (hidden, revision) = current;
     count += permission_elements::poll(scope, state, revision, effective_hidden(state, hidden))?;
     if !task_current(scope, state, generation, epoch) {
         return Ok(count);
@@ -1650,7 +1653,7 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
     let Some(current) = task_snapshot(scope, state, generation, epoch) else {
         return Ok(count);
     };
-    (hidden, revision) = current;
+    let (hidden, _) = current;
     if state.native_platform.borrow().hidden != effective_hidden(state, hidden) {
         publication::enqueue(
             state,
@@ -1668,12 +1671,11 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
     if !task_current(scope, state, generation, epoch) {
         return Ok(count);
     }
-    if !state.native_platform.borrow().permissions.is_empty()
-        || !state.native_platform.borrow().positions.is_empty()
+    if (!state.native_platform.borrow().permissions.is_empty()
+        || !state.native_platform.borrow().positions.is_empty())
+        && publish_security(scope, state, 0).is_err()
     {
-        if publish_security(scope, state, 0).is_err() {
-            return Ok(count);
-        }
+        return Ok(count);
     }
     if matches!(
         creator,
@@ -1681,25 +1683,24 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
             target: crate::message_wire::WindowTarget::Root,
             ..
         }
-    ) {
-        if let Ok(Response::WindowPosition { x, y }) = request(state, Request::WindowPosition) {
-            let previous = state.native_platform.borrow().window_position;
-            if previous.is_some_and(|previous| previous != (x, y)) {
-                publication::enqueue(
-                    state,
-                    creator.clone(),
-                    publication::Payload::WindowMove(x, y),
-                )?;
-                count += publication::drain(scope, state)?;
-                if state.execution_retired()
-                    || scope.is_execution_terminating()
-                    || !state.native_platform.borrow().publications.is_empty()
-                {
-                    return Ok(count);
-                }
-            } else if previous.is_none() {
-                state.native_platform.borrow_mut().window_position = Some((x, y));
+    ) && let Ok(Response::WindowPosition { x, y }) = request(state, Request::WindowPosition)
+    {
+        let previous = state.native_platform.borrow().window_position;
+        if previous.is_some_and(|previous| previous != (x, y)) {
+            publication::enqueue(
+                state,
+                creator.clone(),
+                publication::Payload::WindowMove(x, y),
+            )?;
+            count += publication::drain(scope, state)?;
+            if state.execution_retired()
+                || scope.is_execution_terminating()
+                || !state.native_platform.borrow().publications.is_empty()
+            {
+                return Ok(count);
             }
+        } else if previous.is_none() {
+            state.native_platform.borrow_mut().window_position = Some((x, y));
         }
     }
     if !task_current(scope, state, generation, epoch) {
@@ -1741,7 +1742,7 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
     let Some(current) = task_snapshot(scope, state, generation, epoch) else {
         return Ok(count);
     };
-    (hidden, revision) = current;
+    let (_, revision) = current;
     state.native_platform.borrow_mut().revision = Some(revision);
     {
         let ids = state
@@ -1756,7 +1757,7 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
             let Some(current) = task_snapshot(scope, state, generation, epoch) else {
                 return Ok(count);
             };
-            (hidden, revision) = current;
+            let (hidden, revision) = current;
             let Some(mut task) = state.native_platform.borrow().positions.get(&id).cloned() else {
                 continue;
             };
@@ -1893,12 +1894,10 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
                     .positions
                     .insert(id, task);
             }
-            if !duplicate {
-                if let Some(callback) = callback {
-                    let callback = v8::Local::new(scope, &callback);
-                    invoke_position_callback(scope, callback, value);
-                    count += 1;
-                }
+            if !duplicate && let Some(callback) = callback {
+                let callback = v8::Local::new(scope, &callback);
+                invoke_position_callback(scope, callback, value);
+                count += 1;
             }
             if !task_current(scope, state, generation, epoch) {
                 return Ok(count);
@@ -1908,10 +1907,7 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
     Ok(count)
 }
 impl V8BindingState {
-    pub fn set_native_container_policy_refresh(
-        &self,
-        refresh: Rc<dyn Fn(&V8BindingState) -> Result<(), String>>,
-    ) {
+    pub fn set_native_container_policy_refresh(&self, refresh: ContainerRefresh) {
         self.native_platform.borrow_mut().container_refresh = Some(refresh);
     }
     pub fn refresh_native_container_policy(&self) -> Result<(), V8BindingError> {
@@ -1935,12 +1931,12 @@ impl V8BindingState {
     }
 }
 impl V8BindingState {
-    pub fn set_native_permissions_report_only(&self, policy: Rc<dyn Fn(&str) -> bool>) {
+    pub fn set_native_permissions_report_only(&self, policy: PermissionPolicy) {
         self.native_platform.borrow_mut().permissions_report_only = Some(policy);
     }
 }
 impl V8BindingState {
-    pub fn set_native_permissions_policy(&self, policy: Rc<dyn Fn(&str) -> bool>) {
+    pub fn set_native_permissions_policy(&self, policy: PermissionPolicy) {
         self.native_platform.borrow_mut().permissions_policy = Some(policy);
     }
 }
@@ -2772,10 +2768,10 @@ pub(super) fn ensure_ui_locale(state: &V8BindingState) {
     if state.native_platform.borrow().backend.is_none() {
         return;
     }
-    if state.dom.borrow().native_ui_locale().is_none() {
-        if let Ok(Response::UiLocale { locale }) = request(state, Request::UiLocale) {
-            let _ = state.dom.borrow_mut().set_native_ui_locale(&locale);
-        }
+    if state.dom.borrow().native_ui_locale().is_none()
+        && let Ok(Response::UiLocale { locale }) = request(state, Request::UiLocale)
+    {
+        let _ = state.dom.borrow_mut().set_native_ui_locale(&locale);
     }
     let missing = state.dom.borrow().missing_control_locales();
     for locale in missing {
@@ -2806,7 +2802,7 @@ pub(super) fn ensure_ui_locale(state: &V8BindingState) {
                 let _ = state
                     .dom
                     .borrow_mut()
-                    .install_control_locale(&locale, profile);
+                    .install_control_locale(&locale, *profile);
             } else {
                 let mut platform = state.native_platform.borrow_mut();
                 if platform.unavailable_control_locales.len() < 64 {

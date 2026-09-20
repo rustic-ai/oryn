@@ -106,15 +106,17 @@ unsafe extern "C" fn begin_in_context(
         let acquire = creator != mapping.creator;
         let descriptor = mapping.descriptor;
         let Ok(ticket) = crate::shared_wait_custody::WaitTicket::begin(
-            mapping,
-            transport,
-            creator,
-            descriptor,
-            acquire,
-            offset as u64,
-            width64,
-            expected,
-            u64::try_from(timeout).ok(),
+            crate::shared_wait_custody::SharedWaitInputs {
+                backing: mapping,
+                transport,
+                creator,
+                descriptor,
+                acquire,
+                offset: offset as u64,
+                width64,
+                expected,
+                timeout_ns: u64::try_from(timeout).ok(),
+            },
         ) else {
             return std::ptr::null_mut();
         };

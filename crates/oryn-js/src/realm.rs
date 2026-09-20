@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::origin::Origin;
 use oryn_dom::NodeId;
@@ -24,6 +24,7 @@ pub struct EnvironmentDescriptor {
 pub struct AgentEnvironments {
     next_id: u64,
     live: BTreeMap<EnvironmentId, EnvironmentDescriptor>,
+    quarantined: BTreeSet<EnvironmentId>,
 }
 
 impl AgentEnvironments {
@@ -33,7 +34,11 @@ impl AgentEnvironments {
         document_generation: u64,
         owner: Option<EnvironmentId>,
     ) -> Result<EnvironmentDescriptor, &'static str> {
-        if owner.is_some_and(|owner| !self.live.contains_key(&owner)) {
+        if owner.is_some_and(|owner| {
+            self.live
+                .get(&owner)
+                .is_none_or(|descriptor| !self.is_live(descriptor))
+        }) {
             return Err("execution environment owner is retired");
         }
         let next = self
@@ -53,6 +58,24 @@ impl AgentEnvironments {
 
     pub fn is_live(&self, descriptor: &EnvironmentDescriptor) -> bool {
         self.live.get(&descriptor.id) == Some(descriptor)
+            && !self.quarantined.contains(&descriptor.id)
+    }
+
+    /// Stop native execution/admission while retaining the exact records for
+    /// later physical cleanup. This neither executes callbacks nor frees a VM.
+    pub fn quarantine(&mut self, id: EnvironmentId) {
+        let mut pending = vec![id];
+        while let Some(id) = pending.pop() {
+            if !self.live.contains_key(&id) || !self.quarantined.insert(id) {
+                continue;
+            }
+            pending.extend(
+                self.live
+                    .values()
+                    .filter(|entry| entry.owner == Some(id))
+                    .map(|entry| entry.id),
+            );
+        }
     }
 
     /// Revoke an environment and its owned worker environments. Related
@@ -62,6 +85,7 @@ impl AgentEnvironments {
         let mut retired = Vec::new();
         while let Some(id) = pending.pop() {
             if let Some(descriptor) = self.live.remove(&id) {
+                self.quarantined.remove(&id);
                 pending.extend(
                     self.live
                         .values()
@@ -237,6 +261,32 @@ mod tests {
         registry.next_id = u64::MAX;
         assert!(registry.create(RealmId(6), 1, None).is_err());
         assert!(registry.is_live(&replacement));
+    }
+
+    #[test]
+    fn quarantine_denies_admission_but_preserves_exact_retirement_and_siblings() {
+        let mut registry = AgentEnvironments::default();
+        let root = registry.create(RealmId(1), 7, None).unwrap();
+        let child = registry.create(RealmId(2), 1, Some(root.id)).unwrap();
+        let sibling = registry.create(RealmId(3), 1, None).unwrap();
+        registry.quarantine(root.id);
+        registry.quarantine(root.id);
+        assert!(!registry.is_live(&root) && !registry.is_live(&child));
+        assert!(registry.is_live(&sibling));
+        assert!(registry.create(RealmId(4), 1, Some(root.id)).is_err());
+        assert!(registry.create(RealmId(4), 1, Some(child.id)).is_err());
+        assert_eq!(registry.live.get(&root.id), Some(&root));
+        assert_eq!(registry.live.get(&child.id), Some(&child));
+        let retired = registry.retire(root.id);
+        assert_eq!(retired.len(), 2);
+        assert!(retired.contains(&root) && retired.contains(&child));
+        assert!(registry.quarantined.is_empty());
+        assert!(registry.retire(root.id).is_empty());
+        assert!(registry.is_live(&sibling));
+        let replacement = registry.create(root.realm, 8, None).unwrap();
+        assert_ne!(replacement.id, root.id);
+        assert!(registry.is_live(&replacement));
+        assert!(!registry.is_live(&root));
     }
 
     #[test]

@@ -87,8 +87,17 @@ impl PageState {
         let layout = self.layout.clone().ok_or_else(|| {
             RuntimeError::PaintUnavailable("presentation layout unavailable".into())
         })?;
-        let prepared =
-            self.paint_snapshot_plan_with_layout(&document, &layout, self.viewport, false);
+        let capture_input = self
+            .layout_input_cache
+            .as_ref()
+            .map(|(_, input, _)| input.clone());
+        let prepared = self.paint_snapshot_plan_with_layout(
+            &document,
+            &layout,
+            self.viewport,
+            false,
+            capture_input.as_ref(),
+        );
         let mut plan = prepared?;
         // Bind decoded native <img>, canvas, SVG and video surfaces by node,
         // not by authored URL aliases or a fresh network request.
@@ -122,6 +131,7 @@ impl PageState {
             let index = plan.snapshot.images.len();
             plan.snapshot.images.push(PaintImageResource {
                 svg_document_snapshot: false,
+                svg_instances: Vec::new(),
                 content_type: None,
                 url: resource.url,
                 url_aliases: resource.url_aliases,
@@ -302,6 +312,43 @@ mod tests {
         .unwrap();
         page
     }
+    #[test]
+    fn geometry_projection_updates_layout_without_draining_author_tasks() {
+        use crate::host::JavaScriptHost;
+        let mut page = page("<button id=target style='width:40px;height:20px'>Target</button>");
+        let executable = page.executable.as_mut().unwrap();
+        let mut host = executable.take_agent_host().unwrap();
+        host.execute("globalThis.geometryTask=0;setTimeout(()=>geometryTask++,0);document.getElementById('target').style.width='88px'").unwrap();
+        assert!(matches!(
+            executable.return_agent_host_after_turn(host),
+            Ok(None)
+        ));
+        page.refresh_layout_geometry().unwrap();
+        let layout = page.layout.as_ref().unwrap();
+        assert!(
+            layout
+                .computed_styles
+                .values()
+                .any(|style| style.get("width").is_some_and(|width| width == "88px"))
+        );
+        let executable = page.executable.as_mut().unwrap();
+        let mut host = executable.take_agent_host().unwrap();
+        assert_eq!(host.evaluate_string("String(geometryTask)").unwrap(), "0");
+        assert!(matches!(
+            executable.return_agent_host_after_turn(host),
+            Ok(None)
+        ));
+        page.poll_page_tasks().unwrap();
+        assert_eq!(
+            page.executable
+                .as_mut()
+                .unwrap()
+                .evaluate("String(geometryTask)")
+                .unwrap(),
+            "1"
+        );
+    }
+
     #[test]
     fn omitted_hidden_flow_subtrees_keep_geometry_and_visible_contents_stay_boxless() {
         let document = crate::html::parse(
@@ -799,7 +846,7 @@ mod composed_custody_tests {
         );
         // Entry into a different target can synchronously install an ancestor
         // overlay. The second gate must run before any press or click occurs.
-        page.executable.as_mut().unwrap().evaluate("frames[0].presses=0;let second=frames[0].document.createElement('button');second.textContent='Covered on entry';second.onpointerdown=()=>frames[0].presses++;second.onclick=()=>frames[0].clicks++;second.onpointerenter=()=>{let cover=document.createElement('div');cover.id='cover';cover.style.cssText='position:fixed;inset:0;z-index:999999;background:black';document.body.append(cover)};frames[0].document.body.append(second)").unwrap();
+        page.evaluate("frames[0].presses=0;let second=frames[0].document.createElement('button');second.textContent='Covered on entry';second.onpointerdown=()=>frames[0].presses++;second.onclick=()=>frames[0].clicks++;second.onpointerenter=()=>{let cover=document.createElement('div');cover.id='cover';cover.style.cssText='position:fixed;inset:0;z-index:999999;background:black';document.body.append(cover)};frames[0].document.body.append(second)").unwrap();
         let covered = page
             .observation(ProjectionProfile::Full)
             .nodes

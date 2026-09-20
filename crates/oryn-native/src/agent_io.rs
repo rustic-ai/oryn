@@ -43,10 +43,10 @@ struct HttpStream {
 }
 impl Drop for HttpStream {
     fn drop(&mut self) {
-        if !self.done {
-            if let Some(cancelled) = &self.cancelled {
-                cancelled.store(true, Ordering::Release);
-            }
+        if !self.done
+            && let Some(cancelled) = &self.cancelled
+        {
+            cancelled.store(true, Ordering::Release);
         }
     }
 }
@@ -705,15 +705,20 @@ impl AgentIo {
             let (status, headers, length, progress, hop_timing) =
                 match self.event(&mut operation, cancel, deadline, None, None, keepalive)? {
                     NetworkEvent::Headers {
+                        response_policy: _,
                         timing,
                         request_id,
                         status,
                         headers,
                         content_length,
                         upload,
-                    } if request_id == operation.request_id => {
-                        (status, headers, content_length, upload, timing)
-                    }
+                    } if request_id == operation.request_id => (
+                        status,
+                        headers,
+                        content_length,
+                        upload,
+                        timing.map(|timing| *timing),
+                    ),
                     _ => {
                         return Err(
                             "agent network did not provide correlated response headers".into()
@@ -761,15 +766,15 @@ impl AgentIo {
                         .top_level_url
                         .as_deref()
                         .unwrap_or(&self.bootstrap.script_url),
-                    coep_reporting.response(
-                        &self.bootstrap.origin.serialized,
-                        self.bootstrap.origin.opaque,
-                        &response_policy_url,
-                        cors_enabled || service_readable,
+                    coep_reporting.response(crate::coep_reporting::ResponsePolicyInputs {
+                        origin: &self.bootstrap.origin.serialized,
+                        opaque: self.bootstrap.origin.opaque,
+                        target: &response_policy_url,
+                        cors: cors_enabled || service_readable,
                         credentials,
-                        &headers,
-                        if image { "image" } else { "" },
-                    ),
+                        headers: &headers,
+                        destination: if image { "image" } else { "" },
+                    }),
                 );
             }
             if !local_data {
@@ -839,58 +844,57 @@ impl AgentIo {
             if response_type.is_none() && length.is_some_and(|length| length > 16 * 1024 * 1024) {
                 return Err("agent response body exceeds resource budget".into());
             }
-            if let Some(fetch) = &request.fetch {
-                if !fetch.integrity.is_empty() {
-                    let verified = (|| -> Result<Vec<u8>, String> {
-                        let bytes = crate::network::collect_started_body(
-                            &mut operation,
-                            deadline,
-                            16 * 1024 * 1024,
-                            cancel,
-                        )
-                        .map_err(|error| error.to_string())?;
-                        crate::integrity::verify(
-                            &fetch.integrity,
-                            &bytes,
-                            response_type.is_none()
-                                && (service_handled
-                                    || cors_enabled
-                                    || !cross
-                                    || request
-                                        .fetch
-                                        .as_ref()
-                                        .is_some_and(|fetch| fetch.mode == "navigate")),
-                        )
-                        .map_err(|error| format!("fetch integrity check failed: {error:?}"))?;
-                        Ok(bytes)
-                    })();
-                    let bytes = match verified {
-                        Ok(bytes) => bytes,
-                        Err(error) => {
-                            let _ = self.network.cancel_operation(operation.request_id);
-                            return Err(error);
-                        }
-                    };
-                    if let Some(cleanup) = &cleanup {
-                        cleanup.finish_keepalive();
+            if let Some(fetch) = &request.fetch
+                && !fetch.integrity.is_empty()
+            {
+                let verified = (|| -> Result<crate::network::CollectedBody, String> {
+                    let bytes = crate::network::collect_started_body_with_metadata(
+                        &mut operation,
+                        deadline,
+                        16 * 1024 * 1024,
+                        cancel,
+                        None,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    crate::integrity::verify(
+                        &fetch.integrity,
+                        &bytes.bytes,
+                        response_type.is_none()
+                            && (service_handled
+                                || cors_enabled
+                                || !cross
+                                || request
+                                    .fetch
+                                    .as_ref()
+                                    .is_some_and(|fetch| fetch.mode == "navigate")),
+                    )
+                    .map_err(|error| format!("fetch integrity check failed: {error:?}"))?;
+                    Ok(bytes)
+                })();
+                let bytes = match verified {
+                    Ok(bytes) => bytes,
+                    Err(error) => {
+                        let _ = self.network.cancel_operation(operation.request_id);
+                        return Err(error);
                     }
-                    drop(lease.take());
-                    operation =
-                        crate::network::buffered_body_operation(operation.request_id, bytes)
-                            .map_err(|error| error.to_string())?;
+                };
+                if let Some(cleanup) = &cleanup {
+                    cleanup.finish_keepalive();
                 }
+                drop(lease.take());
+                operation = crate::network::buffered_body_operation(operation.request_id, bytes)
+                    .map_err(|error| error.to_string())?;
             }
-            if response_type.is_some()
+            if (response_type.is_some()
                 || (!service_handled
                     && request
                         .fetch
                         .as_ref()
                         .is_some_and(|fetch| fetch.mode == "no-cors")
-                    && cross)
+                    && cross))
+                && response_type.is_none()
             {
-                if response_type.is_none() {
-                    response_type = Some(FetchResponseType::Opaque);
-                }
+                response_type = Some(FetchResponseType::Opaque);
             }
             let stream_id = self.id()?;
             self.check_http(cancel, keepalive)?;
@@ -974,7 +978,7 @@ impl AgentIo {
                 headers
             };
             return Ok(PlatformHostResult::HttpStarted {
-                timing,
+                timing: timing.map(Box::new),
                 internal_response,
                 response_type,
                 upload: upload.map(|upload| PlatformUploadProgress {
@@ -1641,18 +1645,18 @@ impl AgentOperationExecutor for AgentIo {
         true
     }
     fn prepare(&self, id: HostOperationId, request: &PlatformHostRequest) -> Result<(), String> {
-        if let PlatformHostRequest::HttpStart { request } = request {
-            if request.fetch.as_ref().is_some_and(|fetch| fetch.keepalive) {
-                let prepared = self.prepare_keepalive(request)?;
-                let mut entries = self
-                    .prepared_keepalive
-                    .lock()
-                    .map_err(|_| "agent keepalive custody poisoned")?;
-                if entries.len() >= MAX_AGENT_RESOURCES || entries.contains_key(&id) {
-                    return Err("agent keepalive admission capacity or duplicate".into());
-                }
-                entries.insert(id, prepared);
+        if let PlatformHostRequest::HttpStart { request } = request
+            && request.fetch.as_ref().is_some_and(|fetch| fetch.keepalive)
+        {
+            let prepared = self.prepare_keepalive(request)?;
+            let mut entries = self
+                .prepared_keepalive
+                .lock()
+                .map_err(|_| "agent keepalive custody poisoned")?;
+            if entries.len() >= MAX_AGENT_RESOURCES || entries.contains_key(&id) {
+                return Err("agent keepalive admission capacity or duplicate".into());
             }
+            entries.insert(id, prepared);
         }
         Ok(())
     }
@@ -1738,16 +1742,15 @@ impl AgentOperationExecutor for AgentIo {
                     IdbHostCommand::UpgradeConnection { token, name, .. }
                     | IdbHostCommand::PollConnection { token, name }
                     | IdbHostCommand::CloseConnection { token, name }
-                    | IdbHostCommand::RetireConnection { token, name } => {
+                    | IdbHostCommand::RetireConnection { token, name }
                         if self
                             .idb_connections
                             .lock()
                             .map_err(|_| "agent IDB connection custody poisoned")?
                             .get(token)
-                            != Some(name)
-                        {
-                            return Err("SecurityError: foreign agent IDB connection".into());
-                        }
+                            != Some(name) =>
+                    {
+                        return Err("SecurityError: foreign agent IDB connection".into());
                     }
                     _ => {}
                 }
@@ -1756,12 +1759,12 @@ impl AgentOperationExecutor for AgentIo {
                     | IdbHostCommand::AbortTransaction { token, .. } => Some(token.clone()),
                     _ => None,
                 };
-                if let (IdbHostCommand::BeginTransaction {
+                if let IdbHostCommand::BeginTransaction {
                     token, database, ..
                 }
                 | IdbHostCommand::Transaction {
                     token, database, ..
-                }) = &command
+                } = &command
                 {
                     let mut transactions = self
                         .transactions
@@ -1788,22 +1791,20 @@ impl AgentOperationExecutor for AgentIo {
                     .map(|response| PlatformHostResult::IndexedDb { response })
                     .map_err(|error| error.to_string());
                 if matches!(&result,Ok(PlatformHostResult::IndexedDb{response})if !response.transaction_blocked)
+                    && let Some(token) = closing_connection
                 {
-                    if let Some(token) = closing_connection {
-                        self.idb_connections
-                            .lock()
-                            .map_err(|_| "agent IDB connection custody poisoned")?
-                            .remove(&token);
-                    }
+                    self.idb_connections
+                        .lock()
+                        .map_err(|_| "agent IDB connection custody poisoned")?
+                        .remove(&token);
                 }
                 if matches!(&result,Ok(PlatformHostResult::IndexedDb{response})if !response.transaction_blocked)
+                    && let Some(token) = ending
                 {
-                    if let Some(token) = ending {
-                        self.transactions
-                            .lock()
-                            .map_err(|_| "agent transactions poisoned")?
-                            .remove(&token);
-                    }
+                    self.transactions
+                        .lock()
+                        .map_err(|_| "agent transactions poisoned")?
+                        .remove(&token);
                 }
                 result
             }
@@ -2024,6 +2025,7 @@ mod live_redirect_authority_regressions {
                 _ => headers.push(("content-type".into(), "text/plain".into())),
             };
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: if seen.len() < 3 { 302 } else { 200 },
@@ -2072,6 +2074,7 @@ mod live_redirect_authority_regressions {
                 hide_nonces: false,
                 policy_sources: Vec::new(),
                 policy_self_urls: Vec::new(),
+                document_self_url: None,
                 policy_self_url: None,
                 url: "https://a.example/worker.js".into(),
                 headers: Vec::new(),
@@ -2161,6 +2164,7 @@ mod live_redirect_authority_regressions {
                     headers.push(("location".into(), "https://b.example/end".into()));
                 }
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if redirect { 302 } else { 200 },
@@ -2328,6 +2332,7 @@ mod live_redirect_authority_regressions {
         impl NetworkBroker for RejectedHeaders {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,

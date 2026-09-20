@@ -813,9 +813,9 @@ impl NativeCrossFrameDrag {
                         let session = self.session.as_ref().unwrap();
                         let snapshot = self.snapshot.as_ref().unwrap();
                         self.edit = Some(
-                            if session.operation() == DragEffect::Move && session.selected.is_some()
+                            if session.operation() == DragEffect::Move
+                                && let Some(selected) = session.selected.as_ref()
                             {
-                                let selected = session.selected.as_ref().unwrap();
                                 if !same_origin(&self.source.state, &realm.state) {
                                     CrossEdit::Rejected
                                 } else if Rc::ptr_eq(&self.source.state, &realm.state) {
@@ -1154,11 +1154,12 @@ impl Move {
                         return Ok(self.result);
                     }
                     if let Some(before) = &self.before_target {
-                        if {
+                        let res = {
                             let dom = self.target_realm.state.dom.borrow();
                             let batch = dom.mutations_since(self.target_cursor);
                             dom.control_value(self.target)?!=*before||batch.truncated||batch.mutations.iter().any(|mutation|matches!(mutation,oryn_dom::Mutation::FormState{node}|oryn_dom::Mutation::Attribute{node,..}|oryn_dom::Mutation::Removed{node,..}|oryn_dom::Mutation::DocumentOwnership{node,..}if *node==self.target))
-                        } {
+                        };
+                        if res {
                             self.result = Some(false);
                             return Ok(self.result);
                         }

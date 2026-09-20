@@ -435,6 +435,7 @@ pub(super) fn svg_image(
     );
     let source = oryn_common::v4::PaintImageResource {
         svg_document_snapshot: false,
+        svg_instances: Vec::new(),
         content_type: None,
         url: resource.url.clone(),
         url_aliases: Vec::new(),
@@ -451,7 +452,7 @@ pub(super) fn svg_image(
         &mut pixmap.as_mut(),
     );
     let mut pixels = pixmap.data().to_vec();
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         if pixel[3] > 0 {
             pixel[0] = 255;
             pixel[1] = 255;
@@ -468,7 +469,7 @@ mod svg_tests {
     #[test]
     fn captured_svg_mask_fragment_obeys_native_mode_override_and_rejects_foreign_local_ids() {
         let mut snapshot = crate::tests::empty_snapshot();
-        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://mask.test/m.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><mask id="m" style="mask-type:luminance"><rect width="10" height="10" fill="black"/></mask></svg>"#.to_vec()});
+        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://mask.test/m.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><mask id="m" style="mask-type:luminance"><rect width="10" height="10" fill="black"/></mask></svg>"#.to_vec()});
         assert_eq!(
             svg_reference(&snapshot, "url(https://mask.test/m.svg#m)").unwrap(),
             Some((0, "m".into()))
@@ -488,7 +489,7 @@ mod svg_tests {
     #[test]
     fn native_mask_type_cascade_and_explicit_mode_preserve_alpha_luminance() {
         let mut snapshot = crate::tests::empty_snapshot();
-        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://mask.test/cascade.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><style>#m {mask-type:alpha !important}</style><mask id="m" style="mask-type:luminance"><rect width="10" height="10" fill="black"/></mask></svg>"#.to_vec()});
+        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://mask.test/cascade.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><style>#m {mask-type:alpha !important}</style><mask id="m" style="mask-type:luminance"><rect width="10" height="10" fill="black"/></mask></svg>"#.to_vec()});
         let rect = CssRect {
             x: 0.,
             y: 0.,

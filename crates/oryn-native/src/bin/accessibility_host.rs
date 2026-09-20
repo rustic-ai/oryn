@@ -67,7 +67,7 @@ fn main() {
                 match accessibility_platform::capture(&page).await {
                     Ok(snapshot) => {
                         if matches!(
-                            updates.try_send(Ok(Update::Snapshot(snapshot))),
+                            updates.try_send(Ok(Update::Snapshot(Box::new(snapshot)))),
                             Err(mpsc::TrySendError::Disconnected(_))
                         ) {
                             break;

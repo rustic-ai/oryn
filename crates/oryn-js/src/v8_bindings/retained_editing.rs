@@ -11,7 +11,9 @@ pub(super) struct Transaction {
     host: Option<NodeId>,
     before: Option<EditingSnapshot>,
     cursor: Option<oryn_dom::MutationCursor>,
+    #[cfg(test)]
     mutated: bool,
+    #[cfg(test)]
     split_nodes: Option<ParagraphSplitNodes>,
     result: Option<bool>,
 }
@@ -33,7 +35,9 @@ impl Transaction {
             host,
             before: None,
             cursor: None,
+            #[cfg(test)]
             mutated: false,
+            #[cfg(test)]
             split_nodes: None,
             result: host.is_none().then_some(false),
         };
@@ -95,10 +99,10 @@ impl Transaction {
                 move |context| command.build(context),
             )?;
             self.before.take();
-            if self.deferred_history {
-                if let Some(job) = self.continuation.as_mut() {
-                    job.defer_history();
-                }
+            if self.deferred_history
+                && let Some(job) = self.continuation.as_mut()
+            {
+                job.defer_history();
             }
             if self.continuation.is_none() {
                 self.result = Some(false);
@@ -220,6 +224,7 @@ impl Transaction {
 /// and resume clone completion/history capture without applying the move again.
 pub(super) struct Compound {
     continuation: Option<editing_continuation::Continuation>,
+    #[cfg(test)]
     identity: (NodeId, u64, u64, u64),
     hosts: Vec<NodeId>,
     before: Vec<EditingSnapshot>,
@@ -241,6 +246,7 @@ impl Compound {
                 {
                     return Ok(Self {
                         continuation: None,
+                        #[cfg(test)]
                         identity: (
                             state.document_root(),
                             state.document_generation(),
@@ -269,6 +275,7 @@ impl Compound {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             continuation: None,
+            #[cfg(test)]
             identity: (
                 state.document_root(),
                 state.document_generation(),
@@ -281,6 +288,7 @@ impl Compound {
             mutated: false,
         })
     }
+    #[cfg(test)]
     fn current(&self, state: &V8BindingState) -> bool {
         !state.execution_retired()
             && !state.execution_tasks_stopped()
@@ -406,16 +414,15 @@ impl Compound {
                 .iter()
                 .flat_map(|snapshot| snapshot.controls.iter())
                 .find(|next| next.node == control.node)
+                && control.value != next.value
             {
-                if control.value != next.value {
-                    changes.push((
-                        control.node,
-                        control.value.clone(),
-                        control.selection.clone(),
-                        next.value.clone(),
-                        next.selection.clone(),
-                    ));
-                }
+                changes.push((
+                    control.node,
+                    control.value.clone(),
+                    control.selection.clone(),
+                    next.value.clone(),
+                    next.selection.clone(),
+                ));
             }
         }
         native_keyboard::document_edit_budget(&changes)?;

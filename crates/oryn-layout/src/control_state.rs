@@ -202,7 +202,7 @@ fn option_label(
             }
         }
     }
-    text.split(|c| matches!(c, '\t' | '\n' | '\u{c}' | '\r' | ' '))
+    text.split(['\t', '\n', '\u{c}', '\r', ' '])
         .filter(|piece| !piece.is_empty())
         .collect::<Vec<_>>()
         .join(" ")
@@ -342,10 +342,10 @@ pub(super) fn project_select_buttons(
             .filter(|child| !kept.contains(child))
             .collect::<Vec<_>>();
         while let Some(id) = pending.pop() {
-            if suppressed.insert(id) {
-                if let Some(child) = sources.get(&id) {
-                    pending.extend(child.children.iter().copied());
-                }
+            if suppressed.insert(id)
+                && let Some(child) = sources.get(&id)
+            {
+                pending.extend(child.children.iter().copied());
             }
         }
         node.children = kept;

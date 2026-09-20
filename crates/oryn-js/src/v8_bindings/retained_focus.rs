@@ -174,12 +174,11 @@ impl Transition {
                     self.event = Some(EventJob::new(scope, state, target, name, event)?);
                 }
                 7 => {
-                    if let Some(target) = target {
-                        if self.revision == Some(state.focus_transition_revision.get())
-                            && state.dom.borrow().focused() == Some(target)
-                        {
-                            initialize_focused_caret(state, target)?;
-                        }
+                    if let Some(target) = target
+                        && self.revision == Some(state.focus_transition_revision.get())
+                        && state.dom.borrow().focused() == Some(target)
+                    {
+                        initialize_focused_caret(state, target)?;
                     }
                     self.phase = 8;
                 }

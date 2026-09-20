@@ -1,5 +1,8 @@
 //! Native inline style authorization. Retain the exact source decision until a
 //! DOM edit changes it; later meta policies do not retroactively disable CSS.
+type InlineStylePolicy =
+    Rc<dyn Fn(&V8BindingState, &str, Option<&str>, bool) -> Result<bool, String>>;
+
 use super::*;
 pub(super) type Policy = dyn Fn(&V8BindingState, &str, Option<&str>, bool) -> Result<bool, String>;
 static RETAINED_STYLE_SOURCE: std::sync::atomic::AtomicUsize =
@@ -69,10 +72,7 @@ fn stylesheet_text(dom: &DomRuntime, node: NodeId) -> Result<String, V8BindingEr
     Ok(output)
 }
 impl V8BindingState {
-    pub fn set_inline_style_policy(
-        &self,
-        policy: Rc<dyn Fn(&V8BindingState, &str, Option<&str>, bool) -> Result<bool, String>>,
-    ) {
+    pub fn set_inline_style_policy(&self, policy: InlineStylePolicy) {
         *self.inline_style_policy.borrow_mut() = Some(policy);
     }
     pub fn stage_snapshot_inline_styles(&self, nodes: &[NodeId]) -> Result<(), V8BindingError> {

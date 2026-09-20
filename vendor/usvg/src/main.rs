@@ -432,6 +432,9 @@ fn process(args: Args) -> Result<(), String> {
         font_resolver: usvg::FontResolver::default(),
         fontdb: Arc::new(fontdb),
         style_sheet,
+        native_instance_styles: usvg::NativeInstanceStyles::new(),
+        native_instance_content: usvg::NativeInstanceContent::new(),
+        native_style_roots: std::collections::BTreeSet::new(),
     };
 
     let input_svg = match in_svg {

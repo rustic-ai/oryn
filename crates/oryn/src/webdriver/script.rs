@@ -4,6 +4,7 @@ use oryn_native::{
     PageHandle,
     host::webdriver_script::{MAX_SCRIPT_BYTES, ScriptError, ScriptRequest, ScriptValue},
 };
+#[cfg(test)]
 use serde_json::Value;
 
 pub fn request(

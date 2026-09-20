@@ -809,10 +809,9 @@ impl InputState {
                 held.iter()
                     .any(|input| matches!(input, HeldInput::Button(_)))
             })
+            && let Some(lifetime) = self.pointer_lifetimes.get_mut(source)
         {
-            if let Some(lifetime) = self.pointer_lifetimes.get_mut(source) {
-                lifetime.active = false;
-            }
+            lifetime.active = false;
         }
 
         Ok(changed)
@@ -823,6 +822,7 @@ impl InputState {
     pub fn next_release(&self) -> Option<ReleaseAction> {
         self.releases.last().cloned()
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn pointer_sources(&self) -> Vec<String> {
         self.sources
             .kinds
@@ -848,6 +848,7 @@ impl InputState {
         self.screen_positions.remove(source);
         Ok(())
     }
+    #[cfg(any(feature = "v8-host", test))]
     pub(crate) fn push_os_receipt(&mut self, receipt: OsKeyReceipt) -> Result<(), ScriptError> {
         if self.os_receipts.len() >= 128 {
             return Err(ScriptError::invalid(
@@ -870,6 +871,7 @@ impl InputState {
         self.os_receipts.push(receipt);
         Ok(())
     }
+    #[cfg(any(feature = "v8-host", test))]
     pub(crate) fn admit_os_text(
         &mut self,
         source: &str,
@@ -890,6 +892,7 @@ impl InputState {
             .ok_or_else(|| ScriptError::invalid("native interpretation sequence exhausted"))?;
         Ok(grant.clone())
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn record_os_text_state(
         &mut self,
         token: u64,
@@ -899,22 +902,27 @@ impl InputState {
             grant.state = Some(state.clone());
         }
     }
+    #[cfg(any(feature = "v8-host", test))]
     pub(crate) fn finish_os_text(&mut self, token: u64, keep: bool) {
         if !keep {
             self.os_grants.remove(&token);
         }
     }
+    #[cfg(any(feature = "v8-host", test))]
     pub(crate) fn take_os_receipts(&mut self) -> Vec<OsKeyReceipt> {
         std::mem::take(&mut self.os_receipts)
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn set_os_modifiers(&mut self, source: &str, modifiers: OsKeyModifiers) {
         self.native_modifiers.insert(source.to_owned(), modifiers);
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn native_key(&self, source: &str, value: &[u16]) -> Option<OsKey> {
         self.native_keys
             .get(&(source.to_owned(), value.to_vec()))
             .cloned()
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn remember_native_key(&mut self, source: &str, key: &OsKey) {
         self.native_modifiers
             .insert(source.to_owned(), key.modifiers);
@@ -926,12 +934,15 @@ impl InputState {
                 .remove(&(source.to_owned(), key.value.clone()));
         }
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn clear_native_modifiers(&mut self) {
         self.native_modifiers.clear();
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn set_os_screen_position(&mut self, source: &str, x: f64, y: f64) {
         self.screen_positions.insert(source.into(), (x, y));
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn screen_position(&self, source: &str) -> Result<(f64, f64), ScriptError> {
         Ok(self
             .screen_positions

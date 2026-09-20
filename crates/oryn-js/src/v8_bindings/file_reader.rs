@@ -216,14 +216,14 @@ fn fault(_point: &'static str) -> Result<(), V8BindingError> {
     {
         let fail = FAILURE.with(|slot| {
             let mut slot = slot.borrow_mut();
-            if let Some((point, left)) = slot.as_mut() {
-                if *point == _point {
-                    if *left == 0 {
-                        *slot = None;
-                        return true;
-                    }
-                    *left -= 1;
+            if let Some((point, left)) = slot.as_mut()
+                && *point == _point
+            {
+                if *left == 0 {
+                    *slot = None;
+                    return true;
                 }
+                *left -= 1;
             }
             false
         });

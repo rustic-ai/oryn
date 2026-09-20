@@ -61,10 +61,10 @@ pub(super) enum Phase {
 }
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Sample {
+    #[cfg(test)]
     pub phase: Phase,
     pub active_duration: f64,
     pub end_time: f64,
-    pub active_time: Option<f64>,
     pub iteration: Option<f64>,
     pub progress: Option<f64>,
 }
@@ -85,10 +85,10 @@ impl Timing {
         let end_time = self.end_time();
         let Some(time) = time else {
             return Sample {
+                #[cfg(test)]
                 phase: Phase::Before,
                 active_duration,
                 end_time,
-                active_time: None,
                 iteration: None,
                 progress: None,
             };
@@ -114,10 +114,10 @@ impl Timing {
         };
         let Some(active) = active_time else {
             return Sample {
+                #[cfg(test)]
                 phase,
                 active_duration,
                 end_time,
-                active_time,
                 iteration: None,
                 progress: None,
             };
@@ -161,10 +161,10 @@ impl Timing {
         let before_flag = phase == Phase::Before && !reverse || phase == Phase::After && reverse;
         let progress = self.easing.sample(directed, before_flag);
         Sample {
+            #[cfg(test)]
             phase,
             active_duration,
             end_time,
-            active_time,
             iteration: Some(iteration),
             progress: Some(progress),
         }
@@ -254,8 +254,8 @@ impl Easing {
                 let end = ((start + 1)..=last).find(|index| stops[*index].0.is_some())?;
                 let left = stops[start].0?;
                 let right = stops[end].0?;
-                for index in start + 1..end {
-                    stops[index].0 =
+                for (index, stop) in stops.iter_mut().enumerate().take(end).skip(start + 1) {
+                    stop.0 =
                         Some(left + (right - left) * (index - start) as f64 / (end - start) as f64);
                 }
                 start = end;

@@ -66,7 +66,7 @@ fn promise(
 }
 pub(super) fn initialize<'s>(
     scope: &mut v8::PinScope<'s, '_>,
-    state: &Rc<V8BindingState>,
+    _state: &Rc<V8BindingState>,
     object: v8::Local<'s, v8::Object>,
     interface: &str,
     init: Option<v8::Local<'s, v8::Object>>,
@@ -189,10 +189,11 @@ pub fn begin(
     if state.execution_retired() {
         return Err(V8BindingError::Allocation("retired service worker"));
     }
-    if {
+    let res = {
         let events = state.service_events.borrow();
         events.pending.len() + events.ready.len() >= 1024
-    } {
+    };
+    if res {
         return error(scope, "QuotaExceededError");
     }
     let (task, event_type, request, payload, source) = match command {
@@ -524,7 +525,7 @@ pub(super) fn attribute<'s>(
 }
 fn extract_response(
     scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
+    _state: &Rc<V8BindingState>,
     value: v8::Local<v8::Value>,
     request: &AgentFetchRequest,
 ) -> Result<
@@ -662,114 +663,111 @@ fn poll_inner(
         if !response_done && streaming {
             poll_streaming(scope, state, id, output)?;
         }
-        if !response_done && !streaming {
-            if let Some(request) = request {
-                let mut result = None;
-                if !responded {
-                    output.push(AgentEvent::FetchFallback { id: task });
-                    result = Some(Ok(None));
-                } else if let Some((promise, metadata, _)) = body {
-                    let promise = v8::Local::new(scope, &promise);
-                    match promise.state() {
-                        v8::PromiseState::Pending => {}
-                        v8::PromiseState::Rejected => {
-                            result = Some(Err(fetch_failure("service response body rejected")))
-                        }
-                        v8::PromiseState::Fulfilled => {
-                            let value = promise.result(scope);
-                            let bytes = v8::Local::<v8::ArrayBuffer>::try_from(value).ok();
-                            result = Some(match bytes {
-                                Some(buffer) if buffer.byte_length() <= LIMIT => {
-                                    let store = buffer.get_backing_store();
-                                    let mut metadata = metadata;
-                                    metadata.body = store.iter().map(|byte| byte.get()).collect();
-                                    Ok(Some(metadata))
-                                }
-                                Some(_) => Err(WorkerError::new(
-                                    "QuotaExceededError",
-                                    "service response body exceeds limit",
-                                )
-                                .with_script_failure(
-                                    crate::worker_wire::ScriptFailureKind::Capacity,
-                                )),
-                                None => Err(fetch_failure("service response body is invalid")),
-                            });
-                        }
+        if !response_done
+            && !streaming
+            && let Some(request) = request
+        {
+            let mut result = None;
+            if !responded {
+                output.push(AgentEvent::FetchFallback { id: task });
+                result = Some(Ok(None));
+            } else if let Some((promise, metadata, _)) = body {
+                let promise = v8::Local::new(scope, &promise);
+                match promise.state() {
+                    v8::PromiseState::Pending => {}
+                    v8::PromiseState::Rejected => {
+                        result = Some(Err(fetch_failure("service response body rejected")))
                     }
-                } else if let Some(response) = response {
-                    let promise = v8::Local::new(scope, &response);
-                    match promise.state() {
-                        v8::PromiseState::Pending => {}
-                        v8::PromiseState::Rejected => {
-                            result = Some(Err(fetch_failure("respondWith rejected")))
-                        }
-                        v8::PromiseState::Fulfilled => {
-                            let value = promise.result(scope);
-                            let extraction = {
-                                v8::tc_scope!(let tc,scope);
-                                extract_response(tc, state, value, &request)
-                            };
-                            match extraction {
-                                Ok(body) => {
-                                    let mut body = Some(body);
-                                    if let Some(pending) =
-                                        state.service_events.borrow_mut().pending.get_mut(&id)
-                                    {
-                                        if !pending.response_done {
-                                            pending.body = body.take();
-                                        }
-                                    }
-                                    if let Some((_, _, Some(lease))) = body {
-                                        let reason = dom_exception_value(scope, "AbortError")?;
-                                        cleanup_attempt!(scope, |tc| lease.cancel(tc, reason));
-                                    }
+                    v8::PromiseState::Fulfilled => {
+                        let value = promise.result(scope);
+                        let bytes = v8::Local::<v8::ArrayBuffer>::try_from(value).ok();
+                        result = Some(match bytes {
+                            Some(buffer) if buffer.byte_length() <= LIMIT => {
+                                let store = buffer.get_backing_store();
+                                let mut metadata = metadata;
+                                metadata.body = store.iter().map(|byte| byte.get()).collect();
+                                Ok(Some(metadata))
+                            }
+                            Some(_) => Err(WorkerError::new(
+                                "QuotaExceededError",
+                                "service response body exceeds limit",
+                            )
+                            .with_script_failure(crate::worker_wire::ScriptFailureKind::Capacity)),
+                            None => Err(fetch_failure("service response body is invalid")),
+                        });
+                    }
+                }
+            } else if let Some(response) = response {
+                let promise = v8::Local::new(scope, &response);
+                match promise.state() {
+                    v8::PromiseState::Pending => {}
+                    v8::PromiseState::Rejected => {
+                        result = Some(Err(fetch_failure("respondWith rejected")))
+                    }
+                    v8::PromiseState::Fulfilled => {
+                        let value = promise.result(scope);
+                        let extraction = {
+                            v8::tc_scope!(let tc,scope);
+                            extract_response(tc, state, value, &request)
+                        };
+                        match extraction {
+                            Ok(body) => {
+                                let mut body = Some(body);
+                                if let Some(pending) =
+                                    state.service_events.borrow_mut().pending.get_mut(&id)
+                                    && !pending.response_done
+                                {
+                                    pending.body = body.take();
                                 }
-                                Err(_) => {
-                                    result = Some(Err(failure(
-                                        "respondWith returned an unusable Response",
-                                    )))
+                                if let Some((_, _, Some(lease))) = body {
+                                    let reason = dom_exception_value(scope, "AbortError")?;
+                                    cleanup_attempt!(scope, |tc| lease.cancel(tc, reason));
                                 }
+                            }
+                            Err(_) => {
+                                result =
+                                    Some(Err(failure("respondWith returned an unusable Response")))
                             }
                         }
                     }
                 }
-                if let Some(result) = result {
-                    let handled = {
-                        let mut events = state.service_events.borrow_mut();
-                        let Some(pending) = events.pending.get_mut(&id) else {
-                            continue;
-                        };
-                        if pending.response_done {
-                            continue;
-                        }
-                        pending.response_done = true;
-                        pending.handled.clone()
+            }
+            if let Some(result) = result {
+                let handled = {
+                    let mut events = state.service_events.borrow_mut();
+                    let Some(pending) = events.pending.get_mut(&id) else {
+                        continue;
                     };
-                    if let Some(handled) = handled {
-                        let handled = v8::Local::new(scope, &handled);
-                        match &result {
-                            Ok(_) => {
-                                let undefined = v8::undefined(scope);
-                                handled.resolve(scope, undefined.into());
-                            }
-                            Err(error) => {
-                                let message = v8::String::new(scope, &error.message).unwrap();
-                                let exception = v8::Exception::type_error(scope, message);
-                                handled.reject(scope, exception);
-                            }
+                    if pending.response_done {
+                        continue;
+                    }
+                    pending.response_done = true;
+                    pending.handled.clone()
+                };
+                if let Some(handled) = handled {
+                    let handled = v8::Local::new(scope, &handled);
+                    match &result {
+                        Ok(_) => {
+                            let undefined = v8::undefined(scope);
+                            handled.resolve(scope, undefined.into());
+                        }
+                        Err(error) => {
+                            let message = v8::String::new(scope, &error.message).unwrap();
+                            let exception = v8::Exception::type_error(scope, message);
+                            handled.reject(scope, exception);
                         }
                     }
-                    match result {
-                        Ok(Some(response)) => output.push(AgentEvent::FetchResponse {
-                            id: task,
-                            response: Ok(response),
-                        }),
-                        Ok(None) => {}
-                        Err(error) => output.push(AgentEvent::FetchResponse {
-                            id: task,
-                            response: Err(error),
-                        }),
-                    }
+                }
+                match result {
+                    Ok(Some(response)) => output.push(AgentEvent::FetchResponse {
+                        id: task,
+                        response: Ok(response),
+                    }),
+                    Ok(None) => {}
+                    Err(error) => output.push(AgentEvent::FetchResponse {
+                        id: task,
+                        response: Err(error),
+                    }),
                 }
             }
         }
@@ -921,15 +919,15 @@ pub fn cancel(
         cleanup_attempt!(scope, |tc| (|| {
             let event = v8::Local::new(tc, &pending.event);
             let request = attribute(tc, state, event, "request")?;
-            if let Ok(request) = v8::Local::<v8::Object>::try_from(request) {
-                if let Ok(id) = stateful_id(tc, request) {
-                    let signal = match &*platform_object(state, id)? {
-                        PlatformObjectRecord::Request(request) => Some(request.signal_id),
-                        _ => None,
-                    };
-                    if let Some(signal) = signal {
-                        abort_signal_with_reason(tc, state, signal, reason)?;
-                    }
+            if let Ok(request) = v8::Local::<v8::Object>::try_from(request)
+                && let Ok(id) = stateful_id(tc, request)
+            {
+                let signal = match &*platform_object(state, id)? {
+                    PlatformObjectRecord::Request(request) => Some(request.signal_id),
+                    _ => None,
+                };
+                if let Some(signal) = signal {
+                    abort_signal_with_reason(tc, state, signal, reason)?;
                 }
             }
             Ok(())
@@ -984,7 +982,7 @@ pub fn pull(state: &Rc<V8BindingState>, task: u64) -> Result<(), V8BindingError>
 }
 fn extract_stream(
     scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
+    _state: &Rc<V8BindingState>,
     value: v8::Local<v8::Value>,
     request: &AgentFetchRequest,
 ) -> Result<(AgentFetchResponse, Option<service_body::Reader>), V8BindingError> {
@@ -1058,10 +1056,10 @@ fn extract_stream(
     let reader = stream
         .map(|stream| service_body::Reader::acquire(scope, &body_owner(state, &foreign)?, stream))
         .transpose()?;
-    if reader.is_some() {
-        if let PlatformObjectRecord::Response(response) = &mut *platform_object_mut(state, id)? {
-            response.body_used = true;
-        }
+    if reader.is_some()
+        && let PlatformObjectRecord::Response(response) = &mut *platform_object_mut(state, id)?
+    {
+        response.body_used = true;
     }
     Ok((metadata, reader))
 }
@@ -1092,10 +1090,10 @@ fn finish_stream(
             pending.stream.take(),
         )
     };
-    if result.is_err() {
-        if let Some(stream) = stream.as_mut() {
-            cleanup_attempt!(scope, |tc| stream.cancel(tc, state, reason));
-        }
+    if result.is_err()
+        && let Some(stream) = stream.as_mut()
+    {
+        cleanup_attempt!(scope, |tc| stream.cancel(tc, state, reason));
     }
     if let Some(handled) = handled {
         let resolver = v8::Local::new(scope, &handled);
@@ -1579,13 +1577,14 @@ mod terminal_cleanup_tests {
         poll_streaming(scope, &state, id, &mut output).unwrap();
         assert!(output.is_empty());
         assert!(state.service_events.borrow().pending.is_empty());
-        let record = platform_object(&state, stream).unwrap();
-        let PlatformObjectRecord::ReadableStream(record) = &*record else {
-            panic!()
-        };
-        assert!(!record.locked);
-        assert!(record.disturbed);
-        drop(record);
+        {
+            let record = platform_object(&state, stream).unwrap();
+            let PlatformObjectRecord::ReadableStream(record) = &*record else {
+                panic!()
+            };
+            assert!(!record.locked);
+            assert!(record.disturbed);
+        }
         let events = poll(scope, &state).unwrap();
         assert_eq!(events.len(), 2);
         assert!(matches!(
@@ -1709,13 +1708,14 @@ mod terminal_cleanup_tests {
             handled.get_promise(scope).state(),
             v8::PromiseState::Rejected
         );
-        let record = platform_object(&state, stream).unwrap();
-        let PlatformObjectRecord::ReadableStream(record) = &*record else {
-            panic!()
-        };
-        assert!(!record.locked);
-        assert!(record.disturbed);
-        drop(record);
+        {
+            let record = platform_object(&state, stream).unwrap();
+            let PlatformObjectRecord::ReadableStream(record) = &*record else {
+                panic!()
+            };
+            assert!(!record.locked);
+            assert!(record.disturbed);
+        }
         assert!(cancel(scope, &state, 71).unwrap().is_empty());
         assert!(state.service_events.borrow().pending.is_empty());
     }

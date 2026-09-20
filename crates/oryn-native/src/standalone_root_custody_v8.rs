@@ -28,9 +28,8 @@ impl RawV8Host {
  }
  pub(crate) fn retire_standalone_root(&mut self,realm:RealmId)->Result<(),HostError>{
   self.adopt_created_realms();
-  if let Some(parked)=self.isolate.get_slot_mut::<StandaloneParkedRoots>().and_then(|roots|roots.0.remove(&realm)){
-   if let Err(error)=self.resume_root_microtasks(&parked.environments,&parked.microtasks,true){self.isolate.get_slot_mut::<StandaloneParkedRoots>().unwrap().0.insert(realm,parked);return Err(error)}
-  }
+  if let Some(parked)=self.isolate.get_slot_mut::<StandaloneParkedRoots>().and_then(|roots|roots.0.remove(&realm))
+   && let Err(error)=self.resume_root_microtasks(&parked.environments,&parked.microtasks,true){self.isolate.get_slot_mut::<StandaloneParkedRoots>().unwrap().0.insert(realm,parked);return Err(error)}
   let Some(environment)=self.isolate.get_slot::<RealmEndpointRegistry>().and_then(|registry|registry.0.get(&realm)).map(|entry|entry.0)else{return Ok(())};
   let environments=self.document_environments(environment);let retired_realms=environments.iter().map(|environment|environment.realm).collect::<BTreeSet<_>>();let retired_environments=environments.iter().map(|environment|environment.id).collect::<BTreeSet<_>>();
   for environment in environments.into_iter().rev(){

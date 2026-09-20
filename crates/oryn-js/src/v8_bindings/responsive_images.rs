@@ -1,4 +1,6 @@
 //! HTML source-set parsing. Decoding and request custody remain with the image owner.
+type ImageDimensions = (Option<u32>, Option<u32>);
+
 use super::*;
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Candidate {
@@ -130,14 +132,13 @@ pub(super) fn select(
     if !candidates
         .iter()
         .any(|c| c.width.is_some() || c.density == 1.)
+        && let Some(src) = src.filter(|s| !s.is_empty())
     {
-        if let Some(src) = src.filter(|s| !s.is_empty()) {
-            candidates.push(Candidate {
-                url: src.into(),
-                width: None,
-                density: 1.,
-            })
-        }
+        candidates.push(Candidate {
+            url: src.into(),
+            width: None,
+            density: 1.,
+        })
     }
     for c in &mut candidates {
         if let Some(w) = c.width {
@@ -251,7 +252,7 @@ pub(super) fn source(
                     .borrow()
                     .hit_projections
                     .get(&node_key(node))
-                    .map(|p| f64::from(p.box_model.content_box.width))
+                    .map(|p| p.box_model.content_box.width)
             })
             .flatten();
         let size = provider
@@ -498,7 +499,7 @@ mod integration_tests {
 pub(super) fn source_dimensions(
     state: &V8BindingState,
     source: Option<NodeId>,
-) -> Result<Option<(Option<u32>, Option<u32>)>, V8BindingError> {
+) -> Result<Option<ImageDimensions>, V8BindingError> {
     let Some(source) = source else {
         return Ok(None);
     };
@@ -507,8 +508,7 @@ pub(super) fn source_dimensions(
         let Some(value) = dom.attribute_in_null_namespace(source, name)? else {
             return Ok(None);
         };
-        let value =
-            value.trim_start_matches(|c: char| matches!(c, ' ' | '\t' | '\r' | '\n' | '\u{c}'));
+        let value = value.trim_start_matches([' ', '\t', '\r', '\n', '\u{c}']);
         let value = value.strip_prefix('+').unwrap_or(value);
         let digits = value.bytes().take_while(u8::is_ascii_digit).count();
         Ok(value[..digits].parse::<u32>().ok())
@@ -542,5 +542,46 @@ pub(super) fn layout_changed(state: &V8BindingState, next: &BindingLayout) {
     });
     if changed {
         state.images_deferred.set(true)
+    }
+}
+
+#[cfg(test)]
+mod source_reflection_tests {
+    use super::*;
+    #[test]
+    fn source_reflection_converts_before_rebinding_and_preserves_dimensions() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(
+            scope,
+            context,
+            Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap())),
+            RealmId(950),
+            1,
+        )
+        .unwrap();
+        assert!(super::super::test_eval::eval(scope, r#"(()=>{
+            const check=(value,message)=>{if(!value)throw Error(message)},source=document.createElement('source');
+            check(source.srcset===''&&source.sizes===''&&source.width===0&&source.height===0,'defaults');
+            source.srcset='a.png 1x, b.png 2x';source.sizes='50vw';source.width=321;source.height=123;
+            source.type='image/\ud800';source.media='all';source.src='https://source.test/\ud800';
+            check(source.type.charCodeAt(6)===0xd800&&source.media==='all'&&source.src.includes('%EF%BF%BD'),'DOMString and USVString conversion');
+            check(source.getAttribute('srcset')===source.srcset&&source.getAttribute('sizes')==='50vw','content reflection');
+            check(source.getAttribute('width')==='321'&&source.height===123,'unsigned dimensions');
+            source.setAttribute('width',' +42px');source.setAttribute('height','-1');
+            check(source.width===42&&source.height===0,'HTML integer parsing');
+            source.width=2147483647;check(source.width===2147483647,'maximum reflected width');
+            source.width=2147483648;check(source.width===0&&source.getAttribute('width')==='2147483648','out-of-range getter keeps content');
+            source.height=-1;check(source.height===0&&source.getAttribute('height')==='4294967295','wrapped setter and default getter');
+            source.setAttribute('width','4294967296');check(source.width===0,'overflowing content defaults');
+            const other=document.implementation.createHTMLDocument();
+            source.srcset={toString(){other.adoptNode(source);return '\ud800.png 1x'}};
+            check(source.ownerDocument===other&&source.srcset.charCodeAt(0)===0xd800,'conversion and exact owner');
+            const marker={};try{source.sizes={toString(){throw marker}}}catch(error){check(error===marker,'original error')}
+            check(source.sizes==='50vw','failed conversion is not committed');return true;
+        })()"#).is_true());
     }
 }

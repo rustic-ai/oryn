@@ -341,7 +341,7 @@ impl Key {
         if iv.len() != 16 || input.len() > MAX_DATA {
             return Err("OperationError");
         }
-        if decrypt && (input.is_empty() || input.len() % 16 != 0) {
+        if decrypt && (input.is_empty() || !input.len().is_multiple_of(16)) {
             return Err("OperationError");
         }
         if !decrypt
@@ -445,7 +445,9 @@ mod tests {
     fn ed25519_rfc8032_vector_nonextractable_clone_and_der() {
         fn hex(text: &str) -> Vec<u8> {
             text.as_bytes()
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
                 .collect()
         }

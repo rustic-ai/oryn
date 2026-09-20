@@ -527,8 +527,10 @@ mod drag_tests {
             ("none", DragEffect::None),
             ("move", DragEffect::None),
         ] {
-            let mut store = Store::default();
-            store.effect_allowed = "copy".into();
+            let mut store = Store {
+                effect_allowed: "copy".into(),
+                ..Store::default()
+            };
             let mut drag = DragNegotiation::new(&store);
             drag.prepare(
                 Some(oryn_dom::NodeId {
@@ -554,8 +556,10 @@ mod drag_tests {
             slot: 1,
             generation: 2,
         };
-        let mut store = Store::default();
-        store.effect_allowed = "copyMove".into();
+        let mut store = Store {
+            effect_allowed: "copyMove".into(),
+            ..Store::default()
+        };
         let mut drag = DragNegotiation::new(&store);
         drag.prepare(Some(first), DragEffect::Move, &mut store);
         assert_eq!(store.drop_effect, "move");
@@ -688,8 +692,10 @@ mod drag_tests {
     }
     #[test]
     fn missing_target_and_canceled_completion_never_report_move() {
-        let mut store = Store::default();
-        store.effect_allowed = "move".into();
+        let mut store = Store {
+            effect_allowed: "move".into(),
+            ..Store::default()
+        };
         let mut drag = DragNegotiation::new(&store);
         drag.prepare(None, DragEffect::Move, &mut store);
         assert_eq!(store.drop_effect, "none");

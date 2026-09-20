@@ -1,6 +1,63 @@
 //! Parent/child adjoining margins retain a strut until the block position is
 //! solved. The source style remains unchanged; allocation suppression records
 //! which child's margin has already been absorbed by its parent.
+
+/// Inputs for used child vertical end.
+pub(crate) struct VerticalChildEndInputs<'a> {
+    pub(crate) id: u64,
+    pub(crate) reverse: bool,
+    pub(crate) basis: f64,
+    pub(crate) nodes: &'a BTreeMap<u64, &'a LayoutNode>,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) viewport: ViewportState,
+    pub(crate) geometry: &'a BTreeMap<u64, NodeGeometry>,
+    pub(crate) clearance: &'a BTreeSet<u64>,
+}
+/// Inputs for vertical edge.
+pub(crate) struct VerticalMarginEdgeInputs<'a> {
+    pub(crate) id: u64,
+    pub(crate) after: bool,
+    pub(crate) reverse: bool,
+    pub(crate) basis: f64,
+    pub(crate) nodes: &'a BTreeMap<u64, &'a LayoutNode>,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) viewport: ViewportState,
+    pub(crate) obstacles: [Option<f64>; 2],
+}
+/// Inputs for child.
+pub(crate) struct VerticalChildInputs<'a> {
+    pub(crate) id: u64,
+    pub(crate) after: bool,
+    pub(crate) reverse: bool,
+    pub(crate) basis: f64,
+    pub(crate) nodes: &'a BTreeMap<u64, &'a LayoutNode>,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) viewport: ViewportState,
+    pub(crate) _obstacles: [Option<f64>; 2],
+}
+/// Inputs for vertical child edge.
+pub(crate) struct VerticalChildMarginInputs<'a> {
+    pub(crate) id: u64,
+    pub(crate) after: bool,
+    pub(crate) reverse: bool,
+    pub(crate) basis: f64,
+    pub(crate) nodes: &'a BTreeMap<u64, &'a LayoutNode>,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) viewport: ViewportState,
+    pub(crate) clear_obstacles: [Option<f64>; 2],
+    pub(crate) own_margin: f64,
+}
+/// Inputs for child edge.
+pub(crate) struct ChildMarginEdgeInputs<'a> {
+    pub(crate) id: u64,
+    pub(crate) bottom: bool,
+    pub(crate) width: f64,
+    pub(crate) nodes: &'a BTreeMap<u64, &'a LayoutNode>,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) viewport: ViewportState,
+    pub(crate) clear_obstacles: [Option<f64>; 2],
+    pub(crate) own_margin: f64,
+}
 use super::*;
 use inline_formatting::{FlowItem, MarginStrut};
 
@@ -85,16 +142,18 @@ fn content_inline(style: &BTreeMap<String, String>, basis: f64, viewport: Viewpo
     width
 }
 
-pub(super) fn child_edge(
-    id: u64,
-    bottom: bool,
-    width: f64,
-    nodes: &BTreeMap<u64, &LayoutNode>,
-    styles: &ComputedStyles,
-    viewport: ViewportState,
-    clear_obstacles: [Option<f64>; 2],
-    own_margin: f64,
-) -> Option<(u64, MarginStrut)> {
+pub(super) fn child_edge(params: ChildMarginEdgeInputs<'_>) -> Option<(u64, MarginStrut)> {
+    let ChildMarginEdgeInputs {
+        id,
+        bottom,
+        width,
+        nodes,
+        styles,
+        viewport,
+        clear_obstacles,
+        own_margin,
+    } = params;
+
     fn edge_child(
         id: u64,
         bottom: bool,
@@ -201,7 +260,7 @@ pub(super) fn outer_edge(
     let font = length(style_value(style, "font-size", "16px"), 16., 16., viewport);
     let margin = edge(style, "margin", basis, font, viewport);
     let width = content_inline(style, basis, viewport);
-    child_edge(
+    child_edge(ChildMarginEdgeInputs {
         id,
         bottom,
         width,
@@ -209,8 +268,8 @@ pub(super) fn outer_edge(
         styles,
         viewport,
         clear_obstacles,
-        if bottom { margin.bottom } else { margin.top },
-    )
+        own_margin: if bottom { margin.bottom } else { margin.top },
+    })
     .map(|(_, strut)| strut)
     .unwrap_or_default()
     .append(if bottom { margin.bottom } else { margin.top })
@@ -249,26 +308,32 @@ fn vertical_content_inline(
 }
 
 pub(super) fn vertical_child_edge(
-    id: u64,
-    after: bool,
-    reverse: bool,
-    basis: f64,
-    nodes: &BTreeMap<u64, &LayoutNode>,
-    styles: &ComputedStyles,
-    viewport: ViewportState,
-    clear_obstacles: [Option<f64>; 2],
-    own_margin: f64,
+    params: VerticalChildMarginInputs<'_>,
 ) -> Option<(u64, MarginStrut)> {
-    fn child(
-        id: u64,
-        after: bool,
-        reverse: bool,
-        basis: f64,
-        nodes: &BTreeMap<u64, &LayoutNode>,
-        styles: &ComputedStyles,
-        viewport: ViewportState,
-        _obstacles: [Option<f64>; 2],
-    ) -> Option<u64> {
+    let VerticalChildMarginInputs {
+        id,
+        after,
+        reverse,
+        basis,
+        nodes,
+        styles,
+        viewport,
+        clear_obstacles,
+        own_margin,
+    } = params;
+
+    fn child(params: VerticalChildInputs<'_>) -> Option<u64> {
+        let VerticalChildInputs {
+            id,
+            after,
+            reverse,
+            basis,
+            nodes,
+            styles,
+            viewport,
+            _obstacles,
+        } = params;
+
         let node = nodes.get(&id)?;
         let style = styles.get(&id)?;
         let mode = style_value(style, "writing-mode", "horizontal-tb");
@@ -329,7 +394,7 @@ pub(super) fn vertical_child_edge(
         }
         None
     }
-    let first = child(
+    let first = child(VerticalChildInputs {
         id,
         after,
         reverse,
@@ -337,8 +402,8 @@ pub(super) fn vertical_child_edge(
         nodes,
         styles,
         viewport,
-        clear_obstacles,
-    )?;
+        _obstacles: clear_obstacles,
+    })?;
     let mut current = first;
     let mut basis = basis;
     let mut seen = BTreeSet::new();
@@ -356,16 +421,16 @@ pub(super) fn vertical_child_edge(
             },
         ));
         let next_basis = vertical_content_inline(style, basis, viewport);
-        let Some(next) = child(
-            current,
+        let Some(next) = child(VerticalChildInputs {
+            id: current,
             after,
             reverse,
-            next_basis,
+            basis: next_basis,
             nodes,
             styles,
             viewport,
-            clear_obstacles,
-        ) else {
+            _obstacles: clear_obstacles,
+        }) else {
             break;
         };
         basis = next_basis;
@@ -374,36 +439,38 @@ pub(super) fn vertical_child_edge(
     resolve_clearance(chain, styles, clear_obstacles, own_margin, after)
 }
 
-pub(super) fn vertical_edge(
-    id: u64,
-    after: bool,
-    reverse: bool,
-    basis: f64,
-    nodes: &BTreeMap<u64, &LayoutNode>,
-    styles: &ComputedStyles,
-    viewport: ViewportState,
-    obstacles: [Option<f64>; 2],
-) -> MarginStrut {
+pub(super) fn vertical_edge(params: VerticalMarginEdgeInputs<'_>) -> MarginStrut {
+    let VerticalMarginEdgeInputs {
+        id,
+        after,
+        reverse,
+        basis,
+        nodes,
+        styles,
+        viewport,
+        obstacles,
+    } = params;
+
     let Some(style) = styles.get(&id) else {
         return MarginStrut::default();
     };
     let font = length(style_value(style, "font-size", "16px"), 16., 16., viewport);
     let margin = edge(style, "margin", basis, font, viewport);
-    vertical_child_edge(
+    vertical_child_edge(VerticalChildMarginInputs {
         id,
         after,
         reverse,
-        vertical_content_inline(style, basis, viewport),
+        basis: vertical_content_inline(style, basis, viewport),
         nodes,
         styles,
         viewport,
-        obstacles,
-        if after == reverse {
+        clear_obstacles: obstacles,
+        own_margin: if after == reverse {
             margin.left
         } else {
             margin.right
         },
-    )
+    })
     .map(|(_, strut)| strut)
     .unwrap_or_default()
     .append(if after == reverse {
@@ -424,7 +491,16 @@ pub(super) fn used_child_bottom(
     geometry: &BTreeMap<u64, NodeGeometry>,
     clearance: &BTreeSet<u64>,
 ) -> Option<(u64, f64)> {
-    let (child, _) = child_edge(id, true, width, nodes, styles, viewport, [None; 2], 0.)?;
+    let (child, _) = child_edge(ChildMarginEdgeInputs {
+        id,
+        bottom: true,
+        width,
+        nodes,
+        styles,
+        viewport,
+        clear_obstacles: [None; 2],
+        own_margin: 0.,
+    })?;
     let model = geometry.get(&child)?.box_model.as_ref()?;
     if clearance.contains(&child)
         && model.border_box.height == 0.
@@ -438,19 +514,29 @@ pub(super) fn used_child_bottom(
     Some((child, model.margin.bottom))
 }
 
-pub(super) fn used_child_vertical_end(
-    id: u64,
-    reverse: bool,
-    basis: f64,
-    nodes: &BTreeMap<u64, &LayoutNode>,
-    styles: &ComputedStyles,
-    viewport: ViewportState,
-    geometry: &BTreeMap<u64, NodeGeometry>,
-    clearance: &BTreeSet<u64>,
-) -> Option<(u64, f64)> {
-    let (child, _) = vertical_child_edge(
-        id, true, reverse, basis, nodes, styles, viewport, [None; 2], 0.,
-    )?;
+pub(super) fn used_child_vertical_end(params: VerticalChildEndInputs<'_>) -> Option<(u64, f64)> {
+    let VerticalChildEndInputs {
+        id,
+        reverse,
+        basis,
+        nodes,
+        styles,
+        viewport,
+        geometry,
+        clearance,
+    } = params;
+
+    let (child, _) = vertical_child_edge(VerticalChildMarginInputs {
+        id,
+        after: true,
+        reverse,
+        basis,
+        nodes,
+        styles,
+        viewport,
+        clear_obstacles: [None; 2],
+        own_margin: 0.,
+    })?;
     let model = geometry.get(&child)?.box_model.as_ref()?;
     if clearance.contains(&child)
         && model.border_box.width == 0.

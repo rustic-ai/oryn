@@ -25,6 +25,10 @@ pub struct Document<'input> {
     nodes: Vec<NodeData>,
     attrs: Vec<Attribute<'input>>,
     links: HashMap<String, NodeId>,
+    native_instance_styles: crate::NativeInstanceStyles,
+    native_instance_content: crate::NativeInstanceContent,
+    native_content_targets: std::collections::BTreeSet<String>,
+    native_instance_keys: std::collections::BTreeMap<usize, crate::NativeInstanceKey>,
 }
 
 impl<'input> Document<'input> {

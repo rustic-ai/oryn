@@ -261,21 +261,19 @@ pub(super) fn srcset(value: &str, base: Option<&url::Url>) -> String {
         if height && !width {
             valid = false;
         }
-        if valid {
-            if let Some(url) = resource_url(url, base, false) {
-                let candidate = if descriptors.is_empty() {
-                    url
-                } else {
-                    format!("{} {}", url, descriptors.join(" "))
-                };
-                output_bytes = output_bytes
-                    .saturating_add(candidate.len())
-                    .saturating_add(2);
-                if output_bytes > crate::clipboard::MAX_CLIPBOARD_BYTES {
-                    break;
-                }
-                candidates.push(candidate);
+        if valid && let Some(url) = resource_url(url, base, false) {
+            let candidate = if descriptors.is_empty() {
+                url
+            } else {
+                format!("{} {}", url, descriptors.join(" "))
+            };
+            output_bytes = output_bytes
+                .saturating_add(candidate.len())
+                .saturating_add(2);
+            if output_bytes > crate::clipboard::MAX_CLIPBOARD_BYTES {
+                break;
             }
+            candidates.push(candidate);
         }
     }
     candidates.join(", ")
@@ -323,7 +321,7 @@ fn density_number(value: &str) -> bool {
 // HTML foreign-attribute adjustment does not namespace the literal xml:base.
 // Clipboard HTML can nevertheless contain serialized foreign XML ancestry;
 // interpret that spelling only on foreign elements, before removing it.
-fn declared_base<'a>(dom: &'a DomRuntime, node: NodeId) -> Option<&'a str> {
+fn declared_base(dom: &DomRuntime, node: NodeId) -> Option<&str> {
     if let Ok(Some(value)) = dom.attribute_ns(node, Some(XML), "base") {
         return Some(value);
     }

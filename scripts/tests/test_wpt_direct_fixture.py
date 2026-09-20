@@ -124,7 +124,8 @@ def select_canary_diagnostics(stderr):
     event_fields = {'at_ms','kind','name','phase','event','pid','code','signal','error_code','id','method',
                     'session_id','started_ms','elapsed_ms','failed','timeout_ms','child_session_id','type',
                     'target_id','waiting_for_debugger','location','context_id','unique_id','frame_id','is_default',
-                    'parent_id','loader_id','request_id','status','protocol','error_text','canceled','blocked_reason'}
+                    'parent_id','loader_id','request_id','status','protocol','error_text','canceled','blocked_reason',
+                    'focused','harness_status','completion_count','test_count','passed_tests','failed_tests'}
     for line in stderr.splitlines():
         prefix = 'ORYN_CHROMIUM_DIAGNOSTIC '
         if not line.startswith(prefix) or len(line.encode()) > 65600: continue

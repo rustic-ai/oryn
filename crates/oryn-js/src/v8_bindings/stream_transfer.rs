@@ -466,7 +466,14 @@ fn operation(
                 .pending
                 .insert(kind, v8::Global::new(scope, resolver));
         }
-        if send(scope, &state, port, kind, args.get(0)).is_err() {
+        // The pull algorithm receives its local controller, which is not a
+        // message payload. Only writes and cancellation/abort reasons carry data.
+        let value = if matches!(kind, PULL | CLOSE) {
+            v8::undefined(scope).into()
+        } else {
+            args.get(0)
+        };
+        if send(scope, &state, port, kind, value).is_err() {
             let error = dom_exception_value(scope, "DataCloneError")?;
             let _ = send(scope, &state, port, ERROR, error);
             fail(scope, &state, port, error)?;
@@ -794,12 +801,35 @@ mod tests {
             )
         }
     }
-    fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, text: &str) -> v8::Local<'s, v8::Value> {
-        let text = v8::String::new(scope, text).unwrap();
-        v8::Script::compile(scope, text, None)
-            .unwrap()
-            .run(scope)
-            .unwrap()
+    use super::super::test_eval::eval;
+    fn bridge_diagnostic(state: &V8BindingState) -> String {
+        let bridges = state.stream_transfers.borrow();
+        let details = bridges
+            .iter()
+            .take(16)
+            .map(|(port, bridge)| {
+                let bridge = bridge.borrow();
+                let role = match bridge.role {
+                    Role::ReadSource => "read-source",
+                    Role::WriteSource => "write-source",
+                    Role::ReadDestination => "read-destination",
+                    Role::WriteDestination => "write-destination",
+                };
+                (
+                    *port,
+                    role,
+                    bridge.stream,
+                    bridge.lock,
+                    bridge.pending.keys().copied().collect::<Vec<_>>(),
+                    bridge.requests.iter().copied().collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        format!(
+            "bridges={} deferred={} first16={details:?}",
+            bridges.len(),
+            state.deferred_platform_tasks.borrow().len()
+        )
     }
     fn drain(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) {
         for _ in 0..64 {
@@ -850,11 +880,16 @@ mod tests {
                     scope,
                     "failure===''&&writes.join(',')==='one'&&events.join(',')==='7,true'"
                 )
-                .is_true()
+                .is_true(),
+                "before write release native={native}: {}; {}",
+                eval(scope, "JSON.stringify({failure,writes,events,releaseReady:typeof releaseWrite==='function'})").to_rust_string_lossy(scope),
+                bridge_diagnostic(&state),
             );
             eval(scope, "releaseWrite()");
             drain(scope, &state);
-            assert!(eval(scope,"failure===''&&writes.join(',')==='one,closed'&&events.join(',')==='7,true,written,9,true'").is_true());
+            assert!(eval(scope,"failure===''&&writes.join(',')==='one,closed'&&events.join(',')==='7,true,written,9,true'").is_true(),
+                "after write release native={native}: {}; {}",
+                eval(scope, "JSON.stringify({failure,writes,events})").to_rust_string_lossy(scope), bridge_diagnostic(&state));
             assert!(state.stream_transfers.borrow().is_empty());
         }
     }
@@ -882,6 +917,58 @@ mod tests {
         state.retire_execution();
     }
     #[test]
+    fn uncloneable_chunk_reports_error_and_releases_local_and_brokered_source() {
+        super::super::tests::initialize_v8();
+        for native in [false, true] {
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+            ));
+            let mut isolate = v8::Isolate::new(Default::default());
+            isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+            v8::scope!(let scope, &mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+            if native {
+                state.set_message_transport(std::sync::Arc::new(Messages(std::sync::Mutex::new(
+                    MessageHub::default(),
+                ))));
+            }
+            eval(
+                scope,
+                r#"
+                globalThis.readFailure='';globalThis.cancelFailure='';globalThis.hiddenPorts=-1;
+                globalThis.source=new ReadableStream({
+                    start(controller){controller.enqueue(()=>{})},
+                    cancel(reason){cancelFailure=reason.name}
+                });
+                globalThis.carrier=new MessageChannel();
+                carrier.port1.onmessage=event=>{
+                    hiddenPorts=event.ports.length;
+                    event.data.getReader().read().catch(error=>readFailure=error.name);
+                };
+                carrier.port2.postMessage(source,[source]);
+                if(!source.locked)throw Error('source was not locked by transfer');
+            "#,
+            );
+            drain(scope, &state);
+            assert!(eval(scope, "readFailure==='DataCloneError'&&cancelFailure==='DataCloneError'&&hiddenPorts===0&&!source.locked").is_true(),
+                "native={native}: {}; {}",
+                eval(scope, "JSON.stringify({readFailure,cancelFailure,hiddenPorts,locked:source.locked})").to_rust_string_lossy(scope),
+                bridge_diagnostic(&state));
+            assert!(
+                state.stream_transfers.borrow().is_empty(),
+                "{}",
+                bridge_diagnostic(&state)
+            );
+            // Subsequent author code must remain executable after clone failure.
+            assert_eq!(eval(scope, "6*7").int32_value(scope), Some(42));
+            eval(scope, "carrier.port1.close();carrier.port2.close()");
+            state.retire_execution();
+        }
+    }
+
+    #[test]
     fn transferred_read_cancellation_and_uncloneable_chunks_settle_both_sides() {
         super::super::tests::initialize_v8();
         let dom = Rc::new(RefCell::new(
@@ -901,7 +988,9 @@ mod tests {
         "#,
         );
         drain(scope, &state);
-        assert!(eval(scope,"cancelDone&&readDone&&cancelled.why===3&&badError==='DataCloneError'&&!badSource.locked").is_true());
+        assert!(eval(scope,"cancelDone&&readDone&&cancelled.why===3&&badError==='DataCloneError'&&!badSource.locked").is_true(),
+            "cancellation/error state: {}; {}",
+            eval(scope, "JSON.stringify({cancelDone,readDone,cancelled,badError,badSourceLocked:badSource.locked})").to_rust_string_lossy(scope), bridge_diagnostic(&state));
         assert!(state.stream_transfers.borrow().is_empty());
     }
 }

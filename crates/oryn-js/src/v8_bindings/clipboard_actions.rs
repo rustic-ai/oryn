@@ -1,4 +1,28 @@
 //! Native clipboard defaults require a one-use host grant, never script globals.
+
+pub(super) struct CompositionNotificationInputs<'a> {
+    pub(super) target: NodeId,
+    pub(super) name: &'a str,
+    pub(super) input_type: &'a str,
+    pub(super) text: &'a str,
+    pub(super) composing: bool,
+    pub(super) cancelable: bool,
+}
+
+/// Inputs for copy selected.
+struct ClipboardCopyInputs<'a> {
+    dom: &'a mut DomRuntime,
+    layout: &'a BindingLayout,
+    node: NodeId,
+    parent: NodeId,
+    range: &'a RangeRecord,
+    selected: &'a BTreeMap<NodeId, bool>,
+    whole: bool,
+    top: bool,
+    plain: &'a mut Vec<u16>,
+    budget: &'a mut usize,
+    base: Option<&'a url::Url>,
+}
 use super::*;
 use crate::clipboard::{
     ClipboardAction, ClipboardActionResult, ClipboardData, ClipboardError, ClipboardItem,
@@ -250,19 +274,19 @@ pub(super) fn rich_selection(
             light_children(&dom, common)?
         };
         for node in roots {
-            copy_selected(
-                &mut dom,
-                &layout,
+            copy_selected(ClipboardCopyInputs {
+                dom: &mut dom,
+                layout: &layout,
                 node,
-                fragment,
+                parent: fragment,
                 range,
-                &selected,
-                false,
-                true,
-                &mut plain,
-                &mut budget,
-                base.as_ref(),
-            )?;
+                selected: &selected,
+                whole: false,
+                top: true,
+                plain: &mut plain,
+                budget: &mut budget,
+                base: base.as_ref(),
+            })?;
         }
         let html = dom.serialize(fragment)?;
         if html.len().saturating_add(plain.len().saturating_mul(2))
@@ -313,19 +337,21 @@ fn collect_range_content_selection(
     }
     Ok(())
 }
-fn copy_selected(
-    dom: &mut DomRuntime,
-    layout: &BindingLayout,
-    node: NodeId,
-    parent: NodeId,
-    range: &RangeRecord,
-    selected: &BTreeMap<NodeId, bool>,
-    whole: bool,
-    top: bool,
-    plain: &mut Vec<u16>,
-    budget: &mut usize,
-    base: Option<&url::Url>,
-) -> Result<(), V8BindingError> {
+fn copy_selected(params: ClipboardCopyInputs<'_>) -> Result<(), V8BindingError> {
+    let ClipboardCopyInputs {
+        dom,
+        layout,
+        node,
+        parent,
+        range,
+        selected,
+        whole,
+        top,
+        plain,
+        budget,
+        base,
+    } = params;
+
     let Some(full) = whole
         .then_some(true)
         .or_else(|| selected.get(&node).copied())
@@ -393,9 +419,19 @@ fn copy_selected(
             copy_formatting(dom, layout, node, shell, budget)?;
             clipboard_markup::rewrite_from_source(dom, node, shell, base)?;
             for child in light_children(dom, node)? {
-                copy_selected(
-                    dom, layout, child, shell, range, selected, full, false, plain, budget, base,
-                )?;
+                copy_selected(ClipboardCopyInputs {
+                    dom,
+                    layout,
+                    node: child,
+                    parent: shell,
+                    range,
+                    selected,
+                    whole: full,
+                    top: false,
+                    plain,
+                    budget,
+                    base,
+                })?;
             }
             return Ok(());
         }
@@ -587,6 +623,7 @@ fn input_event<'s>(
     Ok(event)
 }
 
+#[cfg(test)]
 pub(super) fn sanitized_html(markup: &str) -> Result<String, V8BindingError> {
     clipboard_markup::sanitize(markup, None)
 }
@@ -705,13 +742,17 @@ impl ClipboardNotification {
     pub(super) fn composition(
         scope: &mut v8::PinScope,
         state: &Rc<V8BindingState>,
-        target: NodeId,
-        name: &str,
-        input_type: &str,
-        text: &str,
-        composing: bool,
-        cancelable: bool,
+        params: CompositionNotificationInputs<'_>,
     ) -> Result<Self, V8BindingError> {
+        let CompositionNotificationInputs {
+            target,
+            name,
+            input_type,
+            text,
+            composing,
+            cancelable,
+        } = params;
+
         let event = input_event(scope, state, target, name, input_type, Some(text), None)?;
         let key = private(scope, "isComposing")?;
         let value = v8::Boolean::new(scope, composing);
@@ -1117,25 +1158,4 @@ mod tests {
                 && !html.contains("srcdoc")
         );
     }
-}
-
-/// Composition input shares native target ranges and private InputEvent fields.
-pub(super) fn fire_composition_input(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    target: NodeId,
-    kind: &str,
-    input_type: &str,
-    text: &str,
-    composing: bool,
-    cancelable: bool,
-) -> Result<bool, V8BindingError> {
-    let mut notification = ClipboardNotification::composition(
-        scope, state, target, kind, input_type, text, composing, cancelable,
-    )?;
-    notification
-        .poll(scope, state)?
-        .ok_or(V8BindingError::Allocation(
-            "composition input notification suspended",
-        ))
 }

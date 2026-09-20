@@ -142,22 +142,22 @@ pub(super) fn create<'s>(
     })();
     if let Err(error) = linked {
         for (owner, source) in &sources {
-            if let Ok(mut record) = platform_object_mut(owner, *source) {
-                if let PlatformObjectRecord::AbortSignal(signal) = &mut *record {
-                    signal.foreign_followers.retain(|link| {
-                        link.id != id
-                            || link
-                                .owner
-                                .upgrade()
-                                .is_none_or(|owner| owner.instance_id != state.instance_id)
-                    });
-                }
+            if let Ok(mut record) = platform_object_mut(owner, *source)
+                && let PlatformObjectRecord::AbortSignal(signal) = &mut *record
+            {
+                signal.foreign_followers.retain(|link| {
+                    link.id != id
+                        || link
+                            .owner
+                            .upgrade()
+                            .is_none_or(|owner| owner.instance_id != state.instance_id)
+                });
             }
         }
-        if let Ok(mut record) = platform_object_mut(state, id) {
-            if let PlatformObjectRecord::AbortSignal(signal) = &mut *record {
-                signal.foreign_sources.clear();
-            }
+        if let Ok(mut record) = platform_object_mut(state, id)
+            && let PlatformObjectRecord::AbortSignal(signal) = &mut *record
+        {
+            signal.foreign_sources.clear();
         }
         return Err(error);
     }

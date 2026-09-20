@@ -134,6 +134,10 @@ impl crate::document::BaseDocument {
     /// mirror exists only during matching and never enters authored child lists.
     pub fn resolved_nested_pseudo_style(&mut self, node_id: NodeId, origin: &PseudoElement, pseudo: &PseudoElement) -> Option<Arc<ComputedValues>> {
         let primary = self.resolved_pseudo_style(node_id, origin)?;
+        self.resolved_nested_pseudo_style_with_origin(node_id, pseudo, primary)
+    }
+    /// Resolve a nested pseudo using an already cascaded instance origin.
+    pub fn resolved_nested_pseudo_style_with_origin(&mut self, node_id: NodeId, pseudo: &PseudoElement, primary: Arc<ComputedValues>) -> Option<Arc<ComputedValues>> {
         let name = markup5ever::QualName::new(None, markup5ever::Namespace::from("http://www.w3.org/1999/xhtml"), local_name!("div"));
         let mirror = self.create_node(NodeData::AnonymousBlock(Box::new(crate::node::ElementData::new(name, Vec::new()))));
         self.nodes[mirror].parent = Some(node_id);
@@ -214,6 +218,10 @@ impl crate::document::BaseDocument {
     }
     /// Pseudos retain their own matched fallback declarations and cascade scope.
     pub fn resolved_position_tries_for_style(&self,node_id:NodeId,original:&ComputedValues,cb_wm:style::logical_geometry::WritingMode)->Vec<Arc<ComputedValues>> {
+        self.resolved_position_tries_with_parent(node_id, original, cb_wm, None)
+    }
+    /// Use the owning instance or pseudo inheritance parent while retaining source rule scope.
+    pub fn resolved_position_tries_with_parent(&self,node_id:NodeId,original:&ComputedValues,cb_wm:style::logical_geometry::WritingMode,parent:Option<&ComputedValues>)->Vec<Arc<ComputedValues>> {
         let Some(element)=self.get_node(node_id).and_then(|node|node.as_element()) else{return Vec::new()};
         struct LayoutThreadState(bool);
         impl Drop for LayoutThreadState {fn drop(&mut self){if self.0{style::thread_state::exit(ThreadState::LAYOUT);}}}
@@ -222,13 +230,17 @@ impl crate::document::BaseDocument {
         let _thread=LayoutThreadState(entered);let guard=self.guard.read();
         let fallbacks=original.get_position().clone_position_try_fallbacks();
         fallbacks.value.0.iter().filter_map(|item|self.stylist.resolve_position_try_native(
-            &original,&StylesheetGuards::same(&guard),fallbacks.scope,element,item,cb_wm)).collect()
+            &original,&StylesheetGuards::same(&guard),fallbacks.scope,element,item,cb_wm,parent)).collect()
     }
     /// Recompute inherited values beneath a first-line formatting parent using
     /// the original native cascade. Authored inline declarations keep their
     /// precedence; reset properties remain those of the ordinary element.
     pub fn reparent_first_line_style(&self, node_id: NodeId, parent: &ComputedValues) -> Option<Arc<ComputedValues>> {
         let original = self.resolved_primary_style(node_id)?;
+        self.reparent_first_line_style_from(node_id, &original, parent)
+    }
+    /// Apply first-line inheritance to an already resolved instance style.
+    pub fn reparent_first_line_style_from(&self, node_id: NodeId, original: &ComputedValues, parent: &ComputedValues) -> Option<Arc<ComputedValues>> {
         let element = self.get_node(node_id)?.as_element()?;
         struct LayoutThreadState(bool);
         impl Drop for LayoutThreadState { fn drop(&mut self) { if self.0 { style::thread_state::exit(ThreadState::LAYOUT); } } }
@@ -237,11 +249,49 @@ impl crate::document::BaseDocument {
         let _thread = LayoutThreadState(entered);
         let guard = self.guard.read();
         Some(self.stylist.cascade_style_and_visited(
-            Some(element), None, &style::context::CascadeInputs::new_from_style(&original),
+            Some(element), None, &style::context::CascadeInputs::new_from_style(original),
             &StylesheetGuards::same(&guard), Some(parent), Some(parent),
-            style::properties::FirstLineReparenting::Yes { style_to_reparent: &original },
+            style::properties::FirstLineReparenting::Yes { style_to_reparent: original },
             &Default::default(), None, &mut Default::default(), &mut Default::default(),
         ))
+    }
+    /// Match a pseudo on its original source element, but cascade beneath the
+    /// instance's primary style. This also handles sources whose original tree
+    /// was pruned by display:none, as is common for SVG definitions.
+    pub fn resolved_instance_pseudo_style(&self, node_id: NodeId, pseudo: &PseudoElement, primary: Arc<ComputedValues>) -> Option<Arc<ComputedValues>> {
+        let element = self.get_node(node_id)?.as_element()?;
+        struct LayoutThreadState(bool);
+        impl Drop for LayoutThreadState { fn drop(&mut self) { if self.0 { style::thread_state::exit(ThreadState::LAYOUT); } } }
+        let entered = !style::thread_state::get().contains(ThreadState::LAYOUT);
+        if entered { style::thread_state::enter(ThreadState::LAYOUT); }
+        let _thread = LayoutThreadState(entered);
+        let guard = self.guard.read();
+        if !pseudo.is_eager() {
+            return self.stylist.lazily_compute_pseudo_element_style(
+                &StylesheetGuards::same(&guard), element, pseudo,
+                style::stylist::RuleInclusion::All, &primary, true, None,
+            );
+        }
+        let shared = SharedStyleContext {
+            traversal_flags: TraversalFlags::empty(), stylist: &self.stylist,
+            options: GLOBAL_STYLE_DATA.options.clone(), guards: StylesheetGuards::same(&guard),
+            visited_styles_enabled: false, animations: self.animations.clone(),
+            current_time_for_animations: self.animation_sample_time, snapshot_map: &self.snapshots,
+            registered_speculative_painters: &RegisteredPaintersImpl,
+        };
+        let mut local = style::context::ThreadLocalStyleContext::new();
+        local.bloom_filter.rebuild(element);
+        let mut context = StyleContext { shared: &shared, thread_local: &mut local };
+        style::style_resolver::StyleResolverForElement::new(
+            element, &mut context, style::stylist::RuleInclusion::All,
+            style::style_resolver::PseudoElementResolution::Force,
+        ).resolve_nested_pseudo_style(pseudo, primary)
+    }
+    /// Recompute a referenced element under an SVG instance parent while
+    /// retaining the original selector matches, cascade origins and priority.
+    pub fn reparent_element_style(&self, node_id: NodeId, parent: &ComputedValues) -> Option<Arc<ComputedValues>> {
+        let original = self.resolved_primary_style(node_id)?;
+        self.reparent_text_pseudo_style(node_id, &original, parent)
     }
     /// Recascade a previously matched pseudo beneath its formatting parent.
     /// Used by first-letter inheritance after first-line reparenting.

@@ -164,11 +164,11 @@ impl Registry {
         if visited.len() >= 32 || !visited.insert(name.into()) {
             return None;
         }
-        if !self.rules.contains_key(name) {
-            if let Some(parent) = &self.parent {
-                visited.remove(name);
-                return parent.resolved(name, visited);
-            }
+        if !self.rules.contains_key(name)
+            && let Some(parent) = &self.parent
+        {
+            visited.remove(name);
+            return parent.resolved(name, visited);
         }
         let mut value = self
             .rules
@@ -198,10 +198,10 @@ impl Registry {
         self.special_at(name, &mut BTreeSet::new())
     }
     fn special_at(&self, name: &str, visited: &mut BTreeSet<String>) -> Option<String> {
-        if !self.rules.contains_key(name) {
-            if let Some(parent) = &self.parent {
-                return parent.special_at(name, visited);
-            }
+        if !self.rules.contains_key(name)
+            && let Some(parent) = &self.parent
+        {
+            return parent.special_at(name, visited);
         }
         if visited.len() >= 32 || !visited.insert(name.into()) {
             return None;
@@ -224,10 +224,10 @@ impl Registry {
         .then(|| name.to_owned())
     }
     fn fallback_owner<'a>(&'a self, name: &str, visited: &mut BTreeSet<String>) -> &'a Self {
-        if !self.rules.contains_key(name) {
-            if let Some(parent) = &self.parent {
-                return parent.fallback_owner(name, visited);
-            }
+        if !self.rules.contains_key(name)
+            && let Some(parent) = &self.parent
+        {
+            return parent.fallback_owner(name, visited);
         }
         if visited.len() >= 32 || !visited.insert(name.into()) {
             return self;
@@ -235,18 +235,18 @@ impl Registry {
         let Some(rule) = self.rules.get(name) else {
             return self;
         };
-        if rule.fallback.is_none() {
-            if let Some(System::Extends(parent)) = &rule.system {
-                return self.fallback_owner(parent.0.as_ref(), visited);
-            }
+        if rule.fallback.is_none()
+            && let Some(System::Extends(parent)) = &rule.system
+        {
+            return self.fallback_owner(parent.0.as_ref(), visited);
         }
         self
     }
     pub(super) fn marker(&self, value: i64, name: &str) -> String {
-        if !self.rules.contains_key(name) {
-            if let Some(parent) = &self.parent {
-                return parent.marker(value, name);
-            }
+        if !self.rules.contains_key(name)
+            && let Some(parent) = &self.parent
+        {
+            return parent.marker(value, name);
         }
         if name == "none" {
             return String::new();
@@ -283,10 +283,10 @@ impl Registry {
         self.format_inner(value, name, &mut BTreeSet::new())
     }
     fn format_inner(&self, value: i64, name: &str, fallbacks: &mut BTreeSet<String>) -> String {
-        if !self.rules.contains_key(name) {
-            if let Some(parent) = &self.parent {
-                return parent.format_inner(value, name, fallbacks);
-            }
+        if !self.rules.contains_key(name)
+            && let Some(parent) = &self.parent
+        {
+            return parent.format_inner(value, name, fallbacks);
         }
         if fallbacks.len() >= 32 || !fallbacks.insert(name.into()) {
             return super::generated::format_counter(value, "decimal");
@@ -1002,11 +1002,13 @@ fn anonymous(source: &str) -> Option<Descriptors> {
                 {
                     return Err(parser.new_custom_error(()));
                 }
-                let mut rule = Descriptors::default();
-                rule.system = Some(system);
-                rule.symbols = Some(style::counter_style::Symbols(style::ArcSlice::from_iter(
-                    symbols.into_iter(),
-                )));
+                let rule = Descriptors {
+                    system: Some(system),
+                    symbols: Some(style::counter_style::Symbols(style::ArcSlice::from_iter(
+                        symbols.into_iter(),
+                    ))),
+                    ..Descriptors::default()
+                };
                 Ok(rule)
             },
         )

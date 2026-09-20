@@ -364,6 +364,21 @@ pub(super) fn construct(
     track_range_wrapper(scope, state, args.this(), id)
 }
 
+/// Shared stores are deduplicated by the caller; endpoint multiplicity remains.
+pub(super) fn owned_native_roots(
+    state: &V8BindingState,
+    roots: &mut traced_native_roots::Snapshot,
+) -> Result<(), V8BindingError> {
+    for record in state.static_range_custody.borrow().values() {
+        for (index, end) in record.ends.iter().enumerate() {
+            if !record.released[index] {
+                roots.add(&end.dom, end.node)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -477,9 +492,13 @@ mod tests {
             &nodes,
         )
         .unwrap();
-        let mut wrappers =
-            node_migration::Wrappers::capture(scope, &[state.clone()], &destination, &nodes)
-                .unwrap();
+        let mut wrappers = node_migration::Wrappers::capture(
+            scope,
+            std::slice::from_ref(&state),
+            &destination,
+            &nodes,
+        )
+        .unwrap();
         let map = DomRuntime::commit_subtree_migration(&source_dom, &destination_dom, &mut native)
             .unwrap();
         wrappers.publish(scope, &destination, &map.nodes).unwrap();
@@ -518,19 +537,4 @@ mod tests {
         state.static_ranges.borrow_mut().remove(&id);
         state.range_objects.borrow_mut().remove(&id);
     }
-}
-
-/// Shared stores are deduplicated by the caller; endpoint multiplicity remains.
-pub(super) fn owned_native_roots(
-    state: &V8BindingState,
-    roots: &mut traced_native_roots::Snapshot,
-) -> Result<(), V8BindingError> {
-    for record in state.static_range_custody.borrow().values() {
-        for (index, end) in record.ends.iter().enumerate() {
-            if !record.released[index] {
-                roots.add(&end.dom, end.node)?;
-            }
-        }
-    }
-    Ok(())
 }

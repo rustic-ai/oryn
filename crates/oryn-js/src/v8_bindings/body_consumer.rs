@@ -41,10 +41,10 @@ fn abandon(lease: &Source) {
             PlatformObjectRecord::ReadableStream(stream) => stream.host_stream_id,
             _ => None,
         });
-    if let Some(id) = host_id {
-        if let Some(host) = owner.platform_host.borrow().as_ref() {
-            host.abandon_http_stream(id);
-        }
+    if let Some(id) = host_id
+        && let Some(host) = owner.platform_host.borrow().as_ref()
+    {
+        host.abandon_http_stream(id);
     }
 }
 fn defer_cancel(lease: Source) {
@@ -113,7 +113,7 @@ pub(super) fn retire(state: &V8BindingState) {
                 match records.get_mut(&id) {
                     Some(PlatformObjectRecord::ReadableStream(stream))
                         if stream.consumer.as_ref().is_some_and(|consumer| {
-                            consumer.result_owner.as_ptr() == state as *const V8BindingState
+                            std::ptr::eq(consumer.result_owner.as_ptr(), state)
                         }) =>
                     {
                         stream.consumer.take()
@@ -215,11 +215,11 @@ pub(super) fn pump(
         }
         resolver.reject(tc, reason);
         // Never restore a consumer that a nested close/error/cancel removed.
-        if let Ok(mut record) = platform_object_mut(state, id) {
-            if let PlatformObjectRecord::ReadableStream(stream) = &mut *record {
-                stream.consumer.take();
-                stream.host_read_pending = false;
-            }
+        if let Ok(mut record) = platform_object_mut(state, id)
+            && let PlatformObjectRecord::ReadableStream(stream) = &mut *record
+        {
+            stream.consumer.take();
+            stream.host_read_pending = false;
         }
         abandon(&lease);
         if !state.execution_retired() {
@@ -310,10 +310,7 @@ mod tests {
         );
         let promise = v8::Local::<v8::Promise>::try_from(eval(scope, "p")).unwrap();
         assert_eq!(promise.state(), v8::PromiseState::Rejected);
-        assert_eq!(
-            eval(scope, "cancelled===0 && s.locked && r.bodyUsed").boolean_value(scope),
-            true
-        );
+        assert!(eval(scope, "cancelled===0 && s.locked && r.bodyUsed").boolean_value(scope));
         let response = v8::Local::<v8::Object>::try_from(eval(scope, "r")).unwrap();
         let id = stateful_id(scope, response).unwrap();
         let next = response_body_operation(scope, &state, id, "text").unwrap();

@@ -533,10 +533,10 @@ pub(super) fn reclaim(state: &V8BindingState) {
         {
             continue;
         }
-        if let Some(PlatformObjectRecord::ReadableStream(stream)) = records.remove(&id) {
-            if let Some(host) = stream.host_stream_id {
-                state.stream_abort_pending.borrow_mut().insert(host);
-            }
+        if let Some(PlatformObjectRecord::ReadableStream(stream)) = records.remove(&id)
+            && let Some(host) = stream.host_stream_id
+        {
+            state.stream_abort_pending.borrow_mut().insert(host);
         }
         state.stream_anchors.borrow_mut().remove(&id);
         state.stream_activity_roots.borrow_mut().remove(&id);

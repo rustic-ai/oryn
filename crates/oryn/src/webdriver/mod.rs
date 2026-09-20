@@ -135,4 +135,5 @@ mod wire_error_tests {
     }
 }
 
+#[cfg(any(feature = "webdriver-server", test))]
 mod element_input;

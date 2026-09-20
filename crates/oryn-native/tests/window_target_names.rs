@@ -1,6 +1,31 @@
 #![cfg(all(unix, feature = "v8-host", feature = "in-process-probe"))]
 use oryn_native::runtime::Browser;
 
+fn bounded_window_diagnostic(args: std::fmt::Arguments<'_>) -> String {
+    use std::fmt::Write;
+    struct Buffer(String);
+    impl std::fmt::Write for Buffer {
+        fn write_str(&mut self, value: &str) -> std::fmt::Result {
+            let remaining = 1008usize.saturating_sub(self.0.len());
+            let mut end = value.len().min(remaining);
+            while !value.is_char_boundary(end) {
+                end -= 1;
+            }
+            self.0.push_str(&value[..end]);
+            if end < value.len() {
+                Err(std::fmt::Error)
+            } else {
+                Ok(())
+            }
+        }
+    }
+    let mut buffer = Buffer(String::with_capacity(1024));
+    if buffer.write_fmt(args).is_err() {
+        buffer.0.push_str(" [truncated]");
+    }
+    buffer.0
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_window_name_and_parent_selection_keep_exact_utf16() {
     let context = Browser::in_process_probe().new_context();
@@ -115,9 +140,10 @@ async fn frame_names_and_borrowed_open_use_native_identity_after_renaming() {
 
 
         globalThis.destination='';
-        const probe=globalThis.__windowTargetNavigationProbe={entered:0,assigned:false,prevented:false,error:null};
+        const probe=globalThis.__windowTargetNavigationProbe={entered:0,assigned:false,prevented:false,error:null,scheduledAt:Date.now(),enteredAt:null};
         first.navigation.onnavigate=event=>{
             probe.entered++;
+            probe.enteredAt=Date.now();
             try {
                 destination=event.destination.url;
                 probe.assigned=true;
@@ -125,7 +151,7 @@ async fn frame_names_and_borrowed_open_use_native_identity_after_renaming() {
                 probe.prevented=true;
             } catch(error) {
                 let message;
-                try { message=String(error); }
+                try { message=String(error).slice(0,256); }
                 catch { message='[exception stringification failed]'; }
                 probe.error=message;
                 throw error;
@@ -133,9 +159,16 @@ async fn frame_names_and_borrowed_open_use_native_identity_after_renaming() {
         };
         first.open('relative','_self');return true;
     })()"#).await.unwrap(),"true");
+    let polling_started = std::time::Instant::now();
+    let mut polls_started = 0u64;
+    let mut polls_completed = 0u64;
+    let mut last_completion_ms = 0u128;
     let destination = match tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
+            polls_started += 1;
             let destination = source.evaluate("destination").await.unwrap();
+            polls_completed += 1;
+            last_completion_ms = polling_started.elapsed().as_millis();
             if !destination.is_empty() {
                 break destination;
             }
@@ -146,6 +179,13 @@ async fn frame_names_and_borrowed_open_use_native_identity_after_renaming() {
     {
         Ok(destination) => destination,
         Err(error) => {
+            eprintln!(
+                "window navigation terminal outcome: {}",
+                bounded_window_diagnostic(format_args!(
+                    "{:?}",
+                    context.queued_navigation_status(source.page_id())
+                ))
+            );
             // Observe only after the original deadline. Do not retry navigation
             // or replace its destination/cancellation oracle with this probe.
             let probe = tokio::time::timeout(
@@ -153,12 +193,12 @@ async fn frame_names_and_borrowed_open_use_native_identity_after_renaming() {
                 source.evaluate(
                     r#"JSON.stringify({
                 callback:globalThis.__windowTargetNavigationProbe,
-                destination:globalThis.destination,
-                rootURL:location.href,
-                childURL:a.contentWindow.location.href,
+                destination:globalThis.destination.slice(0,256),
+                rootURL:location.href.slice(0,256),
+                childURL:a.contentWindow.location.href.slice(0,256),
                 childReady:a.contentDocument.readyState,
-                childEntry:a.contentWindow.navigation.currentEntry?.url??null,
-                childOrigin:a.contentWindow.origin,
+                childEntry:a.contentWindow.navigation.currentEntry?.url.slice(0,256)??null,
+                childOrigin:a.contentWindow.origin.slice(0,256),
                 childClosed:a.contentWindow.closed,
                 popupClosed:closedPopup.closed,
                 hasHandler:typeof a.contentWindow.navigation.onnavigate
@@ -167,8 +207,11 @@ async fn frame_names_and_borrowed_open_use_native_identity_after_renaming() {
             )
             .await;
             panic!(
-                "queued Window.open must deliver the destination's navigate event: {error}; native custody={:?}; callback and target probe={probe:?}",
-                context.queued_navigation_status(source.page_id())
+                "queued Window.open must deliver the destination's navigate event: {error}; polls started={polls_started} completed={polls_completed} last completion ms={last_completion_ms}; native custody={:?}; callback and target probe={}",
+                context
+                    .queued_navigation_status(source.page_id())
+                    .map(|snapshot| bounded_window_diagnostic(format_args!("{snapshot:?}"))),
+                bounded_window_diagnostic(format_args!("{probe:?}"))
             );
         }
     };

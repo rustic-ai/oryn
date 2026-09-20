@@ -404,12 +404,12 @@ pub(super) fn associated_call<'s>(
             .ok_or(V8BindingError::Allocation("token list owner"))?;
         let node = resolve_receiver(scope, &owner, object, "DOMTokenList")?;
         let attribute = attribute(scope, object)?;
-        let absent = owner
+
+        owner
             .dom
             .borrow()
             .attribute_in_null_namespace(node, attribute)?
-            .is_none();
-        absent
+            .is_none()
     } else {
         false
     };

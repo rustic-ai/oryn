@@ -225,7 +225,7 @@ pub(super) fn layout(
             let offset = match index {
                 0 => 0.,
                 1 => (available - sizes[index]) / 2.,
-                _ => (available - sizes[index]),
+                _ => available - sizes[index],
             };
             let slot = if horizontal {
                 CssRect {

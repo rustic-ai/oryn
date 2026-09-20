@@ -1,4 +1,16 @@
 //! Atomic wait admission plus compact per-native-lane cancellation tombstones.
+
+/// Inputs for admit wait.
+pub(crate) struct WaitAdmissionInputs<'a> {
+    pub(crate) owner: &'a AgentOwner,
+    pub(crate) id: WaitAdmissionId,
+    pub(crate) descriptor: SharedMemoryDescriptor,
+    pub(crate) acquire: bool,
+    pub(crate) offset: u64,
+    pub(crate) width64: bool,
+    pub(crate) expected: u64,
+    pub(crate) timeout_ns: Option<u64>,
+}
 use super::*;
 use oryn_js::shared_memory::{SharedWaitResult, WaitAdmissionId};
 const WINDOW: u64 = 1024;
@@ -48,15 +60,19 @@ impl Lane {
 impl SharedMemoryRegistry {
     pub(crate) fn admit_wait(
         &mut self,
-        owner: &AgentOwner,
-        id: WaitAdmissionId,
-        descriptor: SharedMemoryDescriptor,
-        acquire: bool,
-        offset: u64,
-        width64: bool,
-        expected: u64,
-        timeout_ns: Option<u64>,
+        params: WaitAdmissionInputs<'_>,
     ) -> Result<SharedWaitResult, String> {
+        let WaitAdmissionInputs {
+            owner,
+            id,
+            descriptor,
+            acquire,
+            offset,
+            width64,
+            expected,
+            timeout_ns,
+        } = params;
+
         // Revalidate under the same registry lock as retirement; the outer
         // native document authority check alone leaves a commit/retire race.
         if !self.isolated(owner) {
@@ -193,12 +209,29 @@ mod tests {
             .admit_child(&owner, receiver.clone(), "origin")
             .unwrap();
         let (descriptor, _) = registry
-            .allocate(&owner, 4, None, 4096, 0, false, false)
+            .allocate(crate::shared_memory::SharedAllocationInputs {
+                owner: &owner,
+                byte_length: 4,
+                maximum_length: None,
+                granularity: 4096,
+                guard_length: 0,
+                wasm: false,
+                memory64: false,
+            })
             .unwrap();
         registry.cancel_wait_admission(&receiver, id(1)).unwrap();
         assert_eq!(
             registry
-                .admit_wait(&receiver, id(1), descriptor, true, 0, false, 0, None)
+                .admit_wait(WaitAdmissionInputs {
+                    owner: &receiver,
+                    id: id(1),
+                    descriptor,
+                    acquire: true,
+                    offset: 0,
+                    width64: false,
+                    expected: 0,
+                    timeout_ns: None
+                })
                 .unwrap(),
             SharedWaitResult::Cancelled
         );
@@ -208,11 +241,29 @@ mod tests {
                 .contains_key(&receiver)
         );
         let first = registry
-            .admit_wait(&receiver, id(2), descriptor, true, 0, false, 0, None)
+            .admit_wait(WaitAdmissionInputs {
+                owner: &receiver,
+                id: id(2),
+                descriptor,
+                acquire: true,
+                offset: 0,
+                width64: false,
+                expected: 0,
+                timeout_ns: None,
+            })
             .unwrap();
         assert_eq!(
             registry
-                .admit_wait(&receiver, id(2), descriptor, true, 0, false, 0, None)
+                .admit_wait(WaitAdmissionInputs {
+                    owner: &receiver,
+                    id: id(2),
+                    descriptor,
+                    acquire: true,
+                    offset: 0,
+                    width64: false,
+                    expected: 0,
+                    timeout_ns: None
+                })
                 .unwrap(),
             first
         );
@@ -235,7 +286,16 @@ mod tests {
         );
         assert_eq!(
             registry
-                .admit_wait(&receiver, id(2), descriptor, true, 0, false, 0, None)
+                .admit_wait(WaitAdmissionInputs {
+                    owner: &receiver,
+                    id: id(2),
+                    descriptor,
+                    acquire: true,
+                    offset: 0,
+                    width64: false,
+                    expected: 0,
+                    timeout_ns: None
+                })
                 .unwrap(),
             SharedWaitResult::Cancelled
         );
@@ -250,10 +310,27 @@ mod tests {
             .admit_child(&owner, receiver.clone(), "origin")
             .unwrap();
         let (descriptor, _) = registry
-            .allocate(&owner, 4, None, 4096, 0, false, false)
+            .allocate(crate::shared_memory::SharedAllocationInputs {
+                owner: &owner,
+                byte_length: 4,
+                maximum_length: None,
+                granularity: 4096,
+                guard_length: 0,
+                wasm: false,
+                memory64: false,
+            })
             .unwrap();
         registry
-            .admit_wait(&receiver, id(1), descriptor, true, 0, false, 0, None)
+            .admit_wait(WaitAdmissionInputs {
+                owner: &receiver,
+                id: id(1),
+                descriptor,
+                acquire: true,
+                offset: 0,
+                width64: false,
+                expected: 0,
+                timeout_ns: None,
+            })
             .unwrap();
         registry.retire(&receiver);
         assert_eq!(registry.backings[&descriptor.token].holders[&owner], 1);
@@ -265,7 +342,16 @@ mod tests {
         registry.cancel_wait_admission(&receiver, id(1)).unwrap();
         assert!(
             registry
-                .admit_wait(&receiver, id(1), descriptor, true, 0, false, 0, None)
+                .admit_wait(WaitAdmissionInputs {
+                    owner: &receiver,
+                    id: id(1),
+                    descriptor,
+                    acquire: true,
+                    offset: 0,
+                    width64: false,
+                    expected: 0,
+                    timeout_ns: None
+                })
                 .is_err()
         );
     }
@@ -281,14 +367,31 @@ mod lifetime_tests {
         let mut registry = SharedMemoryRegistry::default();
         registry.admit_root(owner.clone(), "origin".into()).unwrap();
         let (descriptor, _) = registry
-            .allocate(&owner, 4, None, 4096, 0, false, false)
+            .allocate(crate::shared_memory::SharedAllocationInputs {
+                owner: &owner,
+                byte_length: 4,
+                maximum_length: None,
+                granularity: 4096,
+                guard_length: 0,
+                wasm: false,
+                memory64: false,
+            })
             .unwrap();
         let id = |sequence| WaitAdmissionId {
             lane: [21; 32],
             sequence,
         };
         let earlier = registry
-            .admit_wait(&owner, id(1), descriptor, false, 0, false, 0, None)
+            .admit_wait(WaitAdmissionInputs {
+                owner: &owner,
+                id: id(1),
+                descriptor,
+                acquire: false,
+                offset: 0,
+                width64: false,
+                expected: 0,
+                timeout_ns: None,
+            })
             .unwrap();
         registry.cancel_wait_admission(&owner, id(2)).unwrap();
         assert_eq!(
@@ -297,13 +400,31 @@ mod lifetime_tests {
         );
         assert_eq!(
             registry
-                .admit_wait(&owner, id(1), descriptor, false, 0, false, 0, None)
+                .admit_wait(WaitAdmissionInputs {
+                    owner: &owner,
+                    id: id(1),
+                    descriptor,
+                    acquire: false,
+                    offset: 0,
+                    width64: false,
+                    expected: 0,
+                    timeout_ns: None
+                })
                 .unwrap(),
             earlier
         );
         assert_eq!(
             registry
-                .admit_wait(&owner, id(2), descriptor, false, 0, false, 0, None)
+                .admit_wait(WaitAdmissionInputs {
+                    owner: &owner,
+                    id: id(2),
+                    descriptor,
+                    acquire: false,
+                    offset: 0,
+                    width64: false,
+                    expected: 0,
+                    timeout_ns: None
+                })
                 .unwrap(),
             SharedWaitResult::Cancelled
         );
@@ -332,7 +453,15 @@ mod lifetime_tests {
             .admit_root(foreign.clone(), "foreign".into())
             .unwrap();
         let (descriptor, _) = registry
-            .allocate(&owner, 4, None, 4096, 0, false, false)
+            .allocate(crate::shared_memory::SharedAllocationInputs {
+                owner: &owner,
+                byte_length: 4,
+                maximum_length: None,
+                granularity: 4096,
+                guard_length: 0,
+                wasm: false,
+                memory64: false,
+            })
             .unwrap();
         let id = WaitAdmissionId {
             lane: [31; 32],
@@ -340,14 +469,32 @@ mod lifetime_tests {
         };
         assert!(
             registry
-                .admit_wait(&foreign, id, descriptor, true, 0, false, 0, None)
+                .admit_wait(WaitAdmissionInputs {
+                    owner: &foreign,
+                    id,
+                    descriptor,
+                    acquire: true,
+                    offset: 0,
+                    width64: false,
+                    expected: 0,
+                    timeout_ns: None
+                })
                 .is_err()
         );
         let mut forged = descriptor;
         forged.memory64 = true;
         assert!(
             registry
-                .admit_wait(&owner, id, forged, false, 0, false, 0, None)
+                .admit_wait(WaitAdmissionInputs {
+                    owner: &owner,
+                    id,
+                    descriptor: forged,
+                    acquire: false,
+                    offset: 0,
+                    width64: false,
+                    expected: 0,
+                    timeout_ns: None
+                })
                 .is_err()
         );
         assert!(
@@ -363,12 +510,30 @@ mod lifetime_tests {
         );
         assert!(
             registry
-                .admit_wait(&owner, id, descriptor, false, 0, false, 0, None)
+                .admit_wait(WaitAdmissionInputs {
+                    owner: &owner,
+                    id,
+                    descriptor,
+                    acquire: false,
+                    offset: 0,
+                    width64: false,
+                    expected: 0,
+                    timeout_ns: None
+                })
                 .is_ok()
         );
         assert!(
             registry
-                .admit_wait(&owner, id, descriptor, false, 0, false, 1, None)
+                .admit_wait(WaitAdmissionInputs {
+                    owner: &owner,
+                    id,
+                    descriptor,
+                    acquire: false,
+                    offset: 0,
+                    width64: false,
+                    expected: 1,
+                    timeout_ns: None
+                })
                 .is_err()
         );
     }

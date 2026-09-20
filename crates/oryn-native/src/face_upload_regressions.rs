@@ -10,6 +10,7 @@ impl NetworkBroker for Capture {
         let request_id = request.request_id;
         self.0.lock().unwrap().push(request);
         Ok(NetworkResponse {
+            response_policy: None,
             timing: None,
             request_id,
             status: 200,
@@ -52,15 +53,16 @@ async fn authorized_file_survives_grant_revocation_face_snapshot_and_reset_after
     })
     .await
     .unwrap();
-    let requests = requests.lock().unwrap();
-    assert_eq!(requests.len(), 1);
-    let body = &requests[0].body;
-    assert!(body.windows(payload.len()).any(|bytes| bytes == payload));
-    let text = String::from_utf8_lossy(body);
-    assert!(text.contains("filename=\"proof.bin\""));
-    assert!(text.find("first").unwrap() < text.find("second").unwrap());
-    assert!(!text.contains("OPAQUE") && !text.contains("$file:"));
-    drop(requests);
+    {
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        let body = &requests[0].body;
+        assert!(body.windows(payload.len()).any(|bytes| bytes == payload));
+        let text = String::from_utf8_lossy(body);
+        assert!(text.contains("filename=\"proof.bin\""));
+        assert!(text.find("first").unwrap() < text.find("second").unwrap());
+        assert!(!text.contains("OPAQUE") && !text.contains("$file:"));
+    }
     page.close().await.unwrap();
 }
 #[tokio::test]

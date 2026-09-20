@@ -10,9 +10,9 @@ struct Pending {
     live: bool,
 }
 thread_local! {
- static PENDING:RefCell<BTreeMap<usize,Pending>>=RefCell::new(BTreeMap::new());
- static SHOWN:RefCell<BTreeMap<(usize,SemanticRef,u64),oryn_dom::FilePicker>>=RefCell::new(BTreeMap::new());
- static FAILURE:RefCell<Option<String>>=RefCell::new(None);
+ static PENDING:RefCell<BTreeMap<usize,Pending>>=const { RefCell::new(BTreeMap::new()) };
+ static SHOWN:RefCell<BTreeMap<(usize,SemanticRef,u64),oryn_dom::FilePicker>>=const { RefCell::new(BTreeMap::new()) };
+ static FAILURE:RefCell<Option<String>>=const { RefCell::new(None) };
 }
 unsafe extern "C" fn ended(delegate: Id, _: Sel, panel: Id, code: isize, _: *mut c_void) {
     unsafe {

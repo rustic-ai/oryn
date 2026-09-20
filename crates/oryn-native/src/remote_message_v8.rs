@@ -46,11 +46,10 @@ fn retire_native_message_frame(scope:&mut v8::PinScope,frame:&FrameLifetime){
     if let Some(owner)=scope.get_slot::<Arc<crate::runtime::deferred_fetch::StandaloneOwner>>(){owner.remove(&frame.message_token);}
     frame.deferred_cleanup.borrow_mut().take();
 
-    if let Some((document_generation,stream_epoch))=frame.message_generation.take(){
-        if let Some(endpoint)=endpoints_for_environment(scope,frame.parent_environment).and_then(|entry|entry.context){
+    if let Some((document_generation,stream_epoch))=frame.message_generation.take()
+        && let Some(endpoint)=endpoints_for_environment(scope,frame.parent_environment).and_then(|entry|entry.context){
             let _=endpoint.client.request(ContextServiceRequest::MessageWire{source_page_id:endpoint.page_id,request:MessageRequest::RetireWindow{frame:frame.message_token.clone(),document_generation,stream_epoch}});
         }
-    }
 }
 fn native_message_source(scope:&mut v8::PinScope)->Result<WindowTarget,ScriptError>{
     let source=oryn_js::v8_context_bridge::incumbent_slot::<V8BindingState>(scope).or_else(||scope.get_current_context().get_slot::<V8BindingState>()).ok_or_else(ScriptError::retired)?;
@@ -121,7 +120,6 @@ fn remote_window_post_message(scope:&mut v8::PinScope,args:&v8::FunctionCallback
 }
 impl RawV8Host {
     fn poll_remote_message_tasks(&mut self)->Result<usize,HostError>{
-        if self.context_endpoint_for_realm(self.active_realm).is_none(){return Ok(0)}
         let contexts=self.contexts.iter().filter(|(realm,_)| !self.realm_is_parked(**realm)).map(|(_,context)|context.clone()).collect::<Vec<_>>();let mut delivered=0;
         for context in contexts {
             let deadline=ExecutionDeadline::arm(&self.isolate,self.execution_wall_limit);
@@ -134,6 +132,10 @@ impl RawV8Host {
             if root.get_slot::<NativeWindowLifecycle>().is_some_and(|window|window.closed.get()){continue}
             checkpoint_frame_lifetimes(scope);
             let Some(state)=context.get_slot::<V8BindingState>()else{continue};if state.execution_retired(){continue}
+            // This host can retain standalone and parent-backed realms together.
+            // Admit the visited context, not whichever realm the caller selected.
+            // Connected realms still register and poll their exact native creator.
+            if current_context_endpoint(scope).is_none(){continue}
             delivered+=state.poll_external_ports(scope).map_err(|e|HostError::Execution(e.to_string()))?;
             let target=if let Some(frame)=context.get_slot::<FrameLifetime>(){
                 if frame.closed.get(){continue}publish_native_message_frame(scope,context,&frame).map_err(|e|HostError::Execution(e.message))?;WindowTarget::Frame(frame.message_token.clone())
@@ -418,5 +420,164 @@ mod tests {
         source.entered().execute("frame.remove()").unwrap();checkpoint(&mut source);
         assert!(matches!(SharedContextClient::direct(context.clone(),popup.page_id()).request(ContextServiceRequest::MessageWire{source_page_id:popup.page_id(),request:MessageRequest::WindowStatus{page:parent.page_id().0,target:WindowTarget::Frame(token)}}).unwrap(),ContextServiceResponse::MessageWire{result:Ok(MessageResponse::WindowLive(false))}));
         popup.close().await.unwrap();parent.close().await.unwrap();
+    }
+}
+
+
+#[cfg(test)]
+mod realm_endpoint_poll_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use oryn_js::worker_wire::Creator;
+
+    struct PollTransport {
+        route: crate::worker_route::WorkerRoute,
+        page: PageId,
+        creator: Creator,
+        polls: AtomicUsize,
+        registrations: AtomicUsize,
+        reject_root_registration: bool,
+    }
+    impl crate::context_service::ContextTransport for PollTransport {
+        fn request_routed(
+            &self,
+            route: Option<&crate::worker_route::WorkerRoute>,
+            request: ContextServiceRequest,
+        ) -> Result<ContextServiceResponse, crate::RuntimeError> {
+            if route != Some(&self.route) {
+                return Err(crate::RuntimeError::ProtocolViolation(
+                    "endpoint poll route authority mismatch".into(),
+                ));
+            }
+            self.request(request)
+        }
+        fn request(&self, request: ContextServiceRequest) -> Result<ContextServiceResponse, crate::RuntimeError> {
+            let ContextServiceRequest::MessageWire { source_page_id, request } = request else {
+                return Err(crate::RuntimeError::ContextService("unexpected endpoint poll request".into()));
+            };
+            if source_page_id != self.page {
+                return Err(crate::RuntimeError::ContextService("wrong endpoint poll page".into()));
+            }
+            let Creator::Window { target, document_generation, stream_epoch } = &self.creator else { unreachable!() };
+            let result = match request {
+                MessageRequest::RegisterRootDocument { document_generation: generation, stream_epoch: epoch }
+                    if *target == WindowTarget::Root && (generation, epoch) == (*document_generation, *stream_epoch) => {
+                    self.registrations.fetch_add(1, Ordering::SeqCst);
+                    if self.reject_root_registration { Err("fixture root registration denied".into()) } else { Ok(MessageResponse::Done) }
+                }
+                MessageRequest::RegisterWindow { frame, document_generation: generation, stream_epoch: epoch, .. }
+                    if *target == WindowTarget::Frame(frame.clone()) && (generation, epoch) == (*document_generation, *stream_epoch) => Ok(MessageResponse::Done),
+                MessageRequest::InDocument { target: owner, document_generation: generation, stream_epoch: epoch, request }
+                    if owner == *target && (generation, epoch) == (*document_generation, *stream_epoch) => {
+                    match *request {
+                        MessageRequest::PollWindow { target: destination, max: 1 } if destination == *target => {
+                            self.polls.fetch_add(1, Ordering::SeqCst);
+                            Ok(MessageResponse::WindowMessages(Vec::new()))
+                        }
+                        _ => Err("unexpected scoped endpoint poll request".into()),
+                    }
+                }
+                MessageRequest::RetireWindow { frame, document_generation: generation, stream_epoch: epoch }
+                    if *target == WindowTarget::Frame(frame.clone()) && (generation, epoch) == (*document_generation, *stream_epoch) => Ok(MessageResponse::Done),
+                MessageRequest::RetireRootDocument { document_generation: generation, stream_epoch: epoch }
+                    if *target == WindowTarget::Root && (generation, epoch) == (*document_generation, *stream_epoch) => Ok(MessageResponse::Done),
+                _ => Err("endpoint poll creator mismatch".into()),
+            };
+            Ok(ContextServiceResponse::MessageWire { result })
+        }
+    }
+    fn local_host() -> RawV8Host {
+        let mut host = RawV8Host::new_with_base_url_and_heap_limit(Url::parse("https://example.test/").unwrap(), 256 * 1024 * 1024);
+        host.install_dom(Rc::new(RefCell::new(oryn_dom::html::parse("<body></body>").into_runtime().unwrap())), 1).unwrap();
+        host
+    }
+    fn client(transport: Arc<PollTransport>) -> SharedContextClient {
+        let route = transport.route.clone();
+        SharedContextClient::for_test_transport(transport, route)
+    }
+    #[test]
+    fn endpoint_poll_fixture_rejects_missing_and_foreign_route_grants() {
+        use crate::context_service::ContextTransport;
+        let transport = PollTransport {
+            route: crate::worker_route::WorkerRoute::issue(814, 3, 0).unwrap(),
+            page: PageId(3),
+            creator: Creator::Window {
+                target: WindowTarget::Root,
+                document_generation: 1,
+                stream_epoch: 0,
+            },
+            polls: AtomicUsize::new(0),
+            registrations: AtomicUsize::new(0),
+            reject_root_registration: false,
+        };
+        let foreign = crate::worker_route::WorkerRoute::issue(814, 3, 0).unwrap();
+        let request = || ContextServiceRequest::MessageWire {
+            source_page_id: PageId(3),
+            request: MessageRequest::RegisterRootDocument {
+                document_generation: 1,
+                stream_epoch: 0,
+            },
+        };
+        for route in [None, Some(&foreign)] {
+            assert!(transport.request_routed(route, request()).is_err());
+        }
+        assert_eq!(transport.registrations.load(Ordering::SeqCst), 0);
+        assert!(matches!(
+            transport.request_routed(Some(&transport.route), request()).unwrap(),
+            ContextServiceResponse::MessageWire { result: Ok(MessageResponse::Done) }
+        ));
+        assert_eq!(transport.registrations.load(Ordering::SeqCst), 1);
+        assert_eq!(transport.polls.load(Ordering::SeqCst), 0);
+    }
+    #[test]
+    fn mixed_endpoint_poll_uses_each_realm_and_ignores_active_realm_selection() {
+        let mut host = local_host();
+        let root = host.active_realm();
+        host.execute("globalThis.child=document.createElement('iframe');document.body.append(child)").unwrap();
+        host.adopt_created_realms();
+        let child = host.realm_ids().into_iter().find(|realm| *realm != root).unwrap();
+        let (token, generation, epoch) = {
+            v8::scope!(let scope, &mut host.isolate);
+            let context = v8::Local::new(scope, &host.contexts[&child]);
+            let frame = context.get_slot::<FrameLifetime>().unwrap();
+            let state = context.get_slot::<V8BindingState>().unwrap();
+            (frame.message_token.clone(), state.document_generation(), state.document_authority_epoch())
+        };
+        let transport = Arc::new(PollTransport { route: crate::worker_route::WorkerRoute::issue(814, 1, 0).unwrap(), page: PageId(1), creator: Creator::Window { target: WindowTarget::Frame(token), document_generation: generation, stream_epoch: epoch }, polls: AtomicUsize::new(0), registrations: AtomicUsize::new(0), reject_root_registration: false });
+        host.install_test_resource_endpoint(child, client(transport.clone()), PageId(1));
+        assert!(host.context_endpoint_for_realm(root).is_none());
+        for active in [root, child, root] {
+            host.activate_realm(active).unwrap();
+            let before = transport.polls.load(Ordering::SeqCst);
+            assert_eq!(host.poll_remote_message_tasks().unwrap(), 0);
+            assert_eq!(transport.polls.load(Ordering::SeqCst), before + 1);
+            assert_eq!(host.active_realm(), active);
+            assert_eq!(transport.registrations.load(Ordering::SeqCst), 0, "the disconnected root must never register with the child's endpoint");
+        }
+        host.activate_realm(root).unwrap();
+        assert_eq!(host.evaluate_string("String(child.contentWindow.parent===window)").unwrap(), "true");
+    }
+    #[test]
+    fn connected_root_poll_keeps_missing_and_rejected_creator_registration_fail_closed() {
+        for install_messages in [false, true] {
+            let mut host = local_host();
+            let root = host.active_realm();
+            let state = host.binding_states[&root].clone();
+            let transport = Arc::new(PollTransport { route: crate::worker_route::WorkerRoute::issue(814, 2, 0).unwrap(), page: PageId(2), creator: state.native_local_creator_identity().unwrap(), polls: AtomicUsize::new(0), registrations: AtomicUsize::new(0), reject_root_registration: true });
+            let endpoint = client(transport.clone());
+            if install_messages {
+                host.install_test_resource_endpoint(root, endpoint, PageId(2));
+            } else {
+                // Deliberately incomplete connected fixture: presence of an
+                // endpoint must not hide missing lifetime-registration transport.
+                host.isolate.get_slot_mut::<RealmEndpointRegistry>().unwrap().0.get_mut(&root).unwrap().1.context = Some(ContextState { client: endpoint, page_id: PageId(2) });
+            }
+            let error = host.poll_remote_message_tasks().unwrap_err().to_string();
+            assert!(error.contains("native creator lifetime registration"), "{error}");
+            assert_eq!(error.contains("fixture root registration denied"), install_messages);
+            assert_eq!(transport.polls.load(Ordering::SeqCst), 0);
+            assert_eq!(transport.registrations.load(Ordering::SeqCst), usize::from(install_messages));
+            assert_eq!(host.active_realm(), root);
+        }
     }
 }

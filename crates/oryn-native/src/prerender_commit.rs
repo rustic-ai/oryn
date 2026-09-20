@@ -32,6 +32,8 @@ pub(super) struct Commit {
     retirement_acked: bool,
     retirement_frozen: bool,
     retirement_targets: VecDeque<oryn_js::message_wire::MessageRequest>,
+    #[cfg(test)]
+    diagnostic_failure: Option<String>,
 }
 fn same_retirement(
     left: &oryn_js::message_wire::MessageRequest,
@@ -75,6 +77,22 @@ fn merge_retirement_targets(
     existing.extend(current);
 }
 impl Commit {
+    #[cfg(test)]
+    fn diagnostic_for_test(&self) -> String {
+        repair44_bounded_diagnostic(format_args!(
+            "phase={} installed={} successor_recovery={} retired={} retirement_ack={} frozen={} pending_retirement={} retirement_targets={} pending_transport={} first_failure={:?}",
+            self.phase,
+            self.installed,
+            self.recovering_successor,
+            self.retired,
+            self.retirement_acked,
+            self.retirement_frozen,
+            self.retirement.is_some(),
+            self.retirement_targets.len(),
+            self.transport.is_some(),
+            self.diagnostic_failure
+        ))
+    }
     pub fn new(
         page: &mut PageState,
         candidate: Box<prerender_load::CandidateDocument>,
@@ -133,6 +151,8 @@ impl Commit {
                 retirement_acked: false,
                 retirement_frozen: false,
                 retirement_targets: VecDeque::new(),
+                #[cfg(test)]
+                diagnostic_failure: None,
             }),
             Err(error) => Err((error, candidate)),
         }
@@ -199,7 +219,7 @@ impl Commit {
                     Ok(None) => {}
                     Ok(Some(error)) => return Err(map_host_error(error)),
                     Err((error, host)) => {
-                        page.pending_agent_host = Some(host);
+                        page.pending_agent_host = Some(*host);
                         return Err(map_host_error(error));
                     }
                 }
@@ -271,7 +291,7 @@ impl Commit {
                 .map_err(map_host_error)?;
                 let host = page.pending_agent_host.take().unwrap();
                 if let Err((error, host)) = candidate.executable.install_agent_host(host) {
-                    page.pending_agent_host = Some(host);
+                    page.pending_agent_host = Some(*host);
                     return Err(map_host_error(error));
                 }
             }
@@ -445,7 +465,7 @@ impl Commit {
                 executable
                     .return_agent_host_after_turn(host)
                     .map_err(|(error, host)| {
-                        page.pending_agent_host = Some(host);
+                        page.pending_agent_host = Some(*host);
                         map_host_error(error)
                     })?;
             if let Some(error) = returned {
@@ -550,7 +570,7 @@ impl Commit {
                 Ok(None) => {}
                 Ok(Some(error)) => return Err(map_host_error(error)),
                 Err((error, host)) => {
-                    page.pending_agent_host = Some(host);
+                    page.pending_agent_host = Some(*host);
                     return Err(map_host_error(error));
                 }
             }
@@ -571,10 +591,10 @@ impl Commit {
         if self.retry.is_some_and(|time| time > Instant::now()) {
             return Ok(false);
         }
-        if let Some(transport) = self.transport.as_mut() {
-            if transport.poll().is_pending() {
-                return Ok(false);
-            }
+        if let Some(transport) = self.transport.as_mut()
+            && transport.poll().is_pending()
+        {
+            return Ok(false);
         }
         if self.recovering_successor {
             if !self.installed
@@ -599,7 +619,7 @@ impl Commit {
             // has replaced the stream in that accepted Document; cancellation
             // of the old caller cannot restore its predecessor over it.
             let candidate = self.candidate.as_mut().unwrap();
-            let mut host = candidate
+            let host = candidate
                 .executable
                 .take_agent_host()
                 .map_err(map_host_error)?;
@@ -608,15 +628,15 @@ impl Commit {
                 candidate.reservation.generation,
                 candidate.reservation.epoch,
             );
-            if checked.is_ok() {
-                if let Some(receipt) = self.history_receipt.take() {
-                    host.cancel_native_history_receipt(self.destination_realm, receipt);
-                }
+            if checked.is_ok()
+                && let Some(receipt) = self.history_receipt.take()
+            {
+                host.cancel_native_history_receipt(self.destination_realm, receipt);
             }
             match candidate.executable.return_agent_host_after_turn(host) {
                 Ok(_) => {}
                 Err((error, host)) => {
-                    page.pending_agent_host = Some(host);
+                    page.pending_agent_host = Some(*host);
                     return Err(map_host_error(error));
                 }
             }
@@ -688,7 +708,7 @@ impl Commit {
                 match executable.return_agent_host_after_turn(host) {
                     Ok(_) => {}
                     Err((error, host)) => {
-                        page.pending_agent_host = Some(host);
+                        page.pending_agent_host = Some(*host);
                         return Err(map_host_error(error));
                     }
                 }
@@ -746,15 +766,15 @@ impl Commit {
             tree.cancel();
         }
         if !self.retired {
-            if let Some(candidate) = self.candidate.as_mut() {
-                if candidate.executable.has_agent_host() {
-                    page.pending_agent_host = Some(
-                        candidate
-                            .executable
-                            .take_agent_host()
-                            .map_err(map_host_error)?,
-                    );
-                }
+            if let Some(candidate) = self.candidate.as_mut()
+                && candidate.executable.has_agent_host()
+            {
+                page.pending_agent_host = Some(
+                    candidate
+                        .executable
+                        .take_agent_host()
+                        .map_err(map_host_error)?,
+                );
             }
             if self.installed
                 && page.executable.as_ref().is_some_and(|executable| {
@@ -784,32 +804,35 @@ impl Commit {
             self.candidate.take();
             self.reservation.take();
         }
-        if self.source_suspended() && page.executable.is_none() {
-            if page
+        if self.source_suspended()
+            && page.executable.is_none()
+            && page
                 .back_forward_cache
                 .get(&self.source_index)
                 .is_some_and(|entry| entry.document_generation == self.departure.source_generation)
-            {
-                page.history = self.original_history.clone();
-                page.history_index = Some(self.source_index);
-                page.restore_parked_incumbent(self.source_index)?;
-            }
+        {
+            page.history = self.original_history.clone();
+            page.history_index = Some(self.source_index);
+            page.restore_parked_incumbent(self.source_index)?;
         }
         // A new current root is never overwritten by this old recovery owner.
-        if let Some(executable) = page.executable.as_mut() {
-            if !executable.has_agent_host() {
-                if let Some(host) = page.pending_agent_host.take() {
-                    if let Err((error, host)) = executable.return_agent_host_after_turn(host) {
-                        page.pending_agent_host = Some(host);
-                        return Err(map_host_error(error));
-                    }
-                }
-            }
+        if let Some(executable) = page.executable.as_mut()
+            && !executable.has_agent_host()
+            && let Some(host) = page.pending_agent_host.take()
+            && let Err((error, host)) = executable.return_agent_host_after_turn(host)
+        {
+            page.pending_agent_host = Some(*host);
+            return Err(map_host_error(error));
         }
         Ok(true)
     }
     pub fn defer_recovery(&mut self) {
-        self.retry = Some(Instant::now() + Duration::from_millis(25));
+        let now = Instant::now();
+        // An actor can poll again before this retry is due. Preserve that
+        // deadline; moving it on every early poll can starve recovery forever.
+        if self.retry.is_none_or(|deadline| deadline <= now) {
+            self.retry = Some(now + Duration::from_millis(25));
+        }
     }
 }
 
@@ -841,7 +864,14 @@ impl PageState {
                 job.defer_recovery();
                 self.prerender_recovery = Some(job)
             }
-            Err(_) => {
+            Err(error) => {
+                #[cfg(test)]
+                if job.diagnostic_failure.is_none() {
+                    job.diagnostic_failure =
+                        Some(repair44_bounded_diagnostic(format_args!("{error}")));
+                }
+                #[cfg(not(test))]
+                let _ = error;
                 job.defer_recovery();
                 self.prerender_recovery = Some(job)
             }
@@ -850,11 +880,103 @@ impl PageState {
 }
 
 #[cfg(test)]
+pub(super) fn owner_diagnostic_for_test(page: &PageState) -> String {
+    let cached = page
+        .back_forward_cache
+        .iter()
+        .take(8)
+        .map(|(index, entry)| {
+            (
+                *index,
+                entry.document_generation,
+                entry.reusable,
+                entry.executable.has_agent_host(),
+            )
+        })
+        .collect::<Vec<_>>();
+    // Recovery drivers may have lent their host to the actor. Completion
+    // getters can inspect async queues through that host, so this snapshot
+    // deliberately reads structural fields only.
+    let native = page.executable.as_ref().map(|driver| {
+        (
+            driver.agent_root_realm(),
+            driver.has_agent_host(),
+            driver.parser_pending(),
+        )
+    });
+    repair44_bounded_diagnostic(format_args!(
+        "generation={} history_index={:?} history_count={} native={native:?} pending_host={} pending_response={} pending_transaction={} settling={} failed_install={} source_resume={} cache_count={} cached_first8={cached:?} recovery={:?}",
+        page.document_generation,
+        page.history_index,
+        page.history.len(),
+        page.pending_agent_host.is_some(),
+        page.pending_navigation_response.is_some(),
+        page.pending_navigation_transaction.is_some(),
+        page.settling_navigation.is_some(),
+        page.failed_install_recovery.is_some(),
+        page.root_source_resume.is_some(),
+        page.back_forward_cache.len(),
+        page.prerender_recovery
+            .as_deref()
+            .map(Commit::diagnostic_for_test)
+    ))
+}
+
+#[cfg(test)]
 thread_local! {static PAUSE_AFTER_INSTALL:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};static PAUSE_AFTER_PROMOTION:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};static REPLACE_AFTER_HISTORY:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
 
 #[cfg(all(test, feature = "in-process-probe"))]
 mod tests {
     use super::*;
+    #[test]
+    fn detached_async_driver_diagnostic_never_requires_the_lent_host() {
+        let mut page = PageState::new(
+            PageId(909),
+            None,
+            BrowserConfig::default(),
+            ContextOptions::default(),
+            None,
+            None,
+        );
+        let mut driver = crate::executable::RustExecutableDocument::load(
+            "<body><script async type=module>globalThis.started=true;await new Promise(resolve=>globalThis.releaseModule=resolve);globalThis.finished=true</script>"
+        ).unwrap();
+        for _ in 0..16 {
+            driver.drain_tasks().unwrap();
+            if driver.evaluate("typeof releaseModule").unwrap() == "function" {
+                break;
+            }
+        }
+        assert_eq!(driver.evaluate("typeof releaseModule").unwrap(), "function");
+        assert_eq!(
+            driver
+                .evaluate("String(globalThis.finished===true)")
+                .unwrap(),
+            "false"
+        );
+        let host = driver.take_agent_host().unwrap();
+        assert!(!driver.has_agent_host());
+        page.executable = Some(driver);
+        let diagnostic = owner_diagnostic_for_test(&page);
+        assert!(diagnostic.len() <= 1024);
+        assert!(diagnostic.contains("native=Some"));
+        assert!(
+            !page.executable.as_ref().unwrap().has_agent_host(),
+            "formatting must not consume or attach the separately owned host"
+        );
+        assert!(
+            page.executable
+                .as_mut()
+                .unwrap()
+                .install_agent_host(host)
+                .is_ok()
+        );
+        page.executable
+            .as_mut()
+            .unwrap()
+            .execute("releaseModule()")
+            .unwrap();
+    }
     struct Response(Arc<std::sync::atomic::AtomicUsize>);
     impl crate::network::NetworkBroker for Response {
         fn send(
@@ -862,7 +984,7 @@ mod tests {
             request: crate::network::NetworkRequest,
         ) -> Result<crate::network::NetworkResponse, crate::network::NetworkError> {
             self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(crate::network::NetworkResponse{timing:None,request_id:request.request_id,status:203,
+            Ok(crate::network::NetworkResponse{response_policy: None,timing:None,request_id:request.request_id,status:203,
                 headers:vec![("content-type".into(),"text/html;charset=utf-8".into())],
                 body:br#"<!doctype html><script>
                     globalThis.savedWindow=window;globalThis.savedDocument=document;globalThis.savedNavigation=performance.getEntriesByType('navigation')[0];globalThis.savedTimeOrigin=performance.timeOrigin;globalThis.beforeActivation=savedNavigation.activationStart;
@@ -933,7 +1055,7 @@ mod tests {
                 &self,
                 request: crate::network::NetworkRequest,
             ) -> Result<crate::network::NetworkResponse, crate::network::NetworkError> {
-                Ok(crate::network::NetworkResponse{timing:None,request_id:request.request_id,status:200,
+                Ok(crate::network::NetworkResponse{response_policy: None,timing:None,request_id:request.request_id,status:200,
                     headers:vec![("content-type".into(),"text/html".into())],
                     body:br#"<!doctype html><script>
                       globalThis.beforeActivation=false;
@@ -955,7 +1077,11 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(5);
         while !page.prerender_candidates.loaded_for_test() {
             page.poll_page_tasks().unwrap();
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         assert!(
@@ -981,7 +1107,11 @@ mod tests {
         .unwrap();
         while page.pending_navigation_transaction.is_some() || page.settling_navigation.is_some() {
             page.poll_page_tasks().unwrap();
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         assert_eq!(
@@ -1044,7 +1174,23 @@ mod tests {
             .as_mut()
             .unwrap()
             .execute("globalThis.sourceTimingJSON=JSON.stringify(sourceTiming.toJSON())")
-            .unwrap();
+            .unwrap_or_else(|error| {
+                panic!(
+                    "source timing: {}; {}; diagnostics={:?}",
+                    repair44_bounded_diagnostic(format_args!("{error}")),
+                    owner_diagnostic_for_test(&page),
+                    page.trace
+                        .events()
+                        .iter()
+                        .filter_map(|event| match &event.kind {
+                            TraceEventKind::ScriptDiagnostic { capability, detail } =>
+                                Some((capability, detail)),
+                            _ => None,
+                        })
+                        .take(8)
+                        .collect::<Vec<_>>()
+                )
+            });
         page.begin_navigation_resource(
             "https://prerender.test/next".into(),
             HistoryUpdate::Push,
@@ -1057,7 +1203,11 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(5);
         while page.pending_navigation_transaction.is_some() || page.settling_navigation.is_some() {
             page.poll_page_tasks().unwrap();
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         assert_ne!(page.document_generation, source);
@@ -1087,7 +1237,11 @@ mod tests {
             != "true"
         {
             page.poll_page_tasks().unwrap();
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         assert_eq!(
@@ -1135,7 +1289,11 @@ mod tests {
                 {
                     break;
                 }
-                assert!(Instant::now() < deadline);
+                assert!(
+                    Instant::now() < deadline,
+                    "{}",
+                    owner_diagnostic_for_test(&page)
+                );
                 std::thread::yield_now();
             }
             let destination = page.document_generation;
@@ -1150,7 +1308,11 @@ mod tests {
             page.cancel_navigation_transaction(RuntimeError::NavigationCancelled);
             while page.prerender_recovery.is_some() {
                 page.poll_prerender_recovery();
-                assert!(Instant::now() < deadline);
+                assert!(
+                    Instant::now() < deadline,
+                    "{}",
+                    owner_diagnostic_for_test(&page)
+                );
                 std::thread::yield_now();
             }
             assert_eq!(page.document_generation, destination);
@@ -1180,18 +1342,22 @@ mod tests {
         .unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            if let Some(transaction) = page.pending_navigation_transaction.as_ref() {
-                if let NavigationTransactionPhase::Publication { result, .. } = &transaction.phase {
-                    assert_eq!(result.status, 203);
-                    break;
-                }
+            if let Some(transaction) = page.pending_navigation_transaction.as_ref()
+                && let NavigationTransactionPhase::Publication { result, .. } = &transaction.phase
+            {
+                assert_eq!(result.status, 203);
+                break;
             }
             assert!(
                 page.pending_navigation_transaction.is_some(),
                 "activation skipped its retained publication"
             );
             page.poll_page_tasks().unwrap();
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 1);
@@ -1218,7 +1384,11 @@ mod tests {
             {
                 break;
             }
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         assert!(page.executable.is_none());
@@ -1227,9 +1397,21 @@ mod tests {
             page.prerender_recovery.is_some(),
             "accepted publication cannot be dropped with its canceled caller"
         );
+        let retry = Instant::now() + Duration::from_millis(25);
+        page.prerender_recovery.as_mut().unwrap().retry = Some(retry);
+        page.poll_prerender_recovery();
+        assert_eq!(
+            page.prerender_recovery.as_ref().unwrap().retry,
+            Some(retry),
+            "early actor polling must not postpone accepted activation recovery"
+        );
         while page.prerender_recovery.is_some() {
             page.poll_prerender_recovery();
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         assert_eq!(page.document_generation, source);
@@ -1270,14 +1452,22 @@ mod tests {
             {
                 break;
             }
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         assert!(page.executable.is_none());
         page.cancel_navigation_transaction(RuntimeError::NavigationCancelled);
         while page.prerender_recovery.is_some() {
             page.poll_prerender_recovery();
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         assert_ne!(page.document_generation, source);
@@ -1313,7 +1503,11 @@ mod tests {
             {
                 break;
             }
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         page.begin_navigation_resource(
@@ -1334,7 +1528,11 @@ mod tests {
         );
         while page.prerender_recovery.is_some() || page.pending_navigation_transaction.is_some() {
             page.poll_page_tasks().unwrap();
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         assert!(page.url.starts_with("data:text/html,"));
@@ -1352,8 +1550,10 @@ mod tests {
             NetworkBroker, NetworkError, NetworkEvent, NetworkOperation, NetworkRequest,
             NetworkResponse,
         };
+        type PendingBody = Option<(u64, tokio::sync::mpsc::Sender<NetworkEvent>)>;
+
         struct HeldBody {
-            held: Arc<Mutex<Option<(u64, tokio::sync::mpsc::Sender<NetworkEvent>)>>>,
+            held: Arc<Mutex<PendingBody>>,
             requests: Arc<std::sync::atomic::AtomicUsize>,
         }
         impl NetworkBroker for HeldBody {
@@ -1369,6 +1569,7 @@ mod tests {
                 let (sender, events) = tokio::sync::mpsc::channel(8);
                 sender
                     .try_send(NetworkEvent::Headers {
+                        response_policy: None,
                         timing: None,
                         request_id: request.request_id,
                         status: 203,
@@ -1448,7 +1649,11 @@ mod tests {
             .unwrap();
         while page.pending_navigation_transaction.is_some() {
             page.poll_page_tasks().unwrap();
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 1);
@@ -1477,7 +1682,11 @@ mod tests {
                     .map(|transaction| &transaction.phase),
                 Some(NavigationTransactionPhase::PrerenderWaiting { .. })
             );
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         assert!(waited);
@@ -1518,7 +1727,11 @@ mod tests {
             ) {
                 break;
             }
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         page.executable
@@ -1528,7 +1741,11 @@ mod tests {
             .unwrap();
         while page.pending_navigation_transaction.is_some() {
             page.poll_page_tasks().unwrap();
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "{}",
+                owner_diagnostic_for_test(&page)
+            );
             std::thread::park_timeout(Duration::from_millis(1));
         }
         assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 1);

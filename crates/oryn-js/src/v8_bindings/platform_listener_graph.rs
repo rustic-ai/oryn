@@ -86,10 +86,10 @@ fn refresh_edges(
         }
         let handlers = state.platform_handlers.borrow();
         for ((target, _), handler) in handlers.iter() {
-            if *target == id {
-                if let Some(callback) = handler.local(scope) {
-                    values.push(callback);
-                }
+            if *target == id
+                && let Some(callback) = handler.local(scope)
+            {
+                values.push(callback);
             }
         }
     }
@@ -188,10 +188,10 @@ fn refresh_edges(
             {
                 values.push(wrapper.into());
             }
-            if let Some(PlatformObjectRecord::AbortSignal(signal)) = objects.get(&related) {
-                if let Some(value) = signal.reason.as_ref().and_then(|value| value.local(scope)) {
-                    values.push(value);
-                }
+            if let Some(PlatformObjectRecord::AbortSignal(signal)) = objects.get(&related)
+                && let Some(value) = signal.reason.as_ref().and_then(|value| value.local(scope))
+            {
+                values.push(value);
             }
         }
     }
@@ -227,15 +227,14 @@ fn refresh_edges(
         }
     };
     for link in foreign {
-        if let Some(owner) = link.owner.upgrade() {
-            if let Some(wrapper) = owner
+        if let Some(owner) = link.owner.upgrade()
+            && let Some(wrapper) = owner
                 .platform_wrappers
                 .borrow()
                 .get(&link.id)
                 .and_then(|wrapper| wrapper.to_local(scope))
-            {
-                values.push(wrapper.into());
-            }
+        {
+            values.push(wrapper.into());
         }
     }
     let array = v8::Array::new_with_elements(scope, &values);
@@ -623,14 +622,14 @@ pub(super) fn reconcile_activity(scope: &mut v8::PinScope, state: &V8BindingStat
         // bubbling error/abort listeners are observable without a JS reference.
         let requests = active.iter().copied().collect::<Vec<_>>();
         for id in requests {
-            if let Some(PlatformObjectRecord::IdbRequest(request)) = objects.get(&id) {
-                if let Some(transaction) = request.transaction_id {
-                    active.insert(transaction);
-                    if let Some(PlatformObjectRecord::IdbTransaction(record)) =
-                        objects.get(&transaction)
-                    {
-                        active.insert(record.database_id);
-                    }
+            if let Some(PlatformObjectRecord::IdbRequest(request)) = objects.get(&id)
+                && let Some(transaction) = request.transaction_id
+            {
+                active.insert(transaction);
+                if let Some(PlatformObjectRecord::IdbTransaction(record)) =
+                    objects.get(&transaction)
+                {
+                    active.insert(record.database_id);
                 }
             }
         }
@@ -639,13 +638,12 @@ pub(super) fn reconcile_activity(scope: &mut v8::PinScope, state: &V8BindingStat
     roots.retain(|id, _| active.contains(id));
     let wrappers = state.platform_wrappers.borrow();
     for id in active {
-        if !roots.contains_key(&id) {
-            if let Some(wrapper) = wrappers
+        if !roots.contains_key(&id)
+            && let Some(wrapper) = wrappers
                 .get(&id)
                 .and_then(|wrapper| wrapper.to_local(scope))
-            {
-                roots.insert(id, v8::Global::new(scope, wrapper));
-            }
+        {
+            roots.insert(id, v8::Global::new(scope, wrapper));
         }
     }
 }

@@ -53,12 +53,14 @@ impl BrowserContext {
             None,
         )?;
         self.with_window_worker_creator_pages(
-            page,
-            target,
-            *document_generation,
-            *stream_epoch,
-            false,
-            false,
+            crate::runtime::WorkerCreatorPagesInputs {
+                page_id: page,
+                target,
+                generation: *document_generation,
+                epoch: *stream_epoch,
+                include_urls: false,
+                allow_prerender: false,
+            },
             |(_, _, current), _, _, _| {
                 if current != origin {
                     return Err(RuntimeError::Closed);

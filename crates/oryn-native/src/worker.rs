@@ -20,7 +20,7 @@ use crate::{
     runtime::{NativeAction, RuntimeError},
 };
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 18;
+pub const WORKER_PROTOCOL_VERSION: u32 = 19;
 use crate::worker_route::WorkerRoute;
 pub const MAX_IPC_FRAME_BYTES: usize = 24 * 1024 * 1024;
 static WORKER_BINARY_SHA256: OnceLock<String> = OnceLock::new();
@@ -449,6 +449,7 @@ struct PageSession {
 }
 
 impl PageSession {
+    #[cfg(test)]
     fn new(
         config: BrowserConfig,
         context: ContextOptions,
@@ -715,20 +716,19 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
     }
     let mut cleanup_failure = None;
     for (environment, session) in sessions {
-        if let Some(session) = session {
-            if let Err(error) = session.page.close().await {
-                cleanup_failure.get_or_insert_with(|| error.to_string());
-            }
+        if let Some(session) = session
+            && let Err(error) = session.page.close().await
+        {
+            cleanup_failure.get_or_insert_with(|| error.to_string());
         }
         #[cfg(unix)]
         if let Some(client) = context_client
             .as_ref()
             .zip(active_routes.get(&environment))
             .map(|(client, route)| client.for_route(route.clone()))
+            && let Err(error) = client.drain_resource_teardown(Duration::from_secs(2))
         {
-            if let Err(error) = client.drain_resource_teardown(Duration::from_secs(2)) {
-                cleanup_failure.get_or_insert_with(|| error.to_string());
-            }
+            cleanup_failure.get_or_insert_with(|| error.to_string());
         }
         #[cfg(not(unix))]
         let _ = environment;
@@ -817,16 +817,16 @@ async fn dispatch(
         };
     }
     if matches!(request, WorkerRequest::Exit) {
-        if let Some(active) = session.as_ref() {
-            if let Err(value) = active.page.close().await {
-                return error(value);
-            }
+        if let Some(active) = session.as_ref()
+            && let Err(value) = active.page.close().await
+        {
+            return error(value);
         }
         #[cfg(unix)]
-        if let Some(client) = &context_client {
-            if let Err(value) = client.drain_resource_teardown(Duration::from_secs(2)) {
-                return error(value);
-            }
+        if let Some(client) = &context_client
+            && let Err(value) = client.drain_resource_teardown(Duration::from_secs(2))
+        {
+            return error(value);
         }
         session.take();
         return WorkerResponse::Exiting;
@@ -838,10 +838,10 @@ async fn dispatch(
         return match active.page.close().await {
             Ok(()) => {
                 #[cfg(unix)]
-                if let Some(client) = &context_client {
-                    if let Err(value) = client.drain_resource_teardown(Duration::from_secs(2)) {
-                        return error(value);
-                    }
+                if let Some(client) = &context_client
+                    && let Err(value) = client.drain_resource_teardown(Duration::from_secs(2))
+                {
+                    return error(value);
                 }
                 session.take();
                 WorkerResponse::EnvironmentReleased
@@ -861,10 +861,10 @@ async fn dispatch(
             return error(value);
         }
         #[cfg(unix)]
-        if let Some(client) = &context_client {
-            if let Err(value) = client.drain_resource_teardown(Duration::from_secs(2)) {
-                return error(value);
-            }
+        if let Some(client) = &context_client
+            && let Err(value) = client.drain_resource_teardown(Duration::from_secs(2))
+        {
+            return error(value);
         }
         session.take();
         return WorkerResponse::ResetReady {
@@ -1314,8 +1314,10 @@ fn secret_environment_present() -> bool {
 mod tests {
     #[test]
     fn native_scrollbar_width_round_trips_and_rejects_nonfinite_geometry() {
-        let mut config = BrowserConfig::default();
-        config.native_scrollbar_width = 17.5;
+        let config = BrowserConfig {
+            native_scrollbar_width: 17.5,
+            ..Default::default()
+        };
         let encoded = serde_json::to_vec(&WorkerLimits::from(&config)).unwrap();
         let mut limits: WorkerLimits = serde_json::from_slice(&encoded).unwrap();
         assert_eq!(limits.browser_config().native_scrollbar_width, 17.5);
@@ -1349,7 +1351,7 @@ mod tests {
                 WorkerRequest::LoadHtml {
                     policy_token: None,
                     url: "https://first.test/".into(),
-                    html: "<p>alpha</p>".into(),
+                    html: "<p>alpha</p><button>alpha</button>".into(),
                 },
             ),
             (
@@ -1357,7 +1359,19 @@ mod tests {
                 WorkerRequest::LoadHtml {
                     policy_token: None,
                     url: "https://second.test/".into(),
-                    html: "<p>beta</p>".into(),
+                    html: "<p>beta</p><button>beta</button>".into(),
+                },
+            ),
+            (
+                first.clone(),
+                WorkerRequest::Observe {
+                    profile: Some(ProjectionProfile::Full),
+                },
+            ),
+            (
+                second.clone(),
+                WorkerRequest::Observe {
+                    profile: Some(ProjectionProfile::Full),
                 },
             ),
             (
@@ -1380,6 +1394,12 @@ mod tests {
             ),
             (first.clone(), WorkerRequest::ReleaseEnvironment),
             (first, WorkerRequest::Ping),
+            (
+                second.clone(),
+                WorkerRequest::Observe {
+                    profile: Some(ProjectionProfile::Full),
+                },
+            ),
             (
                 second.clone(),
                 WorkerRequest::Evaluate {
@@ -1412,21 +1432,61 @@ mod tests {
             .filter(|line| !line.is_empty())
             .map(|line| serde_json::from_slice::<WorkerEnvelope>(line).unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(replies.len(), 11);
+        assert_eq!(replies.len(), 14);
         assert!(matches!(replies[0].response, WorkerResponse::Ready { .. }));
         assert!(matches!(replies[1].response, WorkerResponse::Ready { .. }));
-        assert!(
-            matches!(&replies[4].response, WorkerResponse::Value { value } if value == "alpha")
-        );
-        assert!(matches!(&replies[5].response, WorkerResponse::Value { value } if value == "beta"));
-        assert!(matches!(replies[6].response, WorkerResponse::Error { .. }));
+        assert!(matches!(replies[2].response, WorkerResponse::Loaded { .. }));
+        assert!(matches!(replies[3].response, WorkerResponse::Loaded { .. }));
+        // Observation checks the document owned by each route even when this
+        // in-memory dispatcher was compiled without a JavaScript runtime.
+        for (index, page, url, expected, other) in [
+            (4, 1, "https://first.test/", "alpha", "beta"),
+            (5, 2, "https://second.test/", "beta", "alpha"),
+            (11, 2, "https://second.test/", "beta", "alpha"),
+        ] {
+            let WorkerResponse::Observation { observation } = &replies[index].response else {
+                panic!(
+                    "expected document observation: {:?}",
+                    replies[index].response
+                );
+            };
+            assert_eq!(observation.page.page_id, PageId(page));
+            assert_eq!(observation.page.url, url);
+            assert!(
+                observation
+                    .nodes
+                    .iter()
+                    .any(|node| node.role == "button" && node.name == expected)
+            );
+            assert!(observation.nodes.iter().all(|node| node.name != other));
+        }
+        #[cfg(feature = "v8-host")]
+        {
+            assert!(
+                matches!(&replies[6].response, WorkerResponse::Value { value } if value == "alpha")
+            );
+            assert!(
+                matches!(&replies[7].response, WorkerResponse::Value { value } if value == "beta")
+            );
+            assert!(
+                matches!(&replies[12].response, WorkerResponse::Value { value } if value == "beta")
+            );
+        }
+        #[cfg(not(feature = "v8-host"))]
+        for index in [6, 7, 12] {
+            assert!(matches!(
+                &replies[index].response,
+                WorkerResponse::Error { error }
+                    if matches!(error.as_ref(), crate::runtime::RuntimeError::EvaluationUnavailable)
+            ));
+        }
+        assert!(matches!(replies[8].response, WorkerResponse::Error { .. }));
         assert!(matches!(
-            replies[7].response,
+            replies[9].response,
             WorkerResponse::EnvironmentReleased
         ));
-        assert!(matches!(replies[8].response, WorkerResponse::Error { .. }));
-        assert!(matches!(&replies[9].response, WorkerResponse::Value { value } if value == "beta"));
-        assert!(matches!(replies[10].response, WorkerResponse::Exiting));
+        assert!(matches!(replies[10].response, WorkerResponse::Error { .. }));
+        assert!(matches!(replies[13].response, WorkerResponse::Exiting));
         for (index, reply) in replies.iter().enumerate() {
             assert_eq!(reply.correlation_id, index as u64 + 1);
         }

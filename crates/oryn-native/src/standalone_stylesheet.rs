@@ -1,5 +1,16 @@
 //! Captured standalone CSS resource loading. Only bounded IO lanes call load;
 //! the page retains revision, cancellation and publication ownership.
+
+/// Inputs retained together for expand.
+struct StylesheetExpansionInput<'a> {
+    url: &'a str,
+    referrer: &'a str,
+    policy: &'a str,
+    css: &'a str,
+    encoding: &'a str,
+    depth: usize,
+    ancestors: &'a mut Vec<String>,
+}
 use super::*;
 use crate::cookies::{CookieCredentials, CookieRequestContext, CookieRequestKind};
 use crate::network::{NetworkRequest, collect_operation_bounded_with_cancel};
@@ -160,6 +171,7 @@ mod tests {
                 let request_id = request.request_id;
                 self.0.lock().unwrap().push(request);
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id,
                     status: 204,
@@ -303,6 +315,7 @@ mod tests {
                     )
                 };
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status,
@@ -364,6 +377,7 @@ mod tests {
                 self.started.send(()).unwrap();
                 self.release.lock().unwrap().recv().unwrap();
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -442,6 +456,7 @@ mod tests {
                     oryn_layout::DEFAULT_FONT_BYTES.to_vec()
                 };
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -500,6 +515,7 @@ mod tests {
                     )
                 };
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -595,6 +611,7 @@ mod tests {
                     (200, "image/png", Vec::new())
                 };
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status,
@@ -691,6 +708,7 @@ mod tests {
                 self.started.send(()).unwrap();
                 self.release.lock().unwrap().recv().unwrap();
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -802,6 +820,7 @@ mod tests {
         impl NetworkBroker for Reply {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -1100,6 +1119,7 @@ mod tests {
         impl NetworkBroker for Sheet {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -1211,6 +1231,7 @@ mod tests {
                 self.started.send(()).unwrap();
                 self.release.lock().unwrap().recv().unwrap();
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -1427,8 +1448,16 @@ impl Loader {
                 &mut Vec::new(),
             )
         } else if install {
-            self.expand(base, &initiator, &policy, css, encoding, 0, &mut Vec::new())
-                .map(|css| (base.into(), css))
+            self.expand(StylesheetExpansionInput {
+                url: base,
+                referrer: &initiator,
+                policy: &policy,
+                css,
+                encoding,
+                depth: 0,
+                ancestors: &mut Vec::new(),
+            })
+            .map(|css| (base.into(), css))
         } else {
             collect_css_dependencies(&mut self.dependencies, base, &initiator, &policy, css)?;
             Ok((base.into(), css.into()))
@@ -1460,10 +1489,26 @@ impl Loader {
                 depth == 0,
             )?;
             let expanded = if stylesheet_cycle_key(&url) == stylesheet_cycle_key(requested) {
-                self.expand(&url, &url, &policy, &css, &encoding, depth, ancestors)?
+                self.expand(StylesheetExpansionInput {
+                    url: &url,
+                    referrer: &url,
+                    policy: &policy,
+                    css: &css,
+                    encoding: &encoding,
+                    depth,
+                    ancestors,
+                })?
             } else {
                 with_stylesheet_ancestor(ancestors, &url, |ancestors| {
-                    self.expand(&url, &url, &policy, &css, &encoding, depth, ancestors)
+                    self.expand(StylesheetExpansionInput {
+                        url: &url,
+                        referrer: &url,
+                        policy: &policy,
+                        css: &css,
+                        encoding: &encoding,
+                        depth,
+                        ancestors,
+                    })
                 })?
                 .unwrap_or_default()
             };
@@ -1471,16 +1516,17 @@ impl Loader {
         })
         .map(|value| value.unwrap_or_else(|| (requested.into(), String::new())))
     }
-    fn expand(
-        &mut self,
-        url: &str,
-        referrer: &str,
-        policy: &str,
-        css: &str,
-        encoding: &str,
-        depth: usize,
-        ancestors: &mut Vec<String>,
-    ) -> Result<String, HostError> {
+    fn expand(&mut self, params: StylesheetExpansionInput<'_>) -> Result<String, HostError> {
+        let StylesheetExpansionInput {
+            url,
+            referrer,
+            policy,
+            css,
+            encoding,
+            depth,
+            ancestors,
+        } = params;
+
         let rules = oryn_layout::cssom::read_stylesheet(css, url, false, true)
             .map_err(HostError::Execution)?;
         let mut output = String::new();
@@ -1686,7 +1732,6 @@ impl Loader {
                 if destination != "stylesheet" {
                     self.binary = Some(super::dynamic_stylesheet_preparation::CssBinary {
                         url: url.to_owned(),
-                        media_type: "application/octet-stream".into(),
                         bytes: source.as_bytes().to_vec(),
                     });
                 }
@@ -1911,19 +1956,19 @@ impl Loader {
                 if let module_graph_load::ModuleGraphBackend::Broker { coep, reports, .. } =
                     &self.backend
                 {
-                    reports.push_coep(coep.response(
-                        &origin.ascii_serialization(),
-                        matches!(origin, url::Origin::Opaque(_)),
-                        &url,
+                    reports.push_coep(coep.response(crate::coep_reporting::ResponsePolicyInputs {
+                        origin: &origin.ascii_serialization(),
+                        opaque: matches!(origin, url::Origin::Opaque(_)),
+                        target: &url,
                         cors,
-                        (include || !cross) && !omit,
-                        &response.headers,
-                        if destination == "stylesheet" {
+                        credentials: (include || !cross) && !omit,
+                        headers: &response.headers,
+                        destination: if destination == "stylesheet" {
                             "style"
                         } else {
                             destination
                         },
-                    ));
+                    }));
                 }
                 isolation
                     .authorize_response(
@@ -2009,7 +2054,6 @@ impl Loader {
             if destination != "stylesheet" {
                 self.binary = Some(super::dynamic_stylesheet_preparation::CssBinary {
                     url: url.to_string(),
-                    media_type: content_type.unwrap_or("application/octet-stream").into(),
                     bytes: body.clone(),
                 });
             }
@@ -2103,6 +2147,7 @@ mod preload_handoff_tests {
                 )
             };
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -2168,6 +2213,7 @@ mod dynamic_preload_handoff_tests {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             *self.0.lock().unwrap() += 1;
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,

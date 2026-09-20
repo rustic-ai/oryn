@@ -495,24 +495,21 @@ pub(super) fn enqueue(
             .pending
             .front()
             .is_some_and(|descriptor| descriptor.orphan)
+            && let Some(descriptor) = bytes.pending.pop_front()
+            && descriptor.filled > 0
         {
-            if let Some(descriptor) = bytes.pending.pop_front() {
-                if descriptor.filled > 0 {
-                    let source = stream_graph::local(scope, &descriptor.buffer);
-                    let view =
-                        v8::Uint8Array::new(scope, source, descriptor.offset, descriptor.filled)
-                            .ok_or(V8BindingError::Allocation("released byte prefix"))?;
-                    let mut prefix = vec![0; descriptor.filled];
-                    view.copy_contents(&mut prefix);
-                    let copied = array_buffer_from_bytes(scope, &prefix);
-                    let view = v8::Uint8Array::new(scope, copied, 0, prefix.len())
-                        .ok_or(V8BindingError::Allocation("released byte prefix copy"))?;
-                    record.queue.push_back(stream_graph::Owned::new(
-                        scope,
-                        v8::Local::<v8::Value>::from(view),
-                    ));
-                }
-            }
+            let source = stream_graph::local(scope, &descriptor.buffer);
+            let view = v8::Uint8Array::new(scope, source, descriptor.offset, descriptor.filled)
+                .ok_or(V8BindingError::Allocation("released byte prefix"))?;
+            let mut prefix = vec![0; descriptor.filled];
+            view.copy_contents(&mut prefix);
+            let copied = array_buffer_from_bytes(scope, &prefix);
+            let view = v8::Uint8Array::new(scope, copied, 0, prefix.len())
+                .ok_or(V8BindingError::Allocation("released byte prefix copy"))?;
+            record.queue.push_back(stream_graph::Owned::new(
+                scope,
+                v8::Local::<v8::Value>::from(view),
+            ));
         }
         if !byob_reader {
             if bytes
@@ -846,8 +843,8 @@ fn request_host_read(state: &V8BindingState, stream: u64) -> Result<(), V8Bindin
             host
         }
     };
-    if let Some(host) = host {
-        if let Err(error) = submit_platform_operation(
+    if let Some(host) = host
+        && let Err(error) = submit_platform_operation(
             state,
             PlatformHostRequest::HttpRead {
                 stream_id: host,
@@ -856,14 +853,14 @@ fn request_host_read(state: &V8BindingState, stream: u64) -> Result<(), V8Bindin
             PendingPlatformOperation::BodyRead {
                 stream_object_id: stream,
             },
-        ) {
-            if let PlatformObjectRecord::ReadableStream(record) =
-                &mut *platform_object_mut(state, stream)?
-            {
-                record.host_read_pending = false;
-            }
-            return Err(error);
+        )
+    {
+        if let PlatformObjectRecord::ReadableStream(record) =
+            &mut *platform_object_mut(state, stream)?
+        {
+            record.host_read_pending = false;
         }
+        return Err(error);
     }
     Ok(())
 }
@@ -1034,6 +1031,113 @@ pub(super) fn queue_total(
     Ok(total)
 }
 
+fn invalidate(state: &V8BindingState, id: Option<u64>) {
+    if let Some(id) = id
+        && let Ok(mut record) = platform_object_mut(state, id)
+        && let PlatformObjectRecord::ReadableByobRequest { stream_id, view } = &mut *record
+    {
+        *stream_id = None;
+        *view = None;
+    }
+}
+
+pub(super) fn prepare_tee_pull(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    source: u64,
+    branches: [u64; 2],
+) -> Result<(), V8BindingError> {
+    if !enabled(state, source) {
+        return Ok(());
+    }
+    let mut request = None;
+    for branch in branches {
+        let record = platform_object(state, branch)?;
+        if let PlatformObjectRecord::ReadableStream(record) = &*record
+            && let Some(descriptor) = record
+                .bytes
+                .as_ref()
+                .and_then(|bytes| bytes.pending.front())
+        {
+            let buffer = stream_graph::local(scope, &descriptor.buffer);
+            request = Some((
+                buffer.byte_length(),
+                descriptor.offset + descriptor.filled,
+                descriptor.length - descriptor.filled,
+            ));
+            break;
+        }
+    }
+    let mut record = platform_object_mut(state, source)?;
+    let PlatformObjectRecord::ReadableStream(record) = &mut *record else {
+        return Ok(());
+    };
+    let bytes = record.bytes.as_mut().unwrap();
+    if !bytes.pending.is_empty() || record.closed {
+        return Ok(());
+    }
+    let request = request.or_else(|| bytes.auto_allocate.map(|size| (size, 0, size)));
+    let Some((size, offset, length)) = request else {
+        return Ok(());
+    };
+    if size > 64 * 1024 * 1024 {
+        return Err(type_error("tee pull buffer exceeds native budget"));
+    }
+    let buffer = v8::ArrayBuffer::new(scope, size);
+    bytes.pending.push_back(PullInto {
+        buffer: stream_graph::Owned::new(scope, buffer),
+        resolver: None,
+        orphan: false,
+        default_read: false,
+        tee_delivery: true,
+        offset,
+        length,
+        filled: 0,
+        minimum: 1,
+        kind: ViewKind::U8,
+        request: None,
+    });
+    Ok(())
+}
+
+pub(super) fn validate_controller(
+    state: &V8BindingState,
+    id: u64,
+    interface: &str,
+) -> Result<(), V8BindingError> {
+    if !matches!(
+        interface,
+        "ReadableByteStreamController" | "ReadableStreamDefaultController"
+    ) {
+        return Ok(());
+    }
+    let stream = match &*platform_object(state, id)? {
+        PlatformObjectRecord::ReadableController { stream_id } => *stream_id,
+        _ => return Err(type_error("incompatible readable controller")),
+    };
+    if enabled(state, stream) != (interface == "ReadableByteStreamController") {
+        return Err(type_error("incompatible readable controller"));
+    }
+    Ok(())
+}
+pub(super) fn validate_reader(
+    state: &V8BindingState,
+    id: u64,
+    interface: &str,
+) -> Result<(), V8BindingError> {
+    if !matches!(
+        interface,
+        "ReadableStreamDefaultReader" | "ReadableStreamBYOBReader"
+    ) {
+        return Ok(());
+    }
+    if !matches!(&*platform_object(state,id)?,PlatformObjectRecord::ReadableReader{byob,..} if *byob==(interface=="ReadableStreamBYOBReader"))
+    {
+        return Err(type_error("incompatible readable reader"));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1155,113 +1259,4 @@ mod tests {
         assert_eq!(eval(scope, "failure||result"), "ok");
         let _ = state;
     }
-}
-
-fn invalidate(state: &V8BindingState, id: Option<u64>) {
-    if let Some(id) = id {
-        if let Ok(mut record) = platform_object_mut(state, id) {
-            if let PlatformObjectRecord::ReadableByobRequest { stream_id, view } = &mut *record {
-                *stream_id = None;
-                *view = None;
-            }
-        }
-    }
-}
-
-pub(super) fn prepare_tee_pull(
-    scope: &mut v8::PinScope,
-    state: &V8BindingState,
-    source: u64,
-    branches: [u64; 2],
-) -> Result<(), V8BindingError> {
-    if !enabled(state, source) {
-        return Ok(());
-    }
-    let mut request = None;
-    for branch in branches {
-        let record = platform_object(state, branch)?;
-        if let PlatformObjectRecord::ReadableStream(record) = &*record {
-            if let Some(descriptor) = record
-                .bytes
-                .as_ref()
-                .and_then(|bytes| bytes.pending.front())
-            {
-                let buffer = stream_graph::local(scope, &descriptor.buffer);
-                request = Some((
-                    buffer.byte_length(),
-                    descriptor.offset + descriptor.filled,
-                    descriptor.length - descriptor.filled,
-                ));
-                break;
-            }
-        }
-    }
-    let mut record = platform_object_mut(state, source)?;
-    let PlatformObjectRecord::ReadableStream(record) = &mut *record else {
-        return Ok(());
-    };
-    let bytes = record.bytes.as_mut().unwrap();
-    if !bytes.pending.is_empty() || record.closed {
-        return Ok(());
-    }
-    let request = request.or_else(|| bytes.auto_allocate.map(|size| (size, 0, size)));
-    let Some((size, offset, length)) = request else {
-        return Ok(());
-    };
-    if size > 64 * 1024 * 1024 {
-        return Err(type_error("tee pull buffer exceeds native budget"));
-    }
-    let buffer = v8::ArrayBuffer::new(scope, size);
-    bytes.pending.push_back(PullInto {
-        buffer: stream_graph::Owned::new(scope, buffer),
-        resolver: None,
-        orphan: false,
-        default_read: false,
-        tee_delivery: true,
-        offset,
-        length,
-        filled: 0,
-        minimum: 1,
-        kind: ViewKind::U8,
-        request: None,
-    });
-    Ok(())
-}
-
-pub(super) fn validate_controller(
-    state: &V8BindingState,
-    id: u64,
-    interface: &str,
-) -> Result<(), V8BindingError> {
-    if !matches!(
-        interface,
-        "ReadableByteStreamController" | "ReadableStreamDefaultController"
-    ) {
-        return Ok(());
-    }
-    let stream = match &*platform_object(state, id)? {
-        PlatformObjectRecord::ReadableController { stream_id } => *stream_id,
-        _ => return Err(type_error("incompatible readable controller")),
-    };
-    if enabled(state, stream) != (interface == "ReadableByteStreamController") {
-        return Err(type_error("incompatible readable controller"));
-    }
-    Ok(())
-}
-pub(super) fn validate_reader(
-    state: &V8BindingState,
-    id: u64,
-    interface: &str,
-) -> Result<(), V8BindingError> {
-    if !matches!(
-        interface,
-        "ReadableStreamDefaultReader" | "ReadableStreamBYOBReader"
-    ) {
-        return Ok(());
-    }
-    if !matches!(&*platform_object(state,id)?,PlatformObjectRecord::ReadableReader{byob,..} if *byob==(interface=="ReadableStreamBYOBReader"))
-    {
-        return Err(type_error("incompatible readable reader"));
-    }
-    Ok(())
 }

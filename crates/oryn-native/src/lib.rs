@@ -60,7 +60,7 @@ pub(crate) mod keepalive;
 pub(crate) mod keepalive_drain;
 mod local_resource_response;
 pub mod navigation_control;
-#[cfg(unix)]
+#[cfg(all(unix, any(feature = "v8-host", test)))]
 mod navigation_execution;
 #[cfg(unix)]
 pub mod queued_navigation;
@@ -104,6 +104,7 @@ mod script_policy_snapshot;
 mod standalone_csp_reporting;
 mod standalone_document_policy;
 pub use module_types::ModuleType;
+#[cfg(any(feature = "v8-host", test))]
 mod html_encoding_replay;
 pub mod intent;
 #[cfg(target_os = "linux")]

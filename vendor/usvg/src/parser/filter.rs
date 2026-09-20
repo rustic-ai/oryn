@@ -31,6 +31,77 @@ impl<'a, 'input: 'a> FromValue<'a, 'input> for filter::ColorInterpolation {
     }
 }
 
+// The public filter-list parser accepts only bare local URLs. Use the public
+// FuncIRI grammar for quoted local references, retaining slices of the input.
+// Splitting only frames each complete function; non-URL values keep the pinned
+// filter parser's grammar. No URL is resolved or fetched here.
+fn filter_values(
+    value: &str,
+) -> Result<Vec<svgtypes::FilterValue<'_>>, svgtypes::FilterValueListParserError> {
+    use svgtypes::{Error, FilterValue, FilterValueListParser, FuncIRI};
+    let mut source = value.trim();
+    if source.is_empty() || source == "none" {
+        return Ok(Vec::new());
+    }
+    let mut output = Vec::new();
+    while !source.is_empty() {
+        // ASCII identifier and delimiter boundaries are also UTF-8 boundaries.
+        let name_end = source
+            .bytes()
+            .position(|byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')))
+            .unwrap_or(source.len());
+        let name = &source[..name_end];
+        let after_name = source[name_end..]
+            .trim_start_matches(|c| matches!(c, ' ' | '\t' | '\n' | '\r'));
+        if !after_name.starts_with('(') {
+            return Err(Error::InvalidValue.into());
+        }
+        let body_start = source.len() - after_name.len() + 1;
+        let mut depth = 1usize;
+        let mut quote = None;
+        let mut escaped = false;
+        let mut end = None;
+        for (index, byte) in source.as_bytes().iter().copied().enumerate().skip(body_start) {
+            if let Some(active) = quote {
+                if escaped {
+                    escaped = false;
+                } else if byte == b'\\' {
+                    escaped = true;
+                } else if byte == active {
+                    quote = None;
+                }
+            } else if matches!(byte, b'\'' | b'"') {
+                quote = Some(byte);
+            } else if byte == b'(' {
+                depth += 1;
+            } else if byte == b')' {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(index + 1);
+                    break;
+                }
+            }
+        }
+        let end = end.ok_or(Error::UnexpectedEndOfStream)?;
+        if name == "url" {
+            // Parse the complete original slice: FuncIRI requires adjacent
+            // `url(`, a nonempty local fragment, paired quotes and no tail.
+            // In particular, do not normalize `url (` into a function token.
+            let id = FuncIRI::from_str(&source[..end])?.0;
+            output.push(FilterValue::Url(id));
+        } else {
+            let mut parser = FilterValueListParser::from(&source[..end]);
+            let item = parser.next().ok_or(Error::InvalidValue)??;
+            if parser.next().is_some() {
+                return Err(Error::InvalidValue.into());
+            }
+            output.push(item);
+        }
+        source = source[end..].trim_start();
+    }
+    Ok(output)
+}
+
 pub(crate) fn convert(
     node: SvgNode,
     state: &converter::State,
@@ -84,15 +155,15 @@ pub(crate) fn convert(
             }));
         };
 
-    for func in svgtypes::FilterValueListParser::from(value) {
-        let func = match func {
-            Ok(v) => v,
-            Err(e) => {
-                // Skip the whole attribute list on error.
-                log::warn!("Failed to parse a filter value cause {}. Skipping.", e);
-                return Ok(Vec::new());
-            }
-        };
+    let values = match filter_values(value) {
+        Ok(values) => values,
+        Err(error) => {
+            // Preserve whole-list rejection before applying any primitive.
+            log::warn!("Failed to parse a filter value cause {}. Skipping.", error);
+            return Ok(Vec::new());
+        }
+    };
+    for func in values {
 
         match func {
             svgtypes::FilterValue::Blur(std_dev) => create_base_filter_func(
@@ -874,9 +945,17 @@ fn convert_image_inner(
         cache,
         &mut root,
     );
+    // External images are fitted in primitive-local coordinates above. Keep
+    // their exact origin in the scene graph rather than reconstructing it from
+    // the rasterizer's rounded allocation rectangle. Local SVG references use
+    // the original user coordinate system and bypass this wrapper.
+    root.transform = crate::Transform::from_translate(filter_subregion.x(), filter_subregion.y());
     root.calculate_bounding_boxes();
+    let mut positioned = Group::empty();
+    positioned.children.push(Node::Group(Box::new(root)));
+    positioned.calculate_bounding_boxes();
 
-    Some(Kind::Image(Image { root }))
+    Some(Kind::Image(Image { root: positioned }))
 }
 
 fn convert_diffuse_lighting(fe: SvgNode, primitives: &[Primitive]) -> Option<Kind> {
@@ -1278,3 +1357,124 @@ fn convert_drop_shadow_function(
     })
 }
 
+
+#[cfg(test)]
+mod native_filter_value_tests {
+    use super::filter_values;
+    use svgtypes::FilterValue;
+
+    #[test]
+    fn quoted_local_urls_preserve_function_order_and_nested_color_syntax() {
+        let values = filter_values(r##"url("#first") blur(2) url('#second') drop-shadow(rgb(1, 2, 3) 1 2) url(#third)"##).unwrap();
+        assert_eq!(values.len(), 5);
+        assert!(matches!(values[0], FilterValue::Url("first")));
+        assert!(matches!(values[1], FilterValue::Blur(_)));
+        assert!(matches!(values[2], FilterValue::Url("second")));
+        assert!(matches!(values[3], FilterValue::DropShadow { .. }));
+        assert!(matches!(values[4], FilterValue::Url("third")));
+        assert!(filter_values("none").unwrap().is_empty());
+        assert!(filter_values("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn invalid_or_external_filter_urls_never_keep_a_valid_prefix() {
+        for value in [
+            "url(#ok) blur(-1)", "none url(#ok)", "url(#ok) none",
+            "url(https://elsewhere.test/a.svg#id)", r##"url("https://elsewhere.test/a.svg#id")"##,
+            r##"url("#id" trailing)"##, "url('#unterminated)", "url(#)",
+            "blur(2) garbage", "drop-shadow(rgb(1,2,3) 1 2",
+        ] {
+            assert!(filter_values(value).is_err(), "{value}");
+        }
+    }
+
+    #[test]
+    fn local_url_values_match_public_funciri_and_borrow_original_fragments() {
+        for input in [
+            "url(#東京)",
+            "url('#東京')",
+            "url(\"#東京\")",
+            "url( \" #東京 \" )",
+            "url('#with(parentheses)')",
+            "url(\t'#local'\r\n)",
+        ] {
+            let expected = svgtypes::FuncIRI::from_str(input).unwrap().0;
+            let values = filter_values(input).unwrap();
+            assert_eq!(values, vec![FilterValue::Url(expected)], "{input}");
+            let FilterValue::Url(actual) = values[0] else {
+                panic!("expected a local URL");
+            };
+            assert_eq!(actual.as_ptr(), expected.as_ptr(), "{input}");
+        }
+    }
+
+    #[test]
+    fn spaced_url_identifiers_and_malformed_local_references_are_rejected() {
+        for input in [
+            "url (#id)",
+            "url\t('#id')",
+            "url\n(\"#id\")",
+            "url\r(#id)",
+            "url/**/(#id)",
+            "url(\"#id\" trailing)",
+            "url(\"#id')",
+            "url('#id\")",
+            "url(\"#\")",
+            "url('#id')garbage",
+            "url(file:///tmp/filter.svg#id)",
+            "url(data:image/svg+xml,%3Csvg%3E#id)",
+            "url(other.svg#id)",
+        ] {
+            assert!(svgtypes::FuncIRI::from_str(input).is_err(), "{input}");
+            assert!(filter_values(input).is_err(), "{input}");
+        }
+    }
+
+    #[test]
+    fn every_non_url_filter_keeps_the_public_parser_values_and_order() {
+        let input = "blur(2px) brightness(75%) contrast(1.5) grayscale(.3) hue-rotate(90deg) invert(.2) opacity(.5) saturate(2) sepia(.4) drop-shadow(rgb(1,2,3) 1px 2px 3px)";
+        let expected = svgtypes::FilterValueListParser::from(input)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(expected.len(), 10);
+        assert_eq!(filter_values(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn malformed_non_url_filters_cannot_return_a_valid_url_prefix() {
+        for invalid in [
+            "blur(50%)",
+            "blur(-1)",
+            "hue-rotate(1px)",
+            "drop-shadow(1px)",
+            "opacity(-1)",
+            "unknown(2)",
+        ] {
+            assert!(svgtypes::FilterValueListParser::from(invalid)
+                .collect::<Result<Vec<_>, _>>()
+                .is_err(), "{invalid}");
+            let input = format!("url('#valid') {invalid}");
+            assert!(filter_values(&input).is_err(), "{input}");
+        }
+    }
+
+    #[test]
+    fn tree_conversion_retains_quoted_chains_and_rejects_the_whole_invalid_list() {
+        for (value, expected_filters) in [
+            ("url(#alpha) opacity(.5)", 2),
+            ("url('#alpha') opacity(.5)", 2),
+            ("url(\"#alpha\") opacity(.5)", 2),
+            ("url (#alpha) opacity(.5)", 0),
+            ("url('#alpha') opacity(-1)", 0),
+            ("blur(2) url(https://elsewhere.test/f.svg#alpha)", 0),
+        ] {
+            let value = value.replace('"', "&quot;");
+            let svg = format!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><defs><filter id="alpha" filterUnits="userSpaceOnUse" x="0" y="0" width="20" height="10"><feComponentTransfer><feFuncA type="linear" slope=".5"/></feComponentTransfer></filter></defs><rect width="20" height="10" fill="red" filter="{value}"/></svg>"#,
+            );
+            let tree = crate::Tree::from_str(&svg, &crate::Options::default()).unwrap();
+            assert_eq!(tree.filters().len(), expected_filters, "{value}");
+        }
+    }
+
+}

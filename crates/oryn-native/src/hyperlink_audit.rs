@@ -1,5 +1,22 @@
 //! Frozen, bounded hyperlink audit plans. Navigation retirement does not revoke
 //! an accepted keepalive request; page/context closure still owns cancellation.
+
+/// Inputs retained together for prepare standalone audit.
+#[cfg(feature = "v8-host")]
+pub(crate) struct StandaloneAuditInput<'a> {
+    pub(crate) broker: SharedNetworkBroker,
+    pub(crate) source: Url,
+    pub(crate) origin: String,
+    pub(crate) top: String,
+    pub(crate) ancestors: Vec<String>,
+    pub(crate) policy: crate::csp::CspPolicySet,
+    pub(crate) reports: Arc<crate::executable::module_graph_load::ScriptCspReports>,
+    pub(crate) destination: &'a str,
+    pub(crate) urls: &'a [String],
+}
+#[cfg(test)]
+type FixtureResponses = Arc<Mutex<VecDeque<(u16, Vec<(String, String)>)>>>;
+
 use super::*;
 use crate::context_service::http_cleanup_custody::{Scope, Ticket};
 use oryn_js::navigation::{HyperlinkAuditToken, NavigationExecutionToken};
@@ -515,7 +532,7 @@ fn deliver(
         if redirect == 10 {
             return Err("audit redirect limit".into());
         }
-        if post && matches!(response.status, 301 | 302 | 303) {
+        if post && matches!(response.status, 301..=303) {
             post = false;
             headers.retain(|(name, _)| name != "content-type" && name != "origin");
         }
@@ -526,10 +543,11 @@ fn deliver(
             .map(|(_, value)| value)
             .ok_or("audit redirect lacks Location")?;
         let next = url.join(location).map_err(|error| error.to_string())?;
-        if post && next.origin() != url.origin() {
-            if let Some((_, value)) = headers.iter_mut().find(|(name, _)| name == "origin") {
-                *value = "null".into();
-            }
+        if post
+            && next.origin() != url.origin()
+            && let Some((_, value)) = headers.iter_mut().find(|(name, _)| name == "origin")
+        {
+            *value = "null".into();
         }
         url = next;
         if !matches!(url.scheme(), "http" | "https")
@@ -606,16 +624,20 @@ impl oryn_js::navigation::HyperlinkAudit for StandaloneAudit {
 impl StandaloneOwner {
     pub(crate) fn prepare(
         &self,
-        broker: SharedNetworkBroker,
-        source: Url,
-        origin: String,
-        top: String,
-        ancestors: Vec<String>,
-        policy: crate::csp::CspPolicySet,
-        reports: Arc<crate::executable::module_graph_load::ScriptCspReports>,
-        destination: &str,
-        urls: &[String],
+        params: StandaloneAuditInput<'_>,
     ) -> Result<Arc<dyn oryn_js::navigation::HyperlinkAudit>, String> {
+        let StandaloneAuditInput {
+            broker,
+            source,
+            origin,
+            top,
+            ancestors,
+            policy,
+            reports,
+            destination,
+            urls,
+        } = params;
+
         let retained = policy.worker_snapshot().headers.iter().fold(
             source
                 .as_str()
@@ -720,7 +742,7 @@ mod tests {
     #[derive(Clone)]
     struct Broker {
         requests: Arc<Mutex<Vec<NetworkRequest>>>,
-        responses: Arc<Mutex<VecDeque<(u16, Vec<(String, String)>)>>>,
+        responses: FixtureResponses,
     }
     impl NetworkBroker for Broker {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
@@ -733,6 +755,7 @@ mod tests {
                 .pop_front()
                 .expect("unexpected audit request");
             Ok(NetworkResponse {
+                response_policy: None,
                 request_id,
                 status,
                 headers,

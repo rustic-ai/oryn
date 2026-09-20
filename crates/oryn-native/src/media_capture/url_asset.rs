@@ -285,42 +285,40 @@ impl Registry {
                     oryn_url_media_sample(asset.raw, time, start, until.max(start))
                 })
             }?;
-            if !paused {
-                if let Some(encoded) = sample["audio"].as_str() {
-                    use base64::Engine;
-                    let bytes = base64::engine::general_purpose::STANDARD
-                        .decode(encoded)
-                        .map_err(|_| "NotReadableError: malformed audio sample")?;
-                    let rate = sample["sampleRate"]
-                        .as_f64()
-                        .ok_or("NotReadableError: audio rate")?;
-                    let channels = sample["channels"]
-                        .as_u64()
-                        .and_then(|x| u32::try_from(x).ok())
-                        .ok_or("NotReadableError: audio channels")?;
-                    if bytes.len() > 1024 * 1024
-                        || !rate.is_finite()
-                        || !(8000.0..=192000.0).contains(&rate)
-                        || channels == 0
-                        || channels > 8
-                        || bytes.len() % (channels as usize * 4) != 0
+            if !paused && let Some(encoded) = sample["audio"].as_str() {
+                use base64::Engine;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(encoded)
+                    .map_err(|_| "NotReadableError: malformed audio sample")?;
+                let rate = sample["sampleRate"]
+                    .as_f64()
+                    .ok_or("NotReadableError: audio rate")?;
+                let channels = sample["channels"]
+                    .as_u64()
+                    .and_then(|x| u32::try_from(x).ok())
+                    .ok_or("NotReadableError: audio channels")?;
+                if bytes.len() > 1024 * 1024
+                    || !rate.is_finite()
+                    || !(8000.0..=192000.0).contains(&rate)
+                    || channels == 0
+                    || channels > 8
+                    || bytes.len() % (channels as usize * 4) != 0
+                {
+                    return Err("NotReadableError: invalid decoded audio".into());
+                }
+                if volume > 0. {
+                    if asset
+                        .sink
+                        .as_ref()
+                        .is_none_or(|sink| sink.rate != rate || sink.channels != channels)
                     {
-                        return Err("NotReadableError: invalid decoded audio".into());
+                        asset.sink = Some(system::AudioSink::open(rate, channels)?)
                     }
-                    if volume > 0. {
-                        if asset
-                            .sink
-                            .as_ref()
-                            .is_none_or(|sink| sink.rate != rate || sink.channels != channels)
-                        {
-                            asset.sink = Some(system::AudioSink::open(rate, channels)?)
-                        }
-                        if asset.sink.as_mut().unwrap().write(&bytes, volume)? {
-                            asset.last_audio = until;
-                        }
-                    } else {
+                    if asset.sink.as_mut().unwrap().write(&bytes, volume)? {
                         asset.last_audio = until;
                     }
+                } else {
+                    asset.last_audio = until;
                 }
             }
             if let Some(sample) = sample.as_object_mut() {
@@ -369,10 +367,10 @@ impl Registry {
             }
             return Ok(None);
         }
-        if let Some(id) = &asset.pip {
-            if let Some(size) = super::picture_in_picture::state(id) {
-                return Ok(Some(size));
-            }
+        if let Some(id) = &asset.pip
+            && let Some(size) = super::picture_in_picture::state(id)
+        {
+            return Ok(Some(size));
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -430,10 +428,10 @@ impl Registry {
         {
             return Err("InvalidStateError: foreign media asset".into());
         }
-        if let Some(asset) = self.assets.remove(id) {
-            if let Some(id) = &asset.pip {
-                super::picture_in_picture::close(id);
-            }
+        if let Some(asset) = self.assets.remove(id)
+            && let Some(id) = &asset.pip
+        {
+            super::picture_in_picture::close(id);
         }
         Ok(())
     }
@@ -589,6 +587,14 @@ mod decoder_tests {
         let movie = super::super::webm::parse(&bytes).unwrap();
         assert!(movie.tracks.iter().any(|t| t.codec == "V_VP9"));
         assert!(movie.tracks.iter().any(|t| t.codec == "A_OPUS"));
+        assert!(
+            can_play("audio/webm; codecs=opus"),
+            "native Opus converter unavailable"
+        );
+        assert!(
+            can_play("video/webm; codecs=vp9"),
+            "native VP9 session unavailable after supplemental decoder registration"
+        );
         assert!(can_play("video/webm; codecs=\"vp9, opus\""));
         let owner = test_owner(1);
         let foreign = test_owner(2);
@@ -620,8 +626,10 @@ mod decoder_tests {
             .unwrap();
         assert!(!pcm.is_empty());
         assert!(
-            pcm.chunks_exact(4)
-                .all(|x| f32::from_le_bytes(x.try_into().unwrap()).is_finite())
+            pcm.as_chunks::<4>()
+                .0
+                .iter()
+                .all(|x| f32::from_le_bytes(*x).is_finite())
         );
         assert!(registry.sample(&foreign, id, 0., true, 0., false).is_err());
         assert!(
@@ -654,10 +662,18 @@ mod decoder_tests {
             pixels.len(),
             track.width as usize * track.height as usize * 4
         );
-        assert!(pixels.chunks_exact(4).all(|pixel| pixel[3] == 255));
         assert!(
             pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255)
+        );
+        assert!(
+            pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| pixel[0] != pixel[1] || pixel[1] != pixel[2])
         );
         let later = registry

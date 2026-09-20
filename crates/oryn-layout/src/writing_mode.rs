@@ -32,61 +32,6 @@ impl Axes {
         }
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn direction_reverses_inline_axis_without_reversing_block_progression() {
-        assert_eq!(
-            Axes::new("horizontal-tb", true),
-            Axes {
-                vertical: false,
-                x_reverse: true,
-                y_reverse: false
-            }
-        );
-        assert_eq!(
-            Axes::new("vertical-rl", false),
-            Axes {
-                vertical: true,
-                x_reverse: true,
-                y_reverse: false
-            }
-        );
-        assert_eq!(
-            Axes::new("vertical-rl", true),
-            Axes {
-                vertical: true,
-                x_reverse: true,
-                y_reverse: true
-            }
-        );
-        assert_eq!(
-            Axes::new("vertical-lr", true),
-            Axes {
-                vertical: true,
-                x_reverse: false,
-                y_reverse: true
-            }
-        );
-        assert_eq!(
-            Axes::new("sideways-lr", false),
-            Axes {
-                vertical: true,
-                x_reverse: false,
-                y_reverse: true
-            }
-        );
-        assert_eq!(
-            Axes::new("sideways-lr", true),
-            Axes {
-                vertical: true,
-                x_reverse: false,
-                y_reverse: false
-            }
-        );
-    }
-}
 
 use std::collections::BTreeMap;
 fn swap(style: &mut BTreeMap<String, String>, a: &str, b: &str) {
@@ -196,4 +141,59 @@ pub(super) fn item(
         }
     }
     physical
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn direction_reverses_inline_axis_without_reversing_block_progression() {
+        assert_eq!(
+            Axes::new("horizontal-tb", true),
+            Axes {
+                vertical: false,
+                x_reverse: true,
+                y_reverse: false
+            }
+        );
+        assert_eq!(
+            Axes::new("vertical-rl", false),
+            Axes {
+                vertical: true,
+                x_reverse: true,
+                y_reverse: false
+            }
+        );
+        assert_eq!(
+            Axes::new("vertical-rl", true),
+            Axes {
+                vertical: true,
+                x_reverse: true,
+                y_reverse: true
+            }
+        );
+        assert_eq!(
+            Axes::new("vertical-lr", true),
+            Axes {
+                vertical: true,
+                x_reverse: false,
+                y_reverse: true
+            }
+        );
+        assert_eq!(
+            Axes::new("sideways-lr", false),
+            Axes {
+                vertical: true,
+                x_reverse: false,
+                y_reverse: true
+            }
+        );
+        assert_eq!(
+            Axes::new("sideways-lr", true),
+            Axes {
+                vertical: true,
+                x_reverse: false,
+                y_reverse: false
+            }
+        );
+    }
 }

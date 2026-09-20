@@ -17,7 +17,7 @@ pub(crate) fn send(stream: &UnixStream, request: u64, descriptor: &impl AsRawFd)
     };
     // usize storage supplies cmsghdr alignment on both supported Unix targets.
     let bytes = unsafe { libc::CMSG_SPACE(mem::size_of::<libc::c_int>() as _) as usize };
-    let mut control = vec![0usize; (bytes + mem::size_of::<usize>() - 1) / mem::size_of::<usize>()];
+    let mut control = vec![0usize; bytes.div_ceil(mem::size_of::<usize>())];
     let mut message: libc::msghdr = unsafe { mem::zeroed() };
     message.msg_iov = &mut vector;
     message.msg_iovlen = 1;
@@ -55,6 +55,7 @@ pub(crate) fn send(stream: &UnixStream, request: u64, descriptor: &impl AsRawFd)
     let mut stream = stream;
     stream.write_all(&payload[sent..])
 }
+#[cfg(any(feature = "v8-host", test))]
 pub(crate) fn receive(stream: &UnixStream, request: u64) -> io::Result<OwnedFd> {
     let mut payload = [0; 9];
     let mut vector = libc::iovec {
@@ -62,7 +63,7 @@ pub(crate) fn receive(stream: &UnixStream, request: u64) -> io::Result<OwnedFd> 
         iov_len: payload.len(),
     };
     let bytes = unsafe { libc::CMSG_SPACE((8 * mem::size_of::<libc::c_int>()) as _) as usize };
-    let mut control = vec![0usize; (bytes + mem::size_of::<usize>() - 1) / mem::size_of::<usize>()];
+    let mut control = vec![0usize; bytes.div_ceil(mem::size_of::<usize>())];
     let mut message: libc::msghdr = unsafe { mem::zeroed() };
     message.msg_iov = &mut vector;
     message.msg_iovlen = 1;
@@ -94,7 +95,7 @@ pub(crate) fn receive(stream: &UnixStream, request: u64) -> io::Result<OwnedFd> 
                 invalid = true;
             } else {
                 let count = (size - minimum) / mem::size_of::<libc::c_int>();
-                if (size - minimum) % mem::size_of::<libc::c_int>() != 0 {
+                if !(size - minimum).is_multiple_of(mem::size_of::<libc::c_int>()) {
                     invalid = true;
                 }
                 for index in 0..count {
@@ -191,8 +192,7 @@ impl DescriptorReader {
             iov_len: self.buffer.len(),
         };
         let bytes = unsafe { libc::CMSG_SPACE((64 * mem::size_of::<libc::c_int>()) as _) as usize };
-        let mut control =
-            vec![0usize; (bytes + mem::size_of::<usize>() - 1) / mem::size_of::<usize>()];
+        let mut control = vec![0usize; bytes.div_ceil(mem::size_of::<usize>())];
         let mut message: libc::msghdr = unsafe { mem::zeroed() };
         message.msg_iov = &mut vector;
         message.msg_iovlen = 1;
@@ -230,7 +230,7 @@ impl DescriptorReader {
                     invalid = true
                 } else {
                     let count = (size - minimum) / mem::size_of::<libc::c_int>();
-                    if (size - minimum) % mem::size_of::<libc::c_int>() != 0 {
+                    if !(size - minimum).is_multiple_of(mem::size_of::<libc::c_int>()) {
                         invalid = true
                     }
                     for index in 0..count {

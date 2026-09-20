@@ -1,4 +1,31 @@
 //! Persistent native module discovery. Poll never waits for a network response.
+
+/// Inputs retained together for external source.
+pub(crate) struct ExternalModuleSourceInput<'a> {
+    pub(crate) requested: &'a str,
+    pub(crate) parent: &'a str,
+    pub(crate) include: bool,
+    pub(crate) policy: &'a str,
+    pub(crate) integrity: Option<String>,
+    pub(crate) nonce: Option<String>,
+    pub(crate) budget: Arc<AtomicUsize>,
+    pub(crate) slots: Arc<AtomicUsize>,
+    pub(crate) registry: SharedFetchRegistry,
+}
+/// Inputs retained together for external root.
+pub(crate) struct ExternalModuleRootInput<'a> {
+    pub(crate) requested: &'a str,
+    pub(crate) parent: &'a str,
+    pub(crate) kind: crate::ModuleType,
+    pub(crate) include: bool,
+    pub(crate) policy: &'a str,
+    pub(crate) integrity: Option<String>,
+    pub(crate) budget: Arc<AtomicUsize>,
+    pub(crate) slots: Arc<AtomicUsize>,
+    pub(crate) registry: SharedFetchRegistry,
+}
+type ModuleCacheRevisions = Option<(Rc<std::cell::Cell<u64>>, Rc<std::cell::Cell<u64>>)>;
+
 use super::script_admission::SharedScriptAdmission;
 use super::*;
 use crate::script_load_failure::ScriptLoadFailure;
@@ -150,7 +177,7 @@ pub(crate) struct ModuleGraphLoad {
     source_only: bool,
     request_bytes: Vec<ScriptSourceReservation>,
     owned_backend: Option<ModuleGraphBackend>,
-    cache_revisions: Option<(Rc<std::cell::Cell<u64>>, Rc<std::cell::Cell<u64>>)>,
+    cache_revisions: ModuleCacheRevisions,
     seen_cache_revisions: (u64, u64),
     received: VecDeque<Completion>,
     bytes: usize,
@@ -163,6 +190,7 @@ pub(crate) struct ModuleGraphLoad {
     error_leases: Vec<crate::host::ModuleGraphErrorLease>,
 }
 impl ModuleGraphLoad {
+    #[cfg(test)]
     pub(crate) fn new<'text>(
         name: &str,
         source: impl Into<oryn_js::script_source::ScriptSourceRef<'text>>,
@@ -170,6 +198,7 @@ impl ModuleGraphLoad {
         let source = source.into();
         Self::with_budget(name, source, Arc::new(AtomicUsize::new(0)))
     }
+    #[cfg(test)]
     pub(crate) fn with_budget<'text>(
         name: &str,
         source: impl Into<oryn_js::script_source::ScriptSourceRef<'text>>,
@@ -178,6 +207,7 @@ impl ModuleGraphLoad {
         let source = source.into();
         Self::with_limits(name, source, budget, Arc::new(AtomicUsize::new(0)))
     }
+    #[cfg(test)]
     pub(crate) fn with_limits<'text>(
         name: &str,
         source: impl Into<oryn_js::script_source::ScriptSourceRef<'text>>,
@@ -187,6 +217,7 @@ impl ModuleGraphLoad {
         let source = source.into();
         Self::with_registry(name, source, budget, slots, Default::default())
     }
+    #[cfg(test)]
     pub(crate) fn with_registry<'text>(
         name: &str,
         source: impl Into<oryn_js::script_source::ScriptSourceRef<'text>>,
@@ -247,17 +278,19 @@ impl ModuleGraphLoad {
             error_leases: Vec::new(),
         })
     }
-    pub(crate) fn external_root(
-        requested: &str,
-        parent: &str,
-        kind: crate::ModuleType,
-        include: bool,
-        policy: &str,
-        integrity: Option<String>,
-        budget: Arc<AtomicUsize>,
-        slots: Arc<AtomicUsize>,
-        registry: SharedFetchRegistry,
-    ) -> Result<Self, HostError> {
+    pub(crate) fn external_root(params: ExternalModuleRootInput<'_>) -> Result<Self, HostError> {
+        let ExternalModuleRootInput {
+            requested,
+            parent,
+            kind,
+            include,
+            policy,
+            integrity,
+            budget,
+            slots,
+            registry,
+        } = params;
+
         let mut graph = Self::with_root_request(requested, "", None, budget, slots, registry)?;
         graph.pending.clear();
         graph.stable_document_identity = true;
@@ -278,27 +311,31 @@ impl ModuleGraphLoad {
         Ok(graph)
     }
     pub(crate) fn external_source(
-        requested: &str,
-        parent: &str,
-        include: bool,
-        policy: &str,
-        integrity: Option<String>,
-        nonce: Option<String>,
-        budget: Arc<AtomicUsize>,
-        slots: Arc<AtomicUsize>,
-        registry: SharedFetchRegistry,
+        params: ExternalModuleSourceInput<'_>,
     ) -> Result<Self, HostError> {
-        let mut graph = Self::external_root(
+        let ExternalModuleSourceInput {
             requested,
             parent,
-            crate::ModuleType::JavaScript,
+            include,
+            policy,
+            integrity,
+            nonce,
+            budget,
+            slots,
+            registry,
+        } = params;
+
+        let mut graph = Self::external_root(ExternalModuleRootInput {
+            requested,
+            parent,
+            kind: crate::ModuleType::JavaScript,
             include,
             policy,
             integrity,
             budget,
             slots,
             registry,
-        )?;
+        })?;
         graph.source_only = true;
         graph.stable_document_identity = false;
         if let Some(nonce) = &nonce {
@@ -504,14 +541,14 @@ impl ModuleGraphLoad {
         }
         let generation = host
             .realm_descriptor(realm)
-            .ok_or_else(|| HostError::ScriptLoad(ScriptLoadFailure::Cancelled))?
+            .ok_or(HostError::ScriptLoad(ScriptLoadFailure::Cancelled))?
             .document_generation;
         let epoch = if self.stable_document_identity {
             Some(host.document_authority_epoch(realm).unwrap_or(0))
         } else {
             host.document_stream_epoch(realm)
         }
-        .ok_or_else(|| HostError::ScriptLoad(ScriptLoadFailure::Cancelled))?;
+        .ok_or(HostError::ScriptLoad(ScriptLoadFailure::Cancelled))?;
         let identity = (realm, generation, epoch);
         if self.identity.is_some_and(|previous| previous != identity) {
             return Err(HostError::ScriptLoad(ScriptLoadFailure::Cancelled));
@@ -765,13 +802,13 @@ impl ModuleGraphLoad {
                         Err(error) => return Err(error),
                     };
                 for (dependency, kind) in dependencies {
-                    let url = match host.resolve_module_specifier(&parent, &dependency) {
+                    let url = match host.resolve_module_specifier(parent, &dependency) {
                         Ok(Some(url)) => url,
                         // Explicit source tables may supply legacy non-URL names,
                         // but cannot bypass a null or invalid import-map entry.
                         Ok(None) => match backend {
                             ModuleGraphBackend::Sources(sources, _, _) => match host
-                                .resolve_explicit_module_name(&parent, &dependency, sources)
+                                .resolve_explicit_module_name(parent, &dependency, sources)
                             {
                                 Some(url) => url,
                                 None => continue,
@@ -799,7 +836,7 @@ impl ModuleGraphLoad {
                     let key = (url.clone(), kind);
                     #[cfg(test)]
                     graph_publication_failure(3)?;
-                    let include = host.module_credentials(&parent);
+                    let include = host.module_credentials(parent);
                     host.set_module_credentials(&url, include);
                     let integrity = host.module_integrity(&url);
                     if kind != crate::ModuleType::JavaScript {
@@ -815,7 +852,7 @@ impl ModuleGraphLoad {
                                 kind,
                                 parent: parent.clone(),
                                 include,
-                                policy: host.module_referrer_policy(&parent),
+                                policy: host.module_referrer_policy(parent),
                                 integrity,
                                 nonce: None,
                             })?,
@@ -850,7 +887,7 @@ impl ModuleGraphLoad {
                         kind,
                         parent: parent.clone(),
                         include,
-                        policy: host.module_referrer_policy(&parent),
+                        policy: host.module_referrer_policy(parent),
                         integrity,
                         nonce: None,
                     })?;
@@ -991,15 +1028,16 @@ impl ModuleGraphLoad {
                 let _permit = permit;
                 let requested = fetch.url.clone();
                 let kind = fetch.kind;
-                let result = backend.fetch(
-                    fetch,
-                    render_status.clone(),
-                    creator,
-                    initiator,
-                    request_id,
-                    admission,
-                    &cancel,
-                );
+                let result =
+                    backend.fetch(crate::executable::module_graph_load::ModuleFetchInput {
+                        fetch,
+                        render_status: render_status.clone(),
+                        creator,
+                        initiator,
+                        request_id,
+                        admission,
+                        cancel: &cancel,
+                    });
                 render_status.finish();
                 // Reserve before publishing into an unbounded channel. The
                 // envelope owns the reservation even after graph cancellation.
@@ -1040,40 +1078,40 @@ impl ModuleGraphLoad {
             for (url, kind) in &self.visited {
                 if *kind == crate::ModuleType::Json
                     && !self.parse_errors.contains_key(&(url.clone(), *kind))
+                    && let Some(lease) = host.prepare_json_graph_error(url)?
                 {
-                    if let Some(lease) = host.prepare_json_graph_error(url)? {
-                        self.parse_errors.insert((url.clone(), *kind), lease.token);
-                        self.error_leases.push(lease);
-                    }
+                    self.parse_errors.insert((url.clone(), *kind), lease.token);
+                    self.error_leases.push(lease);
                 }
             }
         }
-        if complete && !self.parse_errors.is_empty() {
-            if let Some(root) = &self.root_parse_key {
-                // Choose by requested-module depth-first order, not network
-                // response order. Redirect aliases keep their response module's
-                // dependency list and native exception identity.
-                let mut pending = vec![(root.0.clone(), crate::ModuleType::JavaScript)];
-                let mut seen = BTreeSet::new();
-                while let Some((name, kind)) = pending.pop() {
-                    let name = if kind == crate::ModuleType::JavaScript {
-                        host.retained_module_fetch(&name)
-                            .flatten()
-                            .map_or(name, |(url, _)| url)
-                    } else {
-                        name
-                    };
-                    let name = (name, kind);
-                    if !seen.insert(name.clone()) {
-                        continue;
-                    }
-                    if let Some(failed) = self.parse_errors.get(&name) {
-                        self.error_token = Some(*failed);
-                        break;
-                    }
-                    if let Some(children) = self.parse_edges.get(&name) {
-                        pending.extend(children.iter().rev().cloned());
-                    }
+        if complete
+            && !self.parse_errors.is_empty()
+            && let Some(root) = &self.root_parse_key
+        {
+            // Choose by requested-module depth-first order, not network
+            // response order. Redirect aliases keep their response module's
+            // dependency list and native exception identity.
+            let mut pending = vec![(root.0.clone(), crate::ModuleType::JavaScript)];
+            let mut seen = BTreeSet::new();
+            while let Some((name, kind)) = pending.pop() {
+                let name = if kind == crate::ModuleType::JavaScript {
+                    host.retained_module_fetch(&name)
+                        .flatten()
+                        .map_or(name, |(url, _)| url)
+                } else {
+                    name
+                };
+                let name = (name, kind);
+                if !seen.insert(name.clone()) {
+                    continue;
+                }
+                if let Some(failed) = self.parse_errors.get(&name) {
+                    self.error_token = Some(*failed);
+                    break;
+                }
+                if let Some(children) = self.parse_edges.get(&name) {
+                    pending.extend(children.iter().rev().cloned());
                 }
             }
         }
@@ -1261,17 +1299,17 @@ mod tests {
         let mut host = host();
         let url = "https://example.test/request.js";
         let slots = Arc::new(AtomicUsize::new(0));
-        let mut graph = ModuleGraphLoad::external_root(
-            url,
-            url,
-            crate::ModuleType::JavaScript,
-            false,
-            "",
-            None,
-            Default::default(),
-            slots.clone(),
-            Default::default(),
-        )
+        let mut graph = ModuleGraphLoad::external_root(ExternalModuleRootInput {
+            requested: url,
+            parent: url,
+            kind: crate::ModuleType::JavaScript,
+            include: false,
+            policy: "",
+            integrity: None,
+            budget: Default::default(),
+            slots: slots.clone(),
+            registry: Default::default(),
+        })
         .unwrap();
         let backend = ModuleGraphBackend::Sources(
             Arc::new(BTreeMap::from([(url.into(), "export {}".into())])),
@@ -1327,17 +1365,17 @@ mod tests {
     #[test]
     fn external_source_request_metadata_is_charged_until_owner_drops() {
         let budget = Arc::new(AtomicUsize::new(0));
-        let graph = ModuleGraphLoad::external_source(
-            "https://example.test/root.js",
-            "https://example.test/",
-            false,
-            "no-referrer",
-            Some("sha256-example".into()),
-            Some("nonce".into()),
-            budget.clone(),
-            Default::default(),
-            Default::default(),
-        )
+        let graph = ModuleGraphLoad::external_source(ExternalModuleSourceInput {
+            requested: "https://example.test/root.js",
+            parent: "https://example.test/",
+            include: false,
+            policy: "no-referrer",
+            integrity: Some("sha256-example".into()),
+            nonce: Some("nonce".into()),
+            budget: budget.clone(),
+            slots: Default::default(),
+            registry: Default::default(),
+        })
         .unwrap();
         assert!(budget.load(Ordering::Acquire) > "https://example.test/root.js".len());
         drop(graph);
@@ -1345,17 +1383,17 @@ mod tests {
         let occupied =
             ScriptSourceReservation::reserve(&budget, MAX_QUEUED_SCRIPT_SOURCE_BYTES).unwrap();
         assert!(
-            ModuleGraphLoad::external_source(
-                "root.js",
-                "about:blank",
-                false,
-                "",
-                None,
-                None,
-                budget.clone(),
-                Default::default(),
-                Default::default()
-            )
+            ModuleGraphLoad::external_source(ExternalModuleSourceInput {
+                requested: "root.js",
+                parent: "about:blank",
+                include: false,
+                policy: "",
+                integrity: None,
+                nonce: None,
+                budget: budget.clone(),
+                slots: Default::default(),
+                registry: Default::default()
+            })
             .is_err()
         );
         assert_eq!(
@@ -1639,7 +1677,7 @@ mod tests {
     }
     #[test]
     fn pending_fetch_registry_separates_captured_policy_and_parser_provenance() {
-        let mut host = host();
+        let host = host();
         let realm = host.active_realm();
         let generation = host.realm_descriptor(realm).unwrap().document_generation;
         let epoch = host.document_authority_epoch(realm).unwrap();
@@ -1686,17 +1724,17 @@ mod tests {
                 ))
                 .is_none()
         );
-        let graph = ModuleGraphLoad::external_source(
-            url,
-            "https://example.test/",
-            false,
-            "",
-            None,
-            None,
-            Default::default(),
-            Default::default(),
+        let graph = ModuleGraphLoad::external_source(ExternalModuleSourceInput {
+            requested: url,
+            parent: "https://example.test/",
+            include: false,
+            policy: "",
+            integrity: None,
+            nonce: None,
+            budget: Default::default(),
+            slots: Default::default(),
             registry,
-        )
+        })
         .unwrap()
         .parser_inserted_root();
         assert!(graph.fetches.front().unwrap().parser_inserted);

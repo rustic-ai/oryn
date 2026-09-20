@@ -1,5 +1,29 @@
 //! Executable-owned frame script preparation. Network and module graph waits
 //! retain native document identity and leases instead of blocking the page actor.
+
+/// Inputs retained together for written.
+pub(super) struct WrittenFrameScriptInput<'a> {
+    pub(super) load: PreparedDocumentLoad,
+    pub(super) parent: RealmId,
+    pub(super) frame: NodeId,
+    pub(super) dom: SharedDomRuntime,
+    pub(super) root: bool,
+    pub(super) gate: Rc<oryn_js::v8_bindings::DocumentParserGate>,
+    pub(super) limits: &'a DynamicScriptScheduler,
+    pub(super) host: &'a mut RawV8Host,
+}
+/// Inputs retained together for prepare frame scripts.
+pub(super) struct FrameScriptInput<'a> {
+    pub(super) load: PreparedDocumentLoad,
+    pub(super) parent: RealmId,
+    pub(super) frame: NodeId,
+    pub(super) dom: SharedDomRuntime,
+    pub(super) records: Vec<ScriptRecord>,
+    pub(super) lifecycle_allowed: bool,
+    pub(super) _refresh_url: Option<String>,
+    pub(super) limits: &'a DynamicScriptScheduler,
+    pub(super) host: &'a mut RawV8Host,
+}
 use super::*;
 use std::collections::VecDeque;
 
@@ -165,20 +189,20 @@ impl PortableScriptSource {
             let _permit = permit;
             let _metadata = metadata;
             let result = backend
-                .fetch_classic(
-                    &requested,
-                    &initiator_url,
+                .fetch_classic(crate::executable::module_graph_load::ClassicFetchInput {
+                    requested: &requested,
+                    initiator_url: &initiator_url,
                     url,
                     integrity,
-                    crossorigin,
+                    cross_origin: crossorigin,
                     policy,
                     nonce,
-                    true,
-                    blocking,
-                    encoding.as_deref(),
+                    parser_inserted: true,
+                    render_blocking: blocking,
+                    fallback_encoding: encoding.as_deref(),
                     request_id,
-                    &worker_cancel,
-                )
+                    cancel: &worker_cancel,
+                })
                 .map_err(|error| match error {
                     HostError::ScriptLoad(failure) => ParserScriptFailure::native(failure, &budget),
                     HostError::LimitExceeded { .. } => ParserScriptFailure::Capacity,
@@ -293,27 +317,29 @@ impl crate::host::DocumentInput for WrittenDocumentInput {
 }
 
 impl FrameScriptPreparation {
-    pub(super) fn written(
-        load: PreparedDocumentLoad,
-        parent: RealmId,
-        frame: NodeId,
-        dom: SharedDomRuntime,
-        root: bool,
-        gate: Rc<oryn_js::v8_bindings::DocumentParserGate>,
-        limits: &DynamicScriptScheduler,
-        host: &mut RawV8Host,
-    ) -> Result<Self, HostError> {
-        let mut owner = Self::new(
+    pub(super) fn written(params: WrittenFrameScriptInput<'_>) -> Result<Self, HostError> {
+        let WrittenFrameScriptInput {
             load,
             parent,
             frame,
-            dom.clone(),
-            vec![],
-            true,
-            None,
+            dom,
+            root,
+            gate,
             limits,
             host,
-        )?;
+        } = params;
+
+        let mut owner = Self::new(FrameScriptInput {
+            load,
+            parent,
+            frame,
+            dom: dom.clone(),
+            records: vec![],
+            lifecycle_allowed: true,
+            _refresh_url: None,
+            limits,
+            host,
+        })?;
         owner.root_document = root;
         let stream = crate::host::DocumentStream {
             content_language: None,
@@ -331,17 +357,19 @@ impl FrameScriptPreparation {
         owner.live_parser = Some(parser);
         Ok(owner)
     }
-    pub(super) fn new(
-        load: PreparedDocumentLoad,
-        parent: RealmId,
-        frame: NodeId,
-        dom: SharedDomRuntime,
-        records: Vec<ScriptRecord>,
-        lifecycle_allowed: bool,
-        _refresh_url: Option<String>,
-        limits: &DynamicScriptScheduler,
-        host: &mut RawV8Host,
-    ) -> Result<Self, HostError> {
+    pub(super) fn new(params: FrameScriptInput<'_>) -> Result<Self, HostError> {
+        let FrameScriptInput {
+            load,
+            parent,
+            frame,
+            dom,
+            records,
+            lifecycle_allowed,
+            _refresh_url,
+            limits,
+            host,
+        } = params;
+
         host.set_dynamic_import_limits(
             load.realm,
             limits.source_bytes.clone(),
@@ -532,8 +560,8 @@ impl FrameScriptPreparation {
                 if dom.is_element(node, "http://www.w3.org/1999/xhtml", "link")
                     && record.attributes.get_null("rel").is_some_and(|rel| {
                         rel.split_ascii_whitespace().any(|token| {
-                            (token.eq_ignore_ascii_case("modulepreload")
-                                || token.eq_ignore_ascii_case("preload"))
+                            token.eq_ignore_ascii_case("modulepreload")
+                                || token.eq_ignore_ascii_case("preload")
                         })
                     })
                 {
@@ -551,37 +579,35 @@ impl FrameScriptPreparation {
                         }),
                     ));
                 }
-                if dom.is_element(node, "http://www.w3.org/1999/xhtml", "meta") {
-                    if let Some(content) = record.attributes.get_null("content") {
-                        if record
-                            .attributes
-                            .get_null("http-equiv")
-                            .is_some_and(|name| {
-                                name.eq_ignore_ascii_case("content-security-policy")
-                            })
-                            && dom.is_in_document_head(node).unwrap_or(false)
-                        {
-                            bytes = bytes.saturating_add(content.len());
-                            events.push_back((
-                                node,
-                                Some(html::ParserEvent::MetaSecurity {
-                                    content: content.clone(),
-                                }),
-                            ));
-                        }
-                        if record
-                            .attributes
-                            .get_null("name")
-                            .is_some_and(|name| name.eq_ignore_ascii_case("referrer"))
-                        {
-                            bytes = bytes.saturating_add(content.len());
-                            events.push_back((
-                                node,
-                                Some(html::ParserEvent::MetaReferrer {
-                                    content: content.clone(),
-                                }),
-                            ));
-                        }
+                if dom.is_element(node, "http://www.w3.org/1999/xhtml", "meta")
+                    && let Some(content) = record.attributes.get_null("content")
+                {
+                    if record
+                        .attributes
+                        .get_null("http-equiv")
+                        .is_some_and(|name| name.eq_ignore_ascii_case("content-security-policy"))
+                        && dom.is_in_document_head(node).unwrap_or(false)
+                    {
+                        bytes = bytes.saturating_add(content.len());
+                        events.push_back((
+                            node,
+                            Some(html::ParserEvent::MetaSecurity {
+                                content: content.clone(),
+                            }),
+                        ));
+                    }
+                    if record
+                        .attributes
+                        .get_null("name")
+                        .is_some_and(|name| name.eq_ignore_ascii_case("referrer"))
+                    {
+                        bytes = bytes.saturating_add(content.len());
+                        events.push_back((
+                            node,
+                            Some(html::ParserEvent::MetaReferrer {
+                                content: content.clone(),
+                            }),
+                        ));
                     }
                 }
                 if let Some(kind) = dom.embedded_content_kind(node) {
@@ -616,17 +642,17 @@ impl FrameScriptPreparation {
             }
         }
         host.stage_snapshot_inline_styles(&styled)?;
-        let mut owner = Self::new(
+        let mut owner = Self::new(FrameScriptInput {
             load,
             parent,
             frame,
             dom,
-            Vec::new(),
-            true,
-            None,
+            records: Vec::new(),
+            lifecycle_allowed: true,
+            _refresh_url: None,
             limits,
             host,
-        )?;
+        })?;
         owner.root_document = root;
         #[cfg(unix)]
         {
@@ -652,17 +678,17 @@ impl FrameScriptPreparation {
         limits: &DynamicScriptScheduler,
         host: &mut RawV8Host,
     ) -> Result<Self, HostError> {
-        let mut owner = Self::new(
+        let mut owner = Self::new(FrameScriptInput {
             load,
-            load.realm,
-            load.identity.0,
+            parent: load.realm,
+            frame: load.identity.0,
             dom,
-            Vec::new(),
-            true,
-            None,
+            records: Vec::new(),
+            lifecycle_allowed: true,
+            _refresh_url: None,
             limits,
             host,
-        )?;
+        })?;
         owner.root_document = true;
         owner.xml_parser = Some(parser);
         owner._input_reservation = Some(
@@ -725,17 +751,15 @@ impl FrameScriptPreparation {
                 } else {
                     self._input_reservation = Some(extra);
                 }
-                if let Some(encoding) = *input.encoding.lock().expect("XML input encoding") {
-                    if let Ok(node) = self
+                if let Some(encoding) = *input.encoding.lock().expect("XML input encoding")
+                    && let Ok(node) = self
                         .dom
                         .borrow_mut()
                         .arena_mut()
                         .get_mut(self.load.identity.0)
-                    {
-                        if let Some(metadata) = node.document_metadata.as_mut() {
-                            metadata.encoding = encoding.into();
-                        }
-                    }
+                    && let Some(metadata) = node.document_metadata.as_mut()
+                {
+                    metadata.encoding = encoding.into();
                 }
                 self.xml_parser.as_mut().unwrap().push_decoded(chunk);
             }
@@ -883,6 +907,10 @@ impl FrameScriptPreparation {
             && !self.retained_resources()
             && self.ordered.is_empty()
             && self.asynchronous.is_empty()
+            && !self
+                .xml_deferred
+                .iter()
+                .any(|job| job.preparation_pending())
             && self.parser_events.is_empty()
             && !self.html_publication_pending
             && self.xml_completion.is_none()
@@ -909,6 +937,54 @@ impl FrameScriptPreparation {
             || self.lifecycle_active
             || self.retained_resources()
     }
+    // Fetch and prepare deferred jobs without granting ordered execution. XML
+    // and streaming HTML share xml_deferred; snapshot jobs use ordered instead.
+    // Never cross an earlier blocking script/import map in a snapshot batch.
+    fn poll_deferred_preparations(
+        &mut self,
+        page: &mut RustExecutableDocument,
+    ) -> Result<(), HostError> {
+        let mut budget = 64;
+        for before_eof in [false, true] {
+            let mut index = 0;
+            loop {
+                if budget == 0 || !self.live(&page.agent.host) {
+                    return Ok(());
+                }
+                let queue = if before_eof {
+                    &mut self.xml_deferred
+                } else {
+                    &mut self.ordered
+                };
+                let Some(job) = queue.get_mut(index) else {
+                    break;
+                };
+                if !job.record.6 {
+                    break;
+                }
+                // A begun completion publication belongs to the normal ordered
+                // retry path. Ready sources likewise wait for their queue turn.
+                if job.execution.entered
+                    || !job.preparation_pending()
+                    || !job.runnable(&page.agent.host, &self.dom)
+                {
+                    index += 1;
+                    continue;
+                }
+                page.agent.host.activate_realm(self.load.realm)?;
+                budget -= 1;
+                if job.poll(page, &self.dom, false, None)? {
+                    // Terminal fetch errors may publish their normal error event.
+                    // Remove only that completed job, without rotating siblings.
+                    queue.remove(index);
+                } else {
+                    index += 1;
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn runnable(&mut self, host: &mut RawV8Host) -> bool {
         if !self.live(host) {
             return true;
@@ -951,70 +1027,59 @@ impl FrameScriptPreparation {
                 return true;
             }
         }
-        if self.ordered.is_empty() {
-            if let Some(parser) = &mut self.live_parser {
-                if self.html_input_error.is_some() || self.html_eof || !parser.input.is_empty() {
-                    return true;
-                }
-                if parser.parser.pending_events()
-                    || parser.parser.has_input()
-                    || !self.parser_waiting
-                {
-                    return true;
-                }
-                #[cfg(unix)]
-                if parser.resource_scheduler.has_ready_completion()
-                    || parser
-                        .resource_scheduler
-                        .async_modules
-                        .iter()
-                        .any(|(_, graph)| graph.is_runnable())
-                    || (parser
-                        .blocking_script
-                        .as_ref()
-                        .is_some_and(|script| script.ready)
-                        && !parser
-                            .resource_scheduler
-                            .scripts_blocked_by_stylesheets(host, &self.dom)
-                            .unwrap_or(false))
-                {
-                    return true;
-                }
+        if self.ordered.is_empty()
+            && let Some(parser) = &mut self.live_parser
+        {
+            if self.html_input_error.is_some() || self.html_eof || !parser.input.is_empty() {
+                return true;
             }
-        }
-        if self.parser_waiting && self.ordered.is_empty() {
-            if let Some(parser) = &mut self.live_parser {
-                match parser.source.poll_next() {
-                    std::task::Poll::Pending => {}
-                    std::task::Poll::Ready(Some(Ok(chunk))) => {
-                        parser
-                            .input
-                            .push_back(oryn_dom::html::ParserInput::unicode(&chunk));
-                        self.parser_waiting = false;
-                        return true;
-                    }
-                    std::task::Poll::Ready(Some(Err(error))) => {
-                        self.html_input_error = Some(error);
-                        return true;
-                    }
-                    std::task::Poll::Ready(None) => {
-                        self.html_eof = true;
-                        return true;
-                    }
-                }
+            if parser.parser.pending_events() || parser.parser.has_input() || !self.parser_waiting {
+                return true;
             }
-        }
-        #[cfg(unix)]
-        if let Some(pending) = &mut self.parser_async {
-            if pending.scheduler.has_ready_completion()
-                || pending
-                    .scheduler
+            #[cfg(unix)]
+            if parser.resource_scheduler.has_ready_completion()
+                || parser
+                    .resource_scheduler
                     .async_modules
                     .iter()
                     .any(|(_, graph)| graph.is_runnable())
             {
                 return true;
             }
+        }
+        if self.parser_waiting
+            && self.ordered.is_empty()
+            && let Some(parser) = &mut self.live_parser
+        {
+            match parser.source.poll_next() {
+                std::task::Poll::Pending => {}
+                std::task::Poll::Ready(Some(Ok(chunk))) => {
+                    parser
+                        .input
+                        .push_back(oryn_dom::html::ParserInput::unicode(&chunk));
+                    self.parser_waiting = false;
+                    return true;
+                }
+                std::task::Poll::Ready(Some(Err(error))) => {
+                    self.html_input_error = Some(error);
+                    return true;
+                }
+                std::task::Poll::Ready(None) => {
+                    self.html_eof = true;
+                    return true;
+                }
+            }
+        }
+        #[cfg(unix)]
+        if let Some(pending) = &mut self.parser_async
+            && (pending.scheduler.has_ready_completion()
+                || pending
+                    .scheduler
+                    .async_modules
+                    .iter()
+                    .any(|(_, graph)| graph.is_runnable()))
+        {
+            return true;
         }
         #[cfg(not(unix))]
         if !self.portable_styles.is_empty() {
@@ -1045,13 +1110,21 @@ impl FrameScriptPreparation {
         let blocked = self.styles_block_scripts(host).unwrap_or(false);
         #[cfg(not(unix))]
         let blocked = self.portable_styles_block_scripts(host).unwrap_or(false);
-        self.ordered.front_mut().is_some_and(|job| {
-            (!blocked || (!job.record.4 && !job.record.6) || job.preparation_pending())
-                && job.runnable(host, &self.dom)
-        }) || self
-            .asynchronous
+        self.ordered
             .iter_mut()
-            .any(|job| job.runnable(host, &self.dom))
+            .take_while(|job| job.record.6)
+            .chain(self.xml_deferred.iter_mut())
+            .any(|job| {
+                !job.execution.entered && job.preparation_pending() && job.runnable(host, &self.dom)
+            })
+            || self.ordered.front_mut().is_some_and(|job| {
+                (!blocked || (!job.record.4 && !job.record.6) || job.preparation_pending())
+                    && job.runnable(host, &self.dom)
+            })
+            || self
+                .asynchronous
+                .iter_mut()
+                .any(|job| job.runnable(host, &self.dom))
     }
 }
 
@@ -1097,7 +1170,7 @@ impl FrameScriptPreparation {
         host: &mut RawV8Host,
         limits: &DynamicScriptScheduler,
     ) -> Result<(), HostError> {
-        if encoded.len() > ((16 * 1024 * 1024 + 2) / 3) * 4 {
+        if encoded.len() > (16usize * 1024 * 1024).div_ceil(3) * 4 {
             return Err(HostError::LimitExceeded {
                 resource: "buffered frame raw bytes".into(),
             });
@@ -1159,130 +1232,6 @@ impl FrameScriptPreparation {
                 parser.resource_scheduler = ParserResourceScheduler::with_page_limits(limits);
             }
             self.live_parser = Some(parser);
-        }
-        Ok(())
-    }
-    fn accept_parsed(
-        &mut self,
-        page: &mut RustExecutableDocument,
-        parsed: LiveParseResult,
-        scan_styles: bool,
-    ) -> Result<(), HostError> {
-        let LiveParseResult {
-            document,
-            scripts,
-            script_leases,
-            frames,
-            #[cfg(unix)]
-            async_modules,
-        } = parsed;
-        self._input_reservation.take();
-        page.queue_parser_frame_failures(&frames)?;
-        if self.root_document {
-            page.document.errors = document.errors.clone();
-            page.document.quirks_mode = document.quirks_mode;
-        }
-        #[cfg(unix)]
-        {
-            self.parser_async = async_modules;
-        }
-        let bytes = scripts
-            .iter()
-            .try_fold(0usize, |bytes, record| bytes.checked_add(record.3.len()))
-            .ok_or_else(|| HostError::LimitExceeded {
-                resource: "frame deferred script bytes".into(),
-            })?;
-        self._source_reservation =
-            ScriptSourceReservation::reserve(&page.dynamic_scripts.source_bytes, bytes)
-                .ok_or_else(|| HostError::LimitExceeded {
-                    resource: "frame deferred script bytes".into(),
-                })?;
-        let mut deferred = VecDeque::new();
-        for record in scripts {
-            let is_deferred = record.6;
-            let job = FrameScriptJob {
-                _inline_reservation: None,
-                execution: ParserScriptProgress {
-                    retained: true,
-                    ..Default::default()
-                },
-                execution_finished: false,
-                #[cfg(not(unix))]
-                portable_source: None,
-                #[cfg(unix)]
-                source_completion: None,
-                _lease: ParserScriptLease::new(&self.dom, script_record_node(&record))?,
-                record,
-                #[cfg(unix)]
-                source: None,
-                graph: None,
-            };
-            if is_deferred {
-                deferred.push_back(job);
-            } else {
-                self.ordered.push_back(job);
-            }
-        }
-        self.ordered.append(&mut deferred);
-        drop(script_leases);
-        let frame_sources = document
-            .events
-            .iter()
-            .filter_map(|event| match event {
-                html::ParserEvent::FrameDiscovered { node, source } => {
-                    Some((*node, Some(source.clone())))
-                }
-                _ => None,
-            })
-            .collect();
-        let base = Url::parse(&page.agent.host.document_base_url()?).ok();
-        let prepared = RustExecutableDocument::finish_parser_resources(
-            &mut page.agent.host,
-            &self.dom,
-            &mut page.resources,
-            &mut page.diagnostics,
-            self.load.realm,
-            &base,
-            frame_sources,
-            &frames,
-            &page.dynamic_scripts,
-            #[cfg(unix)]
-            &page.context,
-        )?;
-        page.node_realms.extend(prepared.node_realms);
-        page.frame_realms.extend(prepared.frame_realms);
-        page.frame_script_preparations
-            .extend(prepared.frame_script_preparations);
-        self.child_loads.extend(prepared.initial_frame_realms);
-        #[cfg(unix)]
-        if scan_styles {
-            let nodes = subtree_nodes(&self.dom.borrow(), self.load.identity.0)?;
-            for node in nodes {
-                if self
-                    .dom
-                    .borrow()
-                    .arena()
-                    .is_css_stylesheet_owner(node)
-                    .unwrap_or(false)
-                {
-                    self.queue_style(node, true)?;
-                }
-            }
-        }
-        #[cfg(not(unix))]
-        if scan_styles {
-            let nodes = subtree_nodes(&self.dom.borrow(), self.load.identity.0)?;
-            for node in nodes {
-                if self
-                    .dom
-                    .borrow()
-                    .arena()
-                    .is_css_stylesheet_owner(node)
-                    .unwrap_or(false)
-                {
-                    self.queue_portable_style(page, node)?;
-                }
-            }
         }
         Ok(())
     }
@@ -1381,7 +1330,6 @@ impl FrameScriptPreparation {
                         parser.resource_scheduler =
                             ParserResourceScheduler::with_page_limits(&page.dynamic_scripts);
                         parser.deferred_scripts.clear();
-                        parser.blocking_script = None;
                     }
                     #[cfg(not(unix))]
                     {
@@ -1601,7 +1549,6 @@ impl FrameScriptPreparation {
                     }
                 }
             }
-            _ => {}
         }
         Ok(())
     }
@@ -1614,17 +1561,17 @@ impl FrameScriptPreparation {
         };
         let result = (|| -> Result<bool, HostError> {
             if completion.stage == 0 {
-                if let Some(document) = completion.document.as_mut() {
-                    if !document.errors.is_empty() {
-                        let encoding = document_encoding_at(&self.dom, self.load.identity.0);
-                        set_parsed_encoding(document, &encoding)?;
-                        let published = publish_buffered_navigation_document_ref(
-                            &self.dom,
-                            self.load.identity.0,
-                            document,
-                        )?;
-                        *document = published;
-                    }
+                if let Some(document) = completion.document.as_mut()
+                    && !document.errors.is_empty()
+                {
+                    let encoding = document_encoding_at(&self.dom, self.load.identity.0);
+                    set_parsed_encoding(document, &encoding)?;
+                    let published = publish_buffered_navigation_document_ref(
+                        &self.dom,
+                        self.load.identity.0,
+                        document,
+                    )?;
+                    *document = published;
                 }
                 completion.stage = 1;
             }
@@ -1706,17 +1653,17 @@ impl FrameScriptPreparation {
         limits: &DynamicScriptScheduler,
         host: &mut RawV8Host,
     ) -> Result<Self, HostError> {
-        let mut owner = Self::new(
+        let mut owner = Self::new(FrameScriptInput {
             load,
-            load.realm,
-            load.identity.0,
+            parent: load.realm,
+            frame: load.identity.0,
             dom,
-            vec![],
-            true,
-            None,
+            records: vec![],
+            lifecycle_allowed: true,
+            _refresh_url: None,
             limits,
             host,
-        )?;
+        })?;
         owner.root_document = true;
         Ok(owner)
     }
@@ -1775,8 +1722,8 @@ impl FrameScriptPreparation {
         // All fallible metadata publication precedes consuming another source
         // chunk. Input errors are terminal; native publication/admission errors
         // leave this owner and its existing suffix/event queue intact.
-        if let Some(encoding) = *parser.encoding.lock().expect("navigation encoding") {
-            if let Some(metadata) = self
+        if let Some(encoding) = *parser.encoding.lock().expect("navigation encoding")
+            && let Some(metadata) = self
                 .dom
                 .borrow_mut()
                 .arena_mut()
@@ -1784,9 +1731,8 @@ impl FrameScriptPreparation {
                 .map_err(|error| HostError::Execution(error.to_string()))?
                 .document_metadata
                 .as_mut()
-            {
-                metadata.encoding = encoding.into();
-            }
+        {
+            metadata.encoding = encoding.into();
         }
         let mut writes = parser.parser.take_input();
         writes.append(&mut parser.input);
@@ -1994,10 +1940,10 @@ impl FrameScriptPreparation {
         if self.ordered.is_empty() {
             self.poll_xml_input();
         }
-        if let Some(error) = self.xml_input_error.take() {
-            if let Some(parser) = self.xml_parser.as_mut() {
-                parser.fail_input(error.to_string());
-            }
+        if let Some(error) = self.xml_input_error.take()
+            && let Some(parser) = self.xml_parser.as_mut()
+        {
+            parser.fail_input(error.to_string());
         }
         self.poll_html_parser(page)?;
         if self.ordered.is_empty() && self.xml_parser.is_some() {
@@ -2055,15 +2001,17 @@ impl FrameScriptPreparation {
                 else {
                     break;
                 };
-                pending.scheduler.apply_completion(
-                    completion,
-                    &self.dom,
-                    &mut page.agent.host,
-                    &mut page.resources,
-                    &mut BTreeMap::new(),
-                    &mut page.diagnostics,
-                    page.context.as_ref(),
-                )?;
+                pending
+                    .scheduler
+                    .apply_completion(crate::executable::ParserCompletionInput {
+                        completion,
+                        live_dom: &self.dom,
+                        host: &mut page.agent.host,
+                        resources: &mut page.resources,
+                        deferred: &mut BTreeMap::new(),
+                        diagnostics: &mut page.diagnostics,
+                        context: page.context.as_ref(),
+                    })?;
             }
             pending.scheduler.poll_async_modules(
                 &self.dom,
@@ -2115,27 +2063,25 @@ impl FrameScriptPreparation {
         Ok(())
     }
     fn styles_block_scripts(&self, host: &RawV8Host) -> Result<bool, HostError> {
-        if let Some(pending) = &self.pending_stylesheet {
-            if self
+        if let Some(pending) = &self.pending_stylesheet
+            && self
                 .dom
                 .borrow()
                 .arena()
                 .stylesheet_revision(pending.node)
                 .ok()
                 == Some(pending.revision)
-                && host.native_stylesheet_blocks_scripts(pending.node)?
-            {
-                return Ok(true);
-            }
+            && host.native_stylesheet_blocks_scripts(pending.node)?
+        {
+            return Ok(true);
         }
 
-        if let Some(pending) = &self.parser_async {
-            if pending
+        if let Some(pending) = &self.parser_async
+            && pending
                 .scheduler
                 .scripts_blocked_by_stylesheets(host, &self.dom)?
-            {
-                return Ok(true);
-            }
+        {
+            return Ok(true);
         }
         for &(node, revision) in &self.style_nodes {
             if self.dom.borrow().arena().stylesheet_revision(node).ok() == Some(revision)
@@ -2199,15 +2145,17 @@ impl FrameScriptPreparation {
             if link {
                 if !href.trim().is_empty() {
                     styles.schedule_stylesheet_auto(
-                        page.context.as_ref(),
-                        node,
-                        revision,
-                        Some(href),
-                        String::new(),
-                        encoding,
-                        fetch,
-                        &mut page.agent.host,
-                        &page.resources,
+                        crate::executable::AutomaticStylesheetScheduleInput {
+                            context: page.context.as_ref(),
+                            node,
+                            revision,
+                            href: Some(href),
+                            css: String::new(),
+                            encoding,
+                            fetch,
+                            host: &mut page.agent.host,
+                            resources: &page.resources,
+                        },
                     )?;
                 } else {
                     styles.complete_render_stylesheet(node, revision);
@@ -2216,15 +2164,17 @@ impl FrameScriptPreparation {
                 .map_err(HostError::Execution)?
             {
                 styles.schedule_stylesheet_auto(
-                    page.context.as_ref(),
-                    node,
-                    revision,
-                    None,
-                    css,
-                    encoding,
-                    fetch,
-                    &mut page.agent.host,
-                    &page.resources,
+                    crate::executable::AutomaticStylesheetScheduleInput {
+                        context: page.context.as_ref(),
+                        node,
+                        revision,
+                        href: None,
+                        css,
+                        encoding,
+                        fetch,
+                        host: &mut page.agent.host,
+                        resources: &page.resources,
+                    },
                 )?;
             } else {
                 styles.complete_render_stylesheet(node, revision);
@@ -2260,14 +2210,16 @@ impl FrameScriptPreparation {
             let pending = self.pending_stylesheet.as_mut().unwrap();
             if pending.published.is_none() {
                 pending.published = Some(publish_parser_stylesheet_completion(
-                    pending.identity,
-                    pending.node,
-                    pending.revision,
-                    &pending.result,
-                    &self.dom,
-                    &mut page.agent.host,
-                    &mut page.resources,
-                    &mut page.diagnostics,
+                    crate::executable::StylesheetPublicationInput {
+                        identity: pending.identity,
+                        node: pending.node,
+                        revision: pending.revision,
+                        result: &pending.result,
+                        live_dom: &self.dom,
+                        host: &mut page.agent.host,
+                        resources: &mut page.resources,
+                        diagnostics: &mut page.diagnostics,
+                    },
                 )?);
             }
             #[cfg(test)]
@@ -2281,14 +2233,11 @@ impl FrameScriptPreparation {
                     .stylesheet_revision(pending.node)
                     .ok()
                     == Some(pending.revision)
+                && let Some(success) = pending.published.unwrap()
             {
-                if let Some(success) = pending.published.unwrap() {
-                    page.agent.host.queue_stylesheet_event(
-                        pending.node,
-                        pending.revision,
-                        success,
-                    )?;
-                }
+                page.agent
+                    .host
+                    .queue_stylesheet_event(pending.node, pending.revision, success)?;
             }
             styles.complete_render_stylesheet(pending.node, pending.revision);
             self.pending_stylesheet = None;
@@ -2389,10 +2338,11 @@ impl FrameScriptJob {
         dom: &SharedDomRuntime,
         parser_gate: Option<&Rc<oryn_js::v8_bindings::DocumentParserGate>>,
     ) -> Result<bool, HostError> {
-        if self.record.4 && !self.record.8.before_fetch_failure {
-            if let Some(gate) = parser_gate {
-                gate.resume();
-            }
+        if self.record.4
+            && !self.record.8.before_fetch_failure
+            && let Some(gate) = parser_gate
+        {
+            gate.resume();
         }
         self.execution.entered = true;
         self.execution.completion = Some(false);
@@ -2432,10 +2382,10 @@ impl FrameScriptJob {
             if let Some(source) = &mut self.source {
                 return source.has_ready_completion();
             }
-            if let Some(graph) = &self.graph {
-                if !self.record.8.graph_preloaded {
-                    return graph.is_runnable();
-                }
+            if let Some(graph) = &self.graph
+                && !self.record.8.graph_preloaded
+            {
+                return graph.is_runnable();
             }
         }
         #[cfg(not(unix))]
@@ -3047,6 +2997,15 @@ impl RustExecutableDocument {
                             .expect("discovered frame async script"),
                     );
                 }
+                if let Err(error) = pending.poll_deferred_preparations(self) {
+                    pending.parser_retry =
+                        Some(std::time::Instant::now() + Duration::from_millis(25));
+                    self.frame_script_preparations.push_back(pending);
+                    return Err(error);
+                }
+                if !pending.live(&self.agent.host) {
+                    continue;
+                }
                 let scripts_blocked = match pending.current_styles_block_scripts(&self.agent.host) {
                     Ok(blocked) => blocked,
                     Err(error) => {
@@ -3226,7 +3185,6 @@ impl RustExecutableDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
 
     #[test]
     fn terminal_root_input_failure_releases_child_input_and_resource_reservation() {
@@ -3275,17 +3233,17 @@ mod tests {
             &mut page.agent.host,
         )
         .unwrap();
-        let mut child_owner = FrameScriptPreparation::new(
-            child_load,
-            page.top_realm,
+        let mut child_owner = FrameScriptPreparation::new(FrameScriptInput {
+            load: child_load,
+            parent: page.top_realm,
             frame,
-            child_dom,
-            Vec::new(),
-            true,
-            None,
-            &page.dynamic_scripts,
-            &mut page.agent.host,
-        )
+            dom: child_dom,
+            records: Vec::new(),
+            lifecycle_allowed: true,
+            _refresh_url: None,
+            limits: &page.dynamic_scripts,
+            host: &mut page.agent.host,
+        })
         .unwrap();
         child_owner.install_html_parser(child_parser);
         child_owner._source_reservation =
@@ -3532,17 +3490,17 @@ mod tests {
             .host
             .set_document_readiness(oryn_dom::DocumentReadyState::Loading)
             .unwrap();
-        let pending = FrameScriptPreparation::new(
-            PreparedDocumentLoad { realm, identity },
-            owner.parent_realm,
-            owner.frame,
+        let pending = FrameScriptPreparation::new(FrameScriptInput {
+            load: PreparedDocumentLoad { realm, identity },
+            parent: owner.parent_realm,
+            frame: owner.frame,
             dom,
             records,
-            true,
-            None,
-            &page.dynamic_scripts,
-            &mut page.agent.host,
-        )
+            lifecycle_allowed: true,
+            _refresh_url: None,
+            limits: &page.dynamic_scripts,
+            host: &mut page.agent.host,
+        })
         .unwrap();
         page.frame_script_preparations.push_back(pending);
     }
@@ -3805,15 +3763,15 @@ mod tests {
             }),
         };
         scheduler
-            .apply_completion(
+            .apply_completion(crate::executable::ParserCompletionInput {
                 completion,
-                &dom,
-                &mut page.agent.host,
-                &mut page.resources,
-                &mut BTreeMap::new(),
-                &mut page.diagnostics,
-                None,
-            )
+                live_dom: &dom,
+                host: &mut page.agent.host,
+                resources: &mut page.resources,
+                deferred: &mut BTreeMap::new(),
+                diagnostics: &mut page.diagnostics,
+                context: None,
+            })
             .unwrap();
         FAIL_PARSER_COMPLETION.with(|flag| flag.set(true));
         assert!(
@@ -4307,6 +4265,7 @@ mod tests {
                 self.started.send(()).unwrap();
                 self.release.lock().unwrap().recv().unwrap();
                 Ok(crate::network::NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -4501,17 +4460,17 @@ mod tests {
                 None,
             )
             .unwrap();
-        let mut pending = FrameScriptPreparation::new(
-            PreparedDocumentLoad { realm, identity },
-            owner.parent_realm,
-            owner.frame,
-            dom.clone(),
-            vec![],
-            true,
-            None,
-            &page.dynamic_scripts,
-            &mut page.agent.host,
-        )
+        let mut pending = FrameScriptPreparation::new(FrameScriptInput {
+            load: PreparedDocumentLoad { realm, identity },
+            parent: owner.parent_realm,
+            frame: owner.frame,
+            dom: dom.clone(),
+            records: vec![],
+            lifecycle_allowed: true,
+            _refresh_url: None,
+            limits: &page.dynamic_scripts,
+            host: &mut page.agent.host,
+        })
         .unwrap();
         pending
             .start_document_stream(stream, &mut page.agent.host, &page.dynamic_scripts)
@@ -4571,6 +4530,281 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn deferred_preparation_readies_later_source_without_overtaking_held_head() {
+        let (mut page, realm, dom, a, b) = frame_fixture();
+        enqueue(&mut page, realm, dom.clone(), vec![]);
+        let mut owner = page.frame_script_preparations.pop_back().unwrap();
+        owner.lifecycle_allowed = false;
+        let mut producers = Vec::new();
+        for (node, name) in [(a, "first"), (b, "second")] {
+            let mut script = record(&page, &dom, node, "");
+            script.1 = Some(format!("https://example.test/{name}.js"));
+            script.4 = false;
+            script.6 = true;
+            let identity = script.7.unwrap();
+            let (sender, budget, ticket) = owner.inject_async_source(script, &page.dynamic_scripts);
+            producers.push((sender, budget, ticket, identity, name));
+        }
+        owner.ordered.append(&mut owner.asynchronous);
+        let complete = |producer: &_| {
+            let (sender, budget, ticket, identity, name): &(
+                std::sync::mpsc::Sender<ParserResourceCompletion<u64>>,
+                Arc<std::sync::atomic::AtomicUsize>,
+                u64,
+                ParserDocumentIdentity,
+                &str,
+            ) = producer;
+            sender
+                .send(ParserResourceCompletion::Script {
+                    realm: identity.realm,
+                    stream_epoch: identity.stream_epoch,
+                    document_generation: identity.document_generation,
+                    document: identity.document,
+                    order: 0,
+                    record: *ticket,
+                    asynchronous: false,
+                    result: retain_parser_script_source(
+                        Ok((
+                            format!("https://example.test/{name}.js"),
+                            format!("order.push('{name}')"),
+                            false,
+                            "no-referrer".into(),
+                        )),
+                        budget,
+                    ),
+                })
+                .unwrap();
+        };
+        complete(&producers[1]);
+        assert!(
+            owner.runnable(&mut page.agent.host),
+            "later completion must wake the owner"
+        );
+        owner.poll_deferred_preparations(&mut page).unwrap();
+        assert_eq!(owner.ordered.len(), 2);
+        assert!(owner.ordered[0].record.8.loaded.is_none());
+        assert!(owner.ordered[1].record.8.loaded.is_some());
+        assert!(
+            !owner.runnable(&mut page.agent.host),
+            "ready tail cannot spin or execute past held head"
+        );
+        assert_eq!(
+            page.agent
+                .host
+                .evaluate_string("order.length.toString()")
+                .unwrap(),
+            "0"
+        );
+        complete(&producers[0]);
+        owner.poll_deferred_preparations(&mut page).unwrap();
+        assert!(
+            owner
+                .ordered
+                .iter()
+                .all(|job| job.record.8.loaded.is_some())
+        );
+        owner.lifecycle_allowed = true;
+        page.frame_script_preparations.push_back(owner);
+        page.poll_frame_script_preparations().unwrap();
+        page.poll_frame_script_preparations().unwrap();
+        page.agent.host.activate_realm(realm).unwrap();
+        assert_eq!(
+            page.agent.host.evaluate_string("order.join(',')").unwrap(),
+            "first,second"
+        );
+        assert!(!page.frame_scripts_pending(Some(realm)));
+    }
+
+    #[test]
+    fn deferred_prefetch_does_not_cross_an_unprocessed_snapshot_importmap() {
+        let (mut page, realm, dom, a, b) = frame_fixture();
+        let mut map = record(&page, &dom, a, r#"{"imports":{"helper":"./helper.js"}}"#);
+        map.2 = Some("importmap".into());
+        let mut deferred = record(&page, &dom, b, "");
+        deferred.1 = Some("https://example.test/deferred.js".into());
+        deferred.4 = false;
+        deferred.6 = true;
+        enqueue(&mut page, realm, dom, vec![map, deferred]);
+        let mut owner = page.frame_script_preparations.pop_back().unwrap();
+        owner.poll_deferred_preparations(&mut page).unwrap();
+        assert_eq!(owner.ordered.len(), 2);
+        let deferred = &owner.ordered[1];
+        #[cfg(unix)]
+        assert!(deferred.source.is_none());
+        #[cfg(not(unix))]
+        assert!(deferred.portable_source.is_none());
+        assert!(deferred.graph.is_none());
+        assert!(!owner.ordered[0].execution.entered);
+        assert_eq!(
+            page.agent
+                .host
+                .evaluate_string("order.length.toString()")
+                .unwrap(),
+            "0"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn deferred_prefetch_error_publication_retry_retains_job_and_fires_once() {
+        let (mut page, realm, dom, a, _) = frame_fixture();
+        page.agent.host.execute("globalThis.errors=0;document.getElementById('a').addEventListener('error',()=>errors++)").unwrap();
+        enqueue(&mut page, realm, dom.clone(), vec![]);
+        let mut owner = page.frame_script_preparations.pop_back().unwrap();
+        let mut script = record(&page, &dom, a, "order.push('forbidden')");
+        script.1 = Some("https://example.test/missing.js".into());
+        script.4 = false;
+        script.6 = true;
+        let identity = script.7.unwrap();
+        let (sender, budget, ticket) = owner.inject_async_source(script, &page.dynamic_scripts);
+        owner.xml_deferred.append(&mut owner.asynchronous);
+        sender
+            .send(ParserResourceCompletion::Script {
+                realm: identity.realm,
+                stream_epoch: identity.stream_epoch,
+                document_generation: identity.document_generation,
+                document: identity.document,
+                order: 0,
+                record: ticket,
+                asynchronous: false,
+                result: Err(ParserScriptFailure::Fetch {
+                    message: "missing".into(),
+                    source_bytes: budget,
+                }),
+            })
+            .unwrap();
+        FAIL_PARSER_COMPLETION.with(|flag| flag.set(true));
+        assert!(owner.poll_deferred_preparations(&mut page).is_err());
+        assert_eq!(owner.xml_deferred.len(), 1);
+        assert_eq!(owner.xml_deferred[0].execution.completion, Some(false));
+        owner.poll_deferred_preparations(&mut page).unwrap();
+        assert_eq!(
+            page.agent
+                .host
+                .evaluate_string("order.length+'|'+errors")
+                .unwrap(),
+            "0|0"
+        );
+        owner.ordered.append(&mut owner.xml_deferred);
+        page.frame_script_preparations.push_back(owner);
+        page.poll_frame_script_preparations().unwrap();
+        page.poll_frame_script_preparations().unwrap();
+        page.agent.host.activate_realm(realm).unwrap();
+        assert_eq!(
+            page.agent
+                .host
+                .evaluate_string("order.length+'|'+errors")
+                .unwrap(),
+            "0|1"
+        );
+        assert!(!page.frame_scripts_pending(Some(realm)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn passive_author_input_does_not_hide_deferred_preparation_or_execute_it_early() {
+        let mut page = RustExecutableDocument::load(
+            r#"<iframe id=child srcdoc='<body>initial'></iframe><script>
+            const child=document.getElementById('child').contentDocument;
+            child.open();child.write('<body>unclosed');
+        </script>"#,
+        )
+        .unwrap();
+        assert!(!page.construction_pending());
+        assert!(!page.document_load_complete());
+        let frame = page.agent.dom.borrow().find_by_id("child").unwrap();
+        let realm = *page
+            .frame_realms
+            .iter()
+            .find(|(_, owner)| owner.frame == frame)
+            .unwrap()
+            .0;
+        page.agent.host.activate_realm(realm).unwrap();
+        page.agent.host.execute("const script=document.createElement('script');script.id='resource';script.type='application/json';document.body.appendChild(script)").unwrap();
+        let dom = page.agent.host.active_dom().unwrap();
+        let document = page.agent.host.automation_realm_identity(realm).unwrap().0;
+        let node = dom
+            .borrow()
+            .get_element_by_id(document, "resource")
+            .unwrap()
+            .unwrap();
+        let mut script = capture_parser_script_node(&page.agent.host, &dom, node).unwrap();
+        script.1 = Some("https://example.test/deferred.js".into());
+        script.2 = None;
+        script.4 = false;
+        script.6 = true;
+        let identity = script.7.unwrap();
+        let owner = page
+            .frame_script_preparations
+            .iter_mut()
+            .find(|owner| owner.load.realm == realm)
+            .unwrap();
+        let (sender, budget, ticket) = owner.inject_async_source(script, &page.dynamic_scripts);
+        owner.xml_deferred.append(&mut owner.asynchronous);
+        assert!(
+            !owner.awaiting_author_input(),
+            "owned deferred network work is not passive author input"
+        );
+        assert!(page.construction_pending());
+        sender
+            .send(ParserResourceCompletion::Script {
+                realm,
+                stream_epoch: identity.stream_epoch,
+                document_generation: identity.document_generation,
+                document: identity.document,
+                order: 0,
+                record: ticket,
+                asynchronous: false,
+                result: retain_parser_script_source(
+                    Ok((
+                        "https://example.test/deferred.js".into(),
+                        "globalThis.deferredResourceRan=true".into(),
+                        false,
+                        "no-referrer".into(),
+                    )),
+                    &budget,
+                ),
+            })
+            .unwrap();
+        for _ in 0..16 {
+            page.poll_context_events().unwrap();
+            if !page.construction_pending() {
+                break;
+            }
+        }
+        assert!(
+            !page.construction_pending(),
+            "completed source can wait passively for author EOF"
+        );
+        assert!(!page.document_load_complete());
+        page.agent.host.activate_realm(realm).unwrap();
+        assert_eq!(
+            page.agent
+                .host
+                .evaluate_string("typeof deferredResourceRan")
+                .unwrap(),
+            "undefined"
+        );
+        page.agent.host.execute("document.close()").unwrap();
+        for _ in 0..16 {
+            page.poll_context_events().unwrap();
+            if !page.frame_scripts_pending(Some(realm)) {
+                break;
+            }
+        }
+        page.agent.host.activate_realm(realm).unwrap();
+        assert_eq!(
+            page.agent
+                .host
+                .evaluate_string("String(deferredResourceRan)")
+                .unwrap(),
+            "true"
+        );
+        assert!(!page.frame_scripts_pending(Some(realm)));
+    }
+
     #[test]
     fn frame_preparation_defers_defer_until_classics_and_keeps_native_barrier() {
         let (mut page, realm, dom, a, b) = frame_fixture();
@@ -4601,7 +4835,10 @@ mod tests {
         use crate::context_service::{
             ContextServiceRequest, ContextServiceResponse, ContextTransport,
         };
-        struct Policy;
+        struct Policy {
+            expected: std::sync::Arc<std::sync::Mutex<Option<(String, u64, u64)>>>,
+            polls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        }
         impl ContextTransport for Policy {
             fn request(
                 &self,
@@ -4621,6 +4858,38 @@ mod tests {
                     } => Ok(ContextServiceResponse::MessageWire {
                         result: Ok(oryn_js::message_wire::MessageResponse::Done),
                     }),
+                    ContextServiceRequest::MessageWire {
+                        source_page_id,
+                        request:
+                            oryn_js::message_wire::MessageRequest::InDocument {
+                                target: oryn_js::message_wire::WindowTarget::Frame(frame),
+                                document_generation,
+                                stream_epoch,
+                                request,
+                            },
+                    } if source_page_id == oryn_common::v3::PageId(1)
+                        && self.expected.lock().unwrap().as_ref()
+                            == Some(&(frame.clone(), document_generation, stream_epoch)) =>
+                    {
+                        match *request {
+                            oryn_js::message_wire::MessageRequest::PollWindow {
+                                target: oryn_js::message_wire::WindowTarget::Frame(target),
+                                max: 1,
+                            } if target == frame => {
+                                self.polls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                Ok(ContextServiceResponse::MessageWire {
+                                    result: Ok(
+                                        oryn_js::message_wire::MessageResponse::WindowMessages(
+                                            Vec::new(),
+                                        ),
+                                    ),
+                                })
+                            }
+                            _ => Err(crate::RuntimeError::ContextService(
+                                "unexpected scoped frame poll".into(),
+                            )),
+                        }
+                    }
                     ContextServiceRequest::PublishNativeWindowInventory { .. } => {
                         Ok(ContextServiceResponse::NativeWindowInventoryPublished)
                     }
@@ -4632,8 +4901,14 @@ mod tests {
         }
         let (worker, parent) = std::os::unix::net::UnixStream::pair().unwrap();
         let shutdown = parent.try_clone().unwrap();
+        let expected = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let polls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let policy = std::sync::Arc::new(Policy {
+            expected: expected.clone(),
+            polls: polls.clone(),
+        });
         let server = std::thread::spawn(move || {
-            crate::context_service::serve_context_transport(parent, std::sync::Arc::new(Policy))
+            crate::context_service::serve_context_transport(parent, policy)
         });
         let client = crate::context_service::SharedContextClient::new(
             crate::context_service::IpcContextClient::new(worker),
@@ -4651,6 +4926,20 @@ mod tests {
             client.clone(),
             oryn_common::v3::PageId(1),
         );
+        let owner = &page.frame_realms[&realm];
+        let frame = page
+            .agent
+            .host
+            .automation_frame_token(owner.parent_realm, owner.frame)
+            .unwrap();
+        let generation = page
+            .agent
+            .host
+            .realm_descriptor(realm)
+            .unwrap()
+            .document_generation;
+        let epoch = page.agent.host.document_authority_epoch(realm).unwrap();
+        *expected.lock().unwrap() = Some((frame, generation, epoch));
         page.context = Some((client, oryn_common::v3::PageId(1), None));
         page.agent.host.execute("document.addEventListener('DOMContentLoaded',()=>order.push('dom'));addEventListener('load',()=>order.push('load'))").unwrap();
         let mut asynchronous = record(
@@ -4667,6 +4956,10 @@ mod tests {
         slots.store(8, std::sync::atomic::Ordering::Release);
         enqueue(&mut page, realm, dom, vec![asynchronous, classic]);
         page.poll_frame_script_preparations().unwrap();
+        assert!(
+            polls.load(std::sync::atomic::Ordering::SeqCst) > 0,
+            "the native child endpoint must actually be polled"
+        );
         page.agent.host.activate_realm(realm).unwrap();
         assert_eq!(
             page.agent.host.evaluate_string("order.join(',')").unwrap(),
@@ -5101,7 +5394,7 @@ mod tests {
     }
     #[test]
     fn frame_pageswap_new_location_prevents_obsolete_document_commit() {
-        let (mut page, realm, _, _, _) = frame_fixture();
+        let (mut page, _realm, _, _, _) = frame_fixture();
         page.agent.host.execute("onpageswap=()=>{onpageswap=null;location.href='about:blank#winner'};location.href='about:blank#obsolete'").unwrap();
         page.drain_frame_location_navigations().unwrap();
         page.drain_dynamic_frames().unwrap();
@@ -5329,7 +5622,7 @@ mod tests {
             owner,
             node,
             requested_url: "failed.html".into(),
-            result: Err("denied".into()),
+            result: Box::new(Err("denied".into())),
         };
         let outcome = apply_parser_resource_completion(
             completion,
@@ -5674,17 +5967,17 @@ mod streamed_xml_input_tests {
         page.agent.host.activate_realm(realm).unwrap();
         let dom = page.agent.host.active_dom().unwrap();
         let identity = page.agent.host.automation_realm_identity(realm).unwrap();
-        let mut pending = FrameScriptPreparation::new(
-            PreparedDocumentLoad { realm, identity },
-            owner.parent_realm,
-            owner.frame,
+        let mut pending = FrameScriptPreparation::new(FrameScriptInput {
+            load: PreparedDocumentLoad { realm, identity },
+            parent: owner.parent_realm,
+            frame: owner.frame,
             dom,
-            vec![],
-            true,
-            None,
-            &page.dynamic_scripts,
-            &mut page.agent.host,
-        )
+            records: vec![],
+            lifecycle_allowed: true,
+            _refresh_url: None,
+            limits: &page.dynamic_scripts,
+            host: &mut page.agent.host,
+        })
         .unwrap();
         pending
             .start_document_stream(
@@ -6231,6 +6524,7 @@ mod xml_publication_recovery_tests {
             ) -> Result<crate::network::NetworkResponse, crate::network::NetworkError> {
                 self.0.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
                 Ok(crate::network::NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 404,
@@ -6473,17 +6767,17 @@ mod xml_publication_recovery_tests {
                 .automation_realm_identity(page.top_realm)
                 .unwrap(),
         };
-        let mut owner = FrameScriptPreparation::new(
+        let mut owner = FrameScriptPreparation::new(FrameScriptInput {
             load,
-            page.top_realm,
-            load.identity.0,
+            parent: page.top_realm,
+            frame: load.identity.0,
             dom,
-            vec![],
-            true,
-            None,
-            &page.dynamic_scripts,
-            &mut page.agent.host,
-        )
+            records: vec![],
+            lifecycle_allowed: true,
+            _refresh_url: None,
+            limits: &page.dynamic_scripts,
+            host: &mut page.agent.host,
+        })
         .unwrap();
         owner.root_document = true;
         owner.live_parser = Some(parser);

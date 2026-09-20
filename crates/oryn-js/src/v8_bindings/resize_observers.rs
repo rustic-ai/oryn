@@ -1,5 +1,9 @@
 //! Native ResizeObserver observations and depth-limited rendering broadcasts.
 //! Callback batches are retained before invocation; author exceptions never replay them.
+type ResizeMeasurement = (Entry, (f64, f64), usize, std::rc::Weak<V8BindingState>, u64);
+
+type PendingResizeEntry = (Rc<RefCell<Target>>, Entry, (f64, f64));
+
 use super::*;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BoxKind {
@@ -26,7 +30,7 @@ pub(super) struct Entry {
 }
 struct Batch {
     observer: Rc<RefCell<Observer>>,
-    entries: Vec<(Rc<RefCell<Target>>, Entry, (f64, f64))>,
+    entries: Vec<PendingResizeEntry>,
 }
 
 fn entry_target<'s>(
@@ -259,10 +263,7 @@ fn remove_active(state: &V8BindingState, target: &Rc<RefCell<Target>>) {
     }
     observers.pending.retain(|batch| !batch.entries.is_empty());
 }
-fn sample(
-    scope: &mut v8::PinScope,
-    target: &Target,
-) -> Result<(Entry, (f64, f64), usize, std::rc::Weak<V8BindingState>, u64), V8BindingError> {
+fn sample(scope: &mut v8::PinScope, target: &Target) -> Result<ResizeMeasurement, V8BindingError> {
     let object = v8::Local::new(scope, &target.object);
     let (state, node) = owner(scope, object)?;
     let mut rect = BindingRect::default();
@@ -439,7 +440,7 @@ pub(super) fn get<'s>(
                 .instance_templates
                 .borrow()
                 .get("DOMRectReadOnly")
-                .cloned()
+                .and_then(|template| template.to_global(scope))
                 .ok_or(V8BindingError::MissingInterface("DOMRectReadOnly"))?;
             let object = v8::Local::new(scope, &template)
                 .new_instance(scope)
@@ -665,6 +666,31 @@ pub(super) fn broadcast(
         observers.loop_error = None;
     }
     Ok(delivered)
+}
+
+pub(super) fn needs_render(state: &V8BindingState) -> bool {
+    let observers = state.resize_observers.borrow();
+    if observers.observers.is_empty() && observers.pending.is_empty() {
+        return false;
+    }
+    observers.dirty
+        || observers.active
+        || !observers.pending.is_empty()
+        || observers.dependencies.iter().any(|(owner, revision)| {
+            owner.upgrade().is_some_and(|owner| {
+                owner
+                    .native_paint_revision()
+                    .is_ok_and(|current| current != *revision)
+            })
+        })
+}
+
+/// An explicit native layout handoff is a new geometry sample opportunity.
+pub(super) fn layout_changed(state: &V8BindingState) {
+    let mut observers = state.resize_observers.borrow_mut();
+    if !observers.observers.is_empty() {
+        observers.dirty = true;
+    }
 }
 
 #[cfg(test)]
@@ -1125,30 +1151,5 @@ mod tests {
         assert!(eval(scope, "calls===1"));
         assert!(broadcast(scope, &state).unwrap());
         assert!(eval(scope, "calls===2"));
-    }
-}
-
-pub(super) fn needs_render(state: &V8BindingState) -> bool {
-    let observers = state.resize_observers.borrow();
-    if observers.observers.is_empty() && observers.pending.is_empty() {
-        return false;
-    }
-    observers.dirty
-        || observers.active
-        || !observers.pending.is_empty()
-        || observers.dependencies.iter().any(|(owner, revision)| {
-            owner.upgrade().is_some_and(|owner| {
-                owner
-                    .native_paint_revision()
-                    .is_ok_and(|current| current != *revision)
-            })
-        })
-}
-
-/// An explicit native layout handoff is a new geometry sample opportunity.
-pub(super) fn layout_changed(state: &V8BindingState) {
-    let mut observers = state.resize_observers.borrow_mut();
-    if !observers.observers.is_empty() {
-        observers.dirty = true;
     }
 }

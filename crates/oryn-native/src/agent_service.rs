@@ -1,5 +1,17 @@
 //! Parent dispatch for native Window worker clients and independent AgentId
 //! services. Every operation resolves immutable authority from the registry.
+
+/// Inputs for load blob script.
+struct BlobScriptLoad<'a> {
+    context: &'a BrowserContext,
+    owner: &'a AgentOwner,
+    url: &'a url::Url,
+    policy: &'a AgentPolicy,
+    kind: crate::agent_script::ScriptLoadKind,
+    referrer: &'a str,
+    cancel: &'a AtomicBool,
+    request_destination: &'a str,
+}
 use crate::{
     agent_platform_service::AgentPlatformService,
     agent_registry::AgentOwner,
@@ -88,33 +100,30 @@ impl WorkerTransport for NativeAgentBackend {
         }
         // Cleanup retains the bound native principal after live execution is
         // revoked; it never consults an author-supplied owner or re-admits work.
-        if let AgentServiceRequest::SharedMemory { creator, request } = &request {
-            if matches!(
+        if let AgentServiceRequest::SharedMemory { creator, request } = &request
+            && matches!(
                 request,
                 oryn_js::shared_memory::SharedMemoryRequest::CancelAdmission { .. }
                     | oryn_js::shared_memory::SharedMemoryRequest::Release { .. }
-            ) {
-                if !matches!(creator,Creator::Agent(id) if *id==self.bootstrap.id) {
-                    return Err(error("foreign cleanup principal"));
-                }
-                return match self.context.upgrade() {
-                    Some(context) => context
-                        .shared_memory_request(
-                            &AgentOwner::Agent(self.bootstrap.id),
-                            request.clone(),
-                        )
-                        .map(AgentServiceResponse::SharedMemory),
-                    None => Ok(AgentServiceResponse::SharedMemory(
-                        oryn_js::shared_memory::SharedMemoryResponse {
-                            isolated: false,
-                            outcome: Default::default(),
-                            descriptor: None,
-                            #[cfg(unix)]
-                            native_descriptor: None,
-                        },
-                    )),
-                };
+            )
+        {
+            if !matches!(creator,Creator::Agent(id) if *id==self.bootstrap.id) {
+                return Err(error("foreign cleanup principal"));
             }
+            return match self.context.upgrade() {
+                Some(context) => context
+                    .shared_memory_request(&AgentOwner::Agent(self.bootstrap.id), request.clone())
+                    .map(AgentServiceResponse::SharedMemory),
+                None => Ok(AgentServiceResponse::SharedMemory(
+                    oryn_js::shared_memory::SharedMemoryResponse {
+                        isolated: false,
+                        outcome: Default::default(),
+                        descriptor: None,
+                        #[cfg(unix)]
+                        native_descriptor: None,
+                    },
+                )),
+            };
         }
         if self.retired.load(Ordering::Acquire) {
             return Err(error("agent service retired"));
@@ -292,36 +301,34 @@ impl WorkerTransport for NativeAgentBackend {
                         reports,
                     );
                 };
-                if self.bootstrap.kind == AgentKind::Service {
-                    if let Some(services) = &services {
-                        if let Some((source, metadata)) =
-                            services.imported_script(self.bootstrap.id, resolved.as_str(), kind)?
-                        {
-                            let policy =
-                                crate::csp::CspPolicySet::from_agent_policy(&self.bootstrap.policy);
-                            let decision = policy.authorize(&crate::csp::CspRequest {
-                                destination: crate::csp::CspDestination::Script,
-                                url: metadata.response_url.clone(),
-                                nonce: None,
-                                inline_source: None,
-                                parser_inserted: false,
-                                initiated_by_trusted_script: true,
-                            });
-                            report(&policy, decision.violations)?;
-                            if !decision.allowed {
-                                return Err(WorkerError::new(
-                                    "SecurityError",
-                                    "stored service import blocked by worker CSP",
-                                )
-                                .with_script_failure(ScriptFailureKind::Fetch));
-                            }
-                            return Ok(AgentServiceResponse::Script {
-                                url: metadata.response_url,
-                                source,
-                                referrer_policy: metadata.referrer_policy,
-                            });
-                        }
+                if self.bootstrap.kind == AgentKind::Service
+                    && let Some(services) = &services
+                    && let Some((source, metadata)) =
+                        services.imported_script(self.bootstrap.id, resolved.as_str(), kind)?
+                {
+                    let policy =
+                        crate::csp::CspPolicySet::from_agent_policy(&self.bootstrap.policy);
+                    let decision = policy.authorize(&crate::csp::CspRequest {
+                        destination: crate::csp::CspDestination::Script,
+                        url: metadata.response_url.clone(),
+                        nonce: None,
+                        inline_source: None,
+                        parser_inserted: false,
+                        initiated_by_trusted_script: true,
+                    });
+                    report(&policy, decision.violations)?;
+                    if !decision.allowed {
+                        return Err(WorkerError::new(
+                            "SecurityError",
+                            "stored service import blocked by worker CSP",
+                        )
+                        .with_script_failure(ScriptFailureKind::Fetch));
                     }
+                    return Ok(AgentServiceResponse::Script {
+                        url: metadata.response_url,
+                        source,
+                        referrer_policy: metadata.referrer_policy,
+                    });
                 }
                 let controller = if self.bootstrap.kind == AgentKind::Service {
                     None
@@ -358,20 +365,20 @@ impl WorkerTransport for NativeAgentBackend {
                         services.service_import_revalidation(self.bootstrap.id)?,
                     )?
                 } else if resolved.scheme() == "blob" {
-                    load_blob_script(
-                        &context,
-                        &AgentOwner::Agent(self.bootstrap.id),
-                        &resolved,
-                        &self.bootstrap.policy,
+                    load_blob_script(BlobScriptLoad {
+                        context: &context,
+                        owner: &AgentOwner::Agent(self.bootstrap.id),
+                        url: &resolved,
+                        policy: &self.bootstrap.policy,
                         kind,
-                        &referrer_policy,
-                        &self.retired,
-                        if self.bootstrap.kind == AgentKind::AudioWorklet {
+                        referrer: &referrer_policy,
+                        cancel: &self.retired,
+                        request_destination: if self.bootstrap.kind == AgentKind::AudioWorklet {
                             "audioworklet"
                         } else {
                             "script"
                         },
-                    )?
+                    })?
                 } else {
                     crate::agent_script::load_controlled(
                         &self.network,
@@ -408,20 +415,16 @@ impl WorkerTransport for NativeAgentBackend {
                     entries.insert(resolved.to_string(), credentials);
                     entries.insert(loaded.url.clone(), credentials);
                 }
-                if self.bootstrap.kind == AgentKind::Service {
-                    if let Some(services) = &services {
-                        services.record_import(
-                            self.bootstrap.id,
-                            resolved.to_string(),
-                            loaded.source.clone(),
-                            loaded.digest,
-                            loaded.import_metadata(
-                                kind,
-                                referrer_source.as_deref(),
-                                &referrer_policy,
-                            ),
-                        )?;
-                    }
+                if self.bootstrap.kind == AgentKind::Service
+                    && let Some(services) = &services
+                {
+                    services.record_import(
+                        self.bootstrap.id,
+                        resolved.to_string(),
+                        loaded.source.clone(),
+                        loaded.digest,
+                        loaded.import_metadata(kind, referrer_source.as_deref(), &referrer_policy),
+                    )?;
                 }
                 Ok(AgentServiceResponse::Script {
                     url: loaded.url,
@@ -721,15 +724,19 @@ fn blob_request(
     }
 }
 fn load_blob_script(
-    context: &BrowserContext,
-    owner: &AgentOwner,
-    url: &url::Url,
-    policy: &AgentPolicy,
-    kind: crate::agent_script::ScriptLoadKind,
-    referrer: &str,
-    cancel: &AtomicBool,
-    request_destination: &str,
+    params: BlobScriptLoad<'_>,
 ) -> Result<crate::agent_script::LoadedAgentScript, WorkerError> {
+    let BlobScriptLoad {
+        context,
+        owner,
+        url,
+        policy,
+        kind,
+        referrer,
+        cancel,
+        request_destination,
+    } = params;
+
     let worklet = request_destination == "audioworklet";
     if cancel.load(Ordering::Acquire) {
         return Err(crate::script_load_failure::ScriptLoadFailure::Cancelled.into_worker());
@@ -768,6 +775,7 @@ fn load_blob_script(
     }
     let blob = context.resolve_native_blob(owner, url.as_str())?;
     let response = crate::network::NetworkResponse {
+        response_policy: None,
         timing: None,
         request_id: 0,
         status: 200,
@@ -960,31 +968,31 @@ fn create(
         let _ = context.deliver_coep_reports(top.as_deref().unwrap_or(&base), reports);
     };
     let hash_report = |reports| {
-        if let AgentOwner::Window { page, .. } = &owner {
-            if context.retained_worker_authority(&owner).is_ok() {
-                context.deliver_script_hash_reports(
-                    Some(*page),
-                    top.as_deref().unwrap_or(&base),
-                    reports,
-                );
-            }
+        if let AgentOwner::Window { page, .. } = &owner
+            && context.retained_worker_authority(&owner).is_ok()
+        {
+            context.deliver_script_hash_reports(
+                Some(*page),
+                top.as_deref().unwrap_or(&base),
+                reports,
+            );
         }
     };
     let loaded = if resolved.scheme() == "blob" {
-        load_blob_script(
+        load_blob_script(BlobScriptLoad {
             context,
-            &owner,
-            &resolved,
-            &policy,
+            owner: &owner,
+            url: &resolved,
+            policy: &policy,
             kind,
-            &referrer,
+            referrer: &referrer,
             cancel,
-            match creation.kind {
+            request_destination: match creation.kind {
                 AgentKind::Shared => "sharedworker",
                 AgentKind::AudioWorklet => "audioworklet",
                 _ => "worker",
             },
-        )?
+        })?
     } else {
         crate::agent_script::load_controlled(
             &network,
@@ -1156,16 +1164,16 @@ mod tests {
         let policy =
             crate::csp::CspPolicySet::from_headers("https://example.test/", &[]).worker_snapshot();
         let url = url::Url::parse("blob:https://example.test/unregistered").unwrap();
-        let error = load_blob_script(
-            &context,
-            &AgentOwner::Agent(AgentId(999)),
-            &url,
-            &policy,
-            crate::agent_script::ScriptLoadKind::ModuleImport,
-            "",
-            &AtomicBool::new(true),
-            "script",
-        )
+        let error = load_blob_script(BlobScriptLoad {
+            context: &context,
+            owner: &AgentOwner::Agent(AgentId(999)),
+            url: &url,
+            policy: &policy,
+            kind: crate::agent_script::ScriptLoadKind::ModuleImport,
+            referrer: "",
+            cancel: &AtomicBool::new(true),
+            request_destination: "script",
+        })
         .err()
         .unwrap();
         assert_eq!(error.script_failure, Some(ScriptFailureKind::Cancelled));
@@ -1182,6 +1190,7 @@ mod tests {
             };
             self.requests.lock().unwrap().push(request.clone());
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -1201,7 +1210,7 @@ mod tests {
     struct TrustedTypesFixture;
     impl NetworkBroker for TrustedTypesFixture {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
-            Ok(NetworkResponse{timing:None,request_id:request.request_id,status:200,headers:vec![
+            Ok(NetworkResponse{response_policy: None,timing:None,request_id:request.request_id,status:200,headers:vec![
                 ("content-type".into(),"text/javascript".into()),
                 ("content-security-policy".into(),"trusted-types allowed".into()),
                 ("content-security-policy-report-only".into(),"trusted-types 'none'".into())],body:br#"

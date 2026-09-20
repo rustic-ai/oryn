@@ -3,9 +3,9 @@ use super::*;
 #[cfg(test)]
 thread_local! {static FAIL_SNAPSHOT:Cell<bool>=const{Cell::new(false)};}
 enum Child {
-    Picker(temporal_picker::Job),
-    Permission(permission_prompt::Choice),
-    File(file_picker::Completion),
+    Picker(Box<temporal_picker::Job>),
+    Permission(Box<permission_prompt::Choice>),
+    File(Box<file_picker::Completion>),
 }
 pub struct Receipt {
     owner: Rc<V8BindingState>,
@@ -127,6 +127,7 @@ impl Receipt {
                         self.child = temporal_picker::prepare_accessibility(
                             &state, target, expected, action,
                         )?
+                        .map(Box::new)
                         .map(Child::Picker);
                         self.phase = 10;
                     }
@@ -134,16 +135,17 @@ impl Receipt {
                         self.child = permission_prompt::prepare_accessibility(
                             scope, &state, target, expected, *choice,
                         )?
+                        .map(Box::new)
                         .map(Child::Permission);
                         self.phase = 10;
                     }
                     TextCommand::FilePicker { expected, files } => {
-                        self.child = Some(Child::File(file_picker::Completion::new(
+                        self.child = Some(Child::File(Box::new(file_picker::Completion::new(
                             &state,
                             target,
                             expected,
                             files.as_deref(),
-                        )?));
+                        )?)));
                         self.phase = 10;
                     }
                     TextCommand::Select {
@@ -260,10 +262,10 @@ impl Receipt {
                     self.phase = 90;
                 }
                 20 => {
-                    if let Some(focus) = &mut self.focus {
-                        if !focus.poll(scope, &state)? {
-                            return Ok(None);
-                        }
+                    if let Some(focus) = &mut self.focus
+                        && !focus.poll(scope, &state)?
+                    {
+                        return Ok(None);
                     }
                     self.focus = None;
                     self.phase = 21;
@@ -315,10 +317,10 @@ impl Receipt {
                     self.phase = 90;
                 }
                 30 => {
-                    if let Some(focus) = &mut self.focus {
-                        if !focus.poll(scope, &state)? {
-                            return Ok(None);
-                        }
+                    if let Some(focus) = &mut self.focus
+                        && !focus.poll(scope, &state)?
+                    {
+                        return Ok(None);
                     }
                     self.focus = None;
                     if self.custom && state.dom.borrow().focused() != Some(target) {

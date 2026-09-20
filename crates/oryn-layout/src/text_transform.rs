@@ -175,10 +175,10 @@ impl CaseContext {
             return ch.to_string();
         }
         if uppercase {
-            if language.eq_ignore_ascii_case("el") {
-                if let Some(rendered) = self.greek_upper.get(&index) {
-                    return rendered.clone();
-                }
+            if language.eq_ignore_ascii_case("el")
+                && let Some(rendered) = self.greek_upper.get(&index)
+            {
+                return rendered.clone();
             }
             if turkic && ch == 'i' {
                 return "İ".into();

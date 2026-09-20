@@ -68,10 +68,9 @@ pub(super) fn inside(rect: CssRect, r: [f64; 8], x: f64, y: f64) -> bool {
             && ry > 0.
             && (if left { x < cx } else { x > cx })
             && (if top { y < cy } else { y > cy })
+            && ((x - cx) / rx).powi(2) + ((y - cy) / ry).powi(2) > 1.
         {
-            if ((x - cx) / rx).powi(2) + ((y - cy) / ry).powi(2) > 1. {
-                return false;
-            }
+            return false;
         }
     }
     true

@@ -12,6 +12,7 @@ pub(crate) struct PrerenderSourceSnapshot {
 
 /// A native input producer may be pending without ending the document stream.
 /// Polling must not wait for another network event.
+#[cfg(any(feature = "v8-host", test))]
 pub(crate) trait DocumentInput {
     fn poll_next(&mut self) -> std::task::Poll<Option<Result<String, HostError>>>;
     fn navigation_timing(&self) -> Option<oryn_js::navigation_timing::NavigationTiming> {
@@ -28,12 +29,14 @@ pub(crate) trait DocumentInput {
         Ok(None)
     }
 }
+#[cfg(any(feature = "v8-host", test))]
 struct TimedDocumentInput {
     input: Box<dyn DocumentInput>,
     timing: oryn_js::navigation_timing::NavigationTiming,
     observe_eof: bool,
     failed: bool,
 }
+#[cfg(any(feature = "v8-host", test))]
 impl DocumentInput for TimedDocumentInput {
     fn poll_next(&mut self) -> std::task::Poll<Option<Result<String, HostError>>> {
         let result = self.input.poll_next();
@@ -69,7 +72,9 @@ impl DocumentInput for TimedDocumentInput {
         self.input.restart_encoding(label)
     }
 }
+#[cfg(any(feature = "v8-host", test))]
 pub(crate) struct ReadyDocumentInput<I>(pub I);
+#[cfg(any(feature = "v8-host", test))]
 impl<I: Iterator<Item = Result<String, HostError>>> DocumentInput for ReadyDocumentInput<I> {
     fn poll_next(&mut self) -> std::task::Poll<Option<Result<String, HostError>>> {
         std::task::Poll::Ready(self.0.next())
@@ -89,12 +94,14 @@ pub(crate) struct ParserEncodingPolicy {
 #[cfg_attr(not(feature = "v8-host"), allow(dead_code))]
 pub(crate) struct DocumentStream {
     pub content_language: Option<String>,
+    #[cfg(any(feature = "v8-host", test))]
     pub chunks: Box<dyn DocumentInput>,
     pub content_type: Option<String>,
     pub encoding: std::sync::Arc<std::sync::Mutex<Option<&'static str>>>,
 }
 
 #[cfg_attr(not(feature = "v8-host"), allow(dead_code))]
+#[cfg(any(feature = "v8-host", test))]
 impl DocumentStream {
     pub(crate) fn with_navigation_timing(
         mut self,
@@ -183,6 +190,60 @@ impl JavaScriptHost for DisabledHost {
 
 #[cfg(feature = "v8-host")]
 mod raw_v8 {
+    struct StartedModuleExecutionInput<'a> {
+        dependencies: &'a BTreeMap<String, String>,
+        report_errors: bool,
+        cache_root: bool,
+        request_identity: &'a str,
+        prepared: bool,
+        graph_error: Option<u64>,
+        started: &'a mut dyn FnMut(),
+    }
+
+    struct ModuleExecutionInput<'a> {
+        dependencies: &'a BTreeMap<String, String>,
+        report_errors: bool,
+        cache_root: bool,
+        request_identity: &'a str,
+        prepared: bool,
+    }
+
+    struct NativeDocumentContextInput {
+        origin: Origin,
+        document_generation: u64,
+        frame_id: Option<u64>,
+        dom: SharedDom,
+        document: NodeId,
+        inherited_blank: bool,
+    }
+
+    /// Inputs retained together for commit frame document with timing.
+    pub(crate) struct FrameTimingCommitInput<'a> {
+        pub(crate) frame: NodeId,
+        pub(crate) origin: Origin,
+        pub(crate) dom: SharedDom,
+        pub(crate) document: NodeId,
+        pub(crate) committed_url: Option<&'a str>,
+        pub(crate) resource_broker: Option<SharedNetworkBroker>,
+        #[cfg(unix)]
+        pub(crate) resource_client: Option<SharedContextClient>,
+        pub(crate) ancestor_capture: Option<oryn_js::v8_bindings::LocationAncestorCapture>,
+        pub(crate) timing: Option<oryn_js::navigation_timing::NavigationTiming>,
+    }
+
+    /// Inputs retained together for commit frame document with resource owners.
+    pub(crate) struct FrameResourceCommitInput<'a> {
+        pub(crate) frame: NodeId,
+        pub(crate) origin: Origin,
+        pub(crate) dom: SharedDom,
+        pub(crate) document: NodeId,
+        pub(crate) committed_url: Option<&'a str>,
+        pub(crate) resource_broker: Option<SharedNetworkBroker>,
+        #[cfg(unix)]
+        pub(crate) resource_client: Option<SharedContextClient>,
+        pub(crate) ancestor_capture: Option<oryn_js::v8_bindings::LocationAncestorCapture>,
+    }
+
     use std::{
         borrow::Cow,
         cell::RefCell,
@@ -400,16 +461,15 @@ mod raw_v8 {
     }
     impl Drop for ScriptEventReceipt {
         fn drop(&mut self) {
-            if let Some(owner) = self.owner.upgrade() {
-                if (
+            if let Some(owner) = self.owner.upgrade()
+                && (
                     owner.document_root(),
                     owner.document_generation(),
                     owner.document_stream_epoch(),
                     owner.document_authority_epoch(),
                 ) == self.identity
-                {
-                    oryn_js::navigation_api::cancel_native_history_receipt(&owner, self.receipt);
-                }
+            {
+                oryn_js::navigation_api::cancel_native_history_receipt(&owner, self.receipt);
             }
         }
     }
@@ -424,6 +484,7 @@ mod raw_v8 {
         execution_wall_limit: Duration,
         isolate_entered: bool,
         suspended_at: Option<Instant>,
+        isolate_suspended_states: Vec<std::rc::Weak<V8BindingState>>,
         native_scrollbar_width: f64,
         native_media: (bool, bool),
         native_device_pixel_ratio: f64,
@@ -502,17 +563,17 @@ mod raw_v8 {
                 return;
             }
             schedule.pause_depth -= 1;
-            if schedule.pause_depth == 0 {
-                if let Some(start) = schedule.pause_started.take() {
-                    let elapsed = start.elapsed();
-                    schedule.paused_total = schedule.paused_total.saturating_add(elapsed);
-                    for (deadline, expired) in schedule.active.values_mut() {
-                        if let Some(shifted) = deadline.checked_add(elapsed) {
-                            *deadline = shifted;
-                        } else {
-                            expired.store(true, Ordering::Release);
-                            self.handle.terminate_execution();
-                        }
+            if schedule.pause_depth == 0
+                && let Some(start) = schedule.pause_started.take()
+            {
+                let elapsed = start.elapsed();
+                schedule.paused_total = schedule.paused_total.saturating_add(elapsed);
+                for (deadline, expired) in schedule.active.values_mut() {
+                    if let Some(shifted) = deadline.checked_add(elapsed) {
+                        *deadline = shifted;
+                    } else {
+                        expired.store(true, Ordering::Release);
+                        self.handle.terminate_execution();
                     }
                 }
             }
@@ -958,6 +1019,11 @@ mod raw_v8 {
     }
 
     #[cfg(unix)]
+    type CancellableHttpStarts =
+        BTreeMap<HostOperationId, (Arc<crate::context_service::ContextHttpCancellation>, bool)>;
+    type ModuleResponseRevisions = (Rc<std::cell::Cell<u64>>, Rc<std::cell::Cell<u64>>);
+
+    #[cfg(unix)]
     struct ContextPlatformHost {
         binding: Option<std::rc::Weak<V8BindingState>>,
         retired: Arc<AtomicBool>,
@@ -977,14 +1043,7 @@ mod raw_v8 {
             PlatformHostRequest,
             Option<oryn_js::worker_wire::Creator>,
         )>,
-        cancellable_http_starts: Arc<
-            Mutex<
-                BTreeMap<
-                    HostOperationId,
-                    (Arc<crate::context_service::ContextHttpCancellation>, bool),
-                >,
-            >,
-        >,
+        cancellable_http_starts: Arc<Mutex<CancellableHttpStarts>>,
         awaiting_receipts:
             Mutex<BTreeMap<HostOperationId, Arc<crate::context_service::ContextNetworkReply>>>,
         streams: Arc<Mutex<BTreeMap<u64, Arc<crate::context_service::ContextNetworkReply>>>>,
@@ -1181,28 +1240,28 @@ mod raw_v8 {
                         if let Some(socket)=reply.socket_id(){sockets.lock().unwrap_or_else(|error|error.into_inner()).insert(socket,reply.clone());}
                         if let Some(stream)=reply.stream_id(){streams.lock().unwrap_or_else(|error|error.into_inner()).insert(stream,reply.clone());}
                     }
-                    if let Some(socket)=operated_socket{if let Some(guard)=sockets.lock().unwrap_or_else(|error|error.into_inner()).remove(&socket){if matches!(&result,Ok(PlatformHostResult::WebSocketClosed{..})){guard.finish();}else{guard.cancel();}}}
+                    if let Some(socket)=operated_socket&& let Some(guard)=sockets.lock().unwrap_or_else(|error|error.into_inner()).remove(&socket){if matches!(&result,Ok(PlatformHostResult::WebSocketClosed{..})){guard.finish();}else{guard.cancel();}}
                     if let Some(stream)=operated_stream{
                         let terminal=matches!(&result,Ok(PlatformHostResult::HttpAborted))||matches!(&result,Ok(PlatformHostResult::HttpChunk{stream_id,done:true,..}) if *stream_id==stream);
                         let ongoing=matches!(&result,Ok(PlatformHostResult::HttpChunk{stream_id,done:false,..}) if *stream_id==stream);
-                        if !ongoing{
-                            if let Some(guard)=streams.lock().unwrap_or_else(|error|error.into_inner()).remove(&stream){if terminal{guard.finish();}else{guard.cancel();}}
-                        }
+                        if !ongoing
+                            && let Some(guard)=streams.lock().unwrap_or_else(|error|error.into_inner()).remove(&stream){if terminal{guard.finish();}else{guard.cancel();}}
                     }
                     if let Some(cancellation)=&cancellation{cancellation.finish();}
                     if is_cancellable_start && let Ok(mut operations) = cancellable_http_starts.lock() {
                         operations.remove(&operation_id);
                     }
                     if retired.load(Ordering::Acquire) {
-                        if let Some(reply)=&reply{reply.cancel();if let Some(socket)=reply.socket_id(){sockets.lock().unwrap_or_else(|error|error.into_inner()).remove(&socket);}if let Some(stream)=reply.stream_id(){streams.lock().unwrap_or_else(|error|error.into_inner()).remove(&stream);}}
+                        if let Some(reply)=&reply{reply.cancel();if let Some(socket)=reply.socket_id(){sockets.lock().unwrap_or_else(|error|error.into_inner()).remove(&socket);}
+                        if let Some(stream)=reply.stream_id(){streams.lock().unwrap_or_else(|error|error.into_inner()).remove(&stream);}}
                         return;
                     }
                     if let Err(error) = sender.send((PlatformHostCompletion {
                         operation_id,
                         result,
-                    },reply)){
-                        if let Some(reply)=error.0.1{reply.cancel();if let Some(socket)=reply.socket_id(){sockets.lock().unwrap_or_else(|error|error.into_inner()).remove(&socket);}if let Some(stream)=reply.stream_id(){streams.lock().unwrap_or_else(|error|error.into_inner()).remove(&stream);}}
-                    }
+                    },reply))
+                        && let Some(reply)=error.0.1{reply.cancel();if let Some(socket)=reply.socket_id(){sockets.lock().unwrap_or_else(|error|error.into_inner()).remove(&socket);}
+                        if let Some(stream)=reply.stream_id(){streams.lock().unwrap_or_else(|error|error.into_inner()).remove(&stream);}}
                 })
                 .map(|_| ())
                 .map_err(|error| {
@@ -1405,13 +1464,12 @@ mod raw_v8 {
                 .streams
                 .get(&stream)
                 .is_some_and(|(owner, _)| owner.id == environment.id)
+                && let Some((_, reply)) = self.streams.remove(&stream)
             {
-                if let Some((_, reply)) = self.streams.remove(&stream) {
-                    if success {
-                        reply.finish();
-                    } else {
-                        reply.cancel();
-                    }
+                if success {
+                    reply.finish();
+                } else {
+                    reply.cancel();
                 }
             }
         }
@@ -1583,34 +1641,34 @@ mod raw_v8 {
                 .unwrap_or_default();
             v8::scope!(let scope,isolate);
             for weak in contexts {
-                if let Some(context) = weak.to_local(scope) {
-                    if let Some(state) = context.get_slot::<V8BindingState>() {
-                        owner.retire_creator(
-                            oryn_common::v3::PageId(
-                                context
-                                    .get_slot::<FrameLifetime>()
-                                    .map(|frame| frame.root_realm)
-                                    .or_else(|| {
-                                        context
-                                            .get_slot::<EnvironmentDescriptor>()
-                                            .map(|environment| environment.realm)
-                                    })
-                                    .map_or(0, |realm| u64::from(realm.0)),
-                            ),
-                            &oryn_js::worker_wire::Creator::Window {
-                                target: context
-                                    .get_slot::<FrameLifetime>()
-                                    .map(|frame| {
-                                        oryn_js::message_wire::WindowTarget::Frame(
-                                            frame.message_token.clone(),
-                                        )
-                                    })
-                                    .unwrap_or(oryn_js::message_wire::WindowTarget::Root),
-                                document_generation: state.document_generation(),
-                                stream_epoch: state.document_authority_epoch(),
-                            },
-                        );
-                    }
+                if let Some(context) = weak.to_local(scope)
+                    && let Some(state) = context.get_slot::<V8BindingState>()
+                {
+                    owner.retire_creator(
+                        oryn_common::v3::PageId(
+                            context
+                                .get_slot::<FrameLifetime>()
+                                .map(|frame| frame.root_realm)
+                                .or_else(|| {
+                                    context
+                                        .get_slot::<EnvironmentDescriptor>()
+                                        .map(|environment| environment.realm)
+                                })
+                                .map_or(0, |realm| u64::from(realm.0)),
+                        ),
+                        &oryn_js::worker_wire::Creator::Window {
+                            target: context
+                                .get_slot::<FrameLifetime>()
+                                .map(|frame| {
+                                    oryn_js::message_wire::WindowTarget::Frame(
+                                        frame.message_token.clone(),
+                                    )
+                                })
+                                .unwrap_or(oryn_js::message_wire::WindowTarget::Root),
+                            document_generation: state.document_generation(),
+                            stream_epoch: state.document_authority_epoch(),
+                        },
+                    );
                 }
             }
         }
@@ -2139,10 +2197,10 @@ mod raw_v8 {
         child_state
             .set_frame_viewport_parent(&active, frame)
             .map_err(|error| HostError::Execution(error.to_string()))?;
-        if let Some(previous) = lifetime.child.borrow().upgrade() {
-            if !Rc::ptr_eq(&previous, &child_state) {
-                child_state.inherit_joint_history_route(&previous);
-            }
+        if let Some(previous) = lifetime.child.borrow().upgrade()
+            && !Rc::ptr_eq(&previous, &child_state)
+        {
+            child_state.inherit_joint_history_route(&previous);
         }
         child_state.set_modals_allowed(
             child_state.modals_allowed() && active.modals_allowed() && frame_modals_allowed,
@@ -2183,19 +2241,18 @@ mod raw_v8 {
         ));
         standalone_activation_v8::install(scope, child)?;
         #[cfg(unix)]
-        if lifetime.deferred_cleanup.borrow().is_none() {
-            if let Some(endpoint) =
+        if lifetime.deferred_cleanup.borrow().is_none()
+            && let Some(endpoint) =
                 endpoints_for_context(scope, parent).and_then(|endpoints| endpoints.context)
-            {
-                let lease = endpoint
-                    .client
-                    .reserve_deferred_container_cleanup(
-                        endpoint.page_id,
-                        lifetime.message_token.clone(),
-                    )
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                *lifetime.deferred_cleanup.borrow_mut() = Some(lease);
-            }
+        {
+            let lease = endpoint
+                .client
+                .reserve_deferred_container_cleanup(
+                    endpoint.page_id,
+                    lifetime.message_token.clone(),
+                )
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            *lifetime.deferred_cleanup.borrow_mut() = Some(lease);
         }
         #[cfg(unix)]
         publish_native_message_frame(scope, child, &lifetime)
@@ -2217,12 +2274,11 @@ mod raw_v8 {
                 .is_some_and(|(parent, child)| {
                     !parent.origin.is_opaque() && parent.origin == child.origin
                 });
-            if same {
-                if let Some(owner) =
+            if same
+                && let Some(owner) =
                     scope.get_slot::<Arc<crate::runtime::deferred_fetch::StandaloneOwner>>()
-                {
-                    owner.remove(&lifetime.message_token);
-                }
+            {
+                owner.remove(&lifetime.message_token);
             }
             if child
                 .get_slot::<InitialFrameDocument>()
@@ -2445,18 +2501,16 @@ mod raw_v8 {
                     .get_slot::<RealmEndpointRegistry>()
                     .and_then(|registry| registry.0.get(&frame.environment.get().realm))
                     .and_then(|(_, endpoints)| endpoints.context.clone())
-                {
-                    if let Err(error) =
+                    && let Err(error) =
                         endpoint
                             .client
                             .request(ContextServiceRequest::DiscardNativeFrameOpener {
                                 page_id: endpoint.page_id,
                                 frame: frame.message_token.clone(),
                             })
-                    {
-                        throw_type_error(scope, &error.to_string());
-                        return;
-                    }
+                {
+                    throw_type_error(scope, &error.to_string());
+                    return;
                 }
                 frame.opener.borrow_mut().take();
                 #[cfg(unix)]
@@ -2663,12 +2717,14 @@ mod raw_v8 {
             let (_, child) = create_native_document_context(
                 scope,
                 parent,
-                origin,
-                1,
-                Some((u64::from(frame.slot) << 32) | u64::from(frame.generation)),
-                child_dom,
-                document,
-                true,
+                NativeDocumentContextInput {
+                    origin,
+                    document_generation: 1,
+                    frame_id: Some((u64::from(frame.slot) << 32) | u64::from(frame.generation)),
+                    dom: child_dom,
+                    document,
+                    inherited_blank: true,
+                },
             )?;
             let child = v8::Local::new(scope, &child);
             child.set_slot(Rc::new(InitialFrameDocument::default()));
@@ -2830,33 +2886,26 @@ mod raw_v8 {
             && !context
                 .get_slot::<RealmDescriptor>()
                 .is_some_and(|realm| realm.frame_id.is_some())
-        {
-            if let Some(target) =
+            && let Some(target) =
                 endpoints_for_context(scope, context).and_then(|endpoints| endpoints.context)
-            {
-                if let Some(source) =
-                    oryn_js::v8_context_bridge::incumbent_slot::<V8BindingState>(scope)
-                        .or_else(|| scope.get_current_context().get_slot::<V8BindingState>())
-                {
-                    if let (Ok(creator), Some(endpoint)) = (
-                        source.native_worker_creator(),
-                        context_endpoint_for_binding(scope, &source),
-                    ) {
-                        if let Ok(ContextServiceResponse::ScriptCloseState { closing }) = endpoint
-                            .client
-                            .request(ContextServiceRequest::ReadScriptCloseState {
-                                source_page_id: endpoint.page_id,
-                                creator,
-                                target_page_id: target.page_id,
-                                expected: None,
-                            })
-                        {
-                            rv.set_bool(closing);
-                            return;
-                        }
-                    }
-                }
-            }
+            && let Some(source) =
+                oryn_js::v8_context_bridge::incumbent_slot::<V8BindingState>(scope)
+                    .or_else(|| scope.get_current_context().get_slot::<V8BindingState>())
+            && let (Ok(creator), Some(endpoint)) = (
+                source.native_worker_creator(),
+                context_endpoint_for_binding(scope, &source),
+            )
+            && let Ok(ContextServiceResponse::ScriptCloseState { closing }) = endpoint
+                .client
+                .request(ContextServiceRequest::ReadScriptCloseState {
+                    source_page_id: endpoint.page_id,
+                    creator,
+                    target_page_id: target.page_id,
+                    expected: None,
+                })
+        {
+            rv.set_bool(closing);
+            return;
         }
         rv.set_bool(closed);
     }
@@ -2868,12 +2917,11 @@ mod raw_v8 {
             .unwrap_or_default();
         let mut owners = Vec::new();
         for weak in contexts {
-            if let Some(context) = weak.to_local(scope) {
-                if let Some(owner) = context.get_slot::<V8BindingState>() {
-                    if !owner.execution_retired() {
-                        owners.push(owner)
-                    }
-                }
+            if let Some(context) = weak.to_local(scope)
+                && let Some(owner) = context.get_slot::<V8BindingState>()
+                && !owner.execution_retired()
+            {
+                owners.push(owner)
             }
         }
         // No author callback runs here, and all isolate/registry borrows have
@@ -3198,18 +3246,17 @@ mod raw_v8 {
             if let Some(realm) = context
                 .get_slot::<EnvironmentDescriptor>()
                 .map(|environment| environment.realm)
+                && let Some(roots) = scope.get_slot_mut::<StandaloneAuxiliaryRoots>()
             {
-                if let Some(roots) = scope.get_slot_mut::<StandaloneAuxiliaryRoots>() {
-                    let initial = roots.lineages.get(&realm).copied().unwrap_or(realm);
-                    let related = roots
-                        .lineages
-                        .iter()
-                        .filter_map(|(realm, lineage)| (*lineage == initial).then_some(*realm))
-                        .collect::<Vec<_>>();
-                    for realm in related {
-                        if let Some(root) = roots.roots.get_mut(&realm) {
-                            root.opener = None;
-                        }
+                let initial = roots.lineages.get(&realm).copied().unwrap_or(realm);
+                let related = roots
+                    .lineages
+                    .iter()
+                    .filter_map(|(realm, lineage)| (*lineage == initial).then_some(*realm))
+                    .collect::<Vec<_>>();
+                for realm in related {
+                    if let Some(root) = roots.roots.get_mut(&realm) {
+                        root.opener = None;
                     }
                 }
             }
@@ -3760,8 +3807,8 @@ mod raw_v8 {
             .get_slot::<RealmDescriptor>()
             .ok_or_else(|| HostError::Execution("restored realm descriptor missing".into()))?;
         let mut access = oryn_js::origin::DomainAccessIdentity::new(descriptor.origin.clone());
-        if let Some(state) = context.get_slot::<V8BindingState>() {
-            if let Some(domain) = state
+        if let Some(state) = context.get_slot::<V8BindingState>()
+            && let Some(domain) = state
                 .dom()
                 .borrow()
                 .arena()
@@ -3770,11 +3817,10 @@ mod raw_v8 {
                 .document_metadata
                 .as_ref()
                 .and_then(|metadata| metadata.relaxed_domain.get())
-            {
-                access
-                    .set_domain(&domain)
-                    .map_err(|_| HostError::Execution("restored domain identity invalid".into()))?;
-            }
+        {
+            access
+                .set_domain(&domain)
+                .map_err(|_| HostError::Execution("restored domain identity invalid".into()))?;
         }
         let token = scope
             .get_slot::<NativeRealmIdentities>()
@@ -3874,35 +3920,34 @@ mod raw_v8 {
         timing.set_name_from(&url).map_err(HostError::Execution)?;
         freeze_usermedia_profile(scope, context)?;
         let previous = context.get_slot::<V8BindingState>();
-        if let Some(previous) = &previous {
-            if let Some(owner) =
+        if let Some(previous) = &previous
+            && let Some(owner) =
                 scope.get_slot::<Arc<crate::runtime::deferred_fetch::StandaloneOwner>>()
-            {
-                let creator = oryn_js::worker_wire::Creator::Window {
-                    target: context
+        {
+            let creator = oryn_js::worker_wire::Creator::Window {
+                target: context
+                    .get_slot::<FrameLifetime>()
+                    .map(|frame| {
+                        oryn_js::message_wire::WindowTarget::Frame(frame.message_token.clone())
+                    })
+                    .unwrap_or(oryn_js::message_wire::WindowTarget::Root),
+                document_generation: previous.document_generation(),
+                stream_epoch: previous.document_authority_epoch(),
+            };
+            owner.retire_creator(
+                oryn_common::v3::PageId(
+                    context
                         .get_slot::<FrameLifetime>()
-                        .map(|frame| {
-                            oryn_js::message_wire::WindowTarget::Frame(frame.message_token.clone())
+                        .map(|frame| frame.root_realm)
+                        .or_else(|| {
+                            context
+                                .get_slot::<EnvironmentDescriptor>()
+                                .map(|environment| environment.realm)
                         })
-                        .unwrap_or(oryn_js::message_wire::WindowTarget::Root),
-                    document_generation: previous.document_generation(),
-                    stream_epoch: previous.document_authority_epoch(),
-                };
-                owner.retire_creator(
-                    oryn_common::v3::PageId(
-                        context
-                            .get_slot::<FrameLifetime>()
-                            .map(|frame| frame.root_realm)
-                            .or_else(|| {
-                                context
-                                    .get_slot::<EnvironmentDescriptor>()
-                                    .map(|environment| environment.realm)
-                            })
-                            .map_or(0, |realm| u64::from(realm.0)),
-                    ),
-                    &creator,
-                );
-            }
+                        .map_or(0, |realm| u64::from(realm.0)),
+                ),
+                &creator,
+            );
         }
         #[cfg(unix)]
         let platform_context = current_context_endpoint(scope);
@@ -3927,10 +3972,9 @@ mod raw_v8 {
         if previous
             .as_ref()
             .is_none_or(|state| state.document_prerendering())
+            && let Some(prerender) = context.get_slot::<NativePrerenderRoot>()
         {
-            if let Some(prerender) = context.get_slot::<NativePrerenderRoot>() {
-                state.initialize_prerender_document(prerender.epoch);
-            }
+            state.initialize_prerender_document(prerender.epoch);
         }
         #[cfg(unix)]
         if previous
@@ -4123,11 +4167,9 @@ mod raw_v8 {
             state.set_meta_csp_policy(Rc::new(move |state, source| {
                 let previous = metadata.borrow().clone();
                 metadata.borrow_mut().install_meta(source);
-                if !parent_provenance {
-                    if let Err(error) = state.refresh_document_provenance() {
-                        *metadata.borrow_mut() = previous;
-                        return Err(error.to_string());
-                    }
+                if !parent_provenance && let Err(error) = state.refresh_document_provenance() {
+                    *metadata.borrow_mut() = previous;
+                    return Err(error.to_string());
                 }
                 Ok(())
             }));
@@ -4220,13 +4262,17 @@ mod raw_v8 {
     fn create_native_document_context(
         scope: &mut v8::PinScope<'_, '_, ()>,
         creator: v8::Local<v8::Context>,
-        origin: Origin,
-        document_generation: u64,
-        frame_id: Option<u64>,
-        dom: SharedDom,
-        document: NodeId,
-        inherited_blank: bool,
+        input: NativeDocumentContextInput,
     ) -> Result<(RealmId, v8::Global<v8::Context>), HostError> {
+        let NativeDocumentContextInput {
+            origin,
+            document_generation,
+            frame_id,
+            dom,
+            document,
+            inherited_blank,
+        } = input;
+
         let creator_environment = creator
             .get_slot::<EnvironmentDescriptor>()
             .ok_or_else(|| HostError::Execution("creator environment is unavailable".into()))?;
@@ -4297,15 +4343,15 @@ mod raw_v8 {
         {
             inherit_local_document_domain(creator, local);
         }
-        if frame_id.is_some() {
-            if let Some(limits) = creator.get_slot::<DynamicImportLimits>() {
-                local.set_slot(limits);
-            }
+        if frame_id.is_some()
+            && let Some(limits) = creator.get_slot::<DynamicImportLimits>()
+        {
+            local.set_slot(limits);
         }
-        if frame_id.is_some() {
-            if let Some(policy) = creator.get_slot::<RefCell<crate::csp::CspPolicySet>>() {
-                local.set_slot(Rc::new(RefCell::new(policy.borrow().clone())));
-            }
+        if frame_id.is_some()
+            && let Some(policy) = creator.get_slot::<RefCell<crate::csp::CspPolicySet>>()
+        {
+            local.set_slot(Rc::new(RefCell::new(policy.borrow().clone())));
         }
         if frame_id.is_some() {
             let secure = creator
@@ -4338,25 +4384,26 @@ mod raw_v8 {
             identities.realms.remove(realm);
             return Err(error);
         }
-        if frame_id.is_some() && inherited_blank {
-            if let (Some(parent), Some(child)) = (
+        if frame_id.is_some()
+            && inherited_blank
+            && let (Some(parent), Some(child)) = (
                 creator.get_slot::<V8BindingState>(),
                 local.get_slot::<V8BindingState>(),
-            ) {
-                let hide = parent
-                    .dom()
-                    .borrow()
-                    .arena()
-                    .get(parent.document_root())
-                    .ok()
-                    .and_then(|node| node.document_metadata.as_ref())
-                    .is_some_and(|metadata| metadata.hide_nonces);
-                child
-                    .dom()
-                    .borrow_mut()
-                    .set_document_nonce_hiding(child.document_root(), hide)
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-            }
+            )
+        {
+            let hide = parent
+                .dom()
+                .borrow()
+                .arena()
+                .get(parent.document_root())
+                .ok()
+                .and_then(|node| node.document_metadata.as_ref())
+                .is_some_and(|metadata| metadata.hide_nonces);
+            child
+                .dom()
+                .borrow_mut()
+                .set_document_nonce_hiding(child.document_root(), hide)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
         }
         local
             .get_slot::<V8BindingState>()
@@ -5399,6 +5446,12 @@ mod raw_v8 {
                 oryn_js::v8_bindings::cancel_native_input_defaults(state);
             }
             if self.isolate_entered {
+                for state in self.binding_states.values() {
+                    if !state.execution_retired() && !state.execution_suspended() {
+                        state.set_execution_suspended(true);
+                        self.isolate_suspended_states.push(Rc::downgrade(state));
+                    }
+                }
                 self.suspended_at = Some(Instant::now());
                 // SAFETY: callbacks and microtasks have reached a page
                 // checkpoint and this host is the current entered isolate.
@@ -5408,18 +5461,19 @@ mod raw_v8 {
         }
 
         pub fn resume_page_isolate(&mut self) {
-            for state in self.binding_states.values() {
-                if !state.execution_retired() {
+            for weak in self.isolate_suspended_states.drain(..) {
+                if let Some(state) = weak.upgrade().filter(|state| !state.execution_retired()) {
+                    state.set_execution_suspended(false);
                     state.prepare_history_reveal();
                 }
             }
             if let Some(started) = self.suspended_at.take() {
                 // Both Instants belong to this process clock; elapsed cannot
                 // exceed its representable interval in a retained document.
-                if let Some(registry) = self.isolate.get_slot_mut::<TimerRegistry>() {
-                    if let Some(shifted) = registry.started.checked_add(started.elapsed()) {
-                        registry.started = shifted;
-                    }
+                if let Some(registry) = self.isolate.get_slot_mut::<TimerRegistry>()
+                    && let Some(shifted) = registry.started.checked_add(started.elapsed())
+                {
+                    registry.started = shifted;
                 }
             }
             if !self.isolate_entered {
@@ -5466,6 +5520,20 @@ mod raw_v8 {
                 max_heap_bytes,
                 1,
             )
+        }
+
+        pub(crate) fn new_with_inherited_origin(
+            broker: Option<SharedNetworkBroker>,
+            base_url: Option<Url>,
+            origin: Origin,
+            max_heap_bytes: usize,
+        ) -> Self {
+            let fetch = broker.zip(base_url).map(|(broker, base_url)| FetchState {
+                broker,
+                base_url,
+                next_script_request: Rc::new(std::cell::Cell::new(900_000)),
+            });
+            Self::create(fetch, None, Some(origin), max_heap_bytes, 1)
         }
 
         pub fn new_with_base_url_and_heap_limit(base_url: Url, max_heap_bytes: usize) -> Self {
@@ -5526,6 +5594,10 @@ mod raw_v8 {
                 context.set_slot(Rc::new(oryn_js::realm::SecureContextState(secure_context)));
                 context.set_slot(Rc::new(NativeInitialDocument(initial_document)));
             }
+            // Publish the initial authenticated incumbent just as replacement
+            // navigation publishes its root. Child/prerender preparation must
+            // preserve this entry until an accepted root transition replaces it.
+            host.navigation_roots.insert(page_id, host.active_realm);
             Ok(host)
         }
 
@@ -5851,16 +5923,16 @@ mod raw_v8 {
             isolate.set_slot(NativeRealmIdentities::default());
             let (active_realm, context) = {
                 v8::scope!(let scope, &mut isolate);
-                let created = create_native_realm_context(
+
+                create_native_realm_context(
                     scope,
-                    origin.into(),
+                    origin,
                     root_document_generation,
                     None,
                     None,
                     endpoints,
                 )
-                .expect("create initial execution realm");
-                created
+                .expect("create initial execution realm")
             };
             if native_document {
                 v8::scope!(let scope,&mut isolate);
@@ -5885,6 +5957,7 @@ mod raw_v8 {
                 execution_wall_limit: Duration::from_millis(9_500),
                 isolate_entered: true,
                 suspended_at: None,
+                isolate_suspended_states: Vec::new(),
                 native_scrollbar_width: 0.,
                 native_media: (false, false),
                 native_device_pixel_ratio: 1.,
@@ -6153,21 +6226,21 @@ mod raw_v8 {
                 HostError::Execution("native frame child origin unavailable".into())
             })?;
             let same_origin = parent_origin.origin == child_origin.origin;
-            if let Some(child_state) = child.get_slot::<V8BindingState>() {
-                if !child_state.has_location_ancestor_origins() {
-                    let policy = state
-                        .dom()
-                        .borrow()
-                        .attribute(frame, "referrerpolicy")
-                        .map_err(|error| HostError::Execution(error.to_string()))?
-                        .unwrap_or("")
-                        .to_owned();
-                    child_state.set_location_ancestor_origins(
-                        state
-                            .capture_location_ancestors(parent_origin.origin.clone(), policy)
-                            .resolve(&child_origin.origin),
-                    );
-                }
+            if let Some(child_state) = child.get_slot::<V8BindingState>()
+                && !child_state.has_location_ancestor_origins()
+            {
+                let policy = state
+                    .dom()
+                    .borrow()
+                    .attribute(frame, "referrerpolicy")
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+                    .unwrap_or("")
+                    .to_owned();
+                child_state.set_location_ancestor_origins(
+                    state
+                        .capture_location_ancestors(parent_origin.origin.clone(), policy)
+                        .resolve(&child_origin.origin),
+                );
             }
             let parent_window = parent.global(scope);
             let child_window = child.global(scope);
@@ -6506,35 +6579,45 @@ mod raw_v8 {
             &mut self,
             script: NodeId,
             source: impl Into<oryn_js::script_source::ScriptSourceRef<'text>>,
-            resource_name: &str,
-            muted_errors: bool,
-            include_credentials: bool,
-            referrer_policy: &str,
-            base_url: &str,
+            input: oryn_js::v8_bindings::ClassicScriptInputs<'_>,
         ) -> Result<Option<String>, HostError> {
-            let source = source.into();
-            self.execute_browser_classic_script_with_started(
-                script,
-                source,
+            let oryn_js::v8_bindings::ClassicScriptInputs {
                 resource_name,
                 muted_errors,
                 include_credentials,
                 referrer_policy,
                 base_url,
-                &mut || {},
+            } = input;
+
+            let source = source.into();
+            self.execute_browser_classic_script_with_started(
+                script,
+                source,
+                oryn_js::v8_bindings::StartedClassicScriptInputs {
+                    resource_name,
+                    muted_errors,
+                    include_credentials,
+                    referrer_policy,
+                    base_url,
+                    started: &mut || {},
+                },
             )
         }
         pub(crate) fn execute_browser_classic_script_with_started<'text>(
             &mut self,
             script: NodeId,
             source: impl Into<oryn_js::script_source::ScriptSourceRef<'text>>,
-            resource_name: &str,
-            muted_errors: bool,
-            include_credentials: bool,
-            referrer_policy: &str,
-            base_url: &str,
-            started: &mut dyn FnMut(),
+            input: oryn_js::v8_bindings::StartedClassicScriptInputs<'_>,
         ) -> Result<Option<String>, HostError> {
+            let oryn_js::v8_bindings::StartedClassicScriptInputs {
+                resource_name,
+                muted_errors,
+                include_credentials,
+                referrer_policy,
+                base_url,
+                started,
+            } = input;
+
             self.ensure_standalone_author_task()?;
             let source = source.into();
             self.publish_native_resource_timings();
@@ -6562,12 +6645,14 @@ mod raw_v8 {
                 &state,
                 script,
                 source,
-                resource_name,
-                muted_errors,
-                include_credentials,
-                referrer_policy,
-                base_url,
-                started,
+                oryn_js::v8_bindings::StartedClassicScriptInputs {
+                    resource_name,
+                    muted_errors,
+                    include_credentials,
+                    referrer_policy,
+                    base_url,
+                    started,
+                },
             )
             .map_err(|error| HostError::Execution(error.to_string()));
             if deadline.expired() || scope.is_execution_terminating() {
@@ -7447,7 +7532,7 @@ mod raw_v8 {
             v8::scope!(let handles, &mut self.isolate);
             let context = v8::Local::new(handles, &context);
             let scope = &mut v8::ContextScope::new(handles, context);
-            create_admitted_auxiliary_root(scope, page_id, opener_page_id, admission)
+            create_admitted_auxiliary_root(scope, page_id, opener_page_id, admission, None)
         }
 
         #[cfg(unix)]
@@ -8942,12 +9027,8 @@ mod raw_v8 {
                 .binding_states
                 .get(&self.active_realm)
                 .ok_or_else(|| HostError::Execution("active DOM is unavailable".into()))?;
-            // A download transfers bytes without replacing the source document.
-            if request.download.is_none() {
-                state
-                    .commit_location(&request.url)
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-            }
+            // Queue admission retains the incumbent Document and its policy.
+            // Only the actual navigation commit may publish the destination URL.
             state.schedule_navigation(request);
             Ok(())
         }
@@ -10989,21 +11070,19 @@ mod raw_v8 {
                     Ok(_) => {
                         let accepted = resolver.resolve(scope, value.into()) == Some(true);
                         #[cfg(unix)]
-                        if accepted {
-                            if let Some(network) = completion.network.take() {
-                                if let Some(stream) = network.stream_id() {
-                                    let fetches = scope
-                                        .get_slot_mut::<AsyncFetches>()
-                                        .expect("native fetch registry");
-                                    if let Some((_, old)) = fetches
-                                        .streams
-                                        .insert(stream, (pending.environment.clone(), network))
-                                    {
-                                        old.cancel();
-                                    }
-                                } else {
-                                    network.finish();
+                        if accepted && let Some(network) = completion.network.take() {
+                            if let Some(stream) = network.stream_id() {
+                                let fetches = scope
+                                    .get_slot_mut::<AsyncFetches>()
+                                    .expect("native fetch registry");
+                                if let Some((_, old)) = fetches
+                                    .streams
+                                    .insert(stream, (pending.environment, network))
+                                {
+                                    old.cancel();
                                 }
+                            } else {
+                                network.finish();
                             }
                         }
                         #[cfg(not(unix))]
@@ -11121,6 +11200,7 @@ mod raw_v8 {
 
         /// Native admission sequence and active fetch custody. The sequence
         /// also detects a request admitted and completed in one checkpoint.
+        #[cfg(test)]
         pub(crate) fn async_fetch_activity(&self) -> (u64, bool) {
             (
                 self.isolate
@@ -11374,7 +11454,7 @@ mod raw_v8 {
             };
             let was_active = self.active_realm == previous;
             let replacement = self.create_realm_with_global(
-                origin.into(),
+                origin,
                 document_generation,
                 Some(frame_id),
                 Some(global),
@@ -11447,31 +11527,24 @@ mod raw_v8 {
             document: NodeId,
             committed_url: Option<&str>,
         ) -> Result<RealmId, HostError> {
-            self.commit_frame_document_with_resource_owners(
+            self.commit_frame_document_with_resource_owners(FrameResourceCommitInput {
                 frame,
                 origin,
                 dom,
                 document,
                 committed_url,
-                None,
+                resource_broker: None,
                 #[cfg(unix)]
-                None,
-                None,
-            )
+                resource_client: None,
+                ancestor_capture: None,
+            })
         }
 
         pub(crate) fn commit_frame_document_with_resource_owners(
             &mut self,
-            frame: NodeId,
-            origin: Origin,
-            dom: SharedDom,
-            document: NodeId,
-            committed_url: Option<&str>,
-            resource_broker: Option<SharedNetworkBroker>,
-            #[cfg(unix)] resource_client: Option<SharedContextClient>,
-            ancestor_capture: Option<oryn_js::v8_bindings::LocationAncestorCapture>,
+            params: FrameResourceCommitInput<'_>,
         ) -> Result<RealmId, HostError> {
-            self.commit_frame_document_with_timing(
+            let FrameResourceCommitInput {
                 frame,
                 origin,
                 dom,
@@ -11481,21 +11554,38 @@ mod raw_v8 {
                 #[cfg(unix)]
                 resource_client,
                 ancestor_capture,
-                None,
-            )
+            } = params;
+
+            self.commit_frame_document_with_timing(FrameTimingCommitInput {
+                frame,
+                origin,
+                dom,
+                document,
+                committed_url,
+                resource_broker,
+                #[cfg(unix)]
+                resource_client,
+                ancestor_capture,
+                timing: None,
+            })
         }
         pub(crate) fn commit_frame_document_with_timing(
             &mut self,
-            frame: NodeId,
-            origin: Origin,
-            dom: SharedDom,
-            document: NodeId,
-            committed_url: Option<&str>,
-            resource_broker: Option<SharedNetworkBroker>,
-            #[cfg(unix)] resource_client: Option<SharedContextClient>,
-            ancestor_capture: Option<oryn_js::v8_bindings::LocationAncestorCapture>,
-            timing: Option<oryn_js::navigation_timing::NavigationTiming>,
+            params: FrameTimingCommitInput<'_>,
         ) -> Result<RealmId, HostError> {
+            let FrameTimingCommitInput {
+                frame,
+                origin,
+                dom,
+                document,
+                committed_url,
+                resource_broker,
+                #[cfg(unix)]
+                resource_client,
+                ancestor_capture,
+                timing,
+            } = params;
+
             let timing = timing.unwrap_or_else(|| {
                 let now = Instant::now();
                 let timing = oryn_js::navigation_timing::NavigationTiming::new(
@@ -11540,6 +11630,11 @@ mod raw_v8 {
             self.ensure_provisional_frame_window(frame)?;
             self.adopt_created_realms();
             let parent_realm = self.active_realm;
+            #[cfg(unix)]
+            let committed_prerender = self
+                .binding_states
+                .get(&parent_realm)
+                .is_some_and(|state| state.document_prerendering());
             let committed_secure = {
                 v8::scope!(let scope,&mut self.isolate);
                 let parent = self
@@ -11852,6 +11947,14 @@ mod raw_v8 {
                     context.set_slot(Rc::new(oryn_js::realm::SecureContextState(
                         committed_secure,
                     )));
+                    // Replacement and first-response frame realms bypass the
+                    // insertion-time document factory. Inherit the live
+                    // parent's private loading state before installing bindings,
+                    // so a private child never publishes a public Window tree.
+                    #[cfg(unix)]
+                    if committed_prerender {
+                        context.set_slot(Rc::new(NativePrerenderDescendant));
+                    }
                 }
                 let installed = (|| {
                     self.activate_realm(realm)?;
@@ -11873,37 +11976,37 @@ mod raw_v8 {
                     }
                 }
                 if let Some(error) = failure {
-                    if previous.is_none() {
-                        if let Err(cleanup) = self.remove_realm(realm) {
-                            // No author can reach this first document. Retire its
-                            // execution authority even if structural removal fails.
-                            if let Some(state) = self.binding_states.get(&realm) {
-                                state.retire_execution();
-                            }
-                            let environment = self
-                                .isolate
-                                .get_slot::<RealmEndpointRegistry>()
-                                .and_then(|registry| {
-                                    registry
-                                        .0
-                                        .get(&realm)
-                                        .map(|(environment, _)| environment.id)
-                                });
-                            if let Some(environment) = environment {
-                                retire_environment(&mut self.isolate, environment);
-                            }
-                            if self.active_realm == realm {
-                                self.active_realm = RealmId(0);
-                            }
-                            self.isolate
-                                .get_slot_mut::<ModuleErrorReports>()
-                                .expect("host error reports initialized")
-                                .0
-                                .push(format!(
-                                    "unpublished frame realm {} cleanup failed: {cleanup}",
-                                    realm.0
-                                ));
+                    if previous.is_none()
+                        && let Err(cleanup) = self.remove_realm(realm)
+                    {
+                        // No author can reach this first document. Retire its
+                        // execution authority even if structural removal fails.
+                        if let Some(state) = self.binding_states.get(&realm) {
+                            state.retire_execution();
                         }
+                        let environment = self
+                            .isolate
+                            .get_slot::<RealmEndpointRegistry>()
+                            .and_then(|registry| {
+                                registry
+                                    .0
+                                    .get(&realm)
+                                    .map(|(environment, _)| environment.id)
+                            });
+                        if let Some(environment) = environment {
+                            retire_environment(&mut self.isolate, environment);
+                        }
+                        if self.active_realm == realm {
+                            self.active_realm = RealmId(0);
+                        }
+                        self.isolate
+                            .get_slot_mut::<ModuleErrorReports>()
+                            .expect("host error reports initialized")
+                            .0
+                            .push(format!(
+                                "unpublished frame realm {} cleanup failed: {cleanup}",
+                                realm.0
+                            ));
                     }
                     return Err(error);
                 }
@@ -11969,12 +12072,14 @@ mod raw_v8 {
                 create_native_document_context(
                     scope,
                     creator,
-                    origin.into(),
-                    document_generation,
-                    frame_id,
-                    dom,
-                    document,
-                    false,
+                    NativeDocumentContextInput {
+                        origin: origin.into(),
+                        document_generation,
+                        frame_id,
+                        dom,
+                        document,
+                        inherited_blank: false,
+                    },
                 )?
                 .0
             };
@@ -12124,12 +12229,10 @@ mod raw_v8 {
                     if !scope
                         .get_slot::<AgentEnvironments>()
                         .is_some_and(|registry| registry.is_live(&owner))
+                        && let Some(context) = weak.to_local(scope)
+                        && let Some(state) = context.get_slot::<V8BindingState>()
                     {
-                        if let Some(context) = weak.to_local(scope) {
-                            if let Some(state) = context.get_slot::<V8BindingState>() {
-                                state.retire_execution();
-                            }
-                        }
+                        state.retire_execution();
                     }
                 }
             }
@@ -12480,11 +12583,13 @@ mod raw_v8 {
             self.execute_module_inner(
                 resource_name,
                 source,
-                dependencies,
-                false,
-                true,
-                resource_name,
-                false,
+                ModuleExecutionInput {
+                    dependencies,
+                    report_errors: false,
+                    cache_root: true,
+                    request_identity: resource_name,
+                    prepared: false,
+                },
             )
         }
 
@@ -12502,14 +12607,17 @@ mod raw_v8 {
             self.execute_module_inner(
                 resource_name,
                 source,
-                dependencies,
-                true,
-                cache_root,
-                resource_name,
-                false,
+                ModuleExecutionInput {
+                    dependencies,
+                    report_errors: true,
+                    cache_root,
+                    request_identity: resource_name,
+                    prepared: false,
+                },
             )
         }
 
+        #[cfg(test)]
         pub(crate) fn execute_module_script_for_request<'text>(
             &mut self,
             resource_name: &str,
@@ -12521,11 +12629,13 @@ mod raw_v8 {
             self.execute_module_inner(
                 resource_name,
                 source,
-                dependencies,
-                true,
-                requested.is_some(),
-                requested.unwrap_or(resource_name),
-                true,
+                ModuleExecutionInput {
+                    dependencies,
+                    report_errors: true,
+                    cache_root: requested.is_some(),
+                    request_identity: requested.unwrap_or(resource_name),
+                    prepared: true,
+                },
             )
         }
 
@@ -12533,46 +12643,29 @@ mod raw_v8 {
             &mut self,
             resource_name: &str,
             source: impl Into<oryn_js::script_source::ScriptSourceRef<'text>>,
-            dependencies: &BTreeMap<String, String>,
-            report_errors: bool,
-            cache_root: bool,
-            request_identity: &str,
-            prepared: bool,
+            input: ModuleExecutionInput<'_>,
         ) -> Result<(), HostError> {
-            let source = source.into();
-            self.execute_module_inner_with_started(
-                resource_name,
-                source,
+            let ModuleExecutionInput {
                 dependencies,
                 report_errors,
                 cache_root,
                 request_identity,
                 prepared,
-                None,
-                &mut || {},
-            )
-        }
+            } = input;
 
-        pub(crate) fn execute_module_script_for_request_with_started<'text>(
-            &mut self,
-            resource_name: &str,
-            source: impl Into<oryn_js::script_source::ScriptSourceRef<'text>>,
-            dependencies: &BTreeMap<String, String>,
-            requested: Option<&str>,
-            started: &mut dyn FnMut(),
-        ) -> Result<(), HostError> {
             let source = source.into();
-            self.publish_native_resource_timings();
             self.execute_module_inner_with_started(
                 resource_name,
                 source,
-                dependencies,
-                true,
-                requested.is_some(),
-                requested.unwrap_or(resource_name),
-                true,
-                None,
-                started,
+                StartedModuleExecutionInput {
+                    dependencies,
+                    report_errors,
+                    cache_root,
+                    request_identity,
+                    prepared,
+                    graph_error: None,
+                    started: &mut || {},
+                },
             )
         }
 
@@ -12590,13 +12683,15 @@ mod raw_v8 {
             self.execute_module_inner_with_started(
                 name,
                 source,
-                dependencies,
-                true,
-                requested.is_some(),
-                requested.unwrap_or(name),
-                true,
-                error,
-                started,
+                StartedModuleExecutionInput {
+                    dependencies,
+                    report_errors: true,
+                    cache_root: requested.is_some(),
+                    request_identity: requested.unwrap_or(name),
+                    prepared: true,
+                    graph_error: error,
+                    started,
+                },
             )
         }
 
@@ -12604,14 +12699,18 @@ mod raw_v8 {
             &mut self,
             resource_name: &str,
             source: impl Into<oryn_js::script_source::ScriptSourceRef<'text>>,
-            dependencies: &BTreeMap<String, String>,
-            report_errors: bool,
-            cache_root: bool,
-            request_identity: &str,
-            prepared: bool,
-            graph_error: Option<u64>,
-            started: &mut dyn FnMut(),
+            input: StartedModuleExecutionInput<'_>,
         ) -> Result<(), HostError> {
+            let StartedModuleExecutionInput {
+                dependencies,
+                report_errors,
+                cache_root,
+                request_identity,
+                prepared,
+                graph_error,
+                started,
+            } = input;
+
             let source = source.into();
             if !prepared
                 && self.schedule_direct_module(
@@ -12702,23 +12801,17 @@ mod raw_v8 {
                 let evaluation = evaluate_module_once(scope, module)
                     .ok_or_else(|| HostError::Execution("module evaluation failed".into()))?;
                 if report_errors {
-                    let promise = v8::Local::<v8::Promise>::try_from(evaluation).map_err(|_| {
-                        HostError::Execution("module evaluation did not return a promise".into())
-                    })?;
                     error_reporter
                         .take()
                         .expect("prepared error reporter")
-                        .submit(scope, Some(promise), None);
+                        .submit(scope, Some(evaluation), None);
                 }
                 queue_mutation_observer_microtask(scope);
                 scope.perform_microtask_checkpoint();
-                if !report_errors
-                    && let Ok(promise) = v8::Local::<v8::Promise>::try_from(evaluation)
-                    && promise.state() == v8::PromiseState::Rejected
-                {
+                if !report_errors && evaluation.state() == v8::PromiseState::Rejected {
                     return Err(HostError::Execution(format!(
                         "module evaluation rejected: {}",
-                        promise.result(scope).to_rust_string_lossy(scope)
+                        evaluation.result(scope).to_rust_string_lossy(scope)
                     )));
                 }
                 Ok(())
@@ -12871,15 +12964,15 @@ mod raw_v8 {
             let coep =
                 crate::coep_reporting::Policy::new(initiator.as_str(), &document_policy.headers);
             let coep_report = |target: &Url, cors, credentials, headers: &[(String, String)]| {
-                reports.push_coep(coep.response(
-                    &document_policy.origin,
-                    document_policy.origin == "null",
+                reports.push_coep(coep.response(crate::coep_reporting::ResponsePolicyInputs {
+                    origin: &document_policy.origin,
+                    opaque: document_policy.origin == "null",
                     target,
                     cors,
                     credentials,
                     headers,
-                    "script",
-                ))
+                    destination: "script",
+                }))
             };
             crate::script_fetch::load_with_metadata(
                 &fetch.broker,
@@ -12947,11 +13040,11 @@ mod raw_v8 {
             };
             let context = v8::Local::new(scope, context);
             let scope = &mut v8::ContextScope::new(scope, context);
-            let attempted = module_fetch_results(scope)
+
+            module_fetch_results(scope)
                 .borrow()
                 .0
-                .contains_key(requested);
-            attempted
+                .contains_key(requested)
         }
 
         /// Snapshot the exact realm's module-map result for graph discovery.
@@ -12964,17 +13057,17 @@ mod raw_v8 {
             let context = self.contexts.get(&self.active_realm)?;
             let context = v8::Local::new(scope, context);
             let scope = &mut v8::ContextScope::new(scope, context);
-            let result = module_fetch_results(scope)
+
+            module_fetch_results(scope)
                 .borrow()
                 .0
                 .get(requested)
-                .cloned();
-            result
+                .cloned()
         }
 
         pub(crate) fn module_response_revisions(
             &mut self,
-        ) -> Result<(Rc<std::cell::Cell<u64>>, Rc<std::cell::Cell<u64>>), HostError> {
+        ) -> Result<ModuleResponseRevisions, HostError> {
             v8::scope!(let scope, &mut self.isolate);
             let context = v8::Local::new(
                 scope,
@@ -12996,12 +13089,12 @@ mod raw_v8 {
             v8::scope!(let scope, &mut self.isolate);
             let context = v8::Local::new(scope, self.contexts.get(&self.active_realm)?);
             let scope = &mut v8::ContextScope::new(scope, context);
-            let result = typed_module_fetch_results(scope)
+
+            typed_module_fetch_results(scope)
                 .borrow()
                 .0
                 .get(&(requested.into(), kind))
-                .cloned();
-            result
+                .cloned()
         }
         pub(crate) fn retain_typed_module_fetch(
             &mut self,
@@ -13023,15 +13116,15 @@ mod raw_v8 {
             );
             let scope = &mut v8::ContextScope::new(scope, context);
             let results = typed_module_fetch_results(scope);
-            let result = results.borrow_mut().retain(
+
+            results.borrow_mut().retain(
                 requested,
                 kind,
                 result
                     .as_ref()
                     .map(|(url, source)| (url.as_str(), source.as_str())),
                 false,
-            );
-            result
+            )
         }
 
         pub fn retain_failed_module_fetch(&mut self, requested: &str) -> Result<(), HostError> {
@@ -13042,10 +13135,10 @@ mod raw_v8 {
                 .ok_or_else(|| HostError::Execution("module prefetch realm absent".into()))?;
             let context = v8::Local::new(scope, context);
             let scope = &mut v8::ContextScope::new(scope, context);
-            let result = module_fetch_results(scope)
+
+            module_fetch_results(scope)
                 .borrow_mut()
-                .retain(requested, None, false);
-            result
+                .retain(requested, None, false)
         }
 
         pub fn retain_verified_module_fetch(
@@ -13061,12 +13154,12 @@ mod raw_v8 {
                 .ok_or_else(|| HostError::Execution("module prefetch realm absent".into()))?;
             let context = v8::Local::new(scope, context);
             let scope = &mut v8::ContextScope::new(scope, context);
-            let result = module_fetch_results(scope).borrow_mut().retain(
+
+            module_fetch_results(scope).borrow_mut().retain(
                 requested,
                 Some((final_url, source)),
                 false,
-            );
-            result
+            )
         }
 
         /// External module script roots participate in the same document map
@@ -13184,13 +13277,13 @@ mod raw_v8 {
             };
             let context = v8::Local::new(scope, context);
             let scope = &mut v8::ContextScope::new(scope, context);
-            let include = module_fetch_policies(scope)
+
+            module_fetch_policies(scope)
                 .borrow()
                 .0
                 .get(url)
                 .copied()
-                .unwrap_or(false);
-            include
+                .unwrap_or(false)
         }
 
         /// Parse only; V8 supplies static import/export requests without running
@@ -13474,11 +13567,11 @@ mod raw_v8 {
             v8::scope!(let scope,&mut self.isolate);
             let context = v8::Local::new(scope, self.contexts.get(&self.active_realm)?);
             let scope = &mut v8::ContextScope::new(scope, context);
-            let value = module_import_map(scope)
+
+            module_import_map(scope)
                 .borrow()
                 .integrity_for(url)
-                .map(str::to_owned);
-            value
+                .map(str::to_owned)
         }
 
         pub fn resolve_module_specifier(
@@ -13716,15 +13809,13 @@ mod raw_v8 {
         if let (Some(key), Some(base)) = (
             v8::String::new(scope, "resolve"),
             v8::String::new(scope, &url),
-        ) {
-            if let Some(resolve) = v8::Function::builder(import_meta_resolve)
-                .data(base.into())
-                .length(1)
-                .build(scope)
-            {
-                resolve.set_name(key);
-                meta.create_data_property(scope, key.into(), resolve.into());
-            }
+        ) && let Some(resolve) = v8::Function::builder(import_meta_resolve)
+            .data(base.into())
+            .length(1)
+            .build(scope)
+        {
+            resolve.set_name(key);
+            meta.create_data_property(scope, key.into(), resolve.into());
         }
     }
 
@@ -13770,7 +13861,7 @@ mod raw_v8 {
         locations: bool,
     ) -> Result<crate::module_types::ModuleType, String> {
         let stride = if locations { 3 } else { 2 };
-        if attributes.length() % stride != 0 {
+        if !attributes.length().is_multiple_of(stride) {
             return Err("malformed native import attributes".into());
         }
         let mut entries = Vec::with_capacity(attributes.length() / stride);
@@ -14097,10 +14188,12 @@ mod raw_v8 {
 
     // Pending admission is not a failed module-map response. The guard holds
     // exactly this cache alive and releases only its own in-progress identity.
+    #[cfg(test)]
     struct PendingModuleFetch {
         cache: Rc<RefCell<ModuleFetchResults>>,
         requested: String,
     }
+    #[cfg(test)]
     impl PendingModuleFetch {
         fn reserve(
             cache: Rc<RefCell<ModuleFetchResults>>,
@@ -14127,6 +14220,7 @@ mod raw_v8 {
             })
         }
     }
+    #[cfg(test)]
     impl Drop for PendingModuleFetch {
         fn drop(&mut self) {
             self.cache.borrow_mut().2.remove(&self.requested);
@@ -14250,10 +14344,11 @@ mod raw_v8 {
         // Resolution becomes immutable before fetch/linking. A network or
         // parse failure does not turn a successfully resolved URL back into an
         // unresolved specifier that a later import map may replace.
-        if !captured_root && mapped.is_some() {
-            if let Some(base) = base.as_ref() {
-                map.borrow_mut().record_resolution(base, specifier)?;
-            }
+        if !captured_root
+            && mapped.is_some()
+            && let Some(base) = base.as_ref()
+        {
+            map.borrow_mut().record_resolution(base, specifier)?;
         }
         // Decoded page resources are not proof of a module fetch for this
         // requested URL, realm, MIME type or integrity policy. Network-backed
@@ -14894,8 +14989,8 @@ mod raw_v8 {
             .unwrap();
         let reports = native_script_report_queue(scope);
         owner
-            .prepare(
-                fetch.broker,
+            .prepare(crate::runtime::hyperlink_audit::StandaloneAuditInput {
+                broker: fetch.broker,
                 source,
                 origin,
                 top,
@@ -14904,7 +14999,7 @@ mod raw_v8 {
                 reports,
                 destination,
                 urls,
-            )
+            })
             .map(Some)
             .map_err(V8BindingError::Message)
     }
@@ -14929,6 +15024,7 @@ mod raw_v8 {
                 link_navigation: true,
                 user_initiated,
                 defer_navigation: false,
+                local_related_navigation: false,
                 selected_target: Some(selected.receipt.clone()),
                 document_source: Some(source.clone()),
                 opener_page_id: endpoint.page_id,
@@ -15334,7 +15430,7 @@ mod raw_v8 {
         let mut visited = BTreeSet::new();
         let mut bytes = 0usize;
         for (page, root) in roots {
-            let inventory = result.entry(page).or_insert_with(Vec::new);
+            let inventory = result.entry(page).or_default();
             let mut pending = vec![root];
             while let Some(realm) = pending.pop() {
                 if !visited.insert(realm) {
@@ -15451,6 +15547,7 @@ mod raw_v8 {
                 link_navigation: false,
                 user_initiated: false,
                 defer_navigation: true,
+                local_related_navigation: false,
                 selected_target: None,
                 document_source: Some(source.clone()),
                 opener_page_id: endpoint.page_id,
@@ -15472,7 +15569,13 @@ mod raw_v8 {
                 created,
                 opener_page_id,
                 blank_prerender,
+                related_navigation_url,
             } => {
+                if related_navigation_url.is_some() {
+                    return Err(V8BindingError::Message(
+                        "deferred selection supplied local navigation".into(),
+                    ));
+                }
                 if blank_prerender.is_some() {
                     return Err(V8BindingError::Message(
                         "deferred selection supplied prerender activation".into(),
@@ -15487,7 +15590,7 @@ mod raw_v8 {
                             "existing target supplied auxiliary admission".into(),
                         ));
                     }
-                    create_admitted_auxiliary_root(scope, page_id, opener_page_id, admission)
+                    create_admitted_auxiliary_root(scope, page_id, opener_page_id, admission, None)
                         .map_err(|error| V8BindingError::Message(error.to_string()))?;
                 }
                 let local_frame = selected_frame
@@ -15592,10 +15695,10 @@ mod raw_v8 {
             let response = match state.client.request(request) {
                 Ok(response) => response,
                 Err(error) => {
-                    if let Some(stream) = stream_operation {
-                        if let Some(fetches) = scope.get_slot_mut::<AsyncFetches>() {
-                            fetches.finish_stream(environment, stream, false);
-                        }
+                    if let Some(stream) = stream_operation
+                        && let Some(fetches) = scope.get_slot_mut::<AsyncFetches>()
+                    {
+                        fetches.finish_stream(environment, stream, false);
                     }
                     return Err(error.to_string());
                 }
@@ -15603,10 +15706,8 @@ mod raw_v8 {
             if let Some(stream) = stream_operation {
                 let terminal = matches!(&response, ContextServiceResponse::HttpStreamAborted)
                     | matches!(&response,ContextServiceResponse::HttpStreamChunk{stream_id,done:true,..} if *stream_id==stream);
-                if terminal {
-                    if let Some(fetches) = scope.get_slot_mut::<AsyncFetches>() {
-                        fetches.finish_stream(environment, stream, true);
-                    }
+                if terminal && let Some(fetches) = scope.get_slot_mut::<AsyncFetches>() {
+                    fetches.finish_stream(environment, stream, true);
                 }
             }
             serde_json::to_string(&response).map_err(|error| error.to_string())
@@ -15690,7 +15791,7 @@ mod raw_v8 {
     #[cfg(unix)]
     fn execute_platform_request(
         state: &ContextState,
-        operation_id: HostOperationId,
+        _operation_id: HostOperationId,
         request: PlatformHostRequest,
         creator: Option<oryn_js::worker_wire::Creator>,
         request_id: Option<u64>,
@@ -15773,7 +15874,7 @@ mod raw_v8 {
                         headers,
                         ..
                     } => Ok(PlatformHostResult::HttpStarted {
-                        timing,
+                        timing: timing.map(Box::new),
                         internal_response,
                         response_type,
                         upload: upload.map(|value| oryn_js::platform::PlatformUploadProgress {
@@ -16094,7 +16195,7 @@ mod raw_v8 {
                         .map_err(|error| error.to_string())
                         .and_then(|response| match response {
                             ContextServiceResponse::HttpStreamChunk {
-                                encoded_body_size,
+                                encoded_body_size: _,
                                 stream_id: returned,
                                 body_base64,
                                 done,
@@ -16303,14 +16404,12 @@ mod raw_v8 {
                         },
                     );
                     #[cfg(unix)]
-                    if let (Some(network), Ok(value)) = (&network, &result) {
-                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(value) {
-                            if let Some(stream) =
-                                value.get("stream_id").and_then(serde_json::Value::as_u64)
-                            {
-                                network.attach_stream(stream);
-                            }
-                        }
+                    if let (Some(network), Ok(value)) = (&network, &result)
+                        && let Ok(value) = serde_json::from_str::<serde_json::Value>(value)
+                        && let Some(stream) =
+                            value.get("stream_id").and_then(serde_json::Value::as_u64)
+                    {
+                        network.attach_stream(stream);
                     }
                     let _ = sender.send(FetchCompletion {
                         #[cfg(unix)]
@@ -16361,7 +16460,7 @@ mod raw_v8 {
     fn perform_fetch(
         state: FetchTransportState,
         #[cfg(unix)] context_state: Option<ContextState>,
-        operation_id: u64,
+        _operation_id: u64,
         request: FetchRequest,
     ) -> Result<String, String> {
         let mut url = Url::parse(&request.input)
@@ -16626,10 +16725,10 @@ mod raw_v8 {
         name: &str,
     ) {
         let identity = v8::Global::new(scope, module);
-        if let Ok(environment) = current_environment(scope) {
-            if let Some(owners) = scope.get_slot_mut::<ModuleOwners>() {
-                owners.0.insert(identity.clone(), environment.id);
-            }
+        if let Ok(environment) = current_environment(scope)
+            && let Some(owners) = scope.get_slot_mut::<ModuleOwners>()
+        {
+            owners.0.insert(identity.clone(), environment.id);
         }
         let include = module_fetch_policies(scope)
             .borrow()
@@ -16905,13 +17004,9 @@ mod raw_v8 {
                 .ok_or_else(|| HostError::Execution("source allocation failed".into()))?;
             let Some(script) = v8::Script::compile(scope, source, None) else {
                 let detail = scope
-                    .exception()
+                    .stack_trace()
                     .filter(|value| !value.is_null_or_undefined())
-                    .or_else(|| {
-                        scope
-                            .stack_trace()
-                            .filter(|value| !value.is_null_or_undefined())
-                    })
+                    .or_else(|| scope.exception())
                     .and_then(|value| value.to_string(scope))
                     .map(|value| value.to_rust_string_lossy(scope))
                     .unwrap_or_else(|| "compilation failed".into());
@@ -16927,13 +17022,9 @@ mod raw_v8 {
                     });
                 }
                 let detail = scope
-                    .exception()
+                    .stack_trace()
                     .filter(|value| !value.is_null_or_undefined())
-                    .or_else(|| {
-                        scope
-                            .stack_trace()
-                            .filter(|value| !value.is_null_or_undefined())
-                    })
+                    .or_else(|| scope.exception())
                     .and_then(|value| value.to_string(scope))
                     .map(|value| value.to_rust_string_lossy(scope))
                     .unwrap_or_else(|| "execution failed".into());
@@ -16950,13 +17041,9 @@ mod raw_v8 {
             }
             if scope.has_caught() {
                 let detail = scope
-                    .exception()
+                    .stack_trace()
                     .filter(|value| !value.is_null_or_undefined())
-                    .or_else(|| {
-                        scope
-                            .stack_trace()
-                            .filter(|value| !value.is_null_or_undefined())
-                    })
+                    .or_else(|| scope.exception())
                     .and_then(|value| value.to_string(scope))
                     .map(|value| value.to_rust_string_lossy(scope))
                     .unwrap_or_else(|| "microtask checkpoint failed".into());
@@ -17461,6 +17548,7 @@ mod raw_v8 {
                     let request_id = request.request_id;
                     self.0.send(request).unwrap();
                     Ok(crate::network::NetworkResponse {
+                        response_policy: None,
                         request_id,
                         status: 204,
                         headers: vec![],
@@ -17490,11 +17578,30 @@ mod raw_v8 {
                 .as_mut()
                 .unwrap()
                 .encoding = "windows-1251".into();
-            host.execute("globalThis.fetch=()=>{throw Error('authored fetch must not be called')};a.click();a.setAttribute('ping','/changed')").unwrap();
+            host.sync_navigation_history(oryn_js::navigation_api::NavigationHistoryUpdate {
+                entries: vec![oryn_js::navigation_api::NavigationHistorySnapshot {
+                    scroll: Default::default(),
+                    key: "audit-start-key".into(),
+                    id: "audit-start-entry".into(),
+                    document_id: "audit-start-document".into(),
+                    url: "https://example.test/start".into(),
+                    state: None,
+                    history_state: None,
+                }],
+                current: 0,
+                navigation_type: "push".into(),
+                truncates_forward: false,
+            })
+            .unwrap();
+            host.execute("globalThis.fetch=()=>{throw Error('authored fetch must not be called')};globalThis.admissions=0;navigation.onnavigate=e=>{admissions++;e.preventDefault()};a.click()").unwrap();
+            assert_eq!(host.evaluate_string("String(admissions)").unwrap(), "1");
+            assert!(host.take_pending_default_actions().unwrap().is_empty());
             assert!(
                 receiver.try_recv().is_err(),
-                "a click alone cannot publish an unadmitted audit"
+                "canceled native admission must not publish an audit"
             );
+            host.execute("navigation.onnavigate=()=>{admissions++};a.click();a.setAttribute('ping','/changed')").unwrap();
+            assert_eq!(host.evaluate_string("String(admissions)").unwrap(), "2");
             let mut actions = host.take_pending_default_actions().unwrap();
             assert_eq!(actions.len(), 1);
             let (_, oryn_js::v8_bindings::PendingDefaultAction::Click(mut target)) =
@@ -17502,24 +17609,21 @@ mod raw_v8 {
             else {
                 panic!("expected native hyperlink default action");
             };
-            let navigation = target
+            let mut navigation = target
                 .navigation
                 .take()
                 .expect("captured hyperlink navigation");
             assert_eq!(navigation.url, "https://example.test/next");
-            let admission = host
-                .admit_native_navigation(
-                    &navigation.url,
-                    false,
-                    false,
-                    navigation.navigation_source,
-                )
-                .unwrap();
-            let oryn_js::navigation_api::NativeNavigationAdmission::Proceed { operation, .. } =
-                admission
-            else {
-                panic!("hyperlink audit requires actual native navigation admission");
-            };
+            // LinkActivation admits the local navigation before publishing its
+            // default action. Consume that exact admission instead of replaying it.
+            let admission = navigation
+                .admission
+                .take()
+                .expect("hyperlink audit requires actual native navigation admission");
+            assert_eq!(admission.realm, host.active_realm());
+            let operation = admission
+                .operation
+                .expect("accepted native operation identity");
             let request = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
             assert_eq!(request.url, "https://example.test/audit?%DF");
             assert_eq!(request.method, "POST");
@@ -17530,9 +17634,12 @@ mod raw_v8 {
                     .contains(&("ping-to".into(), "https://example.test/next".into()))
             );
             assert!(receiver.try_recv().is_err());
-            if let Some(operation) = operation {
-                host.abort_native_navigation(&operation).unwrap();
-            }
+            assert_eq!(
+                host.evaluate_string("String(admissions)").unwrap(),
+                "2",
+                "consuming the queued action must not replay native admission"
+            );
+            host.abort_native_navigation(&operation).unwrap();
         }
 
         #[test]
@@ -17546,6 +17653,7 @@ mod raw_v8 {
                 {
                     self.0.lock().unwrap().push(request.url.to_string());
                     Ok(crate::network::NetworkResponse {
+                        response_policy: None,
                         timing: None,
                         request_id: request.request_id,
                         status: 200,
@@ -17617,7 +17725,7 @@ mod raw_v8 {
         fn pending_module_ownership_releases_without_erasing_first_publication() {
             let cache = Rc::new(RefCell::new(ModuleFetchResults::default()));
             let pending = PendingModuleFetch::reserve(cache.clone(), "x").unwrap();
-            assert!(cache.borrow().0.get("x").is_none());
+            assert!(!cache.borrow().0.contains_key("x"));
             assert!(PendingModuleFetch::reserve(cache.clone(), "x").is_err());
             drop(pending);
             let pending = PendingModuleFetch::reserve(cache.clone(), "x").unwrap();
@@ -18060,6 +18168,44 @@ mod raw_v8 {
             );
         }
         #[test]
+        fn isolate_suspension_owns_only_its_live_state_transitions() {
+            use super::*;
+            let mut host = RawV8Host::new();
+            host.install_dom(
+                Rc::new(RefCell::new(
+                    oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+                )),
+                1,
+            )
+            .unwrap();
+            let state = host.binding_states.get(&host.active_realm).unwrap().clone();
+            let owners = Rc::strong_count(&state);
+            host.suspend_page_isolate();
+            assert!(state.execution_suspended());
+            assert_eq!(Rc::strong_count(&state), owners);
+            host.suspend_page_isolate();
+            assert_eq!(host.isolate_suspended_states.len(), 1);
+            host.resume_page_isolate();
+            assert!(!state.execution_suspended());
+            state.set_execution_suspended(true);
+            host.suspend_page_isolate();
+            host.resume_page_isolate();
+            assert!(
+                state.execution_suspended(),
+                "independent suspension remains owned by its caller"
+            );
+            state.set_execution_suspended(false);
+            host.suspend_page_isolate();
+            state.retire_execution();
+            host.resume_page_isolate();
+            assert!(
+                state.execution_retired(),
+                "resume cannot revive a retired owner"
+            );
+            assert!(host.isolate_suspended_states.is_empty());
+        }
+
+        #[test]
         fn suspended_interval_is_excluded_from_timer_scheduler_time_only() {
             use super::*;
             let mut host = RawV8Host::new();
@@ -18247,6 +18393,7 @@ mod raw_v8 {
                         return Err(crate::network::NetworkError::Unavailable);
                     }
                     Ok(crate::network::NetworkResponse {
+                        response_policy: None,
                         timing: None,
                         request_id: request.request_id,
                         status: 201,
@@ -20540,17 +20687,17 @@ mod raw_v8 {
             let document = parsed.document;
             let foreign = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
             let realm = host
-                .commit_frame_document_with_resource_owners(
+                .commit_frame_document_with_resource_owners(FrameResourceCommitInput {
                     frame,
-                    Origin::from_url("https://redirected.test/"),
-                    foreign,
+                    origin: Origin::from_url("https://redirected.test/"),
+                    dom: foreign,
                     document,
-                    Some("https://redirected.test/"),
-                    None,
+                    committed_url: Some("https://redirected.test/"),
+                    resource_broker: None,
                     #[cfg(unix)]
-                    None,
-                    Some(capture),
-                )
+                    resource_client: None,
+                    ancestor_capture: Some(capture),
+                })
                 .unwrap();
             host.activate_realm(realm).unwrap();
             assert_eq!(
@@ -21447,12 +21594,14 @@ mod raw_v8 {
                     let (_, context) = create_native_document_context(
                         scope,
                         caller,
-                        origin,
-                        1,
-                        Some(7),
-                        dom,
-                        document,
-                        false,
+                        NativeDocumentContextInput {
+                            origin,
+                            document_generation: 1,
+                            frame_id: Some(7),
+                            dom,
+                            document,
+                            inherited_blank: false,
+                        },
                     )?;
                     let child = v8::Local::new(scope, &context);
                     let policy = args
@@ -22515,19 +22664,21 @@ mod raw_v8 {
 #[cfg(all(unix, feature = "v8-host"))]
 pub(crate) use raw_v8::CreatedAuxiliaryRoot;
 
+#[cfg(all(feature = "v8-host", test))]
+pub(crate) use raw_v8::FrameResourceCommitInput;
 #[cfg(feature = "v8-host")]
-pub(crate) use raw_v8::{ModuleGraphErrorLease, ScriptEventReceipt};
+pub(crate) use raw_v8::{FrameTimingCommitInput, ModuleGraphErrorLease, ScriptEventReceipt};
 
 #[cfg(feature = "v8-host")]
 pub(crate) use raw_v8::CreatedStandaloneRoot;
-#[cfg(all(unix, feature = "v8-host"))]
-pub(crate) use raw_v8::NativePrerenderActivationTree;
 #[cfg(feature = "v8-host")]
 pub use raw_v8::{
     NativeAgentRuntime, NativePageTransition, NativeScriptClose, RawV8Host,
     STARTUP_EXTERNAL_REFERENCE_NAMES, install_startup_snapshot_globals,
     startup_external_references,
 };
+#[cfg(all(unix, feature = "v8-host"))]
+pub(crate) use raw_v8::{NativePrerenderActivationTree, PrerenderRootInput};
 
 #[cfg(all(test, feature = "v8-host"))]
 mod tests {
@@ -22548,6 +22699,7 @@ mod tests {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             std::thread::sleep(Duration::from_millis(10));
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 201,
@@ -22565,6 +22717,7 @@ mod tests {
                 let id = request.request_id;
                 self.0.lock().unwrap().push(request);
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: id,
                     status: 200,
@@ -22715,11 +22868,45 @@ mod tests {
             ("throw null", "null"),
             ("throw undefined", "undefined"),
         ] {
-            let error = host.evaluate_string(source).unwrap_err();
-            assert!(
-                matches!(error, HostError::Execution(ref detail) if detail == expected),
-                "{error:?}"
-            );
+            for error in [
+                host.evaluate_string(source).unwrap_err(),
+                host.execute(source).unwrap_err(),
+            ] {
+                assert!(
+                    matches!(error, HostError::Execution(ref detail) if detail == expected),
+                    "{error:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn execution_reports_named_stack_frames_and_recovers_after_overflow() {
+        let mut host = RawV8Host::new();
+        for (source, expected) in [
+            (
+                "function diagnosticOrigin(){throw new Error('diagnostic stack sentinel')} diagnosticOrigin()",
+                "diagnostic stack sentinel",
+            ),
+            (
+                "function diagnosticOrigin(){return diagnosticOrigin()} diagnosticOrigin()",
+                "Maximum call stack size exceeded",
+            ),
+        ] {
+            for error in [
+                host.execute(source).unwrap_err(),
+                host.evaluate_string(source).unwrap_err(),
+            ] {
+                let HostError::Execution(detail) = error else {
+                    panic!("expected script exception, got {error:?}");
+                };
+                assert!(
+                    detail.contains("diagnosticOrigin"),
+                    "missing frame: {detail}"
+                );
+                assert!(detail.contains(expected), "missing exception: {detail}");
+            }
+            assert_eq!(host.evaluate_string("1 + 1").unwrap(), "2");
         }
     }
 
@@ -23021,12 +23208,18 @@ mod fallback_document_timing_tests {
             observe_eof: true,
             failed: false,
         };
+        let exposed_timing = input
+            .navigation_timing()
+            .expect("attached navigation timing");
+        assert_eq!(exposed_timing.origin(), timing.origin());
+        assert_eq!(exposed_timing.snapshot().values["responseEnd"], 0.);
         assert!(input.poll_next().is_pending());
         assert_eq!(timing.snapshot().values["responseEnd"], 0.);
         assert!(matches!(input.poll_next(), Poll::Ready(Some(Ok(_)))));
         assert_eq!(timing.snapshot().values["responseEnd"], 0.);
         assert!(matches!(input.poll_next(), Poll::Ready(None)));
         let snapshot = timing.snapshot();
+        assert_eq!(exposed_timing.snapshot().values, snapshot.values);
         assert!(snapshot.values["responseEnd"] >= 10.);
         assert!(snapshot.values["responseEnd"] >= snapshot.values["responseStart"]);
         for field in [
@@ -23038,7 +23231,7 @@ mod fallback_document_timing_tests {
             assert_eq!(snapshot.values[field], 0.);
         }
         let completed = snapshot.values["responseEnd"];
-        input.poll_next();
+        assert!(matches!(input.poll_next(), Poll::Ready(None)));
         assert_eq!(timing.snapshot().values["responseEnd"], completed);
     }
     #[test]
@@ -23058,10 +23251,10 @@ mod fallback_document_timing_tests {
                 observe_eof: true,
                 failed: false,
             };
-            input.poll_next();
+            assert!(matches!(input.poll_next(), Poll::Ready(Some(Ok(_)))));
             if fail {
                 assert!(matches!(input.poll_next(), Poll::Ready(Some(Err(_)))));
-                input.poll_next();
+                assert!(matches!(input.poll_next(), Poll::Ready(None)));
             }
             drop(input);
             assert_eq!(timing.snapshot().values["responseEnd"], 0.);
@@ -23076,10 +23269,35 @@ mod fallback_document_timing_tests {
             oryn_js::navigation_timing::Kind::BackForward,
         );
         timing.finish(start + Duration::from_millis(2), 37);
-        let mut stream = DocumentStream::html(Box::new(std::iter::once(Ok("decoded text".into()))))
-            .with_navigation_timing(timing.clone());
-        stream.chunks.poll_next();
-        stream.chunks.poll_next();
+        let mut raw = vec![b' '; 1100];
+        raw.push(0xc0);
+        let mut stream = crate::html_encoding_replay::BufferedDecodedInput::stream(
+            raw,
+            Some("text/html".into()),
+            Some("windows-1252"),
+            None,
+        )
+        .with_navigation_timing(timing.clone());
+        assert!(matches!(
+            stream.chunks.poll_next(),
+            Poll::Ready(Some(Ok(_)))
+        ));
+        assert!(stream.chunks.encoding_restart_needed("windows-1251"));
+        stream.chunks.commit_encoding();
+        assert_eq!(
+            stream.chunks.encoding_confidence(),
+            oryn_net::HtmlEncodingConfidence::Certain
+        );
+        assert!(!stream.chunks.encoding_restart_needed("windows-1251"));
+        assert!(
+            stream
+                .chunks
+                .restart_encoding("windows-1251")
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(*stream.encoding.lock().unwrap(), Some("windows-1252"));
+        assert!(matches!(stream.chunks.poll_next(), Poll::Ready(None)));
         assert_eq!(timing.snapshot().values["decodedBodySize"], 37.);
         assert_eq!(timing.snapshot().values["responseEnd"], 2.);
         assert_eq!(timing.snapshot().kind, "back_forward");

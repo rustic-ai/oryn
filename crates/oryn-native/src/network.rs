@@ -15,6 +15,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
 use url::Url;
 
+#[path = "response_policy_token.rs"]
+mod response_policy_token;
+pub use response_policy_token::ResponsePolicyToken;
+
 use oryn_net::cache::{CacheEntry, CacheKey, MemoryCache};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 
@@ -23,13 +27,14 @@ use crate::{
     security::{NetworkPolicy, PolicyDenied},
 };
 
-const BROKER_PROTOCOL_VERSION: u32 = 6;
+const BROKER_PROTOCOL_VERSION: u32 = 8;
 use crate::worker_route::WorkerRoute;
 const MAX_BROKER_FRAME_BYTES: usize = 24 * 1024 * 1024;
 const MAX_DECODED_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const PERSISTENT_HTTP_CACHE: TableDefinition<&str, &[u8]> = TableDefinition::new("http_cache_v1");
 
 /// Decode a document response using the same MIME distinction as native parsing.
+#[cfg(any(test, not(feature = "v8-host")))]
 pub(crate) fn decode_navigation_text(
     bytes: &[u8],
     content_type: Option<&str>,
@@ -163,6 +168,9 @@ const fn default_credentials() -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkResponse {
+    /// Private parent-issued navigation authority; never exposed as an HTTP header.
+    #[serde(default)]
+    pub response_policy: Option<ResponsePolicyToken>,
     #[serde(default)]
     pub timing: Option<oryn_net::TransportTiming>,
     pub request_id: u64,
@@ -174,6 +182,7 @@ pub struct NetworkResponse {
 /// A policy-approved response whose body remains owned by the parent and is
 /// consumed only when the worker asks for another bounded chunk.
 pub struct NetworkStreamResponse {
+    pub response_policy: Option<ResponsePolicyToken>,
     pub encoded_bytes: Option<Arc<std::sync::atomic::AtomicU64>>,
     pub timing: Option<oryn_net::TransportTiming>,
     pub request_id: u64,
@@ -191,7 +200,8 @@ pub struct NetworkStreamResponse {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetworkEvent {
     Headers {
-        timing: Option<oryn_net::TransportTiming>,
+        response_policy: Option<ResponsePolicyToken>,
+        timing: Option<Box<oryn_net::TransportTiming>>,
         request_id: u64,
         status: u16,
         headers: Vec<(String, String)>,
@@ -272,10 +282,12 @@ impl NetworkOperation {
 
 /// Retained MIME sniffing stage for page actors. Poll never waits for IO;
 /// admitted demand, replay chunks and terminal ACK retain one operation owner.
+#[cfg(any(feature = "v8-host", test))]
 pub(crate) struct DocumentMimeSniff {
     operation: Option<NetworkOperation>,
     state: MimePrefixState,
 }
+#[cfg(any(feature = "v8-host", test))]
 impl DocumentMimeSniff {
     pub(crate) fn new(
         operation: NetworkOperation,
@@ -463,6 +475,7 @@ pub fn collect_operation_bounded(
 /// Drain an already admitted response after its headers. Used when integrity
 /// requires complete representation bytes before exposing a Response. The
 /// caller retains cancellation custody for the operation throughout this call.
+#[cfg(test)]
 pub(crate) fn collect_started_body(
     operation: &mut NetworkOperation,
     deadline: std::time::Instant,
@@ -471,6 +484,7 @@ pub(crate) fn collect_started_body(
 ) -> Result<Vec<u8>, NetworkError> {
     collect_started_body_with_check(operation, deadline, limit, cancelled, None)
 }
+#[cfg(test)]
 pub(crate) fn collect_started_body_with_check(
     operation: &mut NetworkOperation,
     deadline: std::time::Instant,
@@ -478,6 +492,24 @@ pub(crate) fn collect_started_body_with_check(
     cancelled: &std::sync::atomic::AtomicBool,
     external: Option<&dyn Fn() -> bool>,
 ) -> Result<Vec<u8>, NetworkError> {
+    collect_started_body_with_metadata(operation, deadline, limit, cancelled, external)
+        .map(|body| body.bytes)
+}
+
+/// Representation bytes and the transport's independent encoded-byte count.
+/// Missing metadata stays missing; decoded length is never an encoded count.
+pub(crate) struct CollectedBody {
+    pub bytes: Vec<u8>,
+    pub encoded_body_size: Option<u64>,
+}
+
+pub(crate) fn collect_started_body_with_metadata(
+    operation: &mut NetworkOperation,
+    deadline: std::time::Instant,
+    limit: usize,
+    cancelled: &std::sync::atomic::AtomicBool,
+    external: Option<&dyn Fn() -> bool>,
+) -> Result<CollectedBody, NetworkError> {
     let mut body = Vec::new();
     operation.request_body_chunk();
     loop {
@@ -514,7 +546,12 @@ pub(crate) fn collect_started_body_with_check(
             NetworkEvent::Complete {
                 encoded_body_size,
                 request_id,
-            } if request_id == operation.request_id => return Ok(body),
+            } if request_id == operation.request_id => {
+                return Ok(CollectedBody {
+                    bytes: body,
+                    encoded_body_size,
+                });
+            }
             NetworkEvent::Failed { request_id, error } if request_id == operation.request_id => {
                 return Err(NetworkError::Transport(error));
             }
@@ -536,6 +573,7 @@ pub(crate) fn buffered_response_operation(
     let (sender, events) = tokio::sync::mpsc::channel(3);
     sender
         .try_send(NetworkEvent::Headers {
+            response_policy: None,
             timing: None,
             request_id,
             status,
@@ -567,18 +605,18 @@ pub(crate) fn buffered_response_operation(
 
 pub(crate) fn buffered_body_operation(
     request_id: u64,
-    body: Vec<u8>,
+    body: CollectedBody,
 ) -> Result<NetworkOperation, NetworkError> {
     let (sender, events) = tokio::sync::mpsc::channel(2);
     sender
         .try_send(NetworkEvent::Chunk {
             request_id,
-            bytes: body.into(),
+            bytes: body.bytes.into(),
         })
         .map_err(|error| NetworkError::Transport(error.to_string()))?;
     sender
         .try_send(NetworkEvent::Complete {
-            encoded_body_size: None,
+            encoded_body_size: body.encoded_body_size,
             request_id,
         })
         .map_err(|error| NetworkError::Transport(error.to_string()))?;
@@ -611,6 +649,7 @@ fn collect_operation_bounded_inner(
     let mut operation = broker.start_operation(request)?;
     let expected_request_id = operation.request_id;
     let deadline = std::time::Instant::now() + timeout;
+    let mut response_policy = None;
     let mut transport_timing: Option<oryn_net::TransportTiming> = None;
     let mut timing_headers = None;
     let mut status = None;
@@ -655,12 +694,14 @@ fn collect_operation_bounded_inner(
         }
         match event {
             NetworkEvent::Headers {
+                response_policy: policy,
                 timing,
                 status: value,
                 headers: values,
                 ..
             } => {
-                transport_timing = timing;
+                response_policy = policy;
+                transport_timing = timing.map(|timing| *timing);
                 timing_headers = Some(std::time::Instant::now());
                 status = Some(value);
                 headers = values;
@@ -681,6 +722,7 @@ fn collect_operation_bounded_inner(
                 request_id,
             } => {
                 return Ok(NetworkResponse {
+                    response_policy,
                     timing: transport_timing.map(|mut timing| {
                         timing.encoded_body_size = encoded_body_size.or(timing.encoded_body_size);
                         timing.response_end = Some(timing.response_start.saturating_add(
@@ -718,7 +760,8 @@ pub(crate) fn operation_from_response(response: NetworkResponse) -> NetworkOpera
             .and_then(|timing| timing.encoded_body_size);
         if sender
             .send(NetworkEvent::Headers {
-                timing: response.timing,
+                response_policy: response.response_policy,
+                timing: response.timing.map(Box::new),
                 request_id,
                 status: response.status,
                 headers: response.headers,
@@ -759,6 +802,15 @@ pub(crate) fn operation_from_response(response: NetworkResponse) -> NetworkOpera
 }
 
 pub trait NetworkBroker: Send + Sync {
+    /// Token-specific cleanup does not cancel a later operation that reuses a
+    /// numeric request ID. Only the owning native route may implement it.
+    fn discard_response_policy_routed(
+        &self,
+        _route: Option<&WorkerRoute>,
+        _token: &str,
+    ) -> Result<(), NetworkError> {
+        Err(NetworkError::Unavailable)
+    }
     /// Read-only activity of this native owner, excluding sibling namespaces.
     /// SharedNetworkBroker's identity layer supplies transport-independent
     /// admission and acknowledged completion accounting.
@@ -805,6 +857,7 @@ pub trait NetworkBroker: Send + Sync {
             .and_then(|timing| timing.encoded_body_size)
             .map(|bytes| Arc::new(std::sync::atomic::AtomicU64::new(bytes)));
         Ok(NetworkStreamResponse {
+            response_policy: response.response_policy,
             encoded_bytes,
             timing: response.timing,
             request_id: response.request_id,
@@ -828,7 +881,8 @@ pub trait NetworkBroker: Send + Sync {
         std::thread::spawn(move || {
             network_identity::with_background_owner(background_owner, || {
                 let _ = sender.blocking_send(NetworkEvent::Headers {
-                    timing: response.timing,
+                    response_policy: response.response_policy,
+                    timing: response.timing.map(Box::new),
                     request_id,
                     status: response.status,
                     headers: response.headers,
@@ -888,6 +942,13 @@ pub trait NetworkBroker: Send + Sync {
 }
 
 impl NetworkBroker for Box<dyn NetworkBroker> {
+    fn discard_response_policy_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        token: &str,
+    ) -> Result<(), NetworkError> {
+        self.as_ref().discard_response_policy_routed(route, token)
+    }
     fn owned_operation_activity(&self) -> (usize, Option<std::time::Instant>) {
         (**self).owned_operation_activity()
     }
@@ -1172,6 +1233,7 @@ impl<B> MemoryCachingBroker<B> {
             return None;
         }
         Some(NetworkResponse {
+            response_policy: None,
             timing: Some(oryn_net::TransportTiming {
                 encoded_body_size: entry.encoded_body_size,
                 delivery: oryn_common::transport_timing::ResponseDelivery::LocalCache,
@@ -1564,6 +1626,7 @@ impl<B> PersistentCachingBroker<B> {
             return Ok(None);
         }
         Ok(Some(NetworkResponse {
+            response_policy: None,
             timing: Some(oryn_net::TransportTiming {
                 encoded_body_size: entry.encoded_body_size,
                 delivery: oryn_common::transport_timing::ResponseDelivery::LocalCache,
@@ -1723,6 +1786,19 @@ struct RoutedNetworkBroker {
 }
 
 impl NetworkBroker for RoutedNetworkBroker {
+    fn discard_response_policy_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        token: &str,
+    ) -> Result<(), NetworkError> {
+        if route.is_some_and(|route| route != &self.route) {
+            return Err(NetworkError::Transport(
+                "foreign response policy route".into(),
+            ));
+        }
+        self.inner
+            .discard_response_policy_routed(Some(&self.route), token)
+    }
     fn start_routed(
         &self,
         route: Option<&WorkerRoute>,
@@ -1792,6 +1868,16 @@ impl Drop for SharedNetworkBroker {
 }
 
 impl NetworkBroker for SharedNetworkBroker {
+    fn discard_response_policy_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        token: &str,
+    ) -> Result<(), NetworkError> {
+        self.inner
+            .as_ref()
+            .expect("broker handle is live")
+            .discard_response_policy_routed(route, token)
+    }
     fn owned_operation_activity(&self) -> (usize, Option<std::time::Instant>) {
         self.inner
             .as_ref()
@@ -1926,18 +2012,18 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
         self.invalidate_after_mutation(&request);
         let retained = self.prepare(&mut request);
         let mut response = self.inner.send(request.clone())?;
-        if response.status == 304 {
-            if let Some(entry) = retained {
-                let timing = response.timing.take();
-                response = revalidated_response(request.request_id, entry, &response.headers);
-                response.timing = validated_cache_timing_with_size(
-                    timing,
-                    response
-                        .timing
-                        .as_ref()
-                        .and_then(|timing| timing.encoded_body_size),
-                );
-            }
+        if response.status == 304
+            && let Some(entry) = retained
+        {
+            let timing = response.timing.take();
+            response = revalidated_response(request.request_id, entry, &response.headers);
+            response.timing = validated_cache_timing_with_size(
+                timing,
+                response
+                    .timing
+                    .as_ref()
+                    .and_then(|timing| timing.encoded_body_size),
+            );
         }
         self.store(&request, &response);
         Ok(response)
@@ -1955,6 +2041,7 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
                 .and_then(|timing| timing.encoded_body_size)
                 .map(|bytes| Arc::new(std::sync::atomic::AtomicU64::new(bytes)));
             return Ok(NetworkStreamResponse {
+                response_policy: response.response_policy,
                 encoded_bytes,
                 timing: response.timing,
                 request_id: response.request_id,
@@ -1969,31 +2056,32 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
         self.invalidate_after_mutation(&request);
         let retained = self.prepare(&mut request);
         let mut response = self.inner.start_stream(request.clone())?;
-        if response.status == 304 {
-            if let Some(entry) = retained {
-                finish_empty_revalidation_body(&mut response.body)?;
-                let merged = revalidated_response(request.request_id, entry, &response.headers);
-                response = NetworkStreamResponse {
-                    encoded_bytes: merged
+        if response.status == 304
+            && let Some(entry) = retained
+        {
+            finish_empty_revalidation_body(&mut response.body)?;
+            let merged = revalidated_response(request.request_id, entry, &response.headers);
+            response = NetworkStreamResponse {
+                response_policy: None,
+                encoded_bytes: merged
+                    .timing
+                    .as_ref()
+                    .and_then(|timing| timing.encoded_body_size)
+                    .map(|bytes| Arc::new(std::sync::atomic::AtomicU64::new(bytes))),
+                timing: validated_cache_timing_with_size(
+                    response.timing.take(),
+                    merged
                         .timing
                         .as_ref()
-                        .and_then(|timing| timing.encoded_body_size)
-                        .map(|bytes| Arc::new(std::sync::atomic::AtomicU64::new(bytes))),
-                    timing: validated_cache_timing_with_size(
-                        response.timing.take(),
-                        merged
-                            .timing
-                            .as_ref()
-                            .and_then(|timing| timing.encoded_body_size),
-                    ),
-                    request_id: merged.request_id,
-                    status: merged.status,
-                    headers: merged.headers,
-                    content_length: Some(merged.body.len()),
-                    upload: None,
-                    body: Box::new(std::io::Cursor::new(merged.body)),
-                };
-            }
+                        .and_then(|timing| timing.encoded_body_size),
+                ),
+                request_id: merged.request_id,
+                status: merged.status,
+                headers: merged.headers,
+                content_length: Some(merged.body.len()),
+                upload: None,
+                body: Box::new(std::io::Cursor::new(merged.body)),
+            };
         }
         let candidate = self
             .entry(&request, response.status, &response.headers, Vec::new())
@@ -2004,6 +2092,7 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
             });
         let (key, entry) = candidate.unzip();
         Ok(NetworkStreamResponse {
+            response_policy: response.response_policy,
             encoded_bytes: response.encoded_bytes.clone(),
             timing: response.timing,
             request_id: response.request_id,
@@ -2124,18 +2213,18 @@ impl<B: NetworkBroker> NetworkBroker for PersistentCachingBroker<B> {
         }
         let retained = self.prepare(&mut request)?;
         let mut response = self.inner.send(request.clone())?;
-        if response.status == 304 {
-            if let Some(entry) = retained {
-                let timing = response.timing.take();
-                response = revalidated_response(request.request_id, entry, &response.headers);
-                response.timing = validated_cache_timing_with_size(
-                    timing,
-                    response
-                        .timing
-                        .as_ref()
-                        .and_then(|timing| timing.encoded_body_size),
-                );
-            }
+        if response.status == 304
+            && let Some(entry) = retained
+        {
+            let timing = response.timing.take();
+            response = revalidated_response(request.request_id, entry, &response.headers);
+            response.timing = validated_cache_timing_with_size(
+                timing,
+                response
+                    .timing
+                    .as_ref()
+                    .and_then(|timing| timing.encoded_body_size),
+            );
         }
         if let Some((key, mut entry)) = self.entry(
             &request,
@@ -2164,6 +2253,7 @@ impl<B: NetworkBroker> NetworkBroker for PersistentCachingBroker<B> {
                 .and_then(|timing| timing.encoded_body_size)
                 .map(|bytes| Arc::new(std::sync::atomic::AtomicU64::new(bytes)));
             return Ok(NetworkStreamResponse {
+                response_policy: response.response_policy,
                 encoded_bytes,
                 timing: response.timing,
                 request_id: response.request_id,
@@ -2180,31 +2270,32 @@ impl<B: NetworkBroker> NetworkBroker for PersistentCachingBroker<B> {
         }
         let retained = self.prepare(&mut request)?;
         let mut response = self.inner.start_stream(request.clone())?;
-        if response.status == 304 {
-            if let Some(entry) = retained {
-                finish_empty_revalidation_body(&mut response.body)?;
-                let merged = revalidated_response(request.request_id, entry, &response.headers);
-                response = NetworkStreamResponse {
-                    encoded_bytes: merged
+        if response.status == 304
+            && let Some(entry) = retained
+        {
+            finish_empty_revalidation_body(&mut response.body)?;
+            let merged = revalidated_response(request.request_id, entry, &response.headers);
+            response = NetworkStreamResponse {
+                response_policy: None,
+                encoded_bytes: merged
+                    .timing
+                    .as_ref()
+                    .and_then(|timing| timing.encoded_body_size)
+                    .map(|bytes| Arc::new(std::sync::atomic::AtomicU64::new(bytes))),
+                timing: validated_cache_timing_with_size(
+                    response.timing.take(),
+                    merged
                         .timing
                         .as_ref()
-                        .and_then(|timing| timing.encoded_body_size)
-                        .map(|bytes| Arc::new(std::sync::atomic::AtomicU64::new(bytes))),
-                    timing: validated_cache_timing_with_size(
-                        response.timing.take(),
-                        merged
-                            .timing
-                            .as_ref()
-                            .and_then(|timing| timing.encoded_body_size),
-                    ),
-                    request_id: merged.request_id,
-                    status: merged.status,
-                    headers: merged.headers,
-                    content_length: Some(merged.body.len()),
-                    upload: None,
-                    body: Box::new(std::io::Cursor::new(merged.body)),
-                };
-            }
+                        .and_then(|timing| timing.encoded_body_size),
+                ),
+                request_id: merged.request_id,
+                status: merged.status,
+                headers: merged.headers,
+                content_length: Some(merged.body.len()),
+                upload: None,
+                body: Box::new(std::io::Cursor::new(merged.body)),
+            };
         }
         let candidate = self
             .entry(&request, response.status, &response.headers, Vec::new())
@@ -2215,6 +2306,7 @@ impl<B: NetworkBroker> NetworkBroker for PersistentCachingBroker<B> {
             });
         let (key, entry) = candidate.unzip();
         Ok(NetworkStreamResponse {
+            response_policy: response.response_policy,
             encoded_bytes: response.encoded_bytes.clone(),
             timing: response.timing,
             request_id: response.request_id,
@@ -2491,7 +2583,7 @@ fn schedule_cache_revalidation(
     };
     let mut request = request.clone();
     request.security.fetch_cache = oryn_js::platform::FetchCacheMode::NoCache;
-    crate::executable::resource_io_executor::submit(move || {
+    crate::resource_io_executor::submit(move || {
         let broker = owner.broker();
         // Re-enter policy/cookie/cache admission with a private identity. The
         // normal NoCache route owns validators, 304 merging and publication.
@@ -2653,6 +2745,7 @@ fn revalidated_response(
         !name.eq_ignore_ascii_case("warning") || !value.trim_start().starts_with('1')
     });
     NetworkResponse {
+        response_policy: None,
         timing: validated_cache_timing(Some(oryn_net::TransportTiming {
             encoded_body_size: entry.encoded_body_size,
             ..Default::default()
@@ -2678,12 +2771,12 @@ fn revalidation_operation(
                 // Consume the terminal receipt before replacing the empty 304
                 // operation. Dropping it at headers would cancel shared work.
                 loop{operation.request_body_chunk();let event=tokio::select!{event=operation.next_event()=>event,_=sender.closed()=>return};match event{
-                    Some(NetworkEvent::Complete{encoded_body_size,request_id:id})if id==request_id=>break,
+                    Some(NetworkEvent::Complete{encoded_body_size:_,request_id:id})if id==request_id=>break,
                     Some(NetworkEvent::Chunk{request_id:id,bytes})if id==request_id&&bytes.is_empty()=>{},
                     Some(NetworkEvent::Failed{request_id,error})=>{let _=sender.send(NetworkEvent::Failed{request_id,error}).await;return},
                     _=>{let _=sender.send(NetworkEvent::Failed{request_id,error:"invalid conditional response body".into()}).await;return},
                 }}
-                let mut response=revalidated_response(request_id,entry,&headers);response.timing=validated_cache_timing_with_size(timing,response.timing.as_ref().and_then(|timing|timing.encoded_body_size));operation=operation_from_response(response);
+                let mut response=revalidated_response(request_id,entry,&headers);response.timing=validated_cache_timing_with_size(timing.map(|timing|*timing),response.timing.as_ref().and_then(|timing|timing.encoded_body_size));operation=operation_from_response(response);
             }
             other=>{if sender.send(other).await.is_err(){return}}
         }
@@ -3175,6 +3268,7 @@ impl NetworkBroker for RustlsTransport {
             ));
         }
         Ok(NetworkResponse {
+            response_policy: response.response_policy,
             timing: response.timing,
             request_id: response.request_id,
             status: response.status,
@@ -3227,6 +3321,7 @@ impl NetworkBroker for RustlsTransport {
             self.max_response_bytes,
         )?;
         Ok(NetworkStreamResponse {
+            response_policy: None,
             encoded_bytes: Some(encoded_bytes),
             timing: Some(response.timing),
             request_id: response.operation_id,
@@ -3311,7 +3406,8 @@ impl NetworkBroker for RustlsTransport {
             };
             if sender
                 .send(NetworkEvent::Headers {
-                    timing: Some(response.timing),
+                    response_policy: None,
+                    timing: Some(Box::new(response.timing)),
                     request_id,
                     status: response.status,
                     headers: response.headers,
@@ -3397,8 +3493,8 @@ impl NetworkBroker for RustlsTransport {
 /// socket is inherited from the parent, so the sandboxed child needs no
 /// filesystem or network entitlement of its own.
 pub struct IpcNetworkBroker {
-    writer: Mutex<UnixStream>,
-    next_message_id: std::sync::atomic::AtomicU64,
+    writer: Arc<Mutex<UnixStream>>,
+    next_message_id: Arc<std::sync::atomic::AtomicU64>,
     pending: Arc<Mutex<PendingNetworkReplies>>,
     active_requests: Arc<Mutex<ActiveNetworkRequests>>,
 }
@@ -3418,8 +3514,9 @@ struct BrokerRequestEnvelope {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 enum BrokerCommand {
-    Start { request: EncodedNetworkRequest },
+    Start { request: Box<EncodedNetworkRequest> },
     Cancel { request_id: u64 },
+    DiscardResponsePolicy { token: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -3440,7 +3537,9 @@ struct BrokerResponseEnvelope {
 enum EncodedNetworkEvent {
     Headers {
         #[serde(default)]
-        timing: Option<oryn_net::TransportTiming>,
+        response_policy: Option<String>,
+        #[serde(default)]
+        timing: Option<Box<oryn_net::TransportTiming>>,
         request_id: u64,
         status: u16,
         headers: Vec<(String, String)>,
@@ -3478,6 +3577,8 @@ struct EncodedNetworkRequest {
 #[derive(Debug, Serialize, Deserialize)]
 struct EncodedNetworkResponse {
     #[serde(default)]
+    response_policy: Option<String>,
+    #[serde(default)]
     timing: Option<oryn_net::TransportTiming>,
     request_id: u64,
     status: u16,
@@ -3488,17 +3589,29 @@ struct EncodedNetworkResponse {
 impl IpcNetworkBroker {
     pub fn new(stream: UnixStream) -> Self {
         let reader = stream.try_clone().expect("clone broker IPC stream");
+        let writer = Arc::new(Mutex::new(stream));
+        let next_message_id = Arc::new(std::sync::atomic::AtomicU64::new(1));
+        let reader_writer = writer.clone();
+        let reader_message_id = next_message_id.clone();
         let pending: Arc<Mutex<PendingNetworkReplies>> = Arc::new(Mutex::new(BTreeMap::new()));
         let reader_pending = pending.clone();
         let active_requests = Arc::new(Mutex::new(BTreeMap::new()));
         let reader_active_requests = active_requests.clone();
         std::thread::Builder::new()
             .name("oryn-worker-broker-reader".into())
-            .spawn(move || broker_response_loop(reader, reader_pending, reader_active_requests))
+            .spawn(move || {
+                broker_response_loop(
+                    reader,
+                    reader_pending,
+                    reader_active_requests,
+                    reader_writer,
+                    reader_message_id,
+                )
+            })
             .expect("spawn broker response reader");
         Self {
-            writer: Mutex::new(stream),
-            next_message_id: std::sync::atomic::AtomicU64::new(1),
+            writer,
+            next_message_id,
             pending,
             active_requests,
         }
@@ -3514,8 +3627,21 @@ impl Drop for IpcNetworkBroker {
 }
 
 impl NetworkBroker for IpcNetworkBroker {
+    fn discard_response_policy_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        token: &str,
+    ) -> Result<(), NetworkError> {
+        write_response_policy_discard(
+            &self.writer,
+            &self.next_message_id,
+            route.cloned(),
+            token.into(),
+        )
+    }
     fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
         let mut operation = self.start_operation(request)?;
+        let mut response_policy = None;
         let mut transport_timing: Option<oryn_net::TransportTiming> = None;
         let mut timing_headers = None;
         let mut status = None;
@@ -3524,12 +3650,14 @@ impl NetworkBroker for IpcNetworkBroker {
         while let Some(event) = operation.blocking_event() {
             match event {
                 NetworkEvent::Headers {
+                    response_policy: policy,
                     timing,
                     status: value,
                     headers: values,
                     ..
                 } => {
-                    transport_timing = timing;
+                    response_policy = policy;
+                    transport_timing = timing.map(|timing| *timing);
                     timing_headers = Some(std::time::Instant::now());
                     status = Some(value);
                     headers = values;
@@ -3547,6 +3675,7 @@ impl NetworkBroker for IpcNetworkBroker {
                     request_id,
                 } => {
                     return Ok(NetworkResponse {
+                        response_policy,
                         timing: transport_timing.map(|mut timing| {
                             timing.encoded_body_size =
                                 encoded_body_size.or(timing.encoded_body_size);
@@ -3611,7 +3740,7 @@ impl NetworkBroker for IpcNetworkBroker {
             route: route.cloned(),
             message_id,
             command: BrokerCommand::Start {
-                request: EncodedNetworkRequest {
+                request: Box::new(EncodedNetworkRequest {
                     request_id,
                     method: request.method,
                     url: request.url,
@@ -3619,7 +3748,7 @@ impl NetworkBroker for IpcNetworkBroker {
                     body_base64: BASE64.encode(request.body),
                     credentials: request.credentials,
                     security: request.security,
-                },
+                }),
             },
         };
         // Publish correlation state before the request becomes visible to the
@@ -3707,6 +3836,8 @@ fn broker_response_loop(
     stream: UnixStream,
     pending: Arc<Mutex<PendingNetworkReplies>>,
     active_requests: Arc<Mutex<ActiveNetworkRequests>>,
+    writer: Arc<Mutex<UnixStream>>,
+    next_message_id: Arc<std::sync::atomic::AtomicU64>,
 ) {
     let mut reader = BufReader::new(stream);
     loop {
@@ -3717,20 +3848,43 @@ fn broker_response_loop(
         if read == 0 || line.len() > MAX_BROKER_FRAME_BYTES {
             break;
         }
-        let Ok(response) = serde_json::from_slice::<BrokerResponseEnvelope>(&line) else {
+        let Ok(mut response) = serde_json::from_slice::<BrokerResponseEnvelope>(&line) else {
             continue;
         };
         if response.protocol_version != BROKER_PROTOCOL_VERSION {
             continue;
+        }
+        // Acquire cleanup before validating correlation, route or transport
+        // metadata. Rejected headers still carry a parent-owned reservation.
+        let mut response_policy = match response.event.as_mut() {
+            Some(EncodedNetworkEvent::Headers {
+                response_policy, ..
+            }) => response_policy.take(),
+            _ => response
+                .response
+                .as_mut()
+                .and_then(|response| response.response_policy.take()),
+        }
+        .map(ResponsePolicyToken::from);
+        if let Some(token) = &response_policy {
+            attach_response_policy_cleanup(
+                token,
+                response.route.clone(),
+                &writer,
+                &next_message_id,
+            );
         }
         let sender = pending
             .lock()
             .ok()
             .and_then(|pending| pending.get(&response.correlation_id).cloned());
         let Some((route, sender)) = sender else {
+            // Cancellation may have removed correlation before an admitted
+            // response reaches this reader. Reclaim its token even though no
+            // navigation consumer will ever see the headers.
             continue;
         };
-        let event = if response.route != route {
+        let mut event = if response.route != route {
             NetworkEvent::Failed {
                 request_id: 0,
                 error: "network response route mismatch".into(),
@@ -3756,10 +3910,11 @@ fn broker_response_loop(
                 .as_ref()
                 .and_then(|timing| timing.encoded_body_size);
             let _ = sender.blocking_send(NetworkEvent::Headers {
-                timing: response.timing,
+                response_policy: response_policy.take(),
+                timing: response.timing.map(Box::new),
                 request_id,
                 status: response.status,
-                headers: response.headers,
+                headers: sanitize_parent_response_headers(response.headers),
                 content_length: Some(body.len()),
                 upload: None,
             });
@@ -3777,6 +3932,13 @@ fn broker_response_loop(
                 error: "broker returned no event".into(),
             }
         };
+        if let NetworkEvent::Headers {
+            response_policy: policy,
+            ..
+        } = &mut event
+        {
+            *policy = response_policy.take();
+        }
         let terminal = matches!(
             event,
             NetworkEvent::Complete { .. } | NetworkEvent::Failed { .. }
@@ -3789,6 +3951,9 @@ fn broker_response_loop(
             }
         }
     }
+    // A broken response channel cannot leave request-side authority alive.
+    // Closing both halves also makes the parent revoke outstanding grants.
+    let _ = reader.get_ref().shutdown(std::net::Shutdown::Both);
     if let Ok(mut pending) = pending.lock() {
         for (_, (_, sender)) in std::mem::take(&mut *pending) {
             let _ = sender.blocking_send(NetworkEvent::Failed {
@@ -3797,6 +3962,59 @@ fn broker_response_loop(
             });
         }
     }
+}
+
+fn write_response_policy_discard(
+    writer: &Arc<Mutex<UnixStream>>,
+    next_message_id: &Arc<std::sync::atomic::AtomicU64>,
+    route: Option<WorkerRoute>,
+    value: String,
+) -> Result<(), NetworkError> {
+    let mut writer = writer.lock().unwrap_or_else(|error| error.into_inner());
+    let result = (|| -> Result<(), NetworkError> {
+        let message_id = next_message_id
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .map_err(|_| NetworkError::Transport("network message identifiers exhausted".into()))?;
+        let envelope = BrokerRequestEnvelope {
+            protocol_version: BROKER_PROTOCOL_VERSION,
+            route,
+            message_id,
+            command: BrokerCommand::DiscardResponsePolicy { token: value },
+        };
+        serde_json::to_writer(&mut *writer, &envelope)
+            .map_err(|error| NetworkError::Transport(error.to_string()))?;
+        writer
+            .write_all(b"\n")
+            .and_then(|_| writer.flush())
+            .map_err(|error| NetworkError::Transport(error.to_string()))
+    })();
+    if result.is_err() {
+        // A failed cleanup frame must not leave a half-written stream
+        // available for subsequent requests under the same route.
+        let _ = writer.shutdown(std::net::Shutdown::Both);
+    }
+    result
+}
+
+fn attach_response_policy_cleanup(
+    token: &ResponsePolicyToken,
+    route: Option<WorkerRoute>,
+    writer: &Arc<Mutex<UnixStream>>,
+    next_message_id: &Arc<std::sync::atomic::AtomicU64>,
+) {
+    let value = token.as_str().to_owned();
+    let writer = Arc::downgrade(writer);
+    let next_message_id = next_message_id.clone();
+    token.attach_cleanup(move || {
+        // Dropping a queue item cannot block its consumer or an IPC reader.
+        // The message is token-specific; it never cancels a successor's body.
+        operation_runtime().spawn_blocking(move || {
+            let Some(writer) = writer.upgrade() else {
+                return;
+            };
+            let _ = write_response_policy_discard(&writer, &next_message_id, route, value);
+        });
+    });
 }
 
 fn decode_network_event(event: EncodedNetworkEvent) -> Result<NetworkEvent, NetworkError> {
@@ -3808,6 +4026,7 @@ fn decode_network_event(event: EncodedNetworkEvent) -> Result<NetworkEvent, Netw
     }
     Ok(match event {
         EncodedNetworkEvent::Headers {
+            response_policy,
             timing,
             request_id,
             status,
@@ -3815,6 +4034,7 @@ fn decode_network_event(event: EncodedNetworkEvent) -> Result<NetworkEvent, Netw
             content_length,
             upload,
         } => NetworkEvent::Headers {
+            response_policy: response_policy.map(ResponsePolicyToken::from),
             timing,
             request_id,
             status,
@@ -3885,9 +4105,13 @@ pub fn serve_ipc_broker(
                     let route = envelope.route;
                     last_message_id = envelope.message_id;
                     let request = match envelope.command {
-                        BrokerCommand::Start { request } => request,
+                        BrokerCommand::Start { request } => *request,
                         BrokerCommand::Cancel { request_id } => {
                             let _ = broker.cancel_routed(route.as_ref(), request_id);
+                            continue;
+                        }
+                        BrokerCommand::DiscardResponsePolicy { token } => {
+                            let _ = broker.discard_response_policy_routed(route.as_ref(), &token);
                             continue;
                         }
                     };
@@ -3984,6 +4208,7 @@ pub fn serve_ipc_broker(
 fn encode_network_event(event: NetworkEvent) -> EncodedNetworkEvent {
     match event {
         NetworkEvent::Headers {
+            response_policy,
             timing,
             request_id,
             status,
@@ -3991,6 +4216,7 @@ fn encode_network_event(event: NetworkEvent) -> EncodedNetworkEvent {
             content_length,
             upload,
         } => EncodedNetworkEvent::Headers {
+            response_policy: response_policy.map(|token| token.as_str().to_owned()),
             timing,
             request_id,
             status,
@@ -4126,6 +4352,238 @@ mod tests {
     };
 
     use super::*;
+    fn policy_test_request() -> NetworkRequest {
+        NetworkRequest {
+            request_id: 71,
+            method: "GET".into(),
+            url: "https://policy.test/".into(),
+            headers: Vec::new(),
+            body: Vec::new(),
+            credentials: true,
+            security: CookieRequestContext::default(),
+            resolved_addrs: Vec::new(),
+        }
+    }
+
+    fn policy_test_read(reader: &mut BufReader<UnixStream>) -> BrokerRequestEnvelope {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    }
+
+    fn policy_test_write(
+        writer: &mut UnixStream,
+        request: &BrokerRequestEnvelope,
+        event: EncodedNetworkEvent,
+    ) {
+        serde_json::to_writer(
+            &mut *writer,
+            &BrokerResponseEnvelope {
+                protocol_version: BROKER_PROTOCOL_VERSION,
+                route: request.route.clone(),
+                correlation_id: request.message_id,
+                response: None,
+                event: Some(event),
+                error: None,
+            },
+        )
+        .unwrap();
+        writer.write_all(b"\n").unwrap();
+        writer.flush().unwrap();
+    }
+
+    fn policy_test_headers() -> EncodedNetworkEvent {
+        EncodedNetworkEvent::Headers {
+            response_policy: Some("exact-native-grant".into()),
+            timing: None,
+            request_id: 71,
+            status: 200,
+            headers: Vec::new(),
+            content_length: Some(1),
+            upload: None,
+        }
+    }
+
+    #[test]
+    fn unread_completed_ipc_headers_discard_the_exact_grant() {
+        let (worker, mut parent) = UnixStream::pair().unwrap();
+        parent
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let server = std::thread::spawn(move || {
+            let mut reader = BufReader::new(parent.try_clone().unwrap());
+            let start = policy_test_read(&mut reader);
+            policy_test_write(&mut parent, &start, policy_test_headers());
+            policy_test_write(
+                &mut parent,
+                &start,
+                EncodedNetworkEvent::Complete {
+                    encoded_body_size: Some(0),
+                    request_id: 71,
+                },
+            );
+            let discard = policy_test_read(&mut reader);
+            assert_eq!(discard.route, start.route);
+            assert!(discard.message_id > start.message_id);
+            assert!(
+                matches!(discard.command, BrokerCommand::DiscardResponsePolicy { token } if token == "exact-native-grant")
+            );
+        });
+        let broker = IpcNetworkBroker::new(worker);
+        let route = WorkerRoute::issue(1, 1, 0).unwrap();
+        let operation = broker
+            .start_routed(Some(&route), policy_test_request())
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while operation.events.len() < 2 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "headers/completion did not reach the unread queue"
+            );
+            std::thread::park_timeout(Duration::from_millis(1));
+        }
+        drop(operation);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn late_ipc_headers_are_discarded_after_correlation_was_cancelled() {
+        let (worker, mut parent) = UnixStream::pair().unwrap();
+        parent
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let server = std::thread::spawn(move || {
+            let mut reader = BufReader::new(parent.try_clone().unwrap());
+            let start = policy_test_read(&mut reader);
+            let cancel = policy_test_read(&mut reader);
+            assert!(matches!(
+                cancel.command,
+                BrokerCommand::Cancel { request_id: 71 }
+            ));
+            policy_test_write(&mut parent, &start, policy_test_headers());
+            let discard = policy_test_read(&mut reader);
+            assert_eq!(discard.route, start.route);
+            assert!(discard.message_id > cancel.message_id);
+            assert!(
+                matches!(discard.command, BrokerCommand::DiscardResponsePolicy { token } if token == "exact-native-grant")
+            );
+        });
+        let broker = IpcNetworkBroker::new(worker);
+        let route = WorkerRoute::issue(1, 1, 0).unwrap();
+        let operation = broker
+            .start_routed(Some(&route), policy_test_request())
+            .unwrap();
+        broker.cancel_routed(Some(&route), 71).unwrap();
+        drop(operation);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn rejected_ipc_timing_releases_response_policy_before_publication() {
+        let (worker, mut parent) = UnixStream::pair().unwrap();
+        parent
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let server = std::thread::spawn(move || {
+            let mut reader = BufReader::new(parent.try_clone().unwrap());
+            let start = policy_test_read(&mut reader);
+            let mut headers = policy_test_headers();
+            if let EncodedNetworkEvent::Headers { timing, .. } = &mut headers {
+                *timing = Some(Box::new(oryn_net::TransportTiming {
+                    dns_start: Some(2),
+                    dns_end: Some(1),
+                    ..Default::default()
+                }));
+            }
+            policy_test_write(&mut parent, &start, headers);
+            let discard = policy_test_read(&mut reader);
+            assert_eq!(discard.route, start.route);
+            assert!(
+                matches!(discard.command, BrokerCommand::DiscardResponsePolicy { token } if token == "exact-native-grant")
+            );
+        });
+        let broker = IpcNetworkBroker::new(worker);
+        let route = WorkerRoute::issue(1, 1, 0).unwrap();
+        let mut operation = broker
+            .start_routed(Some(&route), policy_test_request())
+            .unwrap();
+        assert!(
+            matches!(operation.blocking_event(), Some(NetworkEvent::Failed { error, .. })
+            if error.contains("invalid native transport timing snapshot"))
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn committed_ipc_grant_does_not_cancel_the_remaining_body() {
+        let (worker, mut parent) = UnixStream::pair().unwrap();
+        parent
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let (committed, ready) = std::sync::mpsc::channel();
+        let (consumed, done) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let mut reader = BufReader::new(parent.try_clone().unwrap());
+            let start = policy_test_read(&mut reader);
+            policy_test_write(&mut parent, &start, policy_test_headers());
+            ready.recv_timeout(Duration::from_secs(5)).unwrap();
+            policy_test_write(
+                &mut parent,
+                &start,
+                EncodedNetworkEvent::Chunk {
+                    request_id: 71,
+                    body_base64: BASE64.encode(b"x"),
+                },
+            );
+            policy_test_write(
+                &mut parent,
+                &start,
+                EncodedNetworkEvent::Complete {
+                    request_id: 71,
+                    encoded_body_size: Some(1),
+                },
+            );
+            done.recv_timeout(Duration::from_secs(5)).unwrap();
+            reader
+                .get_ref()
+                .set_read_timeout(Some(Duration::from_millis(100)))
+                .unwrap();
+            let mut line = String::new();
+            let error = reader
+                .read_line(&mut line)
+                .expect_err("committed token emitted cleanup");
+            assert!(matches!(
+                error.kind(),
+                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+            ));
+        });
+        let broker = IpcNetworkBroker::new(worker);
+        let route = WorkerRoute::issue(1, 1, 0).unwrap();
+        let mut operation = broker
+            .start_routed(Some(&route), policy_test_request())
+            .unwrap();
+        let token = match operation.blocking_event().unwrap() {
+            NetworkEvent::Headers {
+                response_policy: Some(token),
+                ..
+            } => token,
+            event => panic!("expected owned headers: {event:?}"),
+        };
+        token.committed();
+        drop(token);
+        committed.send(()).unwrap();
+        assert!(
+            matches!(operation.blocking_event(), Some(NetworkEvent::Chunk { bytes, .. }) if bytes.as_ref() == b"x")
+        );
+        assert!(matches!(
+            operation.blocking_event(),
+            Some(NetworkEvent::Complete { .. })
+        ));
+        drop(operation);
+        consumed.send(()).unwrap();
+        server.join().unwrap();
+    }
+
     #[test]
     fn extracted_response_mime_aligns_document_decoder_and_timing() {
         for (values, bytes, expected_type, expected_text) in [
@@ -4160,6 +4618,7 @@ mod tests {
             ),
         ] {
             let response = NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: 1,
                 status: 200,
@@ -4360,7 +4819,8 @@ mod tests {
             }),
         ] {
             let encoded = encode_network_event(NetworkEvent::Headers {
-                timing: Some(oryn_net::TransportTiming {
+                response_policy: Some("parent-response-grant".into()),
+                timing: Some(Box::new(oryn_net::TransportTiming {
                     measured_response: true,
                     dns_start: Some(2),
                     dns_end: Some(5),
@@ -4372,7 +4832,7 @@ mod tests {
                     response_start: 22,
                     next_hop_protocol: "h2".into(),
                     ..Default::default()
-                }),
+                })),
                 request_id: 27,
                 status: 200,
                 headers: vec![
@@ -4383,11 +4843,17 @@ mod tests {
                 upload,
             });
             let wire = serde_json::to_vec(&encoded).unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&wire).unwrap();
+            assert_eq!(json["kind"], "headers");
+            assert_eq!(json["timing"]["dns_start"], 2);
+            assert_eq!(json["timing"]["dns_end"], 5);
+            assert_eq!(json["timing"]["next_hop_protocol"], "h2");
             let decoded = decode_network_event(serde_json::from_slice(&wire).unwrap()).unwrap();
             assert_eq!(
                 decoded,
                 NetworkEvent::Headers {
-                    timing: Some(oryn_net::TransportTiming {
+                    response_policy: Some("parent-response-grant".into()),
+                    timing: Some(Box::new(oryn_net::TransportTiming {
                         measured_response: true,
                         dns_start: Some(2),
                         dns_end: Some(5),
@@ -4399,7 +4865,7 @@ mod tests {
                         response_start: 22,
                         next_hop_protocol: "h2".into(),
                         ..Default::default()
-                    }),
+                    })),
                     request_id: 27,
                     status: 200,
                     headers: vec![("content-type".into(), "text/plain".into())],
@@ -4437,6 +4903,7 @@ mod tests {
     #[test]
     fn buffered_response_does_not_invent_upload_completion() {
         let mut operation = operation_from_response(NetworkResponse {
+            response_policy: None,
             timing: None,
             request_id: 41,
             status: 200,
@@ -4471,6 +4938,7 @@ mod tests {
             if self.stale {
                 sender
                     .blocking_send(NetworkEvent::Headers {
+                        response_policy: None,
                         timing: None,
                         request_id: request.request_id + 1,
                         status: 200,
@@ -4533,6 +5001,7 @@ mod tests {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             self.requests.lock().unwrap().push(request.clone());
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -4594,6 +5063,7 @@ mod tests {
                 assert_eq!(values("sec-fetch-dest"), vec!["audio"]);
                 assert!(values("sec-fetch-user").is_empty());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     request_id: request.request_id,
                     status: 200,
                     headers: Vec::new(),
@@ -4627,6 +5097,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.requests.lock().unwrap().push(request.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -4956,6 +5427,7 @@ mod tests {
         impl NetworkBroker for CancelRecording {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -5049,6 +5521,7 @@ mod tests {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             *self.requests.lock().unwrap() += 1;
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -5071,6 +5544,7 @@ mod tests {
             let conditional =
                 response_header(&request.headers, "if-none-match") == Some("\"native\"");
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: if conditional { 304 } else { 200 },
@@ -5499,7 +5973,7 @@ mod tests {
             message_id: 1,
             route: None,
             command: BrokerCommand::Start {
-                request: EncodedNetworkRequest {
+                request: Box::new(EncodedNetworkRequest {
                     request_id: 7,
                     method: "GET".into(),
                     url: "https://example.test/".into(),
@@ -5507,7 +5981,7 @@ mod tests {
                     body_base64: String::new(),
                     credentials: true,
                     security: CookieRequestContext::default(),
-                },
+                }),
             },
         };
         for attempt in 0..2 {
@@ -5646,6 +6120,56 @@ mod integrity_body_source_tests {
     use super::*;
     use std::sync::atomic::AtomicBool;
     #[test]
+    fn integrity_buffering_replays_the_original_terminal_encoded_count() {
+        for encoded in [None, Some(0), Some(17)] {
+            let (tx, rx) = tokio::sync::mpsc::channel(2);
+            tx.try_send(NetworkEvent::Chunk {
+                request_id: 7,
+                bytes: bytes::Bytes::from_static(b"hello"),
+            })
+            .unwrap();
+            tx.try_send(NetworkEvent::Complete {
+                request_id: 7,
+                encoded_body_size: encoded,
+            })
+            .unwrap();
+            drop(tx);
+            let mut source = NetworkOperation {
+                body_demand_pending: Default::default(),
+                prefetched: Default::default(),
+                request_id: 7,
+                events: rx,
+                demand: None,
+            };
+            let collected = collect_started_body_with_metadata(
+                &mut source,
+                std::time::Instant::now() + Duration::from_secs(1),
+                5,
+                &AtomicBool::new(false),
+                None,
+            )
+            .unwrap();
+            crate::integrity::verify(
+                "sha256-LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=",
+                &collected.bytes,
+                true,
+            )
+            .unwrap();
+            let mut replay = buffered_body_operation(7, collected).unwrap();
+            assert!(
+                matches!(replay.try_event().unwrap(), NetworkEvent::Chunk { request_id: 7, bytes } if bytes.as_ref() == b"hello")
+            );
+            assert!(
+                matches!(replay.try_event().unwrap(), NetworkEvent::Complete { request_id: 7, encoded_body_size } if encoded_body_size == encoded)
+            );
+            assert!(
+                replay.try_event().is_err(),
+                "one terminal metadata publication only"
+            );
+        }
+    }
+
+    #[test]
     fn verification_body_rejects_truncation_wrong_identity_limits_and_cancellation() {
         let collect = |events: Vec<NetworkEvent>, limit, cancelled| {
             let (tx, rx) = tokio::sync::mpsc::channel(4);
@@ -5741,6 +6265,7 @@ mod transport_cache_header_tests {
             let id = request.request_id;
             self.0.lock().unwrap().push(request);
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: id,
                 status: 304,
@@ -5850,6 +6375,7 @@ mod stale_revalidation_tests {
                 self.release.lock().unwrap().recv().unwrap();
             }
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -5959,6 +6485,7 @@ mod stale_revalidation_tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 let call = self.0.fetch_add(1, Ordering::SeqCst);
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if call == 0 { 206 } else { 200 },
@@ -6157,9 +6684,9 @@ pub(crate) fn timing_clock_micros() -> Option<u64> {
         {
             return None;
         }
-        return (value.tv_sec as u64)
+        (value.tv_sec as u64)
             .checked_mul(1_000_000)?
-            .checked_add(value.tv_nsec as u64 / 1000);
+            .checked_add(value.tv_nsec as u64 / 1000)
     }
     #[cfg(not(unix))]
     {
@@ -6169,6 +6696,7 @@ pub(crate) fn timing_clock_micros() -> Option<u64> {
 pub(crate) fn timing_clock_origin(elapsed: u64) -> Option<u64> {
     timing_clock_micros()?.checked_sub(elapsed)
 }
+#[cfg(any(feature = "v8-host", test))]
 pub(crate) fn timing_instant(
     metadata: &oryn_js::platform::ResourceTimingMetadata,
 ) -> Option<std::time::Instant> {
@@ -6261,6 +6789,7 @@ mod timing_provenance_tests {
     use super::*;
     fn metadata() -> oryn_js::platform::ResourceTimingMetadata {
         let response = NetworkResponse {
+            response_policy: None,
             timing: Some(oryn_net::TransportTiming {
                 measured_response: true,
                 connect_start: Some(1),
@@ -6297,6 +6826,7 @@ mod timing_provenance_tests {
     fn completed_identity_response_uses_observed_size_not_service_header() {
         for encoding in [None, Some("identity")] {
             let mut response = NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: 1,
                 status: 200,
@@ -6348,6 +6878,7 @@ mod timing_provenance_tests {
     fn local_service_timing_permission_is_bound_to_original_origin() {
         let metadata = local_resource_timing_metadata("https://a.test", b"abc", None, 1);
         let response = NetworkResponse {
+            response_policy: None,
             request_id: 1,
             status: 200,
             headers: Vec::new(),
@@ -6553,6 +7084,7 @@ mod document_mime_prefix_tests {
 
 /// Project a measured native response onto the new Document's original clock.
 /// An absent IPC anchor stays unavailable; it is never replaced by receipt time.
+#[cfg(any(feature = "v8-host", test))]
 pub(crate) fn install_frame_navigation_timing(
     record: &oryn_js::navigation_timing::NavigationTiming,
     url: &str,
@@ -6580,17 +7112,17 @@ pub(crate) fn install_frame_navigation_timing(
         record.worker_start(start);
     }
     record.redirect_provenance(&metadata.hops)?;
-    record.response(
-        url.into(),
-        metadata.response_status,
+    record.response(oryn_js::navigation_timing::NavigationResponse {
+        url: url.into(),
+        status: metadata.response_status,
         headers,
         fetch,
         received,
-        Some(details),
-        referrer_policy == "no-referrer",
-    )?;
-    if complete {
-        if let Some(end) = metadata
+        details: Some(details),
+        no_referrer: referrer_policy == "no-referrer",
+    })?;
+    if complete
+        && let Some(end) = metadata
             .response_end_micros
             .or_else(|| {
                 metadata
@@ -6599,9 +7131,8 @@ pub(crate) fn install_frame_navigation_timing(
                     .and_then(|timing| timing.response_end)
             })
             .and_then(|end| fetch.checked_add(std::time::Duration::from_micros(end)))
-        {
-            record.finish(end, metadata.decoded_body_size.unwrap_or(0));
-        }
+    {
+        record.finish(end, metadata.decoded_body_size.unwrap_or(0));
     }
     Ok(())
 }
@@ -6691,6 +7222,7 @@ mod navigation_phase_tests {
     fn buffered_completion_provenance_is_not_reused_by_service_response() {
         let metadata = local_resource_timing_metadata("https://timing.test", b"old", None, 900);
         let reused = NetworkResponse {
+            response_policy: None,
             request_id: 1,
             status: 200,
             headers: Vec::new(),
@@ -6768,15 +7300,15 @@ mod navigation_phase_tests {
         metadata.response_start_micros = 50_000;
         record.redirect_provenance(&metadata.hops).unwrap();
         record
-            .response(
-                "https://a.test/final".into(),
-                200,
-                &[],
-                start,
-                start + std::time::Duration::from_millis(50),
-                Some(metadata),
-                false,
-            )
+            .response(oryn_js::navigation_timing::NavigationResponse {
+                url: "https://a.test/final".into(),
+                status: 200,
+                headers: &[],
+                fetch: start,
+                received: start + std::time::Duration::from_millis(50),
+                details: Some(metadata),
+                no_referrer: false,
+            })
             .unwrap();
         let snapshot = record.snapshot();
         assert_eq!(snapshot.values["fetchStart"], 30.);
@@ -6802,13 +7334,19 @@ impl ServiceWorkerTiming {
     }
     fn apply(&self, timing: &mut Option<oryn_net::TransportTiming>) {
         if let Some(clock) = self.0.get() {
-            let timing = timing.get_or_insert_with(Default::default);
-            timing.worker_start_clock_micros = Some(clock);
-            if !timing.measured_response {
-                timing.response_start =
-                    self.1.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                timing.measured_response = true;
-            }
+            self.stamp(timing.get_or_insert_with(Default::default), clock);
+        }
+    }
+    fn apply_event(&self, timing: &mut Option<Box<oryn_net::TransportTiming>>) {
+        if let Some(clock) = self.0.get() {
+            self.stamp(timing.get_or_insert_with(Default::default).as_mut(), clock);
+        }
+    }
+    fn stamp(&self, timing: &mut oryn_net::TransportTiming, clock: u64) {
+        timing.worker_start_clock_micros = Some(clock);
+        if !timing.measured_response {
+            timing.response_start = self.1.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+            timing.measured_response = true;
         }
     }
     pub(crate) fn response(&self, mut response: NetworkResponse) -> NetworkResponse {
@@ -6825,7 +7363,7 @@ impl ServiceWorkerTiming {
         operation_runtime().spawn(async move{loop{tokio::select!{
    _=sender.closed()=>return,
    credit=credits.recv()=>{if credit.is_none(){return}operation.request_body_chunk();},
-   event=operation.next_event()=>{let Some(mut event)=event else{return};if let NetworkEvent::Headers{timing,..}=&mut event{self.apply(timing);}let terminal=matches!(event,NetworkEvent::Complete{..}|NetworkEvent::Failed{..});if sender.send(event).await.is_err()||terminal{return}},
+   event=operation.next_event()=>{let Some(mut event)=event else{return};if let NetworkEvent::Headers{timing,..}=&mut event{self.apply_event(timing);}let terminal=matches!(event,NetworkEvent::Complete{..}|NetworkEvent::Failed{..});if sender.send(event).await.is_err()||terminal{return}},
   }}});
         NetworkOperation {
             body_demand_pending: Default::default(),
@@ -6836,6 +7374,7 @@ impl ServiceWorkerTiming {
         }
     }
 }
+#[cfg(any(feature = "v8-host", test))]
 pub(crate) fn native_worker_start(
     timing: Option<&oryn_net::TransportTiming>,
 ) -> Option<std::time::Instant> {
@@ -6851,6 +7390,7 @@ mod service_worker_timing_tests {
     fn selected_worker_stamp_survives_network_fallback_without_reusing_cached_response_clock() {
         let timing = ServiceWorkerTiming::default();
         let mut response = NetworkResponse {
+            response_policy: None,
             request_id: 1,
             status: 200,
             headers: Vec::new(),
@@ -6886,6 +7426,38 @@ mod service_worker_timing_tests {
         assert!(native_worker_start(response.timing.as_ref()).is_none());
     }
     #[test]
+    fn worker_event_stamp_preserves_measured_transport_and_absent_selection() {
+        let worker = ServiceWorkerTiming::default();
+        let mut absent = None;
+        worker.apply_event(&mut absent);
+        assert!(absent.is_none());
+
+        let mut measured = Some(Box::new(oryn_net::TransportTiming {
+            measured_response: true,
+            response_start: 123,
+            dns_start: Some(2),
+            dns_end: Some(5),
+            next_hop_protocol: "h2".into(),
+            ..Default::default()
+        }));
+        let allocation = measured.as_deref().unwrap() as *const oryn_net::TransportTiming;
+        worker.selected();
+        let clock = worker.0.get().unwrap();
+        worker.apply_event(&mut measured);
+        let snapshot = measured.as_deref().unwrap();
+        assert_eq!(snapshot as *const _, allocation);
+        assert_eq!(snapshot.worker_start_clock_micros, Some(clock));
+        assert_eq!(snapshot.response_start, 123);
+        assert_eq!(snapshot.dns_start, Some(2));
+        assert_eq!(snapshot.dns_end, Some(5));
+        assert_eq!(snapshot.next_hop_protocol, "h2");
+        worker.apply_event(&mut absent);
+        let snapshot = absent.as_deref().unwrap();
+        assert!(snapshot.measured_response);
+        assert_eq!(snapshot.worker_start_clock_micros, Some(clock));
+    }
+
+    #[test]
     fn timed_fallback_operation_preserves_body_demand_and_terminal_completion() {
         struct Fallback;
         impl NetworkBroker for Fallback {
@@ -6899,6 +7471,7 @@ mod service_worker_timing_tests {
                 let timing = ServiceWorkerTiming::default();
                 timing.selected();
                 Ok(timing.operation(operation_from_response(NetworkResponse {
+                    response_policy: None,
                     request_id: request.request_id,
                     status: 200,
                     headers: Vec::new(),
@@ -6972,6 +7545,7 @@ mod encoded_timing_tests {
         assert_eq!(decoded, source);
         assert_eq!(counter.load(Ordering::Relaxed), expected);
         let response = NetworkResponse {
+            response_policy: None,
             request_id: 17,
             status: 200,
             headers: vec![

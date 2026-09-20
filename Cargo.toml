@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-exclude = ["fuzz", "vendor/stylo", "vendor/stylo_atoms", "vendor/blitz-dom", "vendor/stylo_taffy", "vendor/xml", "vendor/usvg", "vendor/html5ever", "vendor/markup5ever", "vendor/reqwest", "vendor/chardetng", "vendor/rusty-v8"]
+exclude = ["fuzz", "vendor/stylo", "vendor/stylo_atoms", "vendor/blitz-dom", "vendor/stylo_taffy", "vendor/xml", "vendor/usvg", "vendor/resvg", "vendor/html5ever", "vendor/markup5ever", "vendor/reqwest", "vendor/chardetng", "vendor/rusty-v8"]
 members = [
     "crates/oryn-common",
     "crates/oryn-core",
@@ -40,6 +40,7 @@ xml = { path = "vendor/xml" }
 stylo = { path = "vendor/stylo" }
 stylo_atoms = { path = "vendor/stylo_atoms" }
 usvg = { path = "vendor/usvg" }
+resvg = { path = "vendor/resvg" }
 
 # Preserve namespace-dependent selector semantics in the Stylo mirror adapter.
 [patch."https://github.com/DioxusLabs/blitz"]

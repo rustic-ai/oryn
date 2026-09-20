@@ -76,13 +76,15 @@ pub(super) fn create<'s>(
         24 => "CSSNestedDeclarations",
         _ => "CSSRule",
     };
-    if let Some(template) = state.instance_templates.borrow().get(interface) {
-        let template = v8::Local::new(scope, template);
-        if let Some(instance) = template.new_instance(scope)
-            && let Some(prototype) = instance.get_prototype(scope)
-        {
-            object.set_prototype(scope, prototype);
-        }
+    if let Some(template) = state
+        .instance_templates
+        .borrow()
+        .get(interface)
+        .and_then(|template| template.to_local(scope))
+        && let Some(instance) = template.new_instance(scope)
+        && let Some(prototype) = instance.get_prototype(scope)
+    {
+        object.set_prototype(scope, prototype);
     }
     let identity = state.next_page_rule_id.get();
     state.next_page_rule_id.set(identity + 1);
@@ -780,7 +782,7 @@ fn style_object<'s>(
         .instance_templates
         .borrow()
         .get(interface)
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface("CSSStyleDeclaration"))?;
     let template = v8::Local::new(scope, template);
     let style = template

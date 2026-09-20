@@ -20,7 +20,7 @@ pub(super) fn wrap<'s>(
         .instance_templates
         .borrow()
         .get("DOMRectList")
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface("DOMRectList"))?;
     let object = v8::Local::new(scope, &template)
         .new_instance(scope)

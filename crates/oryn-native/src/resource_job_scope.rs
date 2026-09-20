@@ -24,7 +24,11 @@ pub(super) struct Registry {
     routes: Arc<Mutex<BTreeMap<Option<WorkerRoute>, Arc<Scope>>>>,
     document: Option<Arc<Registry>>,
 }
-pub(crate) struct ResourceJob(Arc<Scope>, bool, Option<Box<ResourceJob>>);
+pub(crate) struct ResourceJob(
+    Arc<Scope>,
+    bool,
+    #[cfg(any(feature = "v8-host", test))] Option<Box<ResourceJob>>,
+);
 
 impl Registry {
     pub(super) fn finish_timing(
@@ -44,6 +48,7 @@ impl Registry {
                 .finish(observation, result);
         }
     }
+    #[cfg(any(feature = "v8-host", test))]
     pub(super) fn drain_timings(
         &self,
         route: Option<&WorkerRoute>,
@@ -55,16 +60,17 @@ impl Registry {
         let Some(scope) = entries.get(&route.cloned()) else {
             return Vec::new();
         };
-        let result = scope
+
+        scope
             .timings
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .drain();
-        result
+            .drain()
     }
 
     /// Keep route-wide teardown custody while exposing only this document's
     /// activity to its wait predicate. Clones of the returned view share it.
+    #[cfg(any(feature = "v8-host", test))]
     pub(super) fn for_document(&self) -> Self {
         Self {
             routes: self.routes.clone(),
@@ -73,6 +79,7 @@ impl Registry {
     }
     /// Extend the activity ancestry without including a sibling document.
     /// A child job holds custody in every ancestor and in the transport route.
+    #[cfg(any(feature = "v8-host", test))]
     pub(super) fn for_child_document(&self) -> Self {
         Self {
             routes: self.routes.clone(),
@@ -96,6 +103,7 @@ impl Registry {
     }
 
     /// Inspect without allocating a scope or changing its admission state.
+    #[cfg(any(feature = "v8-host", test))]
     pub(super) fn activity(&self, route: Option<&WorkerRoute>) -> (usize, Option<Instant>) {
         if let Some(document) = &self.document {
             return document.activity(route);
@@ -108,10 +116,12 @@ impl Registry {
         (state.network_active, state.last_activity)
     }
 
+    #[cfg(any(feature = "v8-host", test))]
     pub(super) fn acquire(&self, route: Option<&WorkerRoute>) -> Result<ResourceJob, String> {
         self.acquire_kind(route, true)
     }
 
+    #[cfg(any(feature = "v8-host", test))]
     pub(super) fn acquire_control(
         &self,
         route: Option<&WorkerRoute>,
@@ -119,6 +129,7 @@ impl Registry {
         self.acquire_kind(route, false)
     }
 
+    #[cfg(any(feature = "v8-host", test))]
     fn acquire_kind(
         &self,
         route: Option<&WorkerRoute>,
@@ -336,7 +347,7 @@ mod tests {
 mod timing_scope_tests {
     use super::*;
     fn observation() -> super::super::resource_timing_scope::Observation {
-        super::super::resource_timing_scope::Observation::Start(
+        super::super::resource_timing_scope::Observation::Start(Box::new(
             super::super::resource_timing_scope::Record {
                 render_blocking: false,
                 details: None,
@@ -345,12 +356,13 @@ mod timing_scope_tests {
                     document_generation: 1,
                     stream_epoch: 0,
                 },
+                #[cfg(feature = "v8-host")]
                 name: "https://example.test/script.js".into(),
                 initiator: "script".into(),
                 started: Instant::now(),
                 finished: Instant::now(),
             },
-        )
+        ))
     }
     #[test]
     fn timing_queues_do_not_follow_activity_ancestry() {

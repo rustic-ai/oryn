@@ -258,74 +258,6 @@ pub(super) fn append(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn virtual_identity_includes_owner_and_popup_session() {
-        let owner = SemanticRef {
-            page_id: PageId(1),
-            document_generation: 3,
-            node: 99,
-        };
-        assert_ne!(virtual_id(owner, 7, 0), virtual_id(owner, 8, 0));
-        assert_ne!(virtual_id(owner, 7, 0), virtual_id(owner, 7, 1));
-        assert_ne!(
-            virtual_id(owner, 7, 0),
-            virtual_id(SemanticRef { node: 100, ..owner }, 7, 0)
-        );
-    }
-    #[cfg(all(feature = "v8-host", feature = "in-process-probe"))]
-    #[tokio::test]
-    async fn native_ax_popup_rows_press_real_owner_and_retired_rows_cannot_reenter() {
-        let browser = crate::Browser::in_process_probe();
-        let context = browser.new_context();
-        let page = context.new_page();
-        page.load_html(
-            "https://ax.test/",
-            "<input id=d aria-label=Date type=date value=2024-02-28>",
-        )
-        .await
-        .unwrap();
-        let owner = page
-            .resolve_selector("#d", SemanticAction::Click)
-            .await
-            .unwrap();
-        page.execute(NativeAction {
-            target: owner,
-            action: SemanticAction::Click,
-            value: None,
-        })
-        .await
-        .unwrap();
-        let snapshot = super::super::capture_document(&page).await.unwrap();
-        let target = snapshot
-            .nodes
-            .values()
-            .find(|node| {
-                node.name == "2024-02-29" && snapshot.picker_actions.contains_key(&node.id)
-            })
-            .unwrap();
-        assert!(target.parent.is_some());
-        assert!(target.rect.is_some());
-        assert!(target.actions.contains(&SemanticAction::Click));
-        let request = ActionRequest {
-            scope: target.scope.clone(),
-            target: target.id,
-            revision: target.revision,
-            action: Action::Press,
-        };
-        assert!(snapshot.validate_action(&request).is_err());
-        super::super::execute(&page, request.clone()).await.unwrap();
-        assert_eq!(
-            page.evaluate("d.value==='2024-02-29'").await.unwrap(),
-            "true"
-        );
-        assert!(super::super::execute(&page, request).await.is_err());
-        page.close().await.unwrap();
-    }
-}
-
 pub(super) fn append_permission(
     snapshot: &mut Snapshot,
     prompts: &[(SemanticRef, oryn_dom::PermissionPrompt)],
@@ -476,6 +408,74 @@ pub(super) fn append_permission(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn virtual_identity_includes_owner_and_popup_session() {
+        let owner = SemanticRef {
+            page_id: PageId(1),
+            document_generation: 3,
+            node: 99,
+        };
+        assert_ne!(virtual_id(owner, 7, 0), virtual_id(owner, 8, 0));
+        assert_ne!(virtual_id(owner, 7, 0), virtual_id(owner, 7, 1));
+        assert_ne!(
+            virtual_id(owner, 7, 0),
+            virtual_id(SemanticRef { node: 100, ..owner }, 7, 0)
+        );
+    }
+    #[cfg(all(feature = "v8-host", feature = "in-process-probe"))]
+    #[tokio::test]
+    async fn native_ax_popup_rows_press_real_owner_and_retired_rows_cannot_reenter() {
+        let browser = crate::Browser::in_process_probe();
+        let context = browser.new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://ax.test/",
+            "<input id=d aria-label=Date type=date value=2024-02-28>",
+        )
+        .await
+        .unwrap();
+        let owner = page
+            .resolve_selector("#d", SemanticAction::Click)
+            .await
+            .unwrap();
+        page.execute(NativeAction {
+            target: owner,
+            action: SemanticAction::Click,
+            value: None,
+        })
+        .await
+        .unwrap();
+        let snapshot = super::super::capture_document(&page).await.unwrap();
+        let target = snapshot
+            .nodes
+            .values()
+            .find(|node| {
+                node.name == "2024-02-29" && snapshot.picker_actions.contains_key(&node.id)
+            })
+            .unwrap();
+        assert!(target.parent.is_some());
+        assert!(target.rect.is_some());
+        assert!(target.actions.contains(&SemanticAction::Click));
+        let request = ActionRequest {
+            scope: target.scope.clone(),
+            target: target.id,
+            revision: target.revision,
+            action: Action::Press,
+        };
+        assert!(snapshot.validate_action(&request).is_err());
+        super::super::execute(&page, request.clone()).await.unwrap();
+        assert_eq!(
+            page.evaluate("d.value==='2024-02-29'").await.unwrap(),
+            "true"
+        );
+        assert!(super::super::execute(&page, request).await.is_err());
+        page.close().await.unwrap();
+    }
 }
 
 #[cfg(all(test, feature = "v8-host", feature = "in-process-probe"))]

@@ -135,16 +135,15 @@ fn cancel(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
         if let Some(host) = state.platform_host.borrow().clone() {
             host.cancel(id)
         }
-        if let Some(PendingPlatformOperation::Preload(p)) = p {
-            if let Some(stream_id) = p.stream {
-                if let Err(e) = submit_platform_operation(
-                    state,
-                    PlatformHostRequest::HttpAbort { stream_id },
-                    PendingPlatformOperation::WebSocketCommand,
-                ) {
-                    failure = Some(e)
-                }
-            }
+        if let Some(PendingPlatformOperation::Preload(p)) = p
+            && let Some(stream_id) = p.stream
+            && let Err(e) = submit_platform_operation(
+                state,
+                PlatformHostRequest::HttpAbort { stream_id },
+                PendingPlatformOperation::WebSocketCommand,
+            )
+        {
+            failure = Some(e)
         }
     }
     failure.map_or(Ok(()), Err)

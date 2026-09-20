@@ -85,7 +85,7 @@ pub(super) struct Store {
     all: RefCell<BTreeMap<NodeId, u64>>,
     brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     memory_delta: Cell<i64>,
-    static_template: RefCell<Option<v8::Global<v8::ObjectTemplate>>>,
+    static_template: RefCell<Option<v8::Weak<v8::ObjectTemplate>>>,
 }
 
 thread_local! {static ROOT_RELEASES:RefCell<Vec<(std::rc::Weak<RefCell<DomRuntime>>,NodeId)>>=const{RefCell::new(Vec::new())};}
@@ -712,7 +712,12 @@ fn create<'s>(
             .ok_or(V8BindingError::Allocation("NodeList prototype"))?;
         let template = {
             let mut cached = state.node_lists.static_template.borrow_mut();
-            if cached.is_none() {
+            if let Some(template) = cached
+                .as_ref()
+                .and_then(|template| template.to_local(scope))
+            {
+                template
+            } else {
                 let template = v8::ObjectTemplate::new(scope);
                 template.set_internal_field_count(6);
                 template.set_indexed_property_handler(
@@ -721,9 +726,9 @@ fn create<'s>(
                         .definer(indexed_definer)
                         .deleter(indexed_deleter),
                 );
-                *cached = Some(v8::Global::new(scope, template));
+                *cached = Some(v8::Weak::new(scope, template));
+                template
             }
-            v8::Local::new(scope, cached.as_ref().expect("static NodeList template"))
         };
         object = template
             .new_instance(scope)
@@ -1783,7 +1788,7 @@ pub(super) fn native_snapshot(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     object: v8::Local<v8::Object>,
-) -> Result<Option<Vec<(Rc<V8BindingState>, NodeId)>>, V8BindingError> {
+) -> Result<Option<RealmNodes>, V8BindingError> {
     if object.is_proxy() || object.internal_field_count() < 3 {
         return Ok(None);
     }

@@ -1,4 +1,24 @@
 //! Authenticated host keyboard dispatch. No script-visible activation/grant entry.
+struct AfterKeyInputs<'a> {
+    input: &'a NativeKeyboardInput,
+    target: NodeId,
+    key: String,
+    code: String,
+    location: u32,
+    generation: u64,
+    epoch: u64,
+    accepted: bool,
+}
+
+struct KeyboardEditInputs<'a> {
+    target: NodeId,
+    key: &'a str,
+    mods: NativeKeyboardModifiers,
+    generation: u64,
+    epoch: u64,
+    deletion_unit: Option<crate::composition::TextUnit>,
+}
+
 use super::*;
 use unicode_segmentation::UnicodeSegmentation;
 #[path = "native_keyboard_receipt.rs"]
@@ -276,38 +296,40 @@ fn event<'s>(
     create_native_input_event(
         scope,
         state,
-        "KeyboardEvent",
-        kind,
-        true,
-        true,
-        true,
-        0,
-        None,
-        &[
-            ("key", NativeInputValue::String(&units)),
-            ("code", NativeInputValue::String(&code)),
-            ("location", NativeInputValue::Number(location as f64)),
-            (
-                "repeat",
-                NativeInputValue::Bool(input.repeat && kind != "keyup"),
-            ),
-            ("isComposing", NativeInputValue::Bool(input.composing)),
-            ("ctrlKey", NativeInputValue::Bool(mods.control)),
-            ("shiftKey", NativeInputValue::Bool(mods.shift)),
-            ("altKey", NativeInputValue::Bool(mods.alt)),
-            ("metaKey", NativeInputValue::Bool(mods.meta)),
-            ("modifierAltGraph", NativeInputValue::Bool(mods.alt_graph)),
-            ("modifierCapsLock", NativeInputValue::Bool(mods.caps_lock)),
-            (
-                "keyCode",
-                NativeInputValue::Number(if kind == "keypress" {
-                    char_code
-                } else {
-                    key_code(key)
-                } as f64),
-            ),
-            ("charCode", NativeInputValue::Number(char_code as f64)),
-        ],
+        NativeInputEventInputs {
+            interface: "KeyboardEvent",
+            event_type: kind,
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            detail: 0,
+            related: None,
+            fields: &[
+                ("key", NativeInputValue::String(&units)),
+                ("code", NativeInputValue::String(&code)),
+                ("location", NativeInputValue::Number(location as f64)),
+                (
+                    "repeat",
+                    NativeInputValue::Bool(input.repeat && kind != "keyup"),
+                ),
+                ("isComposing", NativeInputValue::Bool(input.composing)),
+                ("ctrlKey", NativeInputValue::Bool(mods.control)),
+                ("shiftKey", NativeInputValue::Bool(mods.shift)),
+                ("altKey", NativeInputValue::Bool(mods.alt)),
+                ("metaKey", NativeInputValue::Bool(mods.meta)),
+                ("modifierAltGraph", NativeInputValue::Bool(mods.alt_graph)),
+                ("modifierCapsLock", NativeInputValue::Bool(mods.caps_lock)),
+                (
+                    "keyCode",
+                    NativeInputValue::Number(if kind == "keypress" {
+                        char_code
+                    } else {
+                        key_code(key)
+                    } as f64),
+                ),
+                ("charCode", NativeInputValue::Number(char_code as f64)),
+            ],
+        },
     )
 }
 fn focus_target(state: &V8BindingState) -> Result<NodeId, V8BindingError> {
@@ -587,7 +609,18 @@ fn edit(
     generation: u64,
     epoch: u64,
 ) -> Result<(), V8BindingError> {
-    edit_with_deletion_unit(scope, state, target, key, mods, generation, epoch, None)
+    edit_with_deletion_unit(
+        scope,
+        state,
+        KeyboardEditInputs {
+            target,
+            key,
+            mods,
+            generation,
+            epoch,
+            deletion_unit: None,
+        },
+    )
 }
 struct EditDescription {
     deletion_unit: Option<crate::composition::TextUnit>,
@@ -699,7 +732,7 @@ fn deletion_granularity(description: &EditDescription) -> Option<&'static str> {
         .deletion_unit
         .filter(|unit| *unit != crate::composition::TextUnit::Character)
         .map(text_unit)
-        .or_else(|| {
+        .or({
             if description.word_delete {
                 Some("word")
             } else if description.hard_line_delete {
@@ -784,7 +817,7 @@ fn apply_edit(
                     let prefix = String::from_utf16_lossy(&units[..start as usize]);
                     start = prefix
                         .unicode_word_indices()
-                        .last()
+                        .next_back()
                         .map_or(0, |(index, _)| {
                             prefix[..index].encode_utf16().count() as u32
                         });
@@ -800,8 +833,7 @@ fn apply_edit(
             } else if backward {
                 start = boundaries
                     .into_iter()
-                    .filter(|offset| *offset < start)
-                    .last()
+                    .rfind(|offset| *offset < start)
                     .unwrap_or(0);
             } else {
                 end = boundaries
@@ -841,13 +873,17 @@ fn apply_edit(
 fn edit_with_deletion_unit(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
-    target: NodeId,
-    key: &str,
-    mods: NativeKeyboardModifiers,
-    generation: u64,
-    epoch: u64,
-    deletion_unit: Option<crate::composition::TextUnit>,
+    params: KeyboardEditInputs<'_>,
 ) -> Result<(), V8BindingError> {
+    let KeyboardEditInputs {
+        target,
+        key,
+        mods,
+        generation,
+        epoch,
+        deletion_unit,
+    } = params;
+
     let Some(description) = prepare_edit(state, target, key, mods, deletion_unit)? else {
         return Ok(());
     };
@@ -955,8 +991,8 @@ pub fn dispatch(
     }
     let generation = state.document_generation();
     let epoch = state.document_stream_epoch();
-    let mut target = focus_target(state)?;
-    let (mut key, code, location) = normalized(input);
+    let target = focus_target(state)?;
+    let (key, code, location) = normalized(input);
     let mods = input.modifiers;
     if input.down && !mods.control && !mods.alt && !mods.meta {
         state.dom.borrow_mut().set_focus_visible(true);
@@ -981,33 +1017,46 @@ pub fn dispatch(
     )?;
     let accepted = dispatch_event(scope, state, target, key_event)?;
     dispatch_after_key(
-        scope, state, input, target, key, code, location, generation, epoch, accepted,
+        scope,
+        state,
+        AfterKeyInputs {
+            input,
+            target,
+            key,
+            code,
+            location,
+            generation,
+            epoch,
+            accepted,
+        },
     )
 }
 fn dispatch_after_key(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
-    input: &NativeKeyboardInput,
-    mut target: NodeId,
-    mut key: String,
-    code: String,
-    location: u32,
-    generation: u64,
-    epoch: u64,
-    accepted: bool,
+    params: AfterKeyInputs<'_>,
 ) -> Result<bool, V8BindingError> {
+    let AfterKeyInputs {
+        input,
+        mut target,
+        mut key,
+        code,
+        location,
+        generation,
+        epoch,
+        accepted,
+    } = params;
+
     let mods = input.modifiers;
     if !input.down {
-        if key == " " {
-            if let Some((armed, generation, epoch)) = state.keyboard.space_activation.take() {
-                if accepted
-                    && armed == target
-                    && live(state, target, generation, epoch)
-                    && activatable(state, target, true)?
-                {
-                    activate(scope, state, target)?;
-                }
-            }
+        if key == " "
+            && let Some((armed, generation, epoch)) = state.keyboard.space_activation.take()
+            && accepted
+            && armed == target
+            && live(state, target, generation, epoch)
+            && activatable(state, target, true)?
+        {
+            activate(scope, state, target)?;
         }
         return Ok(accepted);
     }
@@ -1649,13 +1698,12 @@ fn temporal_key(
         .get(node)?
         .temporal_edit
         .is_some()
+        && let Some((start, _, _)) = &selection
     {
-        if let Some((start, _, _)) = &selection {
-            state
-                .dom
-                .borrow_mut()
-                .align_temporal_selection(node, *start)?;
-        }
+        state
+            .dom
+            .borrow_mut()
+            .align_temporal_selection(node, *start)?;
     }
     let Some(outcome) = state.dom.borrow_mut().edit_temporal_control(node, action)? else {
         return Ok(true);
@@ -2108,13 +2156,7 @@ fn undo_control_group(
     state.control_modify_goal.borrow_mut().take();
     Ok(true)
 }
-type DocumentControlChange = (
-    NodeId,
-    String,
-    (u32, u32, String),
-    String,
-    (u32, u32, String),
-);
+type DocumentControlChange = ControlEdit;
 pub(super) fn document_edit_budget(
     changes: &[DocumentControlChange],
 ) -> Result<(), V8BindingError> {
@@ -2282,13 +2324,7 @@ pub(super) fn finish_document_undo(state: &V8BindingState, owners: &[NodeId], re
 
 pub(super) fn record_control_move(
     state: &V8BindingState,
-    changes: Vec<(
-        NodeId,
-        String,
-        (u32, u32, String),
-        String,
-        (u32, u32, String),
-    )>,
+    changes: Vec<ControlEdit>,
 ) -> Result<(), V8BindingError> {
     let bytes = changes
         .iter()
@@ -3006,6 +3042,7 @@ pub fn native_keyboard_deferred_target(state: &V8BindingState) -> Option<NodeId>
 
 /// Apply an AppKit command only after an accepted native keydown continuation.
 /// No second keydown is generated; editing retains native beforeinput/input.
+#[cfg(test)]
 pub(super) fn text_system_command(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,

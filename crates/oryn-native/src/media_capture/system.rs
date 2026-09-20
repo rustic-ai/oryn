@@ -67,18 +67,17 @@ fn exact(value: &Value, actual: &Value, advanced: bool) -> bool {
     }) {
         return false;
     }
-    if let Some(number) = actual.as_f64() {
-        if value
+    if let Some(number) = actual.as_f64()
+        && (value
             .get("min")
             .and_then(Value::as_f64)
             .is_some_and(|min| number < min)
             || value
                 .get("max")
                 .and_then(Value::as_f64)
-                .is_some_and(|max| number > max)
-        {
-            return false;
-        }
+                .is_some_and(|max| number > max))
+    {
+        return false;
     }
     true
 }

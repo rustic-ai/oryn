@@ -1,4 +1,13 @@
 //! Pointer event dispatch and activation own separate, resumable commits.
+pub(super) struct PointerEventInputs<'a> {
+    pub(super) input: &'a NativePointerInput,
+    pub(super) target: NodeId,
+    pub(super) name: &'a str,
+    pub(super) bubbles: bool,
+    pub(super) cancelable: bool,
+    pub(super) related: Option<NodeId>,
+}
+
 use super::*;
 pub(super) struct Event {
     owner: Rc<V8BindingState>,
@@ -20,13 +29,17 @@ impl Event {
     pub(super) fn new(
         scope: &mut v8::PinScope,
         state: &Rc<V8BindingState>,
-        input: &NativePointerInput,
-        target: NodeId,
-        name: &str,
-        bubbles: bool,
-        cancelable: bool,
-        related: Option<NodeId>,
+        params: PointerEventInputs<'_>,
     ) -> Result<Self, V8BindingError> {
+        let PointerEventInputs {
+            input,
+            target,
+            name,
+            bubbles,
+            cancelable,
+            related,
+        } = params;
+
         let object = pointer_event(scope, state, input, name, bubbles, cancelable, related)?;
         if name == "click" && input.button == 0 {
             interest::mark_pseudo_click(scope, state, object, input.id, target, input.x, input.y)?;
@@ -151,37 +164,36 @@ impl Event {
                     }
                     let object = v8::Local::new(scope, &self.object);
                     if self.name == "auxclick" {
-                        if self.accepted {
-                            if let Some(activation) = &self.activation {
-                                if let Some((link_owner, link)) = activation.link_target(scope)? {
-                                    let suffix = if Rc::ptr_eq(&owner.dom, &link_owner.dom)
-                                        && link_owner.dom.borrow().is_element(
-                                            link,
-                                            "http://www.w3.org/1999/xhtml",
-                                            "a",
-                                        ) {
-                                        form_activation::image_map_suffix(
-                                            scope,
-                                            &link_owner,
-                                            target,
-                                            object,
-                                            true,
-                                        )?
-                                    } else {
-                                        None
-                                    };
-                                    self.auxiliary = allocation::try_optional(|| {
-                                        submissions::LinkActivation::new(
-                                            scope,
-                                            &link_owner,
-                                            link,
-                                            true,
-                                            suffix.as_deref(),
-                                            Some("_blank"),
-                                        )
-                                    })?;
-                                }
-                            }
+                        if self.accepted
+                            && let Some(activation) = &self.activation
+                            && let Some((link_owner, link)) = activation.link_target(scope)?
+                        {
+                            let suffix = if Rc::ptr_eq(&owner.dom, &link_owner.dom)
+                                && link_owner.dom.borrow().is_element(
+                                    link,
+                                    "http://www.w3.org/1999/xhtml",
+                                    "a",
+                                ) {
+                                form_activation::image_map_suffix(
+                                    scope,
+                                    &link_owner,
+                                    target,
+                                    object,
+                                    true,
+                                )?
+                            } else {
+                                None
+                            };
+                            self.auxiliary = allocation::try_optional(|| {
+                                submissions::LinkActivation::new(
+                                    scope,
+                                    &link_owner,
+                                    link,
+                                    true,
+                                    suffix.as_deref(),
+                                    Some("_blank"),
+                                )
+                            })?;
                         }
                         self.activation.take();
                         self.phase = 6;
@@ -208,10 +220,10 @@ impl Event {
                     return Ok(self.result);
                 }
                 6 => {
-                    if let Some(auxiliary) = &mut self.auxiliary {
-                        if !auxiliary.poll(scope)? {
-                            return Ok(None);
-                        }
+                    if let Some(auxiliary) = &mut self.auxiliary
+                        && !auxiliary.poll(scope)?
+                    {
+                        return Ok(None);
                     }
                     self.result = Some(self.accepted);
                     return Ok(self.result);
@@ -302,16 +314,18 @@ impl Capture {
                     Event::new(
                         scope,
                         &self.state,
-                        &self.input,
-                        target,
-                        if self.phase == 0 {
-                            "lostpointercapture"
-                        } else {
-                            "gotpointercapture"
+                        PointerEventInputs {
+                            input: &self.input,
+                            target,
+                            name: if self.phase == 0 {
+                                "lostpointercapture"
+                            } else {
+                                "gotpointercapture"
+                            },
+                            bubbles: true,
+                            cancelable: false,
+                            related: None,
                         },
-                        true,
-                        false,
-                        None,
                     )
                 })?);
             }

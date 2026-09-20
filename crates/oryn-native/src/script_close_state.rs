@@ -21,12 +21,14 @@ impl BrowserContext {
             ));
         };
         self.with_window_worker_creator_pages(
-            source,
-            owner,
-            *document_generation,
-            *stream_epoch,
-            false,
-            false,
+            crate::runtime::WorkerCreatorPagesInputs {
+                page_id: source,
+                target: owner,
+                generation: *document_generation,
+                epoch: *stream_epoch,
+                include_urls: false,
+                allow_prerender: false,
+            },
             |_, _, _, pages| {
                 if pages
                     .get(&source)

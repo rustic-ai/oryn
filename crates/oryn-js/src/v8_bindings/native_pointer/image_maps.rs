@@ -4,7 +4,7 @@ use super::*;
 
 fn numbers(value: &str) -> Vec<f64> {
     value
-        .split(|c: char| matches!(c, ',' | ';' | '\t' | '\n' | '\r' | '\x0c' | ' '))
+        .split([',', ';', '\t', '\n', '\r', '\x0c', ' '])
         .filter_map(|part| {
             // HTML's list-of-floating-point-numbers parser ignores leading garbage
             // and trailing nonnumeric text within each separator-delimited token.
@@ -59,7 +59,12 @@ fn contains(shape: &str, coords: &str, x: f64, y: f64) -> bool {
     match shape.to_ascii_lowercase().as_str() {
         "circle" | "circ" => n.len() >= 3 && n[2] > 0. && (x - n[0]).hypot(y - n[1]) <= n[2],
         "poly" | "polygon" => {
-            let points = n.chunks_exact(2).map(|p| (p[0], p[1])).collect::<Vec<_>>();
+            let points = n
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|p| (p[0], p[1]))
+                .collect::<Vec<_>>();
             if points.len() < 3 {
                 return false;
             }

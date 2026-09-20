@@ -6,6 +6,116 @@
 //! socket, or secret operation. Networking continues to use the separately
 //! policy-enforced network broker; this service coordinates context state.
 
+/// Inputs for load page script classified traced.
+struct TracedPageScriptInputs<'a> {
+    page_id: PageId,
+    requested_url: &'a str,
+    module: bool,
+    nonce: Option<&'a str>,
+    initiator_url: Option<&'a str>,
+    referrer_policy: Option<&'a str>,
+    integrity: Option<&'a str>,
+    cross_origin: Option<&'a str>,
+    referrer_source: Option<&'a str>,
+    kind: Option<crate::ModuleType>,
+    cancellation: Option<&'a AtomicBool>,
+    creator: Option<&'a oryn_js::worker_wire::Creator>,
+    script_policy: Option<&'a str>,
+    parser_inserted: bool,
+    fallback_encoding: Option<&'a str>,
+    trace: Option<&'a mut Vec<String>>,
+    hash_evidence: Option<&'a mut Option<crate::csp::ScriptHashEvidence>>,
+}
+/// Inputs for load page script with cancel.
+struct PageScriptInputs<'a> {
+    page_id: PageId,
+    requested_url: &'a str,
+    module: bool,
+    nonce: Option<&'a str>,
+    initiator_url: Option<&'a str>,
+    referrer_policy: Option<&'a str>,
+    integrity: Option<&'a str>,
+    cross_origin: Option<&'a str>,
+    referrer_source: Option<&'a str>,
+    kind: Option<crate::ModuleType>,
+    cancellation: Option<&'a AtomicBool>,
+    creator: Option<&'a oryn_js::worker_wire::Creator>,
+    script_policy: Option<&'a str>,
+    parser_inserted: bool,
+    fallback_encoding: Option<&'a str>,
+}
+/// Inputs for load page script for type.
+#[cfg(all(test, feature = "in-process-probe"))]
+struct TypedScriptInputs<'a> {
+    page_id: PageId,
+    requested_url: &'a str,
+    module: bool,
+    nonce: Option<&'a str>,
+    initiator_url: Option<&'a str>,
+    referrer_policy: Option<&'a str>,
+    integrity: Option<&'a str>,
+    cross_origin: Option<&'a str>,
+    referrer_source: Option<&'a str>,
+    kind: Option<crate::ModuleType>,
+}
+/// Inputs for load page script with referrer.
+#[cfg(all(test, feature = "in-process-probe"))]
+struct ScriptReferrerInputs<'a> {
+    page_id: PageId,
+    requested_url: &'a str,
+    module: bool,
+    nonce: Option<&'a str>,
+    initiator_url: Option<&'a str>,
+    referrer_policy: Option<&'a str>,
+    integrity: Option<&'a str>,
+    cross_origin: Option<&'a str>,
+    referrer_source: Option<&'a str>,
+}
+/// Inputs for load page script with options.
+#[cfg(all(test, feature = "in-process-probe"))]
+struct ScriptOptionsInputs<'a> {
+    page_id: PageId,
+    requested_url: &'a str,
+    module: bool,
+    nonce: Option<&'a str>,
+    initiator_url: Option<&'a str>,
+    referrer_policy: Option<&'a str>,
+    integrity: Option<&'a str>,
+    cross_origin: Option<&'a str>,
+}
+/// Inputs for load page script with integrity.
+#[cfg(all(test, feature = "in-process-probe"))]
+struct IntegrityScriptInputs<'a> {
+    page_id: PageId,
+    requested_url: &'a str,
+    module: bool,
+    nonce: Option<&'a str>,
+    initiator_url: Option<&'a str>,
+    referrer_policy: Option<&'a str>,
+    integrity: Option<&'a str>,
+}
+/// Inputs for authorize inline script kind.
+struct InlineScriptAuthorization<'a> {
+    page_id: PageId,
+    creator: Option<&'a oryn_js::worker_wire::Creator>,
+    source: &'a str,
+    nonce: Option<&'a str>,
+    parser_inserted: bool,
+    script_policy: Option<&'a str>,
+    speculation_rules: bool,
+}
+/// Inputs for start http stream with destination.
+struct HttpStreamDestinationInputs<'a> {
+    page_id: PageId,
+    request: HttpStreamRequest,
+    destination: crate::csp::CspDestination,
+    cors_enabled: bool,
+    media_destination: Option<&'a str>,
+    preload: bool,
+    template_nonce: Option<Option<&'a str>>,
+    frozen: Option<ordinary_keepalive::Authority>,
+}
+
 use oryn_net::cors::{
     cors_exposed_response_headers, cors_headers_allowed, cors_non_safelisted_headers,
     cors_preflight_required,
@@ -24,6 +134,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub use crate::agent_isolation::{DocumentIsolationPolicy, EmbedderPolicy};
 use crate::worker_route::WorkerRoute;
 use oryn_common::v3::{PageId, PageLifecycleEvent};
 use serde::{Deserialize, Serialize};
@@ -49,7 +160,42 @@ use crate::{
 #[path = "context_inventory_wire.rs"]
 mod inventory_wire;
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 51;
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 54;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum NavigationNetworkAuthority {
+    Service(oryn_js::navigation::ServiceNavigationAuthority),
+    Script(oryn_js::navigation::ScriptNavigationAuthority),
+}
+impl NavigationNetworkAuthority {
+    pub(crate) fn source(
+        &self,
+        context: &BrowserContext,
+        page: PageId,
+        target: &oryn_js::worker_wire::Creator,
+        url: &str,
+    ) -> Result<oryn_js::navigation::FormNavigationSource, RuntimeError> {
+        Ok(self.network_source(context, page, target, url)?.0)
+    }
+    pub(crate) fn network_source(
+        &self,
+        context: &BrowserContext,
+        page: PageId,
+        target: &oryn_js::worker_wire::Creator,
+        url: &str,
+    ) -> Result<(oryn_js::navigation::FormNavigationSource, bool), RuntimeError> {
+        match self {
+            Self::Service(value) => Ok((
+                context.service_navigation_source(value, page, target, url)?,
+                true,
+            )),
+            Self::Script(value) => {
+                context.script_navigation_network_source(value, page, target, url)
+            }
+        }
+    }
+}
+
 pub const MAX_CONTEXT_FRAME_BYTES: usize = 24 * 1024 * 1024;
 // Page bundles use the same ceiling as the default resource-cache entry.
 // Wire JSON remains independently bounded, including escape expansion.
@@ -86,7 +232,7 @@ fn decode_page_module(
     Ok(source)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "in-process-probe"))]
 fn decode_page_script(
     body: &[u8],
     content_type: Option<&str>,
@@ -463,6 +609,17 @@ pub enum ContextServiceRequest {
         admission: oryn_js::navigation::ServiceNavigationAdmission,
         url: String,
     },
+    AcquireNavigationNetworkSource {
+        page_id: PageId,
+        nonce: String,
+        target: oryn_js::worker_wire::Creator,
+        url: String,
+        authority: NavigationNetworkAuthority,
+    },
+    DiscardNavigationNetworkSource {
+        page_id: PageId,
+        nonce: String,
+    },
     ReadServiceNavigationSource {
         page_id: PageId,
         target: oryn_js::worker_wire::Creator,
@@ -657,6 +814,9 @@ pub enum ContextServiceRequest {
         user_initiated: bool,
         #[serde(default)]
         defer_navigation: bool,
+        /// Native Window.open can initialize a newly admitted related root locally.
+        #[serde(default)]
+        local_related_navigation: bool,
         #[serde(default)]
         selected_target: Option<oryn_js::navigation::NavigationTargetReceipt>,
         #[serde(default)]
@@ -689,6 +849,16 @@ pub enum ContextServiceRequest {
         document_url: String,
         headers: Vec<(String, String)>,
         body_sha256: String,
+    },
+    CommitNavigationResponsePolicy {
+        page_id: PageId,
+        token: String,
+        document_url: String,
+        headers: Vec<(String, String)>,
+    },
+    DiscardNavigationResponsePolicy {
+        page_id: PageId,
+        token: String,
     },
     InstallDocumentSecurity {
         page_id: PageId,
@@ -807,6 +977,15 @@ pub enum ContextServiceRequest {
         page_id: PageId,
         expected_generation: Option<u64>,
     },
+    BeginActionCloseScope {
+        page_id: PageId,
+        action_id: u64,
+    },
+    EndActionCloseScope {
+        page_id: PageId,
+        action_id: u64,
+        retain: bool,
+    },
     ClosePage {
         source_page_id: PageId,
         target_page_id: PageId,
@@ -900,7 +1079,7 @@ pub enum ContextServiceRequest {
         download: Option<String>,
         script_authority: Option<oryn_js::navigation::ScriptNavigationAdmission>,
         page_id: PageId,
-        initiator: ResourceInitiator,
+        initiator: Box<ResourceInitiator>,
         form_authority: Option<oryn_js::navigation::FormNavigationAuthority>,
         url: String,
         destination: String,
@@ -1082,6 +1261,8 @@ pub enum ContextServiceRequest {
         epoch: u64,
     },
     CommitPrerenderResponse {
+        #[serde(default)]
+        response_policy: Option<String>,
         page_id: PageId,
         token: oryn_js::message_wire::PrerenderToken,
         generation: u64,
@@ -1110,6 +1291,7 @@ impl ContextServiceRequest {
     /// Only legacy script shims use JSON dispatch. Every other operation must
     /// arrive through a typed native producer; adding a protocol variant never
     /// silently makes it author-callable.
+    #[cfg(any(test, feature = "v8-host"))]
     pub(crate) fn author_compatibility_operation(&self) -> bool {
         matches!(
             self,
@@ -1277,6 +1459,11 @@ pub enum ContextServiceResponse {
     ScriptNavigationAuthority {
         authority: oryn_js::navigation::ScriptNavigationAuthority,
     },
+    NavigationNetworkSource {
+        source: oryn_js::navigation::FormNavigationSource,
+        bound: bool,
+    },
+    NavigationNetworkSourceDiscarded,
     ScriptNavigationSource {
         source: oryn_js::navigation::FormNavigationSource,
     },
@@ -1363,6 +1550,9 @@ pub enum ContextServiceResponse {
         selected_target: Option<oryn_js::navigation::NavigationTargetReceipt>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         related_root: Option<RelatedRootAdmission>,
+        /// Present only when this new related root owns its initial navigation.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        related_navigation_url: Option<String>,
         page_id: PageId,
         created: bool,
         opener_page_id: Option<PageId>,
@@ -1377,9 +1567,11 @@ pub enum ContextServiceResponse {
         closing: bool,
     },
     ScriptCloseHistoryPublished,
+    ActionCloseScopeUpdated,
     PageClosed,
     PageCommitted,
     DocumentSecurityInstalled,
+    NavigationResponsePolicyDiscarded,
     CspViolationsAccepted,
     DocumentCookie {
         value: String,
@@ -1459,7 +1651,7 @@ pub enum ContextServiceResponse {
         #[serde(default)]
         request_state: Option<oryn_common::navigation_request::NavigationRequestState>,
         #[serde(default)]
-        timing: Option<oryn_js::platform::ResourceTimingMetadata>,
+        timing: Option<Box<oryn_js::platform::ResourceTimingMetadata>>,
         #[serde(default)]
         content_language: Option<String>,
         #[serde(default)]
@@ -1658,6 +1850,7 @@ impl Write for BoundedContextFrame {
     }
 }
 
+#[cfg(all(test, feature = "in-process-probe"))]
 fn encode_context_response(
     response: ResponseEnvelope,
     limit: usize,
@@ -1711,14 +1904,14 @@ fn receive_context_attachment(
     reader: &mut crate::shared_memory_fd::DescriptorReader,
     envelope: &mut ResponseEnvelope,
 ) -> Result<(), RuntimeError> {
-    if let Some(memory) = envelope.response.as_mut().and_then(shared_memory_response) {
-        if memory.descriptor.is_some() {
-            memory.native_descriptor = Some(Arc::new(
-                reader
-                    .attachment(envelope.correlation_id)
-                    .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?,
-            ));
-        }
+    if let Some(memory) = envelope.response.as_mut().and_then(shared_memory_response)
+        && memory.descriptor.is_some()
+    {
+        memory.native_descriptor = Some(Arc::new(
+            reader
+                .attachment(envelope.correlation_id)
+                .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?,
+        ));
     }
     Ok(())
 }
@@ -2039,6 +2232,7 @@ mod resource_job_scope;
 #[path = "resource_timing_scope.rs"]
 mod resource_timing_scope;
 pub(crate) use prepared_resource_preload::Entry as PreparedResourcePreload;
+#[cfg(feature = "v8-host")]
 pub(crate) use prepared_resource_preload::Snapshot as ResourcePreloadSnapshot;
 pub(crate) use resource_job_scope::ResourceJob;
 #[derive(Clone)]
@@ -2046,9 +2240,10 @@ pub struct SharedContextClient(
     Arc<dyn ContextTransport>,
     Option<WorkerRoute>,
     Arc<resource_job_scope::Registry>,
-    Option<Arc<DirectActorEndpoint>>,
     Arc<prepared_resource_preload::Store>,
+    #[cfg(feature = "v8-host")] Option<Arc<DirectActorEndpoint>>,
 );
+#[cfg(feature = "v8-host")]
 struct DirectActorEndpoint {
     context: crate::runtime::WeakBrowserContext,
     route: WorkerRoute,
@@ -2061,8 +2256,11 @@ pub(crate) use crate::http_cleanup_custody;
 /// Worker-side ownership of a parent script operation. Dropping the handle
 /// queues cancellation on owned IO lanes and never waits for the broker reply.
 pub(crate) struct ContextScriptLoad {
+    #[cfg(any(test, feature = "v8-host"))]
     pub client: SharedContextClient,
+    #[cfg(any(test, feature = "v8-host"))]
     pub page_id: PageId,
+    #[cfg(any(test, feature = "v8-host"))]
     pub token: u64,
     _cleanup: script_cleanup_custody::Ticket,
 }
@@ -2082,6 +2280,7 @@ impl ContextScriptLoad {
             _cleanup: cleanup,
         }
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub fn run(
         &self,
         request: ContextServiceRequest,
@@ -2098,10 +2297,12 @@ impl ContextScriptLoad {
 /// Caller-owned cancellation spans a complete resource graph. Weak leases do
 /// not retain finished requests; cancellation reaches already admitted native IO.
 #[derive(Default)]
+#[cfg(feature = "v8-host")]
 pub(crate) struct ResourceCancellation {
     pub(crate) flag: Arc<AtomicBool>,
     loads: Mutex<Vec<std::sync::Weak<ContextScriptLoad>>>,
 }
+#[cfg(feature = "v8-host")]
 impl ResourceCancellation {
     pub(crate) fn run_resource(
         &self,
@@ -2158,9 +2359,11 @@ impl ResourceCancellation {
     }
 }
 
+#[cfg(feature = "v8-host")]
 pub(crate) struct ContextHttpCancellation {
     ticket: script_cleanup_custody::Ticket,
 }
+#[cfg(feature = "v8-host")]
 impl ContextHttpCancellation {
     pub(crate) fn cancel(&self) {
         self.ticket.cancel();
@@ -2169,18 +2372,22 @@ impl ContextHttpCancellation {
         self.ticket.finish_if_not_cancelled();
     }
 }
+#[cfg(any(test, feature = "v8-host"))]
 pub(crate) struct ContextNetworkReply {
+    #[cfg(feature = "v8-host")]
     socket: Mutex<Option<u64>>,
     stream: Mutex<Option<u64>>,
     ticket: script_cleanup_custody::Ticket,
     page: PageId,
     creator: Option<oryn_js::worker_wire::Creator>,
 }
+#[cfg(any(test, feature = "v8-host"))]
 impl ContextNetworkReply {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "v8-host"))]
     pub(crate) fn status(&self) -> (bool, bool) {
         self.ticket.status()
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn attach(&self, result: &Result<oryn_js::platform::PlatformHostResult, String>) {
         use oryn_js::platform::PlatformHostResult;
         let (stream_id, socket_id) = match result {
@@ -2217,12 +2424,14 @@ impl ContextNetworkReply {
                 socket_id: None,
             });
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn socket_id(&self) -> Option<u64> {
         *self
             .socket
             .lock()
             .unwrap_or_else(|error| error.into_inner())
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn stream_id(&self) -> Option<u64> {
         *self
             .stream
@@ -2237,10 +2446,12 @@ impl ContextNetworkReply {
     }
 }
 
+#[cfg(any(test, feature = "v8-host"))]
 pub(crate) struct ContextDeferredContainerLease {
     _ticket: script_cleanup_custody::Ticket,
 }
 impl SharedContextClient {
+    #[cfg(any(test, feature = "v8-host"))]
     pub(crate) fn reserve_deferred_container_cleanup(
         &self,
         page: PageId,
@@ -2255,10 +2466,12 @@ impl SharedContextClient {
         Ok(ContextDeferredContainerLease { _ticket: ticket })
     }
 }
+#[cfg(feature = "v8-host")]
 pub(crate) struct ContextPrerenderLease {
     ticket: script_cleanup_custody::Ticket,
     page: PageId,
 }
+#[cfg(feature = "v8-host")]
 impl ContextPrerenderLease {
     pub(crate) fn attach(
         &self,
@@ -2294,10 +2507,20 @@ impl ContextPrerenderLease {
         self.ticket.finish_if_not_cancelled();
     }
 }
+#[cfg(feature = "v8-host")]
 pub(crate) struct ContextLocalNavigationLease {
     ticket: script_cleanup_custody::Ticket,
     page: PageId,
 }
+#[cfg(feature = "v8-host")]
+pub(crate) struct ContextNavigationSourceLease {
+    pub(crate) nonce: String,
+    _ticket: script_cleanup_custody::Ticket,
+}
+pub(crate) struct ContextResponsePolicyLease {
+    _ticket: script_cleanup_custody::Ticket,
+}
+#[cfg(feature = "v8-host")]
 impl ContextLocalNavigationLease {
     pub(crate) fn attach(&self, token: &str) {
         self.ticket
@@ -2307,10 +2530,12 @@ impl ContextLocalNavigationLease {
             });
     }
 }
+#[cfg(any(test, feature = "v8-host"))]
 pub(crate) struct ContextFrameResponseLease {
     ticket: script_cleanup_custody::Ticket,
     page: PageId,
 }
+#[cfg(any(test, feature = "v8-host"))]
 impl ContextFrameResponseLease {
     pub(crate) fn attach(&self, stream_id: u64, policy: &str) {
         self.ticket
@@ -2327,6 +2552,7 @@ impl ContextFrameResponseLease {
         self.ticket.finish_if_not_cancelled();
     }
 }
+#[cfg(any(test, feature = "v8-host"))]
 impl std::fmt::Debug for ContextFrameResponseLease {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ContextFrameResponseLease")
@@ -2340,10 +2566,11 @@ pub struct RelatedRootAdmission {
     pub route: WorkerRoute,
     pub actor_route: WorkerRoute,
     pub policy: Option<crate::csp::CspPolicySet>,
-    pub isolation: crate::agent_isolation::DocumentIsolationPolicy,
+    pub isolation: DocumentIsolationPolicy,
 }
 
 impl SharedContextClient {
+    #[cfg(any(test, feature = "v8-host"))]
     pub(crate) fn drain_resource_timings(&self) -> Vec<resource_timing_scope::Record> {
         self.2.drain_timings(self.1.as_ref())
     }
@@ -2356,24 +2583,29 @@ impl SharedContextClient {
             transport,
             Some(route),
             Default::default(),
-            None,
             Default::default(),
+            #[cfg(feature = "v8-host")]
+            None,
         )
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn current_route(&self) -> Option<WorkerRoute> {
         self.1.clone()
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn environment_route(&self) -> Option<WorkerRoute> {
         self.1
             .clone()
-            .or_else(|| self.3.as_ref().map(|direct| direct.route.clone()))
+            .or_else(|| self.4.as_ref().map(|direct| direct.route.clone()))
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn actor_route(&self) -> Option<WorkerRoute> {
-        self.3
+        self.4
             .as_ref()
             .map(|direct| direct.actor.clone())
             .or_else(|| self.1.clone())
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn related_network_broker(
         &self,
         admission: &RelatedRootAdmission,
@@ -2383,7 +2615,7 @@ impl SharedContextClient {
         }
         let endpoint = self.related_endpoint(admission)?;
         let context = endpoint
-            .3
+            .4
             .as_ref()
             .and_then(|direct| direct.context.upgrade())
             .ok_or(RuntimeError::Closed)?;
@@ -2397,12 +2629,13 @@ impl SharedContextClient {
             )
         }))
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn related_endpoint(
         &self,
         admission: &RelatedRootAdmission,
     ) -> Result<Self, RuntimeError> {
         if !admission.direct {
-            if self.3.is_some() {
+            if self.4.is_some() {
                 return Err(RuntimeError::ProtocolViolation(
                     "routed admission on direct endpoint".into(),
                 ));
@@ -2411,7 +2644,7 @@ impl SharedContextClient {
         }
         #[cfg(feature = "v8-host")]
         {
-            let direct = self.3.as_ref().ok_or_else(|| {
+            let direct = self.4.as_ref().ok_or_else(|| {
                 RuntimeError::ProtocolViolation("direct admission on routed endpoint".into())
             })?;
             let context = direct.context.upgrade().ok_or(RuntimeError::Closed)?;
@@ -2428,7 +2661,7 @@ impl SharedContextClient {
                     "direct related actor capability mismatch".into(),
                 ));
             }
-            return Ok(Self::direct(context, page));
+            Ok(Self::direct(context, page))
         }
         #[cfg(not(feature = "v8-host"))]
         Err(RuntimeError::ProtocolViolation(
@@ -2436,6 +2669,7 @@ impl SharedContextClient {
         ))
     }
 
+    #[cfg(feature = "v8-host")]
     pub(crate) fn reserve_prerender_cleanup(
         &self,
         page: PageId,
@@ -2444,6 +2678,7 @@ impl SharedContextClient {
             .map_err(RuntimeError::ContextService)?;
         Ok(ContextPrerenderLease { ticket, page })
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn reserve_local_navigation(
         &self,
         page: PageId,
@@ -2454,6 +2689,60 @@ impl SharedContextClient {
             page,
         })
     }
+    #[cfg(feature = "v8-host")]
+    pub(crate) fn reserve_navigation_source(
+        &self,
+        page: PageId,
+    ) -> Result<Arc<ContextNavigationSourceLease>, RuntimeError> {
+        let ticket = script_cleanup_custody::Ticket::reserve(self.clone(), page)
+            .map_err(RuntimeError::ContextService)?;
+        let mut bytes = [0u8; 32];
+        getrandom::fill(&mut bytes)
+            .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+        let nonce = bytes
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        // Arm before submitting the publishing query: cancellation may win its reply.
+        ticket.attach_request(ContextServiceRequest::DiscardNavigationNetworkSource {
+            page_id: page,
+            nonce: nonce.clone(),
+        });
+        Ok(Arc::new(ContextNavigationSourceLease {
+            nonce,
+            _ticket: ticket,
+        }))
+    }
+    #[cfg(feature = "v8-host")]
+    pub(crate) fn retain_response_policy(
+        &self,
+        page: PageId,
+        token: &str,
+    ) -> Result<Arc<ContextResponsePolicyLease>, RuntimeError> {
+        let request = ContextServiceRequest::DiscardNavigationResponsePolicy {
+            page_id: page,
+            token: token.into(),
+        };
+        let ticket = match script_cleanup_custody::Ticket::reserve(self.clone(), page) {
+            Ok(ticket) => ticket,
+            Err(error) => {
+                // The response is already admitted. A full cleanup queue must
+                // release that exact token before rejecting its consumer.
+                match self.request(request)? {
+                    ContextServiceResponse::NavigationResponsePolicyDiscarded => {}
+                    _ => {
+                        return Err(RuntimeError::ProtocolViolation(
+                            "unexpected response policy cleanup acknowledgement".into(),
+                        ));
+                    }
+                }
+                return Err(RuntimeError::ContextService(error));
+            }
+        };
+        ticket.attach_request(request);
+        Ok(Arc::new(ContextResponsePolicyLease { _ticket: ticket }))
+    }
+    #[cfg(any(test, feature = "v8-host"))]
     pub(crate) fn reserve_navigation_stop(
         &self,
         page: PageId,
@@ -2472,6 +2761,7 @@ impl SharedContextClient {
         });
         Ok(ContextNavigationStop { ticket })
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub(crate) fn reserve_frame_response(
         &self,
         page: PageId,
@@ -2483,6 +2773,7 @@ impl SharedContextClient {
             .map_err(RuntimeError::ContextService)?;
         Ok(Arc::new(ContextFrameResponseLease { ticket, page }))
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn reserve_http_cancellation(
         &self,
         page: PageId,
@@ -2496,6 +2787,7 @@ impl SharedContextClient {
         });
         Ok(Arc::new(ContextHttpCancellation { ticket }))
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub(crate) fn reserve_http_network_reply(
         &self,
         page: PageId,
@@ -2508,12 +2800,14 @@ impl SharedContextClient {
             .map_err(RuntimeError::ContextService)?;
         Ok(reply)
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub(crate) fn reserve_network_reply(
         &self,
         page: PageId,
         creator: Option<oryn_js::worker_wire::Creator>,
     ) -> Result<ContextNetworkReply, RuntimeError> {
         Ok(ContextNetworkReply {
+            #[cfg(feature = "v8-host")]
             socket: Mutex::new(None),
             stream: Mutex::new(None),
             ticket: script_cleanup_custody::Ticket::reserve(self.clone(), page)
@@ -2522,32 +2816,39 @@ impl SharedContextClient {
             creator,
         })
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub(crate) fn resource_job_activity(&self) -> (usize, Option<std::time::Instant>) {
         self.2.activity(self.1.as_ref())
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub(crate) fn for_document_activity(&self) -> Self {
         Self(
             self.0.clone(),
             self.1.clone(),
             Arc::new(self.2.for_document()),
-            self.3.clone(),
             Default::default(),
+            #[cfg(feature = "v8-host")]
+            self.4.clone(),
         )
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn for_child_document_activity(&self) -> Self {
         Self(
             self.0.clone(),
             self.1.clone(),
             Arc::new(self.2.for_child_document()),
-            self.3.clone(),
             Default::default(),
+            #[cfg(feature = "v8-host")]
+            self.4.clone(),
         )
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn track_control_job(&self) -> Result<ResourceJob, RuntimeError> {
         self.2
             .acquire_control(self.1.as_ref())
             .map_err(RuntimeError::ContextService)
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub(crate) fn track_resource_job(&self) -> Result<ResourceJob, RuntimeError> {
         self.2
             .acquire(self.1.as_ref())
@@ -2555,7 +2856,7 @@ impl SharedContextClient {
     }
     pub(crate) fn retire_resource_jobs(&self, budget: Duration) -> Result<(), RuntimeError> {
         script_cleanup_custody::release_deferred_containers(self);
-        self.4.retire();
+        self.3.retire();
         self.2
             .retire_and_drain(self.1.as_ref(), budget)
             .map_err(RuntimeError::ContextService)
@@ -2569,6 +2870,7 @@ impl SharedContextClient {
     pub(crate) fn drain_script_cleanup(&self, budget: Duration) -> Result<(), RuntimeError> {
         script_cleanup_custody::drain(self, budget).map_err(RuntimeError::ContextService)
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn prepare_parser_encoding_policy(
         &self,
         page_id: PageId,
@@ -2607,6 +2909,7 @@ impl SharedContextClient {
             )),
         }
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub(crate) fn reserve_script_load(
         &self,
         page_id: PageId,
@@ -2632,11 +2935,12 @@ impl SharedContextClient {
             )),
         }
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub(crate) fn begin_resource_preload(
         &self,
         request: ContextServiceRequest,
     ) -> Result<Arc<PreparedResourcePreload>, RuntimeError> {
-        let entry = self.4.admit(&request)?;
+        let entry = self.3.admit(&request)?;
         if !entry.start() {
             return Ok(entry);
         }
@@ -2654,8 +2958,9 @@ impl SharedContextClient {
             self.0.clone(),
             self.1.clone(),
             self.2.clone(),
-            self.3.clone(),
             Default::default(),
+            #[cfg(feature = "v8-host")]
+            self.4.clone(),
         );
         let lease = match transport.reserve_script_load(page, creator) {
             Ok(lease) => lease,
@@ -2689,35 +2994,16 @@ impl SharedContextClient {
         }
         Ok(entry)
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn capture_resource_preloads(&self) -> ResourcePreloadSnapshot {
-        self.4.snapshot()
+        self.3.snapshot()
     }
     pub(crate) fn claim_resource_preload(
         &self,
         request: &ContextServiceRequest,
         blocking: bool,
     ) -> Option<Arc<PreparedResourcePreload>> {
-        self.4.claim(request, blocking)
-    }
-
-    pub(crate) fn request_script(
-        &self,
-        request: ContextServiceRequest,
-    ) -> Result<ContextServiceResponse, RuntimeError> {
-        let (page_id, creator) = match &request {
-            ContextServiceRequest::LoadScript {
-                page_id, creator, ..
-            }
-            | ContextServiceRequest::LoadTypedModule {
-                page_id, creator, ..
-            } => (*page_id, creator.clone()),
-            _ => {
-                return Err(RuntimeError::ProtocolViolation(
-                    "owned script request requires script loader".into(),
-                ));
-            }
-        };
-        self.reserve_script_load(page_id, creator)?.run(request)
+        self.3.claim(request, blocking)
     }
 
     pub fn new(client: IpcContextClient) -> Self {
@@ -2725,8 +3011,9 @@ impl SharedContextClient {
             Arc::new(IpcContextTransport::new(client).expect("context transport initialization")),
             None,
             Default::default(),
-            None,
             Default::default(),
+            #[cfg(feature = "v8-host")]
+            None,
         )
     }
 
@@ -2735,8 +3022,9 @@ impl SharedContextClient {
             self.0.clone(),
             Some(route),
             self.2.clone(),
+            self.3.clone(),
+            #[cfg(feature = "v8-host")]
             None,
-            self.4.clone(),
         )
     }
 
@@ -2754,8 +3042,9 @@ impl SharedContextClient {
             ParentContextService::new_direct(context, source_page_id).into_shared(),
             None,
             Default::default(),
-            Some(direct),
             Default::default(),
+            #[cfg(feature = "v8-host")]
+            Some(direct),
         )
     }
 
@@ -2806,16 +3095,16 @@ impl SharedContextClient {
                         && !matches!(consumer, ContextServiceRequest::LoadScript { .. }))
                 };
                 match authorized {
-                    Ok(false) => self.4.finish_claim(&entry, false),
+                    Ok(false) => self.3.finish_claim(&entry, false),
                     Ok(true) => {
-                        self.4.finish_claim(&entry, true);
+                        self.3.finish_claim(&entry, true);
                         if let Some((page, token)) = unused_lease {
                             script_cleanup_custody::cancel_script(self, page, token);
                         }
                         return response;
                     }
                     Err(error) => {
-                        self.4.finish_claim(&entry, false);
+                        self.3.finish_claim(&entry, false);
                         if let Some((page, token)) = unused_lease {
                             script_cleanup_custody::cancel_script(self, page, token);
                         }
@@ -2907,10 +3196,13 @@ impl SharedContextClient {
 
 /// Reserved before a remote navigation is admitted. Local outbox failures and
 /// abandoned publishers retain a parent stop request until acknowledgement.
+#[cfg(any(test, feature = "v8-host"))]
 pub(crate) struct ContextNavigationStop {
     ticket: script_cleanup_custody::Ticket,
 }
+#[cfg(any(test, feature = "v8-host"))]
 impl ContextNavigationStop {
+    #[cfg(feature = "v8-host")]
     pub(crate) fn cancel(&self) {
         self.ticket.cancel();
     }
@@ -2921,23 +3213,28 @@ impl ContextNavigationStop {
 
 /// Modal requests travel on multiplexed context IPC, independently of the
 /// worker's command reader. Resolution uses the parent page's controller.
+#[cfg(feature = "v8-host")]
 pub(crate) struct NativePromptBackend {
     client: SharedContextClient,
     page_id: PageId,
 }
+#[cfg(feature = "v8-host")]
 pub(crate) struct NativeMessageBackend {
     client: SharedContextClient,
     page_id: PageId,
 }
+#[cfg(feature = "v8-host")]
 pub(crate) struct NativeWorkerBackend {
     client: SharedContextClient,
     page_id: PageId,
 }
+#[cfg(feature = "v8-host")]
 impl NativeWorkerBackend {
     pub(crate) fn new(client: SharedContextClient, page_id: PageId) -> Self {
         Self { client, page_id }
     }
 }
+#[cfg(feature = "v8-host")]
 impl oryn_js::worker_wire::WorkerTransport for NativeWorkerBackend {
     fn request(
         &self,
@@ -2981,11 +3278,13 @@ impl oryn_js::worker_wire::WorkerTransport for NativeWorkerBackend {
     }
 }
 
+#[cfg(feature = "v8-host")]
 impl NativeMessageBackend {
     pub(crate) fn new(client: SharedContextClient, page_id: PageId) -> Self {
         Self { client, page_id }
     }
 }
+#[cfg(feature = "v8-host")]
 impl oryn_js::message_wire::MessageTransport for NativeMessageBackend {
     fn request(
         &self,
@@ -3001,11 +3300,13 @@ impl oryn_js::message_wire::MessageTransport for NativeMessageBackend {
         }
     }
 }
+#[cfg(feature = "v8-host")]
 impl NativePromptBackend {
     pub(crate) fn new(client: SharedContextClient, page_id: PageId) -> Self {
         Self { client, page_id }
     }
 }
+#[cfg(feature = "v8-host")]
 impl oryn_js::prompts::PromptBackend for NativePromptBackend {
     fn request(
         &self,
@@ -3630,6 +3931,7 @@ impl SocketLifecycle {
     }
 }
 
+#[cfg(feature = "v8-host")]
 pub(crate) struct ContextParserEncodingPolicy {
     client: SharedContextClient,
     page_id: PageId,
@@ -3637,6 +3939,7 @@ pub(crate) struct ContextParserEncodingPolicy {
     token: String,
     _cleanup: script_cleanup_custody::Ticket,
 }
+#[cfg(feature = "v8-host")]
 impl ContextParserEncodingPolicy {
     pub(crate) fn restore(&self) -> Result<(), RuntimeError> {
         match self
@@ -3779,10 +4082,10 @@ impl NavigationResourceCleanup {
         }
         let entry = streams.remove(&stream_id);
         drop(streams);
-        if let Some(entry) = entry {
-            if let Some(cleanup) = &entry.cleanup {
-                cleanup.cancel();
-            }
+        if let Some(entry) = entry
+            && let Some(cleanup) = &entry.cleanup
+        {
+            cleanup.cancel();
         }
         if let Some(context) = self.context.upgrade() {
             context.discard_prepared_frame_policy(self.page, policy)?;
@@ -4077,7 +4380,7 @@ fn collect_frame_download_body(
                 body.extend_from_slice(&bytes);
             }
             Some(NetworkEvent::Complete {
-                encoded_body_size,
+                encoded_body_size: _,
                 request_id,
             }) if request_id == operation.request_id => return Ok(body),
             Some(NetworkEvent::Failed { request_id, error })
@@ -4217,7 +4520,8 @@ impl ParentContextService {
             http_cleanup: http_cleanup.clone(),
             cancelled_http_requests: cancelled_http_requests.clone(),
         });
-        let service = Self {
+
+        Self {
             page_admitted: Mutex::new(false),
             weak_self: Default::default(),
             context: context.downgrade(),
@@ -4240,8 +4544,7 @@ impl ParentContextService {
             authorized_storage_origins: Mutex::new(authorized_storage_origins),
             shutting_down: Arc::new(AtomicBool::new(false)),
             trusted_in_process_runtime: false,
-        };
-        service
+        }
     }
 
     pub(crate) fn admit_registered_page(&self) -> Result<(), RuntimeError> {
@@ -4775,23 +5078,27 @@ impl ParentContextService {
             } => {
                 self.validate_socket_owner(page_id)?;
                 context_owner.inherit_frame_worker_policy_at_url(
-                    page_id,
-                    frame.clone(),
-                    document_generation,
-                    stream_epoch,
-                    &parent,
-                    parent_generation,
-                    parent_epoch,
-                    &document_url,
+                    crate::runtime::worker_service::InheritedFramePolicyInputs {
+                        page: page_id,
+                        frame: frame.clone(),
+                        generation: document_generation,
+                        epoch: stream_epoch,
+                        parent: &parent,
+                        parent_generation,
+                        parent_epoch,
+                        document_url: &document_url,
+                    },
                 )?;
                 context_owner.register_isolation_container(
-                    page_id,
-                    frame.clone(),
-                    document_generation,
-                    stream_epoch,
-                    container_allow,
-                    container_source,
-                    container_sandbox,
+                    crate::runtime::worker_service::IsolationContainerInputs {
+                        page: page_id,
+                        frame: frame.clone(),
+                        generation: document_generation,
+                        epoch: stream_epoch,
+                        allow: container_allow,
+                        source: container_source,
+                        sandbox: container_sandbox,
+                    },
                 )?;
                 let bound_policy = context_owner.window_worker_policy(
                     page_id,
@@ -4833,36 +5140,42 @@ impl ParentContextService {
             } => {
                 self.validate_socket_owner(page_id)?;
                 context_owner.bind_frame_worker_policy_with_sandbox(
-                    page_id,
-                    frame.clone(),
-                    document_generation,
-                    stream_epoch,
-                    &url,
-                    &token,
-                    container_sandbox.as_ref().is_some_and(|value| {
-                        !value
-                            .split_ascii_whitespace()
-                            .any(|token| token.eq_ignore_ascii_case("allow-same-origin"))
-                    }),
+                    crate::runtime::worker_service::FramePolicyInputs {
+                        page: page_id,
+                        frame: frame.clone(),
+                        generation: document_generation,
+                        epoch: stream_epoch,
+                        url: &url,
+                        token: &token,
+                        opaque_sandbox: container_sandbox.as_ref().is_some_and(|value| {
+                            !value
+                                .split_ascii_whitespace()
+                                .any(|token| token.eq_ignore_ascii_case("allow-same-origin"))
+                        }),
+                    },
                 )?;
                 context_owner.register_activation_parent(
-                    page_id,
-                    frame.clone(),
-                    document_generation,
-                    stream_epoch,
-                    parent,
-                    parent_generation,
-                    parent_epoch,
+                    crate::runtime::worker_service::ActivationParentInputs {
+                        page: page_id,
+                        frame: frame.clone(),
+                        generation: document_generation,
+                        epoch: stream_epoch,
+                        parent,
+                        parent_generation,
+                        parent_epoch,
+                    },
                 )?;
 
                 context_owner.register_isolation_container(
-                    page_id,
-                    frame.clone(),
-                    document_generation,
-                    stream_epoch,
-                    container_allow,
-                    container_source,
-                    container_sandbox,
+                    crate::runtime::worker_service::IsolationContainerInputs {
+                        page: page_id,
+                        frame: frame.clone(),
+                        generation: document_generation,
+                        epoch: stream_epoch,
+                        allow: container_allow,
+                        source: container_source,
+                        sandbox: container_sandbox,
+                    },
                 )?;
                 self.socket_lifecycle.bind_frame_stream(
                     &token,
@@ -4946,13 +5259,15 @@ impl ParentContextService {
             } => {
                 self.validate_socket_owner(page_id)?;
                 context_owner.register_native_prerender_frame(
-                    page_id,
-                    &parent,
-                    frame,
-                    generation,
-                    epoch,
-                    origin,
-                    inherit_origin,
+                    crate::runtime::NativePrerenderFrameInputs {
+                        page: page_id,
+                        parent: &parent,
+                        frame,
+                        generation,
+                        epoch,
+                        origin,
+                        inherit_origin,
+                    },
                 )?;
                 Ok(ContextServiceResponse::PrerenderFrameRegistered)
             }
@@ -5030,6 +5345,7 @@ impl ParentContextService {
                 })
             }
             ContextServiceRequest::CommitPrerenderResponse {
+                response_policy,
                 page_id,
                 token,
                 generation,
@@ -5037,6 +5353,11 @@ impl ParentContextService {
                 url,
                 headers,
             } => {
+                if response_policy.is_some() || !self.trusted_in_process_runtime {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "prerender response policy requires its owning worker route grant".into(),
+                    ));
+                }
                 self.validate_socket_owner(page_id)?;
                 let scope =
                     context_owner.native_prerender_scope(page_id, &token, (generation, epoch))?;
@@ -5517,13 +5838,15 @@ impl ParentContextService {
                 self.validate_socket_owner(page_id)?;
                 Ok(ContextServiceResponse::ScriptNavigationAuthority {
                     authority: context_owner.issue_script_navigation_authority(
-                        page_id,
-                        creator,
-                        target_page_id.unwrap_or(page_id),
-                        target,
-                        &url,
-                        &source_url,
-                        &referrer_policy,
+                        crate::runtime::ScriptNavigationInputs {
+                            source: page_id,
+                            source_creator: creator,
+                            destination: target_page_id.unwrap_or(page_id),
+                            target_creator: target,
+                            destination_url: &url,
+                            source_url: &source_url,
+                            referrer_policy: &referrer_policy,
+                        },
                     )?,
                 })
             }
@@ -5556,6 +5879,24 @@ impl ParentContextService {
                 Ok(ContextServiceResponse::ScriptNavigationAuthority {
                     authority: admission.authority,
                 })
+            }
+            ContextServiceRequest::AcquireNavigationNetworkSource {
+                page_id,
+                nonce: _,
+                target,
+                url,
+                authority,
+            } => {
+                self.validate_socket_owner(page_id)?;
+                // Direct actors use this context's broker and need no remote route grant.
+                Ok(ContextServiceResponse::NavigationNetworkSource {
+                    source: authority.source(&context_owner, page_id, &target, &url)?,
+                    bound: false,
+                })
+            }
+            ContextServiceRequest::DiscardNavigationNetworkSource { page_id, .. } => {
+                self.validate_socket_owner(page_id)?;
+                Ok(ContextServiceResponse::NavigationNetworkSourceDiscarded)
             }
             ContextServiceRequest::ReadServiceNavigationSource {
                 page_id,
@@ -5622,13 +5963,15 @@ impl ParentContextService {
             } => {
                 self.validate_socket_owner(source_page_id)?;
                 context_owner.queue_related_window_navigation(
-                    source_page_id,
-                    &creator,
-                    target_page_id,
-                    &target,
-                    expected,
-                    &url,
-                    replace,
+                    crate::runtime::RelatedWindowNavigationInputs {
+                        source: source_page_id,
+                        creator: &creator,
+                        target_page: target_page_id,
+                        target: &target,
+                        expected,
+                        url: &url,
+                        replace,
+                    },
                 )?;
                 Ok(ContextServiceResponse::NavigationAuthorized)
             }
@@ -5869,16 +6212,16 @@ impl ParentContextService {
                         "prefetch requires a document-owned no-CORS GET".into(),
                     ));
                 }
-                self.start_http_stream_with_destination(
+                self.start_http_stream_with_destination(HttpStreamDestinationInputs {
                     page_id,
                     request,
-                    crate::csp::CspDestination::Prefetch,
-                    false,
-                    None,
-                    false,
-                    None,
-                    None,
-                )
+                    destination: crate::csp::CspDestination::Prefetch,
+                    cors_enabled: false,
+                    media_destination: None,
+                    preload: false,
+                    template_nonce: None,
+                    frozen: None,
+                })
             }
             ContextServiceRequest::TemplateStreamStart {
                 page_id,
@@ -5897,16 +6240,16 @@ impl ParentContextService {
                         "external template requires a document-owned CORS GET".into(),
                     ));
                 }
-                self.start_http_stream_with_destination(
+                self.start_http_stream_with_destination(HttpStreamDestinationInputs {
                     page_id,
                     request,
-                    crate::csp::CspDestination::Script,
-                    true,
-                    None,
-                    false,
-                    Some(nonce.as_deref()),
-                    None,
-                )
+                    destination: crate::csp::CspDestination::Script,
+                    cors_enabled: true,
+                    media_destination: None,
+                    preload: false,
+                    template_nonce: Some(nonce.as_deref()),
+                    frozen: None,
+                })
             }
             ContextServiceRequest::ImagePreloadStreamStart {
                 page_id,
@@ -5918,16 +6261,16 @@ impl ParentContextService {
                         "invalid image preload request".into(),
                     ));
                 }
-                self.start_http_stream_with_destination(
+                self.start_http_stream_with_destination(HttpStreamDestinationInputs {
                     page_id,
                     request,
-                    crate::csp::CspDestination::Image,
+                    destination: crate::csp::CspDestination::Image,
                     cors_enabled,
-                    None,
-                    true,
-                    None,
-                    None,
-                )
+                    media_destination: None,
+                    preload: true,
+                    template_nonce: None,
+                    frozen: None,
+                })
             }
             ContextServiceRequest::MediaStreamStart {
                 page_id,
@@ -5953,16 +6296,16 @@ impl ParentContextService {
                         "text track requires native CORS mode".into(),
                     ));
                 }
-                self.start_http_stream_with_destination(
+                self.start_http_stream_with_destination(HttpStreamDestinationInputs {
                     page_id,
                     request,
-                    crate::csp::CspDestination::Media,
+                    destination: crate::csp::CspDestination::Media,
                     cors_enabled,
-                    Some(&destination),
-                    false,
-                    None,
-                    None,
-                )
+                    media_destination: Some(&destination),
+                    preload: false,
+                    template_nonce: None,
+                    frozen: None,
+                })
             }
             ContextServiceRequest::ImageStreamStart {
                 page_id,
@@ -6043,6 +6386,7 @@ impl ParentContextService {
                 link_navigation,
                 user_initiated,
                 defer_navigation,
+                local_related_navigation,
                 selected_target,
                 document_source,
                 opener_page_id,
@@ -6183,8 +6527,8 @@ impl ParentContextService {
                         .ok()
                         .map(|url| url.origin().ascii_serialization())
                 });
-                if existing.is_none() {
-                    if let Err(error) = self.context_owner()?.require_policy(
+                if existing.is_none()
+                    && let Err(error) = self.context_owner()?.require_policy(
                         PolicyRequest {
                             action: ConsequentialAction::Popup,
                             source_origin: opener_origin.clone(),
@@ -6192,11 +6536,11 @@ impl ParentContextService {
                             detail: url.clone(),
                         },
                         None,
-                    ) {
-                        return Ok(ContextServiceResponse::PageDenied {
-                            reason: error.to_string(),
-                        });
-                    }
+                    )
+                {
+                    return Ok(ContextServiceResponse::PageDenied {
+                        reason: error.to_string(),
+                    });
                 }
                 if let Some(url) = &url {
                     self.context_owner()?
@@ -6306,61 +6650,61 @@ impl ParentContextService {
                         )?;
                     }
                     let selected_frame = frame.clone();
-                    if !defer_navigation {
-                        if let Some(url) = url {
-                            if link_navigation {
-                                let source = document_source.clone().ok_or_else(|| {
-                                    RuntimeError::ProtocolViolation(
-                                        "selected link document source missing".into(),
-                                    )
-                                })?;
-                                context_owner.queue_document_navigation(
-                                    existing,
+                    if !defer_navigation && let Some(url) = url {
+                        if link_navigation {
+                            let source = document_source.clone().ok_or_else(|| {
+                                RuntimeError::ProtocolViolation(
+                                    "selected link document source missing".into(),
+                                )
+                            })?;
+                            context_owner.queue_document_navigation(
+                                crate::runtime::DocumentNavigationInputs {
+                                    page_id: existing,
                                     url,
                                     source,
                                     referrer_policy,
                                     user_initiated,
-                                    frame,
-                                    hyperlink_audit.take(),
-                                )?;
-                            } else if document_source.is_none()
-                                && form_authority.is_none()
-                                && post.is_none()
-                            {
-                                let oryn_js::worker_wire::Creator::Window { target, .. } = &target
-                                else {
-                                    return Err(RuntimeError::ProtocolViolation(
-                                        "Window.open destination is not a Window".into(),
-                                    ));
-                                };
-                                context_owner.queue_open_window_navigation(
-                                    opener_page_id,
-                                    &creator,
-                                    existing,
-                                    target,
-                                    &url,
-                                    referrer_policy.as_deref() == Some("no-referrer"),
-                                )?;
-                            } else {
-                                let authority = form_authority
-                                    .as_ref()
-                                    .map(|authority| {
-                                        context_owner.retarget_form_authority(
-                                            authority,
-                                            opener_page_id,
-                                            existing,
-                                        )
-                                    })
-                                    .transpose()?;
-                                context_owner.queue_target_resource_navigation(
-                                    existing,
-                                    url,
-                                    post,
-                                    referrer_policy,
-                                    authority,
-                                    frame,
-                                )?;
-                            }
+                                    selected: frame,
+                                    hyperlink_audit: hyperlink_audit.take(),
+                                },
+                            )?;
+                        } else if document_source.is_none()
+                            && form_authority.is_none()
+                            && post.is_none()
+                        {
+                            let oryn_js::worker_wire::Creator::Window { target, .. } = &target
+                            else {
+                                return Err(RuntimeError::ProtocolViolation(
+                                    "Window.open destination is not a Window".into(),
+                                ));
+                            };
+                            context_owner.queue_open_window_navigation(
+                                opener_page_id,
+                                &creator,
+                                existing,
+                                target,
+                                &url,
+                                referrer_policy.as_deref() == Some("no-referrer"),
+                            )?;
+                        } else {
+                            let authority = form_authority
+                                .as_ref()
+                                .map(|authority| {
+                                    context_owner.retarget_form_authority(
+                                        authority,
+                                        opener_page_id,
+                                        existing,
+                                    )
+                                })
+                                .transpose()?;
+                            context_owner.queue_target_resource_navigation(
+                                existing,
+                                url,
+                                post,
+                                referrer_policy,
+                                authority,
+                                frame,
+                            )?;
                         }
                     }
                     return Ok(ContextServiceResponse::PageOpened {
@@ -6368,6 +6712,7 @@ impl ParentContextService {
                         selected_frame,
                         selected_target,
                         related_root: None,
+                        related_navigation_url: None,
                         page_id: existing,
                         created: false,
                         opener_page_id: None,
@@ -6382,25 +6727,20 @@ impl ParentContextService {
                     && noopener
                     && target_name.eq_ignore_ascii_case("_blank")
                     && post.is_none()
+                    && let Some(url) = url.as_deref()
+                    && let Some(receipt) =
+                        context_owner.claim_blank_prerender(opener_page_id, &creator, None, url)?
                 {
-                    if let Some(url) = url.as_deref() {
-                        if let Some(receipt) = context_owner.claim_blank_prerender(
-                            opener_page_id,
-                            &creator,
-                            None,
-                            url,
-                        )? {
-                            return Ok(ContextServiceResponse::PageOpened {
-                                page_id: receipt.page_id,
-                                blank_prerender: Some(receipt),
-                                selected_frame: None,
-                                selected_target: None,
-                                related_root: None,
-                                created: false,
-                                opener_page_id: None,
-                            });
-                        }
-                    }
+                    return Ok(ContextServiceResponse::PageOpened {
+                        page_id: receipt.page_id,
+                        blank_prerender: Some(receipt),
+                        selected_frame: None,
+                        selected_target: None,
+                        related_root: None,
+                        related_navigation_url: None,
+                        created: false,
+                        opener_page_id: None,
+                    });
                 }
                 // Clone sessionStorage before the popup's first document can
                 // execute, matching the browser's initial-copy semantics.
@@ -6451,8 +6791,8 @@ impl ParentContextService {
                     origin: opener_origin,
                     top_level_page_id: page.page_id(),
                 };
-                if !noopener {
-                    if let StorageResponse::Entries { entries } = self
+                if !noopener
+                    && let StorageResponse::Entries { entries } = self
                         .context_owner()?
                         .context_store()
                         .execute(StorageRequest::Entries {
@@ -6460,18 +6800,17 @@ impl ParentContextService {
                             scope: opener_scope,
                         })
                         .map_err(|error| RuntimeError::ContextService(error.to_string()))?
-                    {
-                        for (key, value) in entries {
-                            self.context_owner()?
-                                .context_store()
-                                .execute(StorageRequest::Set {
-                                    area: StorageArea::Session,
-                                    scope: popup_scope.clone(),
-                                    key,
-                                    value,
-                                })
-                                .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
-                        }
+                {
+                    for (key, value) in entries {
+                        self.context_owner()?
+                            .context_store()
+                            .execute(StorageRequest::Set {
+                                area: StorageArea::Session,
+                                scope: popup_scope.clone(),
+                                key,
+                                value,
+                            })
+                            .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
                     }
                 }
                 let selected_target = Some(if let Some(source) = &document_source {
@@ -6489,7 +6828,39 @@ impl ParentContextService {
                         None,
                     )?
                 });
-                if let Some(url) = initial_url.filter(|_| !defer_navigation) {
+                // Window.open has already exposed the new auxiliary's initial
+                // about:blank Document. Opening that exact URL must not enqueue
+                // a second document that later discards synchronous author edits.
+                // Existing targets and form/link navigations retain their normal
+                // navigation path.
+                let retain_initial_blank = !link_navigation
+                    && document_source.is_none()
+                    && form_authority.is_none()
+                    && post.is_none()
+                    && initial_url.as_deref() == Some("about:blank");
+                let related_root = context_owner.related_root_admission(page.page_id());
+                // The source command still owns the shared worker dispatcher. A
+                // parent goto here would wait for that command to finish before
+                // its auxiliary could load. Only the native Window.open producer
+                // accepts this transfer into the newly admitted related actor.
+                let related_navigation_url = if local_related_navigation
+                    && related_root.is_some()
+                    && !noopener
+                    && !defer_navigation
+                    && !retain_initial_blank
+                    && !link_navigation
+                    && document_source.is_none()
+                    && form_authority.is_none()
+                    && post.is_none()
+                    && referrer_policy.is_none()
+                {
+                    initial_url.clone()
+                } else {
+                    None
+                };
+                if let Some(url) = initial_url.filter(|_| {
+                    !defer_navigation && !retain_initial_blank && related_navigation_url.is_none()
+                }) {
                     if link_navigation {
                         let source = document_source.clone().ok_or_else(|| {
                             RuntimeError::ProtocolViolation(
@@ -6497,13 +6868,15 @@ impl ParentContextService {
                             )
                         })?;
                         context_owner.queue_document_navigation(
-                            page.page_id(),
-                            url,
-                            source,
-                            referrer_policy,
-                            user_initiated,
-                            None,
-                            hyperlink_audit.take(),
+                            crate::runtime::DocumentNavigationInputs {
+                                page_id: page.page_id(),
+                                url,
+                                source,
+                                referrer_policy,
+                                user_initiated,
+                                selected: None,
+                                hyperlink_audit: hyperlink_audit.take(),
+                            },
                         )?;
                     } else {
                         self.context_owner()?.queue_resource_navigation(
@@ -6528,7 +6901,8 @@ impl ParentContextService {
                     blank_prerender: None,
                     selected_frame: None,
                     selected_target,
-                    related_root: context_owner.related_root_admission(page.page_id()),
+                    related_root,
+                    related_navigation_url,
                     page_id: page.page_id(),
                     created: true,
                     opener_page_id: (!noopener).then_some(opener_page_id),
@@ -6587,6 +6961,15 @@ impl ParentContextService {
                 )?;
                 Ok(ContextServiceResponse::DocumentSecurityInstalled)
             }
+            ContextServiceRequest::CommitNavigationResponsePolicy { .. }
+            | ContextServiceRequest::DiscardNavigationResponsePolicy { .. } => {
+                // Only the authenticated worker router owns these grants.
+                // Direct service callers cannot turn their response headers
+                // into parent policy, including in unit-test builds.
+                Err(RuntimeError::ProtocolViolation(
+                    "navigation response policy requires its owning worker route".into(),
+                ))
+            }
             ContextServiceRequest::InstallDocumentSecurity {
                 page_id,
                 document_url,
@@ -6604,18 +6987,9 @@ impl ParentContextService {
                         &headers,
                     )?;
                 } else {
-                    #[cfg(test)]
-                    self.context_owner()?.install_document_security(
-                        page_id,
-                        document_url,
-                        &headers,
-                    )?;
-                    #[cfg(not(test))]
-                    self.context_owner()?.verify_document_security(
-                        page_id,
-                        &document_url,
-                        &headers,
-                    )?;
+                    return Err(RuntimeError::ProtocolViolation(
+                        "worker document policy requires a native response or prepared-document grant".into(),
+                    ));
                 }
                 Ok(ContextServiceResponse::DocumentSecurityInstalled)
             }
@@ -7113,6 +7487,22 @@ impl ParentContextService {
                 self.context_owner()?.queue_script_close(page_id)?;
                 Ok(ContextServiceResponse::PageClosed)
             }
+            ContextServiceRequest::BeginActionCloseScope { page_id, action_id } => {
+                self.validate_socket_owner(page_id)?;
+                self.context_owner()?
+                    .begin_action_close_scope(page_id, action_id)?;
+                Ok(ContextServiceResponse::ActionCloseScopeUpdated)
+            }
+            ContextServiceRequest::EndActionCloseScope {
+                page_id,
+                action_id,
+                retain,
+            } => {
+                self.validate_socket_owner(page_id)?;
+                self.context_owner()?
+                    .end_action_close_scope(page_id, action_id, retain)?;
+                Ok(ContextServiceResponse::ActionCloseScopeUpdated)
+            }
             ContextServiceRequest::ClosePage {
                 source_page_id,
                 target_page_id,
@@ -7235,23 +7625,23 @@ impl ParentContextService {
                         referrer_source,
                         script_policy,
                         parser_inserted,
-                    } if inner == page_id => self.load_page_script_with_cancel(
+                    } if inner == page_id => self.load_page_script_with_cancel(PageScriptInputs {
                         page_id,
-                        &url,
+                        requested_url: &url,
                         module,
-                        nonce.as_deref(),
-                        initiator_url.as_deref(),
-                        referrer_policy.as_deref(),
-                        integrity.as_deref(),
-                        cross_origin.as_deref(),
-                        referrer_source.as_deref(),
-                        None,
-                        Some(&lease.cancel),
-                        Some(&creator),
-                        script_policy.as_deref(),
+                        nonce: nonce.as_deref(),
+                        initiator_url: initiator_url.as_deref(),
+                        referrer_policy: referrer_policy.as_deref(),
+                        integrity: integrity.as_deref(),
+                        cross_origin: cross_origin.as_deref(),
+                        referrer_source: referrer_source.as_deref(),
+                        kind: None,
+                        cancellation: Some(&lease.cancel),
+                        creator: Some(&creator),
+                        script_policy: script_policy.as_deref(),
                         parser_inserted,
-                        fallback_encoding.as_deref(),
-                    ),
+                        fallback_encoding: fallback_encoding.as_deref(),
+                    }),
                     ContextServiceRequest::LoadTypedModule {
                         page_id: inner,
                         creator,
@@ -7265,23 +7655,23 @@ impl ParentContextService {
                         referrer_source,
                         script_policy,
                         parser_inserted,
-                    } if inner == page_id => self.load_page_script_with_cancel(
+                    } if inner == page_id => self.load_page_script_with_cancel(PageScriptInputs {
                         page_id,
-                        &url,
-                        true,
-                        nonce.as_deref(),
-                        initiator_url.as_deref(),
-                        referrer_policy.as_deref(),
-                        integrity.as_deref(),
-                        cross_origin.as_deref(),
-                        referrer_source.as_deref(),
-                        Some(kind),
-                        Some(&lease.cancel),
-                        Some(&creator),
-                        script_policy.as_deref(),
+                        requested_url: &url,
+                        module: true,
+                        nonce: nonce.as_deref(),
+                        initiator_url: initiator_url.as_deref(),
+                        referrer_policy: referrer_policy.as_deref(),
+                        integrity: integrity.as_deref(),
+                        cross_origin: cross_origin.as_deref(),
+                        referrer_source: referrer_source.as_deref(),
+                        kind: Some(kind),
+                        cancellation: Some(&lease.cancel),
+                        creator: Some(&creator),
+                        script_policy: script_policy.as_deref(),
                         parser_inserted,
-                        None,
-                    ),
+                        fallback_encoding: None,
+                    }),
                     ContextServiceRequest::LoadPageResource {
                         page_id: inner,
                         url,
@@ -7329,23 +7719,23 @@ impl ParentContextService {
                 referrer_source,
                 script_policy,
                 parser_inserted,
-            } => self.load_page_script_with_cancel(
+            } => self.load_page_script_with_cancel(PageScriptInputs {
                 page_id,
-                &url,
+                requested_url: &url,
                 module,
-                nonce.as_deref(),
-                initiator_url.as_deref(),
-                referrer_policy.as_deref(),
-                integrity.as_deref(),
-                cross_origin.as_deref(),
-                referrer_source.as_deref(),
-                None,
-                None,
-                Some(&creator),
-                script_policy.as_deref(),
+                nonce: nonce.as_deref(),
+                initiator_url: initiator_url.as_deref(),
+                referrer_policy: referrer_policy.as_deref(),
+                integrity: integrity.as_deref(),
+                cross_origin: cross_origin.as_deref(),
+                referrer_source: referrer_source.as_deref(),
+                kind: None,
+                cancellation: None,
+                creator: Some(&creator),
+                script_policy: script_policy.as_deref(),
                 parser_inserted,
-                fallback_encoding.as_deref(),
-            ),
+                fallback_encoding: fallback_encoding.as_deref(),
+            }),
             ContextServiceRequest::LoadTypedModule {
                 nonce,
                 page_id,
@@ -7359,23 +7749,23 @@ impl ParentContextService {
                 referrer_source,
                 script_policy,
                 parser_inserted,
-            } => self.load_page_script_with_cancel(
+            } => self.load_page_script_with_cancel(PageScriptInputs {
                 page_id,
-                &url,
-                true,
-                nonce.as_deref(),
-                initiator_url.as_deref(),
-                referrer_policy.as_deref(),
-                integrity.as_deref(),
-                cross_origin.as_deref(),
-                referrer_source.as_deref(),
-                Some(kind),
-                None,
-                Some(&creator),
-                script_policy.as_deref(),
+                requested_url: &url,
+                module: true,
+                nonce: nonce.as_deref(),
+                initiator_url: initiator_url.as_deref(),
+                referrer_policy: referrer_policy.as_deref(),
+                integrity: integrity.as_deref(),
+                cross_origin: cross_origin.as_deref(),
+                referrer_source: referrer_source.as_deref(),
+                kind: Some(kind),
+                cancellation: None,
+                creator: Some(&creator),
+                script_policy: script_policy.as_deref(),
                 parser_inserted,
-                None,
-            ),
+                fallback_encoding: None,
+            }),
             ContextServiceRequest::LoadPageResource {
                 download,
                 script_authority,
@@ -7425,15 +7815,15 @@ impl ParentContextService {
                 speculation_rules,
                 source,
                 nonce,
-            } => self.authorize_inline_script_kind(
+            } => self.authorize_inline_script_kind(InlineScriptAuthorization {
                 page_id,
-                creator.as_ref(),
-                &source,
-                nonce.as_deref(),
+                creator: creator.as_ref(),
+                source: &source,
+                nonce: nonce.as_deref(),
                 parser_inserted,
-                script_policy.as_deref(),
+                script_policy: script_policy.as_deref(),
                 speculation_rules,
-            ),
+            }),
             ContextServiceRequest::WebSocketOpen {
                 request_id,
                 page_id,
@@ -7501,28 +7891,32 @@ impl ParentContextService {
         destination: crate::csp::CspDestination,
         cors_enabled: bool,
     ) -> Result<ContextServiceResponse, RuntimeError> {
-        self.start_http_stream_with_destination(
+        self.start_http_stream_with_destination(HttpStreamDestinationInputs {
             page_id,
             request,
             destination,
             cors_enabled,
-            None,
-            false,
-            None,
-            None,
-        )
+            media_destination: None,
+            preload: false,
+            template_nonce: None,
+            frozen: None,
+        })
     }
     fn start_http_stream_with_destination(
         &self,
-        page_id: PageId,
-        request: HttpStreamRequest,
-        destination: crate::csp::CspDestination,
-        cors_enabled: bool,
-        media_destination: Option<&str>,
-        preload: bool,
-        template_nonce: Option<Option<&str>>,
-        frozen: Option<ordinary_keepalive::Authority>,
+        params: HttpStreamDestinationInputs<'_>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
+        let HttpStreamDestinationInputs {
+            page_id,
+            request,
+            destination,
+            cors_enabled,
+            media_destination,
+            preload,
+            template_nonce,
+            frozen,
+        } = params;
+
         self.validate_socket_owner(page_id)?;
         if request.upgrade_mixed_image && destination != crate::csp::CspDestination::Image {
             return Err(RuntimeError::ProtocolViolation(
@@ -8073,13 +8467,15 @@ impl ParentContextService {
                 )
                 .map_err(|error| RuntimeError::Network(error.to_string()))?;
                 Some((response, operation))
-            } else if service_owner.is_some() {
+            } else if let Some(service_owner) = service_owner.as_ref() {
                 let shutdown = self.shutting_down.clone();
                 let keepalive_context = self.context.clone();
                 let cancelled_requests = self.cancelled_http_requests.clone();
                 let cancellation_request = request.request_id;
+                let cleanup_cancelled = cleanup.cancellation_probe();
                 let cancelled: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || {
-                    (!keepalive && shutdown.load(Ordering::Acquire))
+                    cleanup_cancelled()
+                        || (!keepalive && shutdown.load(Ordering::Acquire))
                         || (keepalive
                             && keepalive_context
                                 .upgrade()
@@ -8161,7 +8557,7 @@ impl ParentContextService {
                     },
                     None => match self.context_owner()?.existing_service_registry() {
                         Some(services) => services.fetch_operation_with_check(
-                            service_owner.as_ref().unwrap(),
+                            service_owner,
                             service_request,
                             operation_request_id,
                             Arc::new(AtomicBool::new(false)),
@@ -8374,15 +8770,20 @@ impl ParentContextService {
             let (response_status, response_headers, content_length, upload, hop_timing) =
                 match header_event {
                     Some(NetworkEvent::Headers {
+                        response_policy: _,
                         timing,
                         request_id,
                         status,
                         headers,
                         content_length,
                         upload,
-                    }) if request_id == operation.request_id => {
-                        (status, headers, content_length, upload, timing)
-                    }
+                    }) if request_id == operation.request_id => (
+                        status,
+                        headers,
+                        content_length,
+                        upload,
+                        timing.map(|timing| *timing),
+                    ),
                     Some(NetworkEvent::Failed { request_id, error })
                         if request_id == operation.request_id =>
                     {
@@ -8438,20 +8839,20 @@ impl ParentContextService {
 
             let _ = self.context_owner()?.deliver_coep_reports(
                 &page_url,
-                coep_reporting.response(
-                    &source_origin,
-                    source_opaque,
-                    &response_policy_url,
-                    cors_enabled || service_readable,
+                coep_reporting.response(crate::coep_reporting::ResponsePolicyInputs {
+                    origin: &source_origin,
+                    opaque: source_opaque,
+                    target: &response_policy_url,
+                    cors: cors_enabled || service_readable,
                     credentials,
-                    &response_headers,
-                    match destination {
+                    headers: &response_headers,
+                    destination: match destination {
                         crate::csp::CspDestination::Image => "image",
                         crate::csp::CspDestination::Object => "object",
                         crate::csp::CspDestination::Media => media_destination.unwrap_or("video"),
                         _ => "",
                     },
-                ),
+                }),
             );
             if let Err(error) = embedder.authorize_response(
                 &source_origin,
@@ -8551,60 +8952,59 @@ impl ParentContextService {
                 resource: "decoded HTTP response body".into(),
             });
         }
-        if let Some(fetch) = &request.fetch {
-            if !fetch.integrity.is_empty() {
-                let local_cancel = AtomicBool::new(false);
-                let cancelled = cleanup
-                    .as_ref()
-                    .map(|ticket| ticket.cancellation())
-                    .unwrap_or(if keepalive {
-                        &local_cancel
-                    } else {
-                        &self.shutting_down
-                    });
-                let bytes = crate::network::collect_started_body_with_check(
-                    &mut operation,
-                    deadline,
-                    16 * 1024 * 1024,
-                    cancelled,
-                    Some(&context_closed),
-                )
-                .map_err(|error| RuntimeError::Network(error.to_string()))?;
-                crate::integrity::verify(
-                    &fetch.integrity,
-                    &bytes,
-                    response_type.is_none()
-                        && (service_handled
-                            || cors_enabled
-                            || !cors_response
-                            || request
-                                .fetch
-                                .as_ref()
-                                .is_some_and(|fetch| fetch.mode == "navigate")),
-                )
-                .map_err(|error| {
-                    RuntimeError::Network(format!("fetch integrity check failed: {error:?}"))
-                })?;
-                if let Some(cleanup) = &cleanup {
-                    cleanup.finish_keepalive();
-                }
-                keepalive_lease = None;
-                content_length = Some(bytes.len());
-                operation = crate::network::buffered_body_operation(operation.request_id, bytes)
-                    .map_err(|error| RuntimeError::Network(error.to_string()))?;
+        if let Some(fetch) = &request.fetch
+            && !fetch.integrity.is_empty()
+        {
+            let local_cancel = AtomicBool::new(false);
+            let cancelled = cleanup
+                .as_ref()
+                .map(|ticket| ticket.cancellation())
+                .unwrap_or(if keepalive {
+                    &local_cancel
+                } else {
+                    &self.shutting_down
+                });
+            let bytes = crate::network::collect_started_body_with_metadata(
+                &mut operation,
+                deadline,
+                16 * 1024 * 1024,
+                cancelled,
+                Some(&context_closed),
+            )
+            .map_err(|error| RuntimeError::Network(error.to_string()))?;
+            crate::integrity::verify(
+                &fetch.integrity,
+                &bytes.bytes,
+                response_type.is_none()
+                    && (service_handled
+                        || cors_enabled
+                        || !cors_response
+                        || request
+                            .fetch
+                            .as_ref()
+                            .is_some_and(|fetch| fetch.mode == "navigate")),
+            )
+            .map_err(|error| {
+                RuntimeError::Network(format!("fetch integrity check failed: {error:?}"))
+            })?;
+            if let Some(cleanup) = &cleanup {
+                cleanup.finish_keepalive();
             }
+            drop(keepalive_lease.take());
+            content_length = Some(bytes.bytes.len());
+            operation = crate::network::buffered_body_operation(operation.request_id, bytes)
+                .map_err(|error| RuntimeError::Network(error.to_string()))?;
         }
-        if response_type.is_some()
+        if (response_type.is_some()
             || (!service_handled
                 && request
                     .fetch
                     .as_ref()
                     .is_some_and(|fetch| fetch.mode == "no-cors")
-                && cors_response)
+                && cors_response))
+            && response_type.is_none()
         {
-            if response_type.is_none() {
-                response_type = Some(oryn_js::platform::FetchResponseType::Opaque);
-            }
+            response_type = Some(oryn_js::platform::FetchResponseType::Opaque);
         }
         let preload_candidate = if preload && (200..300).contains(&response_status) {
             preload_key.map(|key| crate::preload_cache::Candidate {
@@ -8657,7 +9057,7 @@ impl ParentContextService {
             hops: timing_hops,
             transport: transport_timing,
             allow_details: timing_allowed,
-            response_status: response_status,
+            response_status,
             response_start_micros,
             encoded_body_size: retained_encoded_body_size.or_else(|| {
                 response_headers
@@ -8801,10 +9201,8 @@ impl ParentContextService {
                     "uncommitted frame response stream".into(),
                 ));
             }
-            if read {
-                if let Some(creator) = creator {
-                    self.script_document_owner(page, creator)?;
-                }
+            if read && let Some(creator) = creator {
+                self.script_document_owner(page, creator)?;
             }
         }
         Ok(())
@@ -8953,16 +9351,14 @@ impl ParentContextService {
                 .cleanup
                 .as_ref()
                 .is_some_and(|cleanup| cleanup.cancelled())
-        {
-            if let Some(candidate) = entry
+            && let Some(candidate) = entry
                 .state
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .preload
                 .take()
-            {
-                self.preloads.insert(candidate.key, candidate.response);
-            }
+        {
+            self.preloads.insert(candidate.key, candidate.response);
         }
         Ok(ContextServiceResponse::HttpStreamChunk {
             encoded_body_size,
@@ -9110,6 +9506,7 @@ impl ParentContextService {
         })
     }
 
+    #[cfg(test)]
     fn authorize_inline_script(
         &self,
         page_id: PageId,
@@ -9127,6 +9524,7 @@ impl ParentContextService {
             None,
         )
     }
+    #[cfg(test)]
     fn authorize_inline_script_with_policy(
         &self,
         page_id: PageId,
@@ -9136,26 +9534,30 @@ impl ParentContextService {
         parser_inserted: bool,
         script_policy: Option<&str>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
-        self.authorize_inline_script_kind(
+        self.authorize_inline_script_kind(InlineScriptAuthorization {
             page_id,
             creator,
             source,
             nonce,
             parser_inserted,
             script_policy,
-            false,
-        )
+            speculation_rules: false,
+        })
     }
     fn authorize_inline_script_kind(
         &self,
-        page_id: PageId,
-        creator: Option<&oryn_js::worker_wire::Creator>,
-        source: &str,
-        nonce: Option<&str>,
-        parser_inserted: bool,
-        script_policy: Option<&str>,
-        speculation_rules: bool,
+        params: InlineScriptAuthorization<'_>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
+        let InlineScriptAuthorization {
+            page_id,
+            creator,
+            source,
+            nonce,
+            parser_inserted,
+            script_policy,
+            speculation_rules,
+        } = params;
+
         self.validate_socket_owner(page_id)?;
         let context = self.context_owner()?;
         let Some(
@@ -9212,7 +9614,7 @@ impl ParentContextService {
         Ok(ContextServiceResponse::ScriptAuthorized)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "in-process-probe"))]
     fn load_page_script(
         &self,
         page_id: PageId,
@@ -9222,29 +9624,23 @@ impl ParentContextService {
         initiator_url: Option<&str>,
         referrer_policy: Option<&str>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
-        self.load_page_script_with_integrity(
+        self.load_page_script_with_integrity(IntegrityScriptInputs {
             page_id,
             requested_url,
             module,
             nonce,
             initiator_url,
             referrer_policy,
-            None,
-        )
+            integrity: None,
+        })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "in-process-probe"))]
     fn load_page_script_with_integrity(
         &self,
-        page_id: PageId,
-        requested_url: &str,
-        module: bool,
-        nonce: Option<&str>,
-        initiator_url: Option<&str>,
-        referrer_policy: Option<&str>,
-        integrity: Option<&str>,
+        params: IntegrityScriptInputs<'_>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
-        self.load_page_script_with_options(
+        let IntegrityScriptInputs {
             page_id,
             requested_url,
             module,
@@ -9252,23 +9648,26 @@ impl ParentContextService {
             initiator_url,
             referrer_policy,
             integrity,
-            None,
-        )
+        } = params;
+
+        self.load_page_script_with_options(ScriptOptionsInputs {
+            page_id,
+            requested_url,
+            module,
+            nonce,
+            initiator_url,
+            referrer_policy,
+            integrity,
+            cross_origin: None,
+        })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "in-process-probe"))]
     fn load_page_script_with_options(
         &self,
-        page_id: PageId,
-        requested_url: &str,
-        module: bool,
-        nonce: Option<&str>,
-        initiator_url: Option<&str>,
-        referrer_policy: Option<&str>,
-        integrity: Option<&str>,
-        cross_origin: Option<&str>,
+        params: ScriptOptionsInputs<'_>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
-        self.load_page_script_with_referrer(
+        let ScriptOptionsInputs {
             page_id,
             requested_url,
             module,
@@ -9277,24 +9676,27 @@ impl ParentContextService {
             referrer_policy,
             integrity,
             cross_origin,
-            None,
-        )
+        } = params;
+
+        self.load_page_script_with_referrer(ScriptReferrerInputs {
+            page_id,
+            requested_url,
+            module,
+            nonce,
+            initiator_url,
+            referrer_policy,
+            integrity,
+            cross_origin,
+            referrer_source: None,
+        })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "in-process-probe"))]
     fn load_page_script_with_referrer(
         &self,
-        page_id: PageId,
-        requested_url: &str,
-        module: bool,
-        nonce: Option<&str>,
-        initiator_url: Option<&str>,
-        referrer_policy: Option<&str>,
-        integrity: Option<&str>,
-        cross_origin: Option<&str>,
-        referrer_source: Option<&str>,
+        params: ScriptReferrerInputs<'_>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
-        self.load_page_script_for_type(
+        let ScriptReferrerInputs {
             page_id,
             requested_url,
             module,
@@ -9304,25 +9706,28 @@ impl ParentContextService {
             integrity,
             cross_origin,
             referrer_source,
-            None,
-        )
+        } = params;
+
+        self.load_page_script_for_type(TypedScriptInputs {
+            page_id,
+            requested_url,
+            module,
+            nonce,
+            initiator_url,
+            referrer_policy,
+            integrity,
+            cross_origin,
+            referrer_source,
+            kind: None,
+        })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "in-process-probe"))]
     fn load_page_script_for_type(
         &self,
-        page_id: PageId,
-        requested_url: &str,
-        module: bool,
-        nonce: Option<&str>,
-        initiator_url: Option<&str>,
-        referrer_policy: Option<&str>,
-        integrity: Option<&str>,
-        cross_origin: Option<&str>,
-        referrer_source: Option<&str>,
-        kind: Option<crate::ModuleType>,
+        params: TypedScriptInputs<'_>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
-        self.load_page_script_classified(
+        let TypedScriptInputs {
             page_id,
             requested_url,
             module,
@@ -9333,12 +9738,25 @@ impl ParentContextService {
             cross_origin,
             referrer_source,
             kind,
-            None,
-            None,
-            None,
-            false,
-            None,
-        )
+        } = params;
+
+        self.load_page_script_classified(PageScriptInputs {
+            page_id,
+            requested_url,
+            module,
+            nonce,
+            initiator_url,
+            referrer_policy,
+            integrity,
+            cross_origin,
+            referrer_source,
+            kind,
+            cancellation: None,
+            creator: None,
+            script_policy: None,
+            parser_inserted: false,
+            fallback_encoding: None,
+        })
         .map_err(crate::script_load_failure::ScriptLoadFailure::runtime)
     }
 
@@ -9365,23 +9783,9 @@ impl ParentContextService {
 
     fn load_page_script_with_cancel(
         &self,
-        page_id: PageId,
-        requested_url: &str,
-        module: bool,
-        nonce: Option<&str>,
-        initiator_url: Option<&str>,
-        referrer_policy: Option<&str>,
-        integrity: Option<&str>,
-        cross_origin: Option<&str>,
-        referrer_source: Option<&str>,
-        kind: Option<crate::ModuleType>,
-        cancellation: Option<&AtomicBool>,
-        creator: Option<&oryn_js::worker_wire::Creator>,
-        script_policy: Option<&str>,
-        parser_inserted: bool,
-        fallback_encoding: Option<&str>,
+        params: PageScriptInputs<'_>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
-        match self.load_page_script_classified(
+        let PageScriptInputs {
             page_id,
             requested_url,
             module,
@@ -9397,7 +9801,25 @@ impl ParentContextService {
             script_policy,
             parser_inserted,
             fallback_encoding,
-        ) {
+        } = params;
+
+        match self.load_page_script_classified(PageScriptInputs {
+            page_id,
+            requested_url,
+            module,
+            nonce,
+            initiator_url,
+            referrer_policy,
+            integrity,
+            cross_origin,
+            referrer_source,
+            kind,
+            cancellation,
+            creator,
+            script_policy,
+            parser_inserted,
+            fallback_encoding,
+        }) {
             Ok(response) => Ok(response),
             Err(crate::script_load_failure::ScriptLoadFailure::Infrastructure(message)) => {
                 Err(RuntimeError::ContextService(message))
@@ -9408,23 +9830,9 @@ impl ParentContextService {
 
     fn load_page_script_classified(
         &self,
-        page_id: PageId,
-        requested_url: &str,
-        module: bool,
-        nonce: Option<&str>,
-        initiator_url: Option<&str>,
-        referrer_policy: Option<&str>,
-        integrity: Option<&str>,
-        cross_origin: Option<&str>,
-        referrer_source: Option<&str>,
-        kind: Option<crate::ModuleType>,
-        cancellation: Option<&AtomicBool>,
-        creator: Option<&oryn_js::worker_wire::Creator>,
-        script_policy: Option<&str>,
-        parser_inserted: bool,
-        fallback_encoding: Option<&str>,
+        params: PageScriptInputs<'_>,
     ) -> Result<ContextServiceResponse, crate::script_load_failure::ScriptLoadFailure> {
-        self.load_page_script_classified_traced(
+        let PageScriptInputs {
             page_id,
             requested_url,
             module,
@@ -9440,30 +9848,52 @@ impl ParentContextService {
             script_policy,
             parser_inserted,
             fallback_encoding,
-            None,
-            None,
-        )
+        } = params;
+
+        self.load_page_script_classified_traced(TracedPageScriptInputs {
+            page_id,
+            requested_url,
+            module,
+            nonce,
+            initiator_url,
+            referrer_policy,
+            integrity,
+            cross_origin,
+            referrer_source,
+            kind,
+            cancellation,
+            creator,
+            script_policy,
+            parser_inserted,
+            fallback_encoding,
+            trace: None,
+            hash_evidence: None,
+        })
     }
     fn load_page_script_classified_traced(
         &self,
-        page_id: PageId,
-        requested_url: &str,
-        module: bool,
-        nonce: Option<&str>,
-        initiator_url: Option<&str>,
-        referrer_policy: Option<&str>,
-        integrity: Option<&str>,
-        cross_origin: Option<&str>,
-        referrer_source: Option<&str>,
-        kind: Option<crate::ModuleType>,
-        cancellation: Option<&AtomicBool>,
-        creator: Option<&oryn_js::worker_wire::Creator>,
-        script_policy: Option<&str>,
-        parser_inserted: bool,
-        fallback_encoding: Option<&str>,
-        mut trace: Option<&mut Vec<String>>,
-        mut hash_evidence: Option<&mut Option<crate::csp::ScriptHashEvidence>>,
+        params: TracedPageScriptInputs<'_>,
     ) -> Result<ContextServiceResponse, crate::script_load_failure::ScriptLoadFailure> {
+        let TracedPageScriptInputs {
+            page_id,
+            requested_url,
+            module,
+            nonce,
+            initiator_url,
+            referrer_policy,
+            integrity,
+            cross_origin,
+            referrer_source,
+            kind,
+            cancellation,
+            creator,
+            script_policy,
+            parser_inserted,
+            fallback_encoding,
+            mut trace,
+            mut hash_evidence,
+        } = params;
+
         use crate::script_load_failure::ScriptLoadFailure;
         self.validate_socket_owner(page_id)?;
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
@@ -9783,15 +10213,15 @@ impl ParentContextService {
             timing_hops.push(crate::network::timing_hop(&url, &response.headers));
             let _ = self.context_owner()?.deliver_coep_reports(
                 &page_url,
-                coep_reporting.response(
-                    &source_origin,
-                    source_opaque,
-                    &url,
+                coep_reporting.response(crate::coep_reporting::ResponsePolicyInputs {
+                    origin: &source_origin,
+                    opaque: source_opaque,
+                    target: &url,
                     cors,
-                    (include_credentials || !cross_origin_module) && !omit,
-                    &response.headers,
-                    "script",
-                ),
+                    credentials: (include_credentials || !cross_origin_module) && !omit,
+                    headers: &response.headers,
+                    destination: "script",
+                }),
             );
             embedder
                 .authorize_response(
@@ -10514,7 +10944,7 @@ impl ParentContextService {
                             referrer_policy: policy.as_str().into(),
                         }
                     }),
-                    timing,
+                    timing: timing.map(Box::new),
                     content_language: None,
                     stream_id: None,
                     effective_post: post.clone(),
@@ -10706,7 +11136,8 @@ impl ParentContextService {
                         }
                         frame_stream = Some((operation, cleanup, content_length));
                         NetworkResponse {
-                            timing,
+                            response_policy: None,
+                            timing: timing.map(|timing| *timing),
                             request_id,
                             status,
                             headers,
@@ -10738,21 +11169,21 @@ impl ParentContextService {
             if !document_resource {
                 let _ = context.deliver_coep_reports(
                     &page_url,
-                    coep_reporting.response(
-                        &native_origin.serialized,
-                        native_origin.opaque,
-                        &url,
+                    coep_reporting.response(crate::coep_reporting::ResponsePolicyInputs {
+                        origin: &native_origin.serialized,
+                        opaque: native_origin.opaque,
+                        target: &url,
                         cors,
-                        (!cors || use_credentials || !font_cross)
+                        credentials: (!cors || use_credentials || !font_cross)
                             && !embedder
                                 .omit_credentials(cors || document_resource, resource_cross),
-                        &response.headers,
-                        if destination == "stylesheet" {
+                        headers: &response.headers,
+                        destination: if destination == "stylesheet" {
                             "style"
                         } else {
                             destination
                         },
-                    ),
+                    }),
                 );
             }
             if !document_resource {
@@ -10961,15 +11392,15 @@ impl ParentContextService {
                 let credentials = !embedder.omit_credentials(document_resource, resource_cross);
                 let _ = context.deliver_coep_reports(
                     &page_url,
-                    coep_reporting.response(
-                        &native_origin.serialized,
-                        native_origin.opaque,
-                        &url,
-                        false,
+                    coep_reporting.response(crate::coep_reporting::ResponsePolicyInputs {
+                        origin: &native_origin.serialized,
+                        opaque: native_origin.opaque,
+                        target: &url,
+                        cors: false,
                         credentials,
-                        &response.headers,
+                        headers: &response.headers,
                         destination,
-                    ),
+                    }),
                 );
                 embedder
                     .authorize_response(
@@ -10996,11 +11427,10 @@ impl ParentContextService {
                     || oryn_dom::xml::is_text_mime(&essence)
                     || matches!(essence.as_str(), "application/xml" | "text/xml")
                     || essence.ends_with("+xml"))
+                && let Some((mut operation, cleanup, _)) = frame_stream.take()
             {
-                if let Some((mut operation, cleanup, _)) = frame_stream.take() {
-                    response.body =
-                        collect_frame_download_body(&mut operation, &cleanup, cancellation)?;
-                }
+                response.body =
+                    collect_frame_download_body(&mut operation, &cleanup, cancellation)?;
             }
             if destination == "stylesheet" {
                 if let Some(options) = stylesheet {
@@ -11174,7 +11604,7 @@ impl ParentContextService {
                         referrer_policy: policy.as_str().into(),
                     }
                 }),
-                timing,
+                timing: timing.map(Box::new),
                 content_language: oryn_dom::language::content_language_header(
                     response
                         .headers
@@ -11445,6 +11875,7 @@ impl ParentContextService {
         Ok(())
     }
 
+    #[cfg(test)]
     fn retain_websocket(
         &self,
         id: u64,
@@ -11669,10 +12100,10 @@ impl ParentContextService {
             .lock()
             .map_err(|_| RuntimeError::ContextService("WebSocket owner registry poisoned".into()))?
             .remove(&socket_id);
-        if let Ok(mut audits) = self.socket_audits.lock() {
-            if let Some(mut audit) = audits.remove(&socket_id) {
-                audit.finish(if was_clean { "closed" } else { "failed" });
-            }
+        if let Ok(mut audits) = self.socket_audits.lock()
+            && let Some(mut audit) = audits.remove(&socket_id)
+        {
+            audit.finish(if was_clean { "closed" } else { "failed" });
         }
         Ok(ContextServiceResponse::WebSocketClosed {
             code,
@@ -12010,14 +12441,6 @@ pub(crate) fn upgrade_mixed_image(source: &str, target: &mut Url, eligible: bool
 /// Active subresource mixed-content gate, after CSP URL upgrades at each hop.
 pub(crate) fn enforce_mixed_content(source_origin: &str, target: &Url) -> Result<(), RuntimeError> {
     crate::mixed_content::enforce(source_origin, target).map_err(RuntimeError::ContextService)
-}
-
-fn response_header<'a>(response: &'a NetworkResponse, requested: &str) -> Option<&'a str> {
-    response
-        .headers
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case(requested))
-        .map(|(_, value)| value.as_str())
 }
 
 fn cors_origin_allowed(source_origin: &str, credentials: bool, response: &NetworkResponse) -> bool {
@@ -13191,6 +13614,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(request.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -13271,6 +13695,7 @@ mod tests {
                 *self.0.lock().unwrap() += 1;
                 let first = request.url.ends_with("/allowed");
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if first { 302 } else { 200 },
@@ -13367,6 +13792,7 @@ mod tests {
                     headers.push(("location".into(), "https://other.test/end".into()));
                 }
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if redirect { 302 } else { 200 },
@@ -13589,6 +14015,7 @@ mod tests {
                     headers.push(("referrer-policy".into(), "no-referrer".into()));
                 }
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if first { self.status } else { 200 },
@@ -13713,6 +14140,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(request.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 302,
@@ -13764,6 +14192,7 @@ mod tests {
         impl NetworkBroker for Body {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -13878,7 +14307,7 @@ mod tests {
         struct Headers(Vec<(String, String)>);
         impl NetworkBroker for Headers {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
-                Ok(NetworkResponse {timing:None,request_id:request.request_id,status:200,headers:self.0.clone(),
+                Ok(NetworkResponse {response_policy: None,timing:None,request_id:request.request_id,status:200,headers:self.0.clone(),
                     body:b"<meta http-equiv=Content-Security-Policy content='sandbox allow-modals'><p>frame</p>".to_vec()})
             }
         }
@@ -13987,6 +14416,7 @@ mod tests {
                     headers.push(("referrer-policy".into(), "unsafe-url".into()));
                 }
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if first { 302 } else { 200 },
@@ -14089,6 +14519,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(request.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -14255,6 +14686,7 @@ mod tests {
                     headers.push(("referrer-policy".into(), self.policy.into()));
                 }
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if first { 302 } else { 200 },
@@ -14303,18 +14735,6 @@ mod tests {
                     },
                 )
                 .unwrap();
-            let initiator = ResourceInitiator {
-                embedded_type: None,
-                request_state: None,
-                navigation: Default::default(),
-                creator: oryn_js::worker_wire::Creator::Window {
-                    target: oryn_js::message_wire::WindowTarget::Root,
-                    document_generation: 1,
-                    stream_epoch: 0,
-                },
-                stylesheet: None,
-                prepared_policy: None,
-            };
             let service = ParentContextService::new_with_network(
                 context,
                 page.page_id(),
@@ -14349,6 +14769,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 *self.requests.lock().unwrap() += 1;
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: self.status,
@@ -14413,6 +14834,7 @@ mod tests {
                     headers.push(("location".into(), location.into()));
                 }
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status,
@@ -14461,6 +14883,7 @@ mod tests {
         impl NetworkBroker for Script {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -14496,56 +14919,56 @@ mod tests {
         );
         assert!(
             service
-                .load_page_script_with_integrity(
-                    page.page_id(),
-                    "/script.js",
-                    false,
-                    None,
-                    None,
-                    None,
-                    Some(&raw)
-                )
+                .load_page_script_with_integrity(IntegrityScriptInputs {
+                    page_id: page.page_id(),
+                    requested_url: "/script.js",
+                    module: false,
+                    nonce: None,
+                    initiator_url: None,
+                    referrer_policy: None,
+                    integrity: Some(&raw)
+                })
                 .is_ok()
         );
         assert!(
             service
-                .load_page_script_with_integrity(
-                    page.page_id(),
-                    "/script.js",
-                    false,
-                    None,
-                    None,
-                    None,
-                    Some(&decoded)
-                )
+                .load_page_script_with_integrity(IntegrityScriptInputs {
+                    page_id: page.page_id(),
+                    requested_url: "/script.js",
+                    module: false,
+                    nonce: None,
+                    initiator_url: None,
+                    referrer_policy: None,
+                    integrity: Some(&decoded)
+                })
                 .is_err()
         );
         // Classic no-CORS is ineligible even when the server sends ACAO; module
         // fetch has actually performed CORS validation and may use SRI.
         assert!(
             service
-                .load_page_script_with_integrity(
-                    page.page_id(),
-                    "https://cdn.test/script.js",
-                    false,
-                    None,
-                    None,
-                    None,
-                    Some(&raw)
-                )
+                .load_page_script_with_integrity(IntegrityScriptInputs {
+                    page_id: page.page_id(),
+                    requested_url: "https://cdn.test/script.js",
+                    module: false,
+                    nonce: None,
+                    initiator_url: None,
+                    referrer_policy: None,
+                    integrity: Some(&raw)
+                })
                 .is_err()
         );
         assert!(
             service
-                .load_page_script_with_integrity(
-                    page.page_id(),
-                    "https://cdn.test/script.js",
-                    true,
-                    None,
-                    None,
-                    None,
-                    Some(&raw)
-                )
+                .load_page_script_with_integrity(IntegrityScriptInputs {
+                    page_id: page.page_id(),
+                    requested_url: "https://cdn.test/script.js",
+                    module: true,
+                    nonce: None,
+                    initiator_url: None,
+                    referrer_policy: None,
+                    integrity: Some(&raw)
+                })
                 .is_ok()
         );
         let data_hash = format!(
@@ -14554,15 +14977,15 @@ mod tests {
         );
         assert!(
             service
-                .load_page_script_with_integrity(
-                    page.page_id(),
-                    "data:text/javascript,export%7B%7D",
-                    true,
-                    None,
-                    None,
-                    None,
-                    Some(&data_hash)
-                )
+                .load_page_script_with_integrity(IntegrityScriptInputs {
+                    page_id: page.page_id(),
+                    requested_url: "data:text/javascript,export%7B%7D",
+                    module: true,
+                    nonce: None,
+                    initiator_url: None,
+                    referrer_policy: None,
+                    integrity: Some(&data_hash)
+                })
                 .is_ok()
         );
     }
@@ -14574,6 +14997,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 let redirect = request.url.starts_with("https://remote.test/");
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if redirect { 302 } else { 200 },
@@ -14660,6 +15084,7 @@ mod tests {
                 let id = request.request_id;
                 self.0.lock().unwrap().push(request);
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: id,
                     status: 200,
@@ -14731,6 +15156,7 @@ mod tests {
         impl NetworkBroker for Sheet {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -14810,6 +15236,7 @@ mod tests {
                 self.0.lock().unwrap().push(request.clone());
                 let redirect = request.url.ends_with("start.css");
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if redirect { 302 } else { 200 },
@@ -14909,6 +15336,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(request.url);
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 302,
@@ -14965,6 +15393,7 @@ mod tests {
                 );
                 let redirect = request.url.ends_with("start");
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if redirect { 302 } else { 200 },
@@ -15102,6 +15531,7 @@ mod tests {
         impl NetworkBroker for Script {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -15163,6 +15593,7 @@ mod tests {
                     headers.push(("Access-Control-Allow-Credentials".into(), "true".into()));
                 }
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -15188,16 +15619,16 @@ mod tests {
         );
         for mode in ["", "anonymous", "invalid-value"] {
             service
-                .load_page_script_with_options(
-                    page.page_id(),
-                    "https://cdn.test/wildcard.js",
-                    false,
-                    None,
-                    None,
-                    None,
-                    Some(&hash),
-                    Some(mode),
-                )
+                .load_page_script_with_options(ScriptOptionsInputs {
+                    page_id: page.page_id(),
+                    requested_url: "https://cdn.test/wildcard.js",
+                    module: false,
+                    nonce: None,
+                    initiator_url: None,
+                    referrer_policy: None,
+                    integrity: Some(&hash),
+                    cross_origin: Some(mode),
+                })
                 .unwrap();
             let requests = seen.lock().unwrap();
             let request = requests.last().unwrap();
@@ -15208,16 +15639,16 @@ mod tests {
             );
         }
         service
-            .load_page_script_with_options(
-                page.page_id(),
-                "https://cdn.test/ok.js",
-                false,
-                None,
-                None,
-                None,
-                Some(&hash),
-                Some("USE-CREDENTIALS"),
-            )
+            .load_page_script_with_options(ScriptOptionsInputs {
+                page_id: page.page_id(),
+                requested_url: "https://cdn.test/ok.js",
+                module: false,
+                nonce: None,
+                initiator_url: None,
+                referrer_policy: None,
+                integrity: Some(&hash),
+                cross_origin: Some("USE-CREDENTIALS"),
+            })
             .unwrap();
         {
             let requests = seen.lock().unwrap();
@@ -15231,16 +15662,16 @@ mod tests {
         for path in ["wildcard.js", "missing.js", "duplicate.js"] {
             assert!(
                 service
-                    .load_page_script_with_options(
-                        page.page_id(),
-                        &format!("https://cdn.test/{path}"),
-                        false,
-                        None,
-                        None,
-                        None,
-                        Some(&hash),
-                        Some("use-credentials")
-                    )
+                    .load_page_script_with_options(ScriptOptionsInputs {
+                        page_id: page.page_id(),
+                        requested_url: &format!("https://cdn.test/{path}"),
+                        module: false,
+                        nonce: None,
+                        initiator_url: None,
+                        referrer_policy: None,
+                        integrity: Some(&hash),
+                        cross_origin: Some("use-credentials")
+                    })
                     .is_err()
             );
         }
@@ -15267,6 +15698,7 @@ mod tests {
                     200
                 };
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status,
@@ -15352,6 +15784,7 @@ mod tests {
                     2 * 1024 * 1024
                 };
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -15388,6 +15821,7 @@ mod tests {
                     Some("text/javascript"),
                 ] {
                     let response = NetworkResponse {
+                        response_policy: None,
                         timing: None,
                         request_id: 1,
                         status,
@@ -15414,6 +15848,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 if request.url.ends_with("start.js") {
                     return Ok(NetworkResponse {
+                        response_policy: None,
                         timing: None,
                         request_id: request.request_id,
                         status: 302,
@@ -15422,6 +15857,7 @@ mod tests {
                     });
                 }
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -15523,6 +15959,7 @@ mod tests {
                     return Err(NetworkError::Unavailable);
                 }
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 404,
@@ -15604,6 +16041,7 @@ mod tests {
     fn worker_module_source_uses_utf8_instead_of_legacy_transport_encoding() {
         let source = "self.name='é'";
         let response = NetworkResponse {
+            response_policy: None,
             timing: None,
             request_id: 1,
             status: 200,
@@ -16053,6 +16491,7 @@ mod tests {
                 );
             }
             Ok(crate::network::NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -16094,6 +16533,7 @@ mod tests {
             request: NetworkRequest,
         ) -> Result<NetworkStreamResponse, NetworkError> {
             Ok(NetworkStreamResponse {
+                response_policy: None,
                 encoded_bytes: None,
                 timing: None,
                 request_id: request.request_id,
@@ -16129,6 +16569,7 @@ mod tests {
                 .map(|(_, value)| value.clone())
                 .unwrap_or_default();
             Ok(crate::network::NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 204,
@@ -16150,6 +16591,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(25));
             self.active.fetch_sub(1, Ordering::SeqCst);
             Ok(NetworkStreamResponse {
+                response_policy: None,
                 encoded_bytes: None,
                 timing: None,
                 request_id: request.request_id,
@@ -16184,6 +16626,7 @@ mod tests {
             let (sender, events) = tokio::sync::mpsc::channel(2);
             sender
                 .blocking_send(NetworkEvent::Headers {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -16568,6 +17011,7 @@ mod tests {
                         if self.phase == "redirect" && first {
                             sender
                                 .try_send(NetworkEvent::Headers {
+                                    response_policy: None,
                                     timing: None,
                                     request_id: request.request_id,
                                     status: 302,
@@ -16586,6 +17030,7 @@ mod tests {
                             if self.phase == "body" {
                                 sender
                                     .try_send(NetworkEvent::Headers {
+                                        response_policy: None,
                                         timing: None,
                                         request_id: request.request_id,
                                         status: 200,
@@ -16648,14 +17093,14 @@ mod tests {
                     page_id,
                     url: "https://example.test/held".into(),
                     destination: destination.into(),
-                    initiator: ResourceInitiator {
+                    initiator: Box::new(ResourceInitiator {
                         embedded_type: None,
                         request_state: None,
                         navigation: Default::default(),
                         creator,
                         stylesheet: None,
                         prepared_policy: None,
-                    },
+                    }),
                     download: None,
                     script_authority: None,
                     form_authority: None,
@@ -17289,6 +17734,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(request.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -17396,6 +17842,7 @@ mod tests {
             fn send(&self, r: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(r.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: r.request_id,
                     status: 206,
@@ -17491,6 +17938,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(request.url.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -17563,6 +18011,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.requests.lock().unwrap().push(request.clone());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -17717,6 +18166,7 @@ mod tests {
     fn cors_permissions_handle_duplicates_wildcards_and_case() {
         let origin = "https://example.test";
         let mut response = NetworkResponse {
+            response_policy: None,
             timing: None,
             request_id: 1,
             status: 204,
@@ -17803,6 +18253,7 @@ mod tests {
                     ));
                 }
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if index <= 2 { 302 } else { 200 },
@@ -17878,6 +18329,7 @@ mod tests {
     #[test]
     fn parent_cors_checks_credentials_and_preflight_permissions() {
         let response = NetworkResponse {
+            response_policy: None,
             timing: None,
             request_id: 1,
             status: 204,
@@ -17918,6 +18370,7 @@ mod tests {
         );
 
         let wildcard = NetworkResponse {
+            response_policy: None,
             timing: None,
             request_id: 2,
             status: 200,
@@ -17953,15 +18406,18 @@ fn clipboard_service_error(error: RuntimeError) -> oryn_js::clipboard::Clipboard
         _ => ClipboardError::Unavailable,
     }
 }
+#[cfg(feature = "v8-host")]
 pub(crate) struct NativeClipboardBackend {
     client: SharedContextClient,
     page_id: PageId,
 }
+#[cfg(feature = "v8-host")]
 impl NativeClipboardBackend {
     pub(crate) fn new(client: SharedContextClient, page_id: PageId) -> Self {
         Self { client, page_id }
     }
 }
+#[cfg(feature = "v8-host")]
 impl oryn_js::clipboard::ClipboardBackend for NativeClipboardBackend {
     fn authorize_script_for(
         &self,
@@ -18176,6 +18632,7 @@ mod form_fetch_metadata_regressions {
             let mut seen = self.0.lock().unwrap();
             seen.push(request.clone());
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: if seen.len() < 3 { 302 } else { 200 },
@@ -18356,17 +18813,27 @@ mod form_fetch_metadata_regressions {
             )
             .unwrap();
         context
-            .register_activation_parent(page, frame.clone(), 2, 0, WindowTarget::Root, 1, 0)
+            .register_activation_parent(crate::runtime::worker_service::ActivationParentInputs {
+                page,
+                frame: frame.clone(),
+                generation: 2,
+                epoch: 0,
+                parent: WindowTarget::Root,
+                parent_generation: 1,
+                parent_epoch: 0,
+            })
             .unwrap();
         context
             .register_isolation_container(
-                page,
-                frame.clone(),
-                2,
-                0,
-                String::new(),
-                "https://source.test/path".into(),
-                None,
+                crate::runtime::worker_service::IsolationContainerInputs {
+                    page,
+                    frame: frame.clone(),
+                    generation: 2,
+                    epoch: 0,
+                    allow: String::new(),
+                    source: "https://source.test/path".into(),
+                    sandbox: None,
+                },
             )
             .unwrap();
         let source = Creator::Window {
@@ -18380,15 +18847,15 @@ mod form_fetch_metadata_regressions {
             .0;
         context.record_native_activation(owner).unwrap();
         let authority = context
-            .issue_script_navigation_authority(
-                page,
-                source,
-                page,
-                root.clone(),
-                "https://receipt.test/start",
-                "https://source.test/path",
-                "unsafe-url",
-            )
+            .issue_script_navigation_authority(crate::runtime::ScriptNavigationInputs {
+                source: page,
+                source_creator: source,
+                destination: page,
+                target_creator: root.clone(),
+                destination_url: "https://receipt.test/start",
+                source_url: "https://source.test/path",
+                referrer_policy: "unsafe-url",
+            })
             .unwrap();
         context
             .handle_message_wire(
@@ -18505,6 +18972,7 @@ mod form_fetch_metadata_regressions {
                     )
                     .unwrap();
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: self.status,
@@ -18559,17 +19027,29 @@ mod form_fetch_metadata_regressions {
                 .bind_frame_worker_policy(page, frame.clone(), 2, 0, "https://child.test/", &ticket)
                 .unwrap();
             context
-                .register_activation_parent(page, frame.clone(), 2, 0, WindowTarget::Root, 1, 0)
+                .register_activation_parent(
+                    crate::runtime::worker_service::ActivationParentInputs {
+                        page,
+                        frame: frame.clone(),
+                        generation: 2,
+                        epoch: 0,
+                        parent: WindowTarget::Root,
+                        parent_generation: 1,
+                        parent_epoch: 0,
+                    },
+                )
                 .unwrap();
             context
                 .register_isolation_container(
-                    page,
-                    frame.clone(),
-                    2,
-                    0,
-                    String::new(),
-                    "https://child.test/".into(),
-                    None,
+                    crate::runtime::worker_service::IsolationContainerInputs {
+                        page,
+                        frame: frame.clone(),
+                        generation: 2,
+                        epoch: 0,
+                        allow: String::new(),
+                        source: "https://child.test/".into(),
+                        sandbox: None,
+                    },
                 )
                 .unwrap();
             let target = Creator::Window {
@@ -18578,15 +19058,15 @@ mod form_fetch_metadata_regressions {
                 stream_epoch: 0,
             };
             let authority = context
-                .issue_script_navigation_authority(
-                    page,
-                    root.clone(),
-                    page,
-                    target.clone(),
-                    "https://receipt.test/start",
-                    "https://top.test/",
-                    "unsafe-url",
-                )
+                .issue_script_navigation_authority(crate::runtime::ScriptNavigationInputs {
+                    source: page,
+                    source_creator: root.clone(),
+                    destination: page,
+                    target_creator: target.clone(),
+                    destination_url: "https://receipt.test/start",
+                    source_url: "https://top.test/",
+                    referrer_policy: "unsafe-url",
+                })
                 .unwrap();
             let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let network = SharedNetworkBroker::new(RetireTarget {
@@ -18910,14 +19390,14 @@ mod document_resource_authority_tests {
             download: None,
             script_authority: None,
             page_id: page,
-            initiator: ResourceInitiator {
+            initiator: Box::new(ResourceInitiator {
                 embedded_type: None,
                 request_state: None,
                 navigation: Default::default(),
                 creator,
                 stylesheet: None,
                 prepared_policy: None,
-            },
+            }),
             form_authority: None,
             url: "data:application/octet-stream;base64,AP/+gA==".into(),
             destination: destination.into(),
@@ -18956,14 +19436,14 @@ mod document_resource_authority_tests {
             download: None,
             script_authority: None,
             page_id: page,
-            initiator: ResourceInitiator {
+            initiator: Box::new(ResourceInitiator {
                 embedded_type: None,
                 request_state: None,
                 navigation: Default::default(),
                 creator: creator.clone(),
                 stylesheet: None,
                 prepared_policy: None,
-            },
+            }),
             form_authority: None,
             url: "data:text/html,child".into(),
             destination: "frame".into(),
@@ -19008,7 +19488,7 @@ mod document_resource_authority_tests {
             download: None,
             script_authority: None,
             page_id: page,
-            initiator: ResourceInitiator {
+            initiator: Box::new(ResourceInitiator {
                 embedded_type: None,
                 request_state: None,
                 navigation: Default::default(),
@@ -19019,7 +19499,7 @@ mod document_resource_authority_tests {
                 },
                 stylesheet: None,
                 prepared_policy: Some(ticket),
-            },
+            }),
             form_authority: None,
             url: "data:image/png,bytes".into(),
             destination: "image".into(),
@@ -19386,20 +19866,24 @@ mod document_resource_authority_tests {
             old_value: None,
             new_value: Some("private".into()),
         };
-        context.push_context_event(ContextEvent::Storage {
-            source_page_id: PageId(999),
-            source_creator: root.clone(),
-            source_url: "https://source.test/".into(),
-            targets: vec![(page, root.clone()), (page, creator.clone())],
-            change: change("https://top.test"),
-        });
-        context.push_context_event(ContextEvent::Storage {
-            source_page_id: page,
-            source_creator: creator.clone(),
-            source_url: "https://source.test/".into(),
-            targets: vec![(page, root.clone()), (page, creator.clone())],
-            change: change("https://child.test"),
-        });
+        context
+            .push_context_event(ContextEvent::Storage {
+                source_page_id: PageId(999),
+                source_creator: root.clone(),
+                source_url: "https://source.test/".into(),
+                targets: vec![(page, root.clone()), (page, creator.clone())],
+                change: change("https://top.test"),
+            })
+            .unwrap();
+        context
+            .push_context_event(ContextEvent::Storage {
+                source_page_id: page,
+                source_creator: creator.clone(),
+                source_url: "https://source.test/".into(),
+                targets: vec![(page, root.clone()), (page, creator.clone())],
+                change: change("https://child.test"),
+            })
+            .unwrap();
         let poll = |creator| ContextServiceRequest::PollEvents {
             page_id: page,
             creator: Some(creator),
@@ -19412,13 +19896,15 @@ mod document_resource_authority_tests {
             panic!()
         };
         assert!(events.is_empty());
-        context.push_context_event(ContextEvent::Storage {
-            source_page_id: PageId(999),
-            source_creator: root.clone(),
-            source_url: "https://source.test/".into(),
-            targets: vec![(page, root.clone()), (page, creator.clone())],
-            change: change("https://child.test"),
-        });
+        context
+            .push_context_event(ContextEvent::Storage {
+                source_page_id: PageId(999),
+                source_creator: root.clone(),
+                source_url: "https://source.test/".into(),
+                targets: vec![(page, root.clone()), (page, creator.clone())],
+                change: change("https://child.test"),
+            })
+            .unwrap();
         let ContextServiceResponse::Events { events } =
             service.handle(poll(creator.clone())).unwrap()
         else {
@@ -19927,6 +20413,7 @@ mod frame_response_stream_tests {
             let request_id = request.request_id;
             sender
                 .try_send(NetworkEvent::Headers {
+                    response_policy: None,
                     timing: None,
                     request_id,
                     status: 200,
@@ -19997,7 +20484,7 @@ mod frame_response_stream_tests {
                 destination: "frame".into(),
                 download: None,
                 script_authority: None,
-                initiator: ResourceInitiator {
+                initiator: Box::new(ResourceInitiator {
                     embedded_type: None,
                     request_state: None,
                     navigation: Default::default(),
@@ -20008,7 +20495,7 @@ mod frame_response_stream_tests {
                     },
                     stylesheet: None,
                     prepared_policy: None,
-                },
+                }),
                 form_authority: None,
                 parent_encoding: None,
                 initiator_url: None,
@@ -20336,11 +20823,27 @@ mod realm_inline_script_authority_tests {
         };
         let service = ParentContextService::new(context.clone(), id);
         assert!(matches!(
-            service.authorize_inline_script_kind(id, Some(&creator), "{}", None, true, None, true),
+            service.authorize_inline_script_kind(InlineScriptAuthorization {
+                page_id: id,
+                creator: Some(&creator),
+                source: "{}",
+                nonce: None,
+                parser_inserted: true,
+                script_policy: None,
+                speculation_rules: true
+            }),
             Ok(ContextServiceResponse::ScriptAuthorized)
         ));
         assert!(matches!(
-            service.authorize_inline_script_kind(id, Some(&creator), "{}", None, true, None, false),
+            service.authorize_inline_script_kind(InlineScriptAuthorization {
+                page_id: id,
+                creator: Some(&creator),
+                source: "{}",
+                nonce: None,
+                parser_inserted: true,
+                script_policy: None,
+                speculation_rules: false
+            }),
             Ok(ContextServiceResponse::ScriptLoadFailed {
                 failure: crate::script_load_failure::ScriptLoadFailure::Fetch(_)
             })
@@ -20352,7 +20855,15 @@ mod realm_inline_script_authority_tests {
         };
         assert!(
             service
-                .authorize_inline_script_kind(id, Some(&stale), "{}", None, true, None, true)
+                .authorize_inline_script_kind(InlineScriptAuthorization {
+                    page_id: id,
+                    creator: Some(&stale),
+                    source: "{}",
+                    nonce: None,
+                    parser_inserted: true,
+                    script_policy: None,
+                    speculation_rules: true
+                })
                 .is_err()
         );
     }
@@ -20634,6 +21145,7 @@ mod realm_inline_script_authority_tests {
                 self.0.lock().unwrap().push(request.url.clone());
                 let redirect = request.url.ends_with("start.js");
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if redirect { 302 } else { 200 },
@@ -21246,14 +21758,16 @@ mod realm_inline_style_authority_tests {
             .unwrap();
         context
             .inherit_frame_worker_policy_at_url(
-                id,
-                frame.clone(),
-                2,
-                0,
-                &WindowTarget::Root,
-                1,
-                0,
-                "about:srcdoc",
+                crate::runtime::worker_service::InheritedFramePolicyInputs {
+                    page: id,
+                    frame: frame.clone(),
+                    generation: 2,
+                    epoch: 0,
+                    parent: &WindowTarget::Root,
+                    parent_generation: 1,
+                    parent_epoch: 0,
+                    document_url: "about:srcdoc",
+                },
             )
             .unwrap();
         let creator = Creator::Window {
@@ -21506,26 +22020,19 @@ mod selected_navigation_request_tests {
             ("GET", false, false, true, true),
             ("GET", false, true, false, true),
         ] {
-            let context = crate::Browser::new().new_context();
+            let context = crate::Browser::native_test_with_config(Default::default()).new_context();
             let source = context.new_page();
             let id = source.page_id();
-            context
-                .install_document_security(id, "https://selection.test/".into(), &[])
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
                 .unwrap();
-            context
-                .handle_message_wire(
-                    id,
-                    MessageRequest::RegisterRootDocument {
-                        document_generation: 1,
-                        stream_epoch: 0,
-                    },
+            runtime
+                .block_on(
+                    source.load_html("https://selection.test/", "<!doctype html><p>source</p>"),
                 )
                 .unwrap();
-            let creator = Creator::Window {
-                target: WindowTarget::Root,
-                document_generation: 1,
-                stream_epoch: 0,
-            };
+            let creator = context.capture_command_navigation_source(id).unwrap();
             let candidate_url = "https://selection.test/form?x=one";
             let (candidate, _, scope) = context
                 .reserve_blank_prerender(id, &creator, candidate_url)
@@ -21548,6 +22055,7 @@ mod selected_navigation_request_tests {
                     link_navigation: false,
                     user_initiated: false,
                     defer_navigation: defer,
+                    local_related_navigation: false,
                     selected_target: None,
                     document_source: form.then_some(provenance),
                     opener_page_id: id,
@@ -21575,11 +22083,16 @@ mod selected_navigation_request_tests {
                 created,
                 blank_prerender,
                 related_root,
+                related_navigation_url,
                 ..
             } = response
             else {
                 panic!("expected final selection")
             };
+            assert!(
+                related_navigation_url.is_none(),
+                "form and deferred selection retain parent-owned navigation"
+            );
             if method == "GET" && !defer && noopener && matching {
                 let receipt = blank_prerender.expect("matching candidate receipt");
                 assert_eq!(receipt.page_id, candidate);
@@ -21617,6 +22130,74 @@ mod selected_navigation_request_tests {
         }
     }
     #[test]
+    fn related_window_open_transfers_only_nonblank_initial_navigation() {
+        for destination in ["about:blank", "https://selection.test/child"] {
+            let context = crate::Browser::native_test_with_config(Default::default()).new_context();
+            let source = context.new_page();
+            let id = source.page_id();
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime
+                .block_on(source.load_html(
+                    "https://selection.test/source",
+                    "<!doctype html><body>source</body>",
+                ))
+                .unwrap();
+            let creator = context.capture_command_navigation_source(id).unwrap();
+            let service = ParentContextService::new(context.clone(), id);
+            let response = service
+                .handle(ContextServiceRequest::OpenPage {
+                    hyperlink_audit: None,
+                    local_inventory: Default::default(),
+                    link_navigation: false,
+                    user_initiated: false,
+                    defer_navigation: false,
+                    local_related_navigation: true,
+                    selected_target: None,
+                    document_source: None,
+                    opener_page_id: id,
+                    creator: Some(creator),
+                    noopener: false,
+                    target_name: "_blank".into(),
+                    form_authority: None,
+                    url: Some(destination.into()),
+                    post: None,
+                    referrer_policy: None,
+                })
+                .unwrap();
+            let ContextServiceResponse::PageOpened {
+                page_id,
+                created,
+                related_root,
+                related_navigation_url,
+                ..
+            } = response
+            else {
+                panic!("popup response")
+            };
+            assert!(created);
+            assert!(related_root.is_some());
+            assert_eq!(
+                related_navigation_url.as_deref(),
+                (destination != "about:blank").then_some(destination)
+            );
+            let queue = context.queued_navigation_status(page_id).unwrap();
+            assert_eq!(queue.active, 0);
+            assert!(queue.outcomes.is_empty());
+            // No actor has received this test response: revoke the unconstructed
+            // admitted root through the same parent rollback used by creation.
+            ParentContextService::new(context.clone(), page_id)
+                .handle(ContextServiceRequest::RollbackAuxiliaryRoot {
+                    page_id,
+                    expected_generation: None,
+                })
+                .unwrap();
+        }
+    }
+
+    #[test]
     fn selection_only_keeps_captured_page_and_does_not_queue_a_load() {
         let context = crate::Browser::new().new_context();
         let source = context.new_page();
@@ -21653,6 +22234,7 @@ mod selected_navigation_request_tests {
                 link_navigation: false,
                 user_initiated: false,
                 defer_navigation: true,
+                local_related_navigation: false,
                 selected_target: Some(receipt.clone()),
                 document_source: None,
                 opener_page_id: id,
@@ -22094,10 +22676,12 @@ mod http_terminal_receipt_tests {
     }
 }
 
+#[cfg(feature = "v8-host")]
 struct ContextHyperlinkAudit {
     token: oryn_js::navigation::HyperlinkAuditToken,
     ticket: Mutex<Option<script_cleanup_custody::Ticket>>,
 }
+#[cfg(feature = "v8-host")]
 impl oryn_js::navigation::HyperlinkAudit for ContextHyperlinkAudit {
     fn token(&self) -> oryn_js::navigation::HyperlinkAuditToken {
         self.token.clone()
@@ -22131,6 +22715,7 @@ impl oryn_js::navigation::HyperlinkAudit for ContextHyperlinkAudit {
     }
 }
 impl SharedContextClient {
+    #[cfg(feature = "v8-host")]
     pub(crate) fn prepare_hyperlink_audit(
         &self,
         page_id: PageId,
@@ -22172,12 +22757,14 @@ impl SharedContextClient {
 
 pub(crate) use crate::frame_resource_response::embedded_document_mime;
 
+#[cfg(feature = "v8-host")]
 pub(crate) struct NativeDeferredFetchBackend {
     client: SharedContextClient,
     page_id: PageId,
     creator: std::rc::Rc<dyn Fn() -> Result<oryn_js::worker_wire::Creator, String>>,
     prepared_creator: std::cell::RefCell<Option<oryn_js::worker_wire::Creator>>,
 }
+#[cfg(feature = "v8-host")]
 impl NativeDeferredFetchBackend {
     pub(crate) fn new(
         client: SharedContextClient,
@@ -22221,6 +22808,7 @@ impl NativeDeferredFetchBackend {
         }
     }
 }
+#[cfg(feature = "v8-host")]
 impl oryn_js::fetch_later::DeferredFetchBackend for NativeDeferredFetchBackend {
     fn prepare(
         &self,
@@ -22876,10 +23464,12 @@ mod ordinary_keepalive_response_tests {
     }
 }
 
+#[cfg(feature = "v8-host")]
 pub(crate) struct NativeHistoryProjectionBackend {
     client: SharedContextClient,
     page: PageId,
 }
+#[cfg(feature = "v8-host")]
 impl NativeHistoryProjectionBackend {
     pub(crate) fn new(client: SharedContextClient, page: PageId) -> Self {
         Self { client, page }
@@ -22892,6 +23482,7 @@ impl NativeHistoryProjectionBackend {
         }
     }
 }
+#[cfg(feature = "v8-host")]
 impl oryn_js::navigation_api::NativeHistoryPublisher for NativeHistoryProjectionBackend {
     fn begin(
         &self,
@@ -23022,6 +23613,7 @@ mod fetch_origin_header_regressions {
                     .collect::<Vec<_>>();
                 assert_eq!(origins, self.0.into_iter().collect::<Vec<_>>());
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -23209,6 +23801,7 @@ mod embedded_type_request_tests {
                     Some(crate::fetch_metadata::Mode::Navigate)
                 );
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,

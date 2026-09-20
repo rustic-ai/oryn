@@ -519,38 +519,36 @@ pub(super) async fn insert_editing_line_break(context: &Context) -> Result<(), V
             offset: range.start_offset,
         };
     } else {
-        let mut dom = state.dom.borrow_mut();
-        if matches!(
-            dom.arena().get(point.container)?.kind,
-            NodeKind::Text { .. } | NodeKind::CDataSection { .. }
-        ) {
-            let length = boundary_length(&dom, point.container)?;
-            if point.offset == 0 || point.offset == length {
-                let (container, offset) = relative_boundary(
-                    &dom,
-                    point.container,
-                    point.offset == length && length != 0,
-                )?;
-                point = BoundaryPoint { container, offset };
+        let br = {
+            let mut dom = state.dom.borrow_mut();
+            if matches!(
+                dom.arena().get(point.container)?.kind,
+                NodeKind::Text { .. } | NodeKind::CDataSection { .. }
+            ) {
+                let length = boundary_length(&dom, point.container)?;
+                if point.offset == 0 || point.offset == length {
+                    let (container, offset) = relative_boundary(
+                        &dom,
+                        point.container,
+                        point.offset == length && length != 0,
+                    )?;
+                    point = BoundaryPoint { container, offset };
+                }
             }
-        }
-        let br = dom.create_element("br");
-        drop(dom);
+            dom.create_element("br")
+        };
         context
             .insert_at_boundary(point.container, point.offset, br)
             .await?;
-        let mut dom = state.dom.borrow_mut();
+        let dom = state.dom.borrow_mut();
         let (container, offset) = relative_boundary(&dom, br, true)?;
         point = BoundaryPoint { container, offset };
     }
     if needs_placeholder {
-        let mut dom = state.dom.borrow_mut();
-        let br = dom.create_element("br");
-        drop(dom);
+        let br = state.dom.borrow_mut().create_element("br");
         context
             .insert_at_boundary(point.container, point.offset, br)
             .await?;
-        let mut dom = state.dom.borrow_mut();
     }
     set_selection_boundaries(state, point, point)?;
     Ok(())
@@ -602,7 +600,7 @@ pub(super) async fn join_first_editing_line(
     destination: NodeId,
     source: NodeId,
 ) -> Result<BoundaryPoint, V8BindingError> {
-    let state: &V8BindingState = &context.state;
+    let _state: &V8BindingState = &context.state;
     join_first_editing_line_before(context, destination, source, None).await
 }
 
@@ -805,13 +803,14 @@ pub(super) async fn join_first_editing_line_before(
             current = state.dom.borrow().parent(node)?;
         }
     }
-    let mut dom = state.dom.borrow_mut();
-    let caret_offset = if let Some(before) = before {
-        relative_boundary(&dom, before, false)?.1
-    } else {
-        editing_caret_end(&dom, destination)?
+    let caret_offset = {
+        let dom = state.dom.borrow();
+        if let Some(before) = before {
+            relative_boundary(&dom, before, false)?.1
+        } else {
+            editing_caret_end(&dom, destination)?
+        }
     };
-    drop(dom);
     let fragment = editing_range::contents(
         context,
         &RangeRecord {
@@ -823,105 +822,90 @@ pub(super) async fn join_first_editing_line_before(
         RangeContentsMode::Extract,
     )
     .await?;
-    let mut dom = state.dom.borrow_mut();
     if let Some((node, newline)) = separator {
         if newline {
-            {
-                drop(dom);
-                let result = context.text(node, 0, 1, "").await;
-                dom = state.dom.borrow_mut();
-                result
-            }?;
-        } else if let Some(parent) = dom.parent(node)? {
-            {
-                drop(dom);
-                let result = context.remove(node).await;
-                dom = state.dom.borrow_mut();
-                result
-            }?;
+            context.text(node, 0, 1, "").await?;
+        } else {
+            let has_parent = state.dom.borrow().parent(node)?.is_some();
+            if has_parent {
+                context.remove(node).await?;
+            }
         }
     }
     for node in cleanup {
         if node == line_root {
             break;
         }
-        let empty = match &dom.arena().get(node)?.kind {
-            NodeKind::Text { data } | NodeKind::CDataSection { data } => data.is_empty(),
-            NodeKind::Element { .. } => dom.arena().get(node)?.children.is_empty(),
-            _ => false,
+        let remove = {
+            let dom = state.dom.borrow();
+            let empty = match &dom.arena().get(node)?.kind {
+                NodeKind::Text { data } | NodeKind::CDataSection { data } => data.is_empty(),
+                NodeKind::Element { .. } => dom.arena().get(node)?.children.is_empty(),
+                _ => false,
+            };
+            empty && dom.parent(node)?.is_some()
         };
-        if empty && let Some(parent) = dom.parent(node)? {
-            {
-                drop(dom);
-                let result = context.remove(node).await;
-                dom = state.dom.borrow_mut();
-                result
-            }?;
+        if remove {
+            context.remove(node).await?;
         }
     }
-    if let Some(node) = following_break
-        && let Some(parent) = dom.parent(node)?
-    {
-        {
-            drop(dom);
-            let result = context.remove(node).await;
-            dom = state.dom.borrow_mut();
-            result
-        }?;
+    if let Some(node) = following_break {
+        let has_parent = state.dom.borrow().parent(node)?.is_some();
+        if has_parent {
+            context.remove(node).await?;
+        }
     }
     if preserve_inline_shell && !source_is_placeholder {
-        let children = light_children(&dom, fragment)?;
+        let children = light_children(&state.dom.borrow(), fragment)?;
         if !children.is_empty() {
-            let shell = if light_children(&dom, line_root)?.is_empty() {
-                // Reuse a wholly consumed element so listeners and identity survive.
-                line_root
-            } else {
-                dom.clone_node(line_root, false)?
+            let shell = {
+                let mut dom = state.dom.borrow_mut();
+                if light_children(&dom, line_root)?.is_empty() {
+                    // Reuse a wholly consumed element so listeners and identity survive.
+                    line_root
+                } else {
+                    dom.clone_node(line_root, false)?
+                }
             };
             for child in children {
-                {
-                    drop(dom);
-                    let result = context.append(shell, child, None).await;
-                    dom = state.dom.borrow_mut();
-                    result
-                }?;
+                context.append(shell, child, None).await?;
             }
-            {
-                drop(dom);
-                let result = context.append(fragment, shell, None).await;
-                dom = state.dom.borrow_mut();
-                result
-            }?;
+            context.append(fragment, shell, None).await?;
         }
     }
     let moving = if source_is_placeholder {
         Vec::new()
     } else {
-        light_children(&dom, fragment)?
+        light_children(&state.dom.borrow(), fragment)?
     };
     if !moving.is_empty() {
         // A final placeholder is replaced by the joined line.
-        if before.is_none()
-            && let Some(last) = light_children(&dom, destination)?.last().copied()
-            && element_local_name(&dom, last) == Some("br")
-        {
-            {
-                drop(dom);
-                let result = context.remove(last).await;
-                dom = state.dom.borrow_mut();
-                result
-            }?;
+        let placeholder = {
+            let dom = state.dom.borrow();
+            if before.is_none() {
+                light_children(&dom, destination)?
+                    .last()
+                    .copied()
+                    .filter(|last| element_local_name(&dom, *last) == Some("br"))
+            } else {
+                None
+            }
+        };
+        if let Some(last) = placeholder {
+            context.remove(last).await?;
         }
         let target = if source_mode != destination_mode
             && !destination_absorbs_inline_whitespace
             && (source_has_author_whitespace || source_is_inline)
         {
-            if reusable_inline
+            let reuse = reusable_inline
                 && !preserve_inline_shell
                 && moving.len() == 1
-                && matches!(dom.arena().get(moving[0])?.kind, NodeKind::Element { .. })
-            {
-                drop(dom);
+                && matches!(
+                    state.dom.borrow().arena().get(moving[0])?.kind,
+                    NodeKind::Element { .. }
+                );
+            if reuse {
                 context
                     .attribute(
                         moving[0],
@@ -930,60 +914,49 @@ pub(super) async fn join_first_editing_line_before(
                         format!("white-space: {source_mode};"),
                     )
                     .await?;
-                dom = state.dom.borrow_mut();
                 destination
             } else {
-                let span = dom.create_element("span");
-                drop(dom);
+                let span = state.dom.borrow_mut().create_element("span");
                 context
                     .attribute(span, None, "style", format!("white-space: {source_mode};"))
                     .await?;
-                dom = state.dom.borrow_mut();
-                {
-                    drop(dom);
-                    let result = context.append(destination, span, before).await;
-                    dom = state.dom.borrow_mut();
-                    result
-                }?;
+                context.append(destination, span, before).await?;
                 span
             }
         } else {
             destination
         };
         for child in moving {
-            {
-                drop(dom);
-                let result = context
-                    .append(
-                        target,
-                        child,
-                        if target == destination { before } else { None },
-                    )
-                    .await;
-                dom = state.dom.borrow_mut();
-                result
-            }?;
+            context
+                .append(
+                    target,
+                    child,
+                    if target == destination { before } else { None },
+                )
+                .await?;
         }
     }
     let mut empty = line_root;
-    while match &dom.arena().get(empty)?.kind {
-        NodeKind::Text { data } | NodeKind::CDataSection { data } => data.is_empty(),
-        _ => light_children(&dom, empty)?.is_empty(),
-    } {
-        let Some(parent) = dom.parent(empty)? else {
-            break;
+    loop {
+        let parent = {
+            let dom = state.dom.borrow();
+            let is_empty = match &dom.arena().get(empty)?.kind {
+                NodeKind::Text { data } | NodeKind::CDataSection { data } => data.is_empty(),
+                _ => light_children(&dom, empty)?.is_empty(),
+            };
+            if !is_empty {
+                break;
+            }
+            dom.parent(empty)?
         };
-        {
-            drop(dom);
-            let result = context.remove(empty).await;
-            dom = state.dom.borrow_mut();
-            result
-        }?;
+        let Some(parent) = parent else { break };
+        context.remove(empty).await?;
         if empty == source {
             break;
         }
         empty = parent;
     }
+    let dom = state.dom.borrow();
     if node_is_placeholder_empty(&dom, destination)? {
         return editing_placeholder_caret(&dom, destination);
     }
@@ -1088,13 +1061,12 @@ pub(super) async fn merge_adjacent_editing_block(
     let Some(host) = editing_host(state)? else {
         return Ok(false);
     };
+    let block = nearest_editing_block(&state.dom.borrow(), container, host)?;
+    if block == host {
+        return merge_document_root_editing_boundary(context, container, host, forward).await;
+    }
     let (block, parent, sibling, ignored) = {
         let dom = state.dom.borrow();
-        let block = nearest_editing_block(&dom, container, host)?;
-        if block == host {
-            drop(dom);
-            return merge_document_root_editing_boundary(context, container, host, forward).await;
-        }
         let Some(parent) = dom.parent(block)? else {
             return Ok(false);
         };
@@ -1146,16 +1118,13 @@ pub(super) async fn merge_adjacent_editing_block(
             (sibling, block)
         };
         for separator in ignored {
-            let mut dom = state.dom.borrow_mut();
-            if matches!(dom.arena().get(separator).map(|record| &record.kind),
-                Ok(NodeKind::Text { data } | NodeKind::CDataSection { data }) if data.trim().is_empty())
-            {
-                {
-                    drop(dom);
-                    let result = context.remove(separator).await;
-                    dom = state.dom.borrow_mut();
-                    result
-                }?;
+            let whitespace = {
+                let dom = state.dom.borrow();
+                matches!(dom.arena().get(separator).map(|record| &record.kind),
+                    Ok(NodeKind::Text { data } | NodeKind::CDataSection { data }) if data.trim().is_empty())
+            };
+            if whitespace {
+                context.remove(separator).await?;
             }
         }
         let point = join_first_editing_line(context, destination, source).await?;
@@ -1324,7 +1293,7 @@ pub(super) async fn replace_selection_with_text(
         {
             let end_children = light_children(&state.dom.borrow(), end_block)?;
             if node_is_placeholder_empty(&state.dom.borrow(), end_block)? {
-                let parent = state
+                let _parent = state
                     .dom
                     .borrow()
                     .parent(end_block)?
@@ -1334,7 +1303,7 @@ pub(super) async fn replace_selection_with_text(
                 for child in end_children {
                     context.append(start_block, child, None).await?;
                 }
-                let parent = state
+                let _parent = state
                     .dom
                     .borrow()
                     .parent(end_block)?
@@ -1516,67 +1485,63 @@ pub(super) async fn split_editing_paragraph_contents(
             }
         }
     }
-    let mut dom = state.dom.borrow_mut();
-    let mut right = match dom.arena().get(range.start_container)?.kind.clone() {
+    let start_kind = state
+        .dom
+        .borrow()
+        .arena()
+        .get(range.start_container)?
+        .kind
+        .clone();
+    let mut right = match start_kind {
         NodeKind::Text { .. } | NodeKind::CDataSection { .. } => {
-            drop(dom);
-            let result = context
+            context
                 .split(range.start_container, range.start_offset)
-                .await;
-            dom = state.dom.borrow_mut();
-            result
-        }?,
+                .await?
+        }
         _ => {
-            let children = light_children(&dom, range.start_container)?;
+            let children = light_children(&state.dom.borrow(), range.start_container)?;
             if let Some(child) = children.get(range.start_offset as usize).copied() {
                 child
             } else {
-                let br = dom.create_element("br");
-                {
-                    drop(dom);
-                    let result = context.append(range.start_container, br, None).await;
-                    dom = state.dom.borrow_mut();
-                    result
-                }?;
+                let br = state.dom.borrow_mut().create_element("br");
+                context.append(range.start_container, br, None).await?;
                 br
             }
         }
     };
 
     loop {
-        let parent = dom
+        let parent = state
+            .dom
+            .borrow()
             .parent(right)?
             .ok_or(V8BindingError::Allocation("editing split parent"))?;
         if parent == block {
             break;
         }
-        let clone = clone_editing_element(&mut dom, parent)?;
-        let siblings = light_children(&dom, parent)?;
-        let index = siblings
-            .iter()
-            .position(|candidate| *candidate == right)
-            .ok_or(V8BindingError::Allocation("editing split child"))?;
+        let (clone, siblings, index) = {
+            let mut dom = state.dom.borrow_mut();
+            let clone = clone_editing_element(&mut dom, parent)?;
+            let siblings = light_children(&dom, parent)?;
+            let index = siblings
+                .iter()
+                .position(|candidate| *candidate == right)
+                .ok_or(V8BindingError::Allocation("editing split child"))?;
+            (clone, siblings, index)
+        };
         for child in siblings[index..].iter().copied() {
-            {
-                drop(dom);
-                let result = context.append(clone, child, None).await;
-                dom = state.dom.borrow_mut();
-                result
-            }?;
+            context.append(clone, child, None).await?;
         }
-        let grand = dom
+        let grand = state
+            .dom
+            .borrow()
             .parent(parent)?
             .ok_or(V8BindingError::Allocation("editing split ancestor"))?;
-        {
-            drop(dom);
-            let result = context.after(grand, parent, clone).await;
-            dom = state.dom.borrow_mut();
-            result
-        }?;
+        context.after(grand, parent, clone).await?;
         right = clone;
     }
 
-    let siblings = light_children(&dom, block)?;
+    let siblings = light_children(&state.dom.borrow(), block)?;
     let index = siblings
         .iter()
         .position(|candidate| *candidate == right)
@@ -1594,92 +1559,47 @@ pub(super) async fn split_editing_paragraph_contents(
             .position(|node| block_siblings.contains(node))
             .map_or(siblings.len(), |position| index + position);
         let separator = state.default_paragraph_separator.borrow().clone();
-        let needs_div = siblings[start..end].iter().any(|node| {
-            traversal_nodes(&dom, *node)
-                .is_ok_and(|nodes| nodes.into_iter().any(|child| is_editing_block(&dom, child)))
-        });
-        let tag = if separator.as_str() == "p" && !needs_div {
-            "p"
-        } else {
-            "div"
+        let (left_block, right_block) = {
+            let mut dom = state.dom.borrow_mut();
+            let needs_div = siblings[start..end].iter().any(|node| {
+                traversal_nodes(&dom, *node)
+                    .is_ok_and(|nodes| nodes.into_iter().any(|child| is_editing_block(&dom, child)))
+            });
+            let tag = if separator.as_str() == "p" && !needs_div {
+                "p"
+            } else {
+                "div"
+            };
+            (dom.create_element(tag), dom.create_element(tag))
         };
-        let left_block = dom.create_element(tag);
-        new_block = dom.create_element(tag);
-        {
-            drop(dom);
-            let result = context
-                .append(host, left_block, siblings.get(start).copied())
-                .await;
-            dom = state.dom.borrow_mut();
-            result
-        }?;
-        {
-            drop(dom);
-            let result = context.after(host, left_block, new_block).await;
-            dom = state.dom.borrow_mut();
-            result
-        }?;
+        new_block = right_block;
+        context
+            .append(host, left_block, siblings.get(start).copied())
+            .await?;
+        context.after(host, left_block, new_block).await?;
         for child in siblings[start..index].iter().copied() {
-            {
-                drop(dom);
-                let result = context.append(left_block, child, None).await;
-                dom = state.dom.borrow_mut();
-                result
-            }?;
+            context.append(left_block, child, None).await?;
         }
         for child in siblings[index..end].iter().copied() {
-            {
-                drop(dom);
-                let result = context.append(new_block, child, None).await;
-                dom = state.dom.borrow_mut();
-                result
-            }?;
+            context.append(new_block, child, None).await?;
         }
-        {
-            drop(dom);
-            let result = ensure_split_paragraph_placeholder(context, left_block).await;
-            dom = state.dom.borrow_mut();
-            result
-        }?;
-        {
-            drop(dom);
-            let result = ensure_split_paragraph_placeholder(context, new_block).await;
-            dom = state.dom.borrow_mut();
-            result
-        }?;
+        ensure_split_paragraph_placeholder(context, left_block).await?;
+        ensure_split_paragraph_placeholder(context, new_block).await?;
         // Host wrapping uses the transaction snapshot for undo; the special
         // block-split undo assumes that both halves existed as sibling blocks.
     } else {
-        new_block = clone_editing_element(&mut dom, block)?;
+        new_block = clone_editing_element(&mut state.dom.borrow_mut(), block)?;
         for child in siblings[index..].iter().copied() {
-            {
-                drop(dom);
-                let result = context.append(new_block, child, None).await;
-                dom = state.dom.borrow_mut();
-                result
-            }?;
+            context.append(new_block, child, None).await?;
         }
-        let left_placeholder = {
-            drop(dom);
-            let result = ensure_split_paragraph_placeholder(context, block).await;
-            dom = state.dom.borrow_mut();
-            result
-        }?;
-        let right_placeholder = {
-            drop(dom);
-            let result = ensure_split_paragraph_placeholder(context, new_block).await;
-            dom = state.dom.borrow_mut();
-            result
-        }?;
-        let parent = dom
+        let left_placeholder = ensure_split_paragraph_placeholder(context, block).await?;
+        let right_placeholder = ensure_split_paragraph_placeholder(context, new_block).await?;
+        let parent = state
+            .dom
+            .borrow()
             .parent(block)?
             .ok_or(V8BindingError::Allocation("editing block parent"))?;
-        {
-            drop(dom);
-            let result = context.after(parent, block, new_block).await;
-            dom = state.dom.borrow_mut();
-            result
-        }?;
+        context.after(parent, block, new_block).await?;
         state.pending_split_undo.set(Some((
             block,
             new_block,
@@ -1687,7 +1607,6 @@ pub(super) async fn split_editing_paragraph_contents(
             right_placeholder,
         )));
     }
-    drop(dom);
     let caret = traversal_nodes(&state.dom.borrow(), new_block)?
         .into_iter()
         .find(|node| {
@@ -1782,51 +1701,34 @@ pub(super) async fn merge_document_root_editing_boundary(
         .into_iter()
         .filter(|child| !is_preserved_editing_boundary(&state.dom.borrow(), *child))
         .collect::<Vec<_>>();
-    {
-        let mut dom = state.dom.borrow_mut();
-        if destination_was_empty {
-            for child in destination_children {
-                if element_local_name(&dom, child) == Some("br") {
-                    {
-                        drop(dom);
-                        let result = context.remove(child).await;
-                        dom = state.dom.borrow_mut();
-                        result
-                    }?;
-                }
+    if destination_was_empty {
+        for child in destination_children {
+            let is_break = element_local_name(&state.dom.borrow(), child) == Some("br");
+            if is_break {
+                context.remove(child).await?;
             }
         }
-        if destination == left {
-            for child in moving {
-                {
-                    drop(dom);
-                    let result = context.append(destination, child, None).await;
-                    dom = state.dom.borrow_mut();
-                    result
-                }?;
-            }
-        } else {
-            let before = light_children(&dom, destination)?.first().copied();
-            for child in moving {
-                {
-                    drop(dom);
-                    let result = context.append(destination, child, before).await;
-                    dom = state.dom.borrow_mut();
-                    result
-                }?;
-            }
+    }
+    if destination == left {
+        for child in moving {
+            context.append(destination, child, None).await?;
         }
-        if (source_was_empty || light_children(&dom, source)?.is_empty())
+    } else {
+        let before = light_children(&state.dom.borrow(), destination)?
+            .first()
+            .copied();
+        for child in moving {
+            context.append(destination, child, before).await?;
+        }
+    }
+    let remove_source = {
+        let dom = state.dom.borrow();
+        (source_was_empty || light_children(&dom, source)?.is_empty())
             && element_local_name(&dom, source) != Some("body")
-            && let Some(parent) = dom.parent(source)?
-        {
-            {
-                drop(dom);
-                let result = context.remove(source).await;
-                dom = state.dom.borrow_mut();
-                result
-            }?;
-        }
+            && dom.parent(source)?.is_some()
+    };
+    if remove_source {
+        context.remove(source).await?;
     }
     let point = if node_is_placeholder_empty(&state.dom.borrow(), destination)? {
         editing_placeholder_caret(&state.dom.borrow(), destination)?
@@ -1852,7 +1754,7 @@ pub(super) async fn remove_line_before_nested_block(
     if block == host {
         return Ok(false);
     }
-    let (parent, preceding) = {
+    let (_parent, preceding) = {
         let dom = state.dom.borrow();
         let Some(parent) = dom.parent(block)? else {
             return Ok(false);
@@ -1933,7 +1835,7 @@ pub(super) async fn remove_line_before_nested_block(
         })
         .transpose()?
         .flatten();
-    if let Some((trailing_break, owner)) = trailing_break_owner {
+    if let Some((trailing_break, _owner)) = trailing_break_owner {
         context.remove(trailing_break).await?;
         return Ok(true);
     }
@@ -1945,46 +1847,48 @@ pub(super) async fn ensure_split_paragraph_placeholder(
     block: NodeId,
 ) -> Result<Option<NodeId>, V8BindingError> {
     let state = &context.state;
-    let mut dom = state.dom.borrow_mut();
-    let nodes = traversal_nodes(&dom, block)?;
-    for node in &nodes {
-        match &dom.arena().get(*node)?.kind {
-            NodeKind::Text { data } | NodeKind::CDataSection { data } if !data.is_empty() => {
-                return Ok(None);
+    let (parent, br) = {
+        let mut dom = state.dom.borrow_mut();
+        let nodes = traversal_nodes(&dom, block)?;
+        for node in &nodes {
+            match &dom.arena().get(*node)?.kind {
+                NodeKind::Text { data } | NodeKind::CDataSection { data } if !data.is_empty() => {
+                    return Ok(None);
+                }
+                NodeKind::Element { name }
+                    if matches!(
+                        name.local.as_ref(),
+                        "br" | "img"
+                            | "input"
+                            | "hr"
+                            | "audio"
+                            | "video"
+                            | "canvas"
+                            | "iframe"
+                            | "embed"
+                            | "object"
+                            | "select"
+                            | "textarea"
+                    ) =>
+                {
+                    return Ok(None);
+                }
+                _ => {}
             }
-            NodeKind::Element { name }
-                if matches!(
-                    name.local.as_ref(),
-                    "br" | "img"
-                        | "input"
-                        | "hr"
-                        | "audio"
-                        | "video"
-                        | "canvas"
-                        | "iframe"
-                        | "embed"
-                        | "object"
-                        | "select"
-                        | "textarea"
-                ) =>
-            {
-                return Ok(None);
-            }
-            _ => {}
         }
-    }
-    let parent = nodes
-        .iter()
-        .rev()
-        .copied()
-        .find(|node| {
-            dom.arena()
-                .get(*node)
-                .is_ok_and(|record| matches!(record.kind, NodeKind::Element { .. }))
-        })
-        .unwrap_or(block);
-    let br = dom.create_element("br");
-    drop(dom);
+        let parent = nodes
+            .iter()
+            .rev()
+            .copied()
+            .find(|node| {
+                dom.arena()
+                    .get(*node)
+                    .is_ok_and(|record| matches!(record.kind, NodeKind::Element { .. }))
+            })
+            .unwrap_or(block);
+        let br = dom.create_element("br");
+        (parent, br)
+    };
     context.append(parent, br, None).await?;
     Ok(Some(br))
 }
@@ -2086,19 +1990,15 @@ pub(super) async fn clear_contained_alignment(context: &Context) -> Result<(), V
         if !needs_cleanup {
             continue;
         }
-        {
-            let mut dom = state.dom.borrow_mut();
-            drop(dom);
-            context.remove_attribute(node, "align").await?;
-            dom = state.dom.borrow_mut();
-            drop(dom);
-            context.style(node, "text-align", "").await?;
-            let mut dom = state.dom.borrow_mut();
-            if dom.attribute_in_null_namespace(node, "style")? == Some("") {
-                drop(dom);
-                context.remove_attribute(node, "style").await?;
-                dom = state.dom.borrow_mut();
-            }
+        context.remove_attribute(node, "align").await?;
+        context.style(node, "text-align", "").await?;
+        let empty_style = state
+            .dom
+            .borrow()
+            .attribute_in_null_namespace(node, "style")?
+            == Some("");
+        if empty_style {
+            context.remove_attribute(node, "style").await?;
         }
         let (name, attributes, parent) = {
             let dom = state.dom.borrow();
@@ -2121,20 +2021,15 @@ pub(super) async fn clear_contained_alignment(context: &Context) -> Result<(), V
             synchronize_live_ranges(state)?;
         } else if name == "center" {
             let replacement = state.dom.borrow_mut().create_element("div");
-            {
-                let mut dom = state.dom.borrow_mut();
-                for attribute in attributes.records() {
-                    drop(dom);
-                    context
-                        .attribute(
-                            replacement,
-                            attribute.namespace.clone(),
-                            attribute.name.clone(),
-                            attribute.value.clone(),
-                        )
-                        .await?;
-                    dom = state.dom.borrow_mut();
-                }
+            for attribute in attributes.records() {
+                context
+                    .attribute(
+                        replacement,
+                        attribute.namespace.clone(),
+                        attribute.name.clone(),
+                        attribute.value.clone(),
+                    )
+                    .await?;
             }
             context.append(parent, replacement, Some(node)).await?;
             let children = light_children(&state.dom.borrow(), node)?;
@@ -2194,9 +2089,7 @@ pub(super) async fn separate_alignment_inline_runs(
         } else {
             None
         };
-        let mut dom = state.dom.borrow_mut();
-        let br = dom.create_element("br");
-        drop(dom);
+        let br = state.dom.borrow_mut().create_element("br");
         context.append(wrapper, br, reference).await?;
     }
     Ok(())

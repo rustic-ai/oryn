@@ -86,6 +86,22 @@ impl<'a> From<&'a String> for ScriptSourceRef<'a> {
         Self::PlainUtf8(text)
     }
 }
+
+impl<'a> From<&ScriptSourceRef<'a>> for ScriptSourceRef<'a> {
+    fn from(value: &ScriptSourceRef<'a>) -> Self {
+        *value
+    }
+}
+impl<'a> From<&'a &str> for ScriptSourceRef<'a> {
+    fn from(value: &'a &str) -> Self {
+        Self::PlainUtf8(value)
+    }
+}
+impl<'a> From<&'a &String> for ScriptSourceRef<'a> {
+    fn from(value: &'a &String) -> Self {
+        Self::PlainUtf8(value)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,21 +121,5 @@ mod tests {
             ScriptSource::dom(encoded.clone()).as_source().units(),
             ScriptSource::plain(encoded).as_source().units()
         );
-    }
-}
-
-impl<'a> From<&ScriptSourceRef<'a>> for ScriptSourceRef<'a> {
-    fn from(value: &ScriptSourceRef<'a>) -> Self {
-        *value
-    }
-}
-impl<'a> From<&'a &str> for ScriptSourceRef<'a> {
-    fn from(value: &'a &str) -> Self {
-        Self::PlainUtf8(value)
-    }
-}
-impl<'a> From<&'a &String> for ScriptSourceRef<'a> {
-    fn from(value: &'a &String) -> Self {
-        Self::PlainUtf8(value)
     }
 }

@@ -17,7 +17,7 @@ unsafe extern "C" {
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
     fn CFGetTypeID(value: Id) -> usize;
-    fn CFRelease(value: Id);
+    fn CFRelease(value: *const c_void);
     fn CFAutorelease(value: Id) -> Id;
 }
 pub(super) const ATTRIBUTES: &[&str] = &[
@@ -212,10 +212,9 @@ fn composed(entries: &BTreeMap<usize, Entry>, query: &Entry) -> Option<ComposedT
                             .is_some_and(|(a, b)| {
                                 a.realm == b.realm && a.stream_epoch == b.stream_epoch
                             })
-                }) {
-                    if *child != id {
-                        expanded = append(entries, query, *child, result, seen, depth + 1)?;
-                    }
+                }) && *child != id
+                {
+                    expanded = append(entries, query, *child, result, seen, depth + 1)?;
                 }
             }
             if !expanded {

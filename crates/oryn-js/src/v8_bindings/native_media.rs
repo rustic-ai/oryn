@@ -617,7 +617,7 @@ fn call(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v
             );
         }
         match index {
-            0 | 1 | 2 | 3 => {
+            0..=3 => {
                 let mut selected = Vec::new();
                 for value in values {
                     let object = v8::Local::<v8::Object>::try_from(value)
@@ -682,12 +682,12 @@ fn call(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v
                 })();
                 if result.is_err() {
                     for value in clones {
-                        if let Ok(object) = v8::Local::<v8::Object>::try_from(value) {
-                            if let Ok((owner, id)) = owner(scope, object, true) {
-                                let native_id = owner.native_media.borrow().tracks[&id].id.clone();
-                                release(&owner, native_id, true);
-                                owner.native_media.borrow_mut().tracks.remove(&id);
-                            }
+                        if let Ok(object) = v8::Local::<v8::Object>::try_from(value)
+                            && let Ok((owner, id)) = owner(scope, object, true)
+                        {
+                            let native_id = owner.native_media.borrow().tracks[&id].id.clone();
+                            release(&owner, native_id, true);
+                            owner.native_media.borrow_mut().tracks.remove(&id);
                         }
                     }
                 }
@@ -986,7 +986,7 @@ pub(super) fn install(
         };
         for (name, index) in methods {
             let data = v8::Integer::new(scope, *index);
-            let length = if matches!(*index, 3 | 4 | 5) { 1 } else { 0 };
+            let length = if matches!(*index, 3..=5) { 1 } else { 0 };
             let function = v8::Function::builder(call)
                 .data(data.into())
                 .length(length)

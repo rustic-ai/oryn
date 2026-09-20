@@ -1,5 +1,8 @@
 //! A prepared frame response becomes readable only after its native policy
 //! ticket binds the new child Document. IO runs on owned bounded resource lanes.
+type PendingFrameChunk =
+    Option<std::sync::mpsc::Receiver<Result<(Vec<u8>, bool, Option<u64>), String>>>;
+
 use super::*;
 use crate::context_service::{
     ContextFrameResponseLease, ContextServiceRequest, ContextServiceResponse, SharedContextClient,
@@ -72,7 +75,7 @@ struct DecodedFrameInput {
     replay: crate::html_encoding_replay::HtmlEncodingReplay,
     body: FrameResponseBody,
     creator: oryn_js::worker_wire::Creator,
-    pending: Option<std::sync::mpsc::Receiver<Result<(Vec<u8>, bool, Option<u64>), String>>>,
+    pending: PendingFrameChunk,
     decoder: oryn_net::IncrementalTextDecoder,
     encoding: Arc<std::sync::Mutex<Option<&'static str>>>,
     done: bool,
@@ -203,7 +206,7 @@ impl crate::host::DocumentInput for DecodedFrameInput {
 }
 
 fn decode_chunk(encoded: &str, done: bool) -> Result<(Vec<u8>, bool), String> {
-    if encoded.len() > ((64 * 1024 + 2) / 3) * 4 {
+    if encoded.len() > (64usize * 1024).div_ceil(3) * 4 {
         return Err("frame response chunk exceeds encoded custody".into());
     }
     let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
@@ -310,15 +313,17 @@ mod tests {
             std::time::Instant::now() - std::time::Duration::from_millis(1),
             oryn_js::navigation_timing::Kind::Navigate,
         );
-        timing.response(
-            "https://frame.test/".into(),
-            200,
-            &[("content-encoding".into(), "gzip".into())],
-            timing.origin().0,
-            std::time::Instant::now(),
-            None,
-            false,
-        );
+        timing
+            .response(oryn_js::navigation_timing::NavigationResponse {
+                url: "https://frame.test/".into(),
+                status: 200,
+                headers: &[("content-encoding".into(), "gzip".into())],
+                fetch: timing.origin().0,
+                received: std::time::Instant::now(),
+                details: None,
+                no_referrer: false,
+            })
+            .unwrap();
         let mut input = DecodedFrameInput {
             timing: Some(timing.clone()),
             received_bytes: 0,

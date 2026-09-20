@@ -215,10 +215,9 @@ pub(super) fn abort(
             }
             changed
         };
-        if platform_changed {
-            if let Err(error) = platform_listener_graph::refresh_all(scope, &state) {
-                failure.get_or_insert(error);
-            }
+        if platform_changed && let Err(error) = platform_listener_graph::refresh_all(scope, &state)
+        {
+            failure.get_or_insert(error);
         }
         for (node, name, present) in changed {
             if let Err(error) = state

@@ -1,14 +1,14 @@
 //! Committed response policy for native agent-cluster admission. Report-only
 //! headers never grant isolation, and duplicate malformed field values fail shut.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-pub(crate) enum EmbedderPolicy {
+pub enum EmbedderPolicy {
     #[default]
     None,
     RequireCorp,
     Credentialless,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-pub(crate) struct DocumentIsolationPolicy {
+pub struct DocumentIsolationPolicy {
     pub same_origin_opener: bool,
     pub embedder: EmbedderPolicy,
     pub same_origin_permission: bool,

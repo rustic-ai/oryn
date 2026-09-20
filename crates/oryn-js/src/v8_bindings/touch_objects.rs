@@ -490,18 +490,18 @@ pub(super) fn capture_path(
                         _ => return Err(invalid()),
                     };
                 let mut adjusted_target = original_target;
-                if let Ok(object) = v8::Local::<v8::Object>::try_from(original_target) {
-                    if let Some((node, _, _)) = embedded_node_identity(scope, object) {
-                        let node_owner =
-                            binding_state_for_receiver(scope, object).ok_or_else(invalid)?;
-                        let against = if Rc::ptr_eq(&node_owner.dom, &state.dom) {
-                            observer
-                        } else {
-                            None
-                        };
-                        let node = node_owner.dom.borrow().retarget_node(node, against)?;
-                        adjusted_target = wrap_node(scope, &node_owner, node)?.into();
-                    }
+                if let Ok(object) = v8::Local::<v8::Object>::try_from(original_target)
+                    && let Some((node, _, _)) = embedded_node_identity(scope, object)
+                {
+                    let node_owner =
+                        binding_state_for_receiver(scope, object).ok_or_else(invalid)?;
+                    let against = if Rc::ptr_eq(&node_owner.dom, &state.dom) {
+                        observer
+                    } else {
+                        None
+                    };
+                    let node = node_owner.dom.borrow().retarget_node(node, against)?;
+                    adjusted_target = wrap_node(scope, &node_owner, node)?.into();
                 }
                 let value = if adjusted_target.strict_equals(original_target) {
                     *touch

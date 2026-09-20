@@ -1,4 +1,22 @@
 //! Native ownership of accepted default actions across scheduler checkpoints.
+struct SubmissionQueueInputs<'a> {
+    origin_document: NodeId,
+    state: &'a Rc<V8BindingState>,
+    form: NodeId,
+    submitter_owner: Option<(Rc<V8BindingState>, NodeId)>,
+    source: SubmissionSource,
+    user_initiated: bool,
+}
+
+struct SubmissionOriginInputs<'a> {
+    origin_document: NodeId,
+    state: &'a Rc<V8BindingState>,
+    form: NodeId,
+    submitter_owner: Option<(Rc<V8BindingState>, NodeId)>,
+    source: SubmissionSource,
+    user_initiated: bool,
+}
+
 use super::*;
 
 const MAX_PENDING_ACTIONS: usize = 1024;
@@ -518,34 +536,42 @@ pub(super) fn queue_with_involvement(
     queue_from_origin(
         scope,
         state,
-        document,
-        state,
-        form,
-        submitter.map(|node| (state.clone(), node)),
-        source,
-        user_initiated,
+        SubmissionOriginInputs {
+            origin_document: document,
+            state,
+            form,
+            submitter_owner: submitter.map(|node| (state.clone(), node)),
+            source,
+            user_initiated,
+        },
     )
 }
 
 fn queue_from_origin(
     scope: &mut v8::PinScope,
     origin: &Rc<V8BindingState>,
-    origin_document: NodeId,
-    state: &Rc<V8BindingState>,
-    form: NodeId,
-    submitter_owner: Option<(Rc<V8BindingState>, NodeId)>,
-    source: SubmissionSource,
-    user_initiated: bool,
+    params: SubmissionOriginInputs<'_>,
 ) -> Result<(), V8BindingError> {
-    let Some(mut queue) = Queue::new(
-        scope,
-        origin,
+    let SubmissionOriginInputs {
         origin_document,
         state,
         form,
         submitter_owner,
         source,
         user_initiated,
+    } = params;
+
+    let Some(mut queue) = Queue::new(
+        scope,
+        origin,
+        SubmissionQueueInputs {
+            origin_document,
+            state,
+            form,
+            submitter_owner,
+            source,
+            user_initiated,
+        },
     )?
     else {
         return Ok(());
@@ -581,8 +607,8 @@ struct PreparedNavigation {
 }
 enum Prepared {
     None,
-    Dialog(dialog::Job),
-    Navigation(PreparedNavigation),
+    Dialog(Box<dialog::Job>),
+    Navigation(Box<PreparedNavigation>),
 }
 pub(super) struct Queue {
     origin: Rc<V8BindingState>,
@@ -612,16 +638,20 @@ fn lease_copy(lease: &RootedTarget) -> RootedTarget {
     }
 }
 impl Queue {
-    pub(super) fn new(
+    fn new(
         scope: &mut v8::PinScope,
         origin: &Rc<V8BindingState>,
-        origin_document: NodeId,
-        state: &Rc<V8BindingState>,
-        form: NodeId,
-        submitter_owner: Option<(Rc<V8BindingState>, NodeId)>,
-        source: SubmissionSource,
-        user_initiated: bool,
+        params: SubmissionQueueInputs<'_>,
     ) -> Result<Option<Self>, V8BindingError> {
+        let SubmissionQueueInputs {
+            origin_document,
+            state,
+            form,
+            submitter_owner,
+            source,
+            user_initiated,
+        } = params;
+
         let Some(active_owner) = active_document_state_for_node(scope, state, form) else {
             return Ok(None);
         };
@@ -686,7 +716,7 @@ impl Queue {
     fn prepare(&self, scope: &mut v8::PinScope) -> Result<Prepared, V8BindingError> {
         let origin = &self.origin;
         let origin_document = self.origin_document;
-        let state = &self.data_owner;
+        let _state = &self.data_owner;
         let identity = self.identity;
         let form_object = v8::Local::new(scope, &self.form_object);
         let source_object = self.source_object.clone();
@@ -805,13 +835,13 @@ impl Queue {
                     })
                     .transpose()?
                     .flatten();
-                return Ok(Prepared::Dialog(dialog::Job::new(
+                return Ok(Prepared::Dialog(Box::new(dialog::Job::new(
                     state,
                     dialog,
                     dialog::Action::Close,
                     return_value,
                     None,
-                )?));
+                )?)));
             }
             return Ok(Prepared::None);
         }
@@ -899,7 +929,7 @@ impl Queue {
             _document: document_lease,
         };
 
-        Ok(Prepared::Navigation(PreparedNavigation {
+        Ok(Prepared::Navigation(Box::new(PreparedNavigation {
             owner: state.clone(),
             document: selection_document,
             url: selection_url,
@@ -908,7 +938,7 @@ impl Queue {
             enctype,
             selected: false,
             body_ready: false,
-        }))
+        })))
     }
     fn prepare_body(
         scope: &mut v8::PinScope,
@@ -1008,14 +1038,14 @@ impl Queue {
         match self.prepared.as_mut().unwrap() {
             Prepared::None => {
                 self.done = true;
-                return Ok(true);
+                Ok(true)
             }
             Prepared::Dialog(job) => {
                 if !job.poll(scope)? {
                     return Ok(false);
                 }
                 self.done = true;
-                return Ok(true);
+                Ok(true)
             }
             Prepared::Navigation(prepared) => {
                 if !prepared.selected {
@@ -1318,7 +1348,7 @@ pub(super) fn queue_click(
     state
         .pending_default_actions
         .borrow_mut()
-        .push_back(PendingDefaultAction::Click(target));
+        .push_back(PendingDefaultAction::Click(Box::new(target)));
     Ok(())
 }
 pub(super) fn queue_click_with_involvement(
@@ -1328,10 +1358,10 @@ pub(super) fn queue_click_with_involvement(
     user_initiated: bool,
     suffix: Option<&str>,
 ) -> Result<(), V8BindingError> {
-    if let Some(mut job) = LinkActivation::new(scope, state, node, user_initiated, suffix, None)? {
-        if !job.poll(scope)? {
-            return Err(V8BindingError::JavaScriptException);
-        }
+    if let Some(mut job) = LinkActivation::new(scope, state, node, user_initiated, suffix, None)?
+        && !job.poll(scope)?
+    {
+        return Err(V8BindingError::JavaScriptException);
     }
     Ok(())
 }
@@ -1383,12 +1413,14 @@ pub(super) fn request_submit_with_involvement(
         queue_from_origin(
             scope,
             state,
-            document,
-            &owner,
-            form,
-            submitter,
-            source,
-            user_initiated,
+            SubmissionOriginInputs {
+                origin_document: document,
+                state: &owner,
+                form,
+                submitter_owner: submitter,
+                source,
+                user_initiated,
+            },
         )?;
     }
     Ok(())
@@ -1480,12 +1512,14 @@ impl Request {
             self.queue = Queue::new(
                 scope,
                 &self.origin,
-                self.document,
-                &owner,
-                form,
-                submitter,
-                self.source,
-                self.user_initiated,
+                SubmissionQueueInputs {
+                    origin_document: self.document,
+                    state: &owner,
+                    form,
+                    submitter_owner: submitter,
+                    source: self.source,
+                    user_initiated: self.user_initiated,
+                },
             )?;
             if self.queue.is_none() {
                 self.done = true;
@@ -1851,12 +1885,14 @@ mod parent_selection_tests {
             let mut queue = Queue::new(
                 scope,
                 &state,
-                state.document_root(),
-                &state,
-                form,
-                None,
-                SubmissionSource::Submit,
-                false,
+                SubmissionQueueInputs {
+                    origin_document: state.document_root(),
+                    state: &state,
+                    form,
+                    submitter_owner: None,
+                    source: SubmissionSource::Submit,
+                    user_initiated: false,
+                },
             )
             .unwrap()
             .unwrap();
@@ -1931,12 +1967,14 @@ mod parent_selection_tests {
         let mut queue = Queue::new(
             scope,
             &state,
-            state.document_root(),
-            &state,
-            form,
-            None,
-            SubmissionSource::Submit,
-            false,
+            SubmissionQueueInputs {
+                origin_document: state.document_root(),
+                state: &state,
+                form,
+                submitter_owner: None,
+                source: SubmissionSource::Submit,
+                user_initiated: false,
+            },
         )
         .unwrap()
         .unwrap();
@@ -2025,9 +2063,11 @@ mod parent_selection_tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let dom = Rc::new(RefCell::new(
-            oryn_dom::html::parse("<a id=link href=/link target=receipt rel=noreferrer>go</a>")
-                .into_runtime()
-                .unwrap(),
+            oryn_dom::html::parse(
+                "<a id=link href=/link target=receipt referrerpolicy=no-referrer>go</a>",
+            )
+            .into_runtime()
+            .unwrap(),
         ));
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state

@@ -49,8 +49,8 @@ impl Completion {
         {
             return Err(V8BindingError::Message("stale native file chooser".into()));
         }
-        if let Some(files) = files {
-            if files.is_empty()
+        if let Some(files) = files
+            && (files.is_empty()
                 || files.len() > 128
                 || (!expected.multiple && files.len() != 1)
                 || files
@@ -59,12 +59,11 @@ impl Completion {
                     .is_none_or(|bytes| bytes > 64 * 1024 * 1024)
                 || files
                     .iter()
-                    .any(|file| file.name.is_empty() || file.name.contains(['/', '\\', '\0']))
-            {
-                return Err(V8BindingError::Message(
-                    "native file chooser payload rejected".into(),
-                ));
-            }
+                    .any(|file| file.name.is_empty() || file.name.contains(['/', '\\', '\0'])))
+        {
+            return Err(V8BindingError::Message(
+                "native file chooser payload rejected".into(),
+            ));
         }
         let selected = files.map(|files| {
             std::sync::Arc::new(
@@ -178,17 +177,4 @@ impl Drop for Completion {
     fn drop(&mut self) {
         self.cancel()
     }
-}
-pub(super) fn complete(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    node: NodeId,
-    expected: &oryn_dom::FilePicker,
-    files: Option<&[crate::accessibility::PickerFile]>,
-) -> Result<(), V8BindingError> {
-    let mut job = Completion::new(state, node, expected, files)?;
-    if !job.poll(scope)? {
-        return Err(V8BindingError::JavaScriptException);
-    }
-    Ok(())
 }

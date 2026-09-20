@@ -1,6 +1,18 @@
 //! Native profile bridge ownership for transferred MessagePorts. Admission
 //! validates two live principals under ordered context snapshots; the pump
 //! owns entanglement independently of the original sending document.
+
+/// Inputs for authority.
+struct MessageAuthorityInputs<'a> {
+    context: &'a BrowserContext,
+    owner: &'a AgentOwner,
+    pages: &'a BTreeMap<PageId, PageRecord>,
+    origins: &'a BTreeMap<PageId, SecurityOrigin>,
+    agents: &'a AgentRegistry,
+    hub: &'a MessageHub,
+    cached: &'a BTreeMap<oryn_js::message_wire::ParkedDocumentToken, CachedDocumentSecurity>,
+    allow_retained: bool,
+}
 use super::*;
 use crate::agent_registry::{AgentOwner, AgentRegistry};
 use oryn_js::{
@@ -38,16 +50,18 @@ fn stable(partition: &str) -> Result<String, WorkerError> {
         .ok_or_else(|| failure("invalid native partition"))?;
     serde_json::to_string(&parts[1..]).map_err(|error| failure(error.to_string()))
 }
-fn authority(
-    context: &BrowserContext,
-    owner: &AgentOwner,
-    pages: &BTreeMap<PageId, PageRecord>,
-    origins: &BTreeMap<PageId, SecurityOrigin>,
-    agents: &AgentRegistry,
-    hub: &MessageHub,
-    cached: &BTreeMap<oryn_js::message_wire::ParkedDocumentToken, CachedDocumentSecurity>,
-    allow_retained: bool,
-) -> Result<(String, String), WorkerError> {
+fn authority(params: MessageAuthorityInputs<'_>) -> Result<(String, String), WorkerError> {
+    let MessageAuthorityInputs {
+        context,
+        owner,
+        pages,
+        origins,
+        agents,
+        hub,
+        cached,
+        allow_retained,
+    } = params;
+
     if context.inner.workers_retired.load(Ordering::Acquire) {
         return Err(failure("cross-context participant retired"));
     }
@@ -196,11 +210,25 @@ impl BrowserContext {
                 .messages
                 .lock()
                 .map_err(|_| failure("message hub poisoned"))?;
-            if authority(
-                self, sender, &pages, &origins, &agents, &hub, &cached, false,
-            )? != authority(
-                self, recipient, &pages, &origins, &agents, &hub, &cached, true,
-            )? {
+            if authority(MessageAuthorityInputs {
+                context: self,
+                owner: sender,
+                pages: &pages,
+                origins: &origins,
+                agents: &agents,
+                hub: &hub,
+                cached: &cached,
+                allow_retained: false,
+            })? != authority(MessageAuthorityInputs {
+                context: self,
+                owner: recipient,
+                pages: &pages,
+                origins: &origins,
+                agents: &agents,
+                hub: &hub,
+                cached: &cached,
+                allow_retained: true,
+            })? {
                 return Err(WorkerError::new(
                     "SecurityError",
                     "service message crosses native storage or origin authority",
@@ -313,26 +341,26 @@ impl BrowserContext {
             .messages
             .lock()
             .map_err(|_| failure("right message hub poisoned"))?;
-        let left = authority(
-            self,
-            left_owner,
-            &left_pages,
-            &left_origins,
-            &left_agents,
-            &left_hub,
-            &left_cached,
-            reverse,
-        )?;
-        let right = authority(
-            target,
-            right_owner,
-            &right_pages,
-            &right_origins,
-            &right_agents,
-            &right_hub,
-            &right_cached,
-            !reverse,
-        )?;
+        let left = authority(MessageAuthorityInputs {
+            context: self,
+            owner: left_owner,
+            pages: &left_pages,
+            origins: &left_origins,
+            agents: &left_agents,
+            hub: &left_hub,
+            cached: &left_cached,
+            allow_retained: reverse,
+        })?;
+        let right = authority(MessageAuthorityInputs {
+            context: target,
+            owner: right_owner,
+            pages: &right_pages,
+            origins: &right_origins,
+            agents: &right_agents,
+            hub: &right_hub,
+            cached: &right_cached,
+            allow_retained: !reverse,
+        })?;
         if left != right {
             return Err(WorkerError::new(
                 "SecurityError",

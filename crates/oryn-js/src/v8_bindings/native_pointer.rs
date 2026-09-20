@@ -1,5 +1,7 @@
 //! Native hit testing and wheel input. No author geometry or event constructor
 //! participates in target selection or trusted event initialization.
+type ScrollbarTarget = (Option<NodeId>, Option<(ScrollbarGesture, f64)>);
+
 use super::*;
 mod boundary_dispatch;
 mod boundary_receipt;
@@ -188,7 +190,7 @@ fn prepare_range_input(
         let max = number("max").unwrap_or(100.).max(min);
         let value = min * (1. - fraction) + max * fraction;
         let before = dom.control_value(node)?;
-        dom.set_value(node, &value.to_string(), false)?;
+        dom.set_value(node, value.to_string(), false)?;
         let changed = before != dom.control_value(node)?;
         if changed {
             let record = dom.arena_mut().get_mut(node)?;
@@ -345,7 +347,7 @@ fn prepare_scrollbar_input(
     input: &NativePointerInput,
     action: NativePointerAction,
     hit: Option<NodeId>,
-) -> Result<(Option<NodeId>, Option<(ScrollbarGesture, f64)>), V8BindingError> {
+) -> Result<ScrollbarTarget, V8BindingError> {
     let mut pending = None;
     let active = state
         .native_pointers
@@ -374,30 +376,31 @@ fn prepare_scrollbar_input(
                 .get_mut(&input.id)
                 .unwrap()
                 .scrollbar = None;
-        } else if action == NativePointerAction::Move && input.buttons & 1 != 0 {
-            if let Some(delta) = active.thumb_delta {
-                let next = scrollbar_surface(
-                    state,
-                    active.node,
-                    active.viewport,
-                    active.picker,
-                    input.x,
-                    input.y,
-                )
-                .and_then(|(bars, x, y)| {
-                    bars.into_iter()
-                        .find(|bar| bar.horizontal == active.horizontal)
-                        .and_then(|bar| {
-                            bar.offset_at_thumb_origin(if active.horizontal {
-                                x - delta
-                            } else {
-                                y - delta
-                            })
+        } else if action == NativePointerAction::Move
+            && input.buttons & 1 != 0
+            && let Some(delta) = active.thumb_delta
+        {
+            let next = scrollbar_surface(
+                state,
+                active.node,
+                active.viewport,
+                active.picker,
+                input.x,
+                input.y,
+            )
+            .and_then(|(bars, x, y)| {
+                bars.into_iter()
+                    .find(|bar| bar.horizontal == active.horizontal)
+                    .and_then(|bar| {
+                        bar.offset_at_thumb_origin(if active.horizontal {
+                            x - delta
+                        } else {
+                            y - delta
                         })
-                });
-                if let Some(next) = next {
-                    pending = Some((active, next));
-                }
+                    })
+            });
+            if let Some(next) = next {
+                pending = Some((active, next));
             }
         }
         return Ok((Some(active.node), pending));
@@ -635,10 +638,11 @@ pub fn poll_native_selection_defaults(
     for (id, gesture, input) in pending {
         let (next, scrolled) =
             native_pointer_selection::autoscroll(scope, state, gesture, input.x, input.y, now)?;
-        if let Some(pointer) = state.native_pointers.borrow_mut().pointers.get_mut(&id) {
-            if pointer.buttons & 1 != 0 && !pointer.drag_consumed {
-                pointer.selection = next;
-            }
+        if let Some(pointer) = state.native_pointers.borrow_mut().pointers.get_mut(&id)
+            && pointer.buttons & 1 != 0
+            && !pointer.drag_consumed
+        {
+            pointer.selection = next;
         }
         changed += usize::from(scrolled);
     }
@@ -840,31 +844,33 @@ pub(super) fn context_menu_from_keyboard(
     let event = create_native_input_event(
         scope,
         state,
-        "PointerEvent",
-        "contextmenu",
-        true,
-        true,
-        true,
-        0,
-        None,
-        &[
-            ("pointerId", NativeInputValue::Number(-1.)),
-            ("pointerType", NativeInputValue::String(&[])),
-            ("isPrimary", NativeInputValue::Bool(false)),
-            ("clientX", NativeInputValue::Number(rect.x)),
-            ("clientY", NativeInputValue::Number(rect.y + rect.height)),
-            ("screenX", NativeInputValue::Number(rect.x)),
-            ("screenY", NativeInputValue::Number(rect.y + rect.height)),
-            ("button", NativeInputValue::Number(0.)),
-            ("buttons", NativeInputValue::Number(0.)),
-            ("width", NativeInputValue::Number(1.)),
-            ("height", NativeInputValue::Number(1.)),
-            ("pressure", NativeInputValue::Number(0.)),
-            ("ctrlKey", NativeInputValue::Bool(control)),
-            ("altKey", NativeInputValue::Bool(alt)),
-            ("shiftKey", NativeInputValue::Bool(shift)),
-            ("metaKey", NativeInputValue::Bool(meta)),
-        ],
+        NativeInputEventInputs {
+            interface: "PointerEvent",
+            event_type: "contextmenu",
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            detail: 0,
+            related: None,
+            fields: &[
+                ("pointerId", NativeInputValue::Number(-1.)),
+                ("pointerType", NativeInputValue::String(&[])),
+                ("isPrimary", NativeInputValue::Bool(false)),
+                ("clientX", NativeInputValue::Number(rect.x)),
+                ("clientY", NativeInputValue::Number(rect.y + rect.height)),
+                ("screenX", NativeInputValue::Number(rect.x)),
+                ("screenY", NativeInputValue::Number(rect.y + rect.height)),
+                ("button", NativeInputValue::Number(0.)),
+                ("buttons", NativeInputValue::Number(0.)),
+                ("width", NativeInputValue::Number(1.)),
+                ("height", NativeInputValue::Number(1.)),
+                ("pressure", NativeInputValue::Number(0.)),
+                ("ctrlKey", NativeInputValue::Bool(control)),
+                ("altKey", NativeInputValue::Bool(alt)),
+                ("shiftKey", NativeInputValue::Bool(shift)),
+                ("metaKey", NativeInputValue::Bool(meta)),
+            ],
+        },
     )?;
     dispatch_event(scope, state, target, event)?;
     if state.execution_retired()
@@ -1231,19 +1237,21 @@ fn prepare_touch_event<'s>(
     let event = create_native_input_event(
         scope,
         state,
-        "TouchEvent",
-        name,
-        true,
-        name != "touchcancel",
-        true,
-        0,
-        None,
-        &[
-            ("altKey", NativeInputValue::Bool(input.alt)),
-            ("ctrlKey", NativeInputValue::Bool(input.control)),
-            ("metaKey", NativeInputValue::Bool(input.meta)),
-            ("shiftKey", NativeInputValue::Bool(input.shift)),
-        ],
+        NativeInputEventInputs {
+            interface: "TouchEvent",
+            event_type: name,
+            bubbles: true,
+            cancelable: name != "touchcancel",
+            composed: true,
+            detail: 0,
+            related: None,
+            fields: &[
+                ("altKey", NativeInputValue::Bool(input.alt)),
+                ("ctrlKey", NativeInputValue::Bool(input.control)),
+                ("metaKey", NativeInputValue::Bool(input.meta)),
+                ("shiftKey", NativeInputValue::Bool(input.shift)),
+            ],
+        },
     )?;
     touch_objects::attach_lists(scope, state, event, &touches, &target_touches, &changed)?;
     Ok(Some((target, event)))
@@ -1458,50 +1466,52 @@ pub(super) fn pointer_event<'s>(
     create_native_input_event(
         scope,
         state,
-        interface,
-        event_type,
-        bubbles,
-        cancelable,
-        composed,
-        detail,
-        related,
-        &[
-            ("pointerId", NativeInputValue::Number(input.id as f64)),
-            ("pointerType", NativeInputValue::String(&pointer_type)),
-            ("isPrimary", NativeInputValue::Bool(input.primary)),
-            ("clientX", NativeInputValue::Number(input.x)),
-            ("clientY", NativeInputValue::Number(input.y)),
-            ("screenX", NativeInputValue::Number(input.screen_x)),
-            ("screenY", NativeInputValue::Number(input.screen_y)),
-            ("movementX", NativeInputValue::Number(input.movement_x)),
-            ("movementY", NativeInputValue::Number(input.movement_y)),
-            ("button", NativeInputValue::Number(button as f64)),
-            ("buttons", NativeInputValue::Number(input.buttons as f64)),
-            ("width", NativeInputValue::Number(input.width)),
-            ("height", NativeInputValue::Number(input.height)),
-            ("pressure", NativeInputValue::Number(input.pressure)),
-            (
-                "tangentialPressure",
-                NativeInputValue::Number(input.tangential_pressure),
-            ),
-            ("tiltX", NativeInputValue::Number(input.tilt_x as f64)),
-            ("tiltY", NativeInputValue::Number(input.tilt_y as f64)),
-            ("twist", NativeInputValue::Number(input.twist as f64)),
-            (
-                "altitudeAngle",
-                NativeInputValue::Number(input.altitude_angle),
-            ),
-            (
-                "azimuthAngle",
-                NativeInputValue::Number(input.azimuth_angle),
-            ),
-            ("ctrlKey", NativeInputValue::Bool(input.control)),
-            ("shiftKey", NativeInputValue::Bool(input.shift)),
-            ("altKey", NativeInputValue::Bool(input.alt)),
-            ("metaKey", NativeInputValue::Bool(input.meta)),
-            ("modifierAltGraph", NativeInputValue::Bool(false)),
-            ("modifierCapsLock", NativeInputValue::Bool(false)),
-        ],
+        NativeInputEventInputs {
+            interface,
+            event_type,
+            bubbles,
+            cancelable,
+            composed,
+            detail,
+            related,
+            fields: &[
+                ("pointerId", NativeInputValue::Number(input.id as f64)),
+                ("pointerType", NativeInputValue::String(&pointer_type)),
+                ("isPrimary", NativeInputValue::Bool(input.primary)),
+                ("clientX", NativeInputValue::Number(input.x)),
+                ("clientY", NativeInputValue::Number(input.y)),
+                ("screenX", NativeInputValue::Number(input.screen_x)),
+                ("screenY", NativeInputValue::Number(input.screen_y)),
+                ("movementX", NativeInputValue::Number(input.movement_x)),
+                ("movementY", NativeInputValue::Number(input.movement_y)),
+                ("button", NativeInputValue::Number(button as f64)),
+                ("buttons", NativeInputValue::Number(input.buttons as f64)),
+                ("width", NativeInputValue::Number(input.width)),
+                ("height", NativeInputValue::Number(input.height)),
+                ("pressure", NativeInputValue::Number(input.pressure)),
+                (
+                    "tangentialPressure",
+                    NativeInputValue::Number(input.tangential_pressure),
+                ),
+                ("tiltX", NativeInputValue::Number(input.tilt_x as f64)),
+                ("tiltY", NativeInputValue::Number(input.tilt_y as f64)),
+                ("twist", NativeInputValue::Number(input.twist as f64)),
+                (
+                    "altitudeAngle",
+                    NativeInputValue::Number(input.altitude_angle),
+                ),
+                (
+                    "azimuthAngle",
+                    NativeInputValue::Number(input.azimuth_angle),
+                ),
+                ("ctrlKey", NativeInputValue::Bool(input.control)),
+                ("shiftKey", NativeInputValue::Bool(input.shift)),
+                ("altKey", NativeInputValue::Bool(input.alt)),
+                ("metaKey", NativeInputValue::Bool(input.meta)),
+                ("modifierAltGraph", NativeInputValue::Bool(false)),
+                ("modifierCapsLock", NativeInputValue::Bool(false)),
+            ],
+        },
     )
 }
 
@@ -1888,10 +1898,11 @@ pub(super) fn hit_test(
             }
         }
     }
-    if let Some(root) = root_element {
-        if !dom.is_inert(root)? && unique.insert(root) {
-            hits.push(root);
-        }
+    if let Some(root) = root_element
+        && !dom.is_inert(root)?
+        && unique.insert(root)
+    {
+        hits.push(root);
     }
     Ok(hits)
 }
@@ -2072,33 +2083,35 @@ pub fn dispatch_native_wheel_with_remainder(
     let event = create_native_input_event(
         scope,
         state,
-        "WheelEvent",
-        "wheel",
-        true,
-        true,
-        true,
-        0,
-        None,
-        &[
-            ("clientX", NativeInputValue::Number(input.x)),
-            ("clientY", NativeInputValue::Number(input.y)),
-            ("screenX", NativeInputValue::Number(input.x)),
-            ("screenY", NativeInputValue::Number(input.y)),
-            ("movementX", NativeInputValue::Number(0.)),
-            ("movementY", NativeInputValue::Number(0.)),
-            ("button", NativeInputValue::Number(0.)),
-            ("buttons", NativeInputValue::Number(0.)),
-            ("deltaX", NativeInputValue::Number(input.delta_x)),
-            ("deltaY", NativeInputValue::Number(input.delta_y)),
-            ("deltaZ", NativeInputValue::Number(0.)),
-            ("deltaMode", NativeInputValue::Number(0.)),
-            ("ctrlKey", NativeInputValue::Bool(input.control)),
-            ("shiftKey", NativeInputValue::Bool(input.shift)),
-            ("altKey", NativeInputValue::Bool(input.alt)),
-            ("metaKey", NativeInputValue::Bool(input.meta)),
-            ("modifierAltGraph", NativeInputValue::Bool(false)),
-            ("modifierCapsLock", NativeInputValue::Bool(false)),
-        ],
+        NativeInputEventInputs {
+            interface: "WheelEvent",
+            event_type: "wheel",
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            detail: 0,
+            related: None,
+            fields: &[
+                ("clientX", NativeInputValue::Number(input.x)),
+                ("clientY", NativeInputValue::Number(input.y)),
+                ("screenX", NativeInputValue::Number(input.x)),
+                ("screenY", NativeInputValue::Number(input.y)),
+                ("movementX", NativeInputValue::Number(0.)),
+                ("movementY", NativeInputValue::Number(0.)),
+                ("button", NativeInputValue::Number(0.)),
+                ("buttons", NativeInputValue::Number(0.)),
+                ("deltaX", NativeInputValue::Number(input.delta_x)),
+                ("deltaY", NativeInputValue::Number(input.delta_y)),
+                ("deltaZ", NativeInputValue::Number(0.)),
+                ("deltaMode", NativeInputValue::Number(0.)),
+                ("ctrlKey", NativeInputValue::Bool(input.control)),
+                ("shiftKey", NativeInputValue::Bool(input.shift)),
+                ("altKey", NativeInputValue::Bool(input.alt)),
+                ("metaKey", NativeInputValue::Bool(input.meta)),
+                ("modifierAltGraph", NativeInputValue::Bool(false)),
+                ("modifierCapsLock", NativeInputValue::Bool(false)),
+            ],
+        },
     )?;
     let allowed = dispatch_event(scope, state, target, event)?;
     if !live() {

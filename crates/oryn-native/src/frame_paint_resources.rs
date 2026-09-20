@@ -1,5 +1,7 @@
 //! Native frame paint resources use the exact selected realm. Existing decoded
 //! surfaces are reused; missing bytes require the parent-owned frame principal.
+type PaintResourceOwners = RefCell<Vec<(Rc<oryn_js::v8_bindings::V8BindingState>, u64, u64, u64)>>;
+
 use super::*;
 #[derive(Clone)]
 pub(crate) struct NativePaintCancellation {
@@ -30,7 +32,7 @@ impl NativePaintCancellation {
 /// currently selected root or another capture's temporary resource inventory.
 pub(crate) struct NativeCssCapture {
     id: u64,
-    owners: RefCell<Vec<(Rc<oryn_js::v8_bindings::V8BindingState>, u64, u64, u64)>>,
+    owners: PaintResourceOwners,
 }
 impl NativeCssCapture {
     pub(crate) fn new() -> Result<Rc<Self>, HostError> {
@@ -97,10 +99,10 @@ impl NativeCssCapture {
             {
                 continue;
             }
-            if let Err(error) = state.release_capture_css_images(self.id) {
-                if failure.is_none() {
-                    failure = Some(HostError::Execution(error.to_string()));
-                }
+            if let Err(error) = state.release_capture_css_images(self.id)
+                && failure.is_none()
+            {
+                failure = Some(HostError::Execution(error.to_string()));
             }
         }
         failure.map_or(Ok(()), Err)
@@ -249,11 +251,11 @@ impl RustExecutableDocument {
             .capture_paint_images(scope.realm, scope.document_generation, scope.stream_epoch)
             .map_err(|error| HostError::Execution(error.to_string()))
     }
-    pub(crate) fn load_selected_paint_image(
+    pub(crate) fn prepare_selected_paint_image(
         &mut self,
         url: &str,
         limit: usize,
-    ) -> Result<oryn_common::v4::PaintImageResource, HostError> {
+    ) -> Result<SelectedPaintImageLoad, HostError> {
         self.check_native_paint_cancellation()?;
         let scope = self.automation_scope.clone().ok_or_else(|| {
             HostError::Execution("frame resource load requires selected realm".into())
@@ -268,9 +270,6 @@ impl RustExecutableDocument {
         }
         #[cfg(unix)]
         {
-            use crate::context_service::{
-                ContextServiceRequest as Q, ContextServiceResponse as R, HttpStreamRequest,
-            };
             let (client, page_id, _) = self.context.as_ref().ok_or_else(|| {
                 HostError::Execution("frame resource authority bridge unavailable".into())
             })?;
@@ -289,120 +288,29 @@ impl RustExecutableDocument {
                     "frame image request exceeds bounds".into(),
                 ));
             }
-            let response = client
-                .request(Q::ImageStreamStart {
-                    page_id,
-                    cors_enabled: false,
-                    request: HttpStreamRequest {
-                        upgrade_mixed_image: false,
-                        fetch: None,
-                        client: Some(creator.clone()),
-                        use_cors_preflight: false,
-                        request_id,
-                        method: "GET".into(),
-                        url: url.into(),
-                        headers: Vec::new(),
-                        body_base64: String::new(),
-                        credentials: true,
-                        credentials_mode: Some("include".into()),
-                        initiator_url: None,
-                        referrer_policy: None,
-                    },
-                })
-                .map_err(|error| HostError::Execution(error.to_string()))?;
-            let R::HttpStreamStarted {
-                stream_id,
-                url: final_url,
-                status,
-                headers,
-                total_bytes,
-                ..
-            } = response
-            else {
-                return Err(HostError::Execution(
-                    "invalid frame image stream response".into(),
-                ));
-            };
-            let result = (|| {
-                self.check_native_paint_cancellation()?;
-                if !(200..300).contains(&status)
-                    || total_bytes.is_some_and(|bytes| bytes > limit)
-                    || final_url.len() > 64 * 1024
-                {
-                    return Err(HostError::Execution(
-                        "frame image response rejected by size/status bounds".into(),
-                    ));
-                }
-                let media_type = oryn_common::mime_type::MimeType::from_headers(&headers)
-                    .map(|mime| mime.essence().to_owned())
-                    .unwrap_or_else(|| "application/octet-stream".into());
-                let mut bytes = Vec::new();
-                for _ in 0..1024 {
-                    self.check_native_paint_cancellation()?;
-                    self.validate_automation_scope(&scope)?;
-                    let chunk = client
-                        .request(Q::HttpStreamRead {
-                            page_id,
-                            creator: Some(creator.clone()),
-                            stream_id,
-                            max_bytes: 64 * 1024,
-                        })
-                        .map_err(|error| HostError::Execution(error.to_string()))?;
-                    let R::HttpStreamChunk {
-                        stream_id: actual,
-                        body_base64,
-                        done,
-                        encoded_body_size: _,
-                    } = chunk
-                    else {
-                        return Err(HostError::Execution("invalid frame image chunk".into()));
-                    };
-                    if actual != stream_id || body_base64.len() > 96 * 1024 {
-                        return Err(HostError::Execution(
-                            "frame image chunk identity/size mismatch".into(),
-                        ));
-                    }
-                    let chunk = base64::Engine::decode(
-                        &base64::engine::general_purpose::STANDARD,
-                        body_base64,
-                    )
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                    if bytes.len().saturating_add(chunk.len()) > limit {
-                        return Err(HostError::Execution(
-                            "frame image body exceeds bounds".into(),
-                        ));
-                    }
-                    bytes.extend(chunk);
-                    if done {
-                        self.check_native_paint_cancellation()?;
-                        self.validate_automation_scope(&scope)?;
-                        return Ok(oryn_common::v4::PaintImageResource {
-                            svg_document_snapshot: false,
-                            content_type: oryn_common::xml_encoding::response_content_type(
-                                &headers,
-                            ),
-                            url_aliases: if final_url != url {
-                                vec![url.into()]
-                            } else {
-                                Vec::new()
-                            },
-                            url: final_url,
-                            media_type,
-                            bytes,
-                        });
-                    }
-                }
-                Err(HostError::Execution(
-                    "frame image chunk count exceeds bounds".into(),
-                ))
-            })();
-            let _ = client.request(Q::HttpStreamAbort {
+            Ok(SelectedPaintImageLoad::new(
+                client,
                 page_id,
-                creator: Some(creator),
-                stream_id,
-            });
-            result
+                creator,
+                request_id,
+                url.into(),
+                limit,
+            ))
         }
+    }
+    pub(crate) fn load_selected_paint_image(
+        &mut self,
+        url: &str,
+        limit: usize,
+    ) -> Result<oryn_common::v4::PaintImageResource, HostError> {
+        let scope = self.automation_scope.clone().ok_or_else(|| {
+            HostError::Execution("frame resource load requires selected realm".into())
+        })?;
+        let request = self.prepare_selected_paint_image(url, limit)?;
+        request.run_checked(|| {
+            self.check_native_paint_cancellation()?;
+            self.validate_automation_scope(&scope)
+        })
     }
 }
 

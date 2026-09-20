@@ -39,7 +39,8 @@ impl BrowserContext {
             .script_close_runner
             .start(Arc::downgrade(&self.inner))
     }
-    pub(crate) fn start_admitted_script_close(
+    #[cfg(all(test, feature = "in-process-probe"))]
+    pub(super) fn start_admitted_script_close(
         &self,
         admission: Admission,
     ) -> Result<(), RuntimeError> {
@@ -48,7 +49,7 @@ impl BrowserContext {
             .script_close_admissions
             .lock()
             .map_err(|_| RuntimeError::ContextService("close admission registry poisoned".into()))?
-            .get(admission.target, admission.token)
+            .phase_for(&admission)
             .is_some();
         if !valid {
             return Err(RuntimeError::ProtocolViolation(
@@ -105,8 +106,7 @@ fn current(context: &BrowserContext, admission: &Admission) -> Option<Phase> {
         .script_close_admissions
         .lock()
         .ok()?
-        .get(admission.target, admission.token)
-        .map(|entry| entry.phase.clone())
+        .phase_for(admission)
 }
 fn target(
     context: &BrowserContext,
@@ -161,8 +161,9 @@ async fn run(weak: Weak<BrowserContextInner>, admission: Admission) {
             return;
         } else {
             match phase {
-                Phase::Querying => match page.script_close_history().await {
-                    Ok(proof) => {
+                Phase::Querying => {
+                    // On query failure, retain custody; the next turn checks retirement.
+                    if let Ok(proof) = page.script_close_history().await {
                         if !context
                             .script_close_eligible(admission.target, Some(proof.single_entry))
                         {
@@ -181,17 +182,15 @@ async fn run(weak: Weak<BrowserContextInner>, admission: Admission) {
                             }
                             _ => {}
                         }
-                        if let Ok(mut registry) = context.inner.script_close_admissions.lock() {
-                            if registry
+                        if let Ok(mut registry) = context.inner.script_close_admissions.lock()
+                            && registry
                                 .preparing(admission.target, admission.token, proof.creator)
                                 .is_err()
-                            {
-                                return;
-                            }
+                        {
+                            return;
                         }
                     }
-                    Err(_) => {} // Retain query custody; next turn checks retirement.
-                },
+                }
                 Phase::Preparing(expected) => match page
                     .prepare_script_close(admission.token, expected.clone())
                     .await
@@ -200,13 +199,12 @@ async fn run(weak: Weak<BrowserContextInner>, admission: Admission) {
                         // Actor selected the active Document when the admitted task ran.
                         // The token binds this reply to the traversable even after navigation.
                         let _departed_creator = proof.creator;
-                        if let Ok(mut registry) = context.inner.script_close_admissions.lock() {
-                            if registry
+                        if let Ok(mut registry) = context.inner.script_close_admissions.lock()
+                            && registry
                                 .closing(admission.target, admission.token, &expected)
                                 .is_err()
-                            {
-                                return;
-                            }
+                        {
+                            return;
                         }
                     }
                     Ok(crate::context_service::ScriptClosePreparation::Canceled) => {
@@ -320,6 +318,18 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn runner_retries_same_token_and_closes_after_source_retirement() {
         let (context, target, admission, actor, count) = fixture(false).await;
+        // fixture retired the original source after admission. Validate the
+        // retained ledger tuple, never resurrect/revalidate that source.
+        let mut forged = admission.clone();
+        forged.source = target.page_id();
+        assert!(context.start_admitted_script_close(forged).is_err());
+        let mut forged = admission.clone();
+        forged.creator = oryn_js::worker_wire::Creator::Window {
+            target: oryn_js::message_wire::WindowTarget::Root,
+            document_generation: u64::MAX,
+            stream_epoch: 0,
+        };
+        assert!(context.start_admitted_script_close(forged).is_err());
         context
             .start_admitted_script_close(admission.clone())
             .unwrap();

@@ -146,14 +146,16 @@ impl NativeComposition {
             let event = create_native_input_event(
                 scope,
                 &self.owner,
-                "CompositionEvent",
-                name,
-                true,
-                false,
-                true,
-                0,
-                None,
-                &[("data", NativeInputValue::String(data))],
+                NativeInputEventInputs {
+                    interface: "CompositionEvent",
+                    event_type: name,
+                    bubbles: true,
+                    cancelable: false,
+                    composed: true,
+                    detail: 0,
+                    related: None,
+                    fields: &[("data", NativeInputValue::String(data))],
+                },
             )?;
             self.event = Some(retained_dom_event::Event::new(
                 scope,
@@ -209,17 +211,16 @@ impl NativeComposition {
                         self.cancel();
                         return Err(error());
                     }
-                    if let Some(session) = &self.session {
-                        if session.target != self.target
+                    if let Some(session) = &self.session
+                        && (session.target != self.target
                             || session.identity != self.identity
                             || session.expected != current(&state, self.target)?.0
-                            || !composition_mutations_unchanged(&state, session.cursor)
-                        {
-                            let notify =
-                                session.target == self.target && session.identity == self.identity;
-                            self.interrupt(notify);
-                            continue;
-                        }
+                            || !composition_mutations_unchanged(&state, session.cursor))
+                    {
+                        let notify =
+                            session.target == self.target && session.identity == self.identity;
+                        self.interrupt(notify);
+                        continue;
                     }
                     match &self.operation {
                         Operation::Read | Operation::Finish { keep_marked: true } => {
@@ -312,14 +313,16 @@ impl NativeComposition {
                         let event = create_native_input_event(
                             scope,
                             &state,
-                            "CompositionEvent",
-                            "compositionstart",
-                            true,
-                            false,
-                            true,
-                            0,
-                            None,
-                            &[("data", NativeInputValue::String(&[]))],
+                            NativeInputEventInputs {
+                                interface: "CompositionEvent",
+                                event_type: "compositionstart",
+                                bubbles: true,
+                                cancelable: false,
+                                composed: true,
+                                detail: 0,
+                                related: None,
+                                fields: &[("data", NativeInputValue::String(&[]))],
+                            },
                         )?;
                         self.event = Some(retained_dom_event::Event::new(
                             scope,
@@ -383,16 +386,18 @@ impl NativeComposition {
                         self.input = Some(clipboard_actions::ClipboardNotification::composition(
                             scope,
                             &state,
-                            self.target,
-                            "beforeinput",
-                            if self.session.is_some() {
-                                "insertCompositionText"
-                            } else {
-                                "insertText"
+                            clipboard_actions::CompositionNotificationInputs {
+                                target: self.target,
+                                name: "beforeinput",
+                                input_type: if self.session.is_some() {
+                                    "insertCompositionText"
+                                } else {
+                                    "insertText"
+                                },
+                                text: &self.value,
+                                composing: self.session.is_some(),
+                                cancelable: self.session.is_none(),
                             },
-                            &self.value,
-                            self.session.is_some(),
-                            self.session.is_none(),
                         )?);
                     }
                     let Some(accepted) = self.input.as_mut().unwrap().poll(scope, &state)? else {
@@ -557,16 +562,18 @@ impl NativeComposition {
                         self.input = Some(clipboard_actions::ClipboardNotification::composition(
                             scope,
                             &state,
-                            self.target,
-                            "input",
-                            if self.session.is_some() {
-                                "insertCompositionText"
-                            } else {
-                                "insertText"
+                            clipboard_actions::CompositionNotificationInputs {
+                                target: self.target,
+                                name: "input",
+                                input_type: if self.session.is_some() {
+                                    "insertCompositionText"
+                                } else {
+                                    "insertText"
+                                },
+                                text: &self.value,
+                                composing: self.session.is_some(),
+                                cancelable: false,
                             },
-                            &self.value,
-                            self.session.is_some(),
-                            false,
                         )?);
                     }
                     if self.input.as_mut().unwrap().poll(scope, &state)?.is_none() {
@@ -585,12 +592,12 @@ impl NativeComposition {
                         self.interrupt(self.session.is_some());
                         continue;
                     }
-                    if !self.marked {
-                        if let Some(session) = self.session.take() {
-                            self.finish = Some(finish::Finish::new(&state, session, false));
-                            self.phase = Phase::Finish;
-                            continue;
-                        }
+                    if !self.marked
+                        && let Some(session) = self.session.take()
+                    {
+                        self.finish = Some(finish::Finish::new(&state, session, false));
+                        self.phase = Phase::Finish;
+                        continue;
                     }
                     self.phase = Phase::Snapshot;
                 }
@@ -656,10 +663,9 @@ impl NativeComposition {
                 Phase::Interrupted => {
                     if self.notify_interrupted
                         && (self.event.is_some() || live(&state, self.target, self.identity))
+                        && !self.event(scope, "compositionend", &[])?
                     {
-                        if !self.event(scope, "compositionend", &[])? {
-                            return Ok(None);
-                        }
+                        return Ok(None);
                     }
                     self.notify_interrupted = false;
                     let mut result = if live(&state, self.target, self.identity) {

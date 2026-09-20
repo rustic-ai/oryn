@@ -95,10 +95,10 @@ impl InvalidControls {
             }
             self.report_prepared = true;
         }
-        if let Some((owner, focus)) = &mut self.focus {
-            if !focus.poll(scope, owner)? {
-                return Ok(None);
-            }
+        if let Some((owner, focus)) = &mut self.focus
+            && !focus.poll(scope, owner)?
+        {
+            return Ok(None);
         }
         Ok(Some(self.controls.is_empty()))
     }

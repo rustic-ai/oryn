@@ -139,7 +139,7 @@ fn list<'s>(
         .instance_templates
         .borrow()
         .get("DOMStringList")
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::Allocation("DOMStringList template"))?;
     let object = v8::Local::new(scope, &template)
         .new_instance(scope)
@@ -160,7 +160,7 @@ pub(super) fn snapshot<'s>(
         .instance_templates
         .borrow()
         .get("DOMStringList")
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::Allocation("DOMStringList template"))?;
     let object = v8::Local::new(scope, &template)
         .new_instance(scope)

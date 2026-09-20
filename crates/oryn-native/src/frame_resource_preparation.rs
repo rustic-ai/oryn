@@ -1,5 +1,24 @@
 //! Native frame navigation fetch custody. Only the owning page task commits a
 //! response; worker completion never enters V8 or publishes a child document.
+
+/// Inputs retained together for schedule standalone frame resource.
+pub(super) struct StandaloneFrameResourceInput {
+    pub(super) parent: RealmId,
+    pub(super) frame: NodeId,
+    pub(super) url: String,
+    pub(super) referrer: Option<String>,
+    pub(super) post: Option<oryn_js::navigation::PostResource>,
+    pub(super) navigation: oryn_js::platform::NavigationRequestFlags,
+    pub(super) request_state: Option<oryn_common::navigation_request::NavigationRequestState>,
+    pub(super) document_navigation: bool,
+}
+type FramePreparationAuthority = Option<(
+    (NodeId, u64, u64, bool),
+    Option<u64>,
+    Vec<Option<String>>,
+    std::sync::Arc<()>,
+)>;
+
 use super::*;
 #[cfg(unix)]
 use crate::context_service::{ContextServiceRequest, ContextServiceResponse as ParentResponse};
@@ -22,12 +41,7 @@ pub(super) struct FrameResourceCompletion<C = FrameNavigationContext> {
     pub(super) navigation_context: Option<C>,
     pub(super) response: Result<FrameResourceResponse, String>,
     _bytes: Option<ScriptSourceReservation>,
-    authority: Option<(
-        (NodeId, u64, u64, bool),
-        Option<u64>,
-        Vec<Option<String>>,
-        std::sync::Arc<()>,
-    )>,
+    authority: FramePreparationAuthority,
 }
 impl<C> std::fmt::Debug for FrameResourceCompletion<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -320,22 +334,21 @@ impl RustExecutableDocument {
                     stream_id,
                     ..
                 }) = &response.response
-                {
-                    if let Err(error) = crate::network::install_frame_navigation_timing(
+                    && let Err(error) = crate::network::install_frame_navigation_timing(
                         &pending.timing,
                         url,
                         response_headers,
-                        timing.as_ref(),
+                        timing.as_deref(),
                         referrer_policy,
                         stream_id.is_none(),
-                    ) {
-                        response.response = Err(bounded_frame_error(error));
-                        response.standalone_policy = None;
-                        response.broker = None;
-                        #[cfg(unix)]
-                        if let Some(body) = response.body.take() {
-                            body.lease.cancel();
-                        }
+                    )
+                {
+                    response.response = Err(bounded_frame_error(error));
+                    response.standalone_policy = None;
+                    response.broker = None;
+                    #[cfg(unix)]
+                    if let Some(body) = response.body.take() {
+                        body.lease.cancel();
                     }
                 }
                 response.timing = Some(pending.timing.clone());
@@ -359,15 +372,19 @@ impl RustExecutableDocument {
     }
     pub(super) fn schedule_standalone_frame_resource(
         &mut self,
-        parent: RealmId,
-        frame: NodeId,
-        url: String,
-        referrer: Option<String>,
-        post: Option<oryn_js::navigation::PostResource>,
-        navigation: oryn_js::platform::NavigationRequestFlags,
-        request_state: Option<oryn_common::navigation_request::NavigationRequestState>,
-        document_navigation: bool,
+        params: StandaloneFrameResourceInput,
     ) -> Result<(), HostError> {
+        let StandaloneFrameResourceInput {
+            parent,
+            frame,
+            url,
+            referrer,
+            post,
+            navigation,
+            request_state,
+            document_navigation,
+        } = params;
+
         if self.frame_resource_preparations.len() >= 1024 {
             return Err(HostError::LimitExceeded {
                 resource: "frame resource preparation documents".into(),
@@ -570,12 +587,10 @@ impl RustExecutableDocument {
                 .ok_or_else(|| HostError::LimitExceeded {
                     resource: "queued frame request bytes".into(),
                 })?;
-        if parent_driven {
-            if let ContextServiceRequest::LoadPageResource { url, .. } = &request {
-                self.agent
-                    .host
-                    .reserve_frame_deferred_quota(parent, frame, url)?;
-            }
+        if parent_driven && let ContextServiceRequest::LoadPageResource { url, .. } = &request {
+            self.agent
+                .host
+                .reserve_frame_deferred_quota(parent, frame, url)?;
         }
         let budget = self.dynamic_scripts.source_bytes.clone();
         let ownership = client
@@ -623,10 +638,10 @@ impl RustExecutableDocument {
             }
             let mut response = response.and_then(FrameResourceResponse::try_from);
             let reservation = reserve_frame_response(&budget, &mut response, &mut None);
-            if response.is_err() {
-                if let Some(body) = body.take() {
-                    body.lease.cancel();
-                }
+            if response.is_err()
+                && let Some(body) = body.take()
+            {
+                body.lease.cancel();
             }
             let _ = sender.send(FrameResourceCompletion {
                 _metadata: Vec::new(),
@@ -679,12 +694,278 @@ impl RustExecutableDocument {
     }
 }
 
+fn frame_response_bytes(response: &Result<FrameResourceResponse, String>) -> Result<usize, String> {
+    match response {
+        Ok(response) => response.retained_bytes(),
+        Err(error) => std::mem::size_of::<String>()
+            .checked_add(error.capacity())
+            .ok_or_else(|| "frame response retained byte accounting overflow".to_owned()),
+    }
+}
+
+fn reserve_frame_owner_metadata(
+    budget: &std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    attributes: &Vec<Option<String>>,
+    ancestors: &oryn_js::v8_bindings::LocationAncestorCapture,
+) -> Result<std::sync::Arc<ScriptSourceReservation>, HostError> {
+    let mut bytes = crate::retained_size::Size(
+        std::mem::size_of::<FrameResourcePreparation>()
+            + std::mem::size_of::<FrameResourceCompletion>()
+            + 1024,
+    );
+    bytes.vector(attributes).map_err(HostError::Execution)?;
+    for value in attributes {
+        bytes.optional(value).map_err(HostError::Execution)?;
+    }
+    bytes
+        .add(
+            ancestors
+                .retained_bytes()
+                .ok_or_else(|| HostError::Execution("frame ancestor bytes overflow".into()))?,
+        )
+        .map_err(HostError::Execution)?;
+    ScriptSourceReservation::reserve(budget, bytes.0)
+        .map(std::sync::Arc::new)
+        .ok_or_else(|| HostError::LimitExceeded {
+            resource: "frame owner metadata bytes".into(),
+        })
+}
+fn frame_context_bytes(context: &FrameNavigationContext) -> Result<usize, String> {
+    let mut bytes = crate::retained_size::Size(std::mem::size_of::<FrameNavigationContext>());
+    for value in [
+        &context.download,
+        &context.initiator_url,
+        &context.referrer_policy,
+    ] {
+        bytes.optional(value)?;
+    }
+    if let Some(post) = &context.post {
+        bytes.vector(&post.bytes)?;
+        bytes.string(&post.content_type)?;
+    }
+    if let Some(authority) = &context.form_authority {
+        bytes.vector(&authority.0)?;
+    }
+    if let Some(admission) = &context.script_authority {
+        bytes.vector(&admission.authority.0)?;
+        if let oryn_js::worker_wire::Creator::Window {
+            target: oryn_js::message_wire::WindowTarget::Frame(frame),
+            ..
+        } = &admission.target
+        {
+            bytes.string(frame)?;
+        }
+    }
+    fn entry(
+        bytes: &mut crate::retained_size::Size,
+        entry: &oryn_js::navigation_api::NavigationHistorySnapshot,
+    ) -> Result<(), String> {
+        for value in [&entry.key, &entry.id, &entry.url, &entry.document_id] {
+            bytes.string(value)?;
+        }
+        for state in [&entry.state, &entry.history_state].into_iter().flatten() {
+            bytes.add(state.retained_bytes())?;
+        }
+        Ok(())
+    }
+    if let Some(destination) = &context.destination {
+        entry(&mut bytes, destination)?;
+    }
+    if let Some(history) = &context.history {
+        bytes.vector(&history.entries)?;
+        bytes.string(&history.navigation_type)?;
+        for value in &history.entries {
+            entry(&mut bytes, value)?;
+        }
+    }
+    // SessionHistory and ArchivedSource share backing storage with their own
+    // independent reservations. Their backing storage is not cloned here.
+    Ok(bytes.0)
+}
+
+fn bounded_frame_error(error: String) -> String {
+    if error.len() <= 512 {
+        return error.into_boxed_str().into_string();
+    }
+    let mut end = 512;
+    while !error.is_char_boundary(end) {
+        end -= 1;
+    }
+    error[..end].to_owned()
+}
+fn reserve_frame_response(
+    budget: &std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    response: &mut Result<FrameResourceResponse, String>,
+    policy: &mut Option<crate::standalone_document_policy::FramePolicy>,
+) -> Option<ScriptSourceReservation> {
+    let bytes = frame_response_bytes(response).and_then(|bytes| {
+        let policy = policy
+            .as_ref()
+            .map(|value| value.retained_bytes())
+            .transpose()?
+            .unwrap_or(0);
+        bytes
+            .checked_add(policy)
+            .ok_or_else(|| "frame response and policy bytes overflow".into())
+    });
+    if let Ok(bytes) = bytes
+        && let Some(reservation) = ScriptSourceReservation::reserve(budget, bytes)
+    {
+        return Some(reservation);
+    }
+    // The preparation's admitted owner metadata reserves terminal-error room.
+    // Release every rejected response/policy allocation before queueing failure.
+    *response = Err("queued frame response and policy bytes exceeded".into());
+    *policy = None;
+    None
+}
+
+#[cfg(unix)]
+fn frame_request_bytes(request: &ContextServiceRequest) -> Result<usize, String> {
+    let ContextServiceRequest::LoadPageResource {
+        download,
+        script_authority,
+        page_id: _,
+        initiator,
+        form_authority,
+        url,
+        destination,
+        parent_encoding,
+        initiator_url,
+        referrer_policy,
+        post,
+    } = request
+    else {
+        return Err("frame request has unexpected native operation".into());
+    };
+    let mut size = crate::retained_size::Size(std::mem::size_of::<ContextServiceRequest>());
+    size.add(std::mem::size_of::<crate::context_service::ResourceInitiator>())?;
+    for value in [url, destination] {
+        size.string(value)?;
+    }
+    for value in [
+        download,
+        parent_encoding,
+        initiator_url,
+        referrer_policy,
+        &initiator.embedded_type,
+        &initiator.prepared_policy,
+    ] {
+        size.optional(value)?;
+    }
+    fn creator(
+        size: &mut crate::retained_size::Size,
+        creator: &oryn_js::worker_wire::Creator,
+    ) -> Result<(), String> {
+        if let oryn_js::worker_wire::Creator::Window {
+            target: oryn_js::message_wire::WindowTarget::Frame(frame),
+            ..
+        } = creator
+        {
+            size.string(frame)?;
+        }
+        Ok(())
+    }
+    creator(&mut size, &initiator.creator)?;
+    if let Some(script) = script_authority {
+        size.vector(&script.authority.0)?;
+        creator(&mut size, &script.target)?;
+    }
+    if let Some(form) = form_authority {
+        size.vector(&form.0)?;
+    }
+    if let Some(post) = post {
+        size.vector(&post.bytes)?;
+        size.string(&post.content_type)?;
+    }
+    if let Some(state) = &initiator.request_state {
+        state.retained_bytes().map_err(str::to_owned)?;
+        size.optional(&state.initiator_url)?;
+        size.optional(&state.referrer)?;
+        size.string(&state.referrer_policy)?;
+    }
+    if let Some(style) = &initiator.stylesheet {
+        for value in [
+            &style.policy,
+            &style.nonce,
+            &style.integrity,
+            &style.cross_origin,
+        ] {
+            size.optional(value)?;
+        }
+    }
+    Ok(size.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn queued_download_keeps_source_url_and_provenance_before_dispatch() {
+    fn queued_document_navigation_keeps_incumbent_url_and_authority() {
         let mut page = RustExecutableDocument::load_with_environment(
+            "<body>source</body>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://source.test/document").unwrap()),
+        )
+        .unwrap();
+        let identity = page
+            .agent
+            .host
+            .automation_realm_identity(page.top_realm)
+            .unwrap();
+        for url in [
+            "https://destination.test/next",
+            "https://source.test/next",
+            "data:text/html,next",
+        ] {
+            page.agent
+                .host
+                .schedule_navigation(oryn_js::v8_bindings::LocationNavigation {
+                    execution_observer: None,
+                    navigation_operation: None,
+                    download: None,
+                    navigation_destination: None,
+                    script_authority: None,
+                    form_authority: None,
+                    url: url.into(),
+                    replace: false,
+                    reload: false,
+                    post: None,
+                    referrer_policy: None,
+                })
+                .unwrap();
+            assert_eq!(
+                page.agent.host.location_url().unwrap(),
+                "https://source.test/document"
+            );
+            assert_eq!(
+                page.agent.host.request_initiator_url().unwrap(),
+                "https://source.test/document"
+            );
+            assert_eq!(
+                page.agent
+                    .host
+                    .automation_realm_identity(page.top_realm)
+                    .unwrap(),
+                identity
+            );
+            assert_eq!(
+                page.agent
+                    .host
+                    .evaluate_string(
+                        "document.URL+'|'+document.baseURI+'|'+document.body.textContent"
+                    )
+                    .unwrap(),
+                "https://source.test/document|https://source.test/document|source"
+            );
+            let queued = page.agent.host.take_location_navigation().unwrap();
+            assert_eq!(queued.url, url);
+        }
+    }
+    #[test]
+    fn queued_download_keeps_source_url_and_provenance_before_dispatch() {
+        let page = RustExecutableDocument::load_with_environment(
             "<body>source</body>",
             &BTreeMap::new(),
             None,
@@ -961,7 +1242,7 @@ mod tests {
         let request = ContextServiceRequest::LoadPageResource {
             download: None,
             script_authority: None,
-            initiator: crate::context_service::ResourceInitiator {
+            initiator: Box::new(crate::context_service::ResourceInitiator {
                 embedded_type: None,
                 request_state: None,
                 navigation: Default::default(),
@@ -972,7 +1253,7 @@ mod tests {
                 },
                 stylesheet: None,
                 prepared_policy: None,
-            },
+            }),
             form_authority: None,
             parent_encoding: None,
             page_id: oryn_common::v3::PageId(1),
@@ -983,6 +1264,24 @@ mod tests {
             post: None,
         };
         let baseline = frame_request_bytes(&request).unwrap();
+        if let ContextServiceRequest::LoadPageResource {
+            url, destination, ..
+        } = &request
+        {
+            assert_eq!(
+                baseline,
+                std::mem::size_of::<ContextServiceRequest>()
+                    + std::mem::size_of::<crate::context_service::ResourceInitiator>()
+                    + url.capacity()
+                    + destination.capacity()
+            );
+        }
+        let wire = serde_json::to_value(&request).unwrap();
+        let decoded: ContextServiceRequest = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&decoded).unwrap(), wire);
+        assert_eq!(wire["operation"], "load_page_resource");
+        assert!(wire["initiator"].is_object());
+        assert!(wire["initiator"]["creator"].is_object());
         let mut request = request;
         if let ContextServiceRequest::LoadPageResource {
             post,
@@ -1153,7 +1452,7 @@ mod tests {
         let archive =
             frame_navigation_history::ArchivedSource::capture("<input value=saved>", None, &budget)
                 .unwrap();
-        let weak = Arc::downgrade(&archive);
+        let weak = Rc::downgrade(&archive);
         let mut context = empty_context();
         context.archived_source = Some(archive);
         page.frame_resource_preparations
@@ -1179,7 +1478,7 @@ mod tests {
             .archived_source
             .as_ref()
             .unwrap();
-        assert!(Arc::ptr_eq(retained, &weak.upgrade().unwrap()));
+        assert!(Rc::ptr_eq(retained, &weak.upgrade().unwrap()));
         assert_eq!(retained.source.as_ref(), "<input value=saved>");
         assert!(page.take_ready_frame_resources().is_empty());
         drop(completed);
@@ -1189,7 +1488,7 @@ mod tests {
         let sender = pending(&mut page, parent, frame);
         let archive =
             frame_navigation_history::ArchivedSource::capture("retired", None, &budget).unwrap();
-        let weak = Arc::downgrade(&archive);
+        let weak = Rc::downgrade(&archive);
         let mut context = empty_context();
         context.archived_source = Some(archive);
         page.frame_resource_preparations
@@ -1450,11 +1749,10 @@ mod tests {
                         })?;
                         Ok(ParentResponse::ScriptLoadCancelled)
                     }
-                    ContextServiceRequest::ReleaseDeferredContainer { page_id, .. }
-                        if page_id == oryn_common::v3::PageId(1) =>
-                    {
-                        Ok(ParentResponse::DeferredFetchResult { result: Ok(()) })
-                    }
+                    ContextServiceRequest::ReleaseDeferredContainer {
+                        page_id: oryn_common::v3::PageId(1),
+                        ..
+                    } => Ok(ParentResponse::DeferredFetchResult { result: Ok(()) }),
                     unexpected => Err(crate::RuntimeError::ContextService(format!(
                         "unexpected frame fixture request: {unexpected:?}"
                     ))),
@@ -1511,14 +1809,14 @@ mod tests {
             ContextServiceRequest::LoadPageResource {
                 download: None,
                 script_authority: None,
-                initiator: crate::context_service::ResourceInitiator {
+                initiator: Box::new(crate::context_service::ResourceInitiator {
                     embedded_type: None,
                     request_state: None,
                     navigation: Default::default(),
                     creator: creator.clone(),
                     stylesheet: None,
                     prepared_policy: None,
-                },
+                }),
                 form_authority: None,
                 parent_encoding: Some("UTF-8".into()),
                 page_id: oryn_common::v3::PageId(1),
@@ -1810,208 +2108,4 @@ mod tests {
             );
         }
     }
-}
-
-fn frame_response_bytes(response: &Result<FrameResourceResponse, String>) -> Result<usize, String> {
-    match response {
-        Ok(response) => response.retained_bytes(),
-        Err(error) => std::mem::size_of::<String>()
-            .checked_add(error.capacity())
-            .ok_or_else(|| "frame response retained byte accounting overflow".to_owned()),
-    }
-}
-
-fn reserve_frame_owner_metadata(
-    budget: &std::sync::Arc<std::sync::atomic::AtomicUsize>,
-    attributes: &Vec<Option<String>>,
-    ancestors: &oryn_js::v8_bindings::LocationAncestorCapture,
-) -> Result<std::sync::Arc<ScriptSourceReservation>, HostError> {
-    let mut bytes = crate::retained_size::Size(
-        std::mem::size_of::<FrameResourcePreparation>()
-            + std::mem::size_of::<FrameResourceCompletion>()
-            + 1024,
-    );
-    bytes.vector(attributes).map_err(HostError::Execution)?;
-    for value in attributes {
-        bytes.optional(value).map_err(HostError::Execution)?;
-    }
-    bytes
-        .add(
-            ancestors
-                .retained_bytes()
-                .ok_or_else(|| HostError::Execution("frame ancestor bytes overflow".into()))?,
-        )
-        .map_err(HostError::Execution)?;
-    ScriptSourceReservation::reserve(budget, bytes.0)
-        .map(std::sync::Arc::new)
-        .ok_or_else(|| HostError::LimitExceeded {
-            resource: "frame owner metadata bytes".into(),
-        })
-}
-fn frame_context_bytes(context: &FrameNavigationContext) -> Result<usize, String> {
-    let mut bytes = crate::retained_size::Size(std::mem::size_of::<FrameNavigationContext>());
-    for value in [
-        &context.download,
-        &context.initiator_url,
-        &context.referrer_policy,
-    ] {
-        bytes.optional(value)?;
-    }
-    if let Some(post) = &context.post {
-        bytes.vector(&post.bytes)?;
-        bytes.string(&post.content_type)?;
-    }
-    if let Some(authority) = &context.form_authority {
-        bytes.vector(&authority.0)?;
-    }
-    if let Some(admission) = &context.script_authority {
-        bytes.vector(&admission.authority.0)?;
-        if let oryn_js::worker_wire::Creator::Window {
-            target: oryn_js::message_wire::WindowTarget::Frame(frame),
-            ..
-        } = &admission.target
-        {
-            bytes.string(frame)?;
-        }
-    }
-    fn entry(
-        bytes: &mut crate::retained_size::Size,
-        entry: &oryn_js::navigation_api::NavigationHistorySnapshot,
-    ) -> Result<(), String> {
-        for value in [&entry.key, &entry.id, &entry.url, &entry.document_id] {
-            bytes.string(value)?;
-        }
-        for state in [&entry.state, &entry.history_state] {
-            if let Some(state) = state {
-                bytes.add(state.retained_bytes())?;
-            }
-        }
-        Ok(())
-    }
-    if let Some(destination) = &context.destination {
-        entry(&mut bytes, destination)?;
-    }
-    if let Some(history) = &context.history {
-        bytes.vector(&history.entries)?;
-        bytes.string(&history.navigation_type)?;
-        for value in &history.entries {
-            entry(&mut bytes, value)?;
-        }
-    }
-    // SessionHistory and ArchivedSource are shared Arcs carrying their own
-    // independent reservations. Their backing storage is not cloned here.
-    Ok(bytes.0)
-}
-
-fn bounded_frame_error(error: String) -> String {
-    if error.len() <= 512 {
-        return error.into_boxed_str().into_string();
-    }
-    let mut end = 512;
-    while !error.is_char_boundary(end) {
-        end -= 1;
-    }
-    error[..end].to_owned()
-}
-fn reserve_frame_response(
-    budget: &std::sync::Arc<std::sync::atomic::AtomicUsize>,
-    response: &mut Result<FrameResourceResponse, String>,
-    policy: &mut Option<crate::standalone_document_policy::FramePolicy>,
-) -> Option<ScriptSourceReservation> {
-    let bytes = frame_response_bytes(response).and_then(|bytes| {
-        let policy = policy
-            .as_ref()
-            .map(|value| value.retained_bytes())
-            .transpose()?
-            .unwrap_or(0);
-        bytes
-            .checked_add(policy)
-            .ok_or_else(|| "frame response and policy bytes overflow".into())
-    });
-    if let Ok(bytes) = bytes {
-        if let Some(reservation) = ScriptSourceReservation::reserve(budget, bytes) {
-            return Some(reservation);
-        }
-    }
-    // The preparation's admitted owner metadata reserves terminal-error room.
-    // Release every rejected response/policy allocation before queueing failure.
-    *response = Err("queued frame response and policy bytes exceeded".into());
-    *policy = None;
-    None
-}
-
-#[cfg(unix)]
-fn frame_request_bytes(request: &ContextServiceRequest) -> Result<usize, String> {
-    let ContextServiceRequest::LoadPageResource {
-        download,
-        script_authority,
-        page_id: _,
-        initiator,
-        form_authority,
-        url,
-        destination,
-        parent_encoding,
-        initiator_url,
-        referrer_policy,
-        post,
-    } = request
-    else {
-        return Err("frame request has unexpected native operation".into());
-    };
-    let mut size = crate::retained_size::Size(std::mem::size_of::<ContextServiceRequest>());
-    for value in [url, destination] {
-        size.string(value)?;
-    }
-    for value in [
-        download,
-        parent_encoding,
-        initiator_url,
-        referrer_policy,
-        &initiator.embedded_type,
-        &initiator.prepared_policy,
-    ] {
-        size.optional(value)?;
-    }
-    fn creator(
-        size: &mut crate::retained_size::Size,
-        creator: &oryn_js::worker_wire::Creator,
-    ) -> Result<(), String> {
-        if let oryn_js::worker_wire::Creator::Window {
-            target: oryn_js::message_wire::WindowTarget::Frame(frame),
-            ..
-        } = creator
-        {
-            size.string(frame)?;
-        }
-        Ok(())
-    }
-    creator(&mut size, &initiator.creator)?;
-    if let Some(script) = script_authority {
-        size.vector(&script.authority.0)?;
-        creator(&mut size, &script.target)?;
-    }
-    if let Some(form) = form_authority {
-        size.vector(&form.0)?;
-    }
-    if let Some(post) = post {
-        size.vector(&post.bytes)?;
-        size.string(&post.content_type)?;
-    }
-    if let Some(state) = &initiator.request_state {
-        state.retained_bytes().map_err(str::to_owned)?;
-        size.optional(&state.initiator_url)?;
-        size.optional(&state.referrer)?;
-        size.string(&state.referrer_policy)?;
-    }
-    if let Some(style) = &initiator.stylesheet {
-        for value in [
-            &style.policy,
-            &style.nonce,
-            &style.integrity,
-            &style.cross_origin,
-        ] {
-            size.optional(value)?;
-        }
-    }
-    Ok(size.0)
 }

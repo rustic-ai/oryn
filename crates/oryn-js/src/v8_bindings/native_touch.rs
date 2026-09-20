@@ -435,77 +435,73 @@ impl Pan {
                     return Ok(self.changed);
                 }
                 let parent = state.dom.borrow().flat_tree_parent(node)?;
-                if let Some(picker) = select_picker_scroll::snapshot(state, node) {
-                    if select_picker_scroll::owner_for(state, self.target)? == Some(node) {
-                        if let Some(projection) = picker.projection.as_ref() {
-                            if let (Some(a), Some(b), Some(scroll)) = (
-                                projection.viewport_to_local(self.start.0, self.start.1),
-                                projection.viewport_to_local(self.end.0, self.end.1),
-                                projection.scroll.as_ref(),
-                            ) {
-                                let eligible = |axis| {
-                                    picker.style.get(axis).is_some_and(|value| {
-                                        matches!(value.as_str(), "auto" | "scroll")
-                                    })
-                                };
-                                let delta = (a.0 - b.0, a.1 - b.1);
-                                let next = (
-                                    (scroll.offset_x
-                                        + if eligible("overflow-x") { delta.0 } else { 0. })
-                                    .clamp(
-                                        (scroll.scrollable.x - scroll.scrollport.x).min(0.),
-                                        (scroll.scrollable.right() - scroll.scrollport.right())
-                                            .max(0.),
-                                    ),
-                                    (scroll.offset_y
-                                        + if eligible("overflow-y") { delta.1 } else { 0. })
-                                    .clamp(
-                                        (scroll.scrollable.y - scroll.scrollport.y).min(0.),
-                                        (scroll.scrollable.bottom() - scroll.scrollport.bottom())
-                                            .max(0.),
-                                    ),
-                                );
-                                let mut remaining = (
-                                    delta.0 - (next.0 - scroll.offset_x),
-                                    delta.1 - (next.1 - scroll.offset_y),
-                                );
-                                if eligible("overflow-x")
-                                    && picker.style.get("overscroll-behavior-x").is_some_and(
-                                        |value| matches!(value.as_str(), "contain" | "none"),
-                                    )
-                                {
-                                    remaining.0 = 0.;
-                                }
-                                if eligible("overflow-y")
-                                    && picker.style.get("overscroll-behavior-y").is_some_and(
-                                        |value| matches!(value.as_str(), "contain" | "none"),
-                                    )
-                                {
-                                    remaining.1 = 0.;
-                                }
-                                let epoch = state
-                                    .dom
-                                    .borrow()
-                                    .top_layer()
-                                    .find(|entry| {
-                                        entry.node == node
-                                            && entry.kind == oryn_dom::TopLayerKind::SelectPicker
-                                    })
-                                    .map(|entry| entry.picker_epoch);
-                                self.pending = Some(PanStep {
-                                    node,
-                                    parent,
-                                    next: Some(next),
-                                    remaining: project(
-                                        projection.matrix,
-                                        (b.0 + remaining.0, b.1 + remaining.1),
-                                    ),
-                                    picker_epoch: epoch,
-                                    changed: next != (scroll.offset_x, scroll.offset_y),
-                                });
-                            }
-                        }
+                if let Some(picker) = select_picker_scroll::snapshot(state, node)
+                    && select_picker_scroll::owner_for(state, self.target)? == Some(node)
+                    && let Some(projection) = picker.projection.as_ref()
+                    && let (Some(a), Some(b), Some(scroll)) = (
+                        projection.viewport_to_local(self.start.0, self.start.1),
+                        projection.viewport_to_local(self.end.0, self.end.1),
+                        projection.scroll.as_ref(),
+                    )
+                {
+                    let eligible = |axis| {
+                        picker
+                            .style
+                            .get(axis)
+                            .is_some_and(|value| matches!(value.as_str(), "auto" | "scroll"))
+                    };
+                    let delta = (a.0 - b.0, a.1 - b.1);
+                    let next = (
+                        (scroll.offset_x + if eligible("overflow-x") { delta.0 } else { 0. })
+                            .clamp(
+                                (scroll.scrollable.x - scroll.scrollport.x).min(0.),
+                                (scroll.scrollable.right() - scroll.scrollport.right()).max(0.),
+                            ),
+                        (scroll.offset_y + if eligible("overflow-y") { delta.1 } else { 0. })
+                            .clamp(
+                                (scroll.scrollable.y - scroll.scrollport.y).min(0.),
+                                (scroll.scrollable.bottom() - scroll.scrollport.bottom()).max(0.),
+                            ),
+                    );
+                    let mut remaining = (
+                        delta.0 - (next.0 - scroll.offset_x),
+                        delta.1 - (next.1 - scroll.offset_y),
+                    );
+                    if eligible("overflow-x")
+                        && picker
+                            .style
+                            .get("overscroll-behavior-x")
+                            .is_some_and(|value| matches!(value.as_str(), "contain" | "none"))
+                    {
+                        remaining.0 = 0.;
                     }
+                    if eligible("overflow-y")
+                        && picker
+                            .style
+                            .get("overscroll-behavior-y")
+                            .is_some_and(|value| matches!(value.as_str(), "contain" | "none"))
+                    {
+                        remaining.1 = 0.;
+                    }
+                    let epoch = state
+                        .dom
+                        .borrow()
+                        .top_layer()
+                        .find(|entry| {
+                            entry.node == node && entry.kind == oryn_dom::TopLayerKind::SelectPicker
+                        })
+                        .map(|entry| entry.picker_epoch);
+                    self.pending = Some(PanStep {
+                        node,
+                        parent,
+                        next: Some(next),
+                        remaining: project(
+                            projection.matrix,
+                            (b.0 + remaining.0, b.1 + remaining.1),
+                        ),
+                        picker_epoch: epoch,
+                        changed: next != (scroll.offset_x, scroll.offset_y),
+                    });
                 }
                 if self.pending.is_none() {
                     let plan = {
@@ -659,14 +655,6 @@ impl Pan {
             }
         }
     }
-}
-pub(super) fn pan(
-    state: &Rc<V8BindingState>,
-    target: NodeId,
-    start: (f64, f64),
-    end: (f64, f64),
-) -> Result<bool, V8BindingError> {
-    Pan::new(state, target, start, end).poll(state)
 }
 
 #[cfg(test)]

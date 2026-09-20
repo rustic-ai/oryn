@@ -281,6 +281,14 @@ impl Ticket {
     pub(crate) fn cancelled(&self) -> bool {
         self.job.cancelled.load(Ordering::Acquire)
     }
+    /// Observe cancellation without acquiring ticket ownership or canceling on drop.
+    pub(crate) fn cancellation_probe(&self) -> Arc<dyn Fn() -> bool + Send + Sync> {
+        let job = Arc::downgrade(&self.job);
+        Arc::new(move || {
+            job.upgrade()
+                .is_none_or(|job| job.cancelled.load(Ordering::Acquire))
+        })
+    }
     pub(crate) fn cancellation(&self) -> &AtomicBool {
         &self.job.cancelled
     }
@@ -509,6 +517,27 @@ mod tests {
         );
         drop((ordinary, keepalive, redirect));
         scope.drain(Duration::from_secs(1)).unwrap();
+    }
+    #[test]
+    fn cancellation_probe_observes_abort_without_owning_cleanup() {
+        let scope = Scope::default();
+        let network = SharedNetworkBroker::new(crate::network::UnavailableBroker);
+        let ticket = Ticket::reserve(&scope, 7, network.clone()).unwrap();
+        let probe = ticket.cancellation_probe();
+        assert!(!probe());
+        drop(ticket.cancellation_probe());
+        assert!(!ticket.cancelled(), "dropping an observer must not cancel");
+        scope.cancel(Some(7));
+        assert!(probe());
+        drop(ticket);
+        scope.drain(Duration::from_secs(1)).unwrap();
+        assert!(probe(), "a retired ticket remains canceled to its observer");
+        let next = Ticket::reserve(&scope, 8, network).unwrap();
+        let next_probe = next.cancellation_probe();
+        assert!(!next_probe());
+        drop(next);
+        scope.drain(Duration::from_secs(1)).unwrap();
+        assert!(next_probe());
     }
     #[test]
     fn cancellation_before_attachment_remains_owned_without_a_premature_ack() {

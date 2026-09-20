@@ -1100,7 +1100,7 @@ fn element_value<'s>(
 }
 fn pi_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
-    target: &String,
+    target: &str,
 ) -> Result<v8::Local<'s, v8::Value>> {
     let object = v8::Object::new(scope);
     let value = v8_string(scope, target)?;
@@ -1139,7 +1139,7 @@ pub(super) fn configuration_value<'s>(
         ),
     ] {
         if let Some(list) = list {
-            let value = list_value(scope, list, pi_value)?;
+            let value = list_value(scope, list, |scope, target| pi_value(scope, target))?;
             put(scope, object, key, value)?;
         }
     }
@@ -1277,16 +1277,13 @@ fn source(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Result<Polic
     if let Ok(object) = v8::Local::<v8::Object>::try_from(value) {
         // A proxy around a platform object does not carry its Web IDL brand.
         // It follows the dictionary branch, including ordinary proxy getters.
-        if !object.is_proxy() {
-            if let Some(owner) = binding_state_for_receiver(scope, object) {
-                if let Ok(id) = stateful_id(scope, object) {
-                    if let Some(PlatformObjectRecord::Sanitizer(config)) =
-                        owner.platform_objects.borrow().get(&id)
-                    {
-                        return Ok(PolicySource::Instance(config.clone()));
-                    }
-                }
-            }
+        if !object.is_proxy()
+            && let Some(owner) = binding_state_for_receiver(scope, object)
+            && let Ok(id) = stateful_id(scope, object)
+            && let Some(PlatformObjectRecord::Sanitizer(config)) =
+                owner.platform_objects.borrow().get(&id)
+        {
+            return Ok(PolicySource::Instance(config.clone()));
         }
         return configuration(scope, value).map(PolicySource::Configuration);
     }
@@ -1408,6 +1405,19 @@ pub(super) fn parse_document<'s>(
     let config = options.snapshot(safe)?;
     filter(&config, &mut parsed, document, safe)?;
     oryn_dom::html::apply_fragment_patches(&mut parsed, document)?;
+    let scripts = parsed
+        .arena()
+        .iter()
+        .filter_map(|(node, record)| {
+            matches!(&record.kind, NodeKind::Element { name }
+            if matches!(name.ns.as_ref(), HTML_NAMESPACE | "http://www.w3.org/2000/svg")
+                && name.local.as_ref() == "script")
+            .then_some(node)
+        })
+        .collect::<Vec<_>>();
+    for script in scripts {
+        parsed.mark_script_started(script)?;
+    }
     let document = state
         .dom
         .borrow_mut()
@@ -1711,4 +1721,36 @@ pub(super) fn insert_html<'s>(
     member: &str,
 ) -> Result<()> {
     insertion::run(scope, state, node, args, member)
+}
+
+#[cfg(test)]
+mod parsed_script_adoption_tests {
+    use super::*;
+    #[test]
+    fn parsed_scripts_stay_inert_through_template_shadow_clone_and_adoption() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(
+            scope,
+            context,
+            Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+            )),
+            RealmId(952),
+            1,
+        )
+        .unwrap();
+        assert!(super::super::test_eval::eval(scope, r#"(()=>{
+            globalThis.adoptedParseRuns=0;
+            const parsed=Document.parseHTMLUnsafe('<script>adoptedParseRuns++<'+ '/script><template><script>adoptedParseRuns++<'+ '/script></template><div><template shadowrootmode=open><script>adoptedParseRuns++<'+ '/script></template></div>');
+            const scripts=[parsed.querySelector('script'),parsed.querySelector('template').content.querySelector('script'),parsed.querySelector('div').shadowRoot.querySelector('script')];
+            for(const script of scripts){document.body.append(script.cloneNode(true),script)}
+            if(adoptedParseRuns!==0)throw Error('parsed scripts executed after adoption');
+            const live=document.createElement('script');live.textContent='adoptedParseRuns++';document.body.append(live);
+            if(adoptedParseRuns!==1)throw Error('ordinary new script lost execution');return true;
+        })()"#).is_true());
+    }
 }

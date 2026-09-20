@@ -27,7 +27,7 @@ struct Record {
 pub(super) struct Registry {
     next: u64,
     token_sequence: u64,
-    prototype: Option<v8::Global<v8::Object>>,
+    prototype: Option<v8::Weak<v8::Object>>,
     records: BTreeMap<u64, Record>,
 }
 fn error(name: &str) -> V8BindingError {
@@ -363,7 +363,9 @@ fn schedule(
             .prototype
             .as_ref()
             .ok_or_else(|| error("InvalidStateError"))?;
-        let prototype = v8::Local::new(scope, prototype);
+        let prototype = prototype
+            .to_local(scope)
+            .ok_or_else(|| error("InvalidStateError"))?;
         if object.set_prototype(scope, prototype.into()) != Some(true) {
             return Err(V8BindingError::JavaScriptException);
         }
@@ -471,7 +473,13 @@ pub(super) fn install(
     context
         .global(scope)
         .create_data_property(scope, name.into(), constructor.into());
-    state.deferred_fetch.borrow_mut().prototype = Some(v8::Global::new(scope, prototype));
+    let prototype = context_intrinsics::retain_object_for(
+        scope,
+        state,
+        "fetch-later-result-prototype",
+        prototype,
+    )?;
+    state.deferred_fetch.borrow_mut().prototype = Some(prototype);
     if state.secure_context.get() {
         let function = v8::Function::builder(schedule)
             .length(1)
@@ -1089,6 +1097,80 @@ mod tests {
             scope,
             "if(!other.activated)throw Error('getter did not observe parent timer')",
         );
+        assert!(state.deferred_fetch.borrow().records.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod prototype_retention_tests {
+    use super::*;
+    #[test]
+    fn original_result_prototype_survives_replacement_then_releases_retired_context() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        let (context, prototype, anchor, state) = {
+            v8::scope!(let scope, &mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let dom = Rc::new(RefCell::new(DomRuntime::new()));
+            let state = install_generated_bindings(scope, context, dom, RealmId(948), 1).unwrap();
+            let prototype = state
+                .deferred_fetch
+                .borrow()
+                .prototype
+                .as_ref()
+                .unwrap()
+                .to_local(scope)
+                .unwrap();
+            let key = v8::String::new(scope, "FetchLaterResult").unwrap();
+            let replacement = v8::Object::new(scope);
+            context
+                .global(scope)
+                .set(scope, key.into(), replacement.into());
+            let anchor = v8::Object::new(scope);
+            assert_eq!(anchor.set_prototype(scope, prototype.into()), Some(true));
+            state.retire_execution();
+            state.refresh_connected_wrapper_roots(scope);
+            (
+                v8::Weak::new(scope, context),
+                v8::Weak::new(scope, prototype),
+                v8::Global::new(scope, anchor),
+                state,
+            )
+        };
+        isolate.low_memory_notification();
+        isolate.low_memory_notification();
+        {
+            v8::scope!(let scope, &mut isolate);
+            assert!(context.to_local(scope).is_some());
+            let retained_context = context.to_local(scope).unwrap();
+            let scope = &mut v8::ContextScope::new(scope, retained_context);
+            let original = prototype.to_local(scope).unwrap();
+            let anchor = v8::Local::new(scope, &anchor);
+            assert!(
+                anchor
+                    .get_prototype(scope)
+                    .unwrap()
+                    .strict_equals(original.into())
+            );
+            assert!(
+                state
+                    .deferred_fetch
+                    .borrow()
+                    .prototype
+                    .as_ref()
+                    .unwrap()
+                    .to_local(scope)
+                    .unwrap()
+                    .strict_equals(original.into())
+            );
+        }
+        drop(anchor);
+        isolate.low_memory_notification();
+        isolate.low_memory_notification();
+        v8::scope!(let scope, &mut isolate);
+        assert!(context.to_local(scope).is_none());
+        assert!(prototype.to_local(scope).is_none());
         assert!(state.deferred_fetch.borrow().records.is_empty());
     }
 }

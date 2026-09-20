@@ -244,7 +244,7 @@ impl RustlsTransport {
         if !certificates.is_empty() {
             // from_pem only stores bytes with reqwest's rustls backend. Building
             // validates DER/root-store admission without making any request.
-            let mut validation = reqwest::Client::builder().no_proxy();
+            let mut validation = reqwest::Client::builder().use_rustls_tls().no_proxy();
             for certificate in &certificates {
                 validation = validation.add_root_certificate(certificate.clone());
             }
@@ -282,7 +282,10 @@ impl RustlsTransport {
         if let Some(client) = self.clients.lock().await.get(&key) {
             return Ok(client.clone());
         }
+        // Workspace feature unification may also enable reqwest default TLS.
+        // Keep this transport on the backend that owns our measured phases.
         let mut builder = reqwest::Client::builder()
+            .use_rustls_tls()
             .timeout(self.timeout)
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()

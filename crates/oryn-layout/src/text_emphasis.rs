@@ -145,7 +145,15 @@ pub(super) fn apply(
                 local.insert("color".into(), color.into());
             }
             let boxes = std::mem::take(&mut engine.active_inline_boxes);
-            let shaped = engine.shape_paragraph(&mark, 1e6, size, &local, viewport, &[], true);
+            let shaped = engine.shape_paragraph(crate::ParagraphShapeInputs {
+                text: &mark,
+                width: 1e6,
+                font_size: size,
+                style: &local,
+                viewport,
+                ranges: &[],
+                first_paragraph: true,
+            });
             engine.active_inline_boxes = boxes;
             cache.insert(key.clone(), shaped);
         }

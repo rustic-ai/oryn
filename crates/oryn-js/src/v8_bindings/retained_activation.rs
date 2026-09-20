@@ -209,10 +209,10 @@ impl Click {
         }
     }
     pub(super) fn cancel(&mut self) {
-        if self.phase < 3 || !self.accepted {
-            if let Some(activation) = &self.activation {
-                activation.cancel_native();
-            }
+        if (self.phase < 3 || !self.accepted)
+            && let Some(activation) = &self.activation
+        {
+            activation.cancel_native();
         }
         if let Some(event) = &self.dispatch {
             event.cancel(&event.owner());

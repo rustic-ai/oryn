@@ -4,6 +4,8 @@
 //! Every request supplies an unforgeable context and this store decides both
 //! cookie creation and delivery before the request reaches reqwest.
 
+type StoredCookieKey = (Option<String>, String, String, String);
+
 use std::{
     collections::BTreeMap,
     net::IpAddr,
@@ -63,6 +65,9 @@ pub enum CookieRequestKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CookieRequestContext {
+    /// Private route-owned navigation source lease; never an HTTP header.
+    #[serde(default)]
+    pub navigation_source: Option<String>,
     #[serde(default)]
     pub fetch_metadata: crate::fetch_metadata::Metadata,
     #[serde(skip)]
@@ -90,6 +95,7 @@ pub struct CookieRequestContext {
 impl Default for CookieRequestContext {
     fn default() -> Self {
         Self {
+            navigation_source: None,
             fetch_metadata: Default::default(),
             dns_timing: None,
             fetch_cache: Default::default(),
@@ -177,7 +183,7 @@ struct StoredCookie {
 }
 
 impl StoredCookie {
-    fn key(&self) -> (Option<String>, String, String, String) {
+    fn key(&self) -> StoredCookieKey {
         (
             self.partition_key.clone(),
             self.domain.clone(),
@@ -244,7 +250,7 @@ struct StorageAccessPolicy {
 }
 pub struct ContextCookieStore {
     access: Mutex<StorageAccessPolicy>,
-    cookies: Arc<Mutex<BTreeMap<(Option<String>, String, String, String), StoredCookie>>>,
+    cookies: Arc<Mutex<BTreeMap<StoredCookieKey, StoredCookie>>>,
     database: Option<Arc<Database>>,
     now: Arc<dyn Fn() -> u64 + Send + Sync>,
     #[cfg(test)]
@@ -315,7 +321,7 @@ impl ContextCookieStore {
         let top = SchemefulSite::from_url(top).ok_or_else(|| {
             CookieStoreError::Invalid("opaque top-level storage principal".into())
         })?;
-        if embedded.origin().is_tuple() == false {
+        if !embedded.origin().is_tuple() {
             return Err(CookieStoreError::Invalid(
                 "opaque embedded storage principal".into(),
             ));
@@ -877,16 +883,9 @@ impl ContextCookieStore {
         Ok(())
     }
 
-    fn persist(&self) -> Result<(), CookieStoreError> {
-        let cookies = self
-            .cookies
-            .lock()
-            .map_err(|_| CookieStoreError::Persistent("cookie lock poisoned".into()))?;
-        self.persist_values(&cookies)
-    }
     fn persist_values(
         &self,
-        cookies: &BTreeMap<(Option<String>, String, String, String), StoredCookie>,
+        cookies: &BTreeMap<StoredCookieKey, StoredCookie>,
     ) -> Result<(), CookieStoreError> {
         #[cfg(test)]
         if self
@@ -927,10 +926,7 @@ impl ContextCookieStore {
 
 const COOKIES_PER_PARTITION_DOMAIN: usize = 180;
 const COOKIES_TOTAL: usize = 3000;
-fn enforce_cookie_limits(
-    cookies: &mut BTreeMap<(Option<String>, String, String, String), StoredCookie>,
-    now: u64,
-) {
+fn enforce_cookie_limits(cookies: &mut BTreeMap<StoredCookieKey, StoredCookie>, now: u64) {
     cookies.retain(|_, cookie| !cookie.expired(now));
     let mut buckets: BTreeMap<(Option<String>, String), Vec<_>> = BTreeMap::new();
     for (key, cookie) in cookies.iter() {

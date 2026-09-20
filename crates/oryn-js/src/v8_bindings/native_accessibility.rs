@@ -71,68 +71,67 @@ pub fn text(
         .cloned()
         .unwrap_or((default, default, "none".into()));
     let mut boxes = Vec::new();
-    if !protected {
-        if let Some(clusters) = state.layout.borrow().text_clusters.get(&node_key(target)) {
-            if clusters.len() > 262_144 {
-                return Err(V8BindingError::Message(
-                    "accessibility text geometry budget exceeded".into(),
-                ));
+    if !protected && let Some(clusters) = state.layout.borrow().text_clusters.get(&node_key(target))
+    {
+        if clusters.len() > 262_144 {
+            return Err(V8BindingError::Message(
+                "accessibility text geometry budget exceeded".into(),
+            ));
+        }
+        for cluster in clusters {
+            if cluster.start > cluster.end || cluster.end > value.len() {
+                continue;
             }
-            for cluster in clusters {
-                if cluster.start > cluster.end || cluster.end > value.len() {
-                    continue;
-                }
-                let r = cluster.rect;
-                let m = cluster.matrix;
-                let mut points = Vec::new();
-                for (x, y) in [
-                    (r.x, r.y),
-                    (r.right(), r.y),
-                    (r.right(), r.bottom()),
-                    (r.x, r.bottom()),
-                ] {
-                    let w = m[3] * x + m[7] * y + m[15];
-                    if w > 0. && w.is_finite() {
-                        let point = (
-                            (m[0] * x + m[4] * y + m[12]) / w,
-                            (m[1] * x + m[5] * y + m[13]) / w,
-                        );
-                        if point.0.is_finite() && point.1.is_finite() {
-                            points.push(point);
-                        }
+            let r = cluster.rect;
+            let m = cluster.matrix;
+            let mut points = Vec::new();
+            for (x, y) in [
+                (r.x, r.y),
+                (r.right(), r.y),
+                (r.right(), r.bottom()),
+                (r.x, r.bottom()),
+            ] {
+                let w = m[3] * x + m[7] * y + m[15];
+                if w > 0. && w.is_finite() {
+                    let point = (
+                        (m[0] * x + m[4] * y + m[12]) / w,
+                        (m[1] * x + m[5] * y + m[13]) / w,
+                    );
+                    if point.0.is_finite() && point.1.is_finite() {
+                        points.push(point);
                     }
                 }
-                if points.len() != 4 {
-                    continue;
-                }
-                let left = points
-                    .iter()
-                    .map(|point| point.0)
-                    .fold(f64::INFINITY, f64::min);
-                let right = points
-                    .iter()
-                    .map(|point| point.0)
-                    .fold(f64::NEG_INFINITY, f64::max);
-                let top = points
-                    .iter()
-                    .map(|point| point.1)
-                    .fold(f64::INFINITY, f64::min);
-                let bottom = points
-                    .iter()
-                    .map(|point| point.1)
-                    .fold(f64::NEG_INFINITY, f64::max);
-                boxes.push(crate::accessibility::TextBox {
-                    start: cluster.start as u32,
-                    end: cluster.end as u32,
-                    line: cluster.line,
-                    rect: oryn_common::v4::CssRect {
-                        x: left,
-                        y: top,
-                        width: right - left,
-                        height: bottom - top,
-                    },
-                });
             }
+            if points.len() != 4 {
+                continue;
+            }
+            let left = points
+                .iter()
+                .map(|point| point.0)
+                .fold(f64::INFINITY, f64::min);
+            let right = points
+                .iter()
+                .map(|point| point.0)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let top = points
+                .iter()
+                .map(|point| point.1)
+                .fold(f64::INFINITY, f64::min);
+            let bottom = points
+                .iter()
+                .map(|point| point.1)
+                .fold(f64::NEG_INFINITY, f64::max);
+            boxes.push(crate::accessibility::TextBox {
+                start: cluster.start as u32,
+                end: cluster.end as u32,
+                line: cluster.line,
+                rect: oryn_common::v4::CssRect {
+                    x: left,
+                    y: top,
+                    width: right - left,
+                    height: bottom - top,
+                },
+            });
         }
     }
     let carets = if protected {
@@ -530,6 +529,165 @@ mod tests {
         let result = text(scope, &state, state.document_root(), &TextCommand::Read).unwrap();
         assert_eq!(result.value, "A\t\nC\tD".encode_utf16().collect::<Vec<_>>());
     }
+    #[test]
+    fn protected_caret_projects_masked_utf16_endpoint_and_rejects_collapsed_axes() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<input id=p type=password value=😀>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let target = dom.borrow().find_by_id("p").unwrap();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        eval(scope, "p.focus();p.setSelectionRange(1,1)");
+        let matrix = [
+            2., 0., 0., 0., 1., 3., 0., 0., 0., 0., 1., 0., 100., 10., 0., 1.,
+        ];
+        let layout = |matrix| BindingLayout {
+            text_clusters: BTreeMap::from([(
+                node_key(target),
+                vec![oryn_common::v4::TextClusterGeometry {
+                    layout_node: node_key(target),
+                    start: 0,
+                    end: 2,
+                    rect: oryn_common::v4::CssRect {
+                        x: 10.,
+                        y: 20.,
+                        width: 20.,
+                        height: 8.,
+                    },
+                    matrix,
+                    line: 7,
+                    rtl: false,
+                }],
+            )]),
+            ..Default::default()
+        };
+        state.set_layout(layout(matrix));
+        let result = text(scope, &state, target, &TextCommand::Read).unwrap();
+        assert!(result.protected && result.value.is_empty());
+        assert!(
+            result.boxes.is_empty() && result.carets.is_empty() && result.boundaries.is_empty()
+        );
+        assert_eq!((result.start, result.end), (0, 0));
+        let caret = result.protected_caret.unwrap();
+        assert_eq!(
+            caret.selection,
+            crate::composition::TextRange {
+                start: 1,
+                length: 0
+            }
+        );
+        assert_eq!((caret.caret.offset, caret.caret.line), (1, 7));
+        assert_eq!((caret.caret.x, caret.caret.y), (164., 82.));
+        assert_eq!(
+            caret.caret.rect,
+            Some(oryn_common::v4::CssRect {
+                x: 160.,
+                y: 70.,
+                width: 8.,
+                height: 24.,
+            })
+        );
+        let mut collapsed = matrix;
+        collapsed[0] = 0.;
+        state.set_layout(layout(collapsed));
+        let result = text(scope, &state, target, &TextCommand::Read).unwrap();
+        assert!(result.protected && result.value.is_empty());
+        assert!(
+            result.boxes.is_empty() && result.carets.is_empty() && result.boundaries.is_empty()
+        );
+        assert!(result.protected_caret.is_none());
+    }
+
+    #[test]
+    fn document_carets_keep_sideways_projected_rectangles_and_source_offsets() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<div id=d>😀</div>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let target = dom.borrow().find_by_id("d").unwrap();
+        let source = dom.borrow().children(target).unwrap()[0];
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let matrix = [
+            2., 0., 0., 0., 1., 3., 0., 0., 0., 0., 1., 0., 100., 10., 0., 1.,
+        ];
+        let layout = |matrix| BindingLayout {
+            styles: BTreeMap::from([(
+                node_key(target),
+                std::sync::Arc::new(BTreeMap::from([(
+                    "writing-mode".into(),
+                    "sideways-lr".into(),
+                )])),
+            )]),
+            text_clusters: BTreeMap::from([(
+                node_key(source),
+                vec![oryn_common::v4::TextClusterGeometry {
+                    layout_node: node_key(target),
+                    start: 0,
+                    end: 2,
+                    rect: oryn_common::v4::CssRect {
+                        x: 10.,
+                        y: 20.,
+                        width: 8.,
+                        height: 20.,
+                    },
+                    matrix,
+                    line: 7,
+                    rtl: false,
+                }],
+            )]),
+            ..Default::default()
+        };
+        state.set_layout(layout(matrix));
+        let result = text(scope, &state, target, &TextCommand::Read).unwrap();
+        assert_eq!(result.value, "😀".encode_utf16().collect::<Vec<_>>());
+        assert_eq!(result.carets.len(), 2);
+        for (caret, (offset, x, y)) in result.carets.iter().zip([(0, 160., 130.), (2, 140., 70.)]) {
+            assert_eq!((caret.offset, caret.line), (offset, 0));
+            assert_eq!((caret.x, caret.y), (x, y));
+            assert_eq!(
+                caret.rect,
+                Some(oryn_common::v4::CssRect {
+                    x,
+                    y,
+                    width: 16.,
+                    height: 0.
+                })
+            );
+        }
+        assert_eq!(
+            result.boundaries.first().unwrap().start,
+            BoundaryPoint {
+                container: source,
+                offset: 0
+            }
+        );
+        assert_eq!(
+            result.boundaries.last().unwrap().end,
+            BoundaryPoint {
+                container: source,
+                offset: 2
+            }
+        );
+        let mut unavailable = matrix;
+        unavailable[15] = 0.;
+        state.set_layout(layout(unavailable));
+        let result = text(scope, &state, target, &TextCommand::Read).unwrap();
+        assert_eq!(result.value, "😀".encode_utf16().collect::<Vec<_>>());
+        assert!(result.carets.is_empty() && result.boxes.is_empty());
+    }
+
     #[test]
     fn protected_text_keeps_only_private_focused_caret_geometry() {
         super::super::tests::initialize_v8();

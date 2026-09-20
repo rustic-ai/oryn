@@ -1,5 +1,18 @@
 //! Native SVG descendant geometry. The SVG parser owns SVG units/viewBox/text;
 //! CSS layout owns the outer viewport and its transforms. Neither runs script.
+
+/// Inputs for emit.
+pub(crate) struct SvgEmissionInputs<'a> {
+    pub(crate) input: &'a LayoutInput,
+    pub(crate) node: &'a LayoutNode,
+    pub(crate) root: u64,
+    pub(crate) size: CssRect,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) by_id: &'a BTreeMap<u64, &'a LayoutNode>,
+    pub(crate) ids: &'a BTreeMap<String, u64>,
+    pub(crate) output: &'a mut String,
+    pub(crate) depth: usize,
+}
 use super::*;
 use oryn_common::v4::{PaintClip, PaintProjection};
 fn escaped(value: &str) -> String {
@@ -30,15 +43,16 @@ fn local_reference(value: &str, owner: &LayoutNode, ids: &BTreeMap<String, u64>)
             let mut decoded = Vec::new();
             let mut i = 0;
             while i < bytes.len() {
-                if bytes[i] == b'%' && i + 2 < bytes.len() {
-                    if let (Some(a), Some(b)) = (
+                if bytes[i] == b'%'
+                    && i + 2 < bytes.len()
+                    && let (Some(a), Some(b)) = (
                         (bytes[i + 1] as char).to_digit(16),
                         (bytes[i + 2] as char).to_digit(16),
-                    ) {
-                        decoded.push((a * 16 + b) as u8);
-                        i += 3;
-                        continue;
-                    }
+                    )
+                {
+                    decoded.push((a * 16 + b) as u8);
+                    i += 3;
+                    continue;
                 }
                 decoded.push(bytes[i]);
                 i += 1;
@@ -49,17 +63,19 @@ fn local_reference(value: &str, owner: &LayoutNode, ids: &BTreeMap<String, u64>)
         .map(|id| format!("#{}", native_id(id)))
         .unwrap_or_else(|| value.into())
 }
-fn emit(
-    input: &LayoutInput,
-    node: &LayoutNode,
-    root: u64,
-    size: CssRect,
-    styles: &ComputedStyles,
-    by_id: &BTreeMap<u64, &LayoutNode>,
-    ids: &BTreeMap<String, u64>,
-    output: &mut String,
-    depth: usize,
-) -> Result<(), String> {
+fn emit(params: SvgEmissionInputs<'_>) -> Result<(), String> {
+    let SvgEmissionInputs {
+        input,
+        node,
+        root,
+        size,
+        styles,
+        by_id,
+        ids,
+        output,
+        depth,
+    } = params;
+
     if depth > 128 || output.len() > 16 * 1024 * 1024 {
         return Err("SVG geometry serialization budget".into());
     }
@@ -341,17 +357,17 @@ fn emit(
                 }
                 LayoutContent::Element(id) => {
                     if let Some(child) = by_id.get(id) {
-                        emit(
+                        emit(SvgEmissionInputs {
                             input,
-                            child,
+                            node: child,
                             root,
                             size,
                             styles,
                             by_id,
                             ids,
                             output,
-                            depth + 1,
-                        )?
+                            depth: depth + 1,
+                        })?
                     }
                 }
             }
@@ -360,17 +376,17 @@ fn emit(
         output.push_str(&escaped(&node.text));
         for id in &node.children {
             if let Some(child) = by_id.get(id) {
-                emit(
+                emit(SvgEmissionInputs {
                     input,
-                    child,
+                    node: child,
                     root,
                     size,
                     styles,
                     by_id,
                     ids,
                     output,
-                    depth + 1,
-                )?
+                    depth: depth + 1,
+                })?
             }
         }
     }
@@ -700,19 +716,21 @@ pub(super) fn project(
             }
         }
         let mut source = String::new();
-        emit(
+        emit(SvgEmissionInputs {
             input,
-            root,
-            root.id,
-            viewport,
+            node: root,
+            root: root.id,
+            size: viewport,
             styles,
-            &by_id,
-            &ids,
-            &mut source,
-            0,
-        )?;
-        let mut options = usvg::Options::default();
-        options.font_family = DEFAULT_FONT_FAMILY.into();
+            by_id: &by_id,
+            ids: &ids,
+            output: &mut source,
+            depth: 0,
+        })?;
+        let mut options = usvg::Options {
+            font_family: DEFAULT_FONT_FAMILY.into(),
+            ..usvg::Options::default()
+        };
         options
             .fontdb_mut()
             .load_font_data(DEFAULT_FONT_BYTES.to_vec());
@@ -810,25 +828,24 @@ pub(super) fn project(
                     .get(&id)
                     .and_then(|style| style.get("clip-path"))
                     .filter(|value| value.as_str() != "none")
+                    && let Some(parsed_owner) = tree.node_by_id(&native_id(id))
                 {
-                    if let Some(parsed_owner) = tree.node_by_id(&native_id(id)) {
-                        let reference = rect(parsed_owner.bounding_box());
-                        let viewport = local_viewport(owner, &by_id, styles, viewport);
-                        let shape = super::svg_clip::resolve_svg(
-                            input, owner, value, reference, viewport, styles,
-                        )?;
-                        let transform = outer_plane.then(matrix(parsed_owner.abs_transform()));
-                        paint.clips.push(PaintClip {
-                            shape: Some(shape.clone()),
-                            owner: Some(id),
-                            scroll_x: false,
-                            scroll_y: false,
-                            matrix: transform.matrix(),
-                            rect: shape.bounds(),
-                            clip_x: true,
-                            clip_y: true,
-                        });
-                    }
+                    let reference = rect(parsed_owner.bounding_box());
+                    let viewport = local_viewport(owner, &by_id, styles, viewport);
+                    let shape = super::svg_clip::resolve_svg(
+                        input, owner, value, reference, viewport, styles,
+                    )?;
+                    let transform = outer_plane.then(matrix(parsed_owner.abs_transform()));
+                    paint.clips.push(PaintClip {
+                        shape: Some(shape.clone()),
+                        owner: Some(id),
+                        scroll_x: false,
+                        scroll_y: false,
+                        matrix: transform.matrix(),
+                        rect: shape.bounds(),
+                        clip_x: true,
+                        clip_y: true,
+                    });
                 }
                 ancestor = owner.parent;
             }
@@ -994,22 +1011,22 @@ mod tests {
             ])),
         )]);
         let mut source = String::new();
-        emit(
-            &input,
-            nodes[&2],
-            2,
-            CssRect {
+        emit(SvgEmissionInputs {
+            input: &input,
+            node: nodes[&2],
+            root: 2,
+            size: CssRect {
                 x: 0.,
                 y: 0.,
                 width: 400.,
                 height: 200.,
             },
-            &styles,
-            &nodes,
-            &BTreeMap::new(),
-            &mut source,
-            0,
-        )
+            styles: &styles,
+            by_id: &nodes,
+            ids: &BTreeMap::new(),
+            output: &mut source,
+            depth: 0,
+        })
         .unwrap();
         let tree = usvg::Tree::from_str(&source, &usvg::Options::default()).unwrap();
         let bounds = tree.node_by_id(&native_id(6)).unwrap().bounding_box();

@@ -184,17 +184,16 @@ fn schedule(port: &Port) {
         && endpoint.scheduled == 0
         && endpoint.queue.is_empty()
         && endpoint.peer_close_pending
+        && let Some(owner) = endpoint.owner.upgrade()
     {
-        if let Some(owner) = endpoint.owner.upgrade() {
-            endpoint.peer_close_pending = false;
-            owner
-                .deferred_platform_tasks
-                .borrow_mut()
-                .push_back(DeferredPlatformTask::Event {
-                    target_id: endpoint.id,
-                    event_type: "close",
-                });
-        }
+        endpoint.peer_close_pending = false;
+        owner
+            .deferred_platform_tasks
+            .borrow_mut()
+            .push_back(DeferredPlatformTask::Event {
+                target_id: endpoint.id,
+                event_type: "close",
+            });
     }
 }
 
@@ -678,5 +677,65 @@ pub(super) fn release_collected(state: &V8BindingState, id: u64) {
     if owned {
         disentangle(&port, true);
         state.platform_objects.borrow_mut().remove(&id);
+    }
+}
+
+#[cfg(test)]
+mod dispatch_regressions {
+    use super::*;
+    fn eval(scope: &mut v8::PinScope, source: &str) -> String {
+        let source = v8::String::new(scope, source).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope)
+    }
+    #[test]
+    fn native_port_handler_dispatch_is_once_ordered_and_stoppable() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        eval(
+            scope,
+            r#"globalThis.port=new MessageChannel().port1;globalThis.order=[];
+            port.addEventListener('close',e=>order.push('capture:'+e.eventPhase),true);
+            port.addEventListener('close',()=>order.push('before'));
+            port.onclose=()=>order.push('old');
+            port.addEventListener('close',()=>order.push('once'),{once:true});
+            port.onclose=function(e){if(this!==port||e.target!==port||e.currentTarget!==port||!e.isTrusted)throw Error('port event identity');order.push('handler')};true"#,
+        );
+        let key = v8::String::new(scope, "port").unwrap();
+        let port = context
+            .global(scope)
+            .get(scope, key.into())
+            .unwrap()
+            .to_object(scope)
+            .unwrap();
+        let id = stateful_id(scope, port).unwrap();
+        assert!(!dispatch_platform_event_capturing(scope, &state, id, "close", None).unwrap());
+        assert_eq!(
+            eval(scope, "order.join(',')"),
+            "capture:2,before,handler,once"
+        );
+        assert!(!dispatch_platform_event_capturing(scope, &state, id, "close", None).unwrap());
+        assert_eq!(
+            eval(scope, "order.join(',')"),
+            "capture:2,before,handler,once,capture:2,before,handler"
+        );
+        eval(
+            scope,
+            "order=[];port.onclose=e=>{order.push('stop');e.stopImmediatePropagation()};port.addEventListener('close',()=>order.push('must-not-run'));true",
+        );
+        assert!(!dispatch_platform_event_capturing(scope, &state, id, "close", None).unwrap());
+        assert_eq!(eval(scope, "order.join(',')"), "capture:2,before,stop");
     }
 }

@@ -78,12 +78,54 @@ pub fn scene_has_contentful_paint(
         diagnostics: Vec::new(),
     };
     options.background = [0; 4];
-    let pixels = super::rasterize(snapshot, &content_scene, options)?;
-    Ok(pixels.chunks_exact(4).any(|pixel| pixel[3] != 0))
+    super::rasterize_has_ink(snapshot, &content_scene, options)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn tiled_ink_probe_matches_complete_raster_for_late_and_transparent_content() {
+        let mut snapshot = crate::tests::empty_snapshot();
+        snapshot.viewport.width = 130.;
+        snapshot.viewport.height = 130.;
+        let options = RenderOptions {
+            background: [0; 4],
+            ..Default::default()
+        };
+        for (x, y, opacity, expected) in [
+            (1., 1., 1., true),
+            (129., 129., 1., true),
+            (140., 140., 1., false),
+            (1., 1., 0., false),
+        ] {
+            let scene = DisplayList {
+                contract_version: RENDER_CONTRACT_VERSION,
+                width: 130,
+                height: 130,
+                commands: vec![PaintCommand::Opacity {
+                    opacity,
+                    commands: vec![PaintCommand::FillRect {
+                        rect: CssRect {
+                            x,
+                            y,
+                            width: 1.,
+                            height: 1.,
+                        },
+                        color: [255; 4],
+                    }],
+                }],
+                diagnostics: Vec::new(),
+            };
+            let full = crate::rasterize(&snapshot, &scene, options).unwrap();
+            let complete_ink = full.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0);
+            assert_eq!(complete_ink, expected);
+            assert_eq!(
+                crate::rasterize_has_ink(&snapshot, &scene, options).unwrap(),
+                complete_ink
+            );
+        }
+    }
+
     #[test]
     fn transparent_groups_and_noncontent_paint_do_not_contribute() {
         let rect = CssRect {
@@ -192,7 +234,7 @@ pub fn scene_frame_is_presented(
     };
     options.background = [0; 4];
     let pixels = super::rasterize(snapshot, &marker, options)?;
-    Ok(pixels.chunks_exact(4).any(|pixel| pixel[3] != 0))
+    Ok(pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0))
 }
 #[cfg(test)]
 mod frame_coverage_tests {
@@ -206,7 +248,7 @@ mod frame_coverage_tests {
             height: 10.,
         };
         let frame = PaintCommand::EmbeddedDocument { rect, frame: 2 };
-        assert!(frame_coverage(&[frame.clone()], 1).is_empty());
+        assert!(frame_coverage(std::slice::from_ref(&frame), 1).is_empty());
         assert!(
             frame_coverage(
                 &[PaintCommand::Opacity {

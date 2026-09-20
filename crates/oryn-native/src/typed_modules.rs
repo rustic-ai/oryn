@@ -38,10 +38,12 @@ impl TypedModuleFetchResults {
         Ok(())
     }
 }
+#[cfg(test)]
 struct PendingTypedModuleFetch {
     cache: Rc<RefCell<TypedModuleFetchResults>>,
     key: (String, crate::ModuleType),
 }
+#[cfg(test)]
 impl PendingTypedModuleFetch {
     fn reserve(cache: Rc<RefCell<TypedModuleFetchResults>>, requested: &str, kind: crate::ModuleType) -> Result<Self, HostError> {
         let key = (requested.to_owned(), kind);
@@ -57,18 +59,12 @@ impl PendingTypedModuleFetch {
         Ok(Self { cache, key })
     }
 }
+#[cfg(test)]
 impl Drop for PendingTypedModuleFetch {
     fn drop(&mut self) { self.cache.borrow_mut().2.remove(&self.key); }
 }
 fn typed_load_infrastructure(error: impl std::fmt::Display) -> crate::script_load_failure::ScriptLoadFailure {
     crate::script_load_failure::ScriptLoadFailure::Infrastructure(error.to_string())
-}
-fn typed_load_cache_failure(error: HostError) -> crate::script_load_failure::ScriptLoadFailure {
-    match error {
-        HostError::LimitExceeded { resource } => crate::script_load_failure::ScriptLoadFailure::Capacity(resource),
-        HostError::ScriptLoad(failure) => failure,
-        error => typed_load_infrastructure(error),
-    }
 }
 
 fn typed_module_fetch_results(scope: &mut v8::PinScope) -> Rc<RefCell<TypedModuleFetchResults>> {
@@ -146,9 +142,12 @@ mod typed_response_cache_tests {
 }
 
 // Included in raw_v8 so typed modules share native environment and fetch authority.
+type TypedModuleKey = (EnvironmentId, String, crate::ModuleType);
+type TypedModuleResult = Result<v8::Global<v8::Module>, v8::Global<v8::Value>>;
+
 #[derive(Default)]
 struct TypedModules {
-    entries: BTreeMap<(EnvironmentId, String, crate::ModuleType), Option<Result<v8::Global<v8::Module>, v8::Global<v8::Value>>>>,
+    entries: BTreeMap<TypedModuleKey, Option<TypedModuleResult>>,
     values: Vec<(EnvironmentId, v8::Global<v8::Module>, v8::Global<v8::Value>)>,
     source_bytes: BTreeMap<EnvironmentId, usize>,
 }
@@ -212,9 +211,9 @@ fn load_typed_module_record<'s>(scope: &mut v8::PinScope<'s, '_>, base: &str, sp
         return match cached {
             Some(Ok(module)) => {
                 let module=v8::Local::new(scope,module);
-                if kind==crate::ModuleType::Css{if let Err(error)=publish_declarative_css_module(scope,&resolved,Some(module)){
+                if kind==crate::ModuleType::Css&& let Err(error)=publish_declarative_css_module(scope,&resolved,Some(module)){
                     record_module_preparation_failure(scope,typed_load_infrastructure(error));return None;
-                }}
+                }
                 Some(module)
             },
             Some(Err(exception)) => { let exception = v8::Local::new(scope, exception); scope.throw_exception(exception); None }
@@ -283,9 +282,9 @@ fn load_typed_module_record<'s>(scope: &mut v8::PinScope<'s, '_>, base: &str, sp
         Ok(module) => {
             let retained = v8::Global::new(scope, module);
             scope.get_slot_mut::<TypedModules>()?.entries.insert(key, Some(Ok(retained)));
-            if kind==crate::ModuleType::Css{if let Err(error)=publish_declarative_css_module(scope,&resolved,Some(module)){
+            if kind==crate::ModuleType::Css&& let Err(error)=publish_declarative_css_module(scope,&resolved,Some(module)){
                 record_module_preparation_failure(scope,typed_load_infrastructure(error));return None;
-            }}
+            }
             Some(module)
         }
         Err(error) => {
@@ -301,7 +300,7 @@ fn load_typed_module_record<'s>(scope: &mut v8::PinScope<'s, '_>, base: &str, sp
                 let message = v8::String::new(scope, &error)?;
                 let exception = v8::Exception::type_error(scope, message); scope.throw_exception(exception); exception
             };
-            if let Some(url)=parse_url{if V8BindingState::set_native_exception_location(scope,exception,&url,0,0).is_err(){scope.get_slot_mut::<TypedModules>()?.entries.remove(&key);scope.rethrow();return None;}}
+            if let Some(url)=parse_url&& V8BindingState::set_native_exception_location(scope,exception,&url,0,0).is_err(){scope.get_slot_mut::<TypedModules>()?.entries.remove(&key);scope.rethrow();return None;}
             let retained = v8::Global::new(scope, exception);
             if cache_failure {
                 scope.get_slot_mut::<TypedModules>()?.entries.insert(key, Some(Err(retained)));

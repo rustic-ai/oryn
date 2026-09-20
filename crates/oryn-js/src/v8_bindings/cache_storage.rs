@@ -163,7 +163,7 @@ fn request_snapshot(
 }
 fn body(
     scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
+    _state: &Rc<V8BindingState>,
     value: v8::Local<v8::Value>,
     require_ok: bool,
 ) -> Result<ItemState, V8BindingError> {
@@ -452,10 +452,10 @@ fn defer_items(items: &[Item]) {
                     PlatformObjectRecord::ReadableStream(stream) => stream.host_stream_id,
                     _ => None,
                 });
-            if let Some(stream) = stream {
-                if let Some(host) = owner.platform_host.borrow().as_ref() {
-                    host.abandon_http_stream(stream);
-                }
+            if let Some(stream) = stream
+                && let Some(host) = owner.platform_host.borrow().as_ref()
+            {
+                host.abandon_http_stream(stream);
             }
             if !owner.execution_retired() {
                 owner.deferred_platform_tasks.borrow_mut().push_back(
@@ -535,12 +535,13 @@ fn call<'s>(
         if args.length() < required {
             return Err(failure("TypeError"));
         }
-        if matches!(operation, 5 | 6 | 7) {
+        if matches!(operation, 5..=7) {
             let cache = cache.ok_or_else(|| failure("TypeError"))?;
-            if {
+            let res = {
                 let bindings = state.cache_storage.borrow();
                 bindings.pending.len() + bindings.in_flight >= 128
-            } {
+            };
+            if res {
                 return Err(failure("QuotaExceededError"));
             }
             let inputs = if operation == 7 {
@@ -616,27 +617,25 @@ fn call<'s>(
             9 => CacheOperation::Has(units(scope, args.get(0))?),
             10 => CacheOperation::DeleteCache(units(scope, args.get(0))?),
             11 => CacheOperation::CacheNames,
-            0 | 1 | 2 | 3 => {
+            0..=3 => {
                 let (query, name) = query(scope, args.get(1), storage)?;
                 let selected = cache;
-                if storage {
-                    if let Some(name) = name {
-                        let request = request_snapshot(scope, &state, args.get(0))?.0;
-                        return convert(
-                            scope,
+                if storage && let Some(name) = name {
+                    let request = request_snapshot(scope, &state, args.get(0))?.0;
+                    return convert(
+                        scope,
+                        &state,
+                        transport(
                             &state,
-                            transport(
-                                &state,
-                                CacheOperation::MatchNamed {
-                                    name,
-                                    request,
-                                    query,
-                                },
-                            )?,
-                            true,
-                        )
-                        .map(Some);
-                    }
+                            CacheOperation::MatchNamed {
+                                name,
+                                request,
+                                query,
+                            },
+                        )?,
+                        true,
+                    )
+                    .map(Some);
                 }
                 let request = if args.get(0).is_undefined() && matches!(operation, 1 | 2) {
                     None
@@ -801,6 +800,9 @@ fn poll_task(
     let resolver = v8::Local::new(scope, &task.resolver);
     if let Some(error) = failed {
         cancel_items(scope, state, &task.items, error);
+        if retired(state) {
+            return Ok(false);
+        }
         resolver.reject(scope, error);
         return Ok(true);
     }
@@ -813,13 +815,19 @@ fn poll_task(
                 _ => unreachable!(),
             })
             .collect();
-        match transport(
+        let result = transport(
             state,
             CacheOperation::PutAll {
                 cache: task.cache,
                 entries,
             },
-        ) {
+        );
+        // A native transport may re-enter and retire this execution realm.
+        // Worker close alone still permits the current task's settlement.
+        if retired(state) {
+            return Ok(false);
+        }
+        match result {
             Ok(_) => {
                 let value = v8::undefined(scope);
                 resolver.resolve(scope, value.into());
@@ -877,7 +885,16 @@ pub(super) fn poll(
         return Ok(0);
     }
     reap(scope, state)?;
-    poll_pending_with(state, |task| poll_task(scope, state, task))
+    poll_pending_with(state, |task| {
+        let completed = poll_task(scope, state, task)?;
+        if completed && !retired(state) {
+            // Cache settlement is a native task. Run its promise reactions
+            // before another cache completion, including on an otherwise idle
+            // worker. PendingBatch retains unvisited work across reentry.
+            scope.perform_microtask_checkpoint();
+        }
+        Ok(completed)
+    })
 }
 fn poll_pending_with(
     state: &Rc<V8BindingState>,
@@ -935,17 +952,15 @@ fn hide_insecure_exposure(
         let value = global
             .get(scope, key.into())
             .ok_or(V8BindingError::JavaScriptException)?;
-        if let Ok(constructor) = value.try_cast::<v8::Object>() {
-            if let Some(prototype) = constructor
+        if let Ok(constructor) = value.try_cast::<v8::Object>()
+            && let Some(prototype) = constructor
                 .get(scope, prototype.into())
                 .and_then(|value| value.try_cast::<v8::Object>().ok())
-            {
-                if prototype.delete(scope, member.into()) != Some(true) {
-                    return Err(V8BindingError::Allocation(
-                        "insecure cache prototype exposure",
-                    ));
-                }
-            }
+            && prototype.delete(scope, member.into()) != Some(true)
+        {
+            return Err(V8BindingError::Allocation(
+                "insecure cache prototype exposure",
+            ));
         }
     }
     for name in ["caches", "Cache", "CacheStorage"] {
@@ -1049,8 +1064,8 @@ pub fn install(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<(
 }
 pub(super) fn has_pending(state: &V8BindingState) -> bool {
     let bindings = state.cache_storage.borrow();
-    let pending = !bindings.pending.is_empty() || !bindings.reclaimed.borrow().is_empty();
-    pending
+
+    !bindings.pending.is_empty() || !bindings.reclaimed.borrow().is_empty()
 }
 pub(super) fn retire(state: &V8BindingState) {
     let pending = {
@@ -1297,6 +1312,196 @@ mod foreign_request_tests {
         assert!(
             matches!(&*platform_object(&destination,decoy).unwrap(),PlatformObjectRecord::ReadableStream(stream) if !stream.disturbed&&!stream.closed)
         );
+    }
+    #[test]
+    fn completion_microtask_reentry_retires_unvisited_cache_tasks() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(
+            scope,
+            context,
+            Rc::new(RefCell::new(oryn_dom::DomRuntime::new())),
+            RealmId(93),
+            1,
+        )
+        .unwrap();
+        fn retire_cache(
+            scope: &mut v8::PinScope,
+            _: v8::FunctionCallbackArguments,
+            _: v8::ReturnValue,
+        ) {
+            let state = scope
+                .get_current_context()
+                .get_slot::<V8BindingState>()
+                .unwrap();
+            retire(&state);
+        }
+        let function = v8::Function::new(scope, retire_cache).unwrap();
+        let key = v8::String::new(scope, "retireCache").unwrap();
+        context
+            .global(scope)
+            .set(scope, key.into(), function.into());
+        for index in [1, 2] {
+            let resolver = v8::PromiseResolver::new(scope).unwrap();
+            let promise = resolver.get_promise(scope);
+            let key = v8::String::new(scope, &format!("p{index}")).unwrap();
+            context.global(scope).set(scope, key.into(), promise.into());
+            let body = v8::PromiseResolver::new(scope).unwrap();
+            let undefined = v8::undefined(scope);
+            body.resolve(scope, undefined.into());
+            let body_promise = body.get_promise(scope);
+            state.cache_storage.borrow_mut().pending.push(Pending {
+                cache: index,
+                resolver: v8::Global::new(scope, resolver),
+                items: vec![Item {
+                    request: CacheRequest {
+                        url: "https://cache.test/".into(),
+                        method: "GET".into(),
+                        headers: Vec::new(),
+                    },
+                    state: ItemState::Fetch(v8::Global::new(scope, body_promise)),
+                    require_ok: false,
+                    signal: None,
+                }],
+            });
+        }
+        let source = v8::String::new(scope,
+            "globalThis.order=[];p1.catch(()=>{order.push('first');retireCache()});p2.catch(()=>order.push('second'))").unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        poll(scope, &state).unwrap();
+        let source = v8::String::new(scope, "order.join(',')").unwrap();
+        let value = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert_eq!(value.to_rust_string_lossy(scope), "first");
+        assert!(state.cache_storage.borrow().pending.is_empty());
+        assert_eq!(state.cache_storage.borrow().in_flight, 0);
+        assert!(retired(&state));
+    }
+    #[test]
+    fn native_transport_retirement_blocks_settlement_but_worker_close_keeps_current_checkpoint() {
+        use crate::worker_wire::{AgentId, Creator, WorkerError, WorkerTransport};
+        thread_local! {
+            static OWNER: RefCell<std::rc::Weak<V8BindingState>> = const { RefCell::new(std::rc::Weak::new()) };
+        }
+        struct OwnerGuard;
+        impl Drop for OwnerGuard {
+            fn drop(&mut self) {
+                OWNER.with(|owner| *owner.borrow_mut() = std::rc::Weak::new());
+            }
+        }
+        struct Reenter(bool);
+        impl WorkerTransport for Reenter {
+            fn request(
+                &self,
+                request: AgentServiceRequest,
+            ) -> Result<AgentServiceResponse, WorkerError> {
+                let AgentServiceRequest::Service(ServiceRequest::Cache {
+                    creator: Creator::Agent(AgentId(93)),
+                    operation: CacheOperation::PutAll { cache: 1, .. },
+                }) = request
+                else {
+                    panic!("unexpected cache request after native reentry");
+                };
+                OWNER.with(|owner| {
+                    let state = owner.borrow().upgrade().unwrap();
+                    if self.0 {
+                        state.retire_execution();
+                    } else {
+                        state.close_worker_tasks();
+                    }
+                });
+                Ok(AgentServiceResponse::Service(ServiceResponse::Cache(
+                    CacheResult::Done,
+                )))
+            }
+        }
+        super::super::tests::initialize_v8();
+        for retire_execution in [true, false] {
+            let mut isolate = v8::Isolate::new(Default::default());
+            isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+            v8::scope!(let scope,&mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let dom = Rc::new(RefCell::new(oryn_dom::DomRuntime::new()));
+            let document = dom.borrow().document();
+            let state = install_generated_bindings_with_root_for_global(
+                scope,
+                context,
+                dom,
+                RealmId(93),
+                1,
+                document,
+                BindingGlobal::Worker,
+            )
+            .unwrap();
+            OWNER.with(|owner| *owner.borrow_mut() = Rc::downgrade(&state));
+            let _owner = OwnerGuard;
+            state.set_worker_transport(
+                std::sync::Arc::new(Reenter(retire_execution)),
+                Some(Creator::Agent(AgentId(93))),
+                Some("https://cache.test/worker.js".into()),
+            );
+            for index in [1, 2] {
+                let resolver = v8::PromiseResolver::new(scope).unwrap();
+                let promise = resolver.get_promise(scope);
+                let key = v8::String::new(scope, &format!("p{index}")).unwrap();
+                context.global(scope).set(scope, key.into(), promise.into());
+                state.cache_storage.borrow_mut().pending.push(Pending {
+                    cache: index,
+                    resolver: v8::Global::new(scope, resolver),
+                    items: Vec::new(),
+                });
+            }
+            let source = v8::String::new(scope,
+                "globalThis.order=[];p1.then(()=>order.push('first'));p2.then(()=>order.push('second'))").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            assert_eq!(poll(scope, &state).unwrap(), usize::from(!retire_execution));
+            let source = v8::String::new(scope, "order.join(',')").unwrap();
+            let value = v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            assert_eq!(
+                value.to_rust_string_lossy(scope),
+                if retire_execution { "" } else { "first" }
+            );
+            for index in [1, 2] {
+                let key = v8::String::new(scope, &format!("p{index}")).unwrap();
+                let promise = context
+                    .global(scope)
+                    .get(scope, key.into())
+                    .unwrap()
+                    .try_cast::<v8::Promise>()
+                    .unwrap();
+                assert_eq!(
+                    promise.state(),
+                    if !retire_execution && index == 1 {
+                        v8::PromiseState::Fulfilled
+                    } else {
+                        v8::PromiseState::Pending
+                    }
+                );
+            }
+            assert_eq!(state.cache_storage.borrow().in_flight, 0);
+            assert_eq!(
+                state.cache_storage.borrow().pending.len(),
+                usize::from(!retire_execution)
+            );
+            state.retire_execution();
+            assert!(state.cache_storage.borrow().pending.is_empty());
+        }
     }
     #[test]
     fn callback_retirement_cleans_current_and_unvisited_without_revival() {

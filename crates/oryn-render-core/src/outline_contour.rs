@@ -1,5 +1,7 @@
 //! Bounded rectangle-union contours for outlines around inline fragments.
 //! The same disjoint paint primitives reach raster and vector PDF consumers.
+type BoundarySegment = ([f64; 2], [f64; 2]);
+
 use crate::{PaintCommand, RenderError};
 use oryn_common::v4::{CssRect, PaintBorderEdge, PaintClip};
 const LIMIT: usize = 65_536;
@@ -119,7 +121,7 @@ fn ring(
         &expanded(boxes, offset, inner),
     )
 }
-fn boundary(boxes: &[CssRect]) -> Result<Vec<([f64; 2], [f64; 2])>, RenderError> {
+fn boundary(boxes: &[CssRect]) -> Result<Vec<BoundarySegment>, RenderError> {
     let tiles = bands(boxes, &[])?;
     let mut ys = tiles
         .iter()
@@ -262,18 +264,14 @@ pub(super) fn commands(
         "dashed" | "dotted" => {
             let region = ring(boxes, offset, width, 0.)?;
             let edges = boundary(&expanded(boxes, offset, width / 2.))?;
-            let mut pending =
-                std::collections::BTreeMap::<(u64, u64), Vec<([f64; 2], [f64; 2])>>::new();
+            let mut pending = std::collections::BTreeMap::<(u64, u64), Vec<BoundarySegment>>::new();
             for edge in edges {
                 pending.entry(key(edge.0)).or_default().push(edge);
             }
             while let Some(start) = pending.keys().next().copied() {
                 let mut current = start;
                 let mut distance = 0.;
-                loop {
-                    let Some(edges) = pending.get_mut(&current) else {
-                        break;
-                    };
+                while let Some(edges) = pending.get_mut(&current) {
                     let Some((a, b)) = edges.pop() else {
                         pending.remove(&current);
                         break;

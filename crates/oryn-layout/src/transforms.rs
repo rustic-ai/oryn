@@ -19,14 +19,6 @@ impl Matrix {
         }
         Self(result)
     }
-    fn point(self, x: f64, y: f64, z: f64) -> (f64, f64) {
-        let m = self.0;
-        let w = m[3] * x + m[7] * y + m[11] * z + m[15];
-        (
-            (m[0] * x + m[4] * y + m[8] * z + m[12]) / w,
-            (m[1] * x + m[5] * y + m[9] * z + m[13]) / w,
-        )
-    }
     fn rotation(x: f64, y: f64, z: f64, angle: f64) -> Self {
         // Normalize after scaling to avoid overflow for finite large axes.
         let scale = x.abs().max(y.abs()).max(z.abs());

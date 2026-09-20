@@ -146,18 +146,16 @@ pub(super) fn place_outside(
                     if let (Some(offset), Some(model)) = (
                         engine.first_line_baselines.get(&id),
                         geometry.get(&id).and_then(|value| value.box_model.as_ref()),
-                    ) {
-                        if styles.get(&id).is_some_and(|style| {
-                            (style_value(style, "writing-mode", "horizontal-tb") != "horizontal-tb")
-                                == vertical
-                        }) {
-                            first = Some(if vertical {
-                                model.content_box.x + offset
-                            } else {
-                                model.content_box.y + offset
-                            });
-                            break;
-                        }
+                    ) && styles.get(&id).is_some_and(|style| {
+                        (style_value(style, "writing-mode", "horizontal-tb") != "horizontal-tb")
+                            == vertical
+                    }) {
+                        first = Some(if vertical {
+                            model.content_box.x + offset
+                        } else {
+                            model.content_box.y + offset
+                        });
+                        break;
                     }
                     pending.extend(node.children.iter().rev().copied());
                 }

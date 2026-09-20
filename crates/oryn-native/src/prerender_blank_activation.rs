@@ -310,27 +310,20 @@ thread_local! {static FAIL_AFTER_PROMOTION:std::cell::Cell<bool>=const{std::cell
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oryn_js::message_wire::{MessageRequest, WindowTarget};
     fn selected() -> (BrowserContext, PageId, BlankPrerenderActivation) {
-        let context = Browser::new().new_context();
-        let source = context.new_page().page_id();
-        context
-            .install_document_security(source, "https://blank.test/source".into(), &[])
+        let context = Browser::native_test_with_config(Default::default()).new_context();
+        let source_page = context.new_page();
+        let source = source_page.page_id();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
             .unwrap();
-        context
-            .handle_message_wire(
-                source,
-                MessageRequest::RegisterRootDocument {
-                    document_generation: 1,
-                    stream_epoch: 0,
-                },
+        runtime
+            .block_on(
+                source_page.load_html("https://blank.test/source", "<!doctype html><p>source</p>"),
             )
             .unwrap();
-        let creator = Creator::Window {
-            target: WindowTarget::Root,
-            document_generation: 1,
-            stream_epoch: 0,
-        };
+        let creator = context.capture_command_navigation_source(source).unwrap();
         let (destination, _, scope) = context
             .reserve_blank_prerender(source, &creator, "https://blank.test/next?x=one")
             .unwrap();

@@ -241,12 +241,11 @@ impl SharedMemoryRegistry {
         owner: &AgentOwner,
         reference: &SharedMemoryReference,
     ) -> Result<(), String> {
-        if let Some(item) = self.handoffs.get(&reference.handoff) {
-            if item.descriptor != reference.descriptor
-                || item.location != Location::Delivered(recipient(owner))
-            {
-                return Err("foreign shared delivery release".into());
-            }
+        if let Some(item) = self.handoffs.get(&reference.handoff)
+            && (item.descriptor != reference.descriptor
+                || item.location != Location::Delivered(recipient(owner)))
+        {
+            return Err("foreign shared delivery release".into());
         }
         self.handoffs.remove(&reference.handoff);
         self.reap_backings();
@@ -259,12 +258,11 @@ impl SharedMemoryRegistry {
         references: &[SharedMemoryReference],
     ) -> Result<(), String> {
         for reference in references {
-            if let Some(item) = self.handoffs.get(&reference.handoff) {
-                if item.descriptor != reference.descriptor
-                    || !matches!(&item.location,Location::Delivered(recipient)if recipient.principal()==target)
-                {
-                    return Err("foreign shared delivery discard".into());
-                }
+            if let Some(item) = self.handoffs.get(&reference.handoff)
+                && (item.descriptor != reference.descriptor
+                    || !matches!(&item.location,Location::Delivered(recipient)if recipient.principal()==target))
+            {
+                return Err("foreign shared delivery discard".into());
             }
         }
         for reference in references {
@@ -279,10 +277,10 @@ impl SharedMemoryRegistry {
         queued: &[SharedMemoryReference],
     ) -> Result<(), String> {
         for reference in queued {
-            if let Some(item) = self.handoffs.get(&reference.handoff) {
-                if item.descriptor != reference.descriptor || item.location != Location::Queued {
-                    return Err("foreign shared queue release".into());
-                }
+            if let Some(item) = self.handoffs.get(&reference.handoff)
+                && (item.descriptor != reference.descriptor || item.location != Location::Queued)
+            {
+                return Err("foreign shared queue release".into());
             }
         }
         for reference in queued {
@@ -299,12 +297,11 @@ impl SharedMemoryRegistry {
         owner: &AgentOwner,
         reference: &SharedMemoryReference,
     ) -> Result<(), String> {
-        if let Some(item) = self.handoffs.get(&reference.handoff) {
-            if item.descriptor != reference.descriptor
-                || !matches!(&item.location,Location::Source{owner:source,..}if source==owner)
-            {
-                return Err("foreign shared offer abort".into());
-            }
+        if let Some(item) = self.handoffs.get(&reference.handoff)
+            && (item.descriptor != reference.descriptor
+                || !matches!(&item.location,Location::Source{owner:source,..}if source==owner))
+        {
+            return Err("foreign shared offer abort".into());
         }
         self.handoffs.remove(&reference.handoff);
         self.reap_backings();
@@ -317,12 +314,11 @@ impl SharedMemoryRegistry {
         references: &[SharedMemoryReference],
     ) -> Result<(), String> {
         for reference in references {
-            if let Some(item) = self.handoffs.get(&reference.handoff) {
-                if item.descriptor != reference.descriptor
-                    || !matches!(&item.location,Location::Source{owner,..}if principal(owner)==source)
-                {
-                    return Err("foreign shared offer discard".into());
-                }
+            if let Some(item) = self.handoffs.get(&reference.handoff)
+                && (item.descriptor != reference.descriptor
+                    || !matches!(&item.location,Location::Source{owner,..}if principal(owner)==source))
+            {
+                return Err("foreign shared offer discard".into());
             }
         }
         for reference in references {
@@ -383,10 +379,20 @@ mod tests {
             .admit_child(&owner, peer.clone(), "origin")
             .unwrap();
         let (descriptor, _) = registry
-            .allocate(&owner, 4, None, 4096, 0, false, false)
+            .allocate(crate::shared_memory::SharedAllocationInputs {
+                owner: &owner,
+                byte_length: 4,
+                maximum_length: None,
+                granularity: 4096,
+                guard_length: 0,
+                wasm: false,
+                memory64: false,
+            })
             .unwrap();
         let offer = registry.offer_shared(&owner, descriptor).unwrap();
-        registry.commit_shared(&owner, &[offer.clone()]).unwrap();
+        registry
+            .commit_shared(&owner, std::slice::from_ref(&offer))
+            .unwrap();
         registry.release(&owner, descriptor.token).unwrap();
         registry.retire(&owner);
         assert!(registry.backings.contains_key(&descriptor.token));
@@ -414,18 +420,28 @@ mod tests {
             .admit_root(foreign.clone(), "origin".into())
             .unwrap();
         let (descriptor, _) = registry
-            .allocate(&owner, 4, None, 4096, 0, false, false)
+            .allocate(crate::shared_memory::SharedAllocationInputs {
+                owner: &owner,
+                byte_length: 4,
+                maximum_length: None,
+                granularity: 4096,
+                guard_length: 0,
+                wasm: false,
+                memory64: false,
+            })
             .unwrap();
         let offer = registry.offer_shared(&owner, descriptor).unwrap();
         assert!(
             registry
-                .adopt_shared(principal(&owner), &[offer.clone()])
+                .adopt_shared(principal(&owner), std::slice::from_ref(&offer))
                 .is_err()
         );
-        registry.commit_shared(&owner, &[offer.clone()]).unwrap();
+        registry
+            .commit_shared(&owner, std::slice::from_ref(&offer))
+            .unwrap();
         assert!(
             registry
-                .adopt_shared(principal(&foreign), &[offer.clone()])
+                .adopt_shared(principal(&foreign), std::slice::from_ref(&offer))
                 .is_err()
         );
         let queued = registry.adopt_shared(principal(&owner), &[offer]).unwrap();
@@ -458,7 +474,15 @@ mod tests {
         let mut registry = SharedMemoryRegistry::default();
         registry.admit_root(owner.clone(), "origin".into()).unwrap();
         let (descriptor, _) = registry
-            .allocate(&owner, 4, None, 4096, 0, false, false)
+            .allocate(crate::shared_memory::SharedAllocationInputs {
+                owner: &owner,
+                byte_length: 4,
+                maximum_length: None,
+                granularity: 4096,
+                guard_length: 0,
+                wasm: false,
+                memory64: false,
+            })
             .unwrap();
         let offer = registry.offer_shared(&owner, descriptor).unwrap();
         registry.abort_shared_offer(&owner, &offer).unwrap();

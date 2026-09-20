@@ -27,15 +27,6 @@ impl AgentRuntime {
             dom,
         }
     }
-    pub(crate) fn new(host: RawV8Host, dom: SharedDomRuntime) -> Result<Self, HostError> {
-        host.validate_active_arena(&dom)?;
-        let identity = host.agent_host_identity();
-        Ok(Self {
-            host: DocumentHost(Some(host)),
-            identity,
-            dom,
-        })
-    }
 }
 
 /// Exclusive custody during a document turn. This is deliberately neither
@@ -53,9 +44,9 @@ impl DocumentHost {
             .take()
             .ok_or_else(|| HostError::Execution("document has no agent turn custody".into()))
     }
-    pub(crate) fn install(&mut self, host: RawV8Host) -> Result<(), RawV8Host> {
+    pub(crate) fn install(&mut self, host: RawV8Host) -> Result<(), Box<RawV8Host>> {
         if self.0.is_some() {
-            return Err(host);
+            return Err(Box::new(host));
         }
         self.0 = Some(host);
         Ok(())
@@ -88,10 +79,14 @@ mod custody_tests {
         assert!(first.take().is_err());
         assert!(second.install(host).is_ok());
         let extra = RawV8Host::new();
+        let rejected_identity = extra.agent_host_identity();
         let rejected = second
             .install(extra)
-            .err()
-            .expect("occupied driver rejects transfer");
+            .expect_err("occupied driver rejects transfer");
+        assert!(std::rc::Rc::ptr_eq(
+            &rejected_identity,
+            &rejected.agent_host_identity()
+        ));
         drop(rejected);
         assert!(first.install(second.take().unwrap()).is_ok());
         assert!(second.take().is_err());

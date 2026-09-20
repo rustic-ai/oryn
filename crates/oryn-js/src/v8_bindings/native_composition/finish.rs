@@ -5,7 +5,6 @@ enum Phase {
     Validate,
     Commit,
     RestoreFlags,
-    Recover,
     Inverse,
     End,
     Done,
@@ -143,10 +142,6 @@ impl Finish {
                         .set(state.selection_revision.get().wrapping_add(1));
                     self.phase = Phase::End;
                 }
-                Phase::Recover => {
-                    resume_editing_recovery(&state)?;
-                    self.phase = Phase::End;
-                }
                 Phase::End => {
                     if self.event.is_none() {
                         let data = if self.cancel {
@@ -157,14 +152,16 @@ impl Finish {
                         let event = create_native_input_event(
                             scope,
                             &state,
-                            "CompositionEvent",
-                            "compositionend",
-                            true,
-                            false,
-                            true,
-                            0,
-                            None,
-                            &[("data", NativeInputValue::String(data))],
+                            NativeInputEventInputs {
+                                interface: "CompositionEvent",
+                                event_type: "compositionend",
+                                bubbles: true,
+                                cancelable: false,
+                                composed: true,
+                                detail: 0,
+                                related: None,
+                                fields: &[("data", NativeInputValue::String(data))],
+                            },
                         )?;
                         self.event = Some(retained_dom_event::Event::new(
                             scope,
@@ -217,12 +214,14 @@ mod tests {
         let mut notification = clipboard_actions::ClipboardNotification::composition(
             scope,
             &state,
-            target,
-            "beforeinput",
-            "insertCompositionText",
-            "X",
-            true,
-            false,
+            clipboard_actions::CompositionNotificationInputs {
+                target,
+                name: "beforeinput",
+                input_type: "insertCompositionText",
+                text: "X",
+                composing: true,
+                cancelable: false,
+            },
         )
         .unwrap();
         native_platform::publication::fail_after_next_callback();

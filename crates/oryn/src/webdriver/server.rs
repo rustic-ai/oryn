@@ -118,19 +118,17 @@ impl Driver {
             if let Err(result) = reply.send(result) {
                 // A newly created session whose response was lost has no client
                 // owner. Revoke and drain it immediately instead of leaking it.
-                if method == "POST" && path == "/session" {
-                    if let Ok(value) = result {
-                        if let Some(id) = value
-                            .get("sessionId")
-                            .and_then(|value| value.as_string().ok())
-                        {
-                            if let Err(error) = driver.sessions.delete(&id).await {
-                                // Another deletion/shutdown may already own cleanup.
-                                if error.code != "invalid session id" {
-                                    return Err(error);
-                                }
-                            }
-                        }
+                if method == "POST"
+                    && path == "/session"
+                    && let Ok(value) = result
+                    && let Some(id) = value
+                        .get("sessionId")
+                        .and_then(|value| value.as_string().ok())
+                    && let Err(error) = driver.sessions.delete(&id).await
+                {
+                    // Another deletion/shutdown may already own cleanup.
+                    if error.code != "invalid session id" {
+                        return Err(error);
                     }
                 }
             }
@@ -290,20 +288,19 @@ impl Driver {
                 | ["actions"]
         ) || tail.first() == Some(&"element")
             || tail == ["elements"]
-            || tail.first() == Some(&"oryn")
+            || (tail.first() == Some(&"oryn") && tail != ["oryn", "diagnostics", "navigation"])
             || tail == ["permissions"]
             || tail == ["custom-handlers", "set-mode"]
             || tail == ["window", "minimize"]
             || (method == "DELETE" && tail == ["window"]);
-        if handles_prompts {
-            if let Some(text) =
+        if handles_prompts
+            && let Some(text) =
                 super::prompts::handle_pending(&session.current_page()?, &session.prompt_policy)?
-            {
-                return Err(CommandError {
-                    code: "unexpected alert open",
-                    message: text,
-                });
-            }
+        {
+            return Err(CommandError {
+                code: "unexpected alert open",
+                message: text,
+            });
         }
         if tail == ["cookie"] && matches!(method, "GET" | "DELETE") {
             let cookies = session.cookies(method == "DELETE").await?;
@@ -963,7 +960,7 @@ mod tests {
         .await
         .unwrap();
         let script = format!("{base}/execute/sync");
-        driver.command("POST",&script,br#"{"script":"globalThis.capture=document.getElementById('capture');globalThis.ready=new Promise((resolve,reject)=>{capture.onstream=()=>resolve(capture.stream.getTracks().map(t=>t.kind));capture.onerror=()=>reject(capture.error)});return new Promise(resolve=>setTimeout(resolve,1100))","args":[]}"#).await.unwrap();
+        driver.command("POST",&script,br#"{"script":"globalThis.capture=document.getElementById('capture');globalThis.ready=new Promise((resolve,reject)=>{capture.onstream=()=>resolve(capture.stream.getTracks().map(t=>t.kind));capture.onerror=()=>reject(new Error(capture.error.name+': '+capture.error.message))});return new Promise(resolve=>setTimeout(resolve,1100))","args":[]}"#).await.unwrap();
         let element = driver
             .command(
                 "POST",
@@ -1025,7 +1022,7 @@ mod tests {
                 .command(
                     "POST",
                     &script,
-                    br#"{"script":"return control.isValid","args":[]}"#
+                    br#"{"script":"if(!control.isValid)throw new Error(control.invalidReason);return true","args":[]}"#
                 )
                 .await
                 .unwrap(),
@@ -1298,7 +1295,7 @@ mod tests {
             )
             .await
             .unwrap();
-        driver.command("POST",&script,br#"{"script":"capture.setConstraints({width:640,height:480,frameRate:{exact:30},echoCancellation:true});globalThis.ready=new Promise((resolve,reject)=>{capture.ontrack=e=>resolve([e.isTrusted,capture.track instanceof MediaStreamTrack,capture.track.kind,capture.track.getSettings().width]);capture.onerror=()=>reject(capture.error)});return new Promise(resolve=>setTimeout(resolve,1100))","args":[]}"#).await.unwrap();
+        driver.command("POST",&script,br#"{"script":"capture.setConstraints({width:640,height:480,frameRate:{exact:30},echoCancellation:true});globalThis.ready=new Promise((resolve,reject)=>{capture.ontrack=e=>resolve([e.isTrusted,capture.track instanceof MediaStreamTrack,capture.track.kind,capture.track.getSettings().width]);capture.onerror=()=>reject(new Error(capture.error.name+': '+capture.error.message))});return new Promise(resolve=>setTimeout(resolve,1100))","args":[]}"#).await.unwrap();
         let element = driver
             .command(
                 "POST",
@@ -1378,7 +1375,7 @@ mod tests {
                 .await
                 .unwrap();
         }
-        driver.command("POST",&script,br#"{"script":"globalThis.capture=document.getElementById('capture');capture.setConstraints({video:{width:1280,height:720,frameRate:{exact:30}},audio:{sampleSize:16}});globalThis.ready=new Promise((resolve,reject)=>{capture.onstream=resolve;capture.onerror=()=>reject(capture.error)});return new Promise(resolve=>setTimeout(resolve,600))","args":[]}"#).await.unwrap();
+        driver.command("POST",&script,br#"{"script":"globalThis.capture=document.getElementById('capture');capture.setConstraints({video:{width:1280,height:720,frameRate:{exact:30}},audio:{sampleSize:16}});globalThis.ready=new Promise((resolve,reject)=>{capture.onstream=resolve;capture.onerror=()=>reject(new Error(capture.error.name+': '+capture.error.message))});return new Promise(resolve=>setTimeout(resolve,600))","args":[]}"#).await.unwrap();
         let element = driver
             .command(
                 "POST",

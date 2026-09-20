@@ -1,5 +1,8 @@
 //! Broker-backed script fetch shared by executable and module-loading callers.
 //! Parent-owned contexts retain their additional CSP and lifecycle authority.
+#![cfg(any(test, feature = "v8-host"))]
+type EmbedderReporter<'a> = &'a dyn Fn(&Url, bool, bool, &[(String, String)]);
+
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
@@ -16,7 +19,7 @@ use url::Url;
 pub(crate) struct ScriptFetch<'a> {
     pub hash_report: Option<&'a dyn Fn(Vec<crate::csp::ScriptHashReport>)>,
     pub fallback_encoding: Option<&'a str>,
-    pub coep_report: Option<&'a dyn Fn(&Url, bool, bool, &[(String, String)])>,
+    pub coep_report: Option<EmbedderReporter<'a>>,
     pub csp: Option<&'a crate::csp::CspPolicySet>,
     pub nonce: Option<&'a str>,
     pub parser_inserted: bool,
@@ -33,6 +36,7 @@ pub(crate) struct ScriptFetch<'a> {
     pub referrer_policy: Option<&'a str>,
 }
 
+#[cfg(test)]
 pub(crate) fn load(
     broker: &SharedNetworkBroker,
     next_id: &mut u64,
@@ -62,6 +66,7 @@ mod isolation_tests {
             let request_id = request.request_id;
             self.0.lock().unwrap().push(request);
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id,
                 status: 200,
@@ -95,13 +100,15 @@ mod isolation_tests {
             let recorded = Mutex::new(Vec::new());
             let report = |target: &Url, cors, credentials, headers: &[(String, String)]| {
                 recorded.lock().unwrap().extend(policy.response(
-                    "https://app.example",
-                    false,
-                    target,
-                    cors,
-                    credentials,
-                    headers,
-                    "script",
+                    crate::coep_reporting::ResponsePolicyInputs {
+                        origin: "https://app.example",
+                        opaque: false,
+                        target,
+                        cors,
+                        credentials,
+                        headers,
+                        destination: "script",
+                    },
                 ))
             };
             let result = load(
@@ -145,6 +152,7 @@ mod isolation_tests {
         impl NetworkBroker for Partial {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 206,
@@ -220,6 +228,7 @@ mod isolation_tests {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn load_with_taint(
     broker: &SharedNetworkBroker,
     next_id: &mut u64,
@@ -238,6 +247,7 @@ pub(crate) fn load_with_metadata(
     load_metadata_for_type(broker, next_id, options, None, &NOT_CANCELLED)
 }
 
+#[cfg(test)]
 pub(crate) fn load_typed_module(
     broker: &SharedNetworkBroker,
     next_id: &mut u64,
@@ -261,6 +271,7 @@ pub(crate) fn load_with_metadata_cancellable(
     load_metadata_for_type(broker, next_id, options, None, cancel)
 }
 
+#[cfg(feature = "v8-host")]
 pub(crate) fn load_module_cancellable(
     broker: &SharedNetworkBroker,
     next_id: &mut u64,
@@ -588,6 +599,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(request.url);
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 302,
@@ -635,6 +647,7 @@ mod tests {
                 self.0.lock().unwrap().push(request.url.clone());
                 let redirect = request.url.ends_with("start.js");
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if redirect { 302 } else { 200 },
@@ -761,6 +774,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.0.lock().unwrap().push(request.url);
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -850,6 +864,7 @@ mod tests {
         impl NetworkBroker for Reply {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -918,6 +933,28 @@ mod tests {
             assert_eq!(result.is_ok(), expected.is_some());
             assert_eq!(reports.len(), usize::from(expected.is_some()));
             if let Some(exposed) = expected {
+                let result = result.unwrap();
+                assert_eq!(result.hash_evidence.exposed, exposed);
+                assert_eq!(
+                    result.hash_evidence.sha256,
+                    if exposed {
+                        "1XF/E08XndkoxwN6eIa5J89hYn3OVZ/UyB8BrU5jgzk="
+                    } else {
+                        ""
+                    }
+                );
+                let timing = result.timing.expect("network response timing");
+                assert_eq!(timing.response_status, 200);
+                assert_eq!(timing.content_type, "text/javascript");
+                assert_eq!(
+                    timing.decoded_body_size,
+                    Some(b"// Ceci n'est pas un commentaire\n".len() as u64)
+                );
+                // CORS permits hash visibility, but timing details still require TAO.
+                assert_eq!(
+                    timing.allow_details,
+                    Url::parse(url).unwrap().origin() == origin.origin()
+                );
                 let body: serde_json::Value = serde_json::from_slice(&reports[0].body).unwrap();
                 assert_eq!(
                     body[0]["body"]["hash"],
@@ -938,6 +975,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 let redirect = request.url.ends_with("start.js");
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if redirect { 302 } else { 200 },
@@ -1006,6 +1044,7 @@ mod tests {
         impl NetworkBroker for Reply {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: self.status,
@@ -1137,6 +1176,7 @@ mod tests {
                 _ => 200,
             };
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status,
@@ -1233,6 +1273,7 @@ mod tests {
                 );
                 let redirect = request.url.ends_with("start");
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if redirect { 302 } else { 200 },
@@ -1323,6 +1364,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 let css = request.url.ends_with("sheet.css");
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,

@@ -74,30 +74,30 @@ mod tests {
         let headers = vec![("server-timing".into(), ",".repeat(65536))];
         assert_eq!(
             record
-                .response(
-                    "https://example.test/new".into(),
-                    200,
-                    &headers,
-                    now,
-                    now,
-                    None,
-                    false
-                )
+                .response(oryn_js::navigation_timing::NavigationResponse {
+                    url: "https://example.test/new".into(),
+                    status: 200,
+                    headers: &headers,
+                    fetch: now,
+                    received: now,
+                    details: None,
+                    no_referrer: false
+                })
                 .unwrap_err(),
             "navigation timing scratch capacity"
         );
         assert_eq!(record.snapshot().name, "https://example.test/old");
         drop(occupied);
         record
-            .response(
-                "https://example.test/new".into(),
-                200,
-                &headers,
-                now,
-                now,
-                None,
-                false,
-            )
+            .response(oryn_js::navigation_timing::NavigationResponse {
+                url: "https://example.test/new".into(),
+                status: 200,
+                headers: &headers,
+                fetch: now,
+                received: now,
+                details: None,
+                no_referrer: false,
+            })
             .unwrap();
         assert!(
             budget.0.load(Ordering::Acquire) < 1024 * 1024,
@@ -121,15 +121,15 @@ mod tests {
         .unwrap();
         assert!(
             record
-                .response(
-                    "https://example.test/new".into(),
-                    200,
-                    &[],
-                    now,
-                    now,
-                    None,
-                    false
-                )
+                .response(oryn_js::navigation_timing::NavigationResponse {
+                    url: "https://example.test/new".into(),
+                    status: 200,
+                    headers: &[],
+                    fetch: now,
+                    received: now,
+                    details: None,
+                    no_referrer: false
+                })
                 .is_err()
         );
         assert_eq!(record.snapshot().name, "https://example.test/old");

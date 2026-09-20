@@ -39,12 +39,11 @@ pub fn stylesheet_has_font_sources(source: &str, base: &str) -> Result<bool, Str
         if count > 8192 {
             return Err("font source traversal exceeds native bounds".into());
         }
-        if rule.rule_type == 5 {
-            if let Some(text) = rule.declaration_text {
-                if !font_face_sources(&text, base)?.is_empty() {
-                    return Ok(true);
-                }
-            }
+        if rule.rule_type == 5
+            && let Some(text) = rule.declaration_text
+            && !font_face_sources(&text, base)?.is_empty()
+        {
+            return Ok(true);
         }
         rules.extend(rule.children);
     }

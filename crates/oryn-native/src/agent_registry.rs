@@ -97,7 +97,7 @@ struct Agent {
 }
 impl Agent {
     fn pump(&mut self, hub: &mut oryn_js::message_wire::MessageHub) -> Result<(), WorkerError> {
-        use oryn_js::message_wire::{Principal, WireValue};
+        use oryn_js::message_wire::Principal;
         let sender = Principal::Agent(self.bootstrap.id.0);
         let mut remapped = Vec::new();
         if let Some(failure) = &self.failure {
@@ -579,7 +579,7 @@ impl AgentRegistry {
         source: oryn_js::service_worker_wire::MessageSource,
         mut value: oryn_js::message_wire::WireValue,
     ) -> Result<(), WorkerError> {
-        use oryn_js::message_wire::{Principal, WireValue};
+        use oryn_js::message_wire::Principal;
         use oryn_js::service_worker_wire::{ClientType, MessageSource};
         value
             .validate()
@@ -715,7 +715,7 @@ impl AgentRegistry {
             return Err(error("profile target is not a service worker"));
         }
         let metadata = serde_json::to_vec(&source)
-            .map_err(|failure| error(&failure.to_string()))?
+            .map_err(|failure| error(failure.to_string()))?
             .len();
         if metadata.saturating_add(value.retained_bytes()) > agent.bootstrap.limits.queue_bytes {
             return Err(WorkerError::new(
@@ -735,7 +735,7 @@ impl AgentRegistry {
             Ok(()) => Ok(()),
             Err(failure) => {
                 hub.dispose_queued_value(recipient, cleanup)
-                    .map_err(|cleanup| error(&format!("{failure}; {cleanup}")))?;
+                    .map_err(|cleanup| error(format!("{failure}; {cleanup}")))?;
                 Err(failure)
             }
         }
@@ -1319,10 +1319,10 @@ impl AgentRegistry {
             }
         }
         let agent = self.agents.remove(&id).unwrap();
-        if let Some(key) = &agent.shared {
-            if self.shared.get(key) == Some(&id) {
-                self.shared.remove(key);
-            }
+        if let Some(key) = &agent.shared
+            && self.shared.get(key) == Some(&id)
+        {
+            self.shared.remove(key);
         }
         // Dedicated descendants must not survive their owning worker.
         if let Err(error) = self.retire_owner(hub, &AgentOwner::Agent(id)) {
@@ -1393,10 +1393,10 @@ impl AgentRegistry {
                 .map(|(id, _)| *id)
                 .collect::<Vec<_>>();
             for id in clients {
-                if let Some(client) = agent.clients.remove(&id) {
-                    if let Err(error) = dispose_client(hub, client) {
-                        failure.get_or_insert(error);
-                    }
+                if let Some(client) = agent.clients.remove(&id)
+                    && let Err(error) = dispose_client(hub, client)
+                {
+                    failure.get_or_insert(error);
                 }
             }
             if agent.clients.is_empty() && agent.bootstrap.kind != AgentKind::Service {
@@ -1588,10 +1588,10 @@ impl AgentRegistry {
                     .map(|(id, _)| *id)
                     .collect::<Vec<_>>();
                 for id in clients {
-                    if let Some(client) = agent.clients.remove(&id) {
-                        if let Err(error) = dispose_client(hub, client) {
-                            failure.get_or_insert(error);
-                        }
+                    if let Some(client) = agent.clients.remove(&id)
+                        && let Err(error) = dispose_client(hub, client)
+                    {
+                        failure.get_or_insert(error);
                     }
                 }
                 if agent.clients.is_empty() && agent.bootstrap.kind != AgentKind::Service {
@@ -1605,10 +1605,10 @@ impl AgentRegistry {
         let mut agents = std::mem::take(&mut self.pending_termination);
         for id in removed {
             if let Some(mut agent) = self.agents.remove(&id) {
-                if let Some(key) = &agent.shared {
-                    if self.shared.get(key) == Some(&id) {
-                        self.shared.remove(key);
-                    }
+                if let Some(key) = &agent.shared
+                    && self.shared.get(key) == Some(&id)
+                {
+                    self.shared.remove(key);
                 }
                 agent.control.clear();
                 agent.control_bytes = 0;
@@ -1691,6 +1691,14 @@ fn event_bytes(event: &AgentEvent) -> usize {
             result: Err(error), ..
         } => error.name.len().saturating_add(error.message.len()),
         _ => 128,
+    }
+}
+
+impl AgentRegistry {
+    pub(crate) fn execution_placements(&self) -> Vec<serde_json::Value> {
+        self.agents.iter().map(|(id,agent)|serde_json::json!({"id":id.0,"kind":agent.bootstrap.kind,"script_url":agent.bootstrap.script_url,
+            "live":!agent.closed&&!agent.terminated&&agent.failure.is_none(),"placement":agent.process.execution_placement(),
+            "owners":agent.clients.values().map(|client|crate::execution_placement::owner(&client.owner)).collect::<Vec<_>>()})).collect()
     }
 }
 
@@ -3543,13 +3551,5 @@ mod tests {
         registry.release(&mut hub, &owner(8), &sibling).unwrap();
         finish_pending(&mut registry, &mut hub);
         assert_eq!(state.lock().unwrap().stops, 1);
-    }
-}
-
-impl AgentRegistry {
-    pub(crate) fn execution_placements(&self) -> Vec<serde_json::Value> {
-        self.agents.iter().map(|(id,agent)|serde_json::json!({"id":id.0,"kind":agent.bootstrap.kind,"script_url":agent.bootstrap.script_url,
-            "live":!agent.closed&&!agent.terminated&&agent.failure.is_none(),"placement":agent.process.execution_placement(),
-            "owners":agent.clients.values().map(|client|crate::execution_placement::owner(&client.owner)).collect::<Vec<_>>()})).collect()
     }
 }

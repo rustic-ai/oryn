@@ -175,10 +175,10 @@ impl PromptController {
             .map(|state| state.pending.is_some() && state.response.is_none() && !state.cancelled)
             .unwrap_or(false)
     }
-    fn validate<'a>(
-        state: &'a mut ControllerState,
+    fn validate(
+        state: &mut ControllerState,
         token: PromptToken,
-    ) -> Result<&'a mut PendingPrompt, PromptError> {
+    ) -> Result<&mut PendingPrompt, PromptError> {
         if state.retired {
             return Err(PromptError::Retired);
         }

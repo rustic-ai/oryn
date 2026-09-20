@@ -227,3 +227,11 @@ async fn child_animation_frame_callback_updates_parent_sample_before_paint() {
     page.evaluate("globalThis.a=document.querySelector('article').animate([{width:'10px'},{width:'110px'}],{duration:100,fill:'both'});a.pause();a.currentTime=0;frames[0].requestAnimationFrame(()=>{a.currentTime=75});undefined").await.unwrap();
     assert_eq!(article_width(&page.paint_snapshot().await.unwrap()), 85.);
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn nested_shadow_move_keeps_paused_transition_until_actual_removal() {
+    let context = Browser::in_process_with_config(Default::default()).new_context();
+    let page = context.new_page();
+    page.load_html("https://animation.test/nested-move", "<!doctype html><style>article{display:block;width:0;transition:width 10s linear}</style><article></article><div id=host></div>").await.unwrap();
+    assert_eq!(page.evaluate(r#"(()=>{const target=document.querySelector('article');getComputedStyle(target).width;target.style.width='1000px';getComputedStyle(target).width;const animation=target.getAnimations()[0];animation.pause();animation.currentTime=1000;const first=document.getElementById('host').attachShadow({mode:'open'});first.innerHTML='<div></div>';const second=first.querySelector('div').attachShadow({mode:'open'});second.innerHTML='<style>article{display:block;transition:width 10s linear}</style><section></section>';second.querySelector('section').moveBefore(target,null);if(target.getAnimations()[0]!==animation||getComputedStyle(target).width!=='100px')return false;target.remove();getComputedStyle(target).width;return animation.playState==='idle'})()"#).await.unwrap(), "true");
+}

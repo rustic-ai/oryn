@@ -1,5 +1,22 @@
 //! Column measure and line-fragment placement. Text is shaped at the used
 //! column inline size before fragment selection, never sliced from screen paint.
+
+/// Inputs for fragment flow.
+pub(crate) struct ColumnFragmentFlow<'a> {
+    pub(crate) columns: Columns,
+    pub(crate) root: u64,
+    pub(crate) origin: (f64, f64),
+    pub(crate) scroll: (f64, f64),
+    pub(crate) block_extent: f64,
+    pub(crate) mode: &'a str,
+    pub(crate) nodes: &'a BTreeMap<u64, &'a LayoutNode>,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) geometry: &'a mut BTreeMap<u64, NodeGeometry>,
+    pub(crate) offsets: &'a mut BTreeMap<u64, (f64, f64)>,
+    pub(crate) text: &'a mut BTreeMap<u64, Vec<PaintTextFragment>>,
+    pub(crate) layout: &'a mut TextLayout,
+    pub(crate) engine: &'a mut TextEngine,
+}
 use super::*;
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Columns {
@@ -118,8 +135,10 @@ impl Columns {
             .collect::<Vec<_>>();
         let total = heights.iter().sum::<f64>();
         let tallest = heights.iter().copied().fold(0f64, f64::max);
-        let target = if !self.balance && self.limit.is_some() {
-            self.limit.unwrap()
+        let target = if !self.balance
+            && let Some(limit) = self.limit
+        {
+            limit
         } else {
             let mut low = tallest.max(total / self.count as f64);
             let mut high = total.max(low);
@@ -175,11 +194,11 @@ impl Columns {
                 line_break.before.x += dx;
                 line_break.before.y += dy;
             }
-            if let Some(after) = &mut line_break.after {
-                if let Some((dx, dy)) = shifts.get(line_break.line + 1) {
-                    after.x += dx;
-                    after.y += dy;
-                }
+            if let Some(after) = &mut line_break.after
+                && let Some((dx, dy)) = shifts.get(line_break.line + 1)
+            {
+                after.x += dx;
+                after.y += dy;
             }
         }
         layout.width = self.available;
@@ -201,13 +220,15 @@ mod tests {
             balance: false,
             reverse: false,
         };
-        let mut layout = TextLayout::default();
-        layout.lines = (0..4)
-            .map(|index| ("A".into(), 10., 24., index as f64 * 20., 0.))
-            .collect();
-        layout.line_heights = vec![20.; 4];
-        layout.height = 80.;
-        layout.width = 100.;
+        let mut layout = TextLayout {
+            lines: (0..4)
+                .map(|index| ("A".into(), 10., 24., index as f64 * 20., 0.))
+                .collect(),
+            line_heights: vec![20.; 4],
+            height: 80.,
+            width: 100.,
+            ..TextLayout::default()
+        };
         assert_eq!(columns.place(&mut layout), 40.);
         assert_eq!(
             layout
@@ -259,8 +280,10 @@ mod tests {
         let columns = Columns::resolve(&style, 110., Some(10.), 16., ViewportState::default())
             .unwrap()
             .unwrap();
-        let mut layout = TextLayout::default();
-        layout.lines = (0..3).map(|_| ("a".into(), 5., 10., 0., 0.)).collect();
+        let mut layout = TextLayout {
+            lines: (0..3).map(|_| ("a".into(), 5., 10., 0., 0.)).collect(),
+            ..TextLayout::default()
+        };
         columns.place(&mut layout);
         assert_eq!(
             layout.lines.iter().map(|line| line.4).collect::<Vec<_>>(),
@@ -350,21 +373,23 @@ impl ParagraphBreaks {
 /// Fragment a freshly formatted, column-width logical flow. Break candidates
 /// come from native line/block boundaries; glyphs are never cut out of a screen
 /// bitmap and fragmented element boxes retain each physical client rectangle.
-pub(super) fn fragment_flow(
-    columns: Columns,
-    root: u64,
-    origin: (f64, f64),
-    scroll: (f64, f64),
-    block_extent: f64,
-    mode: &str,
-    nodes: &BTreeMap<u64, &LayoutNode>,
-    styles: &ComputedStyles,
-    geometry: &mut BTreeMap<u64, NodeGeometry>,
-    offsets: &mut BTreeMap<u64, (f64, f64)>,
-    text: &mut BTreeMap<u64, Vec<PaintTextFragment>>,
-    layout: &mut TextLayout,
-    engine: &mut TextEngine,
-) -> Result<f64, String> {
+pub(super) fn fragment_flow(params: ColumnFragmentFlow<'_>) -> Result<f64, String> {
+    let ColumnFragmentFlow {
+        columns,
+        root,
+        origin,
+        scroll,
+        block_extent,
+        mode,
+        nodes,
+        styles,
+        geometry,
+        offsets,
+        text,
+        layout,
+        engine,
+    } = params;
+
     let axis = Axis {
         origin,
         vertical: writing_mode::Axes::new(mode, false).vertical,
@@ -697,8 +722,11 @@ pub(super) fn fragment_flow(
             let size = finish - begin;
             let height = if let Some(height) = section_height(index) {
                 height
-            } else if !columns.balance && columns.limit.is_some() && span.is_none() {
-                columns.limit.unwrap()
+            } else if !columns.balance
+                && let Some(limit) = columns.limit
+                && span.is_none()
+            {
+                limit
             } else {
                 let mut low = (size / columns.count as f64).max(0.01);
                 let mut high = size.max(low);
@@ -802,15 +830,14 @@ pub(super) fn fragment_flow(
             }
             current = nodes.get(&node).and_then(|node| node.parent);
         }
-        if let Some(owner) = owner {
-            if let Some(rect) = geometry
+        if let Some(owner) = owner
+            && let Some(rect) = geometry
                 .get(&owner)
                 .and_then(|value| value.box_model.as_ref())
                 .map(|model| model.border_box)
-            {
-                let target = map(rect);
-                monolithic_owner.insert(*id, (target.x - rect.x, target.y - rect.y));
-            }
+        {
+            let target = map(rect);
+            monolithic_owner.insert(*id, (target.x - rect.x, target.y - rect.y));
         }
     }
     let map_owned = |id: u64, rect: CssRect| {
@@ -880,32 +907,32 @@ pub(super) fn fragment_flow(
         if *id == root || excluded(id) {
             continue;
         }
-        if let Some(value) = geometry.get(id) {
-            if let Some(model) = &value.box_model {
-                let input = if value.client_rects.len() > 1 {
-                    value.client_rects.as_slice()
+        if let Some(value) = geometry.get(id)
+            && let Some(model) = &value.box_model
+        {
+            let input = if value.client_rects.len() > 1 {
+                value.client_rects.as_slice()
+            } else {
+                std::slice::from_ref(&model.border_box)
+            };
+            for rect in input {
+                let logical = axis.logical(*rect);
+                let count = if monolithic_owner.contains_key(id) {
+                    1
                 } else {
-                    std::slice::from_ref(&model.border_box)
+                    ranges
+                        .iter()
+                        .filter(|range| logical.bottom() > range.start && logical.y < range.end)
+                        .count()
+                        .max(1)
                 };
-                for rect in input {
-                    let logical = axis.logical(*rect);
-                    let count = if monolithic_owner.contains_key(id) {
-                        1
-                    } else {
-                        ranges
-                            .iter()
-                            .filter(|range| logical.bottom() > range.start && logical.y < range.end)
-                            .count()
-                            .max(1)
-                    };
-                    fragment_count = fragment_count
-                        .checked_add(count)
-                        .ok_or("multicol fragment count overflow")?;
-                    if fragment_count > 1_000_000 {
-                        return Err(
-                            "multicol retained rectangles exceed 1000000 resource budget".into(),
-                        );
-                    }
+                fragment_count = fragment_count
+                    .checked_add(count)
+                    .ok_or("multicol fragment count overflow")?;
+                if fragment_count > 1_000_000 {
+                    return Err(
+                        "multicol retained rectangles exceed 1000000 resource budget".into(),
+                    );
                 }
             }
         }
@@ -914,30 +941,30 @@ pub(super) fn fragment_flow(
         if *id == root || excluded(id) {
             continue;
         }
-        if let Some(value) = geometry.get_mut(id) {
-            if let Some(model) = &mut value.box_model {
-                let rects = if value.client_rects.len() > 1 {
-                    value
-                        .client_rects
-                        .iter()
-                        .flat_map(|rect| owned_fragments(*id, *rect))
-                        .collect::<Vec<_>>()
-                } else {
-                    owned_fragments(*id, model.border_box)
-                };
-                if let Some(rect) = rects.iter().copied().reduce(union) {
-                    offsets.insert(*id, (rect.width, rect.height));
-                    model.border_box = rect;
-                    model.padding_box = owned_fragments(*id, model.padding_box)
-                        .into_iter()
-                        .reduce(union)
-                        .unwrap_or(rect);
-                    model.content_box = owned_fragments(*id, model.content_box)
-                        .into_iter()
-                        .reduce(union)
-                        .unwrap_or(rect);
-                    value.client_rects = rects;
-                }
+        if let Some(value) = geometry.get_mut(id)
+            && let Some(model) = &mut value.box_model
+        {
+            let rects = if value.client_rects.len() > 1 {
+                value
+                    .client_rects
+                    .iter()
+                    .flat_map(|rect| owned_fragments(*id, *rect))
+                    .collect::<Vec<_>>()
+            } else {
+                owned_fragments(*id, model.border_box)
+            };
+            if let Some(rect) = rects.iter().copied().reduce(union) {
+                offsets.insert(*id, (rect.width, rect.height));
+                model.border_box = rect;
+                model.padding_box = owned_fragments(*id, model.padding_box)
+                    .into_iter()
+                    .reduce(union)
+                    .unwrap_or(rect);
+                model.content_box = owned_fragments(*id, model.content_box)
+                    .into_iter()
+                    .reduce(union)
+                    .unwrap_or(rect);
+                value.client_rects = rects;
             }
         }
         if let Some(fragments) = text.get_mut(id) {

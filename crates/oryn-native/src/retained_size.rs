@@ -1,5 +1,7 @@
 //! Conservative retained allocation accounting. Container capacities and owned
 //! buffers are charged; allocator implementation bookkeeping is not measured.
+#![cfg(feature = "v8-host")]
+
 pub(crate) struct Size(pub(crate) usize);
 impl Size {
     pub(crate) fn add(&mut self, n: usize) -> Result<(), String> {

@@ -39,13 +39,13 @@ pub(super) fn identify(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) ->
     }
 }
 pub(super) fn valid(frame: &Frame) -> bool {
-    if let Some(planes) = &frame.planes {
-        if !frame.bitmap.as_ref().is_some_and(|bitmap| {
+    if let Some(planes) = &frame.planes
+        && !frame.bitmap.as_ref().is_some_and(|bitmap| {
             crate::message_wire::VideoFrameData::i420_size(bitmap.width, bitmap.height)
                 == Some(planes.len())
-        }) {
-            return false;
-        }
+        })
+    {
+        return false;
     }
     frame.bitmap.as_ref().is_some_and(|bitmap| {
         image_bitmap::valid(bitmap)
@@ -136,21 +136,23 @@ pub(super) fn image(frame: &Frame) -> Result<DecodedImage, V8BindingError> {
     raster_canvas_image_transformed(
         &mut output,
         bitmap,
-        [
-            x as f64,
-            y as f64,
-            w as f64,
-            h as f64,
-            0.,
-            0.,
-            frame.display[0] as f64,
-            frame.display[1] as f64,
-        ],
-        true,
-        1.,
-        CANVAS_IDENTITY,
-        CanvasDrawState::default().composite,
-        &[],
+        CanvasImageInputs {
+            rect: [
+                x as f64,
+                y as f64,
+                w as f64,
+                h as f64,
+                0.,
+                0.,
+                frame.display[0] as f64,
+                frame.display[1] as f64,
+            ],
+            smooth: true,
+            global_alpha: 1.,
+            matrix: CANVAS_IDENTITY,
+            composite: CanvasDrawState::default().composite,
+            clips: &[],
+        },
     );
     if frame.rotation != 0 || frame.flip {
         let pixels = image::RgbaImage::from_raw(output.width, output.height, output.rgba)
@@ -385,11 +387,9 @@ pub(super) fn construct(
     if let (Some(width), Some(height)) = (display[0], display[1]) {
         frame.display = [width, height];
     }
-    if discard_alpha {
-        if let Some(bitmap) = &mut frame.bitmap {
-            for pixel in bitmap.rgba.chunks_exact_mut(4) {
-                pixel[3] = 255;
-            }
+    if discard_alpha && let Some(bitmap) = &mut frame.bitmap {
+        for pixel in bitmap.rgba.as_chunks_mut::<4>().0 {
+            pixel[3] = 255;
         }
     }
     if !valid(&frame) {
@@ -470,7 +470,7 @@ fn member(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
                         .instance_templates
                         .borrow()
                         .get("DOMRectReadOnly")
-                        .cloned()
+                        .and_then(|template| template.to_global(scope))
                         .ok_or(V8BindingError::MissingInterface("DOMRectReadOnly"))?;
                     let object = v8::Local::new(scope, &template)
                         .new_instance(scope)

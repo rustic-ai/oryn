@@ -168,11 +168,9 @@ pub fn font_family_names(source: &str) -> Vec<String> {
         match token {
             Token::QuotedString(value) => words.push(value.to_string()),
             Token::Ident(value) => words.push(value.to_string()),
-            Token::Comma => {
-                if !words.is_empty() {
-                    names.push(words.join(" "));
-                    words.clear();
-                }
+            Token::Comma if !words.is_empty() => {
+                names.push(words.join(" "));
+                words.clear();
             }
             _ => {}
         }

@@ -95,7 +95,7 @@ fn frame_commit_retains_prepared_response_activity_in_reused_and_replaced_realms
     struct Buffered;
     impl crate::network::NetworkBroker for Buffered{
         fn send(&self,request:crate::network::NetworkRequest)->Result<crate::network::NetworkResponse,crate::network::NetworkError>{
-            Ok(crate::network::NetworkResponse{timing:None,request_id:request.request_id,status:200,headers:vec![],body:vec![1]})
+            Ok(crate::network::NetworkResponse{response_policy: None,timing:None,request_id:request.request_id,status:200,headers:vec![],body:vec![1]})
         }
     }
     let browser=crate::Browser::in_process_with_config(Default::default());
@@ -129,8 +129,7 @@ fn frame_commit_retains_prepared_response_activity_in_reused_and_replaced_realms
             resolved_addrs:vec![],security:Default::default()}).unwrap();
         let parsed=oryn_dom::html::parse("<p>committed</p>");
         let document=dom.borrow_mut().import_subtree(&parsed.dom,parsed.document).unwrap();
-        let realm=host.commit_frame_document_with_resource_owners(frame,origin,dom.clone(),document,
-            Some("https://replacement.test/"),Some(broker.clone()),Some(prepared.clone()),None).unwrap();
+        let realm=host.commit_frame_document_with_resource_owners(crate::host::FrameResourceCommitInput { frame, origin, dom: dom.clone(), document, committed_url: Some("https://replacement.test/"), resource_broker: Some(broker.clone()), resource_client: Some(prepared.clone()), ancestor_capture: None }).unwrap();
         if index==0{assert_eq!(realm,initial,"first same-origin commit reuses its Window");}
         else{assert_ne!(realm,initial);}
         assert_eq!(host.resource_job_activity_for_realm(realm).0,1,"unread response remains owned after commit");
@@ -167,7 +166,7 @@ fn retirement_and_environment_replacement_never_recover_an_old_endpoint() {
     assert!(endpoints_for_environment(scope,current).is_some());
     retire_environment(scope,current.id);
     assert!(current_fetch_endpoint(scope).is_none());
-    assert!(scope.get_slot::<RealmEndpointRegistry>().unwrap().0.get(&realm).is_none());
+    assert!(!scope.get_slot::<RealmEndpointRegistry>().unwrap().0.contains_key(&realm));
 }
 
 #[cfg(unix)]

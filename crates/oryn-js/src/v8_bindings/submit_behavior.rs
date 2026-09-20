@@ -30,7 +30,12 @@ pub(super) fn install(
     state: &V8BindingState,
     constructors: &BTreeMap<&'static str, v8::Global<v8::Function>>,
 ) -> Result<(), V8BindingError> {
-    // Window-only interfaces are intentionally absent from worker globals.
+    // The installation map includes unexposed interfaces for inheritance.
+    // Cache this Window-only constructor only in a Window realm.
+    if state.binding_global != BindingGlobal::Window {
+        state.submit_behaviors.constructor.borrow_mut().take();
+        return Ok(());
+    }
     let Some(constructor) = constructors.get("HTMLSubmitButtonBehavior") else {
         state.submit_behaviors.constructor.borrow_mut().take();
         return Ok(());
@@ -316,15 +321,16 @@ pub(super) fn set(
     Ok(())
 }
 
+pub(super) fn owned_native_root(record: &Record) -> Option<Rc<oryn_dom::TrackedNodeLease>> {
+    record.target.clone()
+}
+
 #[cfg(test)]
 mod regressions {
     use super::*;
     fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, source: &str) -> v8::Local<'s, v8::Value> {
         let source = v8::String::new(scope, source).unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap()
+        super::super::test_eval::run(scope, source)
     }
     #[test]
     fn window_only_constructor_cache_does_not_require_worker_exposure() {
@@ -369,6 +375,7 @@ mod regressions {
           const fresh=new HTMLSubmitButtonBehavior();check(fresh.form===null&&fresh.labels.length===0&&!fresh.disabled&&fresh.name==='','defaults');
           customElements.define('x-submit',class extends HTMLElement{static formAssociated=true;constructor(){super();this.behavior=new HTMLSubmitButtonBehavior();this.i=this.attachInternals({behaviors:[this.behavior]});this.i.setFormValue('must-not-submit');}});
           customElements.define('x-plain',class extends HTMLElement{constructor(){super();this.behavior=new HTMLSubmitButtonBehavior();this.i=this.attachInternals({behaviors:[this.behavior]});}});
+          const [x,y,b,f,g,l,p]=['x','y','b','f','g','l','p'].map(id=>document.getElementById(id));
           check(x.i.behaviors[0]===x.behavior&&Object.isFrozen(x.i.behaviors),'frozen identity');
           check(x.behavior.form===f&&x.behavior.labels[0]===l,'native owner and labels');
           x.behavior.name='action';x.behavior.value='save';y.behavior.name='other';y.behavior.value='ignored';
@@ -419,7 +426,7 @@ mod regressions {
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         eval(
             scope,
-            "customElements.define('x-hidden-behavior',class extends HTMLElement{static formAssociated=true;constructor(){super();this.attachInternals({behaviors:[new HTMLSubmitButtonBehavior()]})});globalThis.host=document.createElement('x-hidden-behavior');true",
+            "customElements.define('x-hidden-behavior',class extends HTMLElement{static formAssociated=true;constructor(){super();this.attachInternals({behaviors:[new HTMLSubmitButtonBehavior()]})}});globalThis.host=document.createElement('x-hidden-behavior');true",
         );
         let id = state
             .platform_objects
@@ -512,8 +519,4 @@ mod regressions {
           return true;
         })()"#).is_true());
     }
-}
-
-pub(super) fn owned_native_root(record: &Record) -> Option<Rc<oryn_dom::TrackedNodeLease>> {
-    record.target.clone()
 }

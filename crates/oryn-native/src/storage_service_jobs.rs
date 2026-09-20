@@ -65,6 +65,7 @@ impl ServiceJobCoordinator {
     fn scope_key(partition: &str, origin: &str, scope: &str) -> Key {
         (partition.into(), origin.into(), scope.into())
     }
+    #[cfg(test)]
     pub(crate) fn retain_client(
         self: &Arc<Self>,
         partition: &str,
@@ -110,6 +111,7 @@ impl ServiceJobCoordinator {
             lifetime: lifetime.into(),
         })
     }
+    #[cfg(test)]
     pub(crate) fn retain_event(
         self: &Arc<Self>,
         partition: &str,
@@ -151,6 +153,7 @@ impl ServiceJobCoordinator {
             lifetime: lifetime.into(),
         })
     }
+    #[cfg(test)]
     pub(crate) fn begin_activation(
         self: &Arc<Self>,
         partition: &str,

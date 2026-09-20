@@ -42,10 +42,11 @@ pub(in super::super) fn start(
     let mut pending = VecDeque::from([(root.clone(), id)]);
     let mut visited = BTreeSet::new();
     let mut targets = VecDeque::new();
-    if {
+    let res = {
         let platform = root.native_platform.borrow();
         platform.aborts.len().saturating_add(platform.abort_depth) >= 128
-    } {
+    };
+    if res {
         return Err(V8BindingError::Allocation(
             "AbortSignal publication capacity",
         ));
@@ -107,15 +108,14 @@ pub(in super::super) fn start(
     // Everything fallible precedes marking. Strong wrapper handles retain all
     // signals and the reason until their complete algorithm lists are drained.
     for target in &targets {
-        if let Some(owner) = target.owner.upgrade() {
-            if let Some(PlatformObjectRecord::AbortSignal(signal)) =
+        if let Some(owner) = target.owner.upgrade()
+            && let Some(PlatformObjectRecord::AbortSignal(signal)) =
                 owner.platform_objects.borrow_mut().get_mut(&target.id)
-            {
-                signal.aborted = true;
-                signal.reason = Some(platform_listener_graph::Value::new(scope, reason));
-                signal.foreign_sources.clear();
-                signal.foreign_followers.clear();
-            }
+        {
+            signal.aborted = true;
+            signal.reason = Some(platform_listener_graph::Value::new(scope, reason));
+            signal.foreign_sources.clear();
+            signal.foreign_followers.clear();
         }
     }
     if !targets.is_empty() {

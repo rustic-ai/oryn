@@ -228,7 +228,7 @@ pub struct NativePointerDispatch {
     input: NativePointerInput,
     action: NativePointerAction,
     phase: Phase,
-    scrollbar: Option<(Option<NodeId>, Option<(ScrollbarGesture, f64)>)>,
+    scrollbar: Option<ScrollbarTarget>,
     hit: Option<NodeId>,
     target: Option<NodeId>,
     previous: Option<NodeId>,
@@ -332,14 +332,25 @@ impl NativePointerDispatch {
     }
     fn release_claim(&self) {
         let mut registry = self.state.native_pointers.borrow_mut();
-        if let Some(pointer) = registry.pointers.get_mut(&self.input.id) {
+        let remove_unused = if let Some(pointer) = registry.pointers.get_mut(&self.input.id) {
             if pointer
                 .boundary_claim
                 .as_ref()
                 .is_some_and(|claim| Rc::ptr_eq(claim, &self.claim))
             {
                 pointer.boundary_claim = None;
+                // Reserving a dispatch lane does not activate a pointer. A
+                // dormant touch move (or canceled preparation) can finish
+                // before any native input is admitted into this record.
+                pointer.last_input.is_none()
+            } else {
+                false
             }
+        } else {
+            false
+        };
+        if remove_unused {
+            registry.pointers.remove(&self.input.id);
         }
     }
 
@@ -353,17 +364,17 @@ impl NativePointerDispatch {
         if self.phase == Phase::Done {
             return;
         }
-        if self.boundary_started && self.owner.current() {
-            if let Some(pointer) = self
+        if self.boundary_started
+            && self.owner.current()
+            && let Some(pointer) = self
                 .state
                 .native_pointers
                 .borrow_mut()
                 .pointers
                 .get_mut(&self.input.id)
-            {
-                pointer.boundary_pending.take();
-                pointer.boundary_retry = None;
-            }
+        {
+            pointer.boundary_pending.take();
+            pointer.boundary_retry = None;
         }
         self.prompt.take();
         self.event.take();
@@ -413,12 +424,14 @@ impl NativePointerDispatch {
                 Event::new(
                     scope,
                     &self.state,
-                    input,
-                    target,
-                    name,
-                    true,
-                    cancelable,
-                    None,
+                    event::PointerEventInputs {
+                        input,
+                        target,
+                        name,
+                        bubbles: true,
+                        cancelable,
+                        related: None,
+                    },
                 )
             })?);
         }
@@ -454,10 +467,10 @@ impl NativePointerDispatch {
             self.focus = allocation::try_optional(|| pointer_focus(&self.state, target))?;
             self.focus_started = true;
         }
-        if let Some(focus) = &mut self.focus {
-            if !focus.poll(scope, &self.state)? {
-                return Ok(false);
-            }
+        if let Some(focus) = &mut self.focus
+            && !focus.poll(scope, &self.state)?
+        {
+            return Ok(false);
         }
         self.focus.take();
         self.focus_started = false;
@@ -688,16 +701,15 @@ impl NativePointerDispatch {
                 }
                 Phase::Capture | Phase::ReleaseCapture => {
                     if self.capture.is_none() {
-                        if self.phase == Phase::ReleaseCapture {
-                            if let Some(pointer) = state
+                        if self.phase == Phase::ReleaseCapture
+                            && let Some(pointer) = state
                                 .native_pointers
                                 .borrow_mut()
                                 .pointers
                                 .get_mut(&input.id)
-                            {
-                                pointer.buttons = 0;
-                                pointer.pending_capture = None;
-                            }
+                        {
+                            pointer.buttons = 0;
+                            pointer.pending_capture = None;
                         }
                         self.capture = Some(allocation::boxed(|| Capture::new(&state, &input)));
                     }
@@ -783,15 +795,16 @@ impl NativePointerDispatch {
                         return Ok(None);
                     };
                     self.allowed = accepted;
-                    if name == "pointerdown" && !accepted && self.owner.current() {
-                        if let Some(pointer) = state
+                    if name == "pointerdown"
+                        && !accepted
+                        && self.owner.current()
+                        && let Some(pointer) = state
                             .native_pointers
                             .borrow_mut()
                             .pointers
                             .get_mut(&input.id)
-                        {
-                            pointer.prevent_mouse = true;
-                        }
+                    {
+                        pointer.prevent_mouse = true;
                     }
                     self.phase = Phase::InterestAdmit;
                 }
@@ -850,18 +863,18 @@ impl NativePointerDispatch {
                         let Some(accepted) = self.touch_event(scope, name)? else {
                             return Ok(None);
                         };
-                        if !accepted && self.owner.current() {
-                            if let Some(pointer) = state
+                        if !accepted
+                            && self.owner.current()
+                            && let Some(pointer) = state
                                 .native_pointers
                                 .borrow_mut()
                                 .pointers
                                 .get_mut(&input.id)
-                            {
-                                pointer.prevent_mouse = true;
-                                pointer.down_targets.clear();
-                                if let Some(contact) = pointer.touch_contact.as_mut() {
-                                    contact.prevent_default();
-                                }
+                        {
+                            pointer.prevent_mouse = true;
+                            pointer.down_targets.clear();
+                            if let Some(contact) = pointer.touch_contact.as_mut() {
+                                contact.prevent_default();
                             }
                         }
                     }
@@ -943,20 +956,18 @@ impl NativePointerDispatch {
                             self.phase = Phase::TouchRangeFocus;
                             continue;
                         }
-                        if !result
+                        if (!result
                             || matches!(
                                 action,
                                 NativePointerAction::Up | NativePointerAction::Cancel
-                            )
-                        {
-                            if let Some(pointer) = state
+                            ))
+                            && let Some(pointer) = state
                                 .native_pointers
                                 .borrow_mut()
                                 .pointers
                                 .get_mut(&input.id)
-                            {
-                                pointer.range = None;
-                            }
+                        {
+                            pointer.range = None;
                         }
                     }
                     self.phase = Phase::Pinch;
@@ -1204,15 +1215,14 @@ impl NativePointerDispatch {
                             return Ok(None);
                         };
                         self.range.take();
-                        if !result || action == NativePointerAction::Up {
-                            if let Some(pointer) = state
+                        if (!result || action == NativePointerAction::Up)
+                            && let Some(pointer) = state
                                 .native_pointers
                                 .borrow_mut()
                                 .pointers
                                 .get_mut(&input.id)
-                            {
-                                pointer.range = None;
-                            }
+                        {
+                            pointer.range = None;
                         }
                     }
                     self.phase = Phase::MoveSelection;
@@ -1249,15 +1259,14 @@ impl NativePointerDispatch {
                         self.selection_result = result;
                         self.selection.take();
                     }
-                    if self.owner.current() {
-                        if let Some(pointer) = state
+                    if self.owner.current()
+                        && let Some(pointer) = state
                             .native_pointers
                             .borrow_mut()
                             .pointers
                             .get_mut(&input.id)
-                        {
-                            pointer.selection = self.selection_result;
-                        }
+                    {
+                        pointer.selection = self.selection_result;
                     }
                     self.phase = Phase::Context;
                 }
@@ -1267,13 +1276,14 @@ impl NativePointerDispatch {
                     } else {
                         NativePointerAction::Down
                     };
-                    if input.primary && input.button == 2 && action == when {
-                        if self
+                    if input.primary
+                        && input.button == 2
+                        && action == when
+                        && self
                             .event(scope, &input, self.target.unwrap(), "contextmenu", true)?
                             .is_none()
-                        {
-                            return Ok(None);
-                        }
+                    {
+                        return Ok(None);
                     }
                     self.phase = if action == NativePointerAction::Cancel
                         || action == NativePointerAction::Up && input.buttons == 0
@@ -1299,12 +1309,12 @@ impl NativePointerDispatch {
                         } else {
                             state.dom.borrow().pointer_click_target(down, self.target)?
                         };
-                        if let Some(click) = click {
-                            if !state.dom.borrow().control_disabled(click)? {
-                                let wrapper = wrap_node(scope, &state, click)?;
-                                self.activation_target = Some(v8::Global::new(scope, wrapper));
-                                self.click = Some(click);
-                            }
+                        if let Some(click) = click
+                            && !state.dom.borrow().control_disabled(click)?
+                        {
+                            let wrapper = wrap_node(scope, &state, click)?;
+                            self.activation_target = Some(v8::Global::new(scope, wrapper));
+                            self.click = Some(click);
                         }
                         if let Some(pointer) = state
                             .native_pointers
@@ -1365,13 +1375,13 @@ impl NativePointerDispatch {
                     self.phase = Phase::Dblclick
                 }
                 Phase::Dblclick => {
-                    if input.button == 0 && self.click_count == 2 {
-                        if self
+                    if input.button == 0
+                        && self.click_count == 2
+                        && self
                             .event(scope, &input, self.click.unwrap(), "dblclick", true)?
                             .is_none()
-                        {
-                            return Ok(None);
-                        }
+                    {
+                        return Ok(None);
                     }
                     self.phase = Phase::Cleanup
                 }
@@ -1494,8 +1504,19 @@ mod tests {
             button: 1,
             ..Default::default()
         };
-        let mut event =
-            Event::new(scope, &state, &input, node, "auxclick", true, true, None).unwrap();
+        let mut event = Event::new(
+            scope,
+            &state,
+            event::PointerEventInputs {
+                input: &input,
+                target: node,
+                name: "auxclick",
+                bubbles: true,
+                cancelable: true,
+                related: None,
+            },
+        )
+        .unwrap();
         native_platform::publication::fail_after_next_callback();
         assert!(event.poll(scope).is_err());
         assert!(event.retry_safe());
@@ -1535,15 +1556,17 @@ mod tests {
         let mut canceled = Event::new(
             scope,
             &state,
-            &NativePointerInput {
-                button: 1,
-                ..Default::default()
+            event::PointerEventInputs {
+                input: &NativePointerInput {
+                    button: 1,
+                    ..Default::default()
+                },
+                target: node,
+                name: "auxclick",
+                bubbles: true,
+                cancelable: true,
+                related: None,
             },
-            node,
-            "auxclick",
-            true,
-            true,
-            None,
         )
         .unwrap();
         assert_eq!(canceled.poll(scope).unwrap(), Some(false));
@@ -1551,15 +1574,17 @@ mod tests {
         let mut right = Event::new(
             scope,
             &state,
-            &NativePointerInput {
-                button: 2,
-                ..Default::default()
+            event::PointerEventInputs {
+                input: &NativePointerInput {
+                    button: 2,
+                    ..Default::default()
+                },
+                target: node,
+                name: "auxclick",
+                bubbles: true,
+                cancelable: true,
+                related: None,
             },
-            node,
-            "auxclick",
-            true,
-            true,
-            None,
         )
         .unwrap();
         assert_eq!(right.poll(scope).unwrap(), Some(true));

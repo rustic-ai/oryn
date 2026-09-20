@@ -663,20 +663,6 @@ fn default_effect(state: &V8BindingState, target: NodeId, store: &Store) -> Opti
     None
 }
 
-fn default_drop(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    target: NodeId,
-    store: &Store,
-    x: f64,
-    y: f64,
-) -> Result<bool, V8BindingError> {
-    let mut operation = drop_default::DropDefault::new(state, target, store, x, y);
-    operation
-        .poll(scope)?
-        .ok_or(V8BindingError::Allocation("native drop default suspended"))
-}
-
 fn caret_owned_by(state: &V8BindingState, caret: BoundaryPoint, owner: NodeId) -> bool {
     let dom = state.dom.borrow();
     dom.is_connected(caret.container).unwrap_or(false)
@@ -693,35 +679,8 @@ fn caret_owned_by(state: &V8BindingState, caret: BoundaryPoint, owner: NodeId) -
         && validate_boundary_offset(&dom, caret.container, caret.offset).is_ok()
 }
 
-/// A move captures every participating owner in one undo identity; it never
-/// deletes the current Selection after drop callbacks have changed that Selection.
-fn move_selected(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    target: NodeId,
-    store: &Store,
-    source: &SelectedSource,
-    x: f64,
-    y: f64,
-) -> Result<bool, V8BindingError> {
-    if !source.move_target(state, target) || default_effect(state, target, store).is_none() {
-        return Ok(false);
-    }
-    let Some(caret) = selection_movement::drop_caret(state, target, x, y)? else {
-        return Ok(false);
-    };
-    let text = oryn_dom::dom_string::from_units(&store.get_data("text/plain"));
-    if matches!(&source.kind, SelectedKind::Control { .. })
-        && state.dom.borrow().is_text_control(target)
-    {
-        let mut job = control_move::ControlMove::new(state, source, target, caret.offset, &text);
-        job.poll(scope)?
-            .ok_or(V8BindingError::Allocation("control drag move suspended"))
-    } else {
-        move_mixed(scope, state, target, store, source, caret, &text)
-    }
-}
 /// Compatibility entry point; retained native input owns RichMove directly.
+#[cfg(test)]
 fn move_mixed(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,

@@ -1,5 +1,16 @@
 //! Native navigation timing custody. Clones share measured phases, not a new
 //! clock; cached documents and prerender activation retain the same record.
+
+/// Inputs for response.
+pub struct NavigationResponse<'a> {
+    pub url: String,
+    pub status: u16,
+    pub headers: &'a [(String, String)],
+    pub fetch: Instant,
+    pub received: Instant,
+    pub details: Option<ResourceTimingMetadata>,
+    pub no_referrer: bool,
+}
 use crate::platform::ResourceTimingMetadata;
 use std::{
     collections::BTreeMap,
@@ -468,16 +479,17 @@ impl NavigationTiming {
             }
         })
     }
-    pub fn response(
-        &self,
-        url: String,
-        status: u16,
-        headers: &[(String, String)],
-        fetch: Instant,
-        received: Instant,
-        details: Option<ResourceTimingMetadata>,
-        no_referrer: bool,
-    ) -> Result<(), String> {
+    pub fn response(&self, params: NavigationResponse<'_>) -> Result<(), String> {
+        let NavigationResponse {
+            url,
+            status,
+            headers,
+            fetch,
+            received,
+            details,
+            no_referrer,
+        } = params;
+
         self.update_metadata(
             incoming_headers(&url, headers, details.as_ref())?,
             server_timing_scratch(headers)?,
@@ -707,16 +719,15 @@ impl NavigationTiming {
             ("workerStart", record.worker_start.map(ms).unwrap_or(0.)),
             ("criticalCHRestart", 0.),
         ]);
-        if let Some((source, start, end)) = &record.unload {
-            if final_origin.as_ref() == Some(source)
-                && record
-                    .redirects
-                    .iter()
-                    .all(|hop| origin(&hop.url).as_ref() == Some(source))
-            {
-                values.insert("unloadEventStart", ms(*start));
-                values.insert("unloadEventEnd", ms(*end));
-            }
+        if let Some((source, start, end)) = &record.unload
+            && final_origin.as_ref() == Some(source)
+            && record
+                .redirects
+                .iter()
+                .all(|hop| origin(&hop.url).as_ref() == Some(source))
+        {
+            values.insert("unloadEventStart", ms(*start));
+            values.insert("unloadEventEnd", ms(*end));
         }
         let transport = record
             .details
@@ -837,15 +848,15 @@ mod tests {
                 content_type: "text/html".into(),
             };
             record
-                .response(
-                    "https://timing.test/".into(),
-                    200,
-                    &[("content-encoding".into(), "gzip".into())],
-                    start,
-                    at(start, 1),
-                    Some(details),
-                    false,
-                )
+                .response(NavigationResponse {
+                    url: "https://timing.test/".into(),
+                    status: 200,
+                    headers: &[("content-encoding".into(), "gzip".into())],
+                    fetch: start,
+                    received: at(start, 1),
+                    details: Some(details),
+                    no_referrer: false,
+                })
                 .unwrap();
             record.finish(at(start, 2), 2048);
             let snapshot = record.snapshot();
@@ -860,15 +871,15 @@ mod tests {
         let start = Instant::now();
         let record = NavigationTiming::new(start, Kind::Navigate);
         record
-            .response(
-                "https://timing.test/".into(),
-                200,
-                &[("content-encoding".into(), "gzip".into())],
-                start,
-                at(start, 1),
-                None,
-                false,
-            )
+            .response(NavigationResponse {
+                url: "https://timing.test/".into(),
+                status: 200,
+                headers: &[("content-encoding".into(), "gzip".into())],
+                fetch: start,
+                received: at(start, 1),
+                details: None,
+                no_referrer: false,
+            })
             .unwrap();
         assert_eq!(record.snapshot().values["encodedBodySize"], 0.);
         record.finish_encoded(at(start, 2), 1024, Some(37));
@@ -908,15 +919,15 @@ mod tests {
                 content_type: "text/html".into(),
             };
             record
-                .response(
-                    "https://timing.test/".into(),
-                    200,
-                    &[("content-encoding".into(), "identity".into())],
-                    start,
-                    at(start, 1),
-                    Some(details),
-                    false,
-                )
+                .response(NavigationResponse {
+                    url: "https://timing.test/".into(),
+                    status: 200,
+                    headers: &[("content-encoding".into(), "identity".into())],
+                    fetch: start,
+                    received: at(start, 1),
+                    details: Some(details),
+                    no_referrer: false,
+                })
                 .unwrap();
             record.finish(at(start, 2), 37);
             record.finish(at(start, 9), 888);
@@ -944,40 +955,40 @@ mod tests {
             )
             .unwrap();
         record
-            .response(
-                "https://destination.test/".into(),
-                200,
-                &[],
-                at(start, 3),
-                at(start, 4),
-                None,
-                false,
-            )
+            .response(NavigationResponse {
+                url: "https://destination.test/".into(),
+                status: 200,
+                headers: &[],
+                fetch: at(start, 3),
+                received: at(start, 4),
+                details: None,
+                no_referrer: false,
+            })
             .unwrap();
         assert_eq!(record.snapshot().values["redirectCount"], 1.);
         assert_eq!(record.snapshot().values["redirectEnd"], 2.);
         record
-            .response(
-                "https://destination.test/".into(),
-                200,
-                &[],
-                at(start, 3),
-                at(start, 4),
-                None,
-                true,
-            )
+            .response(NavigationResponse {
+                url: "https://destination.test/".into(),
+                status: 200,
+                headers: &[],
+                fetch: at(start, 3),
+                received: at(start, 4),
+                details: None,
+                no_referrer: true,
+            })
             .unwrap();
         assert_eq!(record.snapshot().values["redirectCount"], 0.);
         record
-            .response(
-                "https://different.test/".into(),
-                200,
-                &[],
-                at(start, 3),
-                at(start, 4),
-                None,
-                false,
-            )
+            .response(NavigationResponse {
+                url: "https://different.test/".into(),
+                status: 200,
+                headers: &[],
+                fetch: at(start, 3),
+                received: at(start, 4),
+                details: None,
+                no_referrer: false,
+            })
             .unwrap();
         assert_eq!(record.snapshot().values["redirectStart"], 0.);
         record.set_opaque(true);

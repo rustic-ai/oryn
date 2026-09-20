@@ -1,5 +1,47 @@
 //! Parent registry access for native worker service routes. Author code never
 //! chooses the storage partition, security origin, or principal being serviced.
+
+/// Inputs for inherit frame worker policy at url.
+pub(crate) struct InheritedFramePolicyInputs<'a> {
+    pub(crate) page: PageId,
+    pub(crate) frame: String,
+    pub(crate) generation: u64,
+    pub(crate) epoch: u64,
+    pub(crate) parent: &'a oryn_js::message_wire::WindowTarget,
+    pub(crate) parent_generation: u64,
+    pub(crate) parent_epoch: u64,
+    pub(crate) document_url: &'a str,
+}
+/// Inputs for bind frame worker policy with sandbox.
+pub(crate) struct FramePolicyInputs<'a> {
+    pub(crate) page: PageId,
+    pub(crate) frame: String,
+    pub(crate) generation: u64,
+    pub(crate) epoch: u64,
+    pub(crate) url: &'a str,
+    pub(crate) token: &'a str,
+    pub(crate) opaque_sandbox: bool,
+}
+/// Inputs for register activation parent.
+pub(crate) struct ActivationParentInputs {
+    pub(crate) page: PageId,
+    pub(crate) frame: String,
+    pub(crate) generation: u64,
+    pub(crate) epoch: u64,
+    pub(crate) parent: oryn_js::message_wire::WindowTarget,
+    pub(crate) parent_generation: u64,
+    pub(crate) parent_epoch: u64,
+}
+/// Inputs for register isolation container.
+pub(crate) struct IsolationContainerInputs {
+    pub(crate) page: PageId,
+    pub(crate) frame: String,
+    pub(crate) generation: u64,
+    pub(crate) epoch: u64,
+    pub(crate) allow: String,
+    pub(crate) source: String,
+    pub(crate) sandbox: Option<String>,
+}
 use super::*;
 #[path = "parser_encoding_policy.rs"]
 mod parser_encoding_policy;
@@ -108,41 +150,40 @@ impl BrowserContext {
         if !retained_job {
             live.as_ref().map_err(|error| error.clone())?;
         }
-        if live.is_ok() {
-            if let AgentOwner::Agent(id) = owner {
-                self.inner
-                    .worker_policies
-                    .lock()
-                    .map_err(|_| worker_lock_error("CSP event registry"))?
-                    .admit_csp_events(*id, &violations)?;
-            }
+        if live.is_ok()
+            && let AgentOwner::Agent(id) = owner
+        {
+            self.inner
+                .worker_policies
+                .lock()
+                .map_err(|_| worker_lock_error("CSP event registry"))?
+                .admit_csp_events(*id, &violations)?;
         }
-        if live.is_ok() {
-            if let AgentOwner::Window {
+        if live.is_ok()
+            && let AgentOwner::Window {
                 page,
                 target,
                 generation,
                 epoch,
             } = owner
-            {
-                self.publish_context_event_batch(
-                    violations
-                        .iter()
-                        .map(
-                            |violation| crate::context_service::ContextEvent::CspViolation {
-                                target_page_id: *page,
-                                target_creator: Some(oryn_js::worker_wire::Creator::Window {
-                                    target: target.clone(),
-                                    document_generation: *generation,
-                                    stream_epoch: *epoch,
-                                }),
-                                violation: violation.clone(),
-                            },
-                        )
-                        .collect(),
-                )
-                .map_err(|error| WorkerError::new("QuotaExceededError", error.to_string()))?;
-            }
+        {
+            self.publish_context_event_batch(
+                violations
+                    .iter()
+                    .map(
+                        |violation| crate::context_service::ContextEvent::CspViolation {
+                            target_page_id: *page,
+                            target_creator: Some(oryn_js::worker_wire::Creator::Window {
+                                target: target.clone(),
+                                document_generation: *generation,
+                                stream_epoch: *epoch,
+                            }),
+                            violation: violation.clone(),
+                        },
+                    )
+                    .collect(),
+            )
+            .map_err(|error| WorkerError::new("QuotaExceededError", error.to_string()))?;
         }
         for violation in violations {
             // Retained service jobs may outlive a client Document. Their native
@@ -187,6 +228,7 @@ impl BrowserContext {
     }
 }
 impl BrowserContext {
+    #[cfg(test)]
     pub(crate) fn native_media_element_delegated(
         &self,
         owner: &AgentOwner,
@@ -435,6 +477,7 @@ impl BrowserContext {
                 .map_or(&[][..], Vec::as_slice),
         ))
     }
+    #[cfg(all(test, feature = "v8-host"))]
     pub(crate) fn record_document_isolation(
         &self,
         page: PageId,
@@ -790,7 +833,7 @@ impl BrowserContext {
                 memory64,
             } => {
                 let (descriptor, fd) = registry
-                    .allocate(
+                    .allocate(crate::shared_memory::SharedAllocationInputs {
                         owner,
                         byte_length,
                         maximum_length,
@@ -798,7 +841,7 @@ impl BrowserContext {
                         guard_length,
                         wasm,
                         memory64,
-                    )
+                    })
                     .map_err(|error| WorkerError::new("DataCloneError", error))?;
                 SharedMemoryResponse {
                     isolated,
@@ -854,9 +897,16 @@ impl BrowserContext {
                 timeout_ns,
             } => {
                 let wait = registry
-                    .admit_wait(
-                        owner, id, descriptor, acquire, offset, width64, expected, timeout_ns,
-                    )
+                    .admit_wait(crate::shared_memory::WaitAdmissionInputs {
+                        owner,
+                        id,
+                        descriptor,
+                        acquire,
+                        offset,
+                        width64,
+                        expected,
+                        timeout_ns,
+                    })
                     .map_err(|error| WorkerError::new("InvalidStateError", error))?;
                 SharedMemoryResponse {
                     isolated,
@@ -1328,9 +1378,9 @@ impl RootDocumentLifetime {
 #[derive(Default)]
 pub(super) struct WorkerPolicyRegistry {
     pub(super) prerenders: BTreeMap<(PageId, u64, u64), prerender_policy::Scope>,
-    pub(super) prerender_completions: BTreeMap<(PageId, u64, u64), prerender_policy::Completion>,
+    prerender_completions: BTreeMap<(PageId, u64, u64), prerender_policy::Completion>,
     #[cfg(unix)]
-    pub(super) blank_activations: BTreeMap<(PageId, u64, u64), prerender_blank_activation::Record>,
+    blank_activations: BTreeMap<(PageId, u64, u64), prerender_blank_activation::Record>,
     parser_encoding: BTreeMap<String, parser_encoding_policy::Checkpoint>,
     pub(super) window_inventories: BTreeMap<
         PageId,
@@ -1417,13 +1467,13 @@ impl BrowserContext {
             for owner in stale {
                 policies.secure_contexts.remove(&owner);
             }
-            if let Some(previous) = policies.secure_contexts.get(&owner) {
-                if *previous != secure {
-                    return Err(WorkerError::new(
-                        "SecurityError",
-                        "committed secure-context state changed",
-                    ));
-                }
+            if let Some(previous) = policies.secure_contexts.get(&owner)
+                && *previous != secure
+            {
+                return Err(WorkerError::new(
+                    "SecurityError",
+                    "committed secure-context state changed",
+                ));
             }
             if policies.secure_contexts.len() >= 4096
                 && !policies.secure_contexts.contains_key(&owner)
@@ -1491,14 +1541,18 @@ impl BrowserContext {
     }
     pub(crate) fn register_isolation_container(
         &self,
-        page: PageId,
-        frame: String,
-        generation: u64,
-        epoch: u64,
-        allow: String,
-        source: String,
-        sandbox: Option<String>,
+        params: IsolationContainerInputs,
     ) -> Result<(), RuntimeError> {
+        let IsolationContainerInputs {
+            page,
+            frame,
+            generation,
+            epoch,
+            allow,
+            source,
+            sandbox,
+        } = params;
+
         if allow.len() > 16384
             || source.len() > 16384
             || sandbox.as_ref().is_some_and(|value| value.len() > 16384)
@@ -1635,14 +1689,18 @@ impl BrowserContext {
     }
     pub(crate) fn register_activation_parent(
         &self,
-        page: PageId,
-        frame: String,
-        generation: u64,
-        epoch: u64,
-        parent: oryn_js::message_wire::WindowTarget,
-        parent_generation: u64,
-        parent_epoch: u64,
+        params: ActivationParentInputs,
     ) -> Result<(), RuntimeError> {
+        let ActivationParentInputs {
+            page,
+            frame,
+            generation,
+            epoch,
+            parent,
+            parent_generation,
+            parent_epoch,
+        } = params;
+
         let owner = AgentOwner::Window {
             page,
             target: oryn_js::message_wire::WindowTarget::Frame(frame),
@@ -1919,6 +1977,7 @@ impl BrowserContext {
         };
         Ok(policies.transient_activation(&owner, false, Instant::now()))
     }
+    #[cfg(all(test, feature = "v8-host"))]
     pub(crate) fn consume_service_interaction(&self, agent: AgentId) -> Result<(), WorkerError> {
         let bootstrap = self.worker_bootstrap(agent)?;
         if bootstrap.kind != oryn_js::worker_wire::AgentKind::Service {
@@ -2082,7 +2141,11 @@ impl BrowserContext {
             let policy = scope.policy.as_mut().ok_or_else(|| {
                 RuntimeError::ProtocolViolation("prerender policy uncommitted".into())
             })?;
+            // The exact native authority check above admitted a same-document
+            // URL; preserve its meta origin independently of inherited policy.
+            let document_self_url = policy.document_self_url.clone();
             *policy = policy.clone().with_document_url(url.into());
+            policy.document_self_url = document_self_url;
             scope.url = url.into();
             return Ok(());
         }
@@ -2134,7 +2197,11 @@ impl BrowserContext {
                 let policy = policies.frames.get_mut(&key).ok_or_else(|| {
                     RuntimeError::ProtocolViolation("realm URL policy missing".into())
                 })?;
+                // The exact native authority check above admitted a same-document
+                // URL; preserve its meta origin independently of inherited policy.
+                let document_self_url = policy.document_self_url.clone();
                 *policy = policy.clone().with_document_url(url.into());
+                policy.document_self_url = document_self_url;
             }
         }
         Ok(())
@@ -2277,7 +2344,7 @@ impl BrowserContext {
             RuntimeError::ProtocolViolation("frame metadata has no committed policy".into())
         })?;
         if let Some(value) = meta_csp {
-            let mut csp = crate::csp::CspPolicySet::from_agent_policy(&policy);
+            let mut csp = crate::csp::CspPolicySet::from_agent_policy(policy);
             csp.set_document_self_origin(&document_origin.0);
             if !csp.contains_meta(value) {
                 csp.install_meta(value);
@@ -2304,6 +2371,7 @@ impl BrowserContext {
         }
         Ok(())
     }
+    #[cfg(test)]
     pub(crate) fn prepare_frame_worker_policy(
         &self,
         page: PageId,
@@ -2334,7 +2402,7 @@ impl BrowserContext {
         {
             self.window_worker_creator(page, target, *document_generation, *stream_epoch)?;
         }
-        let mut policy = crate::csp::CspPolicySet::from_headers(url, headers);
+        let policy = crate::csp::CspPolicySet::from_headers(url, headers);
         let mut snapshot = policy.worker_snapshot();
         for (name, value) in headers.iter().filter(|(name, _)| {
             [
@@ -2464,6 +2532,7 @@ impl BrowserContext {
             .insert(token.clone(), (page, url.into(), snapshot));
         Ok(token)
     }
+    #[cfg(test)]
     pub(crate) fn prepare_local_frame_worker_policy(
         &self,
         page: PageId,
@@ -2610,6 +2679,7 @@ impl BrowserContext {
         }
         Ok(policy.clone())
     }
+    #[cfg(test)]
     pub(crate) fn bind_frame_worker_policy(
         &self,
         page: PageId,
@@ -2619,20 +2689,30 @@ impl BrowserContext {
         url: &str,
         token: &str,
     ) -> Result<(), RuntimeError> {
-        self.bind_frame_worker_policy_with_sandbox(
-            page, frame, generation, epoch, url, token, false,
-        )
+        self.bind_frame_worker_policy_with_sandbox(FramePolicyInputs {
+            page,
+            frame,
+            generation,
+            epoch,
+            url,
+            token,
+            opaque_sandbox: false,
+        })
     }
     pub(crate) fn bind_frame_worker_policy_with_sandbox(
         &self,
-        page: PageId,
-        frame: String,
-        generation: u64,
-        epoch: u64,
-        url: &str,
-        token: &str,
-        opaque_sandbox: bool,
+        params: FramePolicyInputs<'_>,
     ) -> Result<(), RuntimeError> {
+        let FramePolicyInputs {
+            page,
+            frame,
+            generation,
+            epoch,
+            url,
+            token,
+            opaque_sandbox,
+        } = params;
+
         self.page_storage_partition(page)?;
         self.prepared_frame_resource_policy(page, token)?;
         let mut policies =
@@ -2759,15 +2839,15 @@ impl BrowserContext {
                 RuntimeError::ContextService("missing native frame isolation policy".into())
             })?;
         if let Some((candidate, lifetime)) = &private {
-            hub.commit_prerender_frame_origin(
-                page.0,
-                candidate,
-                *lifetime,
-                &frame,
+            hub.commit_prerender_frame_origin(oryn_js::message_wire::PrerenderFrameOrigin {
+                page: page.0,
+                token: candidate,
+                lifetime: *lifetime,
+                frame: &frame,
                 generation,
                 epoch,
-                claimed.clone(),
-            )
+                origin: claimed.clone(),
+            })
             .map_err(RuntimeError::ContextService)?;
         } else {
             hub.commit_frame_origin(page.0, &frame, generation, epoch, claimed.clone())
@@ -3325,17 +3405,11 @@ mod policy_tests {
 }
 
 impl BrowserContext {
-    pub(crate) fn inherit_frame_worker_policy(
+    pub(crate) fn inherit_frame_worker_policy_at_url(
         &self,
-        page: PageId,
-        frame: String,
-        generation: u64,
-        epoch: u64,
-        parent: &oryn_js::message_wire::WindowTarget,
-        parent_generation: u64,
-        parent_epoch: u64,
+        params: InheritedFramePolicyInputs<'_>,
     ) -> Result<(), RuntimeError> {
-        self.inherit_frame_worker_policy_at_url(
+        let InheritedFramePolicyInputs {
             page,
             frame,
             generation,
@@ -3343,20 +3417,9 @@ impl BrowserContext {
             parent,
             parent_generation,
             parent_epoch,
-            "about:blank",
-        )
-    }
-    pub(crate) fn inherit_frame_worker_policy_at_url(
-        &self,
-        page: PageId,
-        frame: String,
-        generation: u64,
-        epoch: u64,
-        parent: &oryn_js::message_wire::WindowTarget,
-        parent_generation: u64,
-        parent_epoch: u64,
-        document_url: &str,
-    ) -> Result<(), RuntimeError> {
+            document_url,
+        } = params;
+
         if !matches!(
             document_url,
             "about:blank" | "about:srcdoc" | "about:neterror"
@@ -3454,9 +3517,9 @@ impl BrowserContext {
                     crate::agent_isolation::DocumentIsolationPolicy::from_headers(&policy.headers)
                 });
             let isolation = if matches!(parent, oryn_js::message_wire::WindowTarget::Root)
-                && private_isolation.is_some()
+                && let Some(isolation) = private_isolation
             {
-                private_isolation.unwrap()
+                isolation
             } else {
                 match parent {
                     oryn_js::message_wire::WindowTarget::Root => policies.root_isolation.get(&page),
@@ -3468,15 +3531,15 @@ impl BrowserContext {
                 .unwrap_or_default()
             };
             if let Some((token, lifetime)) = &private {
-                hub.commit_prerender_frame_origin(
-                    page.0,
+                hub.commit_prerender_frame_origin(oryn_js::message_wire::PrerenderFrameOrigin {
+                    page: page.0,
                     token,
-                    *lifetime,
-                    &frame,
+                    lifetime: *lifetime,
+                    frame: &frame,
                     generation,
                     epoch,
-                    claimed.clone(),
-                )
+                    origin: claimed.clone(),
+                })
                 .map_err(RuntimeError::ContextService)?;
             } else {
                 hub.commit_frame_origin(page.0, &frame, generation, epoch, claimed.clone())
@@ -3500,15 +3563,15 @@ impl BrowserContext {
         }
         drop(policies);
         drop(hub);
-        self.register_activation_parent(
+        self.register_activation_parent(ActivationParentInputs {
             page,
-            frame.clone(),
+            frame: frame.clone(),
             generation,
             epoch,
-            parent.clone(),
+            parent: parent.clone(),
             parent_generation,
             parent_epoch,
-        )?;
+        })?;
         if newly_bound && document_url != "about:neterror" {
             self.inherit_document_domain(
                 &AgentOwner::Window {
@@ -3527,20 +3590,18 @@ impl BrowserContext {
             .map_err(RuntimeError::ContextService)?;
         }
         #[cfg(unix)]
-        if newly_bound {
-            if let Some(services) = self.existing_service_registry() {
-                services
-                    .control_client(
-                        AgentOwner::Window {
-                            page,
-                            target: oryn_js::message_wire::WindowTarget::Frame(frame),
-                            generation,
-                            epoch,
-                        },
-                        None,
-                    )
-                    .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
-            }
+        if newly_bound && let Some(services) = self.existing_service_registry() {
+            services
+                .control_client(
+                    AgentOwner::Window {
+                        page,
+                        target: oryn_js::message_wire::WindowTarget::Frame(frame),
+                        generation,
+                        epoch,
+                    },
+                    None,
+                )
+                .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
         }
         Ok(())
     }
@@ -3586,33 +3647,6 @@ impl BrowserContext {
                 "IndexedDB storage response mismatch",
             )),
         }
-    }
-    pub(crate) fn abort_agent_transactions(
-        &self,
-        bootstrap: &AgentBootstrap,
-        transactions: &[(String, String)],
-    ) -> Result<(), WorkerError> {
-        let origin = crate::storage::partitioned_idb_origin(
-            &bootstrap.partition,
-            &bootstrap.origin.authority,
-        );
-        for (token, database) in transactions {
-            let mut command = crate::storage::IdbCommand::AbortTransaction {
-                token: token.clone(),
-                database: database.clone(),
-            };
-            crate::storage::scope_idb_transaction(
-                &mut command,
-                &format!("agent:{}", bootstrap.id.0),
-            );
-            self.context_store()
-                .execute(crate::storage::StorageRequest::IndexedDb {
-                    origin: origin.clone(),
-                    command,
-                })
-                .map_err(|error| WorkerError::new("UnknownError", error.to_string()))?;
-        }
-        Ok(())
     }
 }
 
@@ -4052,15 +4086,15 @@ mod blob_authority_tests {
                 )
                 .unwrap();
             context
-                .bind_frame_worker_policy_with_sandbox(
+                .bind_frame_worker_policy_with_sandbox(FramePolicyInputs {
                     page,
-                    frame.clone(),
-                    2,
-                    0,
-                    "blob:null/native",
-                    &token,
-                    sandboxed,
-                )
+                    frame: frame.clone(),
+                    generation: 2,
+                    epoch: 0,
+                    url: "blob:null/native",
+                    token: &token,
+                    opaque_sandbox: sandboxed,
+                })
                 .unwrap();
             let (_, _, bound) = context
                 .window_worker_creator(page, &WindowTarget::Frame(frame), 2, 0)
@@ -4436,16 +4470,16 @@ mod secure_context_authority_tests {
                 )
                 .unwrap();
             context
-                .inherit_frame_worker_policy_at_url(
-                    id,
-                    frame.clone(),
-                    2,
-                    0,
-                    &WindowTarget::Root,
-                    1,
-                    0,
-                    "about:srcdoc",
-                )
+                .inherit_frame_worker_policy_at_url(InheritedFramePolicyInputs {
+                    page: id,
+                    frame: frame.clone(),
+                    generation: 2,
+                    epoch: 0,
+                    parent: &WindowTarget::Root,
+                    parent_generation: 1,
+                    parent_epoch: 0,
+                    document_url: "about:srcdoc",
+                })
                 .unwrap();
             let target = WindowTarget::Frame(frame);
             let owner = context.window_worker_creator(id, &target, 2, 0).unwrap().0;
@@ -4783,15 +4817,15 @@ mod activation_tree_tests {
             unreachable!()
         };
         context
-            .register_activation_parent(
+            .register_activation_parent(ActivationParentInputs {
                 page,
-                token.clone(),
-                1,
-                0,
-                target.clone(),
-                *generation,
-                *epoch,
-            )
+                frame: token.clone(),
+                generation: 1,
+                epoch: 0,
+                parent: target.clone(),
+                parent_generation: *generation,
+                parent_epoch: *epoch,
+            })
             .unwrap();
         AgentOwner::Window {
             page,
@@ -4860,7 +4894,15 @@ mod activation_tree_tests {
         };
         assert!(
             context
-                .register_activation_parent(page, source_frame, 1, 0, descendant_target, 1, 0)
+                .register_activation_parent(ActivationParentInputs {
+                    page,
+                    frame: source_frame,
+                    generation: 1,
+                    epoch: 0,
+                    parent: descendant_target,
+                    parent_generation: 1,
+                    parent_epoch: 0
+                })
                 .is_err()
         );
     }
@@ -4898,6 +4940,7 @@ mod isolated_worker_admission_tests {
                 hide_nonces: false,
                 policy_sources: Vec::new(),
                 policy_self_urls: Vec::new(),
+                document_self_url: None,
                 policy_self_url: None,
                 url: "https://a.test/worker.js".into(),
                 headers: vec![("cross-origin-embedder-policy".into(), "require-corp".into())],
@@ -4927,7 +4970,15 @@ mod isolated_worker_admission_tests {
         }
         let mut memory = context.inner.group.shared_memory.lock().unwrap();
         let (descriptor, _) = memory
-            .allocate(&parent, 4, None, 4096, 0, false, false)
+            .allocate(crate::shared_memory::SharedAllocationInputs {
+                owner: &parent,
+                byte_length: 4,
+                maximum_length: None,
+                granularity: 4096,
+                guard_length: 0,
+                wasm: false,
+                memory64: false,
+            })
             .unwrap();
         let dedicated = AgentOwner::Agent(AgentId(801));
         let _alias = memory.open(&dedicated, descriptor).unwrap();
@@ -5028,26 +5079,26 @@ mod popup_creator_tests {
             )
             .unwrap();
         context
-            .register_activation_parent(
-                page.page_id(),
-                frame.clone(),
-                2,
-                0,
-                WindowTarget::Root,
-                1,
-                0,
-            )
+            .register_activation_parent(ActivationParentInputs {
+                page: page.page_id(),
+                frame: frame.clone(),
+                generation: 2,
+                epoch: 0,
+                parent: WindowTarget::Root,
+                parent_generation: 1,
+                parent_epoch: 0,
+            })
             .unwrap();
         context
-            .register_isolation_container(
-                page.page_id(),
-                frame.clone(),
-                2,
-                0,
-                String::new(),
-                "https://child.test/".into(),
-                None,
-            )
+            .register_isolation_container(IsolationContainerInputs {
+                page: page.page_id(),
+                frame: frame.clone(),
+                generation: 2,
+                epoch: 0,
+                allow: String::new(),
+                source: "https://child.test/".into(),
+                sandbox: None,
+            })
             .unwrap();
         let creator = oryn_js::worker_wire::Creator::Window {
             target: target.clone(),
@@ -5133,26 +5184,26 @@ mod popup_creator_tests {
             )
             .unwrap();
         context
-            .register_activation_parent(
-                page.page_id(),
-                frame.clone(),
-                2,
-                0,
-                WindowTarget::Root,
-                1,
-                0,
-            )
+            .register_activation_parent(ActivationParentInputs {
+                page: page.page_id(),
+                frame: frame.clone(),
+                generation: 2,
+                epoch: 0,
+                parent: WindowTarget::Root,
+                parent_generation: 1,
+                parent_epoch: 0,
+            })
             .unwrap();
         context
-            .register_isolation_container(
-                page.page_id(),
-                frame.clone(),
-                2,
-                0,
-                String::new(),
-                "https://child.test/".into(),
-                Some("allow-scripts".into()),
-            )
+            .register_isolation_container(IsolationContainerInputs {
+                page: page.page_id(),
+                frame: frame.clone(),
+                generation: 2,
+                epoch: 0,
+                allow: String::new(),
+                source: "https://child.test/".into(),
+                sandbox: Some("allow-scripts".into()),
+            })
             .unwrap();
         let policy = context
             .window_worker_policy(page.page_id(), &WindowTarget::Frame(frame.clone()), 2, 0)
@@ -5164,15 +5215,15 @@ mod popup_creator_tests {
         assert!(!flags.allow_same_origin);
         assert!(
             context
-                .register_isolation_container(
-                    page.page_id(),
+                .register_isolation_container(IsolationContainerInputs {
+                    page: page.page_id(),
                     frame,
-                    2,
-                    0,
-                    String::new(),
-                    "https://child.test/".into(),
-                    Some("allow-scripts allow-popups".into())
-                )
+                    generation: 2,
+                    epoch: 0,
+                    allow: String::new(),
+                    source: "https://child.test/".into(),
+                    sandbox: Some("allow-scripts allow-popups".into())
+                })
                 .is_err()
         );
     }
@@ -5826,6 +5877,7 @@ impl BrowserContext {
         }
         Ok(record.target_name.clone())
     }
+    #[cfg(test)]
     pub(crate) fn named_related_page(
         &self,
         source: PageId,
@@ -6303,29 +6355,6 @@ impl BrowserContext {
     }
     /// Named familiarity uses same-origin-domain access plus the live opener
     /// chain; it never changes the strict principal used to load the target.
-    pub(crate) fn named_familiar_page(
-        &self,
-        page: PageId,
-        creator: &oryn_js::worker_wire::Creator,
-        name: &str,
-    ) -> Result<Option<PageId>, RuntimeError> {
-        let oryn_js::worker_wire::Creator::Window {
-            target,
-            document_generation,
-            stream_epoch,
-        } = creator
-        else {
-            return Err(RuntimeError::ProtocolViolation(
-                "named navigation requires a Window".into(),
-            ));
-        };
-        let (owner, _, _) =
-            self.window_worker_creator(page, target, *document_generation, *stream_epoch)?;
-        let identity = self
-            .native_document_domain_identity(&owner)
-            .map_err(RuntimeError::ContextService)?;
-        self.named_familiar_page_from_domain(page, &identity, name)
-    }
     fn named_familiar_page_from_domain(
         &self,
         page: PageId,
@@ -6340,7 +6369,7 @@ impl BrowserContext {
                 RuntimeError::ContextService("named navigation groups poisoned".into())
             })?;
             let mut result = Vec::new();
-            for (id, record) in pages
+            for (id, _) in pages
                 .iter()
                 .filter(|(_, record)| record.is_live() && record.target_name == name)
             {
@@ -6421,6 +6450,7 @@ impl BrowserContext {
 }
 
 impl BrowserContext {
+    #[cfg(test)]
     pub(crate) fn native_top_target_navigation_allowed(
         &self,
         page: PageId,
@@ -6527,26 +6557,26 @@ mod native_navigation_permission_tests {
             unreachable!()
         };
         context
-            .register_activation_parent(
+            .register_activation_parent(ActivationParentInputs {
                 page,
-                frame.clone(),
-                1,
-                0,
-                target.clone(),
-                *document_generation,
-                *stream_epoch,
-            )
+                frame: frame.clone(),
+                generation: 1,
+                epoch: 0,
+                parent: target.clone(),
+                parent_generation: *document_generation,
+                parent_epoch: *stream_epoch,
+            })
             .unwrap();
         context
-            .register_isolation_container(
+            .register_isolation_container(IsolationContainerInputs {
                 page,
-                frame.clone(),
-                1,
-                0,
-                String::new(),
-                url.into(),
-                None,
-            )
+                frame: frame.clone(),
+                generation: 1,
+                epoch: 0,
+                allow: String::new(),
+                source: url.into(),
+                sandbox: None,
+            })
             .unwrap();
         Creator::Window {
             target: WindowTarget::Frame(frame),
@@ -6718,6 +6748,30 @@ mod native_navigation_permission_tests {
                 .is_err(),
             "republishing root security retires the old child's policy authority"
         );
+        assert!(
+            context
+                .native_popup_relationship_policy(page, &root, None, false)
+                .is_err(),
+            "republishing security also retires the original root authority"
+        );
+        let (_, _, _, generation, _) = context
+            .native_document_authority(page, "https://top.test/")
+            .unwrap();
+        assert!(generation > 1);
+        context
+            .handle_message_wire(
+                page,
+                MessageRequest::RegisterRootDocument {
+                    document_generation: generation,
+                    stream_epoch: 0,
+                },
+            )
+            .unwrap();
+        let root = Creator::Window {
+            target: WindowTarget::Root,
+            document_generation: generation,
+            stream_epoch: 0,
+        };
         let child = frame(&context, page, "e", &root, "");
         assert_eq!(
             context
@@ -6856,6 +6910,7 @@ mod native_navigation_permission_tests {
 
 #[cfg(unix)]
 impl BrowserContext {
+    #[cfg(all(test, feature = "v8-host", feature = "in-process-probe"))]
     pub(crate) fn named_familiar_navigation_target(
         &self,
         page: PageId,
@@ -7247,18 +7302,26 @@ mod native_geolocation_policy_tests {
             unreachable!()
         };
         context
-            .register_activation_parent(
+            .register_activation_parent(ActivationParentInputs {
                 page,
-                token.clone(),
-                1,
-                0,
-                target.clone(),
-                *generation,
-                *epoch,
-            )
+                frame: token.clone(),
+                generation: 1,
+                epoch: 0,
+                parent: target.clone(),
+                parent_generation: *generation,
+                parent_epoch: *epoch,
+            })
             .unwrap();
         context
-            .register_isolation_container(page, token.clone(), 1, 0, allow.into(), url, None)
+            .register_isolation_container(IsolationContainerInputs {
+                page,
+                frame: token.clone(),
+                generation: 1,
+                epoch: 0,
+                allow: allow.into(),
+                source: url,
+                sandbox: None,
+            })
             .unwrap();
         let owner = AgentOwner::Window {
             page,
@@ -8152,8 +8215,10 @@ mod native_root_publication_tests {
     }
     #[test]
     fn native_security_commitments_recycle_retired_epochs_without_reviving_generations() {
-        let mut lifetime = RootDocumentLifetime::default();
-        lifetime.initial_materialized = true;
+        let mut lifetime = RootDocumentLifetime {
+            initial_materialized: true,
+            ..Default::default()
+        };
         lifetime.publish().unwrap();
         let cached = lifetime.reserve().unwrap();
         let cached_epoch = lifetime.epoch;
@@ -8232,16 +8297,16 @@ mod realm_metadata_regressions {
             )
             .unwrap();
         context
-            .inherit_frame_worker_policy_at_url(
-                id,
-                frame.clone(),
-                2,
-                0,
-                &WindowTarget::Root,
-                1,
-                0,
-                "about:srcdoc",
-            )
+            .inherit_frame_worker_policy_at_url(InheritedFramePolicyInputs {
+                page: id,
+                frame: frame.clone(),
+                generation: 2,
+                epoch: 0,
+                parent: &WindowTarget::Root,
+                parent_generation: 1,
+                parent_epoch: 0,
+                document_url: "about:srcdoc",
+            })
             .unwrap();
         let owner = AgentOwner::Window {
             page: id,
@@ -8309,7 +8374,15 @@ mod realm_metadata_regressions {
             .bind_frame_worker_policy(id, frame.clone(), 2, 0, "https://child.test/", &ticket)
             .unwrap();
         context
-            .register_activation_parent(id, frame.clone(), 2, 0, WindowTarget::Root, 1, 0)
+            .register_activation_parent(ActivationParentInputs {
+                page: id,
+                frame: frame.clone(),
+                generation: 2,
+                epoch: 0,
+                parent: WindowTarget::Root,
+                parent_generation: 1,
+                parent_epoch: 0,
+            })
             .unwrap();
         let owner = AgentOwner::Window {
             page: id,
@@ -8894,7 +8967,6 @@ impl BrowserContext {
 
 #[cfg(all(test, unix))]
 mod related_window_snapshot_tests {
-    use super::*;
     use oryn_js::{
         message_wire::{MessageRequest, WindowTarget},
         worker_wire::Creator,
@@ -9033,8 +9105,10 @@ mod worker_script_report_owner_tests {
             .authorize_trusted_type_sink("Element innerHTML", "raw")
             .violations
             .remove(0);
-        let mut registry = WorkerPolicyRegistry::default();
-        registry.csp_event_id = u64::MAX - 1;
+        let mut registry = WorkerPolicyRegistry {
+            csp_event_id: u64::MAX - 1,
+            ..Default::default()
+        };
         assert!(
             registry
                 .admit_csp_events(AgentId(1), &[violation.clone(), violation])

@@ -3,6 +3,17 @@
 //! Page workers never open this database. They access it only through the
 //! typed context service, keeping filesystem access in the privileged parent.
 
+/// Inputs for admit idb transaction.
+struct TransactionAdmission<'a> {
+    databases: &'a BTreeMap<(String, String), DatabaseData>,
+    transactions: &'a mut BTreeMap<String, TransactionSnapshot>,
+    origin: &'a str,
+    token: &'a str,
+    database: &'a str,
+    scope: Vec<String>,
+    mode: String,
+    connection: Option<String>,
+}
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
@@ -387,8 +398,7 @@ pub use service::{ServiceStorageKind, ServiceStorageRequest, ServiceStorageSnaps
 #[path = "storage_service_versions.rs"]
 mod service_versions;
 pub(crate) use service_versions::{
-    ServiceVersionClaim, ServiceVersionDirectory, ServiceVersionObservation,
-    ServiceVersionReservation,
+    ServiceVersionClaim, ServiceVersionDirectory, ServiceVersionReservation,
 };
 #[path = "storage_service_jobs.rs"]
 mod service_jobs;
@@ -1073,6 +1083,7 @@ impl ContextStore for PersistentContextStore {
     }
 }
 
+#[cfg(test)]
 fn execute_session(
     session: &mut BTreeMap<(PageId, String, String), String>,
     request: StorageRequest,
@@ -1266,17 +1277,17 @@ fn execute_idb_coordinated(
                 .get(&(origin.into(), name.clone()))
                 .map_or(0, |data| data.version);
             let wanted = if version == 0 { old.max(1) } else { version };
-            if wanted > old {
-                if let Some(blocked) = connections.changing(&token, origin, &name, Some(wanted))? {
-                    return Ok(IdbResponse {
-                        transaction_blocked: true,
-                        connection_blocked: blocked,
-                        connection_managed: true,
-                        old_version: Some(old),
-                        version: Some(wanted),
-                        ..Default::default()
-                    });
-                }
+            if wanted > old
+                && let Some(blocked) = connections.changing(&token, origin, &name, Some(wanted))?
+            {
+                return Ok(IdbResponse {
+                    transaction_blocked: true,
+                    connection_blocked: blocked,
+                    connection_managed: true,
+                    old_version: Some(old),
+                    version: Some(wanted),
+                    ..Default::default()
+                });
             }
             let mut view = databases.clone();
             let key = (origin.into(), name.clone());
@@ -1418,10 +1429,9 @@ fn execute_idb_coordinated(
                 connection: Some(connection),
                 ..
             } = &command
+                && !transactions.contains_key(token)
             {
-                if !transactions.contains_key(token) {
-                    connections.validate_live(connection, origin, database)?;
-                }
+                connections.validate_live(connection, origin, database)?;
             }
             let finished = match &command {
                 IdbCommand::CommitUpgrade { name } | IdbCommand::AbortUpgrade { name, .. } => {
@@ -1440,16 +1450,18 @@ fn execute_idb_coordinated(
     connections.reap_closed(transactions);
     Ok(response)
 }
-fn admit_idb_transaction(
-    databases: &BTreeMap<(String, String), DatabaseData>,
-    transactions: &mut BTreeMap<String, TransactionSnapshot>,
-    origin: &str,
-    token: &str,
-    database: &str,
-    mut scope: Vec<String>,
-    mode: String,
-    connection: Option<String>,
-) -> Result<bool, StorageError> {
+fn admit_idb_transaction(params: TransactionAdmission<'_>) -> Result<bool, StorageError> {
+    let TransactionAdmission {
+        databases,
+        transactions,
+        origin,
+        token,
+        database,
+        mut scope,
+        mode,
+        connection,
+    } = params;
+
     scope.sort();
     scope.dedup();
     if scope.is_empty() || scope.len() > 1024 || !matches!(mode.as_str(), "readonly" | "readwrite")
@@ -1590,16 +1602,16 @@ fn execute_idb_transactional(
             mode,
             connection,
         } => {
-            let ready = admit_idb_transaction(
+            let ready = admit_idb_transaction(TransactionAdmission {
                 databases,
                 transactions,
                 origin,
-                &token,
-                &database,
+                token: &token,
+                database: &database,
                 scope,
                 mode,
                 connection,
-            )?;
+            })?;
             Ok(IdbResponse {
                 transaction_blocked: !ready,
                 ..Default::default()
@@ -1680,16 +1692,16 @@ fn execute_idb_transactional(
             let connection = transactions
                 .get(&token)
                 .and_then(|entry| entry.connection.clone());
-            if !admit_idb_transaction(
+            if !admit_idb_transaction(TransactionAdmission {
                 databases,
                 transactions,
                 origin,
-                &token,
-                &database,
+                token: &token,
+                database: &database,
                 scope,
                 mode,
                 connection,
-            )? {
+            })? {
                 return Ok(IdbResponse {
                     transaction_blocked: true,
                     ..Default::default()
@@ -1756,16 +1768,16 @@ fn execute_idb_transactional(
             let connection = transactions
                 .get(&token)
                 .and_then(|entry| entry.connection.clone());
-            if !admit_idb_transaction(
+            if !admit_idb_transaction(TransactionAdmission {
                 databases,
                 transactions,
                 origin,
-                &token,
-                &database,
+                token: &token,
+                database: &database,
                 scope,
                 mode,
                 connection,
-            )? {
+            })? {
                 return Ok(IdbResponse {
                     transaction_blocked: true,
                     ..Default::default()
@@ -2705,7 +2717,7 @@ mod tests {
     fn web_storage_noop_mutations_do_not_produce_broadcast_changes() {
         let path = std::env::temp_dir().join(format!(
             "oryn-storage-noop-{}",
-            format!(
+            format_args!(
                 "{}-{}",
                 std::process::id(),
                 std::time::SystemTime::now()
@@ -2789,7 +2801,7 @@ mod tests {
     fn persistent_web_storage_overlapping_context_writes_preserve_both_keys() {
         let path = std::env::temp_dir().join(format!(
             "oryn-storage-overlap-{}",
-            format!(
+            format_args!(
                 "{}-{}",
                 std::process::id(),
                 std::time::SystemTime::now()

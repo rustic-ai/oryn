@@ -1,5 +1,9 @@
 # Repository Guidelines
 
+## Core and OIL delivery work
+
+For continuation of the Core and OIL completion effort, read [the governing post-stocktake directive](docs/oryn2/POST-STOCKTAKE-DELIVERY-DIRECTIVE-2026-09-20.md) before assigning work or running builds/tests. It supersedes older immediate-work lists while preserving the full completion plan. Implementation is paused until the user explicitly resumes it; a request to update planning documents is not a resumption. On resumption, follow its complete repair-batch, parallel ownership, immutable validation, compatibility measurement and evidence requirements.
+
 ## Project Structure & Module Organization
 Oryn is a Rust workspace with supporting JS/Python tooling.
 - `crates/`: core Rust packages (`oryn`, `oryn-engine`, `oryn-core`, `oryn-h`, `oryn-e`, `oryn-r`, `oryn-common`, `oryn-scanner`).

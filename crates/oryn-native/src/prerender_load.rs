@@ -1,6 +1,17 @@
 //! Asynchronous candidate reservation with custody across both IPC receipt and
 //! the later IO-thread-to-actor handoff. Dropping either receiver cancels the
 //! exact nonactive scope; it never waits for a parent response on the actor.
+
+/// Inputs retained together for construct.
+pub struct PrerenderConstructionInput<'a> {
+    pub previous: oryn_js::realm::RealmId,
+    pub client: SharedContextClient,
+    pub page: PageId,
+    pub max_heap: usize,
+    pub deadline: Instant,
+    pub host: &'a mut Option<crate::host::RawV8Host>,
+    pub provisional: &'a mut Option<oryn_js::realm::RealmId>,
+}
 use super::*;
 use std::task::Poll;
 
@@ -272,7 +283,7 @@ pub(super) struct PreparedCandidate {
     pub origin: oryn_js::worker_wire::AgentOrigin,
 }
 enum LoadPhase {
-    Http(navigation_http::HttpNavigation),
+    Http(Box<navigation_http::HttpNavigation>),
     Mime {
         pending: crate::network::DocumentMimeSniff,
         response: navigation_http::Response<navigation_http::SniffedHeaders>,
@@ -350,7 +361,7 @@ impl PendingCandidate {
             reservation: Some(reservation),
             client,
             page,
-            phase: LoadPhase::Http(fetch),
+            phase: LoadPhase::Http(Box::new(fetch)),
             deadline,
         })
     }
@@ -418,7 +429,7 @@ impl PendingCandidate {
                             .reservation
                             .as_ref()
                             .expect("prerender reservation retained");
-                        match navigation_fetch::PendingPolicy::start_prerender_response(self.client.clone(),crate::context_service::ContextServiceRequest::CommitPrerenderResponse{page_id:self.page,token:reservation.token.clone(),generation:reservation.generation,epoch:reservation.epoch,url:response.current.to_string(),headers:response.headers.headers.clone()},Some(self.deadline)){
+                        match navigation_fetch::PendingPolicy::start_prerender_response(self.client.clone(),crate::context_service::ContextServiceRequest::CommitPrerenderResponse{response_policy:response.headers.response_policy.as_ref().map(ToString::to_string),page_id:self.page,token:reservation.token.clone(),generation:reservation.generation,epoch:reservation.epoch,url:response.current.to_string(),headers:response.headers.headers.clone()},Some(self.deadline)){
                             Ok(pending)=>{self.phase=LoadPhase::Commit{pending,response,content_type};Poll::Pending},
                             Err(error)=>Poll::Ready(Err(error)),
                         }
@@ -443,16 +454,21 @@ impl PendingCandidate {
                         policy,
                         origin,
                     },
-                )) => Poll::Ready(Ok(PreparedCandidate {
-                    reservation: self
-                        .reservation
-                        .take()
-                        .expect("prerender reservation retained"),
-                    response,
-                    content_type,
-                    policy,
-                    origin,
-                })),
+                )) => {
+                    if let Some(token) = &response.headers.response_policy {
+                        token.committed();
+                    }
+                    Poll::Ready(Ok(PreparedCandidate {
+                        reservation: self
+                            .reservation
+                            .take()
+                            .expect("prerender reservation retained"),
+                        response,
+                        content_type,
+                        policy,
+                        origin,
+                    }))
+                }
                 Poll::Ready(Ok(_)) => Poll::Ready(Err(RuntimeError::ProtocolViolation(
                     "prerender response policy ACK mismatch".into(),
                 ))),
@@ -489,14 +505,18 @@ impl PreparedCandidate {
     }
     pub fn construct(
         self,
-        previous: oryn_js::realm::RealmId,
-        client: SharedContextClient,
-        page: PageId,
-        max_heap: usize,
-        deadline: Instant,
-        host: &mut Option<crate::host::RawV8Host>,
-        provisional: &mut Option<oryn_js::realm::RealmId>,
+        params: PrerenderConstructionInput<'_>,
     ) -> Result<Box<CandidateDocument>, RuntimeError> {
+        let PrerenderConstructionInput {
+            previous,
+            client,
+            page,
+            max_heap,
+            deadline,
+            host,
+            provisional,
+        } = params;
+
         let csp = crate::csp::CspPolicySet::from_agent_policy(&self.policy);
         let origin = oryn_js::origin::Origin::from_native_authority(
             &self.origin.serialized,
@@ -551,27 +571,25 @@ impl PreparedCandidate {
                 .unwrap_or_default(),
         );
         let base = self.response.current.clone();
-        let broker = match &self.reservation.destination {
-            Some(admission) if admission.direct => client
-                .related_network_broker(admission)?
-                .unwrap_or_else(|| self.response.broker.clone()),
-            Some(admission) => self.response.broker.for_route(admission.route.clone()),
-            None => self.response.broker.clone(),
-        };
+        // Load::start already binds the request broker to the reserved native
+        // destination. Keep that exact owner with the executable while its
+        // response body is live. Acquiring a fresh scope here drops the original
+        // IdentityBroker and cancels the body before its terminal event.
+        let broker = self.response.broker.clone();
         let realm = host
             .as_mut()
             .ok_or_else(|| {
                 RuntimeError::ProtocolViolation("candidate construction has no shared host".into())
             })?
-            .create_prerender_root(
+            .create_prerender_root(crate::host::PrerenderRootInput {
                 previous,
-                Some(broker.clone()),
-                client.clone(),
-                page,
-                self.reservation.token.clone(),
-                self.reservation.generation,
-                self.reservation.epoch,
-            )
+                broker: Some(broker.clone()),
+                client: client.clone(),
+                page_id: page,
+                token: self.reservation.token.clone(),
+                generation: self.reservation.generation,
+                epoch: self.reservation.epoch,
+            })
             .map_err(map_host_error)?;
         *provisional = Some(realm);
         let capture = Arc::new(Mutex::new(NavigationBodyCapture::default()));
@@ -616,15 +634,17 @@ impl PreparedCandidate {
             encoding,
         };
         let mut executable = crate::executable::RustExecutableDocument::load_in_agent(
-            None,
-            Some(stream),
-            "",
-            &resources,
-            Some(broker.clone()),
-            Some(base.clone()),
-            max_heap,
-            Some((client, page, None)),
-            host,
+            crate::executable::AgentDocumentLoadInput {
+                parsed: None,
+                source: Some(stream),
+                html: "",
+                resources: &resources,
+                broker: Some(broker.clone()),
+                base_url: Some(base.clone()),
+                max_heap_bytes: max_heap,
+                context: Some((client, page, None)),
+                recovery: host,
+            },
         )
         .map_err(map_host_error)?;
         // Construction is scheduled: no parser bytes or author script have
@@ -704,7 +724,7 @@ impl CandidateDocument {
             RuntimeError::ProtocolViolation("candidate poll has no shared host".into())
         })?;
         if let Err((error, returned)) = self.executable.install_agent_host(borrowed) {
-            *host = Some(returned);
+            *host = Some(*returned);
             return Err(map_host_error(error));
         }
         let result = self
@@ -1006,6 +1026,7 @@ mod accepted_loading_tests {
                     Ok(R::NavigationAuthorized)
                 }
                 Q::CommitPrerenderResponse {
+                    response_policy: _,
                     page_id,
                     token,
                     generation,
@@ -1075,6 +1096,7 @@ mod accepted_loading_tests {
             self.seen.lock().unwrap().push(request.clone());
             let redirect = request.url.ends_with("start");
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: if redirect { 302 } else { 200 },

@@ -33,13 +33,15 @@ impl BrowserContext {
             ));
         };
         let (source_owner, permitted) = self.with_window_worker_creator_pages_checked(
-            source_page,
-            source_target,
-            *sg,
-            *se,
-            false,
-            false,
-            Some((target_page, target)),
+            crate::runtime::CheckedWorkerCreatorPagesInputs {
+                page_id: source_page,
+                target: source_target,
+                generation: *sg,
+                epoch: *se,
+                include_urls: false,
+                allow_prerender: false,
+                checked_root: Some((target_page, target)),
+            },
             |authority, _, _, pages| {
                 let permitted = pages.get(&target_page).is_some_and(|record| {
                     record.sandbox_navigator.as_ref() == Some(&(source_page, source_target.clone()))
@@ -96,12 +98,14 @@ impl BrowserContext {
                 ));
             };
             self.with_window_worker_creator_pages(
-                *page,
-                target,
-                *generation,
-                *epoch,
-                false,
-                false,
+                crate::runtime::WorkerCreatorPagesInputs {
+                    page_id: *page,
+                    target,
+                    generation: *generation,
+                    epoch: *epoch,
+                    include_urls: false,
+                    allow_prerender: false,
+                },
                 |_, _, _, _| Ok(()),
             )?;
             if parent == &target_owner {
@@ -121,13 +125,15 @@ impl BrowserContext {
             permitted || flags.is_none()
         };
         self.with_window_worker_creator_pages_checked(
-            source_page,
-            source_target,
-            *sg,
-            *se,
-            false,
-            false,
-            Some((target_page, target)),
+            crate::runtime::CheckedWorkerCreatorPagesInputs {
+                page_id: source_page,
+                target: source_target,
+                generation: *sg,
+                epoch: *se,
+                include_urls: false,
+                allow_prerender: false,
+                checked_root: Some((target_page, target)),
+            },
             |_, _, _, _| Ok(allowed),
         )
     }
@@ -194,15 +200,15 @@ mod tests {
             unreachable!()
         };
         context
-            .register_activation_parent(
+            .register_activation_parent(crate::runtime::worker_service::ActivationParentInputs {
                 page,
-                frame.clone(),
-                1,
-                0,
-                target.clone(),
-                *document_generation,
-                *stream_epoch,
-            )
+                frame: frame.clone(),
+                generation: 1,
+                epoch: 0,
+                parent: target.clone(),
+                parent_generation: *document_generation,
+                parent_epoch: *stream_epoch,
+            })
             .unwrap();
         Creator::Window {
             target: WindowTarget::Frame(frame),

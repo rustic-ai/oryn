@@ -49,17 +49,14 @@ fn parts(
             parts.push(Part::Buffer(v8::Global::new(scope, value)));
             return Ok(());
         }
-        if let Ok(object) = v8::Local::<v8::Object>::try_from(value) {
-            if let Some(owner) = binding_state_for_receiver(scope, object) {
-                if let Ok(id) = stateful_id(scope, object) {
-                    if let Ok(record) = platform_object(&owner, id) {
-                        if let PlatformObjectRecord::Blob(blob) = &*record {
-                            parts.push(Part::Bytes(blob.bytes.clone()));
-                            return Ok(());
-                        }
-                    }
-                }
-            }
+        if let Ok(object) = v8::Local::<v8::Object>::try_from(value)
+            && let Some(owner) = binding_state_for_receiver(scope, object)
+            && let Ok(id) = stateful_id(scope, object)
+            && let Ok(record) = platform_object(&owner, id)
+            && let PlatformObjectRecord::Blob(blob) = &*record
+        {
+            parts.push(Part::Bytes(blob.bytes.clone()));
+            return Ok(());
         }
         parts.push(Part::Text(string(scope, value)?));
         Ok(())

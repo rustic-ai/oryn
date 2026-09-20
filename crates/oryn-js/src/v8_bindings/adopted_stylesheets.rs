@@ -207,10 +207,10 @@ fn refresh_native_list(
     }
     Ok(())
 }
-/// Native publication bypasses author array iteration/prototype setters, while
-/// preserving the already-exposed observable array object.
 #[cfg(test)]
 thread_local! {pub(super) static FAIL_NATIVE_REFRESH:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
+/// Native publication bypasses author array iteration/prototype setters, while
+/// preserving the already-exposed observable array object.
 pub(super) fn publish_native_list(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,

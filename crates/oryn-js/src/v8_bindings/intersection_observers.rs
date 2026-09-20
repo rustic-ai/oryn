@@ -311,6 +311,7 @@ pub(super) fn construct(
     bind_platform_object(scope, state, id, args.this());
     Ok(())
 }
+#[cfg(test)]
 fn rect_intersection(a: BindingRect, b: BindingRect) -> (BindingRect, bool) {
     let x = a.x.max(b.x);
     let y = a.y.max(b.y);
@@ -418,6 +419,7 @@ fn same_origin(a: &V8BindingState, b: &V8BindingState) -> bool {
 
 /// Intersections are calculated in the clip's own plane. Applying a viewport
 /// axis-aligned bounding box first incorrectly clips rotated scroll containers.
+#[cfg(test)]
 fn apply_clip(
     rect: BindingRect,
     clip: &oryn_common::v4::PaintClip,
@@ -1333,7 +1335,7 @@ fn rect_object<'s>(
         .instance_templates
         .borrow()
         .get("DOMRectReadOnly")
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface("DOMRectReadOnly"))?;
     let object = v8::Local::new(scope, &template)
         .new_instance(scope)

@@ -292,7 +292,7 @@ mod mapping_tests {
         live.document.generation = 2;
         live.node.generation = 2;
         assert_eq!(
-            restoration_mapping(&[saved.clone()], &[live.clone()]),
+            restoration_mapping(std::slice::from_ref(&saved), &[live.clone()]),
             vec![(
                 0,
                 FormRestoreTarget::Mapped {
@@ -301,10 +301,13 @@ mod mapping_tests {
                 }
             )]
         );
-        assert!(restoration_mapping(&[saved.clone()], &[live.clone(), live.clone()]).is_empty());
+        assert!(
+            restoration_mapping(std::slice::from_ref(&saved), &[live.clone(), live.clone()])
+                .is_empty()
+        );
         assert!(restoration_mapping(&[saved.clone(), saved.clone()], &[live.clone()]).is_empty());
         live.definition = "x-other".into();
-        assert!(restoration_mapping(&[saved.clone()], &[live.clone()]).is_empty());
+        assert!(restoration_mapping(std::slice::from_ref(&saved), &[live.clone()]).is_empty());
         live.definition = saved.definition.clone();
         live.occurrence = 1;
         assert!(restoration_mapping(&[saved], &[live]).is_empty());
@@ -458,10 +461,8 @@ impl SavedFrameNavigation {
             for value in [&entry.key, &entry.id, &entry.url, &entry.document_id] {
                 budget.reserve_bytes(value.len())?;
             }
-            for value in [&entry.state, &entry.history_state] {
-                if let Some(value) = value {
-                    budget.reserve_bytes(value.retained_bytes())?;
-                }
+            for value in [&entry.state, &entry.history_state].into_iter().flatten() {
+                budget.reserve_bytes(value.retained_bytes())?;
             }
         }
         for (id, origin) in &self.origins {

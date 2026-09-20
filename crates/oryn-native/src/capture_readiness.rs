@@ -13,7 +13,7 @@ pub(super) enum Reply {
 }
 enum Ready {
     Paint(PaintSnapshotPlan),
-    Print(PaintSnapshotPlan, Vec<oryn_layout::print::PrintPageLayout>),
+    Print(PaintSnapshotPlan, Vec<CapturedPrintPage>),
 }
 pub(super) struct Pending {
     reply: Reply,
@@ -340,31 +340,32 @@ impl Pending {
             }
             self.ready = Some(ready);
         }
-        if matches!(&self.reply, Reply::Print(..)) && !self.after_complete {
-            if let Some(executable) = state.executable.as_mut() {
-                if self.after.is_none() {
-                    match executable.prepare_print_lifecycle("afterprint") {
-                        Ok(receipt) => self.after = Some(receipt),
-                        Err(error) => {
-                            self.started = false;
-                            return self.fail(state, map_host_error(error));
-                        }
+        if matches!(&self.reply, Reply::Print(..))
+            && !self.after_complete
+            && let Some(executable) = state.executable.as_mut()
+        {
+            if self.after.is_none() {
+                match executable.prepare_print_lifecycle("afterprint") {
+                    Ok(receipt) => self.after = Some(receipt),
+                    Err(error) => {
+                        self.started = false;
+                        return self.fail(state, map_host_error(error));
                     }
                 }
-                match executable.poll_print_lifecycle(self.after.as_mut().unwrap()) {
-                    Ok(true) => {
-                        self.after = None;
-                        self.after_complete = true;
+            }
+            match executable.poll_print_lifecycle(self.after.as_mut().unwrap()) {
+                Ok(true) => {
+                    self.after = None;
+                    self.after_complete = true;
+                }
+                Ok(false) => return Some(self),
+                Err(error) => {
+                    if self.lifecycle_error.is_none() {
+                        self.lifecycle_error = Some(map_host_error(error));
                     }
-                    Ok(false) => return Some(self),
-                    Err(error) => {
-                        if self.lifecycle_error.is_none() {
-                            self.lifecycle_error = Some(map_host_error(error));
-                        }
-                        self.retry_at =
-                            Some(std::time::Instant::now() + std::time::Duration::from_millis(25));
-                        return Some(self);
-                    }
+                    self.retry_at =
+                        Some(std::time::Instant::now() + std::time::Duration::from_millis(25));
+                    return Some(self);
                 }
             }
         }
@@ -380,11 +381,11 @@ impl Pending {
             .ready
             .take()
             .expect("capture layout retained until lifecycle completion");
-        if let Some(owner) = self.css_capture.as_ref() {
-            if let Err(error) = owner.release() {
-                self.started = false;
-                return self.fail(state, map_host_error(error));
-            }
+        if let Some(owner) = self.css_capture.as_ref()
+            && let Err(error) = owner.release()
+        {
+            self.started = false;
+            return self.fail(state, map_host_error(error));
         }
         match (self.reply, ready) {
             (Reply::Paint(reply), Ready::Paint(plan)) => {
@@ -432,7 +433,7 @@ impl Pending {
                         let _ = sender.blocking_send(PageCommand::AccessibilitySnapshotCompleted {
                             generation,
                             stamp,
-                            result,
+                            result: Box::new(result),
                             reply,
                         });
                     } else {

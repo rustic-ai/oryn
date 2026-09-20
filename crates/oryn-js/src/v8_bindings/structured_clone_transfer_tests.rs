@@ -10,13 +10,7 @@ impl MessageTransport for Messages {
             .handle(1, request, &BTreeMap::from([(1, "https://a.test".into())]))
     }
 }
-fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, text: &str) -> v8::Local<'s, v8::Value> {
-    let text = v8::String::new(scope, text).unwrap();
-    v8::Script::compile(scope, text, None)
-        .unwrap()
-        .run(scope)
-        .unwrap()
-}
+use super::super::test_eval::eval;
 #[test]
 fn detached_transfer_validation_follows_the_entire_message_graph() {
     super::super::tests::initialize_v8();
@@ -130,6 +124,70 @@ fn native_queued_messages_follow_port_transfer_before_task_start() {
     message_ports::poll_external(scope, &state).unwrap();
     let port = eval(scope, "channel.port1");
     let wire = serialize_wire(scope, port, &[port]).unwrap();
+    let transport = state.message_transport.borrow().clone().unwrap();
+    let transferred = wire.ports[0].clone();
+    assert!(
+        transport
+            .request(
+                state
+                    .scoped_message_receive(MessageRequest::PortPending {
+                        port: transferred.clone(),
+                    })
+                    .unwrap()
+            )
+            .is_err(),
+        "transit authority must not be readable before broker receipt"
+    );
+    // Serialization exports transit capabilities. Exercise the broker receipt
+    // that production delivery performs before importing destination wrappers.
+    let MessageResponse::Channel([sender, receiver]) = transport
+        .request(
+            state
+                .scoped_message_request(MessageRequest::CreateChannel)
+                .unwrap(),
+        )
+        .unwrap()
+    else {
+        panic!("carrier channel response")
+    };
+    assert!(matches!(
+        transport
+            .request(
+                state
+                    .scoped_message_request(MessageRequest::PostPort {
+                        port: sender.clone(),
+                        payload: wire,
+                    })
+                    .unwrap()
+            )
+            .unwrap(),
+        MessageResponse::Done
+    ));
+    let MessageResponse::PortMessages { mut messages, .. } = transport
+        .request(
+            state
+                .scoped_message_receive(MessageRequest::PollPort {
+                    port: receiver.clone(),
+                    max: 1,
+                })
+                .unwrap(),
+        )
+        .unwrap()
+    else {
+        panic!("carrier delivery response")
+    };
+    assert_eq!(messages.len(), 1);
+    let wire = messages.pop().unwrap();
+    assert_eq!(wire.ports[0].id, transferred.id);
+    assert_ne!(wire.ports[0].secret, transferred.secret);
+    for token in [sender, receiver] {
+        assert!(matches!(
+            transport
+                .request(MessageRequest::ClosePort { port: token })
+                .unwrap(),
+            MessageResponse::Done
+        ));
+    }
     let (copy, _) = deserialize_wire(scope, wire).unwrap();
     let key = v8::String::new(scope, "moved").unwrap();
     context.global(scope).set(scope, key.into(), copy);
@@ -183,6 +241,9 @@ fn media_source_handles_transfer_native_capability_without_exposing_hidden_ports
         let mut isolate = v8::Isolate::new(Default::default());
         v8::scope!(let scope,&mut isolate);
         let context = v8::Context::new(scope, Default::default());
+        context.set_slot(Rc::new(WorkerExposureKind(
+            crate::worker_wire::AgentKind::Dedicated,
+        )));
         let scope = &mut v8::ContextScope::new(scope, context);
         let document = dom.borrow().document();
         let state = install_generated_bindings_with_root_for_global(
@@ -431,9 +492,26 @@ fn wasm_module_clone_checks_native_origin_before_recompilation() {
         None,
         None,
     );
+    // A worker authority without document registration must reject cleanly.
+    {
+        v8::tc_scope!(let tc, scope);
+        assert!(serialize(tc, module, &[]).is_none());
+        assert!(tc.has_caught());
+    }
+    state.set_message_transport(std::sync::Arc::new(Messages(std::sync::Mutex::new(
+        MessageHub::default(),
+    ))));
     let local = serialize(scope, module, &[]).unwrap();
     let wire = serialize_wire(scope, module, &[]).unwrap();
-    assert!(deserialize_wire(scope, wire.clone()).is_some());
+    {
+        v8::tc_scope!(let tc, scope);
+        let decoded = deserialize_wire(tc, wire.clone());
+        let exception = tc.exception().map(|value| value.to_rust_string_lossy(tc));
+        assert!(
+            decoded.is_some(),
+            "same-origin module clone failed: {exception:?}"
+        );
+    }
     // Equal serialized origins do not alias two distinct opaque broker origins.
     state.set_worker_transport(
         std::sync::Arc::new(ModuleOriginTransport([2; 32])),

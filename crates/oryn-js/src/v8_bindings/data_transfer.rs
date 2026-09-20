@@ -166,15 +166,13 @@ pub(super) fn get<'s>(
         }
         ("DataTransfer", "types") => {
             let revision = shared.borrow().revision.to_string();
-            if let Some(old) = cached(scope, object, "oryn.transfer.types.revision") {
-                if old
+            if let Some(old) = cached(scope, object, "oryn.transfer.types.revision")
+                && old
                     .to_string(scope)
                     .is_some_and(|old| old.to_rust_string_lossy(scope) == revision)
-                {
-                    if let Some(value) = cached(scope, object, "oryn.transfer.types") {
-                        return Ok(value);
-                    }
-                }
+                && let Some(value) = cached(scope, object, "oryn.transfer.types")
+            {
+                return Ok(value);
             }
             let types = shared.borrow().types();
             let values = types
@@ -671,29 +669,31 @@ impl TrustedTransfer {
             create_native_input_event(
                 scope,
                 state,
-                "DragEvent",
-                event_type,
-                true,
-                cancelable,
-                true,
-                0,
-                init.related_target,
-                &[
-                    ("clientX", Number(f64::from(init.client_x))),
-                    ("clientY", Number(f64::from(init.client_y))),
-                    ("screenX", Number(f64::from(init.screen_x))),
-                    ("screenY", Number(f64::from(init.screen_y))),
-                    ("button", Number(f64::from(init.button))),
-                    ("buttons", Number(f64::from(init.buttons))),
-                    ("movementX", Number(0.)),
-                    ("movementY", Number(0.)),
-                    ("altKey", Bool(init.alt_key)),
-                    ("ctrlKey", Bool(init.ctrl_key)),
-                    ("metaKey", Bool(init.meta_key)),
-                    ("shiftKey", Bool(init.shift_key)),
-                    ("modifierAltGraph", Bool(false)),
-                    ("modifierCapsLock", Bool(false)),
-                ],
+                NativeInputEventInputs {
+                    interface: "DragEvent",
+                    event_type,
+                    bubbles: true,
+                    cancelable,
+                    composed: true,
+                    detail: 0,
+                    related: init.related_target,
+                    fields: &[
+                        ("clientX", Number(f64::from(init.client_x))),
+                        ("clientY", Number(f64::from(init.client_y))),
+                        ("screenX", Number(f64::from(init.screen_x))),
+                        ("screenY", Number(f64::from(init.screen_y))),
+                        ("button", Number(f64::from(init.button))),
+                        ("buttons", Number(f64::from(init.buttons))),
+                        ("movementX", Number(0.)),
+                        ("movementY", Number(0.)),
+                        ("altKey", Bool(init.alt_key)),
+                        ("ctrlKey", Bool(init.ctrl_key)),
+                        ("metaKey", Bool(init.meta_key)),
+                        ("shiftKey", Bool(init.shift_key)),
+                        ("modifierAltGraph", Bool(false)),
+                        ("modifierCapsLock", Bool(false)),
+                    ],
+                },
             )?
         };
         // Each native event has its own association. Prior event wrappers must not

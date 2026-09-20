@@ -10,6 +10,21 @@ pub fn render_drag_png(
     max_pixels: usize,
     max_bytes: usize,
 ) -> Result<RenderedArtifact, RenderError> {
+    render_drag_png_with_coverage(snapshot, bounds, polygons, scale, max_pixels, max_bytes)
+        .map(|(artifact, _)| artifact)
+}
+
+/// Return the encoded artifact and exact alpha coverage from its final masked
+/// raster. Native visibility consumers need not decode the PNG they just made.
+/// Encoding and byte limits still run before either result is returned.
+pub fn render_drag_png_with_coverage(
+    snapshot: &PaintSnapshot,
+    bounds: CssRect,
+    polygons: &[[f64; 8]],
+    scale: f64,
+    max_pixels: usize,
+    max_bytes: usize,
+) -> Result<(RenderedArtifact, bool), RenderError> {
     if ![bounds.x, bounds.y, bounds.width, bounds.height, scale]
         .iter()
         .all(|value| value.is_finite())
@@ -103,12 +118,16 @@ pub fn render_drag_png(
     if bytes.len() > max_bytes {
         return Err(RenderError::Encode("encoded drag image limit".into()));
     }
-    Ok(RenderedArtifact {
-        bytes,
-        width,
-        height,
-        diagnostics: scene.diagnostics,
-    })
+    let has_ink = rgba.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0);
+    Ok((
+        RenderedArtifact {
+            bytes,
+            width,
+            height,
+            diagnostics: scene.diagnostics,
+        },
+        has_ink,
+    ))
 }
 fn inside(polygon: [f64; 8], point: (f64, f64)) -> bool {
     let mut positive = false;
@@ -222,9 +241,54 @@ pub fn render_drag_resource(
 mod raster_regressions {
     use super::*;
     #[test]
+    fn coverage_matches_masked_png_and_keeps_encoded_budget() {
+        let mut snapshot = crate::tests::empty_snapshot();
+        let bounds = CssRect {
+            x: 0.,
+            y: 0.,
+            width: 4.,
+            height: 4.,
+        };
+        let mut node = crate::tests::paint_node(
+            1,
+            None,
+            "div",
+            CssRect {
+                width: 2.,
+                ..bounds
+            },
+        );
+        node.style.insert("background-color".into(), "red".into());
+        snapshot.nodes.push(node);
+        for (polygon, expected) in [
+            ([0., 0., 2., 0., 2., 4., 0., 4.], true),
+            ([2., 0., 4., 0., 4., 4., 2., 4.], false),
+        ] {
+            let (artifact, has_ink) =
+                render_drag_png_with_coverage(&snapshot, bounds, &[polygon], 1., 16, 4096).unwrap();
+            assert_eq!(has_ink, expected);
+            assert_eq!(
+                has_ink,
+                crate::captured_png_has_ink(&artifact.bytes, artifact.width, artifact.height)
+                    .unwrap(),
+            );
+            assert!(
+                render_drag_png_with_coverage(&snapshot, bounds, &[polygon], 1., 16, 0,).is_err()
+            );
+        }
+        snapshot.nodes[0].style.insert("opacity".into(), "0".into());
+        let (artifact, has_ink) =
+            render_drag_png_with_coverage(&snapshot, bounds, &[], 1., 16, 4096).unwrap();
+        assert!(!has_ink);
+        assert!(
+            !crate::captured_png_has_ink(&artifact.bytes, artifact.width, artifact.height,)
+                .unwrap()
+        );
+    }
+    #[test]
     fn intrinsic_svg_uses_captured_source_without_network() {
         let mut snapshot = crate::tests::empty_snapshot();
-        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://example.test/picture.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="1"><rect width="2" height="1" fill="red"/></svg>"#.to_vec()});
+        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://example.test/picture.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="1"><rect width="2" height="1" fill="red"/></svg>"#.to_vec()});
         let image = render_drag_resource(&snapshot, 0, 2, 1, 16, 4096).unwrap();
         let pixels = image::load_from_memory(&image.bytes).unwrap().to_rgba8();
         assert_eq!(pixels.get_pixel(0, 0).0, [255, 0, 0, 255]);
@@ -233,7 +297,7 @@ mod raster_regressions {
     #[test]
     fn svg_processing_mode_distinguishes_disabled_requests_from_missing_native_admissions() {
         let mut snapshot = crate::tests::empty_snapshot();
-        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://example.test/picture.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><image href="missing.png" width="2" height="2"/></svg>"#.to_vec()});
+        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://example.test/picture.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><image href="missing.png" width="2" height="2"/></svg>"#.to_vec()});
         let secure = render_drag_resource(&snapshot, 0, 2, 2, 16, 4096).unwrap();
         assert!(
             image::load_from_memory(&secure.bytes)

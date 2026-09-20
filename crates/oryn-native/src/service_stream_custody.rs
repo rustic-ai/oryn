@@ -227,6 +227,7 @@ mod tests {
         let inflight = Arc::new(std::sync::atomic::AtomicUsize::new(1));
         let lease = ServiceEventLease {
             check_soft_update: false,
+            soft_update_source: None,
             activity: None,
             registry: Arc::downgrade(&registry),
             agent: AgentId(u64::MAX),

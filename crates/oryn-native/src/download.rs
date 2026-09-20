@@ -167,7 +167,7 @@ pub(crate) fn response_download_filename(
         .unwrap_or_else(|| {
             let segment = url
                 .path_segments()
-                .and_then(|segments| segments.last())
+                .and_then(|mut segments| segments.next_back())
                 .unwrap_or("");
             percent_decode_filename(segment)
                 .and_then(|bytes| String::from_utf8(bytes).ok())
@@ -376,6 +376,19 @@ pub enum DownloadError {
     TooLarge { limit: usize, actual: usize },
     #[error("download is unknown or was already released")]
     Unknown,
+}
+
+/// Binary document sniffing selects the native download quarantine; it never
+/// changes the supplied Content-Type visible through Fetch.
+pub(crate) fn computed_type_is_download(mime: &str) -> bool {
+    matches!(
+        mime,
+        "application/octet-stream"
+            | "application/zip"
+            | "application/x-gzip"
+            | "application/x-rar-compressed"
+            | "application/postscript"
+    )
 }
 
 #[cfg(test)]
@@ -592,17 +605,4 @@ mod tests {
         ));
         assert!(store.list().is_empty());
     }
-}
-
-/// Binary document sniffing selects the native download quarantine; it never
-/// changes the supplied Content-Type visible through Fetch.
-pub(crate) fn computed_type_is_download(mime: &str) -> bool {
-    matches!(
-        mime,
-        "application/octet-stream"
-            | "application/zip"
-            | "application/x-gzip"
-            | "application/x-rar-compressed"
-            | "application/postscript"
-    )
 }

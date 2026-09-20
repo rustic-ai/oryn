@@ -8,7 +8,7 @@ mod paint_timing;
 pub use paint_timing::{scene_frame_is_presented, scene_has_contentful_paint};
 mod filters;
 mod masks;
-pub use drag_image::{render_drag_png, render_drag_resource};
+pub use drag_image::{render_drag_png, render_drag_png_with_coverage, render_drag_resource};
 pub use masks::{MaskComposite, MaskLayer};
 mod backgrounds;
 mod borders;
@@ -29,6 +29,12 @@ mod svg_coverage;
 mod svg_foreign;
 mod svg_instances;
 mod svg_secure_foreign;
+mod svg_use_styles;
+pub use svg_secure_foreign::local_style_urls as native_svg_style_urls;
+pub use svg_use_styles::{
+    ResolvedInstances as CapturedSvgInstances, capture_svg_instances,
+    capture_svg_instances_for_media, capture_svg_instances_with_style_sample,
+};
 mod svg_text;
 pub use gradients::{BackgroundGradient, GradientStop, LinearGradient};
 mod print;
@@ -48,6 +54,23 @@ use fontdue::{Font, FontSettings};
 use image::{DynamicImage, ImageEncoder, ImageFormat};
 use oryn_common::v4::{CssRect, GeometryAvailability, PaintSnapshot, PaintTextFragment};
 use serde::{Deserialize, Serialize};
+
+fn default_render_font() -> &'static Result<std::sync::Arc<Font>, String> {
+    static FONT: std::sync::OnceLock<Result<std::sync::Arc<Font>, String>> =
+        std::sync::OnceLock::new();
+    FONT.get_or_init(|| {
+        Font::from_bytes(oryn_layout::DEFAULT_FONT_BYTES, FontSettings::default())
+            .map(std::sync::Arc::new)
+            .map_err(|error| error.to_string())
+    })
+}
+
+/// Prepare immutable renderer resources before a page admits author work.
+/// Retain initialization errors too; raster operations report the same error
+/// through their normal Result instead of retrying font parsing on every scene.
+pub fn prepare_resources() {
+    let _ = default_render_font();
+}
 
 /// Private-native consumers can inspect a bounded captured PNG without adding
 /// a second decoder or exposing tainted pixels to page script.
@@ -74,7 +97,7 @@ pub fn captured_png_has_ink(bytes: &[u8], width: u32, height: u32) -> Result<boo
     Ok(pixels.pixels().any(|pixel| pixel.0[3] != 0))
 }
 
-pub const RENDER_CONTRACT_VERSION: u16 = 3;
+pub use oryn_common::v4::RENDER_CONTRACT_VERSION;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RendererCapabilities {
@@ -543,16 +566,20 @@ pub fn build_display_list(
             };
             if !promoted {
                 match backgrounds::commands_for_fragment(
-                    snapshot,
-                    background_style,
-                    sliced_background.as_ref().unwrap_or(model),
-                    fragment_radii(model.border_box),
-                    node.projection
-                        .as_ref()
-                        .and_then(|projection| projection.scroll.as_ref()),
-                    !canvas && transformed_backgrounds.contains(&node.node_id),
-                    canvas_clip,
-                    sliced_background.as_ref().map(|_| model),
+                    crate::backgrounds::BackgroundFragmentInputs {
+                        snapshot,
+                        style: background_style,
+                        model: sliced_background.as_ref().unwrap_or(model),
+                        radii: fragment_radii(model.border_box),
+                        scroll: node
+                            .projection
+                            .as_ref()
+                            .and_then(|projection| projection.scroll.as_ref()),
+                        transformed_ancestor: !canvas
+                            && transformed_backgrounds.contains(&node.node_id),
+                        canvas_clip,
+                        fragment: sliced_background.as_ref().map(|_| model),
+                    },
                 ) {
                     Ok(mut background) => {
                         for command in &mut background {
@@ -694,13 +721,13 @@ pub fn build_display_list(
                     });
                 }
             }
-            if node.tag == "option" {
-                if let Some(color) = option_highlights.get(&node.node_id) {
-                    commands.push(PaintCommand::FillRect {
-                        rect: model.padding_box,
-                        color: *color,
-                    });
-                }
+            if node.tag == "option"
+                && let Some(color) = option_highlights.get(&node.node_id)
+            {
+                commands.push(PaintCommand::FillRect {
+                    rect: model.padding_box,
+                    color: *color,
+                });
             }
             if fragment_index == 0 {
                 match controls::commands(node, model) {
@@ -778,17 +805,16 @@ pub fn build_display_list(
                     )),
                 }
             }
-            if fragment_index == 0 {
-                if let Some(frame) = snapshot
+            if fragment_index == 0
+                && let Some(frame) = snapshot
                     .frames
                     .iter()
                     .position(|frame| frame.owner_node == node.node_id)
-                {
-                    commands.push(PaintCommand::EmbeddedDocument {
-                        rect: model.content_box,
-                        frame,
-                    });
-                }
+            {
+                commands.push(PaintCommand::EmbeddedDocument {
+                    rect: model.content_box,
+                    frame,
+                });
             }
             if let Some(projection) = &node.projection {
                 let local = commands.split_off(box_command_start);
@@ -842,14 +868,14 @@ pub fn build_display_list(
             }
         }
         let chrome = scrollbar::commands(node);
-        if !chrome.is_empty() {
-            if let Some(projection) = &node.projection {
-                commands.push(PaintCommand::Projected {
-                    matrix: projection.matrix,
-                    clips: projection.clips.clone(),
-                    commands: chrome,
-                });
-            }
+        if !chrome.is_empty()
+            && let Some(projection) = &node.projection
+        {
+            commands.push(PaintCommand::Projected {
+                matrix: projection.matrix,
+                clips: projection.clips.clone(),
+                commands: chrome,
+            });
         }
         own_commands.insert(node.node_id, commands.split_off(command_start));
         outlines.insert(node.node_id, outline::commands(node)?);
@@ -1016,30 +1042,54 @@ fn rasterize(
     scene: &DisplayList,
     options: RenderOptions,
 ) -> Result<Vec<u8>, RenderError> {
+    rasterize_internal(snapshot, scene, options, false).map(|(pixels, _)| pixels)
+}
+
+fn rasterize_has_ink(
+    snapshot: &PaintSnapshot,
+    scene: &DisplayList,
+    options: RenderOptions,
+) -> Result<bool, RenderError> {
+    rasterize_internal(snapshot, scene, options, true).map(|(_, ink)| ink)
+}
+
+fn rasterize_internal(
+    snapshot: &PaintSnapshot,
+    scene: &DisplayList,
+    options: RenderOptions,
+    presence_only: bool,
+) -> Result<(Vec<u8>, bool), RenderError> {
     if scene.contract_version != RENDER_CONTRACT_VERSION {
         return Err(RenderError::Encode("display-list contract mismatch".into()));
     }
-    let mut pixels = vec![0; scene.width as usize * scene.height as usize * 4];
-    let font = Font::from_bytes(oryn_layout::DEFAULT_FONT_BYTES, FontSettings::default())
-        .map_err(|error| RenderError::Font(error.to_string()))?;
+    let backdrop = has_backdrop(&scene.commands);
+    let mut pixels = if !presence_only || backdrop {
+        vec![0; scene.width as usize * scene.height as usize * 4]
+    } else {
+        Vec::new()
+    };
+    let font = default_render_font()
+        .as_ref()
+        .map_err(|error| RenderError::Font(error.clone()))?;
     let mut cache = projected::RasterCache::default();
 
-    if has_backdrop(&scene.commands) {
-        projected::paint(
-            &mut pixels,
-            scene.width,
-            scene.height,
-            options.scale,
-            [
+    if backdrop {
+        projected::paint(crate::projected::ProjectedPaintInputs {
+            pixels: &mut pixels,
+            width: scene.width,
+            height: scene.height,
+            scale: options.scale,
+            matrix: [
                 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
             ],
-            &[],
-            &scene.commands,
+            clip_records: &[],
+            commands: &scene.commands,
             snapshot,
-            &font,
-            &mut cache,
-        )?;
-        return Ok(pixels);
+            font,
+            cache: &mut cache,
+        })?;
+        let ink = presence_only && pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0);
+        return Ok((pixels, ink));
     }
     const TILE: u32 = 64;
     for top in (0..scene.height).step_by(TILE as usize) {
@@ -1065,18 +1115,28 @@ fn rasterize(
                 0.,
                 1.,
             ];
-            projected::paint(
-                &mut tile,
+            projected::paint(crate::projected::ProjectedPaintInputs {
+                pixels: &mut tile,
                 width,
                 height,
-                options.scale,
+                scale: options.scale,
                 matrix,
-                &[],
-                &scene.commands,
+                clip_records: &[],
+                commands: &scene.commands,
                 snapshot,
-                &font,
-                &mut cache,
-            )?;
+                font,
+                cache: &mut cache,
+            })?;
+            // Tiles have already been composited through the same clipping,
+            // masks and filters as full raster output. Coverage is existential:
+            // later independent tiles cannot erase ink in this completed tile.
+            // Backdrop-dependent scenes take the full-scene path above.
+            if presence_only {
+                if tile.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0) {
+                    return Ok((Vec::new(), true));
+                }
+                continue;
+            }
             for row in 0..height as usize {
                 let source = row * width as usize * 4;
                 let target = ((top as usize + row) * scene.width as usize + left as usize) * 4;
@@ -1085,11 +1145,11 @@ fn rasterize(
             }
         }
     }
-    Ok(pixels)
+    Ok((pixels, false))
 }
 
 fn composite_layer(pixels: &mut [u8], layer: &[u8], opacity: f64) {
-    for (index, rgba) in layer.chunks_exact(4).enumerate() {
+    for (index, rgba) in layer.as_chunks::<4>().0.iter().enumerate() {
         blend(
             pixels,
             index * 4,
@@ -1513,6 +1573,7 @@ mod tests {
             .unwrap();
         let resource = |bytes| oryn_common::v4::PaintImageResource {
             svg_document_snapshot: false,
+            svg_instances: Vec::new(),
             content_type: None,
             url_aliases: Vec::new(),
             url: "https://example.test/image.png".into(),
@@ -1698,7 +1759,9 @@ mod tests {
         let pixels = rasterize(&overflow, &scene, RenderOptions::default()).unwrap();
         assert!(
             pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| pixel[0] < 100 && pixel[1] < 100 && pixel[2] < 100)
         );
     }
@@ -1770,15 +1833,17 @@ mod tests {
             rasterize(snapshot, &scene, RenderOptions::default())
         };
         let original = render(fragment.clone(), &snapshot).unwrap();
-        assert!(original.chunks_exact(4).any(|pixel| pixel[3] > 0));
+        assert!(original.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0));
         fragment.text.clear();
         assert_eq!(original, render(fragment.clone(), &snapshot).unwrap());
         fragment.glyph_runs[0].color = Some([255, 0, 0, 255]);
         let colored = render(fragment.clone(), &snapshot).unwrap();
-        assert!(colored.chunks_exact(4).any(|pixel| pixel[3] > 0));
+        assert!(colored.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0));
         assert!(
             colored
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|pixel| pixel[3] > 0)
                 .all(|pixel| pixel[0] == 255 && pixel[1] == 0 && pixel[2] == 0)
         );
@@ -1967,7 +2032,9 @@ mod tests {
         }
     }
 
-    fn stacking_fixture(styles: &[(u64, Option<u64>, &str, &[(&str, &str)])]) -> PaintSnapshot {
+    type StackingFixtureNode<'a> = (u64, Option<u64>, &'a str, &'a [(&'a str, &'a str)]);
+
+    fn stacking_fixture(styles: &[StackingFixtureNode<'_>]) -> PaintSnapshot {
         let mut snapshot = empty_snapshot();
         snapshot.viewport.width = 1.;
         snapshot.viewport.height = 1.;
@@ -2318,6 +2385,7 @@ mod tests {
             .unwrap();
         snapshot.images.push(PaintImageResource {
             svg_document_snapshot: false,
+            svg_instances: Vec::new(),
             content_type: None,
             url_aliases: Vec::new(),
             url: "fixture://crop.png".into(),
@@ -2380,6 +2448,7 @@ mod tests {
             .unwrap();
         snapshot.images.push(PaintImageResource {
             svg_document_snapshot: false,
+            svg_instances: Vec::new(),
             content_type: None,
             url_aliases: Vec::new(),
             url: "fixture://green.png".into(),
@@ -2487,6 +2556,7 @@ mod tests {
         };
         snapshot.images.push(PaintImageResource {
             svg_document_snapshot: false,
+            svg_instances: Vec::new(),
             content_type: None,
             url_aliases: Vec::new(),
             url: "fixture://pixel.png".into(),
@@ -2571,6 +2641,7 @@ mod tests {
         snapshot.diagnostics.push("worker diagnostic".into());
         snapshot.images.push(PaintImageResource {
             svg_document_snapshot: false,
+            svg_instances: Vec::new(),
             content_type: None,
             url_aliases: Vec::new(),
             url: "fixture://bad.png".into(),

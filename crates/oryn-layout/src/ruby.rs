@@ -117,13 +117,12 @@ fn units(
     for container in containers {
         let mut cursor = 0;
         for child in &nodes[&container].children {
-            if let Some(node) = nodes.get(child) {
-                if styles
+            if let Some(node) = nodes.get(child)
+                && styles
                     .get(child)
                     .is_some_and(|style| style_value(style, "display", "none") != "none")
-                {
-                    pair(&mut units, &mut cursor, *child, source(node, nodes, styles));
-                }
+            {
+                pair(&mut units, &mut cursor, *child, source(node, nodes, styles));
             }
         }
     }
@@ -375,11 +374,10 @@ fn align(layout: &mut TextLayout, width: f64, mode: &str) {
             cluster.rect.x += shift;
         }
         for source in &mut layout.source_clusters {
-            if source.line == line_index {
-                if let Some((_, _, shift)) = shifts.iter().find(|(_, rect, _)| *rect == source.rect)
-                {
-                    source.rect.x += shift;
-                }
+            if source.line == line_index
+                && let Some((_, _, shift)) = shifts.iter().find(|(_, rect, _)| *rect == source.rect)
+            {
+                source.rect.x += shift;
             }
         }
         if let (Some(runs), Some(sources)) = (
@@ -415,15 +413,15 @@ fn align(layout: &mut TextLayout, width: f64, mode: &str) {
                     minimum = minimum.min(shift);
                     maximum = maximum.max(shift);
                 }
-                if let Some(rect) = &mut run.decoration_rect {
-                    if minimum.is_finite() {
-                        if run.vertical {
-                            rect.y += minimum;
-                            rect.height += maximum - minimum;
-                        } else {
-                            rect.x += minimum;
-                            rect.width += maximum - minimum;
-                        }
+                if let Some(rect) = &mut run.decoration_rect
+                    && minimum.is_finite()
+                {
+                    if run.vertical {
+                        rect.y += minimum;
+                        rect.height += maximum - minimum;
+                    } else {
+                        rect.x += minimum;
+                        rect.width += maximum - minimum;
                     }
                 }
             }
@@ -438,8 +436,10 @@ mod tests {
     use super::*;
     #[test]
     fn typographic_bounds_include_negative_leading_without_changing_flow() {
-        let mut layout = TextLayout::default();
-        layout.height = 8.;
+        let mut layout = TextLayout {
+            height: 8.,
+            ..TextLayout::default()
+        };
         layout.line_heights.push(8.);
         layout.clusters.push(text_source::TextCluster {
             bytes: 0..1,

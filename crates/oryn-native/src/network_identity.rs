@@ -234,10 +234,11 @@ impl Read for IdentityRead {
         let result = self.inner.read(output);
         // A zero-length read is not EOF. A real EOF ends transport ownership
         // even when the caller retains its exhausted response object.
-        if !output.is_empty() && matches!(&result, Ok(0)) {
-            if let Some(lease) = self.lease.take() {
-                lease.foreground_finished.store(true, Ordering::Release);
-            }
+        if !output.is_empty()
+            && matches!(&result, Ok(0))
+            && let Some(lease) = self.lease.take()
+        {
+            lease.foreground_finished.store(true, Ordering::Release);
         }
         result
     }
@@ -274,6 +275,15 @@ impl Drop for IdentityBroker {
     }
 }
 impl NetworkBroker for IdentityBroker {
+    fn discard_response_policy_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        token: &str,
+    ) -> Result<(), NetworkError> {
+        // Token authority is bound to its route, not this wrapper's request ID
+        // namespace. Do not look up a possibly completed or reused numeric ID.
+        self.inner.discard_response_policy_routed(route, token)
+    }
     fn owned_operation_activity(&self) -> (usize, Option<std::time::Instant>) {
         // Admission, release and snapshots lock in this order, so a completed
         // request between polling checkpoints cannot disappear without a time.
@@ -505,6 +515,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 *self.captured.lock().unwrap() = capture_background_owner();
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -589,6 +600,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 *self.captured.lock().unwrap() = capture_background_owner();
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -715,6 +727,7 @@ mod tests {
                     Box::new(std::io::Cursor::new(vec![1]))
                 };
                 Ok(NetworkStreamResponse {
+                    response_policy: None,
                     encoded_bytes: None,
                     timing: None,
                     request_id: request.request_id,
@@ -800,6 +813,7 @@ mod tests {
         impl NetworkBroker for Buffered {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -845,6 +859,7 @@ mod tests {
     impl NetworkBroker for Recording {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -859,6 +874,7 @@ mod tests {
             let (sender, events) = tokio::sync::mpsc::channel(16);
             sender
                 .try_send(NetworkEvent::Headers {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,

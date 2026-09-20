@@ -1,6 +1,32 @@
 //! Resolve out-of-flow insets after ancestor used box heights are available.
 //! This pass changes placement only; intrinsic/percentage sizing belongs to the
 //! containing-block-aware formatting pass, not a post-layout rescale.
+
+/// Inputs for resolve one.
+pub(crate) struct PositionedNodeInputs<'a> {
+    pub(crate) id: u64,
+    pub(crate) input: &'a LayoutInput,
+    pub(crate) by_id: &'a BTreeMap<u64, &'a LayoutNode>,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) geometry: &'a mut BTreeMap<u64, NodeGeometry>,
+    pub(crate) text: &'a mut BTreeMap<u64, Vec<PaintTextFragment>>,
+    pub(crate) clusters: &'a mut BTreeMap<u64, Vec<oryn_common::v4::TextClusterGeometry>>,
+    pub(crate) viewport_gutter: EdgeSizes,
+}
+/// Inputs for resolve position axis.
+pub(crate) struct PositionAxis {
+    pub(crate) start: Option<f64>,
+    pub(crate) end: Option<f64>,
+    pub(crate) origin: f64,
+    pub(crate) extent: f64,
+    pub(crate) size: f64,
+    pub(crate) margin_start: f64,
+    pub(crate) margin_end: f64,
+    pub(crate) auto_start: bool,
+    pub(crate) auto_end: bool,
+    pub(crate) reverse: bool,
+    pub(crate) static_position: f64,
+}
 use super::*;
 
 pub(super) fn establishes(style: &BTreeMap<String, String>, fixed: bool) -> bool {
@@ -56,10 +82,10 @@ pub(super) fn containing_box(
 ) -> CssRect {
     let mut ancestor = by_id.get(&id).and_then(|n| n.parent);
     while let Some(id) = ancestor {
-        if establishes(&styles[&id], fixed) {
-            if let Some(model) = geometry.get(&id).and_then(|g| g.box_model.as_ref()) {
-                return model.padding_box;
-            }
+        if establishes(&styles[&id], fixed)
+            && let Some(model) = geometry.get(&id).and_then(|g| g.box_model.as_ref())
+        {
+            return model.padding_box;
         }
         ancestor = by_id.get(&id).and_then(|n| n.parent);
     }
@@ -71,19 +97,21 @@ pub(super) fn containing_box(
     }
 }
 
-fn axis(
-    start: Option<f64>,
-    end: Option<f64>,
-    origin: f64,
-    extent: f64,
-    size: f64,
-    margin_start: f64,
-    margin_end: f64,
-    auto_start: bool,
-    auto_end: bool,
-    reverse: bool,
-    static_position: f64,
-) -> f64 {
+fn resolve_position_axis(params: PositionAxis) -> f64 {
+    let PositionAxis {
+        start,
+        end,
+        origin,
+        extent,
+        size,
+        margin_start,
+        margin_end,
+        auto_start,
+        auto_end,
+        reverse,
+        static_position,
+    } = params;
+
     match (start, end) {
         (Some(start), Some(end)) => {
             let free = extent
@@ -135,7 +163,7 @@ pub(super) fn resolve(
         .collect::<Vec<_>>();
     while let Some(id) = pending.pop() {
         pending.extend(by_id[&id].children.iter().rev());
-        resolve_one(
+        resolve_one(PositionedNodeInputs {
             id,
             input,
             by_id,
@@ -144,7 +172,7 @@ pub(super) fn resolve(
             text,
             clusters,
             viewport_gutter,
-        );
+        });
     }
 }
 
@@ -208,16 +236,18 @@ pub(super) fn normalize_fixed(
     }
 }
 
-pub(super) fn resolve_one(
-    id: u64,
-    input: &LayoutInput,
-    by_id: &BTreeMap<u64, &LayoutNode>,
-    styles: &ComputedStyles,
-    geometry: &mut BTreeMap<u64, NodeGeometry>,
-    text: &mut BTreeMap<u64, Vec<PaintTextFragment>>,
-    clusters: &mut BTreeMap<u64, Vec<oryn_common::v4::TextClusterGeometry>>,
-    viewport_gutter: EdgeSizes,
-) {
+pub(super) fn resolve_one(params: PositionedNodeInputs<'_>) {
+    let PositionedNodeInputs {
+        id,
+        input,
+        by_id,
+        styles,
+        geometry,
+        text,
+        clusters,
+        viewport_gutter,
+    } = params;
+
     let node = by_id[&id];
     let style = &styles[&id];
     let position = style_value(style, "position", "static");
@@ -270,32 +300,32 @@ pub(super) fn resolve_one(
             .unwrap_or("horizontal-tb"),
         cb_style.is_some_and(|s| style_value(s, "direction", "ltr") == "rtl"),
     );
-    let x = axis(
-        inset("left", cb.width),
-        inset("right", cb.width),
-        cb.x,
-        cb.width,
-        model.border_box.width,
-        model.margin.left,
-        model.margin.right,
-        auto("margin-left"),
-        auto("margin-right"),
-        axes.x_reverse,
-        model.border_box.x,
-    );
-    let y = axis(
-        inset("top", cb.height),
-        inset("bottom", cb.height),
-        cb.y,
-        cb.height,
-        model.border_box.height,
-        model.margin.top,
-        model.margin.bottom,
-        auto("margin-top"),
-        auto("margin-bottom"),
-        axes.y_reverse,
-        model.border_box.y,
-    );
+    let x = resolve_position_axis(PositionAxis {
+        start: inset("left", cb.width),
+        end: inset("right", cb.width),
+        origin: cb.x,
+        extent: cb.width,
+        size: model.border_box.width,
+        margin_start: model.margin.left,
+        margin_end: model.margin.right,
+        auto_start: auto("margin-left"),
+        auto_end: auto("margin-right"),
+        reverse: axes.x_reverse,
+        static_position: model.border_box.x,
+    });
+    let y = resolve_position_axis(PositionAxis {
+        start: inset("top", cb.height),
+        end: inset("bottom", cb.height),
+        origin: cb.y,
+        extent: cb.height,
+        size: model.border_box.height,
+        margin_start: model.margin.top,
+        margin_end: model.margin.bottom,
+        auto_start: auto("margin-top"),
+        auto_end: auto("margin-bottom"),
+        reverse: axes.y_reverse,
+        static_position: model.border_box.y,
+    });
     let aligned = |key: &str, size: f64, start: f64, end: f64, ordinary: f64| {
         let Some(value) = style.get(key) else {
             return ordinary;
@@ -370,84 +400,6 @@ pub(super) fn resolve_one(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn opposing_insets_distribute_auto_margins_and_obey_direction() {
-        assert_eq!(
-            axis(
-                Some(10.),
-                Some(20.),
-                100.,
-                300.,
-                50.,
-                0.,
-                0.,
-                true,
-                true,
-                false,
-                0.
-            ),
-            220.
-        );
-        assert_eq!(
-            axis(
-                Some(10.),
-                Some(20.),
-                100.,
-                300.,
-                50.,
-                4.,
-                6.,
-                false,
-                false,
-                false,
-                0.
-            ),
-            114.
-        );
-        assert_eq!(
-            axis(
-                Some(10.),
-                Some(20.),
-                100.,
-                300.,
-                50.,
-                4.,
-                6.,
-                false,
-                false,
-                true,
-                0.
-            ),
-            324.
-        );
-        assert_eq!(
-            axis(
-                None,
-                Some(20.),
-                100.,
-                300.,
-                50.,
-                4.,
-                6.,
-                false,
-                false,
-                false,
-                0.
-            ),
-            324.
-        );
-        assert_eq!(
-            axis(
-                None, None, 100., 300., 50., 4., 6., false, false, false, 42.
-            ),
-            42.
-        );
-    }
-}
-
 /// Move a formatted subtree and its deferred static-position anchors together.
 /// Used by logical block flow after the child's used block size is available.
 pub(super) fn translate_subtree(
@@ -515,5 +467,93 @@ pub(super) fn translate_subtree(
             anchor.x += dx;
             anchor.y += dy;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn opposing_insets_distribute_auto_margins_and_obey_direction() {
+        assert_eq!(
+            resolve_position_axis(PositionAxis {
+                start: Some(10.),
+                end: Some(20.),
+                origin: 100.,
+                extent: 300.,
+                size: 50.,
+                margin_start: 0.,
+                margin_end: 0.,
+                auto_start: true,
+                auto_end: true,
+                reverse: false,
+                static_position: 0.
+            }),
+            220.
+        );
+        assert_eq!(
+            resolve_position_axis(PositionAxis {
+                start: Some(10.),
+                end: Some(20.),
+                origin: 100.,
+                extent: 300.,
+                size: 50.,
+                margin_start: 4.,
+                margin_end: 6.,
+                auto_start: false,
+                auto_end: false,
+                reverse: false,
+                static_position: 0.
+            }),
+            114.
+        );
+        assert_eq!(
+            resolve_position_axis(PositionAxis {
+                start: Some(10.),
+                end: Some(20.),
+                origin: 100.,
+                extent: 300.,
+                size: 50.,
+                margin_start: 4.,
+                margin_end: 6.,
+                auto_start: false,
+                auto_end: false,
+                reverse: true,
+                static_position: 0.
+            }),
+            324.
+        );
+        assert_eq!(
+            resolve_position_axis(PositionAxis {
+                start: None,
+                end: Some(20.),
+                origin: 100.,
+                extent: 300.,
+                size: 50.,
+                margin_start: 4.,
+                margin_end: 6.,
+                auto_start: false,
+                auto_end: false,
+                reverse: false,
+                static_position: 0.
+            }),
+            324.
+        );
+        assert_eq!(
+            resolve_position_axis(PositionAxis {
+                start: None,
+                end: None,
+                origin: 100.,
+                extent: 300.,
+                size: 50.,
+                margin_start: 4.,
+                margin_end: 6.,
+                auto_start: false,
+                auto_end: false,
+                reverse: false,
+                static_position: 42.
+            }),
+            42.
+        );
     }
 }

@@ -119,7 +119,7 @@ fn wrap<'s>(
         .instance_templates
         .borrow()
         .get(interface)
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface("XPath interface"))?;
     let template = v8::Local::new(scope, &template);
     let object = template
@@ -218,7 +218,7 @@ fn resolver_uri(
                 };
             let prefix = v8_string(tc, prefix)?;
             let value = function
-                .call(tc, receiver, &[prefix.into()])
+                .call(tc, receiver, &[prefix])
                 .ok_or(V8BindingError::JavaScriptException)?;
             if value.is_null_or_undefined() {
                 return Err(invalid("NamespaceError"));
@@ -574,10 +574,10 @@ fn context_identity(
     scope: &mut v8::PinScope,
     value: v8::Local<v8::Value>,
 ) -> Result<(Rc<V8BindingState>, XPathNode), V8BindingError> {
-    if let Ok(object) = v8::Local::<v8::Object>::try_from(value) {
-        if is_namespace(scope, object) {
-            return namespace_identity(scope, object);
-        }
+    if let Ok(object) = v8::Local::<v8::Object>::try_from(value)
+        && is_namespace(scope, object)
+    {
+        return namespace_identity(scope, object);
     }
     let (state, node) = node_identity::canonical(scope, value)?
         .ok_or_else(|| invalid("TypeError: context must be a Node"))?;
@@ -830,10 +830,10 @@ pub(super) fn namespace_getter<'s>(
             let name = v8::String::new(scope, "oryn.xpath.empty.children")
                 .ok_or(V8BindingError::Allocation("namespace children"))?;
             let key = v8::Private::for_api(scope, Some(name));
-            if let Some(value) = object.get_private(scope, key) {
-                if !value.is_undefined() {
-                    return Ok(value);
-                }
+            if let Some(value) = object.get_private(scope, key)
+                && !value.is_undefined()
+            {
+                return Ok(value);
             }
             let value = node_lists::snapshot(scope, state, &[])?;
             object
@@ -988,12 +988,24 @@ pub(super) fn namespace_operation<'s>(
 mod tests {
     use super::*;
     fn eval(scope: &mut v8::PinScope, source: &str) -> String {
+        v8::tc_scope!(let scope, scope);
         let source = v8::String::new(scope, source).unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap()
-            .to_rust_string_lossy(scope)
+        let script = v8::Script::compile(scope, source, None).unwrap_or_else(|| {
+            let exception = scope
+                .exception()
+                .map(|value| value.to_rust_string_lossy(scope));
+            panic!("XPath fixture compilation failed: {exception:?}");
+        });
+        let result = script.run(scope).unwrap_or_else(|| {
+            let exception = scope
+                .exception()
+                .map(|value| value.to_rust_string_lossy(scope));
+            let stack = scope
+                .stack_trace()
+                .map(|value| value.to_rust_string_lossy(scope));
+            panic!("XPath fixture failed: {exception:?}; stack: {stack:?}");
+        });
+        result.to_rust_string_lossy(scope)
     }
     #[test]
     fn xpath_context_namespace_and_result_objects_follow_callback_adoption() {
@@ -1200,6 +1212,7 @@ mod tests {
             eval(
                 scope,
                 r#"(()=>{const check=(v,m)=>{if(!v)throw Error(m)};
+            const a=document.getElementById('a'),b=document.getElementById('b');
             const iterator=document.evaluate('//li',document,null,XPathResult.ORDERED_NODE_ITERATOR_TYPE);
             check(iterator instanceof XPathResult&&iterator.iterateNext()===a&&iterator.iterateNext()===b&&iterator.iterateNext()===null,'native identity/order');
             a.focus();a.addEventListener('x',()=>{});check(!iterator.invalidIteratorState,'non-tree activity');

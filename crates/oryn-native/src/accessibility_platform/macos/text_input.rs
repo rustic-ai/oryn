@@ -75,7 +75,7 @@ struct Client {
     state: StateSnapshot,
     failure: Option<String>,
 }
-thread_local! {static CLIENTS:RefCell<BTreeMap<usize,Client>>=RefCell::new(BTreeMap::new());}
+thread_local! {static CLIENTS:RefCell<BTreeMap<usize,Client>>=const { RefCell::new(BTreeMap::new()) };}
 fn empty() -> StateSnapshot {
     StateSnapshot {
         mutation_revision: 0,
@@ -138,10 +138,10 @@ pub(super) fn clear(view: Id) {
 }
 pub(super) fn update_secure_input(view: Id, active: bool) {
     CLIENTS.with(|clients| {
-        if let Some(client) = clients.borrow_mut().get_mut(&(view as usize)) {
-            if let Err(error) = client.secure.set(active && client.state.protected) {
-                client.failure = Some(error);
-            }
+        if let Some(client) = clients.borrow_mut().get_mut(&(view as usize))
+            && let Err(error) = client.secure.set(active && client.state.protected)
+        {
+            client.failure = Some(error);
         }
     });
 }
@@ -275,59 +275,59 @@ pub(super) fn publish(
                 .values()
                 .find(|node| node.states.contains(&NodeState::Focused) && node.text.is_some())
         };
-        if let Some(node) = node {
-            if let Some(text) = &node.text {
-                if client.active.is_none() {
-                    client.state = StateSnapshot {
-                        mutation_revision: text
-                            .protected_caret
-                            .as_ref()
-                            .map_or(0, |record| record.mutation_revision),
-                        aborted: false,
-                        protected: text.protected,
-                        text: text.value.clone(),
-                        selection: text.protected_caret.as_ref().map_or(
-                            TextRange {
-                                start: text.start,
-                                length: text.end.saturating_sub(text.start),
-                            },
-                            |record| record.selection,
-                        ),
-                        marked: None,
-                    };
+        if let Some(node) = node
+            && let Some(text) = &node.text
+        {
+            if client.active.is_none() {
+                client.state = StateSnapshot {
+                    mutation_revision: text
+                        .protected_caret
+                        .as_ref()
+                        .map_or(0, |record| record.mutation_revision),
+                    aborted: false,
+                    protected: text.protected,
+                    text: text.value.clone(),
+                    selection: text.protected_caret.as_ref().map_or(
+                        TextRange {
+                            start: text.start,
+                            length: text.end.saturating_sub(text.start),
+                        },
+                        |record| record.selection,
+                    ),
+                    marked: None,
+                };
+            }
+            if let Some(record) = text
+                .protected_caret
+                .as_ref()
+                .filter(|record| record.matches(&client.state))
+            {
+                let mut caret = record.caret.clone();
+                caret.rect = caret
+                    .rect
+                    .map(|rect| unsafe { screen_rect(view, snapshot.viewport.height, rect) });
+                client.geometry = Some(super::super::text_geometry::TextGeometry {
+                    boxes: Vec::new(),
+                    carets: vec![caret],
+                });
+            }
+            if text.protected == client.state.protected
+                && text.value == client.state.text
+                && !text.protected
+            {
+                let mut geometry = super::super::text_geometry::TextGeometry {
+                    boxes: text.boxes.clone(),
+                    carets: text.carets.clone(),
+                };
+                for item in &mut geometry.boxes {
+                    item.rect = unsafe { screen_rect(view, snapshot.viewport.height, item.rect) };
                 }
-                if let Some(record) = text
-                    .protected_caret
-                    .as_ref()
-                    .filter(|record| record.matches(&client.state))
-                {
-                    let mut caret = record.caret.clone();
+                for caret in &mut geometry.carets {
                     caret.rect = caret
                         .rect
                         .map(|rect| unsafe { screen_rect(view, snapshot.viewport.height, rect) });
-                    client.geometry = Some(super::super::text_geometry::TextGeometry {
-                        boxes: Vec::new(),
-                        carets: vec![caret],
-                    });
                 }
-                if text.protected == client.state.protected && text.value == client.state.text {
-                    if !text.protected {
-                        let mut geometry = super::super::text_geometry::TextGeometry {
-                            boxes: text.boxes.clone(),
-                            carets: text.carets.clone(),
-                        };
-                        for item in &mut geometry.boxes {
-                            item.rect =
-                                unsafe { screen_rect(view, snapshot.viewport.height, item.rect) };
-                        }
-                        for caret in &mut geometry.carets {
-                            caret.rect = caret.rect.map(|rect| unsafe {
-                                screen_rect(view, snapshot.viewport.height, rect)
-                            });
-                        }
-                        client.geometry = Some(geometry);
-                    }
-                }
+                client.geometry = Some(geometry);
             }
         }
     });
@@ -452,16 +452,15 @@ fn change(view: Id, operation: Operation) {
                 let replace = replacement
                     .or(client.state.marked)
                     .unwrap_or(client.state.selection);
-                if !client.state.protected {
-                    if let Some(end) = replace
+                if !client.state.protected
+                    && let Some(end) = replace
                         .end()
                         .filter(|end| *end as usize <= client.state.text.len())
-                    {
-                        client
-                            .state
-                            .text
-                            .splice(replace.start as usize..end as usize, text.iter().copied());
-                    }
+                {
+                    client
+                        .state
+                        .text
+                        .splice(replace.start as usize..end as usize, text.iter().copied());
                 }
                 client.state.selection = TextRange {
                     start: replace.start.saturating_add(text.len() as u32),
@@ -522,13 +521,13 @@ pub(super) fn receipts(view: Id, receipts: Vec<OsKeyReceipt>) -> Result<(), Stri
                 client.interpreting = true;
                 client.active = Some(receipt.clone());
             }
-            if client.latest == receipt.token {
-                if let Some(state) = &receipt.state {
-                    client.state = state.clone();
-                    client.geometry = None;
-                    if state.aborted {
-                        client.active = None;
-                    }
+            if client.latest == receipt.token
+                && let Some(state) = &receipt.state
+            {
+                client.state = state.clone();
+                client.geometry = None;
+                if state.aborted {
+                    client.active = None;
                 }
             }
             Ok::<_, String>(pending)

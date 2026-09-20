@@ -498,7 +498,7 @@ pub struct InternalResponseMetadata {
 pub enum PlatformHostResult {
     HttpStarted {
         #[serde(default)]
-        timing: Option<ResourceTimingMetadata>,
+        timing: Option<Box<ResourceTimingMetadata>>,
         #[serde(default)]
         internal_response: Option<InternalResponseMetadata>,
         #[serde(default)]

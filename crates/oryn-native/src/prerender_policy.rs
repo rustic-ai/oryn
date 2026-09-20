@@ -1,4 +1,15 @@
 //! Parent-owned nonactive Document policy, kept separate from the active page.
+
+/// Inputs for register native prerender frame.
+pub(crate) struct NativePrerenderFrameInputs<'a> {
+    pub(crate) page: PageId,
+    pub(crate) parent: &'a Creator,
+    pub(crate) frame: String,
+    pub(crate) generation: u64,
+    pub(crate) epoch: u64,
+    pub(crate) origin: String,
+    pub(crate) inherit_origin: bool,
+}
 use super::*;
 
 impl BrowserContext {
@@ -39,14 +50,18 @@ impl BrowserContext {
     }
     pub(crate) fn register_native_prerender_frame(
         &self,
-        page: PageId,
-        parent: &Creator,
-        frame: String,
-        generation: u64,
-        epoch: u64,
-        origin: String,
-        inherit_origin: bool,
+        params: NativePrerenderFrameInputs<'_>,
     ) -> Result<(), RuntimeError> {
+        let NativePrerenderFrameInputs {
+            page,
+            parent,
+            frame,
+            generation,
+            epoch,
+            origin,
+            inherit_origin,
+        } = params;
+
         let Creator::Window {
             target,
             document_generation,
@@ -77,22 +92,22 @@ impl BrowserContext {
             &scope.origin.authority,
         )
         .map_err(|error| RuntimeError::ProtocolViolation(error.into()))?;
-        hub.register_prerender_frame(
-            page.0,
-            &token,
+        hub.register_prerender_frame(oryn_js::message_wire::PrerenderFrameRegistration {
+            page: page.0,
+            token: &token,
             lifetime,
-            target,
-            *document_generation,
-            *stream_epoch,
+            parent: target,
+            parent_generation: *document_generation,
+            parent_epoch: *stream_epoch,
             frame,
             generation,
             epoch,
-            origin,
-            inherit_origin.then(|| target.clone()),
-            &scope.origin.serialized,
-            &scope.origin.authority,
-            native_storage_partition(self.inner.id, &root_origin),
-        )
+            frame_origin: origin,
+            inherit_origin: inherit_origin.then(|| target.clone()),
+            origin: &scope.origin.serialized,
+            origin_key: &scope.origin.authority,
+            partition: native_storage_partition(self.inner.id, &root_origin),
+        })
         .map_err(RuntimeError::ProtocolViolation)
     }
 }
@@ -266,7 +281,7 @@ impl BrowserContext {
             ));
         }
         if !scope.blank_selected {
-            let (source, creator) = scope.blank_source.clone().unwrap_or_else(|| {
+            let (source, creator) = scope.blank_source.clone().unwrap_or({
                 (
                     page,
                     Creator::Window {
@@ -862,10 +877,10 @@ impl BrowserContext {
             .collect::<Vec<_>>();
         let mut first = None;
         for (page, token, lifetime) in pending {
-            if let Err(error) = self.cancel_native_prerender(page, &token, lifetime) {
-                if first.is_none() {
-                    first = Some(error);
-                }
+            if let Err(error) = self.cancel_native_prerender(page, &token, lifetime)
+                && first.is_none()
+            {
+                first = Some(error);
             }
         }
         first.map_or(Ok(()), Err)
@@ -879,26 +894,19 @@ mod tests {
     use super::*;
     #[test]
     fn selected_blank_request_scope_survives_source_retirement_but_not_cancellation() {
-        use oryn_js::message_wire::{MessageRequest, WindowTarget};
-        let context = Browser::new().new_context();
-        let source = context.new_page().page_id();
-        context
-            .install_document_security(source, "https://blank.test/source".into(), &[])
+        let context = Browser::native_test_with_config(Default::default()).new_context();
+        let source_page = context.new_page();
+        let source = source_page.page_id();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
             .unwrap();
-        context
-            .handle_message_wire(
-                source,
-                MessageRequest::RegisterRootDocument {
-                    document_generation: 1,
-                    stream_epoch: 0,
-                },
+        runtime
+            .block_on(
+                source_page.load_html("https://blank.test/source", "<!doctype html><p>source</p>"),
             )
             .unwrap();
-        let creator = Creator::Window {
-            target: WindowTarget::Root,
-            document_generation: 1,
-            stream_epoch: 0,
-        };
+        let creator = context.capture_command_navigation_source(source).unwrap();
         let (destination, _, scope) = context
             .reserve_blank_prerender(source, &creator, "https://blank.test/start")
             .unwrap();
@@ -927,9 +935,17 @@ mod tests {
             )
             .unwrap();
         // Neither the original creator nor replacement authority is consulted.
+        let Creator::Window {
+            target,
+            document_generation,
+            stream_epoch,
+        } = &creator
+        else {
+            panic!("native source must be a window");
+        };
         assert!(
             context
-                .window_worker_creator(source, &WindowTarget::Root, 1, 0)
+                .window_worker_creator(source, target, *document_generation, *stream_epoch)
                 .is_err()
         );
         assert!(
@@ -985,26 +1001,19 @@ mod tests {
     }
     #[test]
     fn unselected_candidate_does_not_gain_source_retirement_authority() {
-        use oryn_js::message_wire::{MessageRequest, WindowTarget};
-        let context = Browser::new().new_context();
-        let source = context.new_page().page_id();
-        context
-            .install_document_security(source, "https://blank.test/source".into(), &[])
+        let context = Browser::native_test_with_config(Default::default()).new_context();
+        let source_page = context.new_page();
+        let source = source_page.page_id();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
             .unwrap();
-        context
-            .handle_message_wire(
-                source,
-                MessageRequest::RegisterRootDocument {
-                    document_generation: 1,
-                    stream_epoch: 0,
-                },
+        runtime
+            .block_on(
+                source_page.load_html("https://blank.test/source", "<!doctype html><p>source</p>"),
             )
             .unwrap();
-        let creator = Creator::Window {
-            target: WindowTarget::Root,
-            document_generation: 1,
-            stream_epoch: 0,
-        };
+        let creator = context.capture_command_navigation_source(source).unwrap();
         let (destination, _, scope) = context
             .reserve_blank_prerender(source, &creator, "https://blank.test/start")
             .unwrap();
@@ -1065,26 +1074,28 @@ mod tests {
         context.publish_worker_secure_context(root, true).unwrap();
         let frame = "a".repeat(64);
         context
-            .register_native_prerender_frame(
+            .register_native_prerender_frame(NativePrerenderFrameInputs {
                 page,
-                &parent,
-                frame.clone(),
-                1,
-                0,
-                "https://prerender.test".into(),
-                true,
-            )
+                parent: &parent,
+                frame: frame.clone(),
+                generation: 1,
+                epoch: 0,
+                origin: "https://prerender.test".into(),
+                inherit_origin: true,
+            })
             .unwrap();
         context
             .inherit_frame_worker_policy_at_url(
-                page,
-                frame.clone(),
-                1,
-                0,
-                &WindowTarget::Root,
-                scope.lifetime.0,
-                scope.lifetime.1,
-                "about:blank",
+                crate::runtime::worker_service::InheritedFramePolicyInputs {
+                    page,
+                    frame: frame.clone(),
+                    generation: 1,
+                    epoch: 0,
+                    parent: &WindowTarget::Root,
+                    parent_generation: scope.lifetime.0,
+                    parent_epoch: scope.lifetime.1,
+                    document_url: "about:blank",
+                },
             )
             .unwrap();
         assert!(
@@ -1112,15 +1123,15 @@ mod tests {
             )
             .unwrap();
         context
-            .register_native_prerender_frame(
+            .register_native_prerender_frame(NativePrerenderFrameInputs {
                 page,
-                &parent,
-                frame.clone(),
-                2,
-                0,
-                "https://child.test".into(),
-                false,
-            )
+                parent: &parent,
+                frame: frame.clone(),
+                generation: 2,
+                epoch: 0,
+                origin: "https://child.test".into(),
+                inherit_origin: false,
+            })
             .unwrap();
         context
             .bind_frame_worker_policy(

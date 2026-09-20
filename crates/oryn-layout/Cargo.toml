@@ -3,7 +3,7 @@ name = "oryn-layout"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-description = "Worker-only deterministic style and layout adapter for Oryn"
+description = "V8-free shared selectors and text transforms with deterministic worker style and layout"
 
 [dependencies]
 base64 = "0.22"

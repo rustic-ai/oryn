@@ -1,5 +1,17 @@
 //! Parent-owned shared backing and exact agent-cluster membership. Closing a
 //! capability prevents new maps; existing OS mappings own their physical pages.
+
+/// Inputs for allocate.
+#[cfg(unix)]
+pub(crate) struct SharedAllocationInputs<'a> {
+    pub(crate) owner: &'a AgentOwner,
+    pub(crate) byte_length: u64,
+    pub(crate) maximum_length: Option<u64>,
+    pub(crate) granularity: u64,
+    pub(crate) guard_length: u64,
+    pub(crate) wasm: bool,
+    pub(crate) memory64: bool,
+}
 use crate::agent_registry::AgentOwner;
 use oryn_js::shared_memory::{SharedMemoryDescriptor, SharedMemoryToken};
 use std::{
@@ -16,6 +28,8 @@ mod message_backend;
 mod wait_admission;
 #[cfg(unix)]
 pub(crate) use message_backend::SharedMessageBackend;
+#[cfg(unix)]
+pub(crate) use wait_admission::WaitAdmissionInputs;
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct AgentClusterId([u8; 32]);
 struct Cluster {
@@ -136,9 +150,6 @@ impl SharedMemoryRegistry {
         self.members.insert(child, id);
         Ok(())
     }
-    pub(crate) fn window_roots(&self, page: oryn_common::v3::PageId) -> Vec<AgentOwner> {
-        self.members.keys().filter(|owner|matches!(owner,AgentOwner::Window{page:owned,target:oryn_js::message_wire::WindowTarget::Root,..}if *owned==page)).cloned().collect()
-    }
     pub(crate) fn isolated(&self, owner: &AgentOwner) -> bool {
         self.members.contains_key(owner)
     }
@@ -157,19 +168,23 @@ impl SharedMemoryRegistry {
     #[cfg(unix)]
     pub(crate) fn allocate(
         &mut self,
-        owner: &AgentOwner,
-        byte_length: u64,
-        maximum_length: Option<u64>,
-        granularity: u64,
-        guard_length: u64,
-        wasm: bool,
-        memory64: bool,
+        params: SharedAllocationInputs<'_>,
     ) -> Result<(SharedMemoryDescriptor, std::os::fd::OwnedFd), String> {
+        let SharedAllocationInputs {
+            owner,
+            byte_length,
+            maximum_length,
+            granularity,
+            guard_length,
+            wasm,
+            memory64,
+        } = params;
+
         let cluster = *self
             .members
             .get(owner)
             .ok_or("shared memory requires cross-origin isolated cluster")?;
-        if granularity < 4096 || granularity > 65536 || !granularity.is_power_of_two() {
+        if !(4096..=65536).contains(&granularity) || !granularity.is_power_of_two() {
             return Err("invalid shared memory mapping granularity".into());
         }
         if memory64 && !wasm {
@@ -180,10 +195,10 @@ impl SharedMemoryRegistry {
         if maximum_length < byte_length {
             return Err("shared maximum below initial length".into());
         }
-        if guard_length % granularity != 0 || guard_length > 8 * 1024 * 1024 * 1024 {
+        if !guard_length.is_multiple_of(granularity) || guard_length > 8 * 1024 * 1024 * 1024 {
             return Err("invalid shared guard extent".into());
         }
-        if wasm && (byte_length % 65536 != 0 || maximum_length % 65536 != 0) {
+        if wasm && (!byte_length.is_multiple_of(65536) || !maximum_length.is_multiple_of(65536)) {
             return Err("Wasm shared memory must use whole pages".into());
         }
         let reserved_length = maximum_length
@@ -402,7 +417,8 @@ impl SharedMemoryRegistry {
             .mapping
             .length()
             .load(std::sync::atomic::Ordering::SeqCst);
-        if offset % width != 0 || offset.checked_add(width).is_none_or(|end| end > length) {
+        if !offset.is_multiple_of(width) || offset.checked_add(width).is_none_or(|end| end > length)
+        {
             return Err("shared wait offset or alignment".into());
         }
         let pointer = unsafe {
@@ -456,7 +472,7 @@ impl SharedMemoryRegistry {
             .mapping
             .length()
             .load(std::sync::atomic::Ordering::SeqCst);
-        if offset % 4 != 0 || offset.checked_add(4).is_none_or(|end| end > length) {
+        if !offset.is_multiple_of(4) || offset.checked_add(4).is_none_or(|end| end > length) {
             return Err("shared notify offset or alignment".into());
         }
         Ok(self.waits.notify(token, offset, count))
@@ -491,10 +507,10 @@ impl SharedMemoryRegistry {
         // Do not erase physical holders here. The V8 backing destruction
         // callback releases them, or actual page/process teardown force-clears
         // its native principal after ordered incoming events have drained.
-        if let Some(id) = self.members.remove(owner) {
-            if let Some(cluster) = self.clusters.get_mut(&id) {
-                cluster.members.remove(owner);
-            }
+        if let Some(id) = self.members.remove(owner)
+            && let Some(cluster) = self.clusters.get_mut(&id)
+        {
+            cluster.members.remove(owner);
         }
         #[cfg(unix)]
         self.reap_backings();
@@ -651,7 +667,15 @@ mod tests {
                 .is_err()
         );
         let (descriptor, fd) = registry
-            .allocate(&first, 4, None, page_granularity(), 0, false, false)
+            .allocate(SharedAllocationInputs {
+                owner: &first,
+                byte_length: 4,
+                maximum_length: None,
+                granularity: page_granularity(),
+                guard_length: 0,
+                wasm: false,
+                memory64: false,
+            })
             .unwrap();
         assert!(
             registry.open(&foreign, descriptor).is_err(),
@@ -693,7 +717,15 @@ mod tests {
         let mut registry = SharedMemoryRegistry::default();
         registry.admit_root(owner.clone(), "origin".into()).unwrap();
         let (descriptor, _) = registry
-            .allocate(&owner, 0, None, 16384, 0, false, false)
+            .allocate(SharedAllocationInputs {
+                owner: &owner,
+                byte_length: 0,
+                maximum_length: None,
+                granularity: 16384,
+                guard_length: 0,
+                wasm: false,
+                memory64: false,
+            })
             .unwrap();
         let _second = registry.open(&owner, descriptor).unwrap();
         registry.release(&owner, descriptor.token).unwrap();
@@ -705,7 +737,15 @@ mod tests {
         assert!(!registry.isolated(&owner));
         assert!(
             registry
-                .allocate(&owner, 1, None, 16384, 0, false, false)
+                .allocate(SharedAllocationInputs {
+                    owner: &owner,
+                    byte_length: 1,
+                    maximum_length: None,
+                    granularity: 16384,
+                    guard_length: 0,
+                    wasm: false,
+                    memory64: false
+                })
                 .is_err()
         );
     }
@@ -745,7 +785,15 @@ mod tests {
                 .unwrap();
         }
         let (descriptor, _) = registry
-            .allocate(&root, 4, None, 4096, 0, false, false)
+            .allocate(SharedAllocationInputs {
+                owner: &root,
+                byte_length: 4,
+                maximum_length: None,
+                granularity: 4096,
+                guard_length: 0,
+                wasm: false,
+                memory64: false,
+            })
             .unwrap();
         let _peer = registry.open(&peer, descriptor).unwrap();
         registry.retire_page(PageId(1));
@@ -819,13 +867,29 @@ mod growth_wait_tests {
         let mut registry = SharedMemoryRegistry::default();
         registry.admit_root(owner.clone(), "origin".into()).unwrap();
         let (descriptor, _fd) = registry
-            .allocate(&owner, 4, Some(8), 4096, 0, false, false)
+            .allocate(SharedAllocationInputs {
+                owner: &owner,
+                byte_length: 4,
+                maximum_length: Some(8),
+                granularity: 4096,
+                guard_length: 0,
+                wasm: false,
+                memory64: false,
+            })
             .unwrap();
         registry.retire(&owner);
         assert!(registry.open(&owner, descriptor).is_err());
         assert!(
             registry
-                .allocate(&owner, 4, None, 4096, 0, false, false)
+                .allocate(SharedAllocationInputs {
+                    owner: &owner,
+                    byte_length: 4,
+                    maximum_length: None,
+                    granularity: 4096,
+                    guard_length: 0,
+                    wasm: false,
+                    memory64: false
+                })
                 .is_err()
         );
         assert!(
@@ -859,7 +923,15 @@ mod growth_wait_tests {
             .admit_child(&owner, child.clone(), "origin")
             .unwrap();
         let (descriptor, fd) = registry
-            .allocate(&owner, 8, Some(16), page_granularity(), 0, false, false)
+            .allocate(SharedAllocationInputs {
+                owner: &owner,
+                byte_length: 8,
+                maximum_length: Some(16),
+                granularity: page_granularity(),
+                guard_length: 0,
+                wasm: false,
+                memory64: false,
+            })
             .unwrap();
         let owner_mapping = Bytes::from_descriptor(fd, descriptor);
         let other = registry.open(&child, descriptor).unwrap();
@@ -922,7 +994,15 @@ mod growth_wait_tests {
         let mut registry = SharedMemoryRegistry::default();
         registry.admit_root(owner.clone(), "origin".into()).unwrap();
         let (descriptor, _fd) = registry
-            .allocate(&owner, 65536, Some(3 * 65536), 4096, 0, true, false)
+            .allocate(SharedAllocationInputs {
+                owner: &owner,
+                byte_length: 65536,
+                maximum_length: Some(3 * 65536),
+                granularity: 4096,
+                guard_length: 0,
+                wasm: true,
+                memory64: false,
+            })
             .unwrap();
         let registry = Arc::new(std::sync::Mutex::new(registry));
         assert!(

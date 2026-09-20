@@ -269,7 +269,7 @@ fn blocked_spanner_fragments_have_column_width_and_a_physical_union() {
 #[test]
 fn oversized_replaced_float_preserves_letter_and_newline_geometry() {
     for side in ["left", "right"] {
-        let text = vec!["A"; 10].join("\n");
+        let text = ["A"; 10].join("\n");
         let mut input = column_fixture(
             &format!(
                 "div{{width:200px;height:100px;columns:2;column-gap:0;column-fill:auto;white-space:pre;font:16px/20px sans-serif}}img{{float:{side};width:30px;height:150px}}"

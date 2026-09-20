@@ -16,6 +16,67 @@ fn error(source: &oryn_common::v4::PaintImageResource, detail: impl Into<String>
         detail: detail.into(),
     }
 }
+fn captured_instance_maps(
+    source: &oryn_common::v4::PaintImageResource,
+) -> Result<(usvg::NativeInstanceStyles, usvg::NativeInstanceContent), RenderError> {
+    use oryn_common::v4::SvgInstanceContent;
+    if !source.svg_document_snapshot && !source.svg_instances.is_empty() {
+        return Err(error(
+            source,
+            "fetched SVG cannot carry captured instance metadata",
+        ));
+    }
+    if source.svg_instances.len() > 100_000 {
+        return Err(error(
+            source,
+            "captured SVG instance count exceeds native bound",
+        ));
+    }
+    let mut styles = usvg::NativeInstanceStyles::new();
+    let mut content = usvg::NativeInstanceContent::new();
+    let mut bytes = 0usize;
+    for instance in &source.svg_instances {
+        if instance.ancestry.is_empty() || instance.ancestry.len() > 128 {
+            return Err(error(source, "invalid captured SVG instance ancestry"));
+        }
+        let reference_bytes = match &instance.content {
+            SvgInstanceContent::Reference(reference) => {
+                if reference.is_empty() {
+                    return Err(error(source, "empty captured SVG content reference"));
+                }
+                reference.len()
+            }
+            _ => 0,
+        };
+        bytes = bytes
+            .checked_add(instance.presentation.len())
+            .and_then(|size| size.checked_add(reference_bytes))
+            .and_then(|size| size.checked_add(instance.ancestry.len() * 8 + 8))
+            .filter(|size| *size <= MAX_SOURCE)
+            .ok_or_else(|| error(source, "captured SVG instance metadata exceeds 16 MiB"))?;
+        let key = usvg::NativeInstanceKey {
+            ancestry: instance.ancestry.clone(),
+            source: instance.source,
+        };
+        if styles
+            .insert(key.clone(), instance.presentation.clone())
+            .is_some()
+        {
+            return Err(error(source, "duplicate captured SVG instance identity"));
+        }
+        match &instance.content {
+            SvgInstanceContent::Original => {}
+            SvgInstanceContent::Empty => {
+                content.insert(key, None);
+            }
+            SvgInstanceContent::Reference(reference) => {
+                content.insert(key, Some(reference.clone()));
+            }
+        }
+    }
+    Ok((styles, content))
+}
+
 pub(crate) fn xml_bytes(bytes: &[u8]) -> Result<Vec<u8>, String> {
     xml_bytes_with_type(bytes, None)
 }
@@ -48,10 +109,9 @@ pub(crate) fn xml_bytes_with_type(
         .strip_prefix("<?xml")
         .and_then(|rest| rest.chars().next())
         .is_some_and(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n'))
+        && let Some(end) = text.find("?>")
     {
-        if let Some(end) = text.find("?>") {
-            text.drain(..end + 2);
-        }
+        text.drain(..end + 2);
     }
     if text.len() > MAX_SOURCE * 3 {
         return Err("decoded SVG exceeds 48 MiB".into());
@@ -159,10 +219,17 @@ fn parse_with_environment_policy(
         data
     };
     let font_data = data.clone();
-    let data = if source.svg_document_snapshot {
-        crate::svg_foreign::compose(source, snapshot, data)?
+    let (captured_styles, captured_content) = captured_instance_maps(source)?;
+    let (data, instance_styles, instance_content, style_roots) = if source.svg_document_snapshot {
+        let composed = crate::svg_foreign::compose_snapshot(source, snapshot, data)?;
+        (
+            composed.data,
+            captured_styles,
+            captured_content,
+            composed.style_roots,
+        )
     } else {
-        crate::svg_secure_foreign::compose(source, snapshot, data)?
+        crate::svg_secure_foreign::compose_with_instance_styles(source, snapshot, data)?
     };
     let font_bytes = snapshot
         .fonts
@@ -173,10 +240,15 @@ fn parse_with_environment_policy(
     if font_bytes > 64 * 1024 * 1024 {
         return Err(error(source, "SVG captured fonts exceed 64 MiB"));
     }
-    let mut options: usvg::Options<'_> = usvg::Options::default();
-    options.font_family = oryn_layout::DEFAULT_FONT_FAMILY.into();
-    options.default_size = usvg::Size::from_wh(environment.width as f32, environment.height as f32)
-        .unwrap_or_else(|| usvg::Size::from_wh(300., 150.).unwrap());
+    let mut options = usvg::Options {
+        native_instance_styles: instance_styles,
+        native_instance_content: instance_content,
+        native_style_roots: style_roots,
+        font_family: oryn_layout::DEFAULT_FONT_FAMILY.into(),
+        default_size: usvg::Size::from_wh(environment.width as f32, environment.height as f32)
+            .unwrap_or_else(|| usvg::Size::from_wh(300., 150.).unwrap()),
+        ..Default::default()
+    };
     options
         .fontdb_mut()
         .load_font_data(oryn_layout::DEFAULT_FONT_BYTES.to_vec());
@@ -244,16 +316,17 @@ fn parse_with_environment_policy(
                 > MAX_NESTED_BYTES
             || (mime != "image/svg+xml" && !valid_embedded(mime, &data))
         {
-            if let Ok(mut rejected) = rejected.lock() {
-                if rejected.len() < 8 {
-                    rejected.push("embedded SVG image exceeds bounds or cannot be decoded".into());
-                }
+            if let Ok(mut rejected) = rejected.lock()
+                && rejected.len() < 8
+            {
+                rejected.push("embedded SVG image exceeds bounds or cannot be decoded".into());
             }
             return None;
         }
         if mime == "image/svg+xml" {
             let temporary = oryn_common::v4::PaintImageResource {
                 svg_document_snapshot: false,
+                svg_instances: Vec::new(),
                 content_type: None,
                 url_aliases: Vec::new(),
                 url: source.url.clone(),
@@ -277,22 +350,22 @@ fn parse_with_environment_policy(
             ) {
                 Ok(tree) => Some(usvg::ImageKind::SVG(tree)),
                 Err(error) => {
-                    if let Ok(mut rejected) = rejected.lock() {
-                        if rejected.len() < 8 {
-                            rejected.push(error.to_string());
-                        }
+                    if let Ok(mut rejected) = rejected.lock()
+                        && rejected.len() < 8
+                    {
+                        rejected.push(error.to_string());
                     }
                     None
                 }
             };
         }
         let image = default_data(mime, data, options);
-        if strict_references && image.is_none() {
-            if let Ok(mut rejected) = rejected.lock() {
-                if rejected.len() < 8 {
-                    rejected.push("filter embedded image could not be decoded".into());
-                }
-            }
+        if strict_references
+            && image.is_none()
+            && let Ok(mut rejected) = rejected.lock()
+            && rejected.len() < 8
+        {
+            rejected.push("filter embedded image could not be decoded".into());
         }
         image
     });
@@ -304,14 +377,13 @@ fn parse_with_environment_policy(
         // Only native inline-document snapshots may use the document's admitted
         // resources. Fetched SVG has secure image/resource processing semantics.
         if !source.svg_document_snapshot {
-            if strict_references {
-                if let Ok(mut rejected) = rejected.lock() {
-                    if rejected.len() < 8 {
-                        rejected.push(format!(
-                            "filter image reference is unavailable in secure SVG: {href}"
-                        ));
-                    }
-                }
+            if strict_references
+                && let Ok(mut rejected) = rejected.lock()
+                && rejected.len() < 8
+            {
+                rejected.push(format!(
+                    "filter image reference is unavailable in secure SVG: {href}"
+                ));
             }
             return None;
         }
@@ -322,21 +394,24 @@ fn parse_with_environment_policy(
                 url.set_fragment(None);
                 url.to_string()
             });
-        let resource = resources.iter().find(|resource| {
-            resource.url == href
-                || absolute.as_deref() == Some(resource.url.as_str())
-                || resource
-                    .url_aliases
-                    .iter()
-                    .any(|alias| alias == href || absolute.as_deref() == Some(alias.as_str()))
-        });
+        let resource = resources
+            .iter()
+            .filter(|resource| !resource.svg_document_snapshot)
+            .find(|resource| {
+                resource.url == href
+                    || absolute.as_deref() == Some(resource.url.as_str())
+                    || resource
+                        .url_aliases
+                        .iter()
+                        .any(|alias| alias == href || absolute.as_deref() == Some(alias.as_str()))
+            });
         let Some(resource) = resource else {
-            if let Ok(mut rejected) = rejected.lock() {
-                if rejected.len() < 8 {
-                    rejected.push(format!(
-                        "SVG image reference is absent from captured resources: {href}"
-                    ));
-                }
+            if let Ok(mut rejected) = rejected.lock()
+                && rejected.len() < 8
+            {
+                rejected.push(format!(
+                    "SVG image reference is absent from captured resources: {href}"
+                ));
             }
             return None;
         };
@@ -348,16 +423,15 @@ fn parse_with_environment_policy(
             || (resource.media_type != "image/svg+xml"
                 && !valid_embedded(&resource.media_type, &resource.bytes))
         {
-            if let Ok(mut rejected) = rejected.lock() {
-                if rejected.len() < 8 {
-                    rejected.push("captured SVG image exceeds bounds or cannot be decoded".into());
-                }
+            if let Ok(mut rejected) = rejected.lock()
+                && rejected.len() < 8
+            {
+                rejected.push("captured SVG image exceeds bounds or cannot be decoded".into());
             }
             return None;
         }
         if resource.media_type == "image/svg+xml" {
-            let mut nested = resource.clone();
-            nested.svg_document_snapshot = false;
+            let nested = resource.clone();
             return match parse_with_environment_policy(
                 &nested,
                 snapshot,
@@ -366,10 +440,10 @@ fn parse_with_environment_policy(
             ) {
                 Ok(tree) => Some(usvg::ImageKind::SVG(tree)),
                 Err(error) => {
-                    if let Ok(mut rejected) = rejected.lock() {
-                        if rejected.len() < 8 {
-                            rejected.push(error.to_string());
-                        }
+                    if let Ok(mut rejected) = rejected.lock()
+                        && rejected.len() < 8
+                    {
+                        rejected.push(error.to_string());
                     }
                     None
                 }
@@ -384,7 +458,7 @@ fn parse_with_environment_policy(
     let rejected = failures.clone();
     options.image_href_resolver.resolve_svg_viewport =
         Some(Box::new(move |href, size, scheme, _options| {
-            let mut nested = if href.starts_with("data:") {
+            let nested = if href.starts_with("data:") {
                 let bytes = oryn_layout::svg_fonts::data_bytes(href)?;
                 let content_type = href
                     .strip_prefix("data:")
@@ -392,6 +466,7 @@ fn parse_with_environment_policy(
                     .map(|(metadata, _)| metadata.to_owned());
                 oryn_common::v4::PaintImageResource {
                     svg_document_snapshot: false,
+                    svg_instances: Vec::new(),
                     content_type,
                     url_aliases: Vec::new(),
                     url: source.url.clone(),
@@ -400,14 +475,13 @@ fn parse_with_environment_policy(
                 }
             } else {
                 if !source.svg_document_snapshot {
-                    if strict_references {
-                        if let Ok(mut rejected) = rejected.lock() {
-                            if rejected.len() < 8 {
-                                rejected.push(format!(
-                                    "filter image reference is unavailable in secure SVG: {href}"
-                                ));
-                            }
-                        }
+                    if strict_references
+                        && let Ok(mut rejected) = rejected.lock()
+                        && rejected.len() < 8
+                    {
+                        rejected.push(format!(
+                            "filter image reference is unavailable in secure SVG: {href}"
+                        ));
                     }
                     return None;
                 }
@@ -421,6 +495,7 @@ fn parse_with_environment_policy(
                 snapshot
                     .images
                     .iter()
+                    .filter(|resource| !resource.svg_document_snapshot)
                     .find(|resource| {
                         resource.url == href
                             || absolute.as_deref() == Some(resource.url.as_str())
@@ -430,7 +505,6 @@ fn parse_with_environment_policy(
                     })?
                     .clone()
             };
-            nested.svg_document_snapshot = false;
             let style = std::collections::BTreeMap::from([
                 ("color-scheme".into(), scheme.to_owned()),
                 (
@@ -460,10 +534,10 @@ fn parse_with_environment_policy(
             match parse_with_environment_policy(&nested, snapshot, context, strict_references) {
                 Ok(tree) => Some(tree),
                 Err(error) => {
-                    if let Ok(mut rejected) = rejected.lock() {
-                        if rejected.len() < 8 {
-                            rejected.push(error.to_string());
-                        }
+                    if let Ok(mut rejected) = rejected.lock()
+                        && rejected.len() < 8
+                    {
+                        rejected.push(error.to_string());
                     }
                     None
                 }
@@ -472,10 +546,10 @@ fn parse_with_environment_policy(
     let mut tree =
         usvg::Tree::from_data(&data, &options).map_err(|e| error(source, e.to_string()))?;
     tree.assign_semantic_text_ids();
-    if let Ok(rejected) = failures.lock() {
-        if !rejected.is_empty() {
-            return Err(error(source, rejected.join("; ")));
-        }
+    if let Ok(rejected) = failures.lock()
+        && !rejected.is_empty()
+    {
+        return Err(error(source, rejected.join("; ")));
     }
     let size = tree.size();
     if !size.width().is_finite()
@@ -600,11 +674,11 @@ pub(super) fn raster(
     let mut rgba = pixmap.take();
     // tiny-skia stores premultiplied pixels; the shared compositor consumes
     // straight alpha and performs its own premultiplication during sampling.
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         let alpha = u32::from(pixel[3]);
-        if alpha > 0 {
-            for channel in &mut pixel[..3] {
-                *channel = ((u32::from(*channel) * 255 + alpha / 2) / alpha).min(255) as u8;
+        for channel in &mut pixel[..3] {
+            if let Some(straight) = (u32::from(*channel) * 255 + alpha / 2).checked_div(alpha) {
+                *channel = straight.min(255) as u8;
             }
         }
     }
@@ -614,10 +688,168 @@ pub(super) fn raster(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn captured_instance_fixture() -> oryn_common::v4::PaintImageResource {
+        use oryn_common::v4::{PaintImageResource, SvgInstanceContent, SvgInstanceSnapshot};
+        PaintImageResource {
+            svg_document_snapshot: true,
+            svg_instances: vec![
+                SvgInstanceSnapshot { ancestry: vec![4], source: 3, presentation: "fill:red".into(), content: SvgInstanceContent::Original },
+                SvgInstanceSnapshot { ancestry: vec![5], source: 3, presentation: "fill:blue".into(), content: SvgInstanceContent::Original },
+            ],
+            content_type: None, url_aliases: Vec::new(), url: "https://example.test/native.svg".into(), media_type: "image/svg+xml".into(),
+            bytes: br##"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="2" data-oryn-native-style-id="1"><defs data-oryn-native-style-id="2"><rect id="shape" width="2" height="2" style="fill:black!important" data-oryn-native-style-id="3"/></defs><use href="#shape" data-oryn-native-style-id="4"/><use href="#shape" x="2" data-oryn-native-style-id="5"/></svg>"##.to_vec(),
+        }
+    }
+
+    #[test]
+    fn author_important_declarations_keep_source_order_and_inline_precedence() {
+        for style in [
+            "fill:red!important;fill:blue!important",
+            "fill:blue!important;fill:red",
+        ] {
+            let source = oryn_common::v4::PaintImageResource {
+                svg_document_snapshot: true,
+                svg_instances: Vec::new(),
+                content_type: None,
+                url: "https://example.test/order.svg".into(),
+                url_aliases: Vec::new(),
+                media_type: "image/svg+xml".into(),
+                bytes: format!("<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'><style>rect{{fill:lime!important}}</style><rect width='1' height='1' style='{style}'/></svg>").into_bytes(),
+            };
+            let mut snapshot = crate::tests::empty_snapshot();
+            snapshot.images.push(source);
+            let tree = parse(&snapshot.images[0], &snapshot).unwrap();
+            assert_eq!(
+                raster(&tree, 1, 1).unwrap().get_pixel(0, 0).0,
+                [0, 0, 255, 255]
+            );
+        }
+    }
+
+    #[test]
+    fn captured_instance_metadata_round_trips_and_overrides_flattened_source_styles() {
+        let source = captured_instance_fixture();
+        let source: oryn_common::v4::PaintImageResource =
+            serde_json::from_slice(&serde_json::to_vec(&source).unwrap()).unwrap();
+        let tree = parse(&source, &crate::tests::empty_snapshot()).unwrap();
+        let image = raster(&tree, 4, 2).unwrap();
+        assert_eq!(image.get_pixel(0, 0).0, [255, 0, 0, 255]);
+        assert_eq!(image.get_pixel(3, 0).0, [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn captured_instance_metadata_rejects_fetched_duplicate_and_invalid_ancestry() {
+        let mut source = captured_instance_fixture();
+        source.svg_document_snapshot = false;
+        assert!(captured_instance_maps(&source).is_err());
+        source.svg_document_snapshot = true;
+        source.svg_instances.push(source.svg_instances[0].clone());
+        assert!(captured_instance_maps(&source).is_err());
+        source.svg_instances.pop();
+        source.svg_instances[0].ancestry.clear();
+        assert!(captured_instance_maps(&source).is_err());
+        source.svg_instances[0].ancestry = vec![4; 129];
+        assert!(captured_instance_maps(&source).is_err());
+    }
+
+    #[test]
+    fn captured_content_distinguishes_original_empty_and_native_reference() {
+        use oryn_common::v4::SvgInstanceContent;
+        let mut source = captured_instance_fixture();
+        source.svg_instances[0].content = SvgInstanceContent::Empty;
+        source.svg_instances[1].content = SvgInstanceContent::Reference("native-vector".into());
+        let source: oryn_common::v4::PaintImageResource =
+            serde_json::from_slice(&serde_json::to_vec(&source).unwrap()).unwrap();
+        let (_, content) = captured_instance_maps(&source).unwrap();
+        assert_eq!(
+            content[&usvg::NativeInstanceKey {
+                ancestry: vec![4],
+                source: 3
+            }],
+            None
+        );
+        assert_eq!(
+            content[&usvg::NativeInstanceKey {
+                ancestry: vec![5],
+                source: 3
+            }]
+                .as_deref(),
+            Some("native-vector")
+        );
+    }
+
+    #[test]
+    fn native_content_vectors_ignore_author_selectors_while_authored_svg_keeps_them() {
+        use oryn_common::v4::{PaintImageResource, SvgInstanceContent, SvgInstanceSnapshot};
+        let source = PaintImageResource {
+            svg_document_snapshot: true,
+            svg_instances: vec![SvgInstanceSnapshot {
+                ancestry: vec![4], source: 3, presentation: String::new(),
+                content: SvgInstanceContent::Reference("native-vector".into()),
+            }],
+            content_type: None, url_aliases: Vec::new(),
+            url: "https://example.test/native-content.svg".into(),
+            media_type: "image/svg+xml".into(),
+            bytes: br##"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="2"><style>rect { fill: lime !important }</style><defs><g id="shape" data-oryn-native-style-id="3"/><g id="native-vector"><rect width="2" height="2" fill="red"/></g></defs><use href="#shape" data-oryn-native-style-id="4"/><rect x="2" width="2" height="2" fill="blue"/></svg>"##.to_vec(),
+        };
+        let tree = parse(&source, &crate::tests::empty_snapshot()).unwrap();
+        let image = raster(&tree, 4, 2).unwrap();
+        assert_eq!(image.get_pixel(0, 0).0, [255, 0, 0, 255]);
+        assert_eq!(image.get_pixel(3, 0).0, [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn native_content_referenced_clip_definitions_ignore_author_selectors() {
+        use oryn_common::v4::{PaintImageResource, SvgInstanceContent, SvgInstanceSnapshot};
+        let source = PaintImageResource {
+            svg_document_snapshot: true,
+            svg_instances: vec![SvgInstanceSnapshot {
+                ancestry: vec![4], source: 3, presentation: String::new(),
+                content: SvgInstanceContent::Reference("native-vector".into()),
+            }],
+            content_type: None, url_aliases: Vec::new(),
+            url: "https://example.test/native-content-clip.svg".into(),
+            media_type: "image/svg+xml".into(),
+            bytes: br##"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="2"><style>rect { fill: lime !important } clipPath rect { display: none !important }</style><defs><g id="shape" data-oryn-native-style-id="3"/><g id="native-vector"><defs><clipPath id="native-clip"><rect width="1" height="2"/></clipPath></defs><rect width="2" height="2" fill="red" clip-path="url(#native-clip)"/></g></defs><use href="#shape" data-oryn-native-style-id="4"/><rect x="2" width="2" height="2" fill="blue"/></svg>"##.to_vec(),
+        };
+        let tree = parse(&source, &crate::tests::empty_snapshot()).unwrap();
+        let image = raster(&tree, 4, 2).unwrap();
+        assert_eq!(image.get_pixel(0, 0).0, [255, 0, 0, 255]);
+        assert_eq!(image.get_pixel(1, 0).0, [0, 0, 0, 0]);
+        assert_eq!(image.get_pixel(3, 0).0, [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn href_lookup_cannot_alias_a_native_capture_with_the_same_document_url() {
+        let mut snapshot = crate::tests::empty_snapshot();
+        let native = captured_instance_fixture();
+        let href = native.url.clone();
+        snapshot.images.push(native);
+        snapshot.images.push(oryn_common::v4::PaintImageResource {
+            svg_document_snapshot: false, svg_instances: Vec::new(), content_type: None,
+            url_aliases: Vec::new(), url: href.clone(), media_type: "image/svg+xml".into(),
+            bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="2"><rect width="4" height="2" fill="lime"/></svg>"#.to_vec(),
+        });
+        let source = oryn_common::v4::PaintImageResource {
+            svg_document_snapshot: true, svg_instances: Vec::new(), content_type: None,
+            url_aliases: Vec::new(), url: "https://example.test/parent.svg".into(), media_type: "image/svg+xml".into(),
+            bytes: format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"4\" height=\"2\"><image href=\"{href}\" width=\"4\" height=\"2\"/></svg>").into_bytes(),
+        };
+        let tree = parse_filter(&source, &snapshot).unwrap();
+        let image = raster(&tree, 4, 2).unwrap();
+        assert_eq!(image.get_pixel(0, 0).0, [0, 255, 0, 255]);
+        assert_eq!(image.get_pixel(3, 0).0, [0, 255, 0, 255]);
+        snapshot.images.pop();
+        assert!(
+            parse_filter(&source, &snapshot).is_err(),
+            "native capture alone cannot fulfill a fetched URL"
+        );
+    }
+
     #[test]
     fn oversized_filter_intermediate_is_rejected_before_allocation() {
         let snapshot = crate::tests::empty_snapshot();
-        let source=oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url_aliases:Vec::new(),url:"https://example.test/filter.svg".into(),media_type:"image/svg+xml".into(),bytes:br##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><defs><filter id="huge" filterUnits="userSpaceOnUse" x="0" y="0" width="100000" height="100000"><feGaussianBlur stdDeviation="2"/></filter></defs><g filter="url(#huge)"><rect width="10" height="10" fill="red"/></g></svg>"##.to_vec()};
+        let source=oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url_aliases:Vec::new(),url:"https://example.test/filter.svg".into(),media_type:"image/svg+xml".into(),bytes:br##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><defs><filter id="huge" filterUnits="userSpaceOnUse" x="0" y="0" width="100000" height="100000"><feGaussianBlur stdDeviation="2"/></filter></defs><g filter="url(#huge)"><rect width="10" height="10" fill="red"/></g></svg>"##.to_vec()};
         let tree = parse(&source, &snapshot).unwrap();
         assert!(validate_layers(&tree, 1., 1., 16 * 1024 * 1024).is_err());
         assert!(raster(&tree, 100, 100).is_err());
@@ -625,7 +857,7 @@ mod tests {
     #[test]
     fn paths_gradients_clips_and_group_opacity_render_at_requested_resolution() {
         let mut snapshot = crate::tests::empty_snapshot();
-        let source=oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url_aliases:Vec::new(),url:"https://example.test/vector.svg".into(),media_type:"image/svg+xml".into(),bytes:br##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><defs><linearGradient id="g"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient><clipPath id="c"><rect width="5" height="10"/></clipPath></defs><g opacity="0.5" clip-path="url(#c)"><path d="M0 0H10V10H0Z" fill="url(#g)"/></g></svg>"##.to_vec()};
+        let source=oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url_aliases:Vec::new(),url:"https://example.test/vector.svg".into(),media_type:"image/svg+xml".into(),bytes:br##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><defs><linearGradient id="g"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient><clipPath id="c"><rect width="5" height="10"/></clipPath></defs><g opacity="0.5" clip-path="url(#c)"><path d="M0 0H10V10H0Z" fill="url(#g)"/></g></svg>"##.to_vec()};
         snapshot.images.push(source.clone());
         let tree = parse(&source, &snapshot).unwrap();
         let image = raster(&tree, 100, 100).unwrap();
@@ -642,13 +874,14 @@ mod tests {
             .unwrap();
         snapshot.images.push(oryn_common::v4::PaintImageResource {
             svg_document_snapshot: false,
+            svg_instances: Vec::new(),
             content_type: None,
             url_aliases: Vec::new(),
             url: "https://example.test/assets/green.png".into(),
             media_type: "image/png".into(),
             bytes: png,
         });
-        let mut source=oryn_common::v4::PaintImageResource{svg_document_snapshot:true,content_type:None,url_aliases:Vec::new(),url:"https://example.test/assets/vector.svg".into(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><image href="green.png" width="20" height="20"/><text x="22" y="15" font-size="14">A</text></svg>"#.to_vec()};
+        let mut source=oryn_common::v4::PaintImageResource{svg_document_snapshot:true, svg_instances: Vec::new(),content_type:None,url_aliases:Vec::new(),url:"https://example.test/assets/vector.svg".into(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><image href="green.png" width="20" height="20"/><text x="22" y="15" font-size="14">A</text></svg>"#.to_vec()};
         let tree = parse(&source, &snapshot).unwrap();
         let image = raster(&tree, 80, 40).unwrap();
         assert_eq!(image.get_pixel(10, 10).0, [0, 255, 0, 255]);
@@ -666,7 +899,7 @@ mod tests {
     #[test]
     fn filesystem_and_uncaptured_network_references_cannot_be_loaded() {
         let snapshot = crate::tests::empty_snapshot();
-        let mut source=oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url_aliases:Vec::new(),url:"https://example.test/vector.svg".into(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><image href="file:///etc/passwd" width="10" height="10"/></svg>"#.to_vec()};
+        let mut source=oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url_aliases:Vec::new(),url:"https://example.test/vector.svg".into(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><image href="file:///etc/passwd" width="10" height="10"/></svg>"#.to_vec()};
         let secure = parse(&source, &snapshot).unwrap();
         assert!(
             raster(&secure, 10, 10)

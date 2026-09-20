@@ -254,7 +254,7 @@ pub enum Response {
         reason: String,
     },
     UiLocaleData {
-        profile: Option<oryn_dom::ControlLocale>,
+        profile: Option<Box<oryn_dom::ControlLocale>>,
     },
     UiLocale {
         locale: String,

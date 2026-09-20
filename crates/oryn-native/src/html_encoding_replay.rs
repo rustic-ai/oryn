@@ -1,5 +1,7 @@
 //! Bounded native byte custody for one tentative HTML parse. Replaying never
 //! requests the resource again and never treats a transport error as EOF.
+type DecodedCapture = Box<dyn FnMut(&str)>;
+
 use crate::host::HostError;
 use oryn_net::{HtmlEncodingConfidence, IncrementalTextDecoder};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -92,14 +94,14 @@ pub(crate) struct BufferedDecodedInput {
     decoder: IncrementalTextDecoder,
     replay: HtmlEncodingReplay,
     encoding: std::sync::Arc<std::sync::Mutex<Option<&'static str>>>,
-    capture: Option<Box<dyn FnMut(&str)>>,
+    capture: Option<DecodedCapture>,
 }
 impl BufferedDecodedInput {
     pub(crate) fn stream(
         bytes: Vec<u8>,
         content_type: Option<String>,
         fallback: Option<&str>,
-        capture: Option<Box<dyn FnMut(&str)>>,
+        capture: Option<DecodedCapture>,
     ) -> crate::host::DocumentStream {
         let encoding = std::sync::Arc::new(std::sync::Mutex::new(None));
         let kind = crate::network::navigation_text_kind(content_type.as_deref());

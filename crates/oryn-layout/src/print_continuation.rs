@@ -1,6 +1,18 @@
 //! Break tokens retain source identity while each variable fragmentainer formats
 //! its remaining content anew. Selector matching uses the original document;
 //! hiding consumed boxes here cannot change :nth-child or sibling selectors.
+
+/// Inputs for compute continuation.
+pub(super) struct PrintContinuationInputs<'a> {
+    pub(super) input: &'a LayoutInput,
+    pub(super) limits: &'a LayoutLimits,
+    pub(super) options: &'a PrintOptions,
+    pub(super) base: PrintDimensions,
+    pub(super) rules: &'a [page_rules::Rule],
+    pub(super) styles: ComputedStyles,
+    pub(super) whitespace: BTreeSet<u64>,
+    pub(super) scale: f64,
+}
 use super::*;
 #[derive(Default)]
 struct BreakToken {
@@ -157,16 +169,20 @@ fn first_pending(input: &LayoutInput, styles: &ComputedStyles, token: &BreakToke
         !inactive(*id, &nodes, styles, token) && (has_text(node) || node.children.is_empty())
     })
 }
-pub(super) fn compute(
-    input: &LayoutInput,
-    limits: &LayoutLimits,
-    options: &PrintOptions,
-    base: PrintDimensions,
-    rules: &[page_rules::Rule],
-    styles: ComputedStyles,
-    whitespace: BTreeSet<u64>,
-    scale: f64,
+pub(super) fn compute_continuation(
+    params: PrintContinuationInputs<'_>,
 ) -> Result<PrintLayoutOutput, PrintError> {
+    let PrintContinuationInputs {
+        input,
+        limits,
+        options,
+        base,
+        rules,
+        styles,
+        whitespace,
+        scale,
+    } = params;
+
     let mut remaining = input.clone();
     // Give legacy element-only text a stable native source identity so the
     // same UTF16 token mechanism applies to legacy and DOM-backed snapshots.
@@ -636,17 +652,17 @@ pub(super) fn compute(
     let source_ids = input.nodes.iter().map(|n| n.id).collect::<BTreeSet<_>>();
     let total = pages.len();
     for (index, page) in pages.iter_mut().enumerate() {
-        page.generated_nodes = margin_nodes(
+        page.generated_nodes = margin_nodes(crate::print::PageMarginInputs {
             rules,
-            &names[index],
-            index,
+            name: &names[index],
+            page: index,
             total,
-            blanks[index],
-            dimensions[index],
-            &mut margin_engine,
-            &mut next_id,
-            &source_ids,
-        )?;
+            blank: blanks[index],
+            dimensions: dimensions[index],
+            engine: &mut margin_engine,
+            next_id: &mut next_id,
+            source_ids: &source_ids,
+        })?;
     }
     document.paint_fonts.extend(margin_engine.paint_fonts);
     let ranges = parse_ranges(&options.page_ranges)?;

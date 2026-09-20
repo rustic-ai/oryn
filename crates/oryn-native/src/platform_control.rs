@@ -86,6 +86,7 @@ impl State {
             .map(|prompt| prompt.snapshot.kind)
             .ok_or_else(|| "InvalidStateError: unknown or foreign permission prompt".into())
     }
+    #[cfg(test)]
     pub(crate) fn begin_prompt(
         &mut self,
         owner: &AgentOwner,
@@ -350,6 +351,7 @@ impl State {
             .ok_or("platform revision exhausted")?;
         Ok(())
     }
+    #[cfg(test)]
     pub(crate) fn permission(
         &mut self,
         origin: &str,
@@ -393,6 +395,7 @@ impl State {
         }
         Ok(())
     }
+    #[cfg(test)]
     pub(crate) fn location(
         &mut self,
         page: PageId,
@@ -408,10 +411,10 @@ impl State {
         if let Some(Ok(value)) = &value {
             value.validate()?;
         }
-        if let Some(Err(error)) = &value {
-            if error.code != 2 || error.message.len() > 4096 {
-                return Err("invalid geolocation override error".into());
-            }
+        if let Some(Err(error)) = &value
+            && (error.code != 2 || error.message.len() > 4096)
+        {
+            return Err("invalid geolocation override error".into());
         }
         if value.is_some()
             && self.positions.len().saturating_add(
@@ -530,7 +533,7 @@ impl State {
                     return Err("invalid control locale".into());
                 }
                 Ok(Response::UiLocaleData {
-                    profile: crate::native_locale_data::profile(&locale),
+                    profile: crate::native_locale_data::profile(&locale).map(Box::new),
                 })
             }
             Request::UiLocale => Ok(Response::UiLocale {
@@ -674,6 +677,7 @@ impl State {
         }
         Ok(Some(resolved))
     }
+    #[cfg(test)]
     fn permission_value(
         &self,
         origin: &str,

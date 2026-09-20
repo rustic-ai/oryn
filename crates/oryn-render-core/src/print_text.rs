@@ -1,6 +1,18 @@
 //! Searchable PDF text comes from native shaped lines, never image recognition.
 //! Invisible Type 1 text uses an explicit Unicode CMap so even supplementary
 //! characters survive extraction. The visible page uses native vector paint.
+
+/// Inputs for semantic text traversal.
+struct PrintTextWalk<'a> {
+    commands: &'a [PaintCommand],
+    snapshot: &'a PaintSnapshot,
+    matrix: [f64; 16],
+    clips: &'a [oryn_common::v4::PaintClip],
+    out: &'a mut Vec<PdfText>,
+    depth: usize,
+    bounded: bool,
+    resolution: f64,
+}
 use super::*;
 use oryn_common::v4::PaintProjection;
 #[derive(Clone)]
@@ -43,12 +55,7 @@ fn inverse_point(m: [f64; 16], x: f64, y: f64) -> Option<(f64, f64)> {
         ((f * g - d * i) * x + (a * i - c * g) * y + c * d - a * f) / det / w,
     ))
 }
-pub(crate) fn unclipped(
-    fragment: &PaintTextFragment,
-    projection: Option<&PaintProjection>,
-) -> bool {
-    visible_rect_impl(fragment, projection, None).is_some()
-}
+#[cfg(test)]
 fn visible_rect(
     fragment: &PaintTextFragment,
     projection: Option<&PaintProjection>,
@@ -57,6 +64,7 @@ fn visible_rect(
 ) -> Option<CssRect> {
     visible_rect_impl(fragment, projection, Some((width, height)))
 }
+#[cfg(test)]
 fn visible_rect_impl(
     fragment: &PaintTextFragment,
     projection: Option<&PaintProjection>,
@@ -365,261 +373,6 @@ pub(super) fn encoding(text: &str) -> (Vec<u8>, Vec<u8>) {
     (encoded, cmap.into_bytes())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn fragment(rect: CssRect) -> PaintTextFragment {
-        PaintTextFragment {
-            flow_line: None,
-            flow_rect: None,
-            clusters: Vec::new(),
-            text: "Hello 世界 😀".into(),
-            rect,
-            glyph_runs: Vec::new(),
-            font_family: "sans-serif".into(),
-            font_size: 12.,
-            color: "black".into(),
-        }
-    }
-    #[test]
-    fn html_frame_semantics_do_not_require_any_svg_foreign_object() {
-        use oryn_common::v4::{PaintFontResource, PaintFrameSnapshot, PaintGlyph, PaintGlyphRun};
-        let mut child = crate::tests::empty_snapshot();
-        child.viewport.width = 20.;
-        child.viewport.height = 20.;
-        child.fonts.insert(
-            "frame-font".into(),
-            PaintFontResource {
-                bytes: oryn_layout::DEFAULT_FONT_BYTES.to_vec(),
-                collection_index: 0,
-            },
-        );
-        let font =
-            Font::from_bytes(oryn_layout::DEFAULT_FONT_BYTES, FontSettings::default()).unwrap();
-        let mut text = fragment(CssRect {
-            x: 1.,
-            y: 1.,
-            width: 8.,
-            height: 8.,
-        });
-        text.text = "A".into();
-        text.font_size = 8.;
-        text.glyph_runs.push(PaintGlyphRun {
-            line_box: None,
-            text_box: None,
-            background: None,
-            decoration_rect: None,
-            scale_x: 1.,
-            vertical: false,
-            decorations: Vec::new(),
-            orientation: oryn_common::v4::PaintGlyphOrientation::Upright,
-            font_key: "frame-font".into(),
-            font_size: 8.,
-            color: None,
-            embolden: false,
-            skew_degrees: 0.,
-            normalized_coords: Vec::new(),
-            glyphs: vec![PaintGlyph {
-                source: None,
-                id: u32::from(font.lookup_glyph_index('A')),
-                x: 0.,
-                y: 7.,
-                advance: 8.,
-            }],
-        });
-        let mut node = crate::tests::paint_node(1, None, "p", text.rect);
-        node.projection.as_mut().unwrap().text.push(text.clone());
-        node.text.push(text);
-        child.nodes.push(node);
-        let mut parent = crate::tests::empty_snapshot();
-        parent.viewport.width = 100.;
-        parent.viewport.height = 100.;
-        parent.nodes.push(crate::tests::paint_node(
-            2,
-            None,
-            "iframe",
-            CssRect {
-                x: 10.,
-                y: 20.,
-                width: 40.,
-                height: 40.,
-            },
-        ));
-        parent.frames.push(PaintFrameSnapshot {
-            owner_node: 2,
-            snapshot: Box::new(child),
-        });
-        let scene = build_display_list(&parent, RenderOptions::default()).unwrap();
-        let page = oryn_common::v4::PrintPageSnapshot {
-            viewport: parent.viewport,
-            nodes: parent.nodes.clone(),
-        };
-        let lines = collect_with_svg(&page, &parent, &scene).unwrap();
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].text, "A");
-        assert!((lines[0].rect.x - 12.).abs() < 0.01);
-        assert!((lines[0].rect.y - 22.).abs() < 0.01);
-    }
-
-    #[test]
-    fn vertical_semantic_quad_follows_native_inline_progression() {
-        let rect = CssRect {
-            x: 10.,
-            y: 20.,
-            width: 12.,
-            height: 40.,
-        };
-        let mut parts = vec![PdfText {
-            clusters: Vec::new(),
-            quad: quad(rect, None),
-            text: "AB".into(),
-            rect,
-        }];
-        orient_parts(
-            &mut parts,
-            &std::collections::BTreeMap::from([("writing-mode".into(), "vertical-rl".into())]),
-        );
-        assert_eq!(
-            parts[0].quad,
-            Some([(22., 20.), (22., 60.), (10., 60.), (10., 20.)])
-        );
-    }
-    #[test]
-    fn partial_line_extraction_keeps_unicode_clusters_and_ligatures_intact() {
-        use oryn_common::v4::{BoxModel, EdgeSizes, PaintTextCluster};
-        let mut line = fragment(CssRect {
-            x: 0.,
-            y: 0.,
-            width: 40.,
-            height: 10.,
-        });
-        line.text = "A😀fiB".into();
-        line.clusters = [(0, 1), (1, 5), (5, 7), (7, 8)]
-            .into_iter()
-            .enumerate()
-            .map(|(i, (start, end))| PaintTextCluster {
-                start,
-                end,
-                rect: CssRect {
-                    x: i as f64 * 10.,
-                    y: 0.,
-                    width: 10.,
-                    height: 10.,
-                },
-                rtl: false,
-            })
-            .collect();
-        let first = visible_parts(&line, None, Some((25., 20.)));
-        assert_eq!(first.len(), 1);
-        assert_eq!(first[0].text, "A😀");
-        let mut matrix = [
-            1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
-        ];
-        matrix[12] = -20.;
-        let model = BoxModel {
-            border_box: line.rect,
-            padding_box: line.rect,
-            content_box: line.rect,
-            margin: EdgeSizes::default(),
-            border: EdgeSizes::default(),
-            padding: EdgeSizes::default(),
-        };
-        let projection = PaintProjection {
-            scroll: None,
-            fragment_boxes: Vec::new(),
-            border_edges: None,
-            border_segments: Vec::new(),
-            matrix,
-            box_model: model,
-            text: Vec::new(),
-            text_matrix: None,
-            clips: Vec::new(),
-            text_clips: Vec::new(),
-        };
-        let second = visible_parts(&line, Some(&projection), Some((25., 20.)));
-        assert_eq!(second.len(), 1);
-        assert_eq!(second[0].text, "fiB");
-        assert_eq!(second[0].rect.x, 0.);
-        assert_eq!(second[0].rect.width, 20.);
-    }
-    #[test]
-    fn unicode_cmap_preserves_supplementary_scalars_and_repeated_letters() {
-        let (bytes, cmap) = encoding("A😀AA界");
-        assert_eq!(bytes, vec![1, 2, 1, 1, 3]);
-        let cmap = String::from_utf8(cmap).unwrap();
-        assert!(cmap.contains("<01> <0041>"));
-        assert!(cmap.contains("<02> <D83DDE00>"));
-        assert!(cmap.contains("<03> <754C>"));
-    }
-    #[test]
-    fn vertical_pdf_reading_order_follows_column_progression_without_reversing_text() {
-        let original = vec![
-            PdfText {
-                clusters: Vec::new(),
-                quad: None,
-                text: "second".into(),
-                rect: CssRect {
-                    x: 20.,
-                    y: 0.,
-                    width: 10.,
-                    height: 50.,
-                },
-            },
-            PdfText {
-                clusters: Vec::new(),
-                quad: None,
-                text: "first".into(),
-                rect: CssRect {
-                    x: 40.,
-                    y: 0.,
-                    width: 10.,
-                    height: 50.,
-                },
-            },
-        ];
-        let mut lines = original.clone();
-        sort_lines(&mut lines, "vertical-rl");
-        assert_eq!(
-            lines
-                .iter()
-                .map(|line| line.text.as_str())
-                .collect::<Vec<_>>(),
-            vec!["first", "second"]
-        );
-        sort_lines(&mut lines, "vertical-lr");
-        assert_eq!(
-            lines
-                .iter()
-                .map(|line| line.text.as_str())
-                .collect::<Vec<_>>(),
-            vec!["second", "first"]
-        );
-    }
-
-    #[test]
-    fn clipped_line_is_not_duplicated_as_full_text_on_adjacent_pages() {
-        let line = fragment(CssRect {
-            x: 10.,
-            y: 95.,
-            width: 50.,
-            height: 10.,
-        });
-        assert!(visible_rect(&line, None, 100., 100.).is_none());
-        let visible = fragment(CssRect {
-            x: 10.,
-            y: 80.,
-            width: 50.,
-            height: 10.,
-        });
-        assert_eq!(visible_rect(&visible, None, 100., 100.), Some(visible.rect));
-        let malformed = fragment(CssRect {
-            x: f64::NAN,
-            ..visible.rect
-        });
-        assert!(visible_rect(&malformed, None, 100., 100.).is_none());
-    }
-}
-
 fn append_svg(
     snapshot: &PaintSnapshot,
     scene: &DisplayList,
@@ -633,16 +386,18 @@ fn append_svg(
             (0..4).map(|k| a[k * 4 + row] * b[col * 4 + k]).sum()
         })
     }
-    fn walk(
-        commands: &[PaintCommand],
-        snapshot: &PaintSnapshot,
-        matrix: [f64; 16],
-        clips: &[oryn_common::v4::PaintClip],
-        out: &mut Vec<PdfText>,
-        depth: usize,
-        bounded: bool,
-        resolution: f64,
-    ) -> Result<(), RenderError> {
+    fn walk(params: PrintTextWalk<'_>) -> Result<(), RenderError> {
+        let PrintTextWalk {
+            commands,
+            snapshot,
+            matrix,
+            clips,
+            out,
+            depth,
+            bounded,
+            resolution,
+        } = params;
+
         if depth > 256 {
             return Err(RenderError::InvalidPrint(
                 "semantic SVG nesting exceeds bounds".into(),
@@ -651,29 +406,29 @@ fn append_svg(
         for command in commands {
             match command {
                 PaintCommand::Mask { commands, .. } | PaintCommand::Filter { commands, .. } => {
-                    walk(
+                    walk(PrintTextWalk {
                         commands,
                         snapshot,
                         matrix,
                         clips,
                         out,
-                        depth + 1,
+                        depth: depth + 1,
                         bounded,
                         resolution,
-                    )?
+                    })?
                 }
                 PaintCommand::Opacity { opacity, commands } => {
                     if *opacity > 0. {
-                        walk(
+                        walk(PrintTextWalk {
                             commands,
                             snapshot,
                             matrix,
                             clips,
                             out,
-                            depth + 1,
+                            depth: depth + 1,
                             bounded,
                             resolution,
-                        )?;
+                        })?;
                     }
                 }
                 PaintCommand::Projected {
@@ -686,16 +441,16 @@ fn append_svg(
                         clip.matrix = multiply(matrix, clip.matrix);
                         clip
                     }));
-                    walk(
+                    walk(PrintTextWalk {
                         commands,
                         snapshot,
-                        multiply(matrix, *local),
-                        &combined,
+                        matrix: multiply(matrix, *local),
+                        clips: &combined,
                         out,
-                        depth + 1,
+                        depth: depth + 1,
                         bounded,
                         resolution,
-                    )?;
+                    })?;
                 }
                 PaintCommand::EmbeddedDocument { rect, frame } => {
                     let _frame_scope = crate::svg_coverage::frame_scope(
@@ -988,18 +743,18 @@ fn append_svg(
             .iter()
             .any(|image| image.media_type == "image/svg+xml")
     {
-        walk(
-            &scene.commands,
+        walk(PrintTextWalk {
+            commands: &scene.commands,
             snapshot,
-            [
+            matrix: [
                 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
             ],
-            &[],
-            output,
-            0,
+            clips: &[],
+            out: output,
+            depth: 0,
             bounded,
-            f64::from(scene.width) / snapshot.viewport.width.max(f64::MIN_POSITIVE),
-        )?;
+            resolution: f64::from(scene.width) / snapshot.viewport.width.max(f64::MIN_POSITIVE),
+        })?;
     }
     Ok(())
 }
@@ -1084,4 +839,259 @@ pub(crate) fn collect_local(
         .unwrap_or("horizontal-tb");
     sort_lines(&mut output, mode);
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn fragment(rect: CssRect) -> PaintTextFragment {
+        PaintTextFragment {
+            flow_line: None,
+            flow_rect: None,
+            clusters: Vec::new(),
+            text: "Hello 世界 😀".into(),
+            rect,
+            glyph_runs: Vec::new(),
+            font_family: "sans-serif".into(),
+            font_size: 12.,
+            color: "black".into(),
+        }
+    }
+    #[test]
+    fn html_frame_semantics_do_not_require_any_svg_foreign_object() {
+        use oryn_common::v4::{PaintFontResource, PaintFrameSnapshot, PaintGlyph, PaintGlyphRun};
+        let mut child = crate::tests::empty_snapshot();
+        child.viewport.width = 20.;
+        child.viewport.height = 20.;
+        child.fonts.insert(
+            "frame-font".into(),
+            PaintFontResource {
+                bytes: oryn_layout::DEFAULT_FONT_BYTES.to_vec(),
+                collection_index: 0,
+            },
+        );
+        let font =
+            Font::from_bytes(oryn_layout::DEFAULT_FONT_BYTES, FontSettings::default()).unwrap();
+        let mut text = fragment(CssRect {
+            x: 1.,
+            y: 1.,
+            width: 8.,
+            height: 8.,
+        });
+        text.text = "A".into();
+        text.font_size = 8.;
+        text.glyph_runs.push(PaintGlyphRun {
+            line_box: None,
+            text_box: None,
+            background: None,
+            decoration_rect: None,
+            scale_x: 1.,
+            vertical: false,
+            decorations: Vec::new(),
+            orientation: oryn_common::v4::PaintGlyphOrientation::Upright,
+            font_key: "frame-font".into(),
+            font_size: 8.,
+            color: None,
+            embolden: false,
+            skew_degrees: 0.,
+            normalized_coords: Vec::new(),
+            glyphs: vec![PaintGlyph {
+                source: None,
+                id: u32::from(font.lookup_glyph_index('A')),
+                x: 0.,
+                y: 7.,
+                advance: 8.,
+            }],
+        });
+        let mut node = crate::tests::paint_node(1, None, "p", text.rect);
+        node.projection.as_mut().unwrap().text.push(text.clone());
+        node.text.push(text);
+        child.nodes.push(node);
+        let mut parent = crate::tests::empty_snapshot();
+        parent.viewport.width = 100.;
+        parent.viewport.height = 100.;
+        parent.nodes.push(crate::tests::paint_node(
+            2,
+            None,
+            "iframe",
+            CssRect {
+                x: 10.,
+                y: 20.,
+                width: 40.,
+                height: 40.,
+            },
+        ));
+        parent.frames.push(PaintFrameSnapshot {
+            owner_node: 2,
+            snapshot: Box::new(child),
+        });
+        let scene = build_display_list(&parent, RenderOptions::default()).unwrap();
+        let page = oryn_common::v4::PrintPageSnapshot {
+            viewport: parent.viewport,
+            nodes: parent.nodes.clone(),
+        };
+        let lines = collect_with_svg(&page, &parent, &scene).unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].text, "A");
+        assert!((lines[0].rect.x - 12.).abs() < 0.01);
+        assert!((lines[0].rect.y - 22.).abs() < 0.01);
+    }
+
+    #[test]
+    fn vertical_semantic_quad_follows_native_inline_progression() {
+        let rect = CssRect {
+            x: 10.,
+            y: 20.,
+            width: 12.,
+            height: 40.,
+        };
+        let mut parts = vec![PdfText {
+            clusters: Vec::new(),
+            quad: quad(rect, None),
+            text: "AB".into(),
+            rect,
+        }];
+        orient_parts(
+            &mut parts,
+            &std::collections::BTreeMap::from([("writing-mode".into(), "vertical-rl".into())]),
+        );
+        assert_eq!(
+            parts[0].quad,
+            Some([(22., 20.), (22., 60.), (10., 60.), (10., 20.)])
+        );
+    }
+    #[test]
+    fn partial_line_extraction_keeps_unicode_clusters_and_ligatures_intact() {
+        use oryn_common::v4::{BoxModel, EdgeSizes, PaintTextCluster};
+        let mut line = fragment(CssRect {
+            x: 0.,
+            y: 0.,
+            width: 40.,
+            height: 10.,
+        });
+        line.text = "A😀fiB".into();
+        line.clusters = [(0, 1), (1, 5), (5, 7), (7, 8)]
+            .into_iter()
+            .enumerate()
+            .map(|(i, (start, end))| PaintTextCluster {
+                start,
+                end,
+                rect: CssRect {
+                    x: i as f64 * 10.,
+                    y: 0.,
+                    width: 10.,
+                    height: 10.,
+                },
+                rtl: false,
+            })
+            .collect();
+        let first = visible_parts(&line, None, Some((25., 20.)));
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].text, "A😀");
+        let mut matrix = [
+            1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
+        ];
+        matrix[12] = -20.;
+        let model = BoxModel {
+            border_box: line.rect,
+            padding_box: line.rect,
+            content_box: line.rect,
+            margin: EdgeSizes::default(),
+            border: EdgeSizes::default(),
+            padding: EdgeSizes::default(),
+        };
+        let projection = PaintProjection {
+            scroll: None,
+            fragment_boxes: Vec::new(),
+            border_edges: None,
+            border_segments: Vec::new(),
+            matrix,
+            box_model: model,
+            text: Vec::new(),
+            text_matrix: None,
+            clips: Vec::new(),
+            text_clips: Vec::new(),
+        };
+        let second = visible_parts(&line, Some(&projection), Some((25., 20.)));
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].text, "fiB");
+        assert_eq!(second[0].rect.x, 0.);
+        assert_eq!(second[0].rect.width, 20.);
+    }
+    #[test]
+    fn unicode_cmap_preserves_supplementary_scalars_and_repeated_letters() {
+        let (bytes, cmap) = encoding("A😀AA界");
+        assert_eq!(bytes, vec![1, 2, 1, 1, 3]);
+        let cmap = String::from_utf8(cmap).unwrap();
+        assert!(cmap.contains("<01> <0041>"));
+        assert!(cmap.contains("<02> <D83DDE00>"));
+        assert!(cmap.contains("<03> <754C>"));
+    }
+    #[test]
+    fn vertical_pdf_reading_order_follows_column_progression_without_reversing_text() {
+        let original = vec![
+            PdfText {
+                clusters: Vec::new(),
+                quad: None,
+                text: "second".into(),
+                rect: CssRect {
+                    x: 20.,
+                    y: 0.,
+                    width: 10.,
+                    height: 50.,
+                },
+            },
+            PdfText {
+                clusters: Vec::new(),
+                quad: None,
+                text: "first".into(),
+                rect: CssRect {
+                    x: 40.,
+                    y: 0.,
+                    width: 10.,
+                    height: 50.,
+                },
+            },
+        ];
+        let mut lines = original.clone();
+        sort_lines(&mut lines, "vertical-rl");
+        assert_eq!(
+            lines
+                .iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first", "second"]
+        );
+        sort_lines(&mut lines, "vertical-lr");
+        assert_eq!(
+            lines
+                .iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["second", "first"]
+        );
+    }
+
+    #[test]
+    fn clipped_line_is_not_duplicated_as_full_text_on_adjacent_pages() {
+        let line = fragment(CssRect {
+            x: 10.,
+            y: 95.,
+            width: 50.,
+            height: 10.,
+        });
+        assert!(visible_rect(&line, None, 100., 100.).is_none());
+        let visible = fragment(CssRect {
+            x: 10.,
+            y: 80.,
+            width: 50.,
+            height: 10.,
+        });
+        assert_eq!(visible_rect(&visible, None, 100., 100.), Some(visible.rect));
+        let malformed = fragment(CssRect {
+            x: f64::NAN,
+            ..visible.rect
+        });
+        assert!(visible_rect(&malformed, None, 100., 100.).is_none());
+    }
 }

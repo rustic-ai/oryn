@@ -175,6 +175,7 @@ impl ArchivedControls {
 
 /// Session-history source, independent of whether a live realm is in BFCache.
 /// Only inline documents use this; network responses continue through policy-checked fetch.
+/// Shared only within the owning page task; IO completions carry no archive.
 pub(super) struct ArchivedSource {
     pub(super) source: Arc<str>,
     pub(super) base_url: Option<Url>,
@@ -194,7 +195,7 @@ impl ArchivedSource {
         source: &str,
         base_url: Option<Url>,
         budget: &Arc<std::sync::atomic::AtomicUsize>,
-    ) -> Result<Arc<Self>, HostError> {
+    ) -> Result<Rc<Self>, HostError> {
         let bytes = ScriptSourceReservation::reserve(
             budget,
             source
@@ -204,7 +205,7 @@ impl ArchivedSource {
         .ok_or_else(|| HostError::LimitExceeded {
             resource: "frame history source bytes".into(),
         })?;
-        Ok(Arc::new(Self {
+        Ok(Rc::new(Self {
             source: Arc::from(source),
             base_url,
             forms: RefCell::new(Vec::new()),
@@ -880,10 +881,8 @@ impl RustExecutableDocument {
             for value in [&entry.key, &entry.id, &entry.url, &entry.document_id] {
                 reserve(value.len())?;
             }
-            for state in [&entry.state, &entry.history_state] {
-                if let Some(state) = state {
-                    reserve(state.retained_bytes())?;
-                }
+            for state in [&entry.state, &entry.history_state].into_iter().flatten() {
+                reserve(state.retained_bytes())?;
             }
         }
         for (id, origin) in session
@@ -1027,16 +1026,15 @@ impl RustExecutableDocument {
                 resource: "restored frame metadata".into(),
             })?,
         );
-        if let Some(route) = &saved.joint_route {
-            if self
+        if let Some(route) = &saved.joint_route
+            && self
                 .agent
                 .host
                 .joint_history_snapshot()?
                 .selected(route)
                 .is_some()
-            {
-                self.agent.host.restore_joint_history_route(route)?;
-            }
+        {
+            self.agent.host.restore_joint_history_route(route)?;
         }
         let selected = &saved.history.entries[saved.history.current];
         if self.agent.host.location_url()? != selected.url {
@@ -1224,50 +1222,49 @@ impl RustExecutableDocument {
         }
         let mut saved = self.pending_frame_navigation_restore.remove(matches[0]);
         let key = frame_form_history::frame_history_path_key(&saved.path)?;
-        if let Some((parent, frame, token)) = self.frame_history_initial_claims.remove(&key) {
-            if parent != owner.parent_realm
+        if let Some((parent, frame, token)) = self.frame_history_initial_claims.remove(&key)
+            && (parent != owner.parent_realm
                 || frame != owner.frame
                 || !self.agent.host.automation_frame_live(parent, frame)
                 || !self.agent.host.automation_dom(parent).is_some_and(|dom| {
                     dom.borrow()
                         .frame_navigation_identity_is_current(frame, &token)
-                })
-            {
-                return Ok(None);
-            }
+                }))
+        {
+            return Ok(None);
         }
         self.agent.host.activate_realm(realm)?;
-        if let Some(navigation) = saved.navigation.as_mut() {
-            if let Some(route) = &navigation.joint_route {
-                let timeline = self.agent.host.joint_history_snapshot()?;
-                if let Some(selected) = timeline.selected(route) {
-                    let current = navigation
-                        .history
-                        .entries
+        if let Some(navigation) = saved.navigation.as_mut()
+            && let Some(route) = &navigation.joint_route
+        {
+            let timeline = self.agent.host.joint_history_snapshot()?;
+            if let Some(selected) = timeline.selected(route) {
+                let current = navigation
+                    .history
+                    .entries
+                    .iter()
+                    .position(|entry| entry.id == selected.id && entry.key == selected.key)
+                    .ok_or_else(|| {
+                        HostError::Execution("saved frame joint destination missing".into())
+                    })?;
+                if current != navigation.history.current {
+                    saved.controls = navigation
+                        .sources
                         .iter()
-                        .position(|entry| entry.id == selected.id && entry.key == selected.key)
-                        .ok_or_else(|| {
-                            HostError::Execution("saved frame joint destination missing".into())
-                        })?;
-                    if current != navigation.history.current {
-                        saved.controls = navigation
-                            .sources
-                            .iter()
-                            .find(|source| source.document_id == selected.document_id)
-                            .map(|source| source.controls.clone())
-                            .or_else(|| {
-                                navigation
-                                    .document_controls
-                                    .iter()
-                                    .find(|entry| entry.document_id == selected.document_id)
-                                    .map(|entry| entry.controls.clone())
-                            })
-                            .unwrap_or_default();
-                        navigation.history.current = current;
-                    }
-                    navigation.history.entries[current] = selected.clone();
-                    self.agent.host.restore_joint_history_route(route)?;
+                        .find(|source| source.document_id == selected.document_id)
+                        .map(|source| source.controls.clone())
+                        .or_else(|| {
+                            navigation
+                                .document_controls
+                                .iter()
+                                .find(|entry| entry.document_id == selected.document_id)
+                                .map(|entry| entry.controls.clone())
+                        })
+                        .unwrap_or_default();
+                    navigation.history.current = current;
                 }
+                navigation.history.entries[current] = selected.clone();
+                self.agent.host.restore_joint_history_route(route)?;
             }
         }
         let Some(navigation) = saved.navigation.as_ref() else {
@@ -1574,7 +1571,15 @@ mod archive_allocation_tests {
         );
         assert_eq!(source.forms.borrow()[0].state, saved.state);
         drop(exhaust);
+        let shared = source.clone();
+        let weak = Rc::downgrade(&source);
+        assert!(Rc::ptr_eq(&source, &shared));
         drop(source);
+        assert!(weak.upgrade().is_some());
+        assert_eq!(budget.load(std::sync::atomic::Ordering::Acquire), retained);
+        assert_eq!(shared.forms.borrow()[0].state, saved.state);
+        drop(shared);
+        assert!(weak.upgrade().is_none());
         assert_eq!(budget.load(std::sync::atomic::Ordering::Acquire), 0);
     }
 }

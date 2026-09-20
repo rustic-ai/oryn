@@ -280,15 +280,13 @@ impl RustExecutableDocument {
                 }
                 let realm = &matches[0];
                 if let Some((parent, frame, _)) = self.frame_history_restore_claims.get(&claim_key)
-                {
-                    if !self
+                    && !self
                         .frame_realms
                         .get(&realm.realm)
                         .is_some_and(|owner| owner.parent_realm == *parent && owner.frame == *frame)
-                    {
-                        self.frame_history_restore_claims.remove(&claim_key);
-                        continue;
-                    }
+                {
+                    self.frame_history_restore_claims.remove(&claim_key);
+                    continue;
                 }
                 // Consume before native restoration may enter FACE author callbacks.
                 let claimed = self

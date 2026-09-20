@@ -30,19 +30,6 @@ fn union(a: CssRect, b: CssRect) -> CssRect {
         height: a.bottom().max(b.bottom()) - y,
     }
 }
-fn clipped(mut rect: CssRect, port: CssRect, x: bool, y: bool) -> CssRect {
-    if x {
-        let end = rect.right().min(port.right());
-        rect.x = rect.x.max(port.x);
-        rect.width = (end - rect.x).max(0.);
-    }
-    if y {
-        let end = rect.bottom().min(port.bottom());
-        rect.y = rect.y.max(port.y);
-        rect.height = (end - rect.y).max(0.);
-    }
-    rect
-}
 type Point = [f64; 4];
 fn corners(rect: CssRect) -> [Point; 5] {
     [
@@ -328,13 +315,13 @@ pub(super) fn collect(
                 vertices.extend(points);
             }
         }
-        if let Some(clipped) = oryn_common::layout_domain::clip_scroll_rect(bounds) {
-            if clipped != bounds {
-                diagnostics.push(format!(
-                    "node {id}: padded scroll overflow saturated to native coordinate domain"
-                ));
-                bounds = union(port, clipped);
-            }
+        if let Some(clipped) = oryn_common::layout_domain::clip_scroll_rect(bounds)
+            && clipped != bounds
+        {
+            diagnostics.push(format!(
+                "node {id}: padded scroll overflow saturated to native coordinate domain"
+            ));
+            bounds = union(port, clipped);
         }
         // The unreachable negative overflow region does not enlarge the scroll area.
         // RTL and vertical-rl block progression instead have a negative horizontal origin.
@@ -460,7 +447,7 @@ mod tests {
             height: 200.,
         };
         assert_eq!(
-            clipped(rect, port, true, false),
+            point_bounds(&clip_hull(corners(rect).to_vec(), port, true, false)).unwrap(),
             CssRect {
                 x: 10.,
                 y: 0.,

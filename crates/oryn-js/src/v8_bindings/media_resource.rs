@@ -109,6 +109,7 @@ pub(super) fn ready(state: &V8BindingState) -> bool {
                 .values()
                 .any(|e| !e.events.is_empty()))
 }
+#[cfg(test)]
 pub(super) fn pending(state: &V8BindingState) -> bool {
     state.native_media.borrow().resources.delivery.is_some()
         || state
@@ -196,16 +197,15 @@ pub(super) fn cancel(state: &V8BindingState, node: NodeId) -> Result<(), V8Bindi
         if let Some(host) = state.platform_host.borrow().clone() {
             host.cancel(id);
         }
-        if let Some(PendingPlatformOperation::MediaResource(p)) = pending {
-            if let Some(stream_id) = p.stream {
-                if let Err(e) = submit_platform_operation(
-                    state,
-                    PlatformHostRequest::HttpAbort { stream_id },
-                    PendingPlatformOperation::WebSocketCommand,
-                ) {
-                    failure = Some(e);
-                }
-            }
+        if let Some(PendingPlatformOperation::MediaResource(p)) = pending
+            && let Some(stream_id) = p.stream
+            && let Err(e) = submit_platform_operation(
+                state,
+                PlatformHostRequest::HttpAbort { stream_id },
+                PendingPlatformOperation::WebSocketCommand,
+            )
+        {
+            failure = Some(e);
         }
     }
     failure.map_or(Ok(()), Err)
@@ -495,14 +495,13 @@ pub(super) fn poll(
         .collect::<Vec<_>>();
     for node in &nodes {
         let mut media = state.native_media.borrow_mut();
-        if let Some(entry) = media.resources.entries.get_mut(node) {
-            if entry.network == 2
-                && !entry.stalled
-                && entry.progress_at.elapsed() >= std::time::Duration::from_secs(3)
-            {
-                entry.stalled = true;
-                entry.events.push_back((*node, "stalled"));
-            }
+        if let Some(entry) = media.resources.entries.get_mut(node)
+            && entry.network == 2
+            && !entry.stalled
+            && entry.progress_at.elapsed() >= std::time::Duration::from_secs(3)
+        {
+            entry.stalled = true;
+            entry.events.push_back((*node, "stalled"));
         }
     }
     for node in nodes {
@@ -608,10 +607,9 @@ fn queue(state: &V8BindingState, node: NodeId, token: u64, name: &'static str) {
         .entries
         .get_mut(&node)
         .filter(|e| e.token == token)
+        && (name != "progress" || !e.events.contains(&(node, name)))
     {
-        if name != "progress" || !e.events.contains(&(node, name)) {
-            e.events.push_back((node, name))
-        }
+        e.events.push_back((node, name))
     }
 }
 fn start(state: &V8BindingState, mut p: Pending) -> Result<(), V8BindingError> {
@@ -668,17 +666,16 @@ fn start(state: &V8BindingState, mut p: Pending) -> Result<(), V8BindingError> {
 }
 fn failed(state: &V8BindingState, mut p: Pending) -> Result<(), V8BindingError> {
     abort(state, &mut p)?;
-    if let Some(source) = p.key.source_node {
-        if let Some(entry) = state
+    if let Some(source) = p.key.source_node
+        && let Some(entry) = state
             .native_media
             .borrow_mut()
             .resources
             .entries
             .get_mut(&p.node)
             .filter(|entry| entry.token == p.token)
-        {
-            entry.events.push_back((source, "error"));
-        }
+    {
+        entry.events.push_back((source, "error"));
     }
     let next = state
         .native_media
@@ -898,29 +895,30 @@ pub(super) fn complete(
                 }
                 queue(state, p.node, p.token, "progress");
             }
-            if p.key.preload == "metadata" && !media_element::url_wants_data(state, p.node) {
-                if let Some(duration) = wav_duration(&p.bytes) {
-                    if let Some(e) = state
-                        .native_media
-                        .borrow_mut()
-                        .resources
-                        .entries
-                        .get_mut(&p.node)
-                        .filter(|e| e.token == p.token)
-                    {
-                        e.duration = Some(duration);
-                    }
-                    queue(state, p.node, p.token, "loadedmetadata");
-                    // The UA may suspend preloading once metadata is available.
-                    // Keep the selected source while releasing live network custody.
-                    if done {
-                        p.stream = None
-                    } else {
-                        abort(state, &mut p)?;
-                    }
-                    terminal(state, p.node, p.token, true);
-                    return Ok(());
+            if p.key.preload == "metadata"
+                && !media_element::url_wants_data(state, p.node)
+                && let Some(duration) = wav_duration(&p.bytes)
+            {
+                if let Some(e) = state
+                    .native_media
+                    .borrow_mut()
+                    .resources
+                    .entries
+                    .get_mut(&p.node)
+                    .filter(|e| e.token == p.token)
+                {
+                    e.duration = Some(duration);
                 }
+                queue(state, p.node, p.token, "loadedmetadata");
+                // The UA may suspend preloading once metadata is available.
+                // Keep the selected source while releasing live network custody.
+                if done {
+                    p.stream = None
+                } else {
+                    abort(state, &mut p)?;
+                }
+                terminal(state, p.node, p.token, true);
+                return Ok(());
             }
             if done {
                 p.stream = None;

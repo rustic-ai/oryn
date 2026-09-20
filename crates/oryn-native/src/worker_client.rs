@@ -1,5 +1,18 @@
 #![cfg(unix)]
 
+type RouteScriptCleanup = (
+    oryn_common::v3::PageId,
+    crate::script_load_lease::ScriptLoadRegistry,
+    Arc<crate::context_service::SocketLifecycle>,
+    Option<Arc<crate::navigation_control::NavigationControl>>,
+    crate::context_service::NavigationResourceCleanup,
+);
+
+#[path = "navigation_network_source.rs"]
+mod navigation_network_source;
+#[path = "navigation_response_policy.rs"]
+mod navigation_response_policy;
+
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fs,
@@ -27,7 +40,7 @@ use crate::{
         ContextServiceRequest, ContextServiceResponse, ContextTransport, ParentContextService,
         serve_context_transport,
     },
-    cookies::{CookieRequestContext, CookieRequestKind},
+    cookies::CookieRequestKind,
     csp::{CspDestination, CspRequest},
     network::{
         NetworkBroker, NetworkError, NetworkEvent, NetworkOperation, NetworkRequest,
@@ -40,6 +53,9 @@ use crate::{
     },
 };
 
+#[cfg(test)]
+use crate::cookies::CookieRequestContext;
+
 const EXPECTED_STYLE_ENGINE_VERSION: &str = oryn_common::STYLE_ENGINE_VERSION;
 const EXPECTED_BOX_ENGINE_VERSION: &str = "taffy-0.14";
 const EXPECTED_INLINE_ENGINE_VERSION: &str = "parley-0.11.1";
@@ -49,6 +65,8 @@ struct RouteAdmissions {
     retired: bool,
     active: usize,
     network_requests: BTreeSet<u64>,
+    response_policies: navigation_response_policy::Registry,
+    navigation_sources: navigation_network_source::Registry,
 }
 
 /// Parent-owned admission barrier. Revocation and admission serialize on the
@@ -62,6 +80,53 @@ struct RouteAuthority {
 struct RouteAdmission {
     authority: Arc<RouteAuthority>,
     network_request: Option<u64>,
+}
+
+/// Owns an in-flight reservation. Failure and disconnect discard only this
+/// token; successful completion transfers it to the worker's document commit.
+struct ResponsePolicyReservation {
+    authority: Arc<RouteAuthority>,
+    token: Option<String>,
+    admitted: std::cell::Cell<bool>,
+}
+
+impl ResponsePolicyReservation {
+    fn headers(
+        &self,
+        status: u16,
+        url: String,
+        headers: Vec<(String, String)>,
+    ) -> Result<String, NetworkError> {
+        let token = self.token.as_ref().expect("live response reservation");
+        self.authority
+            .state
+            .lock()
+            .map_err(|_| NetworkError::Transport("worker route lock poisoned".into()))?
+            .response_policies
+            .headers(token, status, url, headers)
+            .map_err(|error| NetworkError::Transport(error.to_string()))?;
+        self.admitted.set(true);
+        Ok(token.clone())
+    }
+
+    fn retain_for_commit(mut self) {
+        if self.admitted.get() {
+            self.token.take();
+        }
+    }
+}
+
+impl Drop for ResponsePolicyReservation {
+    fn drop(&mut self) {
+        if let Some(token) = self.token.take() {
+            self.authority
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .response_policies
+                .discard(&token);
+        }
+    }
 }
 
 impl RouteAuthority {
@@ -116,6 +181,8 @@ impl RouteAuthority {
             .lock()
             .map_err(|_| RuntimeError::ContextService("worker route lock poisoned".into()))?;
         state.retired = true;
+        state.response_policies.revoke();
+        state.navigation_sources.revoke();
         self.drained.notify_all();
         Ok(state.network_requests.iter().copied().collect())
     }
@@ -157,6 +224,30 @@ impl Drop for RouteAdmission {
     }
 }
 
+struct NavigationSourceRequest {
+    authority: Arc<RouteAuthority>,
+    nonce: String,
+    request_id: u64,
+}
+impl NavigationSourceRequest {
+    fn headers(&self, status: u16, headers: &[(String, String)]) -> Result<(), NetworkError> {
+        self.authority
+            .state
+            .lock()
+            .map_err(|_| NetworkError::Transport("worker route lock poisoned".into()))?
+            .navigation_sources
+            .headers(&self.nonce, self.request_id, status, headers)
+    }
+}
+impl Drop for NavigationSourceRequest {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.authority.state.lock() {
+            state
+                .navigation_sources
+                .finish_request(&self.nonce, self.request_id);
+        }
+    }
+}
 #[derive(Clone)]
 struct PageNetworkBroker {
     authority: Arc<RouteAuthority>,
@@ -166,6 +257,32 @@ struct PageNetworkBroker {
 }
 
 impl PageNetworkBroker {
+    fn reserve_response_policy(
+        &self,
+        request: &NetworkRequest,
+    ) -> Result<Option<ResponsePolicyReservation>, NetworkError> {
+        if request.security.kind != CookieRequestKind::Document {
+            return Ok(None);
+        }
+        let source = self
+            .context_owner()?
+            .capture_navigation_response_source(self.page_id)
+            .map_err(|error| NetworkError::Transport(error.to_string()))?;
+        let token = self
+            .authority
+            .state
+            .lock()
+            .map_err(|_| NetworkError::Transport("worker route lock poisoned".into()))?
+            .response_policies
+            .begin(request.request_id, source)
+            .map_err(|error| NetworkError::Transport(error.to_string()))?;
+        Ok(Some(ResponsePolicyReservation {
+            authority: self.authority.clone(),
+            token: Some(token),
+            admitted: Default::default(),
+        }))
+    }
+
     fn context_owner(&self) -> Result<BrowserContext, NetworkError> {
         self.context
             .upgrade()
@@ -179,8 +296,10 @@ impl PageNetworkBroker {
     fn prepare(
         &self,
         mut request: NetworkRequest,
-    ) -> Result<(NetworkRequest, String), NetworkError> {
+    ) -> Result<(NetworkRequest, String, Option<NavigationSourceRequest>), NetworkError> {
         self.ensure_bound()?;
+        let requested_url = request.url.clone();
+        let source_nonce = request.security.navigation_source.take();
         let page_url = self
             .context_owner()?
             .page_url(self.page_id)
@@ -233,92 +352,50 @@ impl PageNetworkBroker {
                 )));
             }
         }
-        request.security = CookieRequestContext {
-            fetch_metadata: request.security.fetch_metadata.clone(),
-            dns_timing: None,
-            fetch_cache: request.security.fetch_cache,
-            navigation: request.security.navigation,
-            kind: request.security.kind,
-            initiator_url: Some(page_url.clone()),
-            top_level_url: Some(page_url.clone()),
-            ancestor_urls: request.security.ancestor_urls,
-            top_level_navigation: request.security.top_level_navigation,
-            credentials: request.security.credentials,
-            redirect_chain_cross_site: request.security.redirect_chain_cross_site,
+        request.security.dns_timing = None;
+        request.security.initiator_url = Some(page_url.clone());
+        request.security.top_level_url = Some(page_url.clone());
+        let source = if let Some(nonce) = source_nonce {
+            let seal = self
+                .authority
+                .state
+                .lock()
+                .map_err(|_| NetworkError::Transport("worker route lock poisoned".into()))?
+                .navigation_sources
+                .seal(&nonce)?;
+            // The native target must still be the sealed generation and epoch.
+            // Never call into BrowserContext while holding the route mutex.
+            seal.authority
+                .source(
+                    &self.context_owner()?,
+                    self.page_id,
+                    &seal.target,
+                    &seal.initial_url,
+                )
+                .map_err(|error| NetworkError::Transport(error.to_string()))?;
+            self.authority
+                .state
+                .lock()
+                .map_err(|_| NetworkError::Transport("worker route lock poisoned".into()))?
+                .navigation_sources
+                .consume(&nonce, &requested_url, &mut request)?;
+            Some(NavigationSourceRequest {
+                authority: self.authority.clone(),
+                nonce,
+                request_id: request.request_id,
+            })
+        } else {
+            None
         };
-        Ok((request, page_url))
+        Ok((request, page_url, source))
     }
 }
 
 impl NetworkBroker for PageNetworkBroker {
-    fn send(&self, mut request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+    fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
         let _admission = self.authority.admit(Some(request.request_id))?;
-        self.ensure_bound()?;
-        let page_url = self
-            .context_owner()?
-            .page_url(self.page_id)
-            .map_err(|error| NetworkError::Transport(error.to_string()))?;
-        let target = url::Url::parse(&request.url)
-            .map_err(|error| NetworkError::InvalidUrl(error.to_string()))?;
-        if let Some(upgraded) = self
-            .context_owner()?
-            .upgrade_csp_url(self.page_id, &target)
-            .map_err(|error| NetworkError::Transport(error.to_string()))?
-        {
-            request.url = upgraded.to_string();
-        }
-        let destination = match request.security.kind {
-            CookieRequestKind::Document => None,
-            CookieRequestKind::Script => Some(CspDestination::Script),
-            CookieRequestKind::Style => Some(CspDestination::Style),
-            CookieRequestKind::Image => Some(CspDestination::Image),
-            CookieRequestKind::Font => Some(CspDestination::Font),
-            CookieRequestKind::Media => Some(CspDestination::Media),
-            CookieRequestKind::Object => Some(CspDestination::Object),
-            CookieRequestKind::Manifest => Some(CspDestination::Manifest),
-            CookieRequestKind::Worker => Some(CspDestination::Worker),
-            CookieRequestKind::Frame => Some(CspDestination::Frame),
-            CookieRequestKind::Form => Some(CspDestination::Form),
-            CookieRequestKind::Fetch | CookieRequestKind::Xhr | CookieRequestKind::WebSocket => {
-                Some(CspDestination::Connect)
-            }
-            CookieRequestKind::Other => Some(CspDestination::Connect),
-        };
-        if let Some(destination) = destination {
-            let decision = self
-                .context_owner()?
-                .authorize_csp(
-                    self.page_id,
-                    &CspRequest {
-                        destination,
-                        url: request.url.clone(),
-                        nonce: None,
-                        inline_source: None,
-                        parser_inserted: true,
-                        initiated_by_trusted_script: false,
-                    },
-                )
-                .map_err(|error| NetworkError::Transport(error.to_string()))?;
-            if !decision.allowed {
-                return Err(NetworkError::Transport(format!(
-                    "Content-Security-Policy blocked {:?} request",
-                    destination
-                )));
-            }
-        }
-        request.security = CookieRequestContext {
-            fetch_metadata: request.security.fetch_metadata.clone(),
-            dns_timing: None,
-            fetch_cache: request.security.fetch_cache,
-            navigation: request.security.navigation,
-            kind: request.security.kind,
-            initiator_url: Some(page_url.clone()),
-            top_level_url: Some(page_url.clone()),
-            ancestor_urls: request.security.ancestor_urls,
-            top_level_navigation: request.security.top_level_navigation,
-            credentials: request.security.credentials,
-            redirect_chain_cross_site: request.security.redirect_chain_cross_site,
-        };
+        let (request, page_url, source) = self.prepare(request)?;
+        let reservation = self.reserve_response_policy(&request)?;
         let timing = crate::network::ServiceWorkerTiming::default();
         let response = match self.context_owner()?.intercept_service_navigation(
             self.page_id,
@@ -329,8 +406,17 @@ impl NetworkBroker for PageNetworkBroker {
             Some(response) => response,
             None => self.inner.send(request.clone())?,
         };
-        let response = timing.response(response);
+        let mut response = timing.response(response);
+        response.response_policy = None;
+        if response.request_id != request.request_id {
+            return Err(NetworkError::Transport(
+                "navigation response identity mismatch".into(),
+            ));
+        }
         self.ensure_bound()?;
+        if let Some(source) = &source {
+            source.headers(response.status, &response.headers)?;
+        }
         if request.security.kind == CookieRequestKind::Frame
             && crate::frame_embedding::creates_document(response.status, &response.headers)
         {
@@ -341,27 +427,23 @@ impl NetworkBroker for PageNetworkBroker {
             crate::frame_embedding::authorize(&request.url, &response.headers, &ancestors)
                 .map_err(NetworkError::Transport)?;
         }
-        if request.security.kind == CookieRequestKind::Document
-            && !oryn_net::fetch::is_redirect_status(response.status)
+        if let Some(reservation) = reservation
+            && crate::frame_embedding::creates_document(response.status, &response.headers)
         {
-            let extracted_type = oryn_common::mime_type::MimeType::from_headers(&response.headers)
-                .map(|mime| mime.serialize());
-            let content_type = extracted_type.as_deref();
-            let (html, _) = oryn_net::decode_resource_text(
-                &response.body,
-                content_type,
-                oryn_net::TextResourceKind::Html,
+            response.response_policy = Some(
+                reservation
+                    .headers(response.status, request.url, response.headers.clone())?
+                    .into(),
             );
-            self.context_owner()?
-                .prepare_document_security(self.page_id, request.url, &response.headers, &html)
-                .map_err(|error| NetworkError::Transport(error.to_string()))?;
+            reservation.retain_for_commit();
         }
         Ok(response)
     }
 
     fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
         let admission = self.authority.admit(Some(request.request_id))?;
-        let (request, page_url) = self.prepare(request)?;
+        let (request, page_url, source) = self.prepare(request)?;
+        let mut reservation = self.reserve_response_policy(&request)?;
         let request_id = request.request_id;
         let request_kind = request.security.kind;
         let mut frame_ancestors = request.security.ancestor_urls.clone();
@@ -370,7 +452,6 @@ impl NetworkBroker for PageNetworkBroker {
         }
         let request_url = request.url.clone();
         let context = self.context.clone();
-        let page_id = self.page_id;
         let route = self.clone();
         let timing = crate::network::ServiceWorkerTiming::default();
         let operation = match self
@@ -389,8 +470,7 @@ impl NetworkBroker for PageNetworkBroker {
         let (sender, events) = tokio::sync::mpsc::channel(8);
         std::thread::spawn(move || {
             let _admission = admission;
-            let mut response_headers = Vec::new();
-            while let Some(event) = operation.blocking_event() {
+            while let Some(mut event) = operation.blocking_event() {
                 let Some(context) = context.upgrade() else {
                     let _ = route.inner.cancel_operation(request_id);
                     let _ = sender.blocking_send(NetworkEvent::Failed {
@@ -409,19 +489,28 @@ impl NetworkBroker for PageNetworkBroker {
                     return;
                 }
                 if let NetworkEvent::Headers {
-                    status, headers, ..
-                } = &event
+                    response_policy,
+                    status,
+                    headers,
+                    request_id: response_id,
+                    ..
+                } = &mut event
                 {
-                    response_headers = headers.clone();
-                    if request_kind == CookieRequestKind::Document
-                        && !oryn_net::fetch::is_redirect_status(*status)
-                        && let Err(error) = context.prepare_document_security(
-                            page_id,
-                            request_url.clone(),
-                            &response_headers,
-                            "",
-                        )
+                    *response_policy = None;
+                    if *response_id != request_id {
+                        let _ = route.inner.cancel_operation(request_id);
+                        drop(context);
+                        let _ = sender.blocking_send(NetworkEvent::Failed {
+                            request_id,
+                            error: "navigation response identity mismatch".into(),
+                        });
+                        return;
+                    }
+                    let response_headers = headers.clone();
+                    if let Some(source) = &source
+                        && let Err(error) = source.headers(*status, &response_headers)
                     {
+                        let _ = route.inner.cancel_operation(request_id);
                         drop(context);
                         let _ = sender.blocking_send(NetworkEvent::Failed {
                             request_id,
@@ -429,31 +518,59 @@ impl NetworkBroker for PageNetworkBroker {
                         });
                         return;
                     }
+                    if crate::frame_embedding::creates_document(*status, &response_headers) {
+                        if let Some(grant) = &reservation {
+                            match grant.headers(
+                                *status,
+                                request_url.clone(),
+                                response_headers.clone(),
+                            ) {
+                                Ok(token) => *response_policy = Some(token.into()),
+                                Err(error) => {
+                                    let _ = route.inner.cancel_operation(request_id);
+                                    drop(context);
+                                    let _ = sender.blocking_send(NetworkEvent::Failed {
+                                        request_id,
+                                        error: error.to_string(),
+                                    });
+                                    return;
+                                }
+                            }
+                        }
+                    } else {
+                        reservation.take();
+                    }
                     if request_kind == CookieRequestKind::Frame
                         && crate::frame_embedding::creates_document(*status, &response_headers)
-                    {
-                        if let Err(error) = crate::frame_embedding::authorize(
+                        && let Err(error) = crate::frame_embedding::authorize(
                             &request_url,
                             &response_headers,
                             &frame_ancestors,
-                        ) {
-                            let _ = route.inner.cancel_operation(request_id);
-                            drop(context);
-                            let _ =
-                                sender.blocking_send(NetworkEvent::Failed { request_id, error });
-                            return;
-                        }
+                        )
+                    {
+                        let _ = route.inner.cancel_operation(request_id);
+                        drop(context);
+                        let _ = sender.blocking_send(NetworkEvent::Failed { request_id, error });
+                        return;
                     }
                 }
 
                 // A full downstream queue must not retain the context that
                 // owns this route while waiting for a reader that was dropped.
                 drop(context);
+                let complete = matches!(event, NetworkEvent::Complete { .. });
                 let terminal = matches!(
                     event,
                     NetworkEvent::Complete { .. } | NetworkEvent::Failed { .. }
                 );
-                if sender.blocking_send(event).is_err() || terminal {
+                if sender.blocking_send(event).is_err() {
+                    let _ = route.inner.cancel_operation(request_id);
+                    return;
+                }
+                if terminal {
+                    if complete && let Some(grant) = reservation.take() {
+                        grant.retain_for_commit();
+                    }
                     return;
                 }
             }
@@ -469,13 +586,15 @@ impl NetworkBroker for PageNetworkBroker {
 
     fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
         let _admission = self.authority.admit(None)?;
-        let owned = self
+        let mut state = self
             .authority
             .state
             .lock()
-            .map_err(|_| NetworkError::Transport("worker route lock poisoned".into()))?
-            .network_requests
-            .contains(&request_id);
+            .map_err(|_| NetworkError::Transport("worker route lock poisoned".into()))?;
+        state.response_policies.cancel_request(request_id);
+        state.navigation_sources.cancel_request(request_id);
+        let owned = state.network_requests.contains(&request_id);
+        drop(state);
         if owned {
             if let Some(context) = self.context.upgrade() {
                 context.cancel_service_navigation(self.page_id, request_id);
@@ -494,6 +613,177 @@ struct BoundWorkerRoute {
     context: Arc<ParentContextService>,
 }
 
+impl BoundWorkerRoute {
+    fn context_request(
+        &self,
+        request: ContextServiceRequest,
+    ) -> Result<ContextServiceResponse, RuntimeError> {
+        match request {
+            ContextServiceRequest::AcquireNavigationNetworkSource {
+                page_id,
+                nonce,
+                target,
+                url,
+                authority,
+            } => {
+                self.context.ensure_page_admitted()?;
+                if page_id != self.network.page_id {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "foreign navigation source page".into(),
+                    ));
+                }
+                let context = self
+                    .network
+                    .context_owner()
+                    .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+                let (source, service_get) =
+                    authority.network_source(&context, page_id, &target, &url)?;
+                let limit = context.navigation_network_redirect_limit();
+                let mut state = self.network.authority.state.lock().map_err(|_| {
+                    RuntimeError::ContextService("worker route lock poisoned".into())
+                })?;
+                if state.retired {
+                    return Err(RuntimeError::Closed);
+                }
+                state
+                    .navigation_sources
+                    .begin(
+                        nonce,
+                        navigation_network_source::Seal {
+                            authority,
+                            target,
+                            initial_url: url,
+                            service_get,
+                        },
+                        source.clone(),
+                        limit,
+                    )
+                    .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+                Ok(ContextServiceResponse::NavigationNetworkSource {
+                    source,
+                    bound: true,
+                })
+            }
+            ContextServiceRequest::DiscardNavigationNetworkSource { page_id, nonce } => {
+                if page_id != self.network.page_id {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "foreign navigation source cleanup".into(),
+                    ));
+                }
+                self.network
+                    .authority
+                    .state
+                    .lock()
+                    .map_err(|_| RuntimeError::ContextService("worker route lock poisoned".into()))?
+                    .navigation_sources
+                    .discard(&nonce);
+                Ok(ContextServiceResponse::NavigationNetworkSourceDiscarded)
+            }
+            ContextServiceRequest::CommitPrerenderResponse {
+                response_policy: Some(response_policy),
+                page_id,
+                token,
+                generation,
+                epoch,
+                url,
+                headers,
+            } => {
+                self.context.ensure_page_admitted()?;
+                if page_id != self.network.page_id {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "foreign prerender response page".into(),
+                    ));
+                }
+                let context = self
+                    .network
+                    .context_owner()
+                    .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+                let scope = context.native_prerender_scope(page_id, &token, (generation, epoch))?;
+                let mut policy = None;
+                self.network
+                    .authority
+                    .state
+                    .lock()
+                    .map_err(|_| RuntimeError::ContextService("worker route lock poisoned".into()))?
+                    .response_policies
+                    .commit(
+                        page_id,
+                        &response_policy,
+                        &url,
+                        &headers,
+                        |source, url, native_headers| {
+                            context
+                                .native_worker_authority(source)
+                                .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+                            policy = Some(context.commit_prerender_response_policy(
+                                page_id,
+                                &scope,
+                                &url,
+                                native_headers,
+                            )?);
+                            Ok(())
+                        },
+                    )?;
+                let committed =
+                    context.native_prerender_scope(page_id, &token, (generation, epoch))?;
+                Ok(ContextServiceResponse::PrerenderResponseCommitted {
+                    policy: policy.expect("successful native response commit"),
+                    origin: committed.origin,
+                })
+            }
+            ContextServiceRequest::CommitNavigationResponsePolicy {
+                page_id,
+                token,
+                document_url,
+                headers,
+            } => {
+                self.context.ensure_page_admitted()?;
+                if page_id != self.network.page_id {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "worker cannot commit another page's response policy".into(),
+                    ));
+                }
+                let context = self
+                    .network
+                    .context_owner()
+                    .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+                let mut state = self.network.authority.state.lock().map_err(|_| {
+                    RuntimeError::ContextService("worker route lock poisoned".into())
+                })?;
+                // Keep revocation serialized through native policy publication.
+                // An admitted request alone does not prevent route retirement.
+                state.response_policies.commit(
+                    page_id,
+                    &token,
+                    &document_url,
+                    &headers,
+                    |source, url, values| {
+                        context.commit_navigation_response_policy(page_id, source, url, values)
+                    },
+                )?;
+                Ok(ContextServiceResponse::DocumentSecurityInstalled)
+            }
+            ContextServiceRequest::DiscardNavigationResponsePolicy { page_id, token } => {
+                self.context.ensure_page_admitted()?;
+                if page_id != self.network.page_id {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "worker cannot discard another page's response policy".into(),
+                    ));
+                }
+                self.network
+                    .authority
+                    .state
+                    .lock()
+                    .map_err(|_| RuntimeError::ContextService("worker route lock poisoned".into()))?
+                    .response_policies
+                    .discard(&token);
+                Ok(ContextServiceResponse::NavigationResponsePolicyDiscarded)
+            }
+            other => ContextTransport::request(&*self.context, other),
+        }
+    }
+}
+
 enum WorkerRouteState {
     Bound(BoundWorkerRoute),
     Draining,
@@ -507,16 +797,7 @@ struct WorkerRoutes {
     process_session: Option<u64>,
     environments: BTreeMap<u64, WorkerRouteState>,
     closing: bool,
-    script_cleanup: BTreeMap<
-        crate::worker_route::WorkerRoute,
-        (
-            oryn_common::v3::PageId,
-            crate::script_load_lease::ScriptLoadRegistry,
-            Arc<crate::context_service::SocketLifecycle>,
-            Option<Arc<crate::navigation_control::NavigationControl>>,
-            crate::context_service::NavigationResourceCleanup,
-        ),
-    >,
+    script_cleanup: BTreeMap<crate::worker_route::WorkerRoute, RouteScriptCleanup>,
 }
 
 #[derive(Default)]
@@ -823,6 +1104,7 @@ impl WorkerBrokerRouter {
         Ok(())
     }
 
+    #[cfg(test)]
     fn rotate_environment(
         &self,
         previous: &crate::worker_route::WorkerRoute,
@@ -1015,15 +1297,14 @@ impl WorkerBrokerRouter {
                         "reset acknowledged with outstanding script authority".into(),
                     ));
                 }
-                if let Some(control) = navigation {
-                    if !control
+                if let Some(control) = navigation
+                    && !control
                         .cleanup_is_drained()
                         .map_err(|error| RuntimeError::ContextService(error.to_string()))?
-                    {
-                        return Err(RuntimeError::ProtocolViolation(
-                            "reset acknowledged with outstanding navigation authority".into(),
-                        ));
-                    }
+                {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "reset acknowledged with outstanding navigation authority".into(),
+                    ));
                 }
             }
             std::mem::take(&mut routes.script_cleanup)
@@ -1052,6 +1333,29 @@ impl WorkerBrokerRouter {
 }
 
 impl NetworkBroker for WorkerBrokerRouter {
+    fn discard_response_policy_routed(
+        &self,
+        identity: Option<&crate::worker_route::WorkerRoute>,
+        token: &str,
+    ) -> Result<(), NetworkError> {
+        let identity = identity
+            .ok_or_else(|| NetworkError::Transport("missing response policy route".into()))?;
+        match ContextTransport::request_routed(
+            self,
+            Some(identity),
+            ContextServiceRequest::DiscardNavigationResponsePolicy {
+                page_id: PageId(identity.environment),
+                token: token.into(),
+            },
+        )
+        .map_err(|error| NetworkError::Transport(error.to_string()))?
+        {
+            ContextServiceResponse::NavigationResponsePolicyDiscarded => Ok(()),
+            _ => Err(NetworkError::Transport(
+                "invalid response policy cleanup acknowledgement".into(),
+            )),
+        }
+    }
     fn start_routed(
         &self,
         identity: Option<&crate::worker_route::WorkerRoute>,
@@ -1107,6 +1411,13 @@ impl NetworkBroker for WorkerBrokerRouter {
 }
 
 impl NetworkBroker for Arc<WorkerBrokerRouter> {
+    fn discard_response_policy_routed(
+        &self,
+        route: Option<&crate::worker_route::WorkerRoute>,
+        token: &str,
+    ) -> Result<(), NetworkError> {
+        NetworkBroker::discard_response_policy_routed(&**self, route, token)
+    }
     fn start_routed(
         &self,
         route: Option<&crate::worker_route::WorkerRoute>,
@@ -1152,6 +1463,8 @@ impl ContextTransport for WorkerBrokerRouter {
                 ..
             }
             | ContextServiceRequest::ReleaseFrameResponseStream { page_id, .. }
+            | ContextServiceRequest::DiscardNavigationNetworkSource { page_id, .. }
+            | ContextServiceRequest::DiscardNavigationResponsePolicy { page_id, .. }
             | ContextServiceRequest::DiscardPreparedLocalNavigation { page_id, .. },
         ) = request
         {
@@ -1188,6 +1501,39 @@ impl ContextTransport for WorkerBrokerRouter {
         identity: Option<&crate::worker_route::WorkerRoute>,
         request: ContextServiceRequest,
     ) -> Result<ContextServiceResponse, RuntimeError> {
+        if let ContextServiceRequest::DiscardNavigationNetworkSource { page_id, nonce } = &request {
+            // Cleanup authenticates the retired identity, never a replacement route.
+            self.navigation_resource_cleanup(identity, *page_id)?;
+            if let Ok(route) = self.authorized(identity) {
+                route
+                    .network
+                    .authority
+                    .state
+                    .lock()
+                    .map_err(|_| RuntimeError::ContextService("worker route lock poisoned".into()))?
+                    .navigation_sources
+                    .discard(nonce);
+            }
+            return Ok(ContextServiceResponse::NavigationNetworkSourceDiscarded);
+        }
+        if let ContextServiceRequest::DiscardNavigationResponsePolicy { page_id, token } = &request
+        {
+            // This exact route remains authorized for cleanup after retirement;
+            // revocation has already cleared its grants. Never resolve a token
+            // through a replacement environment's authority.
+            self.navigation_resource_cleanup(identity, *page_id)?;
+            if let Ok(route) = self.authorized(identity) {
+                route
+                    .network
+                    .authority
+                    .state
+                    .lock()
+                    .map_err(|_| RuntimeError::ContextService("worker route lock poisoned".into()))?
+                    .response_policies
+                    .discard(token);
+            }
+            return Ok(ContextServiceResponse::NavigationResponsePolicyDiscarded);
+        }
         if let ContextServiceRequest::AcknowledgeBlankPrerender {
             page_id,
             activation,
@@ -1316,7 +1662,7 @@ impl ContextTransport for WorkerBrokerRouter {
             .authority
             .admit(None)
             .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
-        ContextTransport::request(&*route.context, request)
+        route.context_request(request)
     }
     fn request(
         &self,
@@ -1328,7 +1674,7 @@ impl ContextTransport for WorkerBrokerRouter {
             .authority
             .admit(None)
             .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
-        ContextTransport::request(&*route.context, request)
+        route.context_request(request)
     }
 }
 
@@ -1423,7 +1769,16 @@ fn runtime_routing_protocols_match(runtime: &RuntimeBuildInfo) -> bool {
         == Some(crate::context_service::CONTEXT_SERVICE_PROTOCOL_VERSION)
         && runtime.agent_ipc_protocol_version == Some(crate::agent_ipc::VERSION)
 }
+fn worker_render_contract_matches(version: Option<u16>) -> bool {
+    // A V8-free parent validates the worker's wire protocol even though its
+    // local RuntimeBuildInfo correctly reports no embedded renderer.
+    version == Some(oryn_common::v4::RENDER_CONTRACT_VERSION)
+}
 impl WorkerManifest {
+    fn render_contract_matches(&self) -> bool {
+        worker_render_contract_matches(Some(self.render_contract_version))
+    }
+
     fn protocols_match(&self) -> bool {
         self.protocol_version == WORKER_PROTOCOL_VERSION
             && self.context_service_protocol_version
@@ -1590,10 +1945,10 @@ impl Drop for LaunchingWorker {
             monitor.stop.store(true, Ordering::Release);
         }
         let _ = child.kill();
-        if let Ok(status) = child.wait() {
-            if let Some(observation) = &self.observation {
-                observation.reaped(status);
-            }
+        if let Ok(status) = child.wait()
+            && let Some(observation) = &self.observation
+        {
+            observation.reaped(status);
         }
         if let Some(router) = &self.router {
             let _ = router.unbind();
@@ -1760,11 +2115,11 @@ fn contextualize_worker_deadline(
     {
         current = cause.as_mut();
     }
-    if let RuntimeError::WorkerLimitExceeded { resource } = current {
-        if resource.contains("wall time") {
-            *resource =
-                format!("{resource} (phase={phase}, command={command}, message_id={message_id})");
-        }
+    if let RuntimeError::WorkerLimitExceeded { resource } = current
+        && resource.contains("wall time")
+    {
+        *resource =
+            format!("{resource} (phase={phase}, command={command}, message_id={message_id})");
     }
     error
 }
@@ -1957,9 +2312,7 @@ impl WorkerClient {
             router: None,
         };
         #[cfg(target_os = "macos")]
-        if let Err(error) = verify_running_worker(child.id(), launch_path) {
-            return Err(error);
-        }
+        verify_running_worker(child.id(), launch_path)?;
         #[cfg(target_os = "macos")]
         let launch_code_directory_hash = Some(running_code_directory_hash(child.id())?);
         #[cfg(not(target_os = "macos"))]
@@ -1999,7 +2352,10 @@ impl WorkerClient {
         std::thread::Builder::new()
             .name("oryn-worker-network-broker".into())
             .spawn(move || {
-                let _ = serve_ipc_broker(parent_broker, network_router, frame_limit);
+                let _ = serve_ipc_broker(parent_broker, network_router.clone(), frame_limit);
+                // Losing the network pipe revokes every response grant from
+                // that process, including headers never delivered to a caller.
+                let _ = network_router.unbind();
             })
             .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
         std::thread::Builder::new()
@@ -2091,8 +2447,7 @@ impl WorkerClient {
             || !runtime_routing_protocols_match(&runtime)
             || !runtime.native_v8
             || runtime.v8_version.is_none()
-            || runtime.render_contract_version
-                != crate::runtime_build_info().render_contract_version
+            || !worker_render_contract_matches(runtime.render_contract_version)
             || runtime.local_effects_contract_version
                 != oryn_common::v4::LOCAL_EFFECTS_CONTRACT_VERSION
             || runtime.contract_version != oryn_common::v4::CONTRACT_VERSION
@@ -2143,10 +2498,10 @@ impl WorkerClient {
         client.runtime.worker_code_directory_hash = client.code_directory_hash.clone();
         client.runtime.policy_digest = Some(policy_digest);
         client.runtime.sandbox_state = sandbox_state;
-        if let Ok(session) = client.session.lock() {
-            if let Some(observation) = &session.process_observation {
-                observation.binary(&binary_sha256);
-            }
+        if let Ok(session) = client.session.lock()
+            && let Some(observation) = &session.process_observation
+        {
+            observation.binary(&binary_sha256);
         }
         client.binary_sha256 = binary_sha256;
         Ok(client)
@@ -2305,6 +2660,7 @@ impl WorkerClient {
     /// Parent-only attachment for a direct related window in the same context.
     /// Placement selects this explicitly; independent roots cannot enter through
     /// this method merely by supplying a public page identifier.
+    #[cfg(test)]
     pub(crate) fn attach_environment(
         &self,
         config: &BrowserConfig,
@@ -2497,14 +2853,10 @@ impl WorkerClient {
         self.runtime.policy_digest = Some(policy_digest);
         self.runtime.worker_lifecycle = config.worker_lifecycle.name().into();
         self.leases = self.leases.saturating_add(1);
-        if let Ok(session) = self.session.lock() {
-            if let Some(observation) = &session.process_observation {
-                observation.begin_lease(
-                    audit_context_id,
-                    page_id.0,
-                    config.document_generation_base,
-                );
-            }
+        if let Ok(session) = self.session.lock()
+            && let Some(observation) = &session.process_observation
+        {
+            observation.begin_lease(audit_context_id, page_id.0, config.document_generation_base);
         }
         Ok(())
     }
@@ -2515,11 +2867,11 @@ impl WorkerClient {
 
     pub(crate) fn mark_prepared(&mut self) {
         self.leases = 0;
-        if let Ok(session) = self.session.lock() {
-            if let Some(observation) = &session.process_observation {
-                observation.role("prewarmed");
-                observation.end_leases(None);
-            }
+        if let Ok(session) = self.session.lock()
+            && let Some(observation) = &session.process_observation
+        {
+            observation.role("prewarmed");
+            observation.end_leases(None);
         }
     }
 
@@ -2843,10 +3195,10 @@ impl WorkerProcessSession {
     fn kill(&mut self) {
         self.rss_monitor.stop.store(true, Ordering::Release);
         let _ = self.child.kill();
-        if let Ok(status) = self.child.wait() {
-            if let Some(observation) = &self.process_observation {
-                observation.reaped(status);
-            }
+        if let Ok(status) = self.child.wait()
+            && let Some(observation) = &self.process_observation
+        {
+            observation.reaped(status);
         }
         let _ = self.router.unbind();
     }
@@ -2882,10 +3234,10 @@ pub fn runtime_report(
         "verification",
     )?;
     let mut runtime = client.runtime().clone();
-    if let Ok(session) = client.session.lock() {
-        if let Some(observation) = &session.process_observation {
-            observation.role("verification");
-        }
+    if let Ok(session) = client.session.lock()
+        && let Some(observation) = &session.process_observation
+    {
+        observation.role("verification");
     }
     runtime.execution_mode = if client.verification().is_some() || cfg!(target_os = "linux") {
         "sandboxed_worker".into()
@@ -2936,10 +3288,10 @@ impl Drop for WorkerClient {
                 let _ = self
                     .router
                     .unbind_environment(&self.route_identity, Duration::from_secs(2));
-                if let Ok(session) = self.session.lock() {
-                    if let Some(observation) = &session.process_observation {
-                        observation.end_leases(Some(self.route_identity.environment));
-                    }
+                if let Ok(session) = self.session.lock()
+                    && let Some(observation) = &session.process_observation
+                {
+                    observation.end_leases(Some(self.route_identity.environment));
                 }
             }
         }
@@ -3056,8 +3408,7 @@ pub fn verify_worker(path: &Path) -> Result<WorkerVerification, RuntimeError> {
         || manifest.bundle_id != EXPECTED_BUNDLE_ID
         || manifest.team_id != EXPECTED_TEAM_ID
         || manifest.signing_cert_sha1 != EXPECTED_SIGNING_CERT_SHA1
-        || Some(manifest.render_contract_version)
-            != crate::runtime_build_info().render_contract_version
+        || !manifest.render_contract_matches()
         || manifest.local_effects_contract_version
             != oryn_common::v4::LOCAL_EFFECTS_CONTRACT_VERSION
         || !manifest.protocols_match()
@@ -3564,7 +3915,7 @@ mod tests {
             else {
                 panic!("lost batch outcome");
             };
-            assert_eq!(completed, &[receipt.clone()]);
+            assert_eq!(completed, std::slice::from_ref(&receipt));
             assert_eq!(*failed_index, 1);
             assert!(matches!(
                 cause.as_ref(),
@@ -3996,6 +4347,7 @@ mod tests {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             self.requests.lock().unwrap().push(request.clone());
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -4007,9 +4359,190 @@ mod tests {
     }
 
     #[test]
+    fn sealed_navigation_source_is_identical_for_send_and_stream_and_private_to_its_lease() {
+        struct RedirectBroker {
+            requests: Arc<Mutex<Vec<NetworkRequest>>>,
+        }
+        impl NetworkBroker for RedirectBroker {
+            fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                self.requests.lock().unwrap().push(request.clone());
+                let (status, headers) = if request.url.ends_with("/start") {
+                    (
+                        302,
+                        vec![("location".into(), "https://final.test/receipt".into())],
+                    )
+                } else {
+                    (200, vec![("content-type".into(), "text/html".into())])
+                };
+                Ok(NetworkResponse {
+                    response_policy: None,
+                    timing: None,
+                    request_id: request.request_id,
+                    status,
+                    headers,
+                    body: vec![],
+                })
+            }
+        }
+        for streaming in [false, true] {
+            let context = Browser::in_process_probe().new_context();
+            let page = context.new_page();
+            let page_id = page.page_id();
+            let target = context.native_initial_document_creator(page_id).unwrap();
+            let url = "https://initial.test/start";
+            let sealed = context
+                .issue_script_navigation_authority(crate::runtime::ScriptNavigationInputs {
+                    source: page_id,
+                    source_creator: target.clone(),
+                    destination: page_id,
+                    target_creator: target.clone(),
+                    destination_url: url,
+                    source_url: "about:blank",
+                    referrer_policy: "no-referrer",
+                })
+                .unwrap();
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let inner = crate::network::SharedNetworkBroker::new(RedirectBroker {
+                requests: requests.clone(),
+            });
+            let route = BoundWorkerRoute {
+                identity: crate::worker_route::WorkerRoute::issue(1, page_id.0, 0).unwrap(),
+                context: ParentContextService::new_with_network(
+                    context.clone(),
+                    page_id,
+                    Some(inner.clone()),
+                )
+                .into_shared(),
+                network: PageNetworkBroker {
+                    authority: Arc::new(RouteAuthority::default()),
+                    inner,
+                    context: context.downgrade(),
+                    page_id,
+                },
+            };
+            let nonce = "b".repeat(64);
+            let acquire = |nonce: String| ContextServiceRequest::AcquireNavigationNetworkSource {
+                page_id,
+                nonce,
+                target: target.clone(),
+                url: url.into(),
+                authority: crate::context_service::NavigationNetworkAuthority::Script(
+                    sealed.clone(),
+                ),
+            };
+            let ContextServiceResponse::NavigationNetworkSource {
+                source,
+                bound: true,
+            } = route.context_request(acquire(nonce.clone())).unwrap()
+            else {
+                panic!("missing route binding");
+            };
+            let request = |id, url: &str, token: Option<String>| NetworkRequest {
+                request_id: id,
+                method: "GET".into(),
+                url: url.into(),
+                headers: vec![("referer".into(), "https://forged.test/".into())],
+                body: vec![],
+                credentials: true,
+                security: CookieRequestContext {
+                    navigation_source: token,
+                    kind: CookieRequestKind::Document,
+                    initiator_url: Some("https://forged.test/".into()),
+                    top_level_url: Some("https://forged.test/".into()),
+                    ancestor_urls: vec!["https://forged.test/".into()],
+                    ..Default::default()
+                },
+                resolved_addrs: vec![],
+            };
+            let dispatch = |request: NetworkRequest| {
+                if streaming {
+                    let mut operation = route.network.start_operation(request).unwrap();
+                    let mut status = None;
+                    while let Some(event) = operation.blocking_event() {
+                        match event {
+                            NetworkEvent::Headers { status: value, .. } => {
+                                status = Some(value);
+                                operation.request_body_chunk();
+                            }
+                            NetworkEvent::Chunk { .. } => operation.request_body_chunk(),
+                            NetworkEvent::Complete { .. } => break,
+                            NetworkEvent::Failed { error, .. } => panic!("{error}"),
+                        }
+                    }
+                    status.unwrap()
+                } else {
+                    route.network.send(request).unwrap().status
+                }
+            };
+            // Same URL without the nonce leaves the admitted source lease untouched.
+            assert_eq!(dispatch(request(90, url, None)), 302);
+            assert!(
+                route
+                    .network
+                    .send(request(91, "https://wrong.test/", Some(nonce.clone())))
+                    .is_err()
+            );
+            assert_eq!(dispatch(request(1, url, Some(nonce.clone()))), 302);
+            route.network.cancel_operation(1).unwrap();
+            assert_eq!(
+                dispatch(request(
+                    2,
+                    "https://final.test/receipt",
+                    Some(nonce.clone())
+                )),
+                200
+            );
+            assert!(
+                route
+                    .network
+                    .send(request(3, url, Some(nonce.clone())))
+                    .is_err()
+            );
+            let sent = requests.lock().unwrap();
+            assert_eq!(sent.len(), 3);
+            for request in sent.iter().skip(1) {
+                assert!(
+                    request.security.navigation_source.is_none(),
+                    "private nonce must stop at the parent broker"
+                );
+                assert_eq!(
+                    request.security.initiator_url.as_deref(),
+                    Some(if source.opaque_origin {
+                        "about:blank"
+                    } else {
+                        &source.url
+                    })
+                );
+                assert_eq!(
+                    request.security.top_level_url.as_deref(),
+                    Some(source.top_level_url.as_str())
+                );
+                assert_eq!(request.security.ancestor_urls, source.ancestor_urls);
+                assert!(
+                    !request
+                        .headers
+                        .iter()
+                        .any(|(name, _)| name.eq_ignore_ascii_case("referer"))
+                );
+            }
+            assert!(sent[2].security.redirect_chain_cross_site);
+            drop(sent);
+            let stale = "c".repeat(64);
+            route.context_request(acquire(stale.clone())).unwrap();
+            let _parked = context.park_initial_document(page_id).unwrap();
+            assert!(route.network.send(request(4, url, Some(stale))).is_err());
+            route.network.authority.revoke().unwrap();
+            assert!(route.context_request(acquire("d".repeat(64))).is_err());
+        }
+    }
+
+    #[test]
     fn parent_derives_request_provenance_and_defers_meta_policy_to_native_parser() {
         let context = Browser::new().new_context();
         let page = context.new_page();
+        context
+            .native_initial_document_creator(page.page_id())
+            .unwrap();
         context
             .commit_page_url(page.page_id(), "https://app.example/".into())
             .unwrap();
@@ -4141,6 +4674,18 @@ mod tests {
             embedded_font_sha256: "d".repeat(64),
         };
         assert!(manifest.protocols_match());
+        assert!(manifest.render_contract_matches());
+        for version in [0, 2, 4, u16::MAX] {
+            let mut changed = manifest.clone();
+            changed.render_contract_version = version;
+            assert!(!changed.render_contract_matches());
+        }
+        let mut missing_render = serde_json::to_value(&manifest).unwrap();
+        missing_render
+            .as_object_mut()
+            .unwrap()
+            .remove("render_contract_version");
+        assert!(serde_json::from_value::<WorkerManifest>(missing_render).is_err());
         for field in [
             "protocol_version",
             "context_service_protocol_version",
@@ -4295,6 +4840,279 @@ mod tests {
         drop(operation);
         router.bind(fixture_worker_route(&fixture_context)).unwrap();
         router.unbind().unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn response_policy_commit_requires_exact_live_router_and_parent_grant() {
+        let browser = Browser::in_process_probe();
+        let context = browser.new_context();
+        let page = context.new_page();
+        let page_id = page.page_id();
+        let inner = crate::network::SharedNetworkBroker::new(CaptureBroker {
+            requests: Arc::new(Mutex::new(Vec::new())),
+        });
+        let service =
+            ParentContextService::new_with_network(context.clone(), page_id, Some(inner.clone()))
+                .into_shared();
+        let authority = Arc::new(RouteAuthority::default());
+        let identity = crate::worker_route::WorkerRoute::issue(1, page_id.0, 0).unwrap();
+        let router = WorkerBrokerRouter::default();
+        router
+            .bind(BoundWorkerRoute {
+                identity: identity.clone(),
+                context: service.clone(),
+                network: PageNetworkBroker {
+                    authority: authority.clone(),
+                    inner,
+                    context: context.downgrade(),
+                    page_id,
+                },
+            })
+            .unwrap();
+        let url = "https://response-policy.test/";
+        let response = router
+            .authorized(Some(&identity))
+            .unwrap()
+            .network
+            .send(NetworkRequest {
+                request_id: 1,
+                method: "GET".into(),
+                url: url.into(),
+                headers: Vec::new(),
+                body: Vec::new(),
+                credentials: true,
+                resolved_addrs: Vec::new(),
+                security: CookieRequestContext {
+                    kind: CookieRequestKind::Document,
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        let headers = crate::network::sanitize_parent_response_headers(response.headers);
+        let token = response
+            .response_policy
+            .expect("parent-issued response grant");
+        let request = || ContextServiceRequest::CommitNavigationResponsePolicy {
+            page_id,
+            token: token.to_string(),
+            document_url: url.into(),
+            headers: headers.clone(),
+        };
+        assert!(ContextTransport::request(&*service, request()).is_err());
+        assert!(router.request_routed(None, request()).is_err());
+        let forged = crate::worker_route::WorkerRoute::issue(1, page_id.0, 0).unwrap();
+        assert!(router.request_routed(Some(&forged), request()).is_err());
+        let parked = context.park_initial_document(page_id).unwrap();
+        assert!(matches!(
+            router.request_routed(Some(&identity), request()).unwrap(),
+            ContextServiceResponse::DocumentSecurityInstalled
+        ));
+        context
+            .verify_document_security(page_id, url, &headers)
+            .unwrap();
+        assert!(router.request_routed(Some(&identity), request()).is_err());
+        context
+            .finish_initial_document(page_id, parked, false)
+            .unwrap();
+        // Even a retained route clone cannot commit after revocation. This
+        // bypasses the router lookup to exercise the inner authority barrier.
+        let retained = router.authorized(Some(&identity)).unwrap();
+        authority.revoke().unwrap();
+        assert!(retained.context_request(request()).is_err());
+        page.close().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn streaming_document_headers_preserve_initial_policy_and_cancellation_revokes_grant() {
+        let browser = Browser::in_process_probe();
+        let context = browser.new_context();
+        let page = context.new_page();
+        let page_id = page.page_id();
+        let authority = Arc::new(RouteAuthority::default());
+        let broker = PageNetworkBroker {
+            authority: authority.clone(),
+            inner: crate::network::SharedNetworkBroker::new(CaptureBroker {
+                requests: Arc::new(Mutex::new(Vec::new())),
+            }),
+            context: context.downgrade(),
+            page_id,
+        };
+        let mut operation = broker
+            .start_operation(NetworkRequest {
+                request_id: 41,
+                method: "GET".into(),
+                url: "https://stream.test/".into(),
+                headers: Vec::new(),
+                body: Vec::new(),
+                credentials: true,
+                resolved_addrs: Vec::new(),
+                security: CookieRequestContext {
+                    kind: CookieRequestKind::Document,
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        let (token, headers) = match operation.next_event().await.unwrap() {
+            NetworkEvent::Headers {
+                response_policy: Some(token),
+                headers,
+                ..
+            } => (token, headers),
+            event => panic!("missing parent response grant: {event:?}"),
+        };
+        assert!(context.native_initial_document_creator(page_id).is_ok());
+        let parked = context.park_initial_document(page_id).unwrap();
+        broker.cancel_operation(41).unwrap();
+        assert!(
+            authority
+                .state
+                .lock()
+                .unwrap()
+                .response_policies
+                .commit(
+                    page_id,
+                    &token,
+                    "https://stream.test/",
+                    &headers,
+                    |_, _, _| panic!("cancelled stream installed document policy"),
+                )
+                .is_err()
+        );
+        drop(operation);
+        context
+            .finish_initial_document(page_id, parked, true)
+            .unwrap();
+        assert!(context.native_initial_document_creator(page_id).is_ok());
+        page.close().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn prerender_policy_commit_authenticates_response_without_replacing_incumbent() {
+        let browser = Browser::in_process_probe();
+        let context = browser.new_context();
+        let page = context.new_page();
+        let page_id = page.page_id();
+        let source_url = "https://prerender.test/source";
+        let source_headers = vec![("Content-Security-Policy".into(), "script-src 'self'".into())];
+        context
+            .install_document_security(page_id, source_url.into(), &source_headers)
+            .unwrap();
+        context
+            .handle_message_wire(
+                page_id,
+                oryn_js::message_wire::MessageRequest::RegisterRootDocument {
+                    document_generation: 1,
+                    stream_epoch: 0,
+                },
+            )
+            .unwrap();
+        context.commit_page_url(page_id, source_url.into()).unwrap();
+        let creator = context.capture_command_navigation_source(page_id).unwrap();
+        let url = "https://prerender.test/next";
+        let candidate = context
+            .reserve_native_prerender(page_id, &creator, url)
+            .unwrap();
+        let inner = crate::network::SharedNetworkBroker::new(CaptureBroker {
+            requests: Arc::new(Mutex::new(Vec::new())),
+        });
+        let identity = crate::worker_route::WorkerRoute::issue(1, page_id.0, 0).unwrap();
+        let service =
+            ParentContextService::new_with_network(context.clone(), page_id, Some(inner.clone()))
+                .into_shared();
+        assert!(
+            ContextTransport::request(
+                &*service,
+                ContextServiceRequest::InstallDocumentSecurity {
+                    page_id,
+                    document_url: source_url.into(),
+                    headers: source_headers.clone(),
+                }
+            )
+            .is_err(),
+            "matching incumbent policy is not authority for a new document"
+        );
+        let route = BoundWorkerRoute {
+            identity: identity.clone(),
+            context: service.clone(),
+            network: PageNetworkBroker {
+                authority: Arc::new(RouteAuthority::default()),
+                inner,
+                context: context.downgrade(),
+                page_id,
+            },
+        };
+        let response = route
+            .network
+            .send(NetworkRequest {
+                request_id: 81,
+                method: "GET".into(),
+                url: url.into(),
+                headers: Vec::new(),
+                body: Vec::new(),
+                credentials: true,
+                resolved_addrs: Vec::new(),
+                security: CookieRequestContext {
+                    kind: CookieRequestKind::Document,
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        let response_token = response.response_policy.unwrap();
+        let request = |response_policy, headers| ContextServiceRequest::CommitPrerenderResponse {
+            response_policy,
+            page_id,
+            token: candidate.token.clone(),
+            generation: candidate.lifetime.0,
+            epoch: candidate.lifetime.1,
+            url: url.into(),
+            headers,
+        };
+        let router = WorkerBrokerRouter::default();
+        router.bind(route).unwrap();
+        assert!(
+            ContextTransport::request(&*service, request(None, response.headers.clone())).is_err()
+        );
+        assert!(
+            router
+                .request_routed(Some(&identity), request(None, response.headers.clone()))
+                .is_err()
+        );
+        assert!(
+            router
+                .request_routed(
+                    Some(&identity),
+                    request(
+                        Some(response_token.to_string()),
+                        vec![("Content-Security-Policy".into(), "default-src *".into())],
+                    )
+                )
+                .is_err()
+        );
+        assert!(matches!(
+            router
+                .request_routed(
+                    Some(&identity),
+                    request(Some(response_token.to_string()), response.headers.clone(),)
+                )
+                .unwrap(),
+            ContextServiceResponse::PrerenderResponseCommitted { .. }
+        ));
+        context
+            .verify_document_security(page_id, source_url, &source_headers)
+            .unwrap();
+        assert_eq!(
+            context.capture_command_navigation_source(page_id).unwrap(),
+            creator
+        );
+        assert!(
+            router
+                .request_routed(
+                    Some(&identity),
+                    request(Some(response_token.to_string()), response.headers,)
+                )
+                .is_err()
+        );
+        page.close().await.unwrap();
     }
 
     #[test]
@@ -4854,30 +5672,21 @@ mod tests {
 
     #[test]
     fn retired_route_finishes_only_its_selected_blank_activation() {
-        use oryn_js::{
-            message_wire::{MessageRequest, WindowTarget},
-            worker_wire::Creator,
-        };
-        let context = crate::Browser::in_process_with_config(Default::default()).new_context();
+        let context = crate::Browser::native_test_with_config(Default::default()).new_context();
         let route = fixture_worker_route(&context);
         let source = route.network.page_id;
-        context
-            .install_document_security(source, "https://blank.test/source".into(), &[])
+        let source_page = context.active_page().expect("fixture route source page");
+        assert_eq!(source_page.page_id(), source);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
             .unwrap();
-        context
-            .handle_message_wire(
-                source,
-                MessageRequest::RegisterRootDocument {
-                    document_generation: 2,
-                    stream_epoch: 0,
-                },
+        runtime
+            .block_on(
+                source_page.load_html("https://blank.test/source", "<!doctype html><p>source</p>"),
             )
             .unwrap();
-        let creator = Creator::Window {
-            target: WindowTarget::Root,
-            document_generation: 2,
-            stream_epoch: 0,
-        };
+        let creator = context.capture_command_navigation_source(source).unwrap();
         let (destination, _, scope) = context
             .reserve_blank_prerender(source, &creator, "https://blank.test/next")
             .unwrap();
@@ -5851,6 +6660,26 @@ pub(crate) mod protocol_fixture {
 
 #[cfg(test)]
 mod protocol_metadata_admission_tests {
+    #[test]
+    fn worker_render_contract_does_not_require_a_local_parent_renderer() {
+        let mut worker_report = crate::runtime_build_info();
+        #[cfg(not(any(feature = "v8-host", feature = "accessibility-host")))]
+        assert_eq!(worker_report.render_contract_version, None);
+
+        // Version 3 is the supported worker display-list protocol even when
+        // this test's parent has no V8 or renderer implementation linked.
+        worker_report.render_contract_version = Some(3);
+        assert!(super::worker_render_contract_matches(
+            worker_report.render_contract_version
+        ));
+        for unsupported in [None, Some(0), Some(2), Some(4), Some(u16::MAX)] {
+            worker_report.render_contract_version = unsupported;
+            assert!(!super::worker_render_contract_matches(
+                worker_report.render_contract_version
+            ));
+        }
+    }
+
     #[test]
     fn worker_ready_requires_compiled_context_and_agent_versions() {
         let runtime = crate::runtime_build_info();

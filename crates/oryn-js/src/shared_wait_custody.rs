@@ -1,6 +1,19 @@
 //! Bounded native wait RPC custody. Isolate threads never perform broker IO.
 //! A fixed executor retains each admission, including abandoned late replies,
 //! until its waiter and optional receiver lease have been acknowledged cleaned.
+
+/// Inputs for begin.
+pub struct SharedWaitInputs {
+    pub backing: Arc<dyn Send + Sync>,
+    pub transport: Arc<dyn WorkerTransport>,
+    pub creator: Creator,
+    pub descriptor: SharedMemoryDescriptor,
+    pub acquire: bool,
+    pub offset: u64,
+    pub width64: bool,
+    pub expected: u64,
+    pub timeout_ns: Option<u64>,
+}
 use crate::{shared_memory::*, worker_wire::*};
 use std::{
     collections::VecDeque,
@@ -280,17 +293,19 @@ pub struct WaitTicket {
     job: Arc<Job>,
 }
 impl WaitTicket {
-    pub fn begin(
-        backing: Arc<dyn Send + Sync>,
-        transport: Arc<dyn WorkerTransport>,
-        creator: Creator,
-        descriptor: SharedMemoryDescriptor,
-        acquire: bool,
-        offset: u64,
-        width64: bool,
-        expected: u64,
-        timeout_ns: Option<u64>,
-    ) -> Result<Self, String> {
+    pub fn begin(params: SharedWaitInputs) -> Result<Self, String> {
+        let SharedWaitInputs {
+            backing,
+            transport,
+            creator,
+            descriptor,
+            acquire,
+            offset,
+            width64,
+            expected,
+            timeout_ns,
+        } = params;
+
         let pool = executor()?;
         let mut queue = pool.queue.lock().unwrap_or_else(|e| e.into_inner());
         if queue.jobs.len() >= CAPACITY {
@@ -525,17 +540,17 @@ mod tests {
     #[test]
     fn interrupted_admission_retains_late_waiter_until_cancel_acknowledgement() {
         let (broker, transport, entered, unblock) = setup(true);
-        let ticket = WaitTicket::begin(
-            Arc::new(()),
-            transport.clone(),
-            Creator::Agent(AgentId(19)),
-            descriptor(),
-            false,
-            0,
-            false,
-            0,
-            None,
-        )
+        let ticket = WaitTicket::begin(SharedWaitInputs {
+            backing: Arc::new(()),
+            transport: transport.clone(),
+            creator: Creator::Agent(AgentId(19)),
+            descriptor: descriptor(),
+            acquire: false,
+            offset: 0,
+            width64: false,
+            expected: 0,
+            timeout_ns: None,
+        })
         .unwrap();
         entered.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(ticket.admission(Duration::ZERO), None);
@@ -559,17 +574,17 @@ mod tests {
     #[test]
     fn asynchronous_classification_survives_notification_before_first_poll() {
         let (broker, transport, entered, unblock) = setup(false);
-        let ticket = WaitTicket::begin(
-            Arc::new(()),
-            transport.clone(),
-            Creator::Agent(AgentId(20)),
-            descriptor(),
-            false,
-            0,
-            false,
-            0,
-            None,
-        )
+        let ticket = WaitTicket::begin(SharedWaitInputs {
+            backing: Arc::new(()),
+            transport: transport.clone(),
+            creator: Creator::Agent(AgentId(20)),
+            descriptor: descriptor(),
+            acquire: false,
+            offset: 0,
+            width64: false,
+            expected: 0,
+            timeout_ns: None,
+        })
         .unwrap();
         entered.recv_timeout(Duration::from_secs(1)).unwrap();
         unblock.send(()).unwrap();

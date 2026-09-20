@@ -52,6 +52,8 @@ enum Phase {
 }
 
 pub(super) struct Response<H = Headers> {
+    #[cfg(unix)]
+    pub response_policy_cleanup: Option<Arc<crate::context_service::ContextResponsePolicyLease>>,
     pub timing: oryn_js::navigation_timing::NavigationTiming,
     pub request_state: NavigationRequestState,
     pub broker: SharedNetworkBroker,
@@ -68,10 +70,13 @@ pub(super) type SniffedHeaders = (
     Option<oryn_net::TransportTiming>,
     Instant,
     Instant,
+    Option<crate::network::ResponsePolicyToken>,
 );
 impl Response {
     pub fn split_body(self) -> (Response<SniffedHeaders>, NetworkOperation) {
         let Self {
+            #[cfg(unix)]
+            response_policy_cleanup,
             timing,
             request_state,
             broker,
@@ -81,6 +86,7 @@ impl Response {
             headers,
         } = self;
         let Headers {
+            response_policy,
             status,
             headers,
             operation,
@@ -90,13 +96,22 @@ impl Response {
         } = headers;
         (
             Response {
+                #[cfg(unix)]
+                response_policy_cleanup,
                 timing,
                 request_state,
                 broker,
                 current,
                 post,
                 cross_origin_redirect,
-                headers: (status, headers, transport, started, received),
+                headers: (
+                    status,
+                    headers,
+                    transport,
+                    started,
+                    received,
+                    response_policy,
+                ),
             },
             operation,
         )
@@ -105,15 +120,19 @@ impl Response {
 impl Response<SniffedHeaders> {
     pub fn restore_body(self, operation: NetworkOperation) -> Response {
         let Self {
+            #[cfg(unix)]
+            response_policy_cleanup,
             timing,
             request_state,
             broker,
             current,
             post,
             cross_origin_redirect,
-            headers: (status, headers, transport, started, received),
+            headers: (status, headers, transport, started, received, response_policy),
         } = self;
         Response {
+            #[cfg(unix)]
+            response_policy_cleanup,
             timing,
             request_state,
             broker,
@@ -121,6 +140,7 @@ impl Response<SniffedHeaders> {
             post,
             cross_origin_redirect,
             headers: Headers {
+                response_policy,
                 status,
                 headers,
                 operation,
@@ -361,6 +381,22 @@ impl HttpNavigation {
                 }
                 Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
                 Poll::Ready(Ok(headers)) => {
+                    #[cfg(unix)]
+                    let response_policy_cleanup = headers
+                        .response_policy
+                        .as_deref()
+                        .map(|token| {
+                            self.client
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    RuntimeError::ProtocolViolation(
+                                        "navigation response grant requires a context client"
+                                            .into(),
+                                    )
+                                })?
+                                .retain_response_policy(self.page_id, token)
+                        })
+                        .transpose()?;
                     if !matches!(headers.status, 301 | 302 | 303 | 307 | 308) {
                         if let Some(start) =
                             crate::network::native_worker_start(headers.timing.as_ref())
@@ -416,17 +452,19 @@ impl HttpNavigation {
                             .unwrap_or_default(),
                         };
                         self.timing
-                            .response(
-                                self.current.to_string(),
-                                headers.status,
-                                &headers.headers,
-                                headers.started,
-                                headers.received,
-                                Some(details),
-                                self.referrer_policy.as_str() == "no-referrer",
-                            )
+                            .response(oryn_js::navigation_timing::NavigationResponse {
+                                url: self.current.to_string(),
+                                status: headers.status,
+                                headers: &headers.headers,
+                                fetch: headers.started,
+                                received: headers.received,
+                                details: Some(details),
+                                no_referrer: self.referrer_policy.as_str() == "no-referrer",
+                            })
                             .map_err(RuntimeError::Network)?;
                         return Poll::Ready(Ok(Response {
+                            #[cfg(unix)]
+                            response_policy_cleanup,
                             timing: self.timing.clone(),
                             request_state: NavigationRequestState {
                                 initiator_url: self
@@ -586,6 +624,7 @@ mod tests {
             let first = request.url == "https://first.test/start";
             self.requests.lock().unwrap().push(request);
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: id,
                 status: if first { self.status } else { 200 },

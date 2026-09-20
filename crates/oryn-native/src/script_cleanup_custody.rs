@@ -1,6 +1,8 @@
 //! Capacity is reserved before requesting a parent script token. Dropping a
 //! token or unreceived network-result owner only queues cancellation; fixed IO lanes retain it until ACK.
-use super::{ContextServiceRequest, ContextServiceResponse, SharedContextClient};
+#[cfg(any(test, feature = "v8-host"))]
+use super::ContextServiceResponse;
+use super::{ContextServiceRequest, SharedContextClient};
 use std::{
     sync::{Arc, Condvar, Mutex, OnceLock},
     time::{Duration, Instant},
@@ -10,8 +12,10 @@ struct State {
     activity: Option<super::ResourceJob>,
     request: Option<ContextServiceRequest>,
     abandoned: bool,
+    #[cfg(any(test, feature = "v8-host"))]
     running: bool,
     done: bool,
+    #[cfg(any(test, feature = "v8-host"))]
     retry: Instant,
 }
 struct Job {
@@ -21,15 +25,18 @@ struct Job {
 }
 struct Queue {
     jobs: Vec<Arc<Job>>,
+    #[cfg(any(test, feature = "v8-host"))]
     stopping: bool,
 }
 struct Executor {
     queue: Mutex<Queue>,
     changed: Condvar,
+    #[cfg(any(test, feature = "v8-host"))]
     threads: Mutex<Vec<std::thread::JoinHandle<()>>>,
 }
 static EXECUTOR: OnceLock<Result<Arc<Executor>, String>> = OnceLock::new();
 
+#[cfg(any(test, feature = "v8-host"))]
 fn executor() -> Result<&'static Arc<Executor>, String> {
     EXECUTOR
         .get_or_init(|| {
@@ -75,6 +82,7 @@ fn executor() -> Result<&'static Arc<Executor>, String> {
 }
 
 impl Executor {
+    #[cfg(any(test, feature = "v8-host"))]
     fn run(&self) {
         loop {
             let job = {
@@ -114,8 +122,8 @@ impl Executor {
                 .clone();
             let acknowledged = request.is_none() || std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let request=request.unwrap();
-                let kind=match &request{ContextServiceRequest::ReleaseOrdinaryKeepalive{..}=>9,ContextServiceRequest::ReleaseDeferredContainer{..}=>8,ContextServiceRequest::CancelBlankPrerender{..}|ContextServiceRequest::CancelPrerender{..}=>7,ContextServiceRequest::FinishHyperlinkAudit{..}=>6,ContextServiceRequest::ParserEncodingPolicy{action:super::ParserEncodingPolicyAction::Release,..}=>5,ContextServiceRequest::ReleaseNetworkResult{..}|ContextServiceRequest::ReleaseFrameResponseStream{..}=>1,ContextServiceRequest::HttpRequestAbort{..}=>2,ContextServiceRequest::DiscardPreparedLocalNavigation{..}=>3,ContextServiceRequest::NavigationEvent{event:crate::navigation_control::NavigationEvent::Stopped(_),..}=>4,_=>0};
-                matches!((kind,job.client.request(request)),(9,Ok(ContextServiceResponse::OrdinaryKeepaliveReleased)|Err(crate::runtime::RuntimeError::Closed))|(8,Ok(ContextServiceResponse::DeferredFetchResult{result:Ok(())})|Err(crate::runtime::RuntimeError::Closed))|(7,Ok(ContextServiceResponse::PrerenderCancelled))|(6,Ok(ContextServiceResponse::HyperlinkAuditFinished)|Err(crate::runtime::RuntimeError::Closed))|(5,Ok(ContextServiceResponse::DocumentSecurityInstalled))|(0,Ok(ContextServiceResponse::ScriptLoadCancelled))|(1,Ok(ContextServiceResponse::NetworkResultReleased))|(2,Ok(ContextServiceResponse::HttpRequestAborted))|(3,Ok(ContextServiceResponse::LocalNavigationDiscarded))|(4,Ok(ContextServiceResponse::NavigationControl{result:Ok(())|Err(crate::navigation_control::NavigationStop::Superseded|crate::navigation_control::NavigationStop::Retired)})))
+                let kind=match &request{ContextServiceRequest::DiscardNavigationNetworkSource{..}=>11,ContextServiceRequest::DiscardNavigationResponsePolicy{..}=>10,ContextServiceRequest::ReleaseOrdinaryKeepalive{..}=>9,ContextServiceRequest::ReleaseDeferredContainer{..}=>8,ContextServiceRequest::CancelBlankPrerender{..}|ContextServiceRequest::CancelPrerender{..}=>7,ContextServiceRequest::FinishHyperlinkAudit{..}=>6,ContextServiceRequest::ParserEncodingPolicy{action:super::ParserEncodingPolicyAction::Release,..}=>5,ContextServiceRequest::ReleaseNetworkResult{..}|ContextServiceRequest::ReleaseFrameResponseStream{..}=>1,ContextServiceRequest::HttpRequestAbort{..}=>2,ContextServiceRequest::DiscardPreparedLocalNavigation{..}=>3,ContextServiceRequest::NavigationEvent{event:crate::navigation_control::NavigationEvent::Stopped(_),..}=>4,_=>0};
+                matches!((kind,job.client.request(request)),(11,Ok(ContextServiceResponse::NavigationNetworkSourceDiscarded)|Err(crate::runtime::RuntimeError::Closed))|(10,Ok(ContextServiceResponse::NavigationResponsePolicyDiscarded)|Err(crate::runtime::RuntimeError::Closed))|(9,Ok(ContextServiceResponse::OrdinaryKeepaliveReleased)|Err(crate::runtime::RuntimeError::Closed))|(8,Ok(ContextServiceResponse::DeferredFetchResult{result:Ok(())})|Err(crate::runtime::RuntimeError::Closed))|(7,Ok(ContextServiceResponse::PrerenderCancelled))|(6,Ok(ContextServiceResponse::HyperlinkAuditFinished)|Err(crate::runtime::RuntimeError::Closed))|(5,Ok(ContextServiceResponse::DocumentSecurityInstalled))|(0,Ok(ContextServiceResponse::ScriptLoadCancelled))|(1,Ok(ContextServiceResponse::NetworkResultReleased))|(2,Ok(ContextServiceResponse::HttpRequestAborted))|(3,Ok(ContextServiceResponse::LocalNavigationDiscarded))|(4,Ok(ContextServiceResponse::NavigationControl{result:Ok(())|Err(crate::navigation_control::NavigationStop::Superseded|crate::navigation_control::NavigationStop::Retired)})))
             })).unwrap_or(false);
             {
                 let mut state = job.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -142,7 +150,7 @@ pub(super) struct Ticket {
     job: Arc<Job>,
 }
 impl Ticket {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "v8-host"))]
     pub(super) fn status(&self) -> (bool, bool) {
         let state = self
             .job
@@ -151,6 +159,7 @@ impl Ticket {
             .unwrap_or_else(|error| error.into_inner());
         (state.abandoned, state.done)
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub(super) fn reserve(
         client: SharedContextClient,
         page_id: oryn_common::v3::PageId,
@@ -176,6 +185,7 @@ impl Ticket {
         Ok(Self { job })
     }
 
+    #[cfg(any(test, feature = "v8-host"))]
     pub(super) fn track_network_activity(&self) -> Result<(), String> {
         let activity = self
             .job
@@ -194,6 +204,7 @@ impl Ticket {
         state.activity = Some(activity);
         Ok(())
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub(super) fn attach_request(&self, request: ContextServiceRequest) {
         assert!(matches!(
             &request,
@@ -210,6 +221,8 @@ impl Ticket {
                 | ContextServiceRequest::ReleaseFrameResponseStream { .. }
                 | ContextServiceRequest::HttpRequestAbort { .. }
                 | ContextServiceRequest::DiscardPreparedLocalNavigation { .. }
+                | ContextServiceRequest::DiscardNavigationNetworkSource { .. }
+                | ContextServiceRequest::DiscardNavigationResponsePolicy { .. }
                 | ContextServiceRequest::NavigationEvent {
                     event: crate::navigation_control::NavigationEvent::Stopped(_),
                     ..
@@ -222,6 +235,7 @@ impl Ticket {
         );
         state.request = Some(request);
     }
+    #[cfg(feature = "v8-host")]
     pub(super) fn accept_hyperlink_audit(&self) {
         let mut state = self
             .job
@@ -245,6 +259,7 @@ impl Ticket {
             pool.changed.notify_one();
         }
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub(super) fn finish_if_not_cancelled(&self) {
         let mut state = self.job.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.abandoned {
@@ -262,6 +277,7 @@ impl Ticket {
             pool.changed.notify_all();
         }
     }
+    #[cfg(any(test, feature = "v8-host"))]
     pub(super) fn attach(&self, token: u64) {
         let mut state = self.job.state.lock().unwrap_or_else(|e| e.into_inner());
         assert!(
@@ -379,6 +395,63 @@ mod tests {
     use std::sync::mpsc;
 
     #[test]
+    fn navigation_source_cleanup_is_prearmed_and_acknowledged_after_drop() {
+        struct Service {
+            sent: mpsc::Sender<String>,
+        }
+        impl ContextTransport for Service {
+            fn request(
+                &self,
+                request: ContextServiceRequest,
+            ) -> Result<ContextServiceResponse, crate::RuntimeError> {
+                let ContextServiceRequest::DiscardNavigationNetworkSource { page_id, nonce } =
+                    request
+                else {
+                    panic!("unexpected cleanup request");
+                };
+                assert_eq!(page_id, oryn_common::v3::PageId(1));
+                self.sent.send(nonce).unwrap();
+                Ok(ContextServiceResponse::NavigationNetworkSourceDiscarded)
+            }
+        }
+        let (sent, received) = mpsc::channel();
+        let client = SharedContextClient(
+            Arc::new(Service { sent }),
+            None,
+            Default::default(),
+            Default::default(),
+            #[cfg(feature = "v8-host")]
+            None,
+        );
+        #[cfg(feature = "v8-host")]
+        let (owner, nonce) = {
+            let lease = client
+                .reserve_navigation_source(oryn_common::v3::PageId(1))
+                .unwrap();
+            let nonce = lease.nonce.clone();
+            (lease, nonce)
+        };
+        #[cfg(not(feature = "v8-host"))]
+        let (owner, nonce) = {
+            let ticket = Ticket::reserve(client.clone(), oryn_common::v3::PageId(1)).unwrap();
+            let nonce = "a".repeat(64);
+            ticket.attach_request(ContextServiceRequest::DiscardNavigationNetworkSource {
+                page_id: oryn_common::v3::PageId(1),
+                nonce: nonce.clone(),
+            });
+            (ticket, nonce)
+        };
+        assert!(received.try_recv().is_err());
+        assert!(drain(&client, Duration::ZERO).is_err());
+        drop(owner);
+        assert_eq!(
+            received.recv_timeout(Duration::from_secs(5)).unwrap(),
+            nonce
+        );
+        drain(&client, Duration::from_secs(5)).unwrap();
+    }
+
+    #[test]
     fn terminal_client_teardown_releases_live_frame_lease_before_drain() {
         struct Service;
         impl ContextTransport for Service {
@@ -397,8 +470,9 @@ mod tests {
             Arc::new(Service),
             None,
             Default::default(),
-            None,
             Default::default(),
+            #[cfg(feature = "v8-host")]
+            None,
         );
         let lease = client
             .reserve_deferred_container_cleanup(oryn_common::v3::PageId(1), "b".repeat(64))
@@ -453,8 +527,9 @@ mod tests {
             }),
             None,
             Default::default(),
-            None,
             Default::default(),
+            #[cfg(feature = "v8-host")]
+            None,
         );
         let lease = client
             .reserve_deferred_container_cleanup(oryn_common::v3::PageId(1), "a".repeat(64))
@@ -515,8 +590,9 @@ mod tests {
                 Arc::new(Service(Mutex::new(Some(response)))),
                 None,
                 Default::default(),
-                None,
                 Default::default(),
+                #[cfg(feature = "v8-host")]
+                None,
             );
             let page = oryn_common::v3::PageId(1);
             let load = super::super::ContextScriptLoad::from_reserved(client.clone(), page, 17);
@@ -529,14 +605,14 @@ mod tests {
                 page_id: page,
                 download: None,
                 script_authority: None,
-                initiator: super::super::ResourceInitiator {
+                initiator: Box::new(super::super::ResourceInitiator {
                     embedded_type: None,
                     request_state: None,
                     navigation: Default::default(),
                     stylesheet: None,
                     creator,
                     prepared_policy: None,
-                },
+                }),
                 form_authority: None,
                 url: "https://example.test/frame".into(),
                 destination: "frame".into(),
@@ -596,8 +672,9 @@ mod tests {
             }),
             None,
             Default::default(),
-            None,
             Default::default(),
+            #[cfg(feature = "v8-host")]
+            None,
         );
         let load = super::super::ContextScriptLoad::from_reserved(
             client.clone(),
@@ -662,8 +739,9 @@ mod tests {
                 }),
                 None,
                 Default::default(),
-                None,
                 Default::default(),
+                #[cfg(feature = "v8-host")]
+                None,
             );
             let page = oryn_common::v3::PageId(1);
             let load = super::super::ContextScriptLoad::from_reserved(client.clone(), page, 17);
@@ -729,8 +807,9 @@ mod tests {
             Arc::new(Service),
             None,
             Default::default(),
-            None,
             Default::default(),
+            #[cfg(feature = "v8-host")]
+            None,
         );
         let first = super::super::ContextScriptLoad::from_reserved(
             client.clone(),
@@ -812,8 +891,9 @@ mod tests {
             }),
             None,
             Default::default(),
-            None,
             Default::default(),
+            #[cfg(feature = "v8-host")]
+            None,
         );
         let document = client.for_document_activity();
         let replacement = client.for_document_activity();
@@ -884,8 +964,9 @@ mod tests {
             }),
             None,
             Default::default(),
-            None,
             Default::default(),
+            #[cfg(feature = "v8-host")]
+            None,
         );
         let reply = client
             .reserve_frame_response(oryn_common::v3::PageId(71))

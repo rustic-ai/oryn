@@ -159,29 +159,29 @@ pub(super) fn formatting_style(
         if !seen.insert(id) {
             break;
         }
-        if let Some(table) = styles.get(&id) {
-            if matches!(
+        if let Some(table) = styles.get(&id)
+            && matches!(
                 style_value(table, "display", "block"),
                 "table" | "inline-table"
-            ) {
-                let mut used = style.as_ref().clone();
-                for property in ["writing-mode", "direction"] {
-                    used.insert(
-                        property.into(),
-                        style_value(
-                            table,
-                            property,
-                            if property == "direction" {
-                                "ltr"
-                            } else {
-                                "horizontal-tb"
-                            },
-                        )
-                        .into(),
-                    );
-                }
-                return Some(used);
+            )
+        {
+            let mut used = style.as_ref().clone();
+            for property in ["writing-mode", "direction"] {
+                used.insert(
+                    property.into(),
+                    style_value(
+                        table,
+                        property,
+                        if property == "direction" {
+                            "ltr"
+                        } else {
+                            "horizontal-tb"
+                        },
+                    )
+                    .into(),
+                );
             }
+            return Some(used);
         }
         parent = nodes.get(&id).and_then(|node| node.parent);
     }
@@ -199,16 +199,16 @@ pub(super) fn containing_axes(
         if !seen.insert(id) {
             break;
         }
-        if let Some(style) = styles.get(&id) {
-            if matches!(
+        if let Some(style) = styles.get(&id)
+            && matches!(
                 style_value(style, "display", "block"),
                 "table" | "inline-table"
-            ) {
-                return writing_mode::Axes::new(
-                    style_value(style, "writing-mode", "horizontal-tb"),
-                    style_value(style, "direction", "ltr") == "rtl",
-                );
-            }
+            )
+        {
+            return writing_mode::Axes::new(
+                style_value(style, "writing-mode", "horizontal-tb"),
+                style_value(style, "direction", "ltr") == "rtl",
+            );
         }
         current = nodes.get(&id).and_then(|node| node.parent);
     }
@@ -1145,7 +1145,7 @@ fn own_candidate_at(
     }];
     // A row's left/right border belongs to the perimeter of the whole row,
     // never to every interior cell edge. Columns have the transposed rule.
-    if side % 2 == 0 || outside {
+    if side.is_multiple_of(2) || outside {
         value = winner(
             value,
             candidate(&styles[&row], physical_side(side, table.axes), 4, tie),
@@ -1170,7 +1170,7 @@ fn own_candidate_at(
         }
     }
     for index in cell.column..cell.column + cell.columns {
-        if side % 2 == 0 && segment_column.is_some_and(|column| column != index) {
+        if side.is_multiple_of(2) && segment_column.is_some_and(|column| column != index) {
             continue;
         }
         if let Some((group, column)) = table.columns.get(index) {
@@ -1198,7 +1198,7 @@ fn own_candidate_at(
                         .rposition(|(owner, _)| owner == &Some(*group))
                         .unwrap_or(index)
                         + 1;
-                    if side % 2 == 0
+                    if side.is_multiple_of(2)
                         || side == 1 && index + 1 == group_end
                         || side == 3 && index == group_start
                     {
@@ -1405,42 +1405,6 @@ pub(super) fn project_borders(
                 projection.border_segments.extend(segments);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn collapsed_border_conflicts_apply_hidden_width_style_and_origin_precedence() {
-        let make = |width, kind: &str, origin: u8| Candidate {
-            edge: oryn_common::v4::PaintBorderEdge {
-                width,
-                style: kind.into(),
-                color: origin.to_string(),
-            },
-            origin,
-            order: 0,
-        };
-        assert_eq!(
-            winner(make(10., "solid", 5), make(1., "hidden", 0))
-                .edge
-                .style,
-            "hidden"
-        );
-        assert_eq!(
-            winner(make(4., "solid", 5), make(6., "dotted", 0))
-                .edge
-                .width,
-            6.
-        );
-        assert_eq!(
-            winner(make(4., "solid", 5), make(4., "double", 0))
-                .edge
-                .style,
-            "double"
-        );
-        assert_eq!(winner(make(4., "solid", 5), make(4., "solid", 2)).origin, 5);
     }
 }
 
@@ -1709,5 +1673,41 @@ pub(super) fn column_geometry(
                 },
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn collapsed_border_conflicts_apply_hidden_width_style_and_origin_precedence() {
+        let make = |width, kind: &str, origin: u8| Candidate {
+            edge: oryn_common::v4::PaintBorderEdge {
+                width,
+                style: kind.into(),
+                color: origin.to_string(),
+            },
+            origin,
+            order: 0,
+        };
+        assert_eq!(
+            winner(make(10., "solid", 5), make(1., "hidden", 0))
+                .edge
+                .style,
+            "hidden"
+        );
+        assert_eq!(
+            winner(make(4., "solid", 5), make(6., "dotted", 0))
+                .edge
+                .width,
+            6.
+        );
+        assert_eq!(
+            winner(make(4., "solid", 5), make(4., "double", 0))
+                .edge
+                .style,
+            "double"
+        );
+        assert_eq!(winner(make(4., "solid", 5), make(4., "solid", 2)).origin, 5);
     }
 }

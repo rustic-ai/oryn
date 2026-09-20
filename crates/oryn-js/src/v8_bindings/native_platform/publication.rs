@@ -143,10 +143,10 @@ impl Notification {
                     }
                     (converted, exception, message)
                 };
-                if let Some(exception) = exception {
-                    if !scope.is_execution_terminating() {
-                        let _ = report_exception(scope, exception, message);
-                    }
+                if let Some(exception) = exception
+                    && !scope.is_execution_terminating()
+                {
+                    let _ = report_exception(scope, exception, message);
                 }
                 if !self.current(state)? {
                     self.cancelled = true;
@@ -154,13 +154,13 @@ impl Notification {
                 }
                 if let Some(value) = converted {
                     let mut records = state.events.borrow_mut();
-                    if let Some(record) = records.get_mut(&id) {
-                        if let Some(old) = record.before_unload_return_value.as_mut() {
-                            if old.is_empty() {
-                                *old = value;
-                            }
-                            record.default_prevented = true;
+                    if let Some(record) = records.get_mut(&id)
+                        && let Some(old) = record.before_unload_return_value.as_mut()
+                    {
+                        if old.is_empty() {
+                            *old = value;
                         }
+                        record.default_prevented = true;
                     }
                 }
             }
@@ -363,7 +363,11 @@ impl Notification {
             return self.prepare_dom_path(scope, state, event, id);
         }
         let phases = self.phases(state);
-        let target = if phases.len() == 4 {
+        // Capture phases begin at an ancestor, not at the event target. An
+        // IDB transaction/database path also has four phases, like a Document.
+        let target = if let Some(path) = &self.idb_path {
+            Target::Platform(path[0])
+        } else if phases.len() == 4 {
             Target::Document
         } else {
             phases[0].target
@@ -492,14 +496,15 @@ impl Notification {
                 }
                 embedded_node_identity(scope, value).map(|identity| identity.0)
             });
-        if let Some(related) = related {
-            if related != node && state.dom.borrow().retarget_node(related, Some(node))? == node {
-                self.dom_phases = Some(Vec::new());
-                self.initialized = true;
-                self.event_id = Some(id);
-                self.clear_target = true;
-                return Ok(());
-            }
+        if let Some(related) = related
+            && related != node
+            && state.dom.borrow().retarget_node(related, Some(node))? == node
+        {
+            self.dom_phases = Some(Vec::new());
+            self.initialized = true;
+            self.event_id = Some(id);
+            self.clear_target = true;
+            return Ok(());
         }
 
         let (nodes, flags) = {
@@ -521,10 +526,10 @@ impl Notification {
                     flag |= if mode == ShadowMode::Closed { 2 } else { 1 };
                     if dom.control_tree_root(adjusted)? == current {
                         flag |= 4;
-                        if composed || current != origin {
-                            if let Some(host) = record.parent {
-                                adjusted = host;
-                            }
+                        if (composed || current != origin)
+                            && let Some(host) = record.parent
+                        {
+                            adjusted = host;
                         }
                     }
                 }
@@ -1225,10 +1230,10 @@ impl Notification {
                             }
                             (converted, exception, message)
                         };
-                        if let Some(exception) = exception {
-                            if !scope.is_execution_terminating() {
-                                let _ = report_exception(scope, exception, message);
-                            }
+                        if let Some(exception) = exception
+                            && !scope.is_execution_terminating()
+                        {
+                            let _ = report_exception(scope, exception, message);
                         }
                         if !self.current(state)? {
                             self.cancelled = true;
@@ -1236,13 +1241,13 @@ impl Notification {
                         }
                         if let Some(value) = converted {
                             let mut records = state.events.borrow_mut();
-                            if let Some(record) = records.get_mut(&id) {
-                                if let Some(old) = record.before_unload_return_value.as_mut() {
-                                    if old.is_empty() {
-                                        *old = value;
-                                    }
-                                    record.default_prevented = true;
+                            if let Some(record) = records.get_mut(&id)
+                                && let Some(old) = record.before_unload_return_value.as_mut()
+                            {
+                                if old.is_empty() {
+                                    *old = value;
                                 }
+                                record.default_prevented = true;
                             }
                         }
                     } else if key != "beforeunload"
@@ -1274,11 +1279,8 @@ impl Notification {
             self.property_callback = None;
             self.property_result = None;
         }
-        if self.dom_phases.is_some() {
-            let reaches = self
-                .dom_phases
-                .as_ref()
-                .unwrap()
+        if let Some(phases) = self.dom_phases.as_ref() {
+            let reaches = phases
                 .iter()
                 .any(|phase| matches!(phase.target, Target::Global));
             let last = if reaches {

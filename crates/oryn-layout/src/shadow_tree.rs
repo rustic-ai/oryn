@@ -14,14 +14,13 @@ pub(super) fn validate(input: &LayoutInput) -> Result<(), LayoutError> {
             return Err(fail("invalid or duplicate shadow host"));
         }
         for item in &tree.content {
-            if let LayoutContent::Element(id) = item {
-                if !nodes.contains_key(id)
+            if let LayoutContent::Element(id) = item
+                && (!nodes.contains_key(id)
                     || input.shadow_trees.node_scopes.get(id) != Some(root)
                     || !direct.insert(*id)
-                    || nodes[id].parent.is_some()
-                {
-                    return Err(fail("invalid shadow root child ownership"));
-                }
+                    || nodes[id].parent.is_some())
+            {
+                return Err(fail("invalid shadow root child ownership"));
             }
         }
         let mut visited = BTreeSet::new();

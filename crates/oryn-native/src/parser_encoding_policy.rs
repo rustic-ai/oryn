@@ -523,26 +523,28 @@ mod tests {
         };
         let frame = "d".repeat(64);
         context
-            .register_native_prerender_frame(
+            .register_native_prerender_frame(crate::runtime::NativePrerenderFrameInputs {
                 page,
-                &parent,
-                frame.clone(),
-                1,
-                0,
-                "https://prerender.test".into(),
-                true,
-            )
+                parent: &parent,
+                frame: frame.clone(),
+                generation: 1,
+                epoch: 0,
+                origin: "https://prerender.test".into(),
+                inherit_origin: true,
+            })
             .unwrap();
         context
             .inherit_frame_worker_policy_at_url(
-                page,
-                frame.clone(),
-                1,
-                0,
-                &WindowTarget::Root,
-                scope.lifetime.0,
-                scope.lifetime.1,
-                "about:srcdoc",
+                crate::runtime::worker_service::InheritedFramePolicyInputs {
+                    page,
+                    frame: frame.clone(),
+                    generation: 1,
+                    epoch: 0,
+                    parent: &WindowTarget::Root,
+                    parent_generation: scope.lifetime.0,
+                    parent_epoch: scope.lifetime.1,
+                    document_url: "about:srcdoc",
+                },
             )
             .unwrap();
         let child = AgentOwner::Window {
@@ -578,6 +580,26 @@ mod tests {
                 crate::csp::CspPolicySet::from_agent_policy(&owner_policy(&context, &owner))
                     .contains_meta("img-src 'none'")
             );
+            let snapshot = owner_policy(&context, &owner);
+            let mut same_document = url::Url::parse(&snapshot.url).unwrap();
+            same_document.set_fragment(Some("meta-origin-retained"));
+            context
+                .update_realm_document_url(&owner, same_document.as_str())
+                .unwrap();
+            let updated = owner_policy(&context, &owner);
+            assert_eq!(updated.document_self_url, snapshot.document_self_url);
+            assert_eq!(updated.headers, snapshot.headers);
+            assert_eq!(updated.policy_self_urls, snapshot.policy_self_urls);
+            assert!(
+                crate::csp::CspPolicySet::from_agent_policy(&updated)
+                    .contains_meta("img-src 'none'")
+            );
+            assert!(
+                context
+                    .update_realm_document_url(&owner, "https://foreign.test/changed")
+                    .is_err()
+            );
+            assert_eq!(owner_policy(&context, &owner), updated);
             context.parser_encoding_policy(owner, &token, 2).unwrap();
         }
         assert_eq!(

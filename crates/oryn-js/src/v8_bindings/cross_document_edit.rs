@@ -24,16 +24,7 @@ fn identity(state: &V8BindingState) -> (NodeId, u64, u64, u64) {
         state.document_authority_epoch(),
     )
 }
-fn changes(
-    before: &EditingSnapshot,
-    after: &EditingSnapshot,
-) -> Vec<(
-    NodeId,
-    String,
-    (u32, u32, String),
-    String,
-    (u32, u32, String),
-)> {
+fn changes(before: &EditingSnapshot, after: &EditingSnapshot) -> Vec<ControlEdit> {
     before
         .controls
         .iter()
@@ -54,15 +45,7 @@ fn changes(
         })
         .collect()
 }
-fn segment_changes(
-    segments: &[editing_inverse::Segment],
-) -> Vec<(
-    NodeId,
-    String,
-    (u32, u32, String),
-    String,
-    (u32, u32, String),
-)> {
+fn segment_changes(segments: &[editing_inverse::Segment]) -> Vec<ControlEdit> {
     let mut result = BTreeMap::new();
     for segment in segments {
         for change in changes(&segment.before, &segment.after) {

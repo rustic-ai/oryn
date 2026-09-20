@@ -1,5 +1,30 @@
 //! Fresh print-media formatting and page fragmentation. This module consumes the
 //! native DOM/style input, never a screen bitmap or an existing screen layout.
+
+/// Inputs for insert gap.
+struct PrintGapInputs<'a> {
+    owner: u64,
+    at: f64,
+    gap: f64,
+    inside: bool,
+    by_id: &'a BTreeMap<u64, &'a LayoutNode>,
+    styles: &'a ComputedStyles,
+    geometry: &'a mut BTreeMap<u64, NodeGeometry>,
+    text: &'a mut BTreeMap<u64, Vec<PaintTextFragment>>,
+    engine: &'a mut TextEngine,
+}
+/// Inputs for margin nodes.
+struct PageMarginInputs<'a> {
+    rules: &'a [page_rules::Rule],
+    name: &'a str,
+    page: usize,
+    total: usize,
+    blank: bool,
+    dimensions: PrintDimensions,
+    engine: &'a mut TextEngine,
+    next_id: &'a mut u64,
+    source_ids: &'a BTreeSet<u64>,
+}
 use super::*;
 #[path = "print_axis.rs"]
 mod axis;
@@ -139,6 +164,25 @@ pub fn compute(
     limits: &LayoutLimits,
     options: &PrintOptions,
 ) -> Result<PrintLayoutOutput, PrintError> {
+    compute_with_capture_input(input, limits, options).map(|(output, _)| output)
+}
+
+/// Return the native source input with the viewport and interaction state used
+/// for print layout, before object/generated-content projection changes nodes.
+pub fn compute_with_capture_input(
+    input: &LayoutInput,
+    limits: &LayoutLimits,
+    options: &PrintOptions,
+) -> Result<(PrintLayoutOutput, LayoutInput), PrintError> {
+    compute_with_style_sample(input, limits, options, None)
+}
+
+pub fn compute_with_style_sample(
+    input: &LayoutInput,
+    limits: &LayoutLimits,
+    options: &PrintOptions,
+    sample: Option<&svg_instances::StyleSample>,
+) -> Result<(PrintLayoutOutput, LayoutInput), PrintError> {
     let base_dimensions = validate_options(options)?;
     let rules = page_rules::read(input);
     let dimensions =
@@ -150,9 +194,10 @@ pub fn compute(
     let mut scale = options.scale;
     print_input.viewport.width = dimensions.content.width / scale;
     print_input.viewport.height = dimensions.content.height / scale;
-    let (mut styles, author_whitespace, mut pseudo_styles) =
-        stylo_computed_values_for_media(&print_input, true)?;
-    let (projected, object_hidden) = object_images::project(&print_input);
+    let mut capture_input = print_input.clone();
+    let (mut styles, mut author_whitespace, mut pseudo_styles) =
+        stylo_computed_values_for_media_with_sample(&capture_input, true, sample)?;
+    let (projected, mut object_hidden) = object_images::project_styled(&capture_input, &styles);
     print_input = projected;
     if options.shrink_to_fit {
         let probe = compute_with_styles(&print_input, limits, styles.clone())?;
@@ -179,9 +224,15 @@ pub fn compute(
             scale = (paper / used).min(scale).max(0.1);
             print_input.viewport.width = dimensions.content.width / scale;
             print_input.viewport.height = dimensions.content.height / scale;
-            let refreshed = stylo_computed_values_for_media(&print_input, true)?;
+            capture_input.viewport = print_input.viewport;
+            let refreshed =
+                stylo_computed_values_for_media_with_sample(&capture_input, true, sample)?;
             styles = refreshed.0;
+            author_whitespace = refreshed.1;
             pseudo_styles = refreshed.2;
+            let refreshed = object_images::project_styled(&capture_input, &styles);
+            print_input = refreshed.0;
+            object_hidden = refreshed.1;
         }
     }
     if !options.background {
@@ -207,15 +258,17 @@ pub fn compute(
                 )
         })
     {
-        let mut output = continuation::compute(
-            &print_input,
-            limits,
-            options,
-            base_dimensions,
-            &rules,
-            styles,
-            author_whitespace,
-            scale,
+        let mut output = continuation::compute_continuation(
+            crate::print::continuation::PrintContinuationInputs {
+                input: &print_input,
+                limits,
+                options,
+                base: base_dimensions,
+                rules: &rules,
+                styles,
+                whitespace: author_whitespace,
+                scale,
+            },
         )?;
         generated::finish(&generated, &mut output.document);
         output.document.pseudo_styles = pseudo_styles;
@@ -225,9 +278,10 @@ pub fn compute(
             options,
             &mut output.document,
             &mut output.pages,
+            sample,
         )?;
         object_images::finish(&mut output.document, &object_hidden);
-        return Ok(output);
+        return Ok((output, capture_input));
     }
     let roots = print_input
         .nodes
@@ -300,17 +354,17 @@ pub fn compute(
             scale,
             page as f64 * page_extent,
         );
-        result.generated_nodes = margin_nodes(
-            &rules,
-            "",
+        result.generated_nodes = margin_nodes(PageMarginInputs {
+            rules: &rules,
+            name: "",
             page,
-            count,
-            false,
+            total: count,
+            blank: false,
             dimensions,
-            &mut margin_engine,
-            &mut generated_id,
-            &source_ids,
-        )?;
+            engine: &mut margin_engine,
+            next_id: &mut generated_id,
+            source_ids: &source_ids,
+        })?;
         pages.push(result);
     }
     if pages.is_empty() {
@@ -318,9 +372,16 @@ pub fn compute(
     }
     document.paint_fonts.extend(margin_engine.paint_fonts);
     generated::finish(&generated, &mut document);
-    populate_backdrops(&print_input, limits, options, &mut document, &mut pages)?;
+    populate_backdrops(
+        &print_input,
+        limits,
+        options,
+        &mut document,
+        &mut pages,
+        sample,
+    )?;
     object_images::finish(&mut document, &object_hidden);
-    Ok(PrintLayoutOutput { document, pages })
+    Ok((PrintLayoutOutput { document, pages }, capture_input))
 }
 fn populate_backdrops(
     input: &LayoutInput,
@@ -328,6 +389,7 @@ fn populate_backdrops(
     options: &PrintOptions,
     document: &mut LayoutOutput,
     pages: &mut [PrintPageLayout],
+    sample: Option<&svg_instances::StyleSample>,
 ) -> Result<(), PrintError> {
     if !input.top_layer.iter().any(|entry| {
         !matches!(
@@ -346,7 +408,8 @@ fn populate_backdrops(
         let mut local = input.clone();
         local.viewport.width = page.content_box.width / page.scale;
         local.viewport.height = page.content_box.height / page.scale;
-        let (_, _, mut pseudos) = stylo_computed_values_for_media(&local, true)?;
+        let (_, _, mut pseudos) =
+            stylo_computed_values_for_media_with_sample(&local, true, sample)?;
         if !options.background {
             for style in pseudos.values_mut().flat_map(|styles| styles.values_mut()) {
                 let style = Arc::make_mut(style);
@@ -537,16 +600,20 @@ fn project_page(
     result
 }
 fn margin_nodes(
-    rules: &[page_rules::Rule],
-    name: &str,
-    page: usize,
-    total: usize,
-    blank: bool,
-    dimensions: PrintDimensions,
-    engine: &mut TextEngine,
-    next_id: &mut u64,
-    source_ids: &BTreeSet<u64>,
+    params: PageMarginInputs<'_>,
 ) -> Result<Vec<oryn_common::v4::PaintNodeSnapshot>, PrintError> {
+    let PageMarginInputs {
+        rules,
+        name,
+        page,
+        total,
+        blank,
+        dimensions,
+        engine,
+        next_id,
+        source_ids,
+    } = params;
+
     use oryn_common::v4::{GeometryAvailability, PaintNodeSnapshot};
     let mut nodes = Vec::new();
     let styles = page_rules::margin_styles(rules, name, page, blank);
@@ -848,17 +915,17 @@ fn fragment_flow_logical(
             0.
         };
         if gap > 0. {
-            insert_gap(
-                id,
-                model.border_box.y,
+            insert_gap(PrintGapInputs {
+                owner: id,
+                at: model.border_box.y,
                 gap,
-                false,
+                inside: false,
                 by_id,
                 styles,
                 geometry,
                 text,
                 engine,
-            );
+            });
         }
         // Place line boxes without cutting glyph rows. Honor minimum first/last
         // line counts when the block itself can fit in a fragmentainer.
@@ -896,7 +963,17 @@ fn fragment_flow_logical(
                     .y;
                 let gap = height - top.rem_euclid(height);
                 if gap < height - 0.01 {
-                    insert_gap(id, top, gap, true, by_id, styles, geometry, text, engine);
+                    insert_gap(PrintGapInputs {
+                        owner: id,
+                        at: top,
+                        gap,
+                        inside: true,
+                        by_id,
+                        styles,
+                        geometry,
+                        text,
+                        engine,
+                    });
                     page_start = boundary;
                     index = boundary;
                     continue;
@@ -920,17 +997,19 @@ fn forced_gap(at: f64, height: f64, kind: &str) -> f64 {
     }
     gap
 }
-fn insert_gap(
-    owner: u64,
-    at: f64,
-    gap: f64,
-    inside: bool,
-    by_id: &BTreeMap<u64, &LayoutNode>,
-    styles: &ComputedStyles,
-    geometry: &mut BTreeMap<u64, NodeGeometry>,
-    text: &mut BTreeMap<u64, Vec<PaintTextFragment>>,
-    engine: &mut TextEngine,
-) {
+fn insert_gap(params: PrintGapInputs<'_>) {
+    let PrintGapInputs {
+        owner,
+        at,
+        gap,
+        inside,
+        by_id,
+        styles,
+        geometry,
+        text,
+        engine,
+    } = params;
+
     let mut ancestors = BTreeSet::new();
     let mut current = if inside {
         Some(owner)
@@ -1032,10 +1111,10 @@ fn insert_gap(
             if line_break.before.y >= at - 0.001 {
                 line_break.before.y += gap;
             }
-            if let Some(after) = &mut line_break.after {
-                if after.y >= at - 0.001 {
-                    after.y += gap;
-                }
+            if let Some(after) = &mut line_break.after
+                && after.y >= at - 0.001
+            {
+                after.y += gap;
             }
         }
     }
@@ -1239,6 +1318,52 @@ mod tests {
         }
     }
     #[test]
+    fn printed_svg_object_intrinsics_follow_final_unprojected_media_cascade() {
+        for shrink in [false, true] {
+            let mut input = fixture();
+            input.nodes.truncate(3);
+            input.nodes[0].children = vec![2];
+            let object = &mut input.nodes[1];
+            object.tag = "object".into();
+            object.children = vec![3];
+            object.content = Some(vec![LayoutContent::Element(3)]);
+            object.document_replaced = true;
+            object.image_document_root = Some(3);
+            object.image_intrinsics =
+                Some(oryn_dom::ImageIntrinsics::new(Some(80.), None, Some(2.)));
+            object.intrinsic_image_size = Some((80, 40));
+            let svg = &mut input.nodes[2];
+            svg.parent = Some(2);
+            svg.tag = "svg".into();
+            svg.namespace = "http://www.w3.org/2000/svg".into();
+            svg.attributes
+                .insert("viewBox".into(), "0 0 200 100".into());
+            input.stylesheets = vec!["section{width:240px}object{display:block}svg{width:120px;height:auto}@media print and (min-width:200px){svg{width:200px}}".into()];
+            let mut settings = options();
+            settings.shrink_to_fit = shrink;
+            let (printed, capture) =
+                compute_with_capture_input(&input, &LayoutLimits::default(), &settings).unwrap();
+            let expected = if shrink { 200. } else { 120. };
+            let rect = printed.document.geometry[&2]
+                .box_model
+                .as_ref()
+                .unwrap()
+                .content_box;
+            assert_eq!((rect.width, rect.height), (expected, expected / 2.));
+            assert_eq!(
+                printed.document.geometry[&3].availability,
+                GeometryAvailability::Hidden
+            );
+            assert_eq!(capture.nodes[1].children, vec![3]);
+            assert_eq!(capture.nodes[2].parent, Some(2));
+            assert_eq!(capture.nodes[1].intrinsic_image_size, Some((80, 40)));
+            if shrink {
+                assert!(capture.viewport.width >= 200.);
+            }
+        }
+    }
+
+    #[test]
     fn print_backdrop_is_reflowed_per_content_viewport_and_projected_to_paper() {
         let mut input = fixture();
         input.nodes[3].tag = "dialog".into();
@@ -1276,6 +1401,76 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn print_and_frame_cascades_preserve_owning_time_and_print_media() {
+        for continuation in [false, true] {
+            let mut input = fixture();
+            input.stylesheets.push("article {animation:grow 2s linear both} @keyframes grow {from {font-size:10px} to {font-size:30px}}".into());
+            if continuation {
+                input.stylesheets.push("article{page:chapter}".into());
+            }
+            let limits = LayoutLimits::default();
+            let mut engine = StyleEngine::default();
+            engine.compute_at(&input, &limits, 0.).unwrap();
+            let mut sizes = Vec::new();
+            for time in [0.5, 1.5] {
+                let screen = engine.compute_at(&input, &limits, time).unwrap();
+                let sample = engine.instance_style_sample().unwrap();
+                let (printed, _) =
+                    compute_with_style_sample(&input, &limits, &options(), Some(&sample)).unwrap();
+                let (frame, _) =
+                    compute_print_viewport_with_style_sample(&input, &limits, Some(&sample))
+                        .unwrap();
+                for layout in [&printed.document, &frame] {
+                    assert_eq!(
+                        layout.computed_styles[&2]["font-size"],
+                        screen.computed_styles[&2]["font-size"]
+                    );
+                    assert_eq!(layout.computed_styles[&2]["height"], "60px");
+                }
+                assert_eq!(screen.computed_styles[&2]["height"], "10px");
+                sizes.push(printed.document.computed_styles[&2]["font-size"].clone());
+            }
+            assert_ne!(sizes[0], sizes[1]);
+        }
+    }
+
+    #[test]
+    fn print_capture_retains_source_tree_and_uses_adjusted_page_context() {
+        for continuation in [false, true] {
+            let mut input = fixture();
+            input.scroll.x = 11.;
+            input.scroll.y = 29.;
+            input.element_scrolls.insert(2, (7., 13.));
+            input.focus_visible = true;
+            if continuation {
+                input.stylesheets.push("article{page:chapter}".into());
+            }
+            let original = input.clone();
+            let mut options = options();
+            options.scale = 0.5;
+            options.shrink_to_fit = false;
+            let dimensions = validate_options(&options).unwrap();
+            let (printed, captured) =
+                compute_with_capture_input(&input, &LayoutLimits::default(), &options).unwrap();
+            assert!(!printed.pages.is_empty());
+            assert_eq!(input, original);
+            assert_eq!(captured.nodes, original.nodes);
+            assert_eq!(captured.stylesheets, original.stylesheets);
+            assert_eq!(
+                captured.viewport.width,
+                dimensions.content.width / options.scale
+            );
+            assert_eq!(
+                captured.viewport.height,
+                dimensions.content.height / options.scale
+            );
+            assert_eq!(captured.scroll, ScrollState::default());
+            assert!(captured.element_scrolls.is_empty());
+            assert!(!captured.focus_visible);
+        }
+    }
+
     #[test]
     fn print_media_reflows_and_avoids_breaking_boxes_without_mutating_screen_input() {
         let input = fixture();

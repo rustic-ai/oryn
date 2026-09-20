@@ -21,6 +21,23 @@ impl PendingPolicy {
     ) -> Result<Self, RuntimeError> {
         Self::start_inner(client, request, deadline, false)
     }
+    #[cfg(feature = "v8-host")]
+    pub fn start_navigation_source(
+        client: SharedContextClient,
+        request: crate::context_service::ContextServiceRequest,
+        deadline: Option<Instant>,
+        lease: &Arc<crate::context_service::ContextNavigationSourceLease>,
+    ) -> Result<Self, RuntimeError> {
+        if !matches!(&request,
+            crate::context_service::ContextServiceRequest::AcquireNavigationNetworkSource { nonce, .. }
+            if nonce == &lease.nonce)
+        {
+            return Err(RuntimeError::ProtocolViolation(
+                "navigation source lease mismatch".into(),
+            ));
+        }
+        Self::start_inner(client, request, deadline, true)
+    }
     pub fn start_blob_read(
         client: SharedContextClient,
         request: crate::context_service::ContextServiceRequest,
@@ -209,6 +226,7 @@ impl PendingPolicy {
 }
 
 pub(super) struct Headers {
+    pub response_policy: Option<crate::network::ResponsePolicyToken>,
     pub timing: Option<oryn_net::TransportTiming>,
     pub started: Instant,
     pub received: Instant,
@@ -284,7 +302,7 @@ impl PendingDownloadBody {
                     self.bytes.extend_from_slice(&bytes);
                 }
                 NetworkEvent::Complete {
-                    encoded_body_size,
+                    encoded_body_size: _,
                     request_id,
                 } if request_id == expected => {
                     self.operation.take();
@@ -405,6 +423,7 @@ impl PendingHeaders {
         let expected = operation.request_id;
         match operation.try_event() {
             Ok(NetworkEvent::Headers {
+                response_policy,
                 request_id,
                 status,
                 headers,
@@ -418,7 +437,8 @@ impl PendingHeaders {
                 };
                 self.terminal = true;
                 Poll::Ready(Ok(Headers {
-                    timing,
+                    response_policy,
+                    timing: timing.map(|timing| *timing),
                     started,
                     received: Instant::now(),
                     status,
@@ -475,6 +495,7 @@ mod tests {
             let (sender, events) = tokio::sync::mpsc::channel(4);
             sender
                 .try_send(NetworkEvent::Headers {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: 200,
@@ -696,6 +717,7 @@ mod tests {
     fn rejected_header_events_release_operation_without_body_demand() {
         for event in [
             NetworkEvent::Headers {
+                response_policy: None,
                 timing: None,
                 request_id: 8,
                 status: 200,

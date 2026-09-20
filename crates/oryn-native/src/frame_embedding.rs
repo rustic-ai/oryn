@@ -149,7 +149,7 @@ mod tests {
         assert!(
             authorize(
                 source,
-                &vec![(
+                &[(
                     "Content-Security-Policy".into(),
                     "frame-ancestors 'self'".into()
                 )],

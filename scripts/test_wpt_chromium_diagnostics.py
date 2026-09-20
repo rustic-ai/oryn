@@ -38,6 +38,47 @@ class ChromiumDiagnosticProtocolTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
+    def test_native_preauthor_focus_protocol_and_cleanup_regressions(self):
+        result = subprocess.run([shutil.which('node'), '--test',
+                                 str(ROOT / 'scripts/tests/test_wpt_chromium_focus.mjs')],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_focus_failure_preserves_observations_and_independent_completion(self):
+        result = self.evaluate("""
+const d=createDiagnostics('http://localhost/reference');
+for (const [phase,focused] of [['document_created',false],['report_ready',false]])
+  d.event({method:'Runtime.bindingCalled',params:{name:'__oryn_reference_focus',executionContextId:2,
+    payload:JSON.stringify({phase,focused,secret:'not-retained'})}});
+d.completion({harness:0,completion_count:1,tests:[{name:'private',status:0,message:'private'},{status:1}]});
+d.failure(new Error('focus rejected'));
+console.log(d.serialize(new Error('focus rejected'),'failure'));
+""")
+        focus = [e for e in result['timeline'] if e['kind'] == 'focus_observed']
+        self.assertEqual([(e['phase'], e['focused'], e['context_id']) for e in focus],
+                         [('document_created', False, 2), ('report_ready', False, 2)])
+        completion = next(e for e in result['timeline'] if e['kind'] == 'completion_observed')
+        self.assertEqual((completion['harness_status'], completion['test_count'],
+                          completion['passed_tests'], completion['failed_tests']), (0, 2, 1, 1))
+        retained = fixture_module().select_canary_diagnostics('ORYN_CHROMIUM_DIAGNOSTIC ' + json.dumps(result))[0]
+        self.assertEqual(retained['timeline'], result['timeline'])
+        for secret in ('private', 'not-retained', 'focus rejected'):
+            self.assertNotIn(secret, json.dumps(retained))
+
+    def test_focus_diagnostics_reject_malformed_observations_without_acceptance_changes(self):
+        result = self.evaluate("""
+const d=createDiagnostics('http://localhost/reference',{limit:4});
+for(const payload of ['{', 'null', JSON.stringify({phase:'report_ready',focused:'true'}),
+  JSON.stringify({phase:'secret',focused:true}), ' '.repeat(1025)])
+  d.event({method:'Runtime.bindingCalled',params:{name:'__oryn_reference_focus',payload}});
+d.event({method:'Runtime.bindingCalled',params:{name:'other',payload:JSON.stringify({phase:'report_ready',focused:true})}});
+console.log(JSON.stringify(d.snapshot(new Error())));
+""")
+        self.assertEqual(result['timeline'], [])
+        source = (ROOT / 'scripts/wpt-chromium-canary.mjs').read_text()
+        self.assertLess(source.index('diagnostics.completion(completion)'), source.index('if (entryFocus !== true) throw'))
+        self.assertIn("entry_focus_verified:true", source)
+
     def test_actual_canary_launch_uses_mock_keychain_only_for_macos_fresh_profile(self):
         record = self.evaluate('''
 import {readFile} from 'node:fs/promises';
@@ -70,6 +111,7 @@ for (const platform of ['darwin','linux','win32']) {
     'node:os':{tmpdir:()=>'/fixture/tmp'},'node:path':{join},'node:url':{fileURLToPath},
     'node:timers/promises':{setTimeout:unused},
     './wpt-chromium-driver.mjs':{dispatchDriver:unused,settleAutomation:unused},
+    './wpt-chromium-focus.mjs':{createFocusBarrier:unused,shutdownFocusSession:unused},
     './wpt-chromium-diagnostics.mjs':{createDiagnostics}
   };
   const module=new SourceTextModule(source,{context,identifier:scriptURL.href,

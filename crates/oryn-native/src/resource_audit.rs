@@ -382,6 +382,7 @@ mod tests {
     impl NetworkBroker for Fixture {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,

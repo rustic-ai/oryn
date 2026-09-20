@@ -242,10 +242,9 @@ impl Connections {
             .entries
             .get_mut(token)
             .and_then(|entry| entry.events.remove(&event))
+            && let Some(job) = self.entries.get_mut(&job)
         {
-            if let Some(job) = self.entries.get_mut(&job) {
-                job.acknowledged.insert(token.into());
-            }
+            job.acknowledged.insert(token.into());
         }
         Ok(())
     }

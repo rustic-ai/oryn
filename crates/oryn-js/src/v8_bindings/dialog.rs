@@ -257,21 +257,18 @@ impl Job {
                             }
                             self.previous.filter(|_| inside)
                         };
-                        if let Some(target) = target {
-                            if self.owner.dom.borrow().is_connected(target)?
-                                && !self.owner.dom.borrow().is_inert(target)?
-                            {
-                                self.focus = Some(retained_focus::Transition::new(
-                                    &self.owner,
-                                    Some(target),
-                                )?);
-                            }
+                        if let Some(target) = target
+                            && self.owner.dom.borrow().is_connected(target)?
+                            && !self.owner.dom.borrow().is_inert(target)?
+                        {
+                            self.focus =
+                                Some(retained_focus::Transition::new(&self.owner, Some(target))?);
                         }
                     }
-                    if let Some(focus) = &mut self.focus {
-                        if !focus.poll(scope, &self.owner)? {
-                            return Ok(false);
-                        }
+                    if let Some(focus) = &mut self.focus
+                        && !focus.poll(scope, &self.owner)?
+                    {
+                        return Ok(false);
                     }
                     self.focus = None;
                     self.phase = 5;

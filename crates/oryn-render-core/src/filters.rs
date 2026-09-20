@@ -1,5 +1,18 @@
 //! CSS filter groups rendered by the same bounded native SVG filter engine as
 //! image paint. Input pixels and filter source are private captured resources.
+
+/// Inputs for apply source.
+pub(super) struct FilterSourceInputs<'a> {
+    pub(super) snapshot: &'a PaintSnapshot,
+    pub(super) pixels: &'a [u8],
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) source: &'a str,
+    pub(super) current: &'a str,
+    pub(super) resolution: f64,
+    pub(super) bounds: CssRect,
+    pub(super) source_bounds: CssRect,
+}
 use super::*;
 use base64::Engine;
 thread_local! {static FILTER_PIXELS:std::cell::Cell<usize>=const{std::cell::Cell::new(0)};}
@@ -238,7 +251,7 @@ pub(super) fn apply(
         &mut pixmap.as_mut(),
     );
     let mut rgba = pixmap.data().to_vec();
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         if pixel[3] > 0 {
             for channel in 0..3 {
                 pixel[channel] =
@@ -276,7 +289,7 @@ mod tests {
             primitives("blur(1px) drop-shadow(3px 0px 1px red)", "black", 1.).unwrap();
         assert!(pad >= 11.);
         let rgba = apply(&vec![0; 17 * 17 * 4], 17, 17, &primitives).unwrap();
-        assert!(rgba.chunks_exact(4).all(|pixel| pixel[3] == 0));
+        assert!(rgba.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 0));
         let mut source = vec![0; 17 * 17 * 4];
         source[(8 * 17 + 5) * 4 + 3] = 255;
         let rgba = apply(&source, 17, 17, &primitives).unwrap();
@@ -352,18 +365,19 @@ mod alpha_footprint_tests {
         };
         let scene = build_display_list(&snapshot, options).unwrap();
         let rgba = rasterize(&snapshot, &scene, options).unwrap();
-        assert!(rgba.chunks_exact(4).all(|pixel| pixel[3] == 0));
+        assert!(rgba.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 0));
         snapshot.nodes[0].projection.as_mut().unwrap().text[0].text = "O".into();
         let scene = build_display_list(&snapshot, options).unwrap();
         let rgba = rasterize(&snapshot, &scene, options).unwrap();
-        assert!(rgba.chunks_exact(4).any(|pixel| pixel[3] > 0));
-        assert!(rgba.chunks_exact(4).any(|pixel| pixel[3] == 0));
+        assert!(rgba.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0));
+        assert!(rgba.as_chunks::<4>().0.iter().any(|pixel| pixel[3] == 0));
         let mut png = Vec::new();
         image::codecs::png::PngEncoder::new(&mut png)
             .write_image(&[255, 0, 0, 0], 1, 1, image::ExtendedColorType::Rgba8)
             .unwrap();
         snapshot.images.push(oryn_common::v4::PaintImageResource {
             svg_document_snapshot: false,
+            svg_instances: Vec::new(),
             content_type: None,
             url: "https://image.test/alpha.png".into(),
             url_aliases: Vec::new(),
@@ -374,7 +388,7 @@ mod alpha_footprint_tests {
         snapshot.nodes[0].image_resource = Some(0);
         let scene = build_display_list(&snapshot, options).unwrap();
         let rgba = rasterize(&snapshot, &scene, options).unwrap();
-        assert!(rgba.chunks_exact(4).all(|pixel| pixel[3] == 0));
+        assert!(rgba.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 0));
     }
 }
 
@@ -433,9 +447,9 @@ mod transformed_filter_tests {
                 ..Default::default()
             };
             let visible = rasterize(&snapshot, &make("blur(1px)"), options).unwrap();
-            assert!(visible.chunks_exact(4).any(|pixel| pixel[3] > 0));
+            assert!(visible.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0));
             let hidden = rasterize(&snapshot, &make("blur(1px) opacity(0)"), options).unwrap();
-            assert!(hidden.chunks_exact(4).all(|pixel| pixel[3] == 0));
+            assert!(hidden.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 0));
         }
     }
     #[test]
@@ -600,17 +614,19 @@ pub(super) fn padding(
     }
     Ok(padding.ceil())
 }
-pub(super) fn apply_source(
-    snapshot: &PaintSnapshot,
-    pixels: &[u8],
-    width: u32,
-    height: u32,
-    source: &str,
-    current: &str,
-    resolution: f64,
-    bounds: CssRect,
-    source_bounds: CssRect,
-) -> Result<Vec<u8>, RenderError> {
+pub(super) fn apply_source(params: FilterSourceInputs<'_>) -> Result<Vec<u8>, RenderError> {
+    let FilterSourceInputs {
+        snapshot,
+        pixels,
+        width,
+        height,
+        source,
+        current,
+        resolution,
+        bounds,
+        source_bounds,
+    } = params;
+
     let mut pixels = pixels.to_vec();
     let input_bounds = source_bounds;
     for (name, args) in functions(source)? {
@@ -727,6 +743,7 @@ pub(super) fn apply_source(
         );
         let native = oryn_common::v4::PaintImageResource {
             svg_document_snapshot: false,
+            svg_instances: Vec::new(),
             content_type: None,
             url: resource.url.clone(),
             url_aliases: Vec::new(),
@@ -742,7 +759,7 @@ pub(super) fn apply_source(
             &mut pixmap.as_mut(),
         );
         pixels = pixmap.data().to_vec();
-        for pixel in pixels.chunks_exact_mut(4) {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
             if pixel[3] > 0 {
                 for channel in 0..3 {
                     pixel[channel] =
@@ -797,22 +814,110 @@ fn clip_region(
             "filter output region is missing or ambiguous".into(),
         ));
     };
-    // Use the parser's resolved units and complete viewBox/group transform.
-    // Recomputing percentages from SourceGraphic's box changes userSpaceOnUse.
-    let mut mask = resvg::tiny_skia::Mask::new(width, height).ok_or_else(failure)?;
-    mask.fill_path(
-        &resvg::tiny_skia::PathBuilder::from_rect(rect.to_rect()),
-        resvg::tiny_skia::FillRule::Winding,
-        true,
-        *transform,
-    );
-    for (pixel, coverage) in pixels.chunks_exact_mut(4).zip(mask.data()) {
-        pixel[3] = ((u32::from(pixel[3]) * u32::from(*coverage) + 127) / 255) as u8;
+    // Apply the exact area in output-pixel coordinates once. An intermediate
+    // 8-bit antialias mask quantizes half coverage to 127 before multiplication.
+    let quad = [
+        [rect.x(), rect.y()],
+        [rect.right(), rect.y()],
+        [rect.right(), rect.bottom()],
+        [rect.x(), rect.bottom()],
+    ]
+    .map(|[x, y]| {
+        let (x, y) = (f64::from(x), f64::from(y));
+        [
+            f64::from(transform.sx) * x + f64::from(transform.kx) * y + f64::from(transform.tx),
+            f64::from(transform.ky) * x + f64::from(transform.sy) * y + f64::from(transform.ty),
+        ]
+    });
+    if quad
+        .iter()
+        .flatten()
+        .any(|coordinate| !coordinate.is_finite())
+    {
+        return Err(failure());
+    }
+    let bounds = [
+        quad.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min),
+        quad.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min),
+        quad.iter().map(|p| p[0]).fold(f64::NEG_INFINITY, f64::max),
+        quad.iter().map(|p| p[1]).fold(f64::NEG_INFINITY, f64::max),
+    ];
+    let aligned =
+        (transform.kx == 0. && transform.ky == 0.) || (transform.sx == 0. && transform.sy == 0.);
+    for (index, pixel) in pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        let x = (index % width as usize) as f64;
+        let y = (index / width as usize) as f64;
+        let horizontal = (bounds[2].min(x + 1.) - bounds[0].max(x)).max(0.);
+        let vertical = (bounds[3].min(y + 1.) - bounds[1].max(y)).max(0.);
+        let coverage = if horizontal == 0. || vertical == 0. {
+            0.
+        } else if aligned {
+            horizontal * vertical
+        } else {
+            filter_pixel_coverage(&quad, x, y)
+        };
+        pixel[3] = (f64::from(pixel[3]) * coverage.clamp(0., 1.)).round() as u8;
         if pixel[3] == 0 {
             pixel.fill(0);
         }
     }
     Ok(())
+}
+
+// Intersect an affine rectangle with one pixel. Convex clipping adds at most
+// one vertex per boundary: four original vertices plus four pixel boundaries.
+// Fixed storage avoids allocations for rotated or skewed edge pixels.
+fn filter_pixel_coverage(quad: &[[f64; 2]; 4], x: f64, y: f64) -> f64 {
+    let mut polygon = [[0.; 2]; 8];
+    for (target, source) in polygon.iter_mut().zip(quad) {
+        *target = [source[0] - x, source[1] - y];
+    }
+    let mut count = 4;
+    for (axis, bound, lower) in [(0, 0., true), (0, 1., false), (1, 0., true), (1, 1., false)] {
+        if count == 0 {
+            return 0.;
+        }
+        let mut clipped = [[0.; 2]; 8];
+        let mut output = 0;
+        let inside = |point: [f64; 2]| {
+            if lower {
+                point[axis] >= bound
+            } else {
+                point[axis] <= bound
+            }
+        };
+        let mut previous = polygon[count - 1];
+        for current in &polygon[..count] {
+            let current = *current;
+            if inside(previous) != inside(current) {
+                let ratio = (bound - previous[axis]) / (current[axis] - previous[axis]);
+                let mut intersection = [
+                    previous[0] + ratio * (current[0] - previous[0]),
+                    previous[1] + ratio * (current[1] - previous[1]),
+                ];
+                intersection[axis] = bound;
+                clipped[output] = intersection;
+                output += 1;
+            }
+            if inside(current) {
+                clipped[output] = current;
+                output += 1;
+            }
+            previous = current;
+        }
+        polygon = clipped;
+        count = output;
+    }
+    if count < 3 {
+        return 0.;
+    }
+    let mut twice_area = 0.;
+    let mut previous = polygon[count - 1];
+    for current in &polygon[..count] {
+        twice_area += previous[0] * current[1] - current[0] * previous[1];
+        previous = *current;
+    }
+    (twice_area.abs() * 0.5).clamp(0., 1.)
 }
 
 #[cfg(test)]
@@ -821,24 +926,24 @@ mod captured_reference_tests {
     #[test]
     fn url_filter_uses_only_the_captured_definition_and_preserves_transparent_input() {
         let mut snapshot = crate::tests::empty_snapshot();
-        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://effects.test/filter.svg".into(),url_aliases:vec!["https://effects.test/redirect.svg".into()],media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><filter id="invert"><feComponentTransfer><feFuncR type="table" tableValues="1 0"/><feFuncG type="table" tableValues="1 0"/><feFuncB type="table" tableValues="1 0"/></feComponentTransfer></filter></svg>"#.to_vec()});
+        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://effects.test/filter.svg".into(),url_aliases:vec!["https://effects.test/redirect.svg".into()],media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><filter id="invert"><feComponentTransfer><feFuncR type="table" tableValues="1 0"/><feFuncG type="table" tableValues="1 0"/><feFuncB type="table" tableValues="1 0"/></feComponentTransfer></filter></svg>"#.to_vec()});
         let rect = CssRect {
             x: 0.,
             y: 0.,
             width: 2.,
             height: 1.,
         };
-        let pixels = apply_source(
-            &snapshot,
-            &[255, 0, 0, 255, 0, 0, 0, 0],
-            2,
-            1,
-            "url(https://effects.test/redirect.svg#invert)",
-            "black",
-            1.,
-            rect,
-            rect,
-        )
+        let pixels = apply_source(FilterSourceInputs {
+            snapshot: &snapshot,
+            pixels: &[255, 0, 0, 255, 0, 0, 0, 0],
+            width: 2,
+            height: 1,
+            source: "url(https://effects.test/redirect.svg#invert)",
+            current: "black",
+            resolution: 1.,
+            bounds: rect,
+            source_bounds: rect,
+        })
         .unwrap();
         assert_eq!(&pixels[..4], &[0, 255, 255, 255]);
         assert_eq!(pixels[7], 0);
@@ -915,34 +1020,35 @@ mod captured_reference_tests {
             (nested.as_str(), false),
         ] {
             let mut snapshot = crate::tests::empty_snapshot();
-            snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://effects.test/filter.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:format!("<svg xmlns=\"http://www.w3.org/2000/svg\"><rect id=\"pixel\" width=\"1\" height=\"1\" fill=\"red\"/><filter id=\"active\"><feImage href=\"{}\"/></filter><filter id=\"unused\"><feImage href=\"not-captured.png\"/></filter></svg>",xml_escape(href)).into_bytes()});
+            snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://effects.test/filter.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:format!("<svg xmlns=\"http://www.w3.org/2000/svg\"><rect id=\"pixel\" width=\"1\" height=\"1\" fill=\"red\"/><filter id=\"active\"><feImage href=\"{}\"/></filter><filter id=\"unused\"><feImage href=\"not-captured.png\"/></filter></svg>",xml_escape(href)).into_bytes()});
             // Matching embedding-resource bytes do not authorize fetched SVG IO.
             snapshot.images.push(oryn_common::v4::PaintImageResource {
                 svg_document_snapshot: false,
+                svg_instances: Vec::new(),
                 content_type: None,
                 url: "https://effects.test/captured.png".into(),
                 url_aliases: Vec::new(),
                 media_type: "image/png".into(),
                 bytes: png.clone(),
             });
-            let result = apply_source(
-                &snapshot,
-                &[0; 4],
-                1,
-                1,
-                "url(https://effects.test/filter.svg#active)",
-                "black",
-                1.,
-                rect,
-                rect,
-            );
+            let result = apply_source(FilterSourceInputs {
+                snapshot: &snapshot,
+                pixels: &[0; 4],
+                width: 1,
+                height: 1,
+                source: "url(https://effects.test/filter.svg#active)",
+                current: "black",
+                resolution: 1.,
+                bounds: rect,
+                source_bounds: rect,
+            });
             if success {
                 assert_eq!(result.unwrap(), vec![255, 0, 0, 255], "{href}");
             } else {
                 assert!(result.is_err(), "unavailable active dependency: {href}");
             }
         }
-        let source=oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://effects.test/ordinary.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><image width="1" height="1" href="https://effects.test/not-captured.png"/></svg>"#.to_vec()};
+        let source=oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://effects.test/ordinary.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><image width="1" height="1" href="https://effects.test/not-captured.png"/></svg>"#.to_vec()};
         let snapshot = crate::tests::empty_snapshot();
         let tree = crate::svg::parse(&source, &snapshot).unwrap();
         assert_eq!(
@@ -952,17 +1058,17 @@ mod captured_reference_tests {
         let mut snapshot = snapshot;
         snapshot.images.push(oryn_common::v4::PaintImageResource{bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><filter id="empty"><feImage/></filter></svg>"#.to_vec(),url:"https://effects.test/filter.svg".into(),..source});
         assert!(
-            apply_source(
-                &snapshot,
-                &[255; 4],
-                1,
-                1,
-                "url(https://effects.test/filter.svg#empty)",
-                "black",
-                1.,
-                rect,
-                rect
-            )
+            apply_source(FilterSourceInputs {
+                snapshot: &snapshot,
+                pixels: &[255; 4],
+                width: 1,
+                height: 1,
+                source: "url(https://effects.test/filter.svg#empty)",
+                current: "black",
+                resolution: 1.,
+                bounds: rect,
+                source_bounds: rect
+            })
             .unwrap_err()
             .to_string()
             .contains("lacks an image reference")
@@ -971,7 +1077,7 @@ mod captured_reference_tests {
     #[test]
     fn undeclared_nested_filter_images_are_not_fetched_or_silently_ignored() {
         let mut snapshot = crate::tests::empty_snapshot();
-        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://effects.test/filter.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><filter id="external"><feImage href="not-captured.png"/></filter></svg>"#.to_vec()});
+        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://effects.test/filter.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><filter id="external"><feImage href="not-captured.png"/></filter></svg>"#.to_vec()});
         let rect = CssRect {
             x: 0.,
             y: 0.,
@@ -979,17 +1085,17 @@ mod captured_reference_tests {
             height: 1.,
         };
         assert!(
-            apply_source(
-                &snapshot,
-                &[255; 4],
-                1,
-                1,
-                "url(https://effects.test/filter.svg#external)",
-                "black",
-                1.,
-                rect,
-                rect
-            )
+            apply_source(FilterSourceInputs {
+                snapshot: &snapshot,
+                pixels: &[255; 4],
+                width: 1,
+                height: 1,
+                source: "url(https://effects.test/filter.svg#external)",
+                current: "black",
+                resolution: 1.,
+                bounds: rect,
+                source_bounds: rect
+            })
             .is_err()
         );
     }
@@ -1003,7 +1109,7 @@ mod local_binding_tests {
         let mut snapshot = crate::tests::empty_snapshot();
         snapshot.page.url = "https://same.test/".into();
         for color in ["red", "blue"] {
-            snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:snapshot.page.url.clone(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:format!("<svg xmlns=\"http://www.w3.org/2000/svg\"><filter id=\"f\"><feFlood flood-color=\"{color}\"/></filter></svg>").into_bytes()});
+            snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:snapshot.page.url.clone(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:format!("<svg xmlns=\"http://www.w3.org/2000/svg\"><filter id=\"f\"><feFlood flood-color=\"{color}\"/></filter></svg>").into_bytes()});
         }
         assert!(reference(&snapshot, "#f").is_err());
         snapshot.local_effects.insert("f".into(), 1);
@@ -1087,26 +1193,62 @@ fn rewrite_filter_input(
 mod reference_box_tests {
     use super::*;
     #[test]
+    fn affine_filter_coverage_preserves_area_and_reflected_winding() {
+        let diamond = [[1., 0.], [2., 1.], [1., 2.], [0., 1.]];
+        for quad in [diamond, [diamond[3], diamond[2], diamond[1], diamond[0]]] {
+            let mut area = 0.;
+            for y in 0..2 {
+                for x in 0..2 {
+                    let coverage = filter_pixel_coverage(&quad, f64::from(x), f64::from(y));
+                    assert_eq!(coverage, 0.5);
+                    area += coverage;
+                }
+            }
+            assert_eq!(area, 2.);
+            assert_eq!(filter_pixel_coverage(&quad, 2., 0.), 0.);
+            let translated = quad.map(|p| [p[0] + 1_000_000., p[1] - 1_000_000.]);
+            assert_eq!(
+                filter_pixel_coverage(&translated, 1_000_000., -1_000_000.),
+                0.5
+            );
+        }
+        // Clipping all four diamond tips produces the maximum eight vertices.
+        assert_eq!(
+            filter_pixel_coverage(
+                &[[0.5, -0.25], [1.25, 0.5], [0.5, 1.25], [-0.25, 0.5]],
+                0.,
+                0.
+            ),
+            0.875
+        );
+        assert_eq!(
+            filter_pixel_coverage(&[[-1., -1.], [2., -1.], [2., 2.], [-1., 2.]], 0., 0.),
+            1.
+        );
+        assert_eq!(filter_pixel_coverage(&[[0., 0.]; 4], 0., 0.), 0.);
+    }
+
+    #[test]
     fn fractional_filter_region_clips_rounded_surfaces_at_css_pixel_coverage() {
         let mut snapshot = crate::tests::empty_snapshot();
-        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://filter.test/fractional.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><filter id="f" filterUnits="userSpaceOnUse" x="0.5" y="0.5" width="1.5" height="1.5"><feFlood flood-color="red"/></filter></svg>"#.to_vec()});
+        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://filter.test/fractional.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><filter id="f" filterUnits="userSpaceOnUse" x="0.5" y="0.5" width="1.5" height="1.5"><feFlood flood-color="red"/></filter></svg>"#.to_vec()});
         let bounds = CssRect {
             x: 0.,
             y: 0.,
             width: 3.,
             height: 3.,
         };
-        let pixels = apply_source(
-            &snapshot,
-            &[0; 36],
-            3,
-            3,
-            "url(https://filter.test/fractional.svg#f)",
-            "black",
-            1.,
+        let pixels = apply_source(FilterSourceInputs {
+            snapshot: &snapshot,
+            pixels: &[0; 36],
+            width: 3,
+            height: 3,
+            source: "url(https://filter.test/fractional.svg#f)",
+            current: "black",
+            resolution: 1.,
             bounds,
-            bounds,
-        )
+            source_bounds: bounds,
+        })
         .unwrap();
         assert_eq!(&pixels[..4], &[255, 0, 0, 64]);
         assert_eq!(&pixels[4..8], &[255, 0, 0, 128]);
@@ -1116,17 +1258,17 @@ mod reference_box_tests {
         }
         // CSS-space clipping scales with output resolution, not the reference
         // box's integer allocation or the alpha content of SourceGraphic.
-        let pixels = apply_source(
-            &snapshot,
-            &vec![0; 6 * 6 * 4],
-            6,
-            6,
-            "url(https://filter.test/fractional.svg#f)",
-            "black",
-            2.,
+        let pixels = apply_source(FilterSourceInputs {
+            snapshot: &snapshot,
+            pixels: &[0; 6 * 6 * 4],
+            width: 6,
+            height: 6,
+            source: "url(https://filter.test/fractional.svg#f)",
+            current: "black",
+            resolution: 2.,
             bounds,
-            bounds,
-        )
+            source_bounds: bounds,
+        })
         .unwrap();
         assert_eq!(pixels[3], 0);
         assert_eq!(
@@ -1138,7 +1280,7 @@ mod reference_box_tests {
     #[test]
     fn user_space_filter_percentages_use_svg_viewport_not_source_graphic_box() {
         let mut snapshot = crate::tests::empty_snapshot();
-        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://filter.test/percent.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><filter id="f" filterUnits="userSpaceOnUse" x="0%" y="0%" width="50%" height="100%"><feFlood flood-color="red"/></filter></svg>"#.to_vec()});
+        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://filter.test/percent.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><filter id="f" filterUnits="userSpaceOnUse" x="0%" y="0%" width="50%" height="100%"><feFlood flood-color="red"/></filter></svg>"#.to_vec()});
         let bounds = CssRect {
             x: 0.,
             y: 0.,
@@ -1151,17 +1293,17 @@ mod reference_box_tests {
             width: 1.,
             height: 1.,
         };
-        let pixels = apply_source(
-            &snapshot,
-            &[0; 12],
-            3,
-            1,
-            "url(https://filter.test/percent.svg#f)",
-            "black",
-            1.,
+        let pixels = apply_source(FilterSourceInputs {
+            snapshot: &snapshot,
+            pixels: &[0; 12],
+            width: 3,
+            height: 1,
+            source: "url(https://filter.test/percent.svg#f)",
+            current: "black",
+            resolution: 1.,
             bounds,
-            reference,
-        )
+            source_bounds: reference,
+        })
         .unwrap();
         assert_eq!(&pixels[..4], &[255, 0, 0, 255]);
         assert_eq!(&pixels[4..8], &[255, 0, 0, 128]);
@@ -1170,7 +1312,7 @@ mod reference_box_tests {
     #[test]
     fn url_filter_preserves_overflow_source_pixels_and_chain_reference_box() {
         let mut snapshot = crate::tests::empty_snapshot();
-        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url:"https://filter.test/f.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><filter id="move" filterUnits="userSpaceOnUse" x="0" y="0" width="3" height="1"><feOffset dx="1"/></filter><filter id="flood"><feFlood flood-color="red"/></filter></svg>"#.to_vec()});
+        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url:"https://filter.test/f.svg".into(),url_aliases:Vec::new(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg"><filter id="move" filterUnits="userSpaceOnUse" x="0" y="0" width="3" height="1"><feOffset dx="1"/></filter><filter id="flood"><feFlood flood-color="red"/></filter></svg>"#.to_vec()});
         let bounds = CssRect {
             x: 0.,
             y: 0.,
@@ -1183,30 +1325,30 @@ mod reference_box_tests {
             width: 1.,
             height: 1.,
         };
-        let moved = apply_source(
-            &snapshot,
-            &[255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0],
-            3,
-            1,
-            "url(https://filter.test/f.svg#move)",
-            "black",
-            1.,
+        let moved = apply_source(FilterSourceInputs {
+            snapshot: &snapshot,
+            pixels: &[255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0],
+            width: 3,
+            height: 1,
+            source: "url(https://filter.test/f.svg#move)",
+            current: "black",
+            resolution: 1.,
             bounds,
-            reference,
-        )
+            source_bounds: reference,
+        })
         .unwrap();
         assert_eq!(&moved[4..8], &[255, 0, 0, 255]);
-        let flood = apply_source(
-            &snapshot,
-            &[255; 12],
-            3,
-            1,
-            "opacity(0) url(https://filter.test/f.svg#flood)",
-            "black",
-            1.,
+        let flood = apply_source(FilterSourceInputs {
+            snapshot: &snapshot,
+            pixels: &[255; 12],
+            width: 3,
+            height: 1,
+            source: "opacity(0) url(https://filter.test/f.svg#flood)",
+            current: "black",
+            resolution: 1.,
             bounds,
-            reference,
-        )
+            source_bounds: reference,
+        })
         .unwrap();
         assert_eq!(&flood[4..8], &[255, 0, 0, 255]);
         assert!(flood[3] < 255 && flood[11] < 255);

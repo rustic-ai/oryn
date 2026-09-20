@@ -137,11 +137,11 @@ impl WorkflowAudit {
     fn end(&self, id: u64, terminal: &str) {
         let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
         let end_ns = state.epoch.elapsed().as_nanos();
-        if let Some(span) = state.spans.iter_mut().find(|span| span.operation_id == id) {
-            if span.end_ns.is_none() {
-                span.end_ns = Some(end_ns);
-                span.terminal = Some(terminal.into());
-            }
+        if let Some(span) = state.spans.iter_mut().find(|span| span.operation_id == id)
+            && span.end_ns.is_none()
+        {
+            span.end_ns = Some(end_ns);
+            span.terminal = Some(terminal.into());
         }
     }
 }

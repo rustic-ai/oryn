@@ -1,4 +1,15 @@
 //! Native current paths. Coordinates are transformed when commands are added.
+
+/// Inputs for ellipse.
+pub(super) struct EllipseInputs {
+    pub(super) center: (f64, f64),
+    pub(super) radii: (f64, f64),
+    pub(super) rotation: f64,
+    pub(super) start: f64,
+    pub(super) end: f64,
+    pub(super) counterclockwise: bool,
+    pub(super) matrix: [f64; 6],
+}
 use kurbo::{BezPath, PathEl, Point, Shape};
 
 #[derive(Clone, Debug, Default)]
@@ -130,50 +141,59 @@ impl CanvasPath {
         let half_pi = std::f64::consts::FRAC_PI_2;
         self.move_to(map(tl.0, 0.0));
         self.line_to(map(w - tr.0, 0.0));
-        self.ellipse((w - tr.0, tr.1), tr, 0.0, -half_pi, 0.0, false, transform);
+        self.ellipse(EllipseInputs {
+            center: (w - tr.0, tr.1),
+            radii: tr,
+            rotation: 0.0,
+            start: -half_pi,
+            end: 0.0,
+            counterclockwise: false,
+            matrix: transform,
+        });
         self.line_to(map(w, h - br.1));
-        self.ellipse(
-            (w - br.0, h - br.1),
-            br,
-            0.0,
-            0.0,
-            half_pi,
-            false,
-            transform,
-        );
+        self.ellipse(EllipseInputs {
+            center: (w - br.0, h - br.1),
+            radii: br,
+            rotation: 0.0,
+            start: 0.0,
+            end: half_pi,
+            counterclockwise: false,
+            matrix: transform,
+        });
         self.line_to(map(bl.0, h));
-        self.ellipse(
-            (bl.0, h - bl.1),
-            bl,
-            0.0,
-            half_pi,
-            2.0 * half_pi,
-            false,
-            transform,
-        );
+        self.ellipse(EllipseInputs {
+            center: (bl.0, h - bl.1),
+            radii: bl,
+            rotation: 0.0,
+            start: half_pi,
+            end: 2.0 * half_pi,
+            counterclockwise: false,
+            matrix: transform,
+        });
         self.line_to(map(0.0, tl.1));
-        self.ellipse(
-            (tl.0, tl.1),
-            tl,
-            0.0,
-            2.0 * half_pi,
-            3.0 * half_pi,
-            false,
-            transform,
-        );
+        self.ellipse(EllipseInputs {
+            center: (tl.0, tl.1),
+            radii: tl,
+            rotation: 0.0,
+            start: 2.0 * half_pi,
+            end: 3.0 * half_pi,
+            counterclockwise: false,
+            matrix: transform,
+        });
         self.close();
         self.move_to(map(0.0, 0.0));
     }
-    pub(super) fn ellipse(
-        &mut self,
-        center: (f64, f64),
-        radii: (f64, f64),
-        rotation: f64,
-        start: f64,
-        end: f64,
-        counterclockwise: bool,
-        matrix: [f64; 6],
-    ) {
+    pub(super) fn ellipse(&mut self, params: EllipseInputs) {
+        let EllipseInputs {
+            center,
+            radii,
+            rotation,
+            start,
+            end,
+            counterclockwise,
+            matrix,
+        } = params;
+
         let tau = std::f64::consts::TAU;
         let difference = end - start;
         let sweep = if !counterclockwise && difference >= tau {
@@ -270,15 +290,15 @@ impl CanvasPath {
         }
         let start = (first_tangent.y - center.y).atan2(first_tangent.x - center.x);
         let end = (second_tangent.y - center.y).atan2(second_tangent.x - center.x);
-        self.ellipse(
-            (center.x, center.y),
-            (radius, radius),
-            0.0,
+        self.ellipse(EllipseInputs {
+            center: (center.x, center.y),
+            radii: (radius, radius),
+            rotation: 0.0,
             start,
             end,
-            cross > 0.0,
+            counterclockwise: cross > 0.0,
             matrix,
-        );
+        });
     }
     pub(super) fn closed(&self) -> BezPath {
         let mut result = BezPath::new();
@@ -466,15 +486,15 @@ mod tests {
         assert!(contains(&path.closed(), 2.0, 2.0, false));
         assert!(!contains(&path.closed(), 2.0, 2.0, true));
         let mut circle = CanvasPath::default();
-        circle.ellipse(
-            (5.0, 5.0),
-            (3.0, 2.0),
-            0.0,
-            0.0,
-            std::f64::consts::TAU,
-            false,
-            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-        );
+        circle.ellipse(EllipseInputs {
+            center: (5.0, 5.0),
+            radii: (3.0, 2.0),
+            rotation: 0.0,
+            start: 0.0,
+            end: std::f64::consts::TAU,
+            counterclockwise: false,
+            matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        });
         assert!(contains(&circle.closed(), 5.0, 5.0, false));
         assert!(!contains(&circle.closed(), 5.0, 8.0, false));
     }

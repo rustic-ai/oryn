@@ -1,5 +1,16 @@
 //! Parent-authenticated policy provenance travels with an accepted form load.
 //! No author-provided origin or destination can replace this immutable snapshot.
+
+/// Inputs for issue script navigation authority.
+pub(crate) struct ScriptNavigationInputs<'a> {
+    pub(crate) source: PageId,
+    pub(crate) source_creator: Creator,
+    pub(crate) destination: PageId,
+    pub(crate) target_creator: Creator,
+    pub(crate) destination_url: &'a str,
+    pub(crate) source_url: &'a str,
+    pub(crate) referrer_policy: &'a str,
+}
 use super::*;
 use oryn_js::{navigation::FormNavigationAuthority, worker_wire::Creator};
 use sha2::{Digest, Sha256};
@@ -57,16 +68,25 @@ fn mac(key: &[u8; 32], bytes: &[u8]) -> [u8; 32] {
     hash.finalize().into()
 }
 impl BrowserContext {
+    #[cfg(unix)]
+    pub(crate) fn navigation_network_redirect_limit(&self) -> usize {
+        self.inner.config.max_redirects
+    }
+
     pub(crate) fn issue_script_navigation_authority(
         &self,
-        source: PageId,
-        source_creator: Creator,
-        destination: PageId,
-        target_creator: Creator,
-        destination_url: &str,
-        source_url: &str,
-        referrer_policy: &str,
+        params: ScriptNavigationInputs<'_>,
     ) -> Result<oryn_js::navigation::ScriptNavigationAuthority, RuntimeError> {
+        let ScriptNavigationInputs {
+            source,
+            source_creator,
+            destination,
+            target_creator,
+            destination_url,
+            source_url,
+            referrer_policy,
+        } = params;
+
         if destination_url.len() > 65_536 {
             return Err(RuntimeError::ProtocolViolation(
                 "script navigation URL exceeds bound".into(),
@@ -183,6 +203,33 @@ impl BrowserContext {
         target_creator: &Creator,
         destination_url: &str,
     ) -> Result<oryn_js::navigation::FormNavigationSource, RuntimeError> {
+        Ok(self
+            .open_script_navigation_source(authority, destination, target_creator, destination_url)?
+            .fetch)
+    }
+    #[cfg(unix)]
+    pub(crate) fn script_navigation_network_source(
+        &self,
+        authority: &oryn_js::navigation::ScriptNavigationAuthority,
+        destination: PageId,
+        target_creator: &Creator,
+        destination_url: &str,
+    ) -> Result<(oryn_js::navigation::FormNavigationSource, bool), RuntimeError> {
+        let snapshot = self.open_script_navigation_source(
+            authority,
+            destination,
+            target_creator,
+            destination_url,
+        )?;
+        Ok((snapshot.fetch, snapshot.service_source.is_some()))
+    }
+    fn open_script_navigation_source(
+        &self,
+        authority: &oryn_js::navigation::ScriptNavigationAuthority,
+        destination: PageId,
+        target_creator: &Creator,
+        destination_url: &str,
+    ) -> Result<ScriptSnapshot, RuntimeError> {
         let invalid =
             || RuntimeError::ProtocolViolation("invalid native script navigation authority".into());
         if authority.0.len() > MAX_AUTHORITY_BYTES {
@@ -221,7 +268,7 @@ impl BrowserContext {
         self.window_worker_creator(destination, target, *document_generation, *stream_epoch)?;
         // The source may retire after acceptance; its sealed metadata remains
         // immutable. The target must still be the admitted document here.
-        Ok(snapshot.fetch)
+        Ok(snapshot)
     }
     fn form_key(&self) -> Result<&[u8; 32], RuntimeError> {
         self.inner
@@ -285,6 +332,7 @@ impl BrowserContext {
         }
         Ok(snapshot)
     }
+    #[cfg(test)]
     pub(crate) fn issue_form_authority(
         &self,
         page: PageId,
@@ -292,6 +340,7 @@ impl BrowserContext {
     ) -> Result<FormNavigationAuthority, RuntimeError> {
         self.issue_form_authority_with_referrer(page, creator, None)
     }
+    #[cfg(test)]
     pub(crate) fn issue_form_authority_with_referrer(
         &self,
         page: PageId,
@@ -699,17 +748,27 @@ mod authority_tests {
             .bind_frame_worker_policy(id, frame.clone(), 2, 0, "https://child.test/", &ticket)
             .unwrap();
         context
-            .register_activation_parent(id, frame.clone(), 2, 0, WindowTarget::Root, 1, 0)
+            .register_activation_parent(crate::runtime::worker_service::ActivationParentInputs {
+                page: id,
+                frame: frame.clone(),
+                generation: 2,
+                epoch: 0,
+                parent: WindowTarget::Root,
+                parent_generation: 1,
+                parent_epoch: 0,
+            })
             .unwrap();
         context
             .register_isolation_container(
-                id,
-                frame.clone(),
-                2,
-                0,
-                String::new(),
-                "https://child.test/".into(),
-                None,
+                crate::runtime::worker_service::IsolationContainerInputs {
+                    page: id,
+                    frame: frame.clone(),
+                    generation: 2,
+                    epoch: 0,
+                    allow: String::new(),
+                    source: "https://child.test/".into(),
+                    sandbox: None,
+                },
             )
             .unwrap();
         let source = Creator::Window {
@@ -719,15 +778,15 @@ mod authority_tests {
         };
         let url = "https://destination.test/next";
         let issue = || {
-            context.issue_script_navigation_authority(
-                id,
-                source.clone(),
-                id,
-                root.clone(),
-                url,
-                "https://child.test/history#fragment",
-                "origin",
-            )
+            context.issue_script_navigation_authority(ScriptNavigationInputs {
+                source: id,
+                source_creator: source.clone(),
+                destination: id,
+                target_creator: root.clone(),
+                destination_url: url,
+                source_url: "https://child.test/history#fragment",
+                referrer_policy: "origin",
+            })
         };
         assert!(
             issue().is_err(),
@@ -913,17 +972,27 @@ mod authority_tests {
             .bind_frame_worker_policy(id, frame.clone(), 2, 0, "https://child.test/", &ticket)
             .unwrap();
         context
-            .register_activation_parent(id, frame.clone(), 2, 0, WindowTarget::Root, 1, 0)
+            .register_activation_parent(crate::runtime::worker_service::ActivationParentInputs {
+                page: id,
+                frame: frame.clone(),
+                generation: 2,
+                epoch: 0,
+                parent: WindowTarget::Root,
+                parent_generation: 1,
+                parent_epoch: 0,
+            })
             .unwrap();
         context
             .register_isolation_container(
-                id,
-                frame.clone(),
-                2,
-                0,
-                String::new(),
-                "https://child.test/".into(),
-                None,
+                crate::runtime::worker_service::IsolationContainerInputs {
+                    page: id,
+                    frame: frame.clone(),
+                    generation: 2,
+                    epoch: 0,
+                    allow: String::new(),
+                    source: "https://child.test/".into(),
+                    sandbox: None,
+                },
             )
             .unwrap();
         let creator = Creator::Window {
@@ -1460,10 +1529,9 @@ impl BrowserContext {
                     target,
                     ..
                 } = parent
+                    && *owner_page == page
                 {
-                    if *owner_page == page {
-                        ancestors.push(target.clone());
-                    }
+                    ancestors.push(target.clone());
                 }
                 cursor = parent.clone();
             }

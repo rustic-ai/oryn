@@ -130,10 +130,10 @@ pub(super) fn keyboard(
     alt: bool,
 ) -> Result<bool, V8BindingError> {
     let (handled, job) = prepare_keyboard(state, target, key, alt)?;
-    if let Some(mut job) = job {
-        if !job.poll(scope)? {
-            return Err(V8BindingError::JavaScriptException);
-        }
+    if let Some(mut job) = job
+        && !job.poll(scope)?
+    {
+        return Err(V8BindingError::JavaScriptException);
     }
     Ok(handled)
 }
@@ -427,10 +427,10 @@ pub(super) fn click(
     event: v8::Local<v8::Object>,
 ) -> Result<bool, V8BindingError> {
     let (handled, job) = prepare_click(scope, state, target, event)?;
-    if let Some(mut job) = job {
-        if !job.poll(scope)? {
-            return Err(V8BindingError::JavaScriptException);
-        }
+    if let Some(mut job) = job
+        && !job.poll(scope)?
+    {
+        return Err(V8BindingError::JavaScriptException);
     }
     Ok(handled)
 }

@@ -139,46 +139,6 @@ impl<'a> DomElement<'a> {
         }
         false
     }
-    fn editable(&self) -> bool {
-        if self.html_tag(&["textarea", "input"]) {
-            let text_input = self.tag() == "textarea"
-                || matches!(
-                    self.attr("type")
-                        .unwrap_or("text")
-                        .to_ascii_lowercase()
-                        .as_str(),
-                    "text"
-                        | "search"
-                        | "url"
-                        | "tel"
-                        | "email"
-                        | "password"
-                        | "date"
-                        | "month"
-                        | "week"
-                        | "time"
-                        | "datetime-local"
-                        | "number"
-                );
-            return text_input && !self.disabled() && self.attr("readonly").is_none();
-        }
-        let mut current = Some(*self);
-        while let Some(e) = current {
-            if let Some(value) = e.attr("contenteditable") {
-                if value.eq_ignore_ascii_case("false") {
-                    return false;
-                }
-                if value.is_empty()
-                    || value.eq_ignore_ascii_case("true")
-                    || value.eq_ignore_ascii_case("plaintext-only")
-                {
-                    return true;
-                }
-            }
-            current = e.parent_element();
-        }
-        false
-    }
 }
 impl Element for DomElement<'_> {
     type Impl = SelectorImpl;

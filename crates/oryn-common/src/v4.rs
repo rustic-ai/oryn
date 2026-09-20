@@ -14,6 +14,9 @@ pub use crate::v3::{
 };
 
 pub const CONTRACT_VERSION: u16 = 4;
+/// Display-list protocol shared by workers, renderers, and V8-free parents.
+/// Supporting this wire version does not imply an embedded renderer.
+pub const RENDER_CONTRACT_VERSION: u16 = 3;
 /// Additive native fragment ownership metadata within paint snapshot v4.
 pub const LOCAL_EFFECTS_CONTRACT_VERSION: u16 = 1;
 
@@ -205,6 +208,26 @@ pub struct PaintFontResource {
     pub collection_index: u32,
 }
 
+/// Native SVG use-instance projection; identities refer to captured source
+/// markers, never DOM IDs supplied by author script.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SvgInstanceSnapshot {
+    pub ancestry: Vec<u64>,
+    pub source: u64,
+    pub presentation: String,
+    #[serde(default)]
+    pub content: SvgInstanceContent,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "reference", rename_all = "snake_case")]
+pub enum SvgInstanceContent {
+    #[default]
+    Original,
+    Empty,
+    Reference(String),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaintImageResource {
     /// Native serialization of a live document's inline SVG, carrying that
@@ -212,6 +235,10 @@ pub struct PaintImageResource {
     /// resource documents are secure and cannot borrow the embedding environment.
     #[serde(default)]
     pub svg_document_snapshot: bool,
+    /// Captured native instance data. Independently fetched resources must
+    /// leave this empty and compute their own secure SVG instance cascade.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub svg_instances: Vec<SvgInstanceSnapshot>,
     /// Original successful response Content-Type, including XML charset.
     /// Synthesized resources omit this; media_type remains a normalized essence.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -320,19 +347,23 @@ fn unproject_plane_point(matrix: [f64; 16], x: f64, y: f64) -> Option<(f64, f64)
     if !x.is_finite() || !y.is_finite() || !matrix.iter().all(|value| value.is_finite()) {
         return None;
     }
-    // Identity/translation planes need only subtraction. Scaling each equation
-    // by its point magnitude introduces rounding even for an exact identity,
-    // which otherwise leaks into authored scroll offsets after inverse mapping.
-    if matrix[0] == 1.
-        && matrix[5] == 1.
+    // Axis-aligned affine planes need only subtraction and division.
+    // Normalizing by the viewport point introduces avoidable rounding into
+    // authored scroll offsets, even for exactly representable scales.
+    if matrix[0] != 0.
+        && matrix[5] != 0.
         && matrix[15] == 1.
         && matrix[1] == 0.
         && matrix[4] == 0.
         && matrix[3] == 0.
         && matrix[7] == 0.
     {
-        let point = (x - matrix[12], y - matrix[13]);
-        return (point.0.is_finite() && point.1.is_finite()).then_some(point);
+        let point = ((x - matrix[12]) / matrix[0], (y - matrix[13]) / matrix[5]);
+        if point.0.is_finite() && point.1.is_finite() {
+            return Some(point);
+        }
+        // Subtraction can overflow even when division yields a finite point.
+        // The scaled solver below retains that otherwise valid inverse.
     }
     // Only coefficients affecting the z=0 plane participate. Unrelated depth
     // coefficients must not underflow an otherwise invertible planar transform.
@@ -1213,6 +1244,30 @@ mod projection_visibility_tests {
     }
 
     #[test]
+    fn scaled_plane_inverse_preserves_exact_scroll_offsets_without_rounding_fractions() {
+        for (sx, sy) in [(2., 2.), (-2., 0.5), (0.25, -4.)] {
+            let matrix = [
+                sx, 0., 0., 0., 0., sy, 0., 0., 0., 0., 1., 0., 8., -4., 0., 1.,
+            ];
+            for (x, y) in [(8., 200.), (12.125, 183.25), (-2.5, -0.125)] {
+                assert_eq!(
+                    unproject_plane_point(matrix, x * sx + 8., y * sy - 4.),
+                    Some((x, y))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn scaled_inverse_falls_back_when_intermediate_subtraction_overflows() {
+        let large = f64::MAX;
+        let matrix = [
+            large, 0., 0., 0., 0., large, 0., 0., 0., 0., 1., 0., large, 0., 0., 1.,
+        ];
+        assert_eq!(unproject_plane_point(matrix, -large, 0.), Some((-2., 0.)));
+    }
+
+    #[test]
     fn plane_inversion_preserves_small_scales_and_ignores_unrelated_depth_scale() {
         let mut matrix = [
             1e-200, 0., 0., 0., 0., 1e-200, 0., 0., 0., 0., 1e200, 0., 0., 0., 0., 1.,
@@ -1567,6 +1622,7 @@ mod paint_image_provenance_tests {
     fn native_image_provenance_and_raw_encoding_round_trip_without_inference() {
         let resource = PaintImageResource {
             svg_document_snapshot: true,
+            svg_instances: Vec::new(),
             content_type: Some("image/svg+xml; charset=windows-1252".into()),
             url_aliases: vec!["https://example.test/original.svg".into()],
             url: "https://example.test/final.svg".into(),

@@ -415,19 +415,17 @@ impl TextSource {
     ) {
         let byte = self.text.len();
         self.text.push_str(text);
-        if !transformed {
-            if let Some(previous) = self.spans.last_mut() {
-                if !previous.transformed
-                    && previous.owner == span.owner
-                    && previous.text_node == span.text_node
-                    && previous.utf16_start + previous.utf16_len == start
-                    && previous.bytes.end == byte
-                {
-                    previous.bytes.end = self.text.len();
-                    previous.utf16_len += len;
-                    return;
-                }
-            }
+        if !transformed
+            && let Some(previous) = self.spans.last_mut()
+            && !previous.transformed
+            && previous.owner == span.owner
+            && previous.text_node == span.text_node
+            && previous.utf16_start + previous.utf16_len == start
+            && previous.bytes.end == byte
+        {
+            previous.bytes.end = self.text.len();
+            previous.utf16_len += len;
+            return;
         }
         self.spans.push(TextSpan {
             atomic: span.atomic,
@@ -538,6 +536,7 @@ impl TextSource {
         }
     }
 
+    #[cfg(test)]
     pub fn collect(
         root: &LayoutNode,
         nodes: &BTreeMap<u64, &LayoutNode>,
@@ -605,13 +604,12 @@ impl TextSource {
                         && !styles
                             .and_then(|styles| styles.get(&id))
                             .is_some_and(|s| crate::style_value(s, "display", "inline") == "none")
+                        && let Some(node) = nodes.get(&id)
                     {
-                        if let Some(node) = nodes.get(&id) {
-                            if node.tag == "br" {
-                                result.append(id, None, "\u{2028}");
-                            } else {
-                                enqueue(node, &mut stack, true);
-                            }
+                        if node.tag == "br" {
+                            result.append(id, None, "\u{2028}");
+                        } else {
+                            enqueue(node, &mut stack, true);
                         }
                     }
                 }
@@ -766,17 +764,16 @@ impl TextSource {
                 } else {
                     span.utf16_start + first - base..span.utf16_start + last - base
                 };
-                if let Some(previous) = result.last_mut() {
-                    if previous.owner == span.owner
-                        && previous.text_node == text_node
-                        && previous.rect == cluster.rect
-                        && previous.line == cluster.line
-                        && previous.rtl == cluster.rtl
-                        && previous.utf16.end == utf16.start
-                    {
-                        previous.utf16.end = utf16.end;
-                        continue;
-                    }
+                if let Some(previous) = result.last_mut()
+                    && previous.owner == span.owner
+                    && previous.text_node == text_node
+                    && previous.rect == cluster.rect
+                    && previous.line == cluster.line
+                    && previous.rtl == cluster.rtl
+                    && previous.utf16.end == utf16.start
+                {
+                    previous.utf16.end = utf16.end;
+                    continue;
                 }
                 result.push(SourceCluster {
                     owner: span.owner,
@@ -794,6 +791,7 @@ impl TextSource {
     /// Map a DOM boundary into paragraph bytes. UTF-16 boundaries within a
     /// surrogate pair enclose the scalar according to the requested affinity;
     /// callers can retain the original UTF-16 offset for caret interpolation.
+    #[cfg(test)]
     pub fn byte_boundary(
         &self,
         text_node: u64,
@@ -828,6 +826,162 @@ impl TextSource {
             units = next;
         }
         Some(span.bytes.end)
+    }
+}
+
+impl TextSource {
+    /// Export the exact shaping source with native zero-advance collapsible
+    /// line-edge spaces removed. Every erased source interval remains an alias.
+    pub(super) fn resolved_run(
+        &self,
+        layout_node: u64,
+        clusters: &[TextCluster],
+        styles: &crate::ComputedStyles,
+        default: &BTreeMap<String, String>,
+    ) -> oryn_common::v4::ResolvedTextRun {
+        use oryn_common::v4::{ResolvedTextRun, ResolvedTextSpan};
+        let mut removed = Vec::<Range<usize>>::new();
+        for cluster in clusters {
+            if cluster.rect.width != 0. || cluster.bytes.is_empty() {
+                continue;
+            }
+            let Some(text) = self.text.get(cluster.bytes.clone()) else {
+                continue;
+            };
+            if !text.chars().all(|ch| matches!(ch, ' ' | '\t')) {
+                continue;
+            }
+            let spans = self.spans.iter().filter(|span| {
+                span.bytes.start < cluster.bytes.end && span.bytes.end > cluster.bytes.start
+            });
+            if spans.clone().next().is_none() {
+                continue;
+            }
+            if spans.into_iter().all(|span| {
+                let style = styles
+                    .get(&span.owner)
+                    .map(|style| style.as_ref())
+                    .unwrap_or(default);
+                let fallback = match crate::style_value(style, "white-space", "normal") {
+                    "pre" | "pre-wrap" | "break-spaces" => "preserve",
+                    "pre-line" => "preserve-breaks",
+                    _ => "collapse",
+                };
+                matches!(
+                    crate::style_value(style, "white-space-collapse", fallback),
+                    "collapse" | "preserve-breaks"
+                )
+            }) {
+                removed.push(cluster.bytes.clone());
+            }
+        }
+        removed.sort_by_key(|range| range.start);
+        let mut cuts = Vec::<Range<usize>>::new();
+        for range in removed {
+            if let Some(previous) = cuts
+                .last_mut()
+                .filter(|previous| previous.end >= range.start)
+            {
+                previous.end = previous.end.max(range.end);
+            } else {
+                cuts.push(range);
+            }
+        }
+        let mut prefix = vec![0usize];
+        for range in &cuts {
+            prefix.push(prefix.last().copied().unwrap() + range.len());
+        }
+        let project = |byte: usize| {
+            let count = cuts.partition_point(|range| range.end <= byte);
+            let partial = cuts
+                .get(count)
+                .map_or(0, |range| byte.saturating_sub(range.start));
+            byte.saturating_sub(prefix[count] + partial)
+        };
+        let mut text =
+            String::with_capacity(self.text.len().saturating_sub(*prefix.last().unwrap()));
+        let mut cursor = 0;
+        for range in &cuts {
+            text.push_str(&self.text[cursor..range.start]);
+            cursor = range.end;
+        }
+        text.push_str(&self.text[cursor..]);
+        let convert = |span: &TextSpan, bytes: Range<usize>, erased: bool| {
+            let (start, len) = if span.transformed {
+                (span.utf16_start, span.utf16_len)
+            } else {
+                (
+                    span.utf16_start
+                        + self.text[span.bytes.start..bytes.start]
+                            .encode_utf16()
+                            .count(),
+                    self.text[bytes.clone()].encode_utf16().count(),
+                )
+            };
+            ResolvedTextSpan {
+                owner: span.owner,
+                source_node: span.text_node,
+                rendered_start: project(bytes.start),
+                rendered_end: project(bytes.end),
+                source_start: start,
+                source_end: start.saturating_add(len),
+                transformed: span.transformed || erased,
+                atomic: span.atomic,
+            }
+        };
+        let mut output = ResolvedTextRun {
+            layout_node,
+            text,
+            spans: Vec::new(),
+            aliases: Vec::new(),
+        };
+        for span in &self.spans {
+            let mut boundaries = vec![span.bytes.start, span.bytes.end];
+            for range in &cuts[cuts.partition_point(|range| range.end <= span.bytes.start)..] {
+                if range.start >= span.bytes.end {
+                    break;
+                }
+                boundaries.push(range.start.max(span.bytes.start));
+                boundaries.push(range.end.min(span.bytes.end));
+            }
+            boundaries.sort_unstable();
+            boundaries.dedup();
+            if boundaries.len() == 1 {
+                // A normalized-away source character still has a DOM range,
+                // unlike a zero-source atomic anchor. Keep erased source in
+                // aliases so visible spans describe only rendered content.
+                let erased = span.utf16_len != 0;
+                let resolved = convert(span, span.bytes.clone(), erased);
+                if erased {
+                    output.aliases.push(resolved);
+                } else {
+                    output.spans.push(resolved);
+                }
+            }
+            for pair in boundaries.windows(2) {
+                let bytes = pair[0]..pair[1];
+                let erased = project(bytes.start) == project(bytes.end);
+                let resolved = convert(span, bytes, erased);
+                if erased {
+                    output.aliases.push(resolved);
+                } else {
+                    output.spans.push(resolved);
+                }
+            }
+        }
+        for alias in &self.geometry_aliases {
+            output.aliases.push(ResolvedTextSpan {
+                owner: alias.owner,
+                source_node: alias.text_node,
+                rendered_start: project(alias.bytes.start),
+                rendered_end: project(alias.bytes.end),
+                source_start: alias.utf16_start,
+                source_end: alias.utf16_start.saturating_add(alias.utf16_len),
+                transformed: true,
+                atomic: alias.atomic,
+            });
+        }
+        output
     }
 }
 
@@ -1410,161 +1564,5 @@ mod tests {
         assert_eq!(source.byte_boundary(2, 5, false), None);
         assert_eq!(source.byte_boundary(3, 0, false), Some(6));
         assert_eq!(source.byte_boundary(99, 0, false), None);
-    }
-}
-
-impl TextSource {
-    /// Export the exact shaping source with native zero-advance collapsible
-    /// line-edge spaces removed. Every erased source interval remains an alias.
-    pub(super) fn resolved_run(
-        &self,
-        layout_node: u64,
-        clusters: &[TextCluster],
-        styles: &crate::ComputedStyles,
-        default: &BTreeMap<String, String>,
-    ) -> oryn_common::v4::ResolvedTextRun {
-        use oryn_common::v4::{ResolvedTextRun, ResolvedTextSpan};
-        let mut removed = Vec::<Range<usize>>::new();
-        for cluster in clusters {
-            if cluster.rect.width != 0. || cluster.bytes.is_empty() {
-                continue;
-            }
-            let Some(text) = self.text.get(cluster.bytes.clone()) else {
-                continue;
-            };
-            if !text.chars().all(|ch| matches!(ch, ' ' | '\t')) {
-                continue;
-            }
-            let spans = self.spans.iter().filter(|span| {
-                span.bytes.start < cluster.bytes.end && span.bytes.end > cluster.bytes.start
-            });
-            if spans.clone().next().is_none() {
-                continue;
-            }
-            if spans.into_iter().all(|span| {
-                let style = styles
-                    .get(&span.owner)
-                    .map(|style| style.as_ref())
-                    .unwrap_or(default);
-                let fallback = match crate::style_value(style, "white-space", "normal") {
-                    "pre" | "pre-wrap" | "break-spaces" => "preserve",
-                    "pre-line" => "preserve-breaks",
-                    _ => "collapse",
-                };
-                matches!(
-                    crate::style_value(style, "white-space-collapse", fallback),
-                    "collapse" | "preserve-breaks"
-                )
-            }) {
-                removed.push(cluster.bytes.clone());
-            }
-        }
-        removed.sort_by_key(|range| range.start);
-        let mut cuts = Vec::<Range<usize>>::new();
-        for range in removed {
-            if let Some(previous) = cuts
-                .last_mut()
-                .filter(|previous| previous.end >= range.start)
-            {
-                previous.end = previous.end.max(range.end);
-            } else {
-                cuts.push(range);
-            }
-        }
-        let mut prefix = vec![0usize];
-        for range in &cuts {
-            prefix.push(prefix.last().copied().unwrap() + range.len());
-        }
-        let project = |byte: usize| {
-            let count = cuts.partition_point(|range| range.end <= byte);
-            let partial = cuts
-                .get(count)
-                .map_or(0, |range| byte.saturating_sub(range.start));
-            byte.saturating_sub(prefix[count] + partial)
-        };
-        let mut text =
-            String::with_capacity(self.text.len().saturating_sub(*prefix.last().unwrap()));
-        let mut cursor = 0;
-        for range in &cuts {
-            text.push_str(&self.text[cursor..range.start]);
-            cursor = range.end;
-        }
-        text.push_str(&self.text[cursor..]);
-        let convert = |span: &TextSpan, bytes: Range<usize>, erased: bool| {
-            let (start, len) = if span.transformed {
-                (span.utf16_start, span.utf16_len)
-            } else {
-                (
-                    span.utf16_start
-                        + self.text[span.bytes.start..bytes.start]
-                            .encode_utf16()
-                            .count(),
-                    self.text[bytes.clone()].encode_utf16().count(),
-                )
-            };
-            ResolvedTextSpan {
-                owner: span.owner,
-                source_node: span.text_node,
-                rendered_start: project(bytes.start),
-                rendered_end: project(bytes.end),
-                source_start: start,
-                source_end: start.saturating_add(len),
-                transformed: span.transformed || erased,
-                atomic: span.atomic,
-            }
-        };
-        let mut output = ResolvedTextRun {
-            layout_node,
-            text,
-            spans: Vec::new(),
-            aliases: Vec::new(),
-        };
-        for span in &self.spans {
-            let mut boundaries = vec![span.bytes.start, span.bytes.end];
-            for range in &cuts[cuts.partition_point(|range| range.end <= span.bytes.start)..] {
-                if range.start >= span.bytes.end {
-                    break;
-                }
-                boundaries.push(range.start.max(span.bytes.start));
-                boundaries.push(range.end.min(span.bytes.end));
-            }
-            boundaries.sort_unstable();
-            boundaries.dedup();
-            if boundaries.len() == 1 {
-                // A normalized-away source character still has a DOM range,
-                // unlike a zero-source atomic anchor. Keep erased source in
-                // aliases so visible spans describe only rendered content.
-                let erased = span.utf16_len != 0;
-                let resolved = convert(span, span.bytes.clone(), erased);
-                if erased {
-                    output.aliases.push(resolved);
-                } else {
-                    output.spans.push(resolved);
-                }
-            }
-            for pair in boundaries.windows(2) {
-                let bytes = pair[0]..pair[1];
-                let erased = project(bytes.start) == project(bytes.end);
-                let resolved = convert(span, bytes, erased);
-                if erased {
-                    output.aliases.push(resolved);
-                } else {
-                    output.spans.push(resolved);
-                }
-            }
-        }
-        for alias in &self.geometry_aliases {
-            output.aliases.push(ResolvedTextSpan {
-                owner: alias.owner,
-                source_node: alias.text_node,
-                rendered_start: project(alias.bytes.start),
-                rendered_end: project(alias.bytes.end),
-                source_start: alias.utf16_start,
-                source_end: alias.utf16_start.saturating_add(alias.utf16_len),
-                transformed: true,
-                atomic: alias.atomic,
-            });
-        }
-        output
     }
 }

@@ -215,8 +215,10 @@ pub(super) fn resolve(
     xml.push_str("</defs>");
     serialize(input, node, styles, true, &mut xml, 0)?;
     xml.push_str("</svg>");
-    let mut options = usvg::Options::default();
-    options.font_family = DEFAULT_FONT_FAMILY.into();
+    let mut options = usvg::Options {
+        font_family: DEFAULT_FONT_FAMILY.into(),
+        ..usvg::Options::default()
+    };
     options
         .fontdb_mut()
         .load_font_data(DEFAULT_FONT_BYTES.to_vec());

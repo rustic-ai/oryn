@@ -40,6 +40,7 @@ pub(super) struct State {
     revision: u64,
     pub(super) pending: Option<Pending>,
 }
+#[cfg(test)]
 pub(super) fn pending(state: &V8BindingState) -> bool {
     state
         .navigation_api

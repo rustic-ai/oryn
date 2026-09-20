@@ -1,7 +1,11 @@
 //! Regression target for the pinned Rust binding teardown repair.
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::sync::Once;
+use std::sync::{Once, RwLock};
+// Match rusty-v8's test_api PROCESS_LOCK policy: ordinary isolate lifetimes
+// may overlap, while snapshot creation owns the process through destruction.
+// The extensible read-only snapshot can replace a group's read-only space.
+static PROCESS_LOCK: RwLock<()> = RwLock::new(());
 fn setup() {
     static START: Once = Once::new();
     START.call_once(|| {
@@ -20,6 +24,7 @@ fn isolate()->v8::OwnedIsolate {
 }
 #[test]
 fn slot_owned_weaks_are_reset_before_cpp_heap_teardown() {
+    let _process_guard = PROCESS_LOCK.read().unwrap();
     for _ in 0..8 {
         let mut isolate=isolate();
         {
@@ -38,6 +43,7 @@ fn slot_owned_weaks_are_reset_before_cpp_heap_teardown() {
 }
 #[test]
 fn guaranteed_finalizer_can_release_another_weak_after_revocation() {
+    let _process_guard = PROCESS_LOCK.read().unwrap();
     let finalized=Rc::new(Cell::new(0));
     let (survivor,ordinary,global);
     {
@@ -63,6 +69,7 @@ fn guaranteed_finalizer_can_release_another_weak_after_revocation() {
 }
 #[test]
 fn weak_raw_roundtrip_and_drop_cancels_only_its_own_callback() {
+    let _process_guard = PROCESS_LOCK.read().unwrap();
     let count=Rc::new(Cell::new(0));
     let late;
     {
@@ -84,6 +91,7 @@ fn weak_raw_roundtrip_and_drop_cancels_only_its_own_callback() {
 }
 #[test]
 fn ordinary_gc_finalizer_can_drop_its_own_weak() {
+    let _process_guard = PROCESS_LOCK.read().unwrap();
     let owner=Rc::new(RefCell::new(None::<v8::Weak<v8::Object>>));
     let count=Rc::new(Cell::new(0));
     let mut isolate=isolate();
@@ -103,6 +111,7 @@ fn ordinary_gc_finalizer_can_drop_its_own_weak() {
 }
 #[test]
 fn snapshot_teardown_keeps_weak_parameters_until_creator_is_destroyed() {
+    let _process_guard = PROCESS_LOCK.write().unwrap();
     setup();
     let count=Rc::new(Cell::new(0));
     let late;
@@ -133,6 +142,7 @@ fn snapshot_teardown_keeps_weak_parameters_until_creator_is_destroyed() {
 }
 #[test]
 fn cpp_heap_owner_releases_weak_during_native_isolate_teardown() {
+    let _process_guard = PROCESS_LOCK.read().unwrap();
     struct Holder { weak:v8::Weak<v8::Object>, dropped:Rc<Cell<usize>> }
     // Atomic sweeping below guarantees this thread-confined Weak is destroyed
     // on the isolate's thread; the weak edge must not keep the JS object alive.

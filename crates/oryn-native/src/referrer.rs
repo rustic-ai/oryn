@@ -145,7 +145,7 @@ impl ReferrerPolicy {
                     _ => None,
                 }
             })
-            .last()
+            .next_back()
             .unwrap_or(self)
     }
 

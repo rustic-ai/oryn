@@ -59,6 +59,7 @@ class SignedSessionTests(unittest.TestCase):
                         '/dynamic.html': "promise_test(async()=>{await new Promise((resolve,reject)=>{let s=document.createElement('script');s.src='/helper.js';s.onload=resolve;s.onerror=reject;document.head.appendChild(s)});assert_true(helperLoaded);let r=await fetch('/missing');assert_equals(r.status,404);},'dynamic and intentional error');",
                         '/pending.html': "async_test('never completes');",
                         '/popup.html': "promise_test(async()=>{let child=window.open('/ready.html');assert_not_equals(child,null);await new Promise(resolve=>setTimeout(resolve,500));child.close();},'isolated auxiliary page');",
+                        '/related-popup-v2.html': "promise_test(async()=>{let child=window.open('/ready.html');assert_not_equals(child,null);assert_equals(child.opener,window);assert_not_equals(child.document,document);let initial=child.document;child.__oryn_related_identity_v2=123;assert_equals(globalThis.__oryn_related_identity_v2,undefined);assert_equals(child.document,initial);await new Promise(resolve=>{child.addEventListener('load',resolve,{once:true});});assert_equals(child.location.href,new URL('/ready.html',location.href).href);assert_not_equals(child.document,initial);assert_false(child.closed);child.close();assert_true(child.closed);},'related auxiliary native identity v2');",
                         '/navigate.html': "location.href='/ready.html';",
                         '/self-close.html': "async_test('closed without completion');setTimeout(()=>window.close(),10);",
                         '/csp.html': "test(()=>assert_equals(globalThis.blockedScript,undefined),'CSP fixture');",
@@ -81,7 +82,12 @@ class SignedSessionTests(unittest.TestCase):
                     self.send_header(key, value)
                 self.end_headers()
                 self.wfile.write(body)
-        cls.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        class FixtureServer(http.server.ThreadingHTTPServer):
+            # Eight concurrent navigations also load harness resources. Keep the
+            # fixture's accept queue above that burst without changing deadlines.
+            request_queue_size = 128
+
+        cls.server = FixtureServer(('127.0.0.1', 0), Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.base = f'http://localhost:{cls.server.server_port}'
@@ -99,8 +105,8 @@ class SignedSessionTests(unittest.TestCase):
                 return session.run(name, self.base + '/' + name + '.html', timeout)
             first, second = run('write'), run('read')
             for result in (first, second):
-                self.assertIsNone(result['error'])
-                self.assertFalse(result['cleanup_errors'])
+                self.assertIsNone(result['error'], result)
+                self.assertFalse(result['cleanup_errors'], result)
                 self.assertEqual(result['completion']['harness'], 0)
                 self.assertTrue(all(t['status'] == 0 for t in result['completion']['tests']), result)
                 self.assertTrue(result['resource_evidence_complete'], result)
@@ -115,14 +121,14 @@ class SignedSessionTests(unittest.TestCase):
                 results = list(executor.map(run, ['ready'] * 20))
             pids = set()
             for result in results:
-                self.assertIsNone(result['error'])
-                self.assertFalse(result['cleanup_errors'])
+                self.assertIsNone(result['error'], result)
+                self.assertFalse(result['cleanup_errors'], result)
                 pids.add(result['resources'][0]['worker_pid'])
             self.assertEqual(len(pids), 20, 'isolated workers must never be recycled')
             failed = run('pending', 1)
             self.assertEqual(failed['error'], 'outer_execution_timeout')
             recovered = run('ready')
-            self.assertIsNone(recovered['error'])
+            self.assertIsNone(recovered['error'], recovered)
             self.assertFalse(recovered['cleanup_errors'])
         finally:
             shutdown = session.close()
@@ -182,23 +188,70 @@ class SignedSessionTests(unittest.TestCase):
         self.assertIn('Chromium document-entry focus unverified (missing observation)', result.stderr)
         self.assertEqual(result.stdout, '')
 
-    def test_auxiliary_pages_do_not_exhaust_primary_pool(self):
+    def _assert_related_auxiliary_results(self, results, primary_path):
+        contexts, primary_pids = set(), set()
+        for result in results:
+            self.assertIsNone(result['error'], result)
+            self.assertFalse(result['cleanup_errors'], result)
+            self.assertIsNone(result['replacement_error'], result)
+            self.assertEqual(result['completion']['harness'], 0, result)
+            self.assertTrue(result['completion']['tests'], result)
+            self.assertTrue(all(t['status'] == 0 for t in result['completion']['tests']), result)
+            self.assertTrue(result['resource_evidence_complete'], result)
+            audit = result['resource_audit']
+            self.assertTrue(audit['complete'], result)
+            self.assertFalse(audit['overflow'], result)
+            self.assertFalse(audit['gaps'], result)
+            primary = [r for r in result['resources'] if r['destination'] == 'Document'
+                       and r['page_id'] == result['page_id'] and r['url'].endswith(primary_path)]
+            self.assertEqual(len(primary), 1, result)
+            pid = primary[0]['worker_pid']
+            self.assertIsInstance(pid, int, result)
+            self.assertGreater(pid, 0, result)
+            auxiliaries = [r for r in result['resources'] if r['destination'] == 'Document'
+                           and r['page_id'] != result['page_id'] and r['url'].endswith('/ready.html')]
+            if primary_path == '/related-popup-v2.html':
+                self.assertTrue(auxiliaries, result)
+            # The immutable original closes after 500 ms and can legitimately
+            # cancel the load; v2 waits for load and requires the child record.
+            # Connected same-agent windows have distinct routed environments in
+            # one process; independent test roots must remain in separate domains.
+            self.assertTrue(all(r['worker_pid'] == pid for r in auxiliaries), result)
+            self.assertNotIn(audit['context_id'], contexts, result)
+            self.assertNotIn(pid, primary_pids, result)
+            contexts.add(audit['context_id'])
+            primary_pids.add(pid)
+        self.assertEqual(len(contexts), 16)
+        self.assertEqual(len(primary_pids), 16)
+        return contexts, primary_pids
+
+    def _run_related_auxiliary_pool_case(self, primary_path):
         session = WptSession(Path(os.environ['ORYN_WPT_BINARY']))
         try:
             with ThreadPoolExecutor(max_workers=8) as executor:
                 results = list(executor.map(
-                    lambda index: session.run(str(index), self.base + '/popup.html', 20), range(16)))
-            for result in results:
-                self.assertIsNone(result['error'], result)
-                self.assertFalse(result['cleanup_errors'], result)
-                self.assertIsNone(result['replacement_error'], result)
-                self.assertTrue(all(t['status'] == 0 for t in result['completion']['tests']), result)
-                self.assertGreaterEqual(len({r['worker_pid'] for r in result['resources']}), 2, result)
+                    lambda index: session.run(str(index), self.base + primary_path, 20), range(16)))
+            contexts, primary_pids = self._assert_related_auxiliary_results(results, primary_path)
             recovered = session.run('after-popups', self.base + '/ready.html', 15)
             self.assertIsNone(recovered['error'], recovered)
+            self.assertFalse(recovered['cleanup_errors'], recovered)
+            self.assertIsNone(recovered['replacement_error'], recovered)
+            self.assertNotIn(recovered['resource_audit']['context_id'], contexts, recovered)
+            primary = [r for r in recovered['resources'] if r['destination'] == 'Document'
+                       and r['page_id'] == recovered['page_id'] and r['url'].endswith('/ready.html')]
+            self.assertEqual(len(primary), 1, recovered)
+            self.assertNotIn(primary[0]['worker_pid'], primary_pids, recovered)
         finally:
             shutdown = session.close()
         self.assertEqual(shutdown['returncode'], 0, shutdown)
+        self.assertTrue(shutdown['shutdown_acknowledged'], shutdown)
+
+    def test_auxiliary_pages_do_not_exhaust_primary_pool(self):
+        # Preserve the original fixture bytes and concurrency/deadline obligation.
+        self._run_related_auxiliary_pool_case('/popup.html')
+
+    def test_related_auxiliary_native_identity_and_independent_roots(self):
+        self._run_related_auxiliary_pool_case('/related-popup-v2.html')
 
     def test_cross_origin_native_trace_survives_frame_removal_and_isolates_pages(self):
         for prewarmed in (False, True):

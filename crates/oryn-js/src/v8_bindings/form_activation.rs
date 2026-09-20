@@ -61,13 +61,11 @@ impl Activation {
                     let _ = dom.set_indeterminate(node, indeterminate);
                 }
             }
-            Previous::Radio { .. } => {
-                if dom.is_radio(node) {
-                    let selected = selected.filter(|selected| {
-                        *selected == node || dom.same_radio_group(node, *selected).unwrap_or(false)
-                    });
-                    let _ = dom.set_checkedness(selected.unwrap_or(node), selected.is_some());
-                }
+            Previous::Radio { .. } if dom.is_radio(node) => {
+                let selected = selected.filter(|selected| {
+                    *selected == node || dom.same_radio_group(node, *selected).unwrap_or(false)
+                });
+                let _ = dom.set_checkedness(selected.unwrap_or(node), selected.is_some());
             }
             _ => {}
         }
@@ -148,13 +146,12 @@ pub(super) fn prepare_auxiliary(
             break;
         }
         let parent = dom.assigned_slot(node, false)?.or(dom.parent(node)?);
-        if let (Some(parent), Some(related)) = (parent, related) {
-            if related != target
-                && dom.retarget_node(target, Some(parent))?
-                    == dom.retarget_node(related, Some(parent))?
-            {
-                break;
-            }
+        if let (Some(parent), Some(related)) = (parent, related)
+            && related != target
+            && dom.retarget_node(target, Some(parent))?
+                == dom.retarget_node(related, Some(parent))?
+        {
+            break;
         }
         cursor = parent;
     }
@@ -208,11 +205,12 @@ pub(super) fn prepare(
         return Ok(None);
     }
     let related_node = native_event_related_node(scope, state, object);
-    let mut dom = state.dom.borrow_mut();
-    if let Some(related) = related_node {
-        if related != target && dom.retarget_node(related, Some(target))? == target {
-            return Ok(None);
-        }
+    let dom = state.dom.borrow_mut();
+    if let Some(related) = related_node
+        && related != target
+        && dom.retarget_node(related, Some(target))? == target
+    {
+        return Ok(None);
     }
     let origin_root = dom.control_tree_root(target)?;
     let mut cursor = Some(target);
@@ -297,13 +295,12 @@ pub(super) fn prepare(
             break;
         }
         let parent = dom.assigned_slot(node, false)?.or(dom.parent(node)?);
-        if let (Some(parent), Some(related)) = (parent, related_node) {
-            if related != target
-                && dom.retarget_node(target, Some(parent))?
-                    == dom.retarget_node(related, Some(parent))?
-            {
-                break;
-            }
+        if let (Some(parent), Some(related)) = (parent, related_node)
+            && related != target
+            && dom.retarget_node(target, Some(parent))?
+                == dom.retarget_node(related, Some(parent))?
+        {
+            break;
         }
         cursor = parent;
     }
@@ -1673,7 +1670,7 @@ mod tests {
 // default separately after the dispatch itself has completed.
 enum DefaultJob {
     Activation(Box<Finish>),
-    Reset(retained_form_reset::Reset),
+    Reset(Box<retained_form_reset::Reset>),
     ForcedClick(Box<retained_activation::Click>),
 }
 impl DefaultJob {
@@ -1797,21 +1794,6 @@ impl Drop for ScriptDefault {
         }
     }
 }
-pub(super) fn finish(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    activation: Option<Activation>,
-    target: NodeId,
-    source: v8::Local<v8::Object>,
-    accepted: bool,
-) -> Result<(), V8BindingError> {
-    if let Some(mut pending) = ScriptDefault::new(scope, state, target, source)? {
-        pending.activation(activation);
-        pending.finish(scope, accepted)
-    } else {
-        Ok(())
-    }
-}
 /// Script reset shares the exact control/event continuation used by trusted
 /// activation. Reserve the retry slot before dispatch can run author code.
 pub(super) fn reset(
@@ -1846,7 +1828,7 @@ pub(super) fn reset(
         let mut registry = state.activation_jobs.borrow_mut();
         registry
             .queue
-            .push_back((generation, epoch, DefaultJob::Reset(job)));
+            .push_back((generation, epoch, DefaultJob::Reset(Box::new(job))));
         registry.retry = Some(std::time::Instant::now() + std::time::Duration::from_millis(10));
     }
     match result {

@@ -1,16 +1,15 @@
 //! Owned Rust continuations for native edits. No V8 scope or native borrow is
 //! retained while a mutation waits for its children-changed author work.
+type EditingFuture = Pin<Box<dyn Future<Output = Result<(), V8BindingError>>>>;
+
+type RetainedRanges = Rc<RefCell<Option<BTreeMap<u64, RangeRecord>>>>;
+
 use super::*;
 use std::{
     future::Future,
     pin::Pin,
-    sync::Arc,
-    task::{Context as PollContext, Poll, Wake, Waker},
+    task::{Context as PollContext, Poll, Waker},
 };
-struct WakeNative;
-impl Wake for WakeNative {
-    fn wake(self: Arc<Self>) {}
-}
 struct RangeMove {
     id: u64,
     expected: RangeRecord,
@@ -23,7 +22,7 @@ fn same_range(a: &RangeRecord, b: &RangeRecord) -> bool {
         && a.end_container == b.end_container
         && a.end_offset == b.end_offset
 }
-pub(super) enum Operation {
+enum Operation {
     RemoveAttribute {
         node: oryn_dom::TrackedNodeLease,
         name: String,
@@ -65,7 +64,7 @@ pub(super) enum Operation {
     },
     Remove {
         node: oryn_dom::TrackedNodeLease,
-        ranges: Option<Rc<RefCell<Option<BTreeMap<u64, RangeRecord>>>>>,
+        ranges: Option<RetainedRanges>,
     },
     Append {
         parent: oryn_dom::TrackedNodeLease,
@@ -691,7 +690,7 @@ impl Context {
 }
 pub(super) struct Continuation {
     context: Rc<Context>,
-    future: Option<Pin<Box<dyn Future<Output = Result<(), V8BindingError>>>>>,
+    future: Option<EditingFuture>,
     publish_history: bool,
     host: oryn_dom::TrackedNodeLease,
     identity: (NodeId, u64, u64, u64),
@@ -706,7 +705,7 @@ impl Continuation {
     pub(super) fn new(
         state: Rc<V8BindingState>,
         command: String,
-        build: impl FnOnce(Rc<Context>) -> Pin<Box<dyn Future<Output = Result<(), V8BindingError>>>>,
+        build: impl FnOnce(Rc<Context>) -> EditingFuture,
     ) -> Result<Option<Self>, V8BindingError> {
         Self::new_at(state, None, command, build)
     }
@@ -714,7 +713,7 @@ impl Continuation {
         state: Rc<V8BindingState>,
         host: Option<NodeId>,
         command: String,
-        build: impl FnOnce(Rc<Context>) -> Pin<Box<dyn Future<Output = Result<(), V8BindingError>>>>,
+        build: impl FnOnce(Rc<Context>) -> EditingFuture,
     ) -> Result<Option<Self>, V8BindingError> {
         resume_editing_recovery(&state)?;
         let Some(host) = (match host {
@@ -899,8 +898,8 @@ impl Continuation {
         if self.context.state.execution_suspended() || scope.is_execution_terminating() {
             return Ok(None);
         }
-        let waker = Waker::from(Arc::new(WakeNative));
-        let mut poll = PollContext::from_waker(&waker);
+        let waker = Waker::noop();
+        let mut poll = PollContext::from_waker(waker);
         for _ in 0..1024 {
             let pending = self.context.pending.borrow().clone();
             if let Some(request) = pending {
@@ -932,10 +931,10 @@ impl Continuation {
                     ));
                 }
                 complete_editing_range_clones(scope, &self.context.state)?;
-                if let Some(prepared) = request.prepared.borrow_mut().as_mut() {
-                    if !prepared.poll(scope)? {
-                        return Ok(None);
-                    }
+                if let Some(prepared) = request.prepared.borrow_mut().as_mut()
+                    && !prepared.poll(scope)?
+                {
+                    return Ok(None);
                 }
                 if !self.current() {
                     self.cancel();
@@ -984,16 +983,7 @@ impl Continuation {
             let after = self.before.as_ref().unwrap().clone();
             let changed = !self.segments.is_empty();
             if changed && self.publish_history {
-                let mut controls: BTreeMap<
-                    NodeId,
-                    (
-                        NodeId,
-                        String,
-                        (u32, u32, String),
-                        String,
-                        (u32, u32, String),
-                    ),
-                > = BTreeMap::new();
+                let mut controls: BTreeMap<NodeId, ControlEdit> = BTreeMap::new();
                 for segment in &self.segments {
                     for before in &segment.before.controls {
                         if let Some(after) = segment
@@ -1001,18 +991,17 @@ impl Continuation {
                             .controls
                             .iter()
                             .find(|after| after.node == before.node)
+                            && before.value != after.value
                         {
-                            if before.value != after.value {
-                                let entry = controls.entry(before.node).or_insert((
-                                    before.node,
-                                    before.value.clone(),
-                                    before.selection.clone(),
-                                    after.value.clone(),
-                                    after.selection.clone(),
-                                ));
-                                entry.3 = after.value.clone();
-                                entry.4 = after.selection.clone();
-                            }
+                            let entry = controls.entry(before.node).or_insert((
+                                before.node,
+                                before.value.clone(),
+                                before.selection.clone(),
+                                after.value.clone(),
+                                after.selection.clone(),
+                            ));
+                            entry.3 = after.value.clone();
+                            entry.4 = after.selection.clone();
                         }
                     }
                 }

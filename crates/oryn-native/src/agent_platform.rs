@@ -138,15 +138,14 @@ impl AgentPlatformHost {
             } else {
                 ticket.accept();
             }
-            if let Some(socket) = state.socket_closes.remove(&completion.operation_id) {
-                if let Some(ticket) = state.sockets.remove(&socket) {
-                    if matches!(
-                        &completion.result,
-                        Ok(PlatformHostResult::WebSocketClosed { .. })
-                    ) {
-                        ticket.accept();
-                    }
-                }
+            if let Some(socket) = state.socket_closes.remove(&completion.operation_id)
+                && let Some(ticket) = state.sockets.remove(&socket)
+                && matches!(
+                    &completion.result,
+                    Ok(PlatformHostResult::WebSocketClosed { .. })
+                )
+            {
+                ticket.accept();
             }
             state.pending.remove(&completion.operation_id);
             state.ready.push_back(completion);
@@ -248,13 +247,13 @@ impl PlatformHost for AgentPlatformHost {
     }
     fn acknowledge_completion(&self, id: HostOperationId, accepted: bool) {
         let receipt = self.state.borrow_mut().receipts.remove(&id);
-        if let Some((ticket, socket)) = receipt {
-            if accepted {
-                if let Some(socket) = socket {
-                    self.state.borrow_mut().sockets.insert(socket, ticket);
-                } else {
-                    ticket.accept();
-                }
+        if let Some((ticket, socket)) = receipt
+            && accepted
+        {
+            if let Some(socket) = socket {
+                self.state.borrow_mut().sockets.insert(socket, ticket);
+            } else {
+                ticket.accept();
             }
         }
     }

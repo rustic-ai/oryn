@@ -1,7 +1,34 @@
 //! Used anchor geometry is resolved after native cascade and before formatting
 //! the positioned box. Author CSS never supplies private node identities.
+
+/// Inputs for picker cascade with native.
+pub(crate) struct NativePickerCascadeInputs<'a> {
+    pub(crate) document: &'a blitz_dom::BaseDocument,
+    pub(crate) input: &'a LayoutInput,
+    pub(crate) mirrors: &'a BTreeMap<u64, blitz_traits::node_id::NodeId>,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) top_layer: bool,
+    pub(crate) owner: u64,
+    pub(crate) computed: &'a style::properties::ComputedValues,
+    pub(crate) values: &'a mut BTreeMap<String, String>,
+    pub(crate) native: NativeValues<'a>,
+}
+/// Inputs for picker cascade.
+pub(crate) struct PickerCascadeInputs<'a> {
+    pub(crate) document: &'a blitz_dom::BaseDocument,
+    pub(crate) input: &'a LayoutInput,
+    pub(crate) mirrors: &'a BTreeMap<u64, blitz_traits::node_id::NodeId>,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) top_layer: bool,
+    pub(crate) owner: u64,
+    pub(crate) computed: &'a style::properties::ComputedValues,
+    pub(crate) values: &'a mut BTreeMap<String, String>,
+}
 use super::*;
 use cssparser::{Parser, ParserInput, Token};
+
+/// Native use-clone scope, independent of the source selector tree.
+pub(super) const INSTANCE_CONTEXT: &str = "-oryn-anchor-instance-context";
 
 pub(super) fn needed(style: &BTreeMap<String, String>) -> bool {
     style
@@ -77,6 +104,14 @@ impl Context<'_> {
             return false;
         };
         if style_value(style, "display", "block") == "none" {
+            return false;
+        }
+        if self
+            .styles
+            .get(&self.id)
+            .and_then(|style| style.get(INSTANCE_CONTEXT))
+            != style.get(INSTANCE_CONTEXT)
+        {
             return false;
         }
         let mut parent = self.parent(id);
@@ -166,6 +201,7 @@ impl Context<'_> {
             .and_then(|name| {
                 self.input.nodes.iter().find(|node| {
                     node.attributes.get("id") == Some(name)
+                        && self.eligible(node.id)
                         && self.input.shadow_trees.node_scopes.get(&node.id)
                             == self.input.shadow_trees.node_scopes.get(&self.id)
                 })
@@ -731,10 +767,10 @@ pub(super) fn dependencies(id: u64, input: &LayoutInput, styles: &ComputedStyles
             let _ = context.substitute(value, property, 0);
         }
     }
-    if needed(&styles[&id]) {
-        if let Some(anchor) = context.anchor(None, "") {
-            context.references.borrow_mut().insert(anchor);
-        }
+    if needed(&styles[&id])
+        && let Some(anchor) = context.anchor(None, "")
+    {
+        context.references.borrow_mut().insert(anchor);
     }
     let mut dependencies = BTreeSet::new();
     for anchor in context.references.into_inner() {
@@ -755,19 +791,19 @@ pub(super) fn dependencies(id: u64, input: &LayoutInput, styles: &ComputedStyles
             current = context.nodes.get(&node).and_then(|node| node.parent);
         }
     }
-    if let Some(value) = styles[&id].get("-oryn-position-tries") {
-        if let Ok(candidates) = serde_json::from_str::<Vec<BTreeMap<String, String>>>(value) {
-            for mut candidate in candidates {
-                candidate.remove("-oryn-position-tries");
-                for key in ["-oryn-anchor-parent", "-oryn-implicit-anchor"] {
-                    if let Some(value) = styles[&id].get(key) {
-                        candidate.insert(key.into(), value.clone());
-                    }
+    if let Some(value) = styles[&id].get("-oryn-position-tries")
+        && let Ok(candidates) = serde_json::from_str::<Vec<BTreeMap<String, String>>>(value)
+    {
+        for mut candidate in candidates {
+            candidate.remove("-oryn-position-tries");
+            for key in ["-oryn-anchor-parent", "-oryn-implicit-anchor"] {
+                if let Some(value) = styles[&id].get(key) {
+                    candidate.insert(key.into(), value.clone());
                 }
-                let mut alternate = styles.clone();
-                alternate.insert(id, Arc::new(candidate));
-                dependencies.extend(self::dependencies(id, input, &alternate));
             }
+            let mut alternate = styles.clone();
+            alternate.insert(id, Arc::new(candidate));
+            dependencies.extend(self::dependencies(id, input, &alternate));
         }
     }
     dependencies
@@ -785,10 +821,10 @@ pub(super) fn cycles(graph: &BTreeMap<u64, BTreeSet<u64>>) -> BTreeSet<u64> {
                 invalid.insert(*root);
                 break;
             }
-            if seen.insert(id) {
-                if let Some(edges) = graph.get(&id) {
-                    pending.extend(edges);
-                }
+            if seen.insert(id)
+                && let Some(edges) = graph.get(&id)
+            {
+                pending.extend(edges);
             }
         }
     }
@@ -803,18 +839,18 @@ pub(super) fn candidates(
     cb: CssRect,
 ) -> Vec<ComputedStyle> {
     let mut result = vec![resolve(id, input, styles, projections, cb)];
-    if let Some(value) = styles[&id].get("-oryn-position-tries") {
-        if let Ok(candidates) = serde_json::from_str::<Vec<BTreeMap<String, String>>>(value) {
-            for mut candidate in candidates {
-                for key in ["-oryn-anchor-parent", "-oryn-implicit-anchor"] {
-                    if let Some(value) = styles[&id].get(key) {
-                        candidate.insert(key.into(), value.clone());
-                    }
+    if let Some(value) = styles[&id].get("-oryn-position-tries")
+        && let Ok(candidates) = serde_json::from_str::<Vec<BTreeMap<String, String>>>(value)
+    {
+        for mut candidate in candidates {
+            for key in ["-oryn-anchor-parent", "-oryn-implicit-anchor"] {
+                if let Some(value) = styles[&id].get(key) {
+                    candidate.insert(key.into(), value.clone());
                 }
-                let mut alternate = styles.clone();
-                alternate.insert(id, Arc::new(candidate));
-                result.push(resolve(id, input, &alternate, projections, cb));
             }
+            let mut alternate = styles.clone();
+            alternate.insert(id, Arc::new(candidate));
+            result.push(resolve(id, input, &alternate, projections, cb));
         }
     }
     result
@@ -892,26 +928,97 @@ pub(super) fn available(
 
 /// Capture native scoped references and fallback rules for a picker pseudo while
 /// the originating element still has its Stylo rule tree and shadow identity.
-pub(super) fn picker_cascade(
-    document: &blitz_dom::BaseDocument,
-    input: &LayoutInput,
-    mirrors: &BTreeMap<u64, blitz_traits::node_id::NodeId>,
-    styles: &ComputedStyles,
-    top_layer: bool,
-    owner: u64,
-    computed: &style::properties::ComputedValues,
-    values: &mut BTreeMap<String, String>,
+/// Optional instance-native values keep selector mirrors and inheritance
+/// identities separate. A missing instance must not fall back to source style.
+#[derive(Clone, Copy, Default)]
+pub(super) struct NativeValues<'a>(
+    pub Option<&'a BTreeMap<u64, style::servo_arc::Arc<style::properties::ComputedValues>>>,
+    pub Option<&'a BTreeMap<u64, style::servo_arc::Arc<style::properties::ComputedValues>>>,
+);
+
+impl NativeValues<'_> {
+    fn get(
+        &self,
+        document: &BaseDocument,
+        mirrors: &BTreeMap<u64, blitz_traits::node_id::NodeId>,
+        id: u64,
+    ) -> Option<style::servo_arc::Arc<style::properties::ComputedValues>> {
+        match self.0 {
+            Some(values) => values.get(&id).cloned(),
+            None => mirrors
+                .get(&id)
+                .and_then(|mirror| document.resolved_primary_style(*mirror)),
+        }
+    }
+
+    fn root(&self, input: &LayoutInput, owner: u64) -> Option<u64> {
+        if self.0.is_none() {
+            return input
+                .nodes
+                .iter()
+                .find(|node| node.parent.is_none())
+                .map(|node| node.id);
+        }
+        let mut current = owner;
+        let mut seen = BTreeSet::new();
+        while seen.insert(current) {
+            let node = input.nodes.iter().find(|node| node.id == current)?;
+            match node.parent {
+                Some(parent) => current = parent,
+                None => return Some(current),
+            }
+        }
+        None
+    }
+}
+
+pub(super) fn picker_cascade(params: PickerCascadeInputs<'_>) -> Result<(), LayoutError> {
+    let PickerCascadeInputs {
+        document,
+        input,
+        mirrors,
+        styles,
+        top_layer,
+        owner,
+        computed,
+        values,
+    } = params;
+
+    picker_cascade_with_native(NativePickerCascadeInputs {
+        document,
+        input,
+        mirrors,
+        styles,
+        top_layer,
+        owner,
+        computed,
+        values,
+        native: NativeValues::default(),
+    })
+}
+
+pub(super) fn picker_cascade_with_native(
+    params: NativePickerCascadeInputs<'_>,
 ) -> Result<(), LayoutError> {
+    let NativePickerCascadeInputs {
+        document,
+        input,
+        mirrors,
+        styles,
+        top_layer,
+        owner,
+        computed,
+        values,
+        native,
+    } = params;
+
     use style_traits::ToCss;
     let Some(mirror) = mirrors.get(&owner) else {
         return Ok(());
     };
-    let mut cb_wm = input
-        .nodes
-        .iter()
-        .find(|node| node.parent.is_none())
-        .and_then(|node| mirrors.get(&node.id))
-        .and_then(|id| document.resolved_primary_style(*id))
+    let mut cb_wm = native
+        .root(input, owner)
+        .and_then(|id| native.get(document, mirrors, id))
         .map(|computed| computed.writing_mode)
         .unwrap_or_else(style::logical_geometry::WritingMode::empty);
     if !top_layer {
@@ -926,10 +1033,7 @@ pub(super) fn picker_cascade(
                 .get(&id)
                 .is_some_and(|style| positioning::establishes(style, fixed))
             {
-                if let Some(computed) = mirrors
-                    .get(&id)
-                    .and_then(|id| document.resolved_primary_style(*id))
-                {
+                if let Some(computed) = native.get(document, mirrors, id) {
                     cb_wm = computed.writing_mode;
                 }
                 break;
@@ -967,17 +1071,23 @@ pub(super) fn picker_cascade(
         return Ok(());
     }
     let mut candidates = Vec::new();
-    for fallback in document.resolved_position_tries_for_style(*mirror, computed, cb_wm) {
+    let inheritance_parent = native.0.and_then(|values| values.get(&owner));
+    for fallback in document.resolved_position_tries_with_parent(
+        *mirror,
+        computed,
+        cb_wm,
+        inheritance_parent.map(|parent| &**parent),
+    ) {
         let mut candidate = values.clone();
         candidate.remove("-oryn-position-tries");
         for name in COMPUTED_PROPERTIES {
-            if let Ok(property) = PropertyId::parse_enabled_for_all_content(name) {
-                if let Err(longhand) = property.as_shorthand() {
-                    candidate.insert(
-                        (*name).to_owned(),
-                        fallback.computed_value_to_string(longhand),
-                    );
-                }
+            if let Ok(property) = PropertyId::parse_enabled_for_all_content(name)
+                && let Err(longhand) = property.as_shorthand()
+            {
+                candidate.insert(
+                    (*name).to_owned(),
+                    fallback.computed_value_to_string(longhand),
+                );
             }
         }
         capture(&fallback, &mut candidate);
@@ -1002,6 +1112,16 @@ pub(super) fn cascade(
     mirrors: &BTreeMap<u64, blitz_traits::node_id::NodeId>,
     styles: &mut ComputedStyles,
 ) -> Result<(), LayoutError> {
+    cascade_with_native(document, input, mirrors, styles, NativeValues::default())
+}
+
+pub(super) fn cascade_with_native(
+    document: &blitz_dom::BaseDocument,
+    input: &LayoutInput,
+    mirrors: &BTreeMap<u64, blitz_traits::node_id::NodeId>,
+    styles: &mut ComputedStyles,
+    native: NativeValues<'_>,
+) -> Result<(), LayoutError> {
     use style_traits::ToCss;
     let nodes = input
         .nodes
@@ -1025,7 +1145,7 @@ pub(super) fn cascade(
         let Some(mirror) = mirrors.get(&node.id) else {
             continue;
         };
-        let Some(primary) = document.resolved_primary_style(*mirror) else {
+        let Some(primary) = native.get(document, mirrors, node.id) else {
             continue;
         };
         for (property, name, scope) in document.anchor_reference_scopes(*mirror, &primary) {
@@ -1045,12 +1165,9 @@ pub(super) fn cascade(
         } else {
             node.parent
         };
-        let mut cb_wm = input
-            .nodes
-            .iter()
-            .find(|node| node.parent.is_none())
-            .and_then(|node| mirrors.get(&node.id))
-            .and_then(|id| document.resolved_primary_style(*id))
+        let mut cb_wm = native
+            .root(input, node.id)
+            .and_then(|id| native.get(document, mirrors, id))
             .map(|computed| computed.writing_mode)
             .unwrap_or_else(style::logical_geometry::WritingMode::empty);
         while let Some(id) = parent {
@@ -1058,10 +1175,7 @@ pub(super) fn cascade(
                 .get(&id)
                 .is_some_and(|style| positioning::establishes(style, fixed))
             {
-                if let Some(computed) = mirrors
-                    .get(&id)
-                    .and_then(|id| document.resolved_primary_style(*id))
-                {
+                if let Some(computed) = native.get(document, mirrors, id) {
                     cb_wm = computed.writing_mode;
                 }
                 break;
@@ -1079,18 +1193,24 @@ pub(super) fn cascade(
             continue;
         }
         let mut candidates = Vec::new();
-        for computed in document.resolved_position_tries(*mirror, cb_wm) {
+        let inheritance_parent = native.1.and_then(|values| values.get(&node.id));
+        for computed in document.resolved_position_tries_with_parent(
+            *mirror,
+            &primary,
+            cb_wm,
+            inheritance_parent.map(|parent| &**parent),
+        ) {
             let mut values = style.as_ref().clone();
             values.remove("-oryn-position-tries");
             values.retain(|key, _| !key.starts_with("-oryn-anchor-tree:"));
             for name in COMPUTED_PROPERTIES {
-                if let Ok(property) = PropertyId::parse_enabled_for_all_content(name) {
-                    if let Err(longhand) = property.as_shorthand() {
-                        values.insert(
-                            (*name).to_owned(),
-                            computed.computed_value_to_string(longhand),
-                        );
-                    }
+                if let Ok(property) = PropertyId::parse_enabled_for_all_content(name)
+                    && let Err(longhand) = property.as_shorthand()
+                {
+                    values.insert(
+                        (*name).to_owned(),
+                        computed.computed_value_to_string(longhand),
+                    );
                 }
             }
             values.insert(
@@ -1236,6 +1356,76 @@ pub(super) fn visibility(
             value.availability = GeometryAvailability::Hidden;
             value.in_viewport = false;
             value.interactable = false;
+        }
+    }
+}
+
+#[cfg(test)]
+mod instance_scope_tests {
+    use super::*;
+
+    #[test]
+    fn anchor_dependencies_keep_named_and_attribute_references_in_their_clone() {
+        let input: LayoutInput = serde_json::from_value(serde_json::json!({
+            "nodes":[
+                {"id":1,"tag":"div","attributes":{"id":"anchor"}},
+                {"id":3,"tag":"div","attributes":{"id":"anchor"}},
+                {"id":2,"tag":"div","attributes":{"anchor":"anchor"}},
+                {"id":4,"tag":"div","attributes":{"anchor":"anchor"}}
+            ],
+            "stylesheets":[],
+            "viewport":{"width":100,"height":100,"device_pixel_ratio":1},
+            "scroll":{"x":0,"y":0,"content_width":0,"content_height":0}
+        }))
+        .unwrap();
+        for explicit in [true, false] {
+            let mut styles = ComputedStyles::new();
+            for (id, context, anchor) in
+                [(1, 10, true), (3, 11, true), (2, 10, false), (4, 11, false)]
+            {
+                let mut values = BTreeMap::from([
+                    ("display".into(), "block".into()),
+                    ("position".into(), "absolute".into()),
+                    (
+                        "position-anchor".into(),
+                        if explicit { "none" } else { "normal" }.into(),
+                    ),
+                    (INSTANCE_CONTEXT.into(), context.to_string()),
+                ]);
+                if anchor {
+                    values.insert("anchor-name".into(), "--a".into());
+                } else {
+                    values.insert(
+                        "top".into(),
+                        if explicit {
+                            "anchor(--a top, 0px)"
+                        } else {
+                            "anchor(top, 0px)"
+                        }
+                        .into(),
+                    );
+                }
+                styles.insert(id, Arc::new(values));
+            }
+            assert_eq!(dependencies(2, &input, &styles), BTreeSet::from([1]));
+            assert_eq!(dependencies(4, &input, &styles), BTreeSet::from([3]));
+            // Even matching source CSS tree identities cannot join separate clones.
+            for style in styles.values_mut() {
+                Arc::make_mut(style)
+                    .insert("-oryn-anchor-tree:anchor-name:".into(), "document".into());
+                Arc::make_mut(style).insert("-oryn-anchor-tree:top:--a".into(), "document".into());
+            }
+            assert_eq!(dependencies(2, &input, &styles), BTreeSet::from([1]));
+            Arc::make_mut(styles.get_mut(&1).unwrap()).insert(INSTANCE_CONTEXT.into(), "99".into());
+            assert!(dependencies(2, &input, &styles).is_empty());
+            // Unprojected document nodes retain ordinary anchor lookup behavior.
+            for style in styles.values_mut() {
+                Arc::make_mut(style).remove(INSTANCE_CONTEXT);
+            }
+            assert_eq!(
+                dependencies(2, &input, &styles),
+                BTreeSet::from([if explicit { 3 } else { 1 }])
+            );
         }
     }
 }

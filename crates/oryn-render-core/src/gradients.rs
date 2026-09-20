@@ -85,10 +85,9 @@ fn direction(value: &str, rect: CssRect) -> Option<(f64, f64)> {
         v.parse::<f64>().ok()? * std::f64::consts::TAU
     } else if let Some(v) = value.strip_suffix("grad") {
         v.parse::<f64>().ok()? * std::f64::consts::PI / 200.
-    } else if let Some(v) = value.strip_suffix("rad") {
-        v.parse::<f64>().ok()?
     } else {
-        return None;
+        let v = value.strip_suffix("rad")?;
+        v.parse::<f64>().ok()?
     };
     angle.is_finite().then_some((angle.sin(), -angle.cos()))
 }
@@ -149,10 +148,9 @@ pub(super) fn parse(
     for layer in split(value, ',')? {
         let (repeating, body) = if let Some(body) = layer.strip_prefix("linear-gradient(") {
             (false, body.strip_suffix(')')?)
-        } else if let Some(body) = layer.strip_prefix("repeating-linear-gradient(") {
-            (true, body.strip_suffix(')')?)
         } else {
-            return None;
+            let body = layer.strip_prefix("repeating-linear-gradient(")?;
+            (true, body.strip_suffix(')')?)
         };
         let mut items = split(body, ',')?;
         let direction = direction(items.first().copied()?, rect);
@@ -201,8 +199,8 @@ pub(super) fn parse(
             let end = (first + 1..=last).find(|index| stops[*index].1.is_some())?;
             let a = stops[first].1?;
             let b = stops[end].1?;
-            for index in first + 1..end {
-                stops[index].1 = Some(a + (b - a) * (index - first) as f64 / (end - first) as f64);
+            for (index, stop) in stops.iter_mut().enumerate().take(end).skip(first + 1) {
+                stop.1 = Some(a + (b - a) * (index - first) as f64 / (end - first) as f64);
             }
             first = end;
         }
@@ -398,8 +396,8 @@ fn resolved_stops(
         let end = (start + 1..=last).find(|i| stops[*i].1.is_some())?;
         let a = stops[start].1?;
         let b = stops[end].1?;
-        for i in start + 1..end {
-            stops[i].1 = Some(a + (b - a) * (i - start) as f64 / (end - start) as f64);
+        for (i, stop) in stops.iter_mut().enumerate().take(end).skip(start + 1) {
+            stop.1 = Some(a + (b - a) * (i - start) as f64 / (end - start) as f64);
         }
         start = end;
     }
@@ -540,10 +538,10 @@ pub(super) fn backgrounds(
                 stops,
                 repeating,
             });
-        } else if let Some(body) = body
-            .strip_prefix("conic-gradient(")
-            .and_then(|v| v.strip_suffix(')'))
-        {
+        } else {
+            let body = body
+                .strip_prefix("conic-gradient(")
+                .and_then(|v| v.strip_suffix(')'))?;
             let mut items = split(body, ',')?;
             let header = if color_prefix(items[0], current).is_none() {
                 items.remove(0)
@@ -567,8 +565,6 @@ pub(super) fn backgrounds(
                 stops: resolved_stops(&items, current, angular)?,
                 repeating,
             });
-        } else {
-            return None;
         }
     }
     Some(result)
@@ -636,8 +632,8 @@ fn sample_stops(stops: &[GradientStop], repeating: bool, mut t: f64) -> [u8; 4] 
     }
     let mut color = [0; 4];
     color[3] = alpha.round() as u8;
-    for channel in 0..3 {
-        color[channel] = ((f64::from(a.color[channel]) * f64::from(a.color[3]) * (1. - f)
+    for (channel, value) in color.iter_mut().enumerate().take(3) {
+        *value = ((f64::from(a.color[channel]) * f64::from(a.color[3]) * (1. - f)
             + f64::from(b.color[channel]) * f64::from(b.color[3]) * f)
             / alpha)
             .round()

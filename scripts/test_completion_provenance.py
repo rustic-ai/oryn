@@ -34,10 +34,11 @@ class CompletionProvenanceTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name).resolve()
         contract = self.root / 'test-harness/workflows/five-family-contract-v1.json'
-        for relative, symbol, version in [('crates/oryn-render-core/src/lib.rs', 'RENDER_CONTRACT_VERSION', 3), ('crates/oryn-common/src/v4.rs', 'LOCAL_EFFECTS_CONTRACT_VERSION', 1)]:
+        for relative, symbol, version in [('crates/oryn-common/src/v4.rs', 'RENDER_CONTRACT_VERSION', 3), ('crates/oryn-common/src/v4.rs', 'LOCAL_EFFECTS_CONTRACT_VERSION', 1)]:
             source = self.root / relative
             source.parent.mkdir(parents=True, exist_ok=True)
-            source.write_text(f'pub const {symbol}: u16 = {version};\n')
+            with source.open('a') as stream:
+                stream.write(f'pub const {symbol}: u16 = {version};\n')
         contract.parent.mkdir(parents=True)
         contract.write_text('frozen workflow contract')
         self.record = dict(schema_version=1, source_tree_sha256='a' * 64, artifacts={})
@@ -54,6 +55,25 @@ class CompletionProvenanceTests(unittest.TestCase):
         self.engine_patch.start()
         self.snapshot_patch = patch.object(provenance, 'validate_source_snapshot')
         self.snapshot_patch.start()
+
+    def test_render_protocol_is_available_without_renderer_sources(self):
+        self.assertFalse((self.root / 'crates/oryn-render-core').exists())
+        self.assertEqual(provenance.render_contracts(self.root), {
+            'render_contract_version': 3,
+            'local_effects_contract_version': 1,
+        })
+
+    def test_missing_duplicate_and_zero_render_protocol_are_rejected(self):
+        source = self.root / 'crates/oryn-common/src/v4.rs'
+        original = source.read_text()
+        declaration = 'pub const RENDER_CONTRACT_VERSION: u16 = 3;\n'
+        for invalid in [original.replace(declaration, ''),
+                        original + declaration,
+                        original.replace(declaration, declaration.replace('= 3', '= 0'))]:
+            with self.subTest(source=invalid):
+                source.write_text(invalid)
+                with self.assertRaisesRegex(ValueError, 'ambiguous rendering contract: render_contract_version'):
+                    provenance.render_contracts(self.root)
 
     def test_artifact_replacement_during_engine_validation_prevents_candidate_publication(self):
         worker = Path(self.record['artifacts']['worker']['path'])

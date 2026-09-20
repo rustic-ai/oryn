@@ -452,12 +452,11 @@ pub(super) fn take_remote_registration(
                     .target
                     .upgrade()
                     .is_some_and(|value| Rc::ptr_eq(&value.dom, &target.dom))
+                && let Some(options) = route.observer.registrations.remove(&node)
             {
-                if let Some(options) = route.observer.registrations.remove(&node) {
-                    order = Some(order.map_or(options.registration_order, |old: u64| {
-                        old.min(options.registration_order)
-                    }));
-                }
+                order = Some(order.map_or(options.registration_order, |old: u64| {
+                    old.min(options.registration_order)
+                }));
             }
         }
     }
@@ -615,7 +614,7 @@ fn migrate_ranges(
     scope: &mut v8::PinScope,
     source: &Rc<V8BindingState>,
     destination: &Rc<V8BindingState>,
-    nodes: &BTreeMap<NodeId, NodeId>,
+    _nodes: &BTreeMap<NodeId, NodeId>,
     ranges: &BTreeMap<LiveRangeId, LiveRangeId>,
 ) -> Result<(), V8BindingError> {
     let ids = source.ranges.borrow().keys().copied().collect::<Vec<_>>();
@@ -658,11 +657,11 @@ fn migrate_ranges(
             owner.publish();
         }
         for (primary, composed) in source.range_companions.borrow().iter() {
-            if let (Some(primary), Some(composed)) = (primary.upgrade(), composed.upgrade()) {
-                if primary.get() == Some(old) || composed.get() == Some(old) {
-                    primary.set(None);
-                    composed.set(None);
-                }
+            if let (Some(primary), Some(composed)) = (primary.upgrade(), composed.upgrade())
+                && (primary.get() == Some(old) || composed.get() == Some(old))
+            {
+                primary.set(None);
+                composed.set(None);
             }
         }
         source
@@ -717,8 +716,8 @@ fn cancel_source_resources(
 #[derive(Default)]
 pub(super) struct Publications(RefCell<VecDeque<PendingPublication>>);
 enum PendingPublication {
-    Cross(Publication),
-    Same(SameArenaPublication),
+    Cross(Box<Publication>),
+    Same(Box<SameArenaPublication>),
 }
 impl PendingPublication {
     fn publish(&mut self, scope: &mut v8::PinScope) -> Result<(), V8BindingError> {
@@ -759,7 +758,7 @@ impl SameArenaPublication {
                 0 => text_tracks::migrate(&self.source, &self.destination, &self.nodes)?,
                 1 => av_tracks::migrate(&self.source, &self.destination, &self.nodes)?,
                 2 => stylesheet_adoption::publish(
-                    &[self.source.clone()],
+                    std::slice::from_ref(&self.source),
                     &self.destination,
                     &self.nodes,
                 )?,
@@ -876,7 +875,7 @@ impl Publication {
 /// Resume retained publication before another native DOM operation observes
 /// the moved graph. A failure leaves the current and subsequent transactions
 /// owned by the agent; no old-arena GC lease is silently abandoned.
-pub(super) fn has_publications(scope: &mut v8::PinScope) -> bool {
+pub(super) fn has_publications(scope: &mut v8::PinScope<'_, '_, ()>) -> bool {
     scope
         .get_slot::<BindingStateRegistry>()
         .is_some_and(|registry| !registry.node_publications.0.borrow().is_empty())
@@ -887,7 +886,7 @@ pub(super) fn resume_publications(scope: &mut v8::PinScope) -> Result<(), V8Bind
             .get_slot::<BindingStateRegistry>()
             .and_then(|registry| registry.node_publications.0.borrow_mut().pop_front());
         let Some(mut pending) = pending else {
-            oryn_dom::drain_node_migration_pins();
+            oryn_dom::drain_node_migration_pins()?;
             return Ok(());
         };
         if let Err(error) = pending.publish(scope) {
@@ -901,7 +900,7 @@ pub(super) fn resume_publications(scope: &mut v8::PinScope) -> Result<(), V8Bind
             return Err(error);
         }
         drop(pending);
-        oryn_dom::drain_node_migration_pins();
+        oryn_dom::drain_node_migration_pins()?;
     }
 }
 pub(super) fn adopt(
@@ -979,7 +978,7 @@ pub(super) fn adopt(
                 .node_publications
                 .0
                 .borrow_mut()
-                .push_back(PendingPublication::Same(pending));
+                .push_back(PendingPublication::Same(Box::new(pending)));
             resume_publications(scope)?;
         }
         return Ok(node);
@@ -1050,7 +1049,7 @@ pub(super) fn adopt(
         .node_publications
         .0
         .borrow_mut()
-        .push_back(PendingPublication::Cross(pending));
+        .push_back(PendingPublication::Cross(Box::new(pending)));
     resume_publications(scope)?;
     Ok(root)
 }
@@ -1238,30 +1237,30 @@ fn insertion_argument_inner(
             node,
         )?;
         let old_parent = source.dom.borrow().parent(node)?;
-        if let Some(old_parent) = old_parent {
-            if script_children_changed::is_script_parent(&source, old_parent)? {
-                if Rc::ptr_eq(&source.dom, &destination.dom) && reference == Some(node) {
-                    let next = {
-                        let dom = source.dom.borrow();
-                        let siblings = light_children(&dom, old_parent)?;
-                        siblings
-                            .iter()
-                            .position(|child| *child == node)
-                            .and_then(|index| siblings.get(index + 1).copied())
-                    };
-                    reference_wrapper = next
-                        .map(|node| wrap_node(scope, &source, node))
-                        .transpose()?;
-                }
-                let preparation =
-                    script_children_changed::parent_change(scope, &source, Some(old_parent))?;
-                if Rc::ptr_eq(&source.dom, &destination.dom) && replaced == Some(node) {
-                    replacement_removed = true;
-                }
-                let result = source.dom.borrow_mut().remove_child(old_parent, node);
-                preparation.finish_mutation(scope, result)?;
-                continue;
+        if let Some(old_parent) = old_parent
+            && script_children_changed::is_script_parent(&source, old_parent)?
+        {
+            if Rc::ptr_eq(&source.dom, &destination.dom) && reference == Some(node) {
+                let next = {
+                    let dom = source.dom.borrow();
+                    let siblings = light_children(&dom, old_parent)?;
+                    siblings
+                        .iter()
+                        .position(|child| *child == node)
+                        .and_then(|index| siblings.get(index + 1).copied())
+                };
+                reference_wrapper = next
+                    .map(|node| wrap_node(scope, &source, node))
+                    .transpose()?;
             }
+            let preparation =
+                script_children_changed::parent_change(scope, &source, Some(old_parent))?;
+            if Rc::ptr_eq(&source.dom, &destination.dom) && replaced == Some(node) {
+                replacement_removed = true;
+            }
+            let result = source.dom.borrow_mut().remove_child(old_parent, node);
+            preparation.finish_mutation(scope, result)?;
+            continue;
         }
         let node = if Rc::ptr_eq(&source.dom, &destination.dom) {
             node
@@ -1517,6 +1516,28 @@ mod tests {
         ));
         assert!(has_publications(scope));
         custom_elements::refresh_native_registry_roots(scope).unwrap();
+        let (failed_pin_owner, failed_pin) = failed_abandoned_pin();
+        assert!(matches!(
+            resume_publications(scope),
+            Err(V8BindingError::Dom(DomError::Cycle))
+        ));
+        assert!(
+            !has_publications(scope),
+            "completed migration must not be replayed after a pin release error"
+        );
+        assert_eq!(
+            failed_pin_owner
+                .borrow()
+                .native_root_count(failed_pin)
+                .unwrap(),
+            0
+        );
+        failed_pin_owner
+            .borrow_mut()
+            .arena_mut()
+            .get_mut(failed_pin)
+            .unwrap()
+            .parent = None;
         resume_publications(scope).unwrap();
         assert!(!has_publications(scope));
         let (owner, moved) = node_identity::argument(scope, object).unwrap().unwrap();
@@ -1544,5 +1565,52 @@ mod tests {
         custom_elements::refresh_native_registry_roots(scope).unwrap();
         drop(document);
         drop(source);
+    }
+}
+
+#[cfg(test)]
+fn failed_abandoned_pin() -> (Rc<RefCell<DomRuntime>>, NodeId) {
+    let source = Rc::new(RefCell::new(DomRuntime::new()));
+    let destination = Rc::new(RefCell::new(DomRuntime::new()));
+    let node = source.borrow_mut().create_text("abandoned");
+    let document = destination.borrow().document();
+    let prepared =
+        DomRuntime::prepare_subtree_migration(&source, &destination, node, document).unwrap();
+    source
+        .borrow_mut()
+        .arena_mut()
+        .get_mut(node)
+        .unwrap()
+        .parent = Some(node);
+    drop(prepared);
+    (source, node)
+}
+#[cfg(test)]
+mod pin_drain_tests {
+    use super::*;
+    #[test]
+    fn empty_publication_checkpoint_surfaces_committed_pin_release_error_once() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let (source, node) = failed_abandoned_pin();
+        assert!(matches!(
+            resume_publications(scope),
+            Err(V8BindingError::Dom(DomError::Cycle))
+        ));
+        assert_eq!(source.borrow().native_root_count(node).unwrap(), 0);
+        source
+            .borrow_mut()
+            .arena_mut()
+            .get_mut(node)
+            .unwrap()
+            .parent = None;
+        resume_publications(scope).unwrap();
+        assert_eq!(source.borrow().native_root_count(node).unwrap(), 0);
+        source.borrow_mut().retain_native(node).unwrap();
+        source.borrow_mut().release_native(node).unwrap();
+        assert!(source.borrow().arena().get(node).is_err());
     }
 }

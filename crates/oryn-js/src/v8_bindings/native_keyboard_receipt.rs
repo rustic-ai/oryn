@@ -1,6 +1,5 @@
 //! Native keyboard callback/default custody. A receipt owns one accepted key;
 //! polling resumes callback suffixes and never replays an earlier native edit.
-use super::super::native_platform::publication;
 use super::*;
 
 use super::super::retained_dom_event::Event as EventJob;
@@ -433,10 +432,10 @@ impl Receipt {
         })
     }
     pub fn retry_safe(&self) -> bool {
-        if let Some(DefaultJob::Click(job)) = &self.job {
-            if !job.retry_safe() {
-                return false;
-            }
+        if let Some(DefaultJob::Click(job)) = &self.job
+            && !job.retry_safe()
+        {
+            return false;
         }
         match self.phase {
             1 => true,
@@ -541,6 +540,158 @@ impl Receipt {
         }
         Ok(Route::Legacy)
     }
+    // Keep default construction temporaries off the listener-dispatch stack.
+    #[inline(never)]
+    fn prepare_default(
+        &mut self,
+        scope: &mut v8::PinScope,
+        state: &Rc<V8BindingState>,
+    ) -> Result<Option<bool>, V8BindingError> {
+        let target = self.target().ok_or_else(invalid)?;
+        if !self.picker_checked && !self.input.modifiers.control && !self.input.modifiers.meta {
+            let (handled, job) = temporal_picker::prepare_keyboard(
+                state,
+                target,
+                &self.key,
+                self.input.modifiers.alt,
+            )?;
+            self.picker_handled = handled;
+            self.temporal_picker = job;
+            if !handled && self.temporal_picker.is_none() {
+                let (handled, job) = select_picker::prepare_keyboard(
+                    state,
+                    target,
+                    &self.key,
+                    self.input.modifiers.alt,
+                )?;
+                self.picker_handled = handled;
+                self.picker = job;
+            }
+            self.picker_checked = true;
+        }
+        if self.temporal_picker.is_some() {
+            self.phase = 31;
+            return Ok(None);
+        }
+        if self.picker.is_some() {
+            self.phase = 30;
+            return Ok(None);
+        }
+        if self.picker_handled {
+            self.result = Some(true);
+            return Ok(self.result);
+        }
+        match self.route.as_ref().unwrap() {
+            Route::Selection(alter, direction, unit) => {
+                if state.dom.borrow().is_editable_text_control(target) {
+                    selection_movement::modify_control(scope, state, alter, direction, unit)?;
+                    self.result = Some(true);
+                    return Ok(self.result);
+                }
+                if let Some(plan) =
+                    selection_movement::prepare_movement(state, alter, direction, unit)?
+                {
+                    self.job = Some(DefaultJob::Selection(SelectionJob::new(state, plan)));
+                }
+            }
+            Route::SelectAll => {
+                if state.dom.borrow().is_editable_text_control(target) {
+                    select_all(scope, state, target)?;
+                    self.result = Some(true);
+                    return Ok(self.result);
+                }
+                synchronize_selection_range(state)?;
+                let root = editing_host(state)?.unwrap_or(state.document_root());
+                let length = light_children(&state.dom.borrow(), root)?.len() as u32;
+                let plan = selection_movement::PreparedMovement::select(
+                    BoundaryPoint {
+                        container: root,
+                        offset: 0,
+                    },
+                    BoundaryPoint {
+                        container: root,
+                        offset: length,
+                    },
+                );
+                self.job = Some(DefaultJob::Selection(SelectionJob::new(state, plan)));
+            }
+            Route::Edit => {
+                if let Some(description) =
+                    prepare_edit(state, target, &self.key, self.input.modifiers, None)?
+                {
+                    self.job = Some(DefaultJob::Edit(EditJob::new(state, target, description)?));
+                }
+            }
+            Route::Clipboard(action) => {
+                let grant = grant_native_clipboard_action(state, target, *action)?;
+                self.job = Some(DefaultJob::Clipboard(clipboard_actions::ClipboardJob::new(
+                    state, grant,
+                )?));
+            }
+            Route::Activate => {
+                if let Some(job) = retained_activation::Click::new(scope, state, target)? {
+                    self.job = Some(DefaultJob::Click(Box::new(job)));
+                }
+            }
+            Route::ArmActivation => {
+                if !self.input.repeat {
+                    state.keyboard.space_activation.set(Some((
+                        target,
+                        self.generation,
+                        self.epoch,
+                    )));
+                }
+            }
+            Route::Focus(reverse) => {
+                let target = focus_navigation::next_sequential(state, *reverse)?;
+                self.job = Some(DefaultJob::Focus(FocusJob::new(state, target)?));
+            }
+            Route::Deferred => {
+                // OS interpretation is a separate native grant. Publish
+                // it only after the original keypress suffix completed.
+                if clipboard_actions::editable(state, target)? {
+                    let dom = state.dom.borrow();
+                    let target = if dom.is_editable_text_control(target) {
+                        target
+                    } else {
+                        editing_host_for_node(
+                            &dom,
+                            Some(target),
+                            state.design_mode_enabled(),
+                            state.document_root(),
+                        )?
+                        .unwrap_or(target)
+                    };
+                    state.keyboard.deferred_target.set(Some(target));
+                    state.keyboard.deferred.set(true);
+                }
+            }
+            Route::None => {}
+            // Focus, picker and activation defaults still require
+            // separate retained jobs. This compatibility route keeps
+            // their already delivered key event out of redispatch.
+            Route::Legacy => {
+                let result = dispatch_after_key(
+                    scope,
+                    state,
+                    AfterKeyInputs {
+                        input: &self.input,
+                        target,
+                        key: self.key.clone(),
+                        code: self.code.clone(),
+                        location: self.location,
+                        generation: self.generation,
+                        epoch: self.epoch,
+                        accepted: true,
+                    },
+                )?;
+                self.result = Some(result);
+                return Ok(self.result);
+            }
+        }
+        self.phase = 6;
+        Ok(None)
+    }
     pub(super) fn poll(
         &mut self,
         scope: &mut v8::PinScope,
@@ -568,10 +719,10 @@ impl Receipt {
                         self.fixup = FocusFixup::prepare(&state)?;
                         self.fixup_prepared = true;
                     }
-                    if let Some(fixup) = self.fixup.as_mut() {
-                        if !fixup.poll(scope, &state)? {
-                            return Ok(None);
-                        }
+                    if let Some(fixup) = self.fixup.as_mut()
+                        && !fixup.poll(scope, &state)?
+                    {
+                        return Ok(None);
                     }
                     self.fixup = None;
                     if state.execution_retired()
@@ -592,8 +743,25 @@ impl Receipt {
                     self.phase = 1;
                 }
                 1 => {
+                    // A popup may close on keydown. Its matching release still
+                    // belongs to native UI and must not reach page listeners.
+                    if !self.input.down
+                        && state
+                            .permission_elements
+                            .borrow_mut()
+                            .prompt_keys
+                            .remove(&self.key)
+                    {
+                        self.result = Some(true);
+                        return Ok(self.result);
+                    }
                     if state.permission_elements.borrow().prompt.is_some() {
                         if self.input.down {
+                            state
+                                .permission_elements
+                                .borrow_mut()
+                                .prompt_keys
+                                .insert(self.key.clone());
                             let (_, job) = permission_prompt::prepare_keyboard(&state, &self.key)?;
                             self.prompt = job;
                             if self.prompt.is_some() {
@@ -645,21 +813,16 @@ impl Receipt {
                     self.phase = 3;
                 }
                 7 => {
-                    if self.key_accepted {
-                        if let Some((armed, generation, epoch)) = self.space_target {
-                            if self.target() == Some(armed)
-                                && live(&state, armed, generation, epoch)
-                                && activatable(&state, armed, true)?
-                            {
-                                if let Some(job) =
-                                    retained_activation::Click::new(scope, &state, armed)?
-                                {
-                                    self.job = Some(DefaultJob::Click(Box::new(job)));
-                                    self.phase = 6;
-                                    continue;
-                                }
-                            }
-                        }
+                    if self.key_accepted
+                        && let Some((armed, generation, epoch)) = self.space_target
+                        && self.target() == Some(armed)
+                        && live(&state, armed, generation, epoch)
+                        && activatable(&state, armed, true)?
+                        && let Some(job) = retained_activation::Click::new(scope, &state, armed)?
+                    {
+                        self.job = Some(DefaultJob::Click(Box::new(job)));
+                        self.phase = 6;
+                        continue;
                     }
                     self.result = Some(self.key_accepted);
                     return Ok(self.result);
@@ -700,159 +863,9 @@ impl Receipt {
                     self.phase = 5;
                 }
                 5 => {
-                    let target = self.target().ok_or_else(invalid)?;
-                    if !self.picker_checked
-                        && !self.input.modifiers.control
-                        && !self.input.modifiers.meta
-                    {
-                        let (handled, job) = temporal_picker::prepare_keyboard(
-                            &state,
-                            target,
-                            &self.key,
-                            self.input.modifiers.alt,
-                        )?;
-                        self.picker_handled = handled;
-                        self.temporal_picker = job;
-                        if !handled && self.temporal_picker.is_none() {
-                            let (handled, job) = select_picker::prepare_keyboard(
-                                &state,
-                                target,
-                                &self.key,
-                                self.input.modifiers.alt,
-                            )?;
-                            self.picker_handled = handled;
-                            self.picker = job;
-                        }
-                        self.picker_checked = true;
+                    if let Some(result) = self.prepare_default(scope, &state)? {
+                        return Ok(Some(result));
                     }
-                    if self.temporal_picker.is_some() {
-                        self.phase = 31;
-                        continue;
-                    }
-                    if self.picker.is_some() {
-                        self.phase = 30;
-                        continue;
-                    }
-                    if self.picker_handled {
-                        self.result = Some(true);
-                        return Ok(self.result);
-                    }
-                    match self.route.as_ref().unwrap() {
-                        Route::Selection(alter, direction, unit) => {
-                            if state.dom.borrow().is_editable_text_control(target) {
-                                selection_movement::modify_control(
-                                    scope, &state, alter, direction, unit,
-                                )?;
-                                self.result = Some(true);
-                                return Ok(self.result);
-                            }
-                            if let Some(plan) = selection_movement::prepare_movement(
-                                &state, alter, direction, unit,
-                            )? {
-                                self.job =
-                                    Some(DefaultJob::Selection(SelectionJob::new(&state, plan)));
-                            }
-                        }
-                        Route::SelectAll => {
-                            if state.dom.borrow().is_editable_text_control(target) {
-                                select_all(scope, &state, target)?;
-                                self.result = Some(true);
-                                return Ok(self.result);
-                            }
-                            synchronize_selection_range(&state)?;
-                            let root = editing_host(&state)?.unwrap_or(state.document_root());
-                            let length = light_children(&state.dom.borrow(), root)?.len() as u32;
-                            let plan = selection_movement::PreparedMovement::select(
-                                BoundaryPoint {
-                                    container: root,
-                                    offset: 0,
-                                },
-                                BoundaryPoint {
-                                    container: root,
-                                    offset: length,
-                                },
-                            );
-                            self.job = Some(DefaultJob::Selection(SelectionJob::new(&state, plan)));
-                        }
-                        Route::Edit => {
-                            if let Some(description) =
-                                prepare_edit(&state, target, &self.key, self.input.modifiers, None)?
-                            {
-                                self.job = Some(DefaultJob::Edit(EditJob::new(
-                                    &state,
-                                    target,
-                                    description,
-                                )?));
-                            }
-                        }
-                        Route::Clipboard(action) => {
-                            let grant = grant_native_clipboard_action(&state, target, *action)?;
-                            self.job = Some(DefaultJob::Clipboard(
-                                clipboard_actions::ClipboardJob::new(&state, grant)?,
-                            ));
-                        }
-                        Route::Activate => {
-                            if let Some(job) =
-                                retained_activation::Click::new(scope, &state, target)?
-                            {
-                                self.job = Some(DefaultJob::Click(Box::new(job)));
-                            }
-                        }
-                        Route::ArmActivation => {
-                            if !self.input.repeat {
-                                state.keyboard.space_activation.set(Some((
-                                    target,
-                                    self.generation,
-                                    self.epoch,
-                                )));
-                            }
-                        }
-                        Route::Focus(reverse) => {
-                            let target = focus_navigation::next_sequential(&state, *reverse)?;
-                            self.job = Some(DefaultJob::Focus(FocusJob::new(&state, target)?));
-                        }
-                        Route::Deferred => {
-                            // OS interpretation is a separate native grant. Publish
-                            // it only after the original keypress suffix completed.
-                            if clipboard_actions::editable(&state, target)? {
-                                let dom = state.dom.borrow();
-                                let target = if dom.is_editable_text_control(target) {
-                                    target
-                                } else {
-                                    editing_host_for_node(
-                                        &dom,
-                                        Some(target),
-                                        state.design_mode_enabled(),
-                                        state.document_root(),
-                                    )?
-                                    .unwrap_or(target)
-                                };
-                                state.keyboard.deferred_target.set(Some(target));
-                                state.keyboard.deferred.set(true);
-                            }
-                        }
-                        Route::None => {}
-                        // Focus, picker and activation defaults still require
-                        // separate retained jobs. This compatibility route keeps
-                        // their already delivered key event out of redispatch.
-                        Route::Legacy => {
-                            let result = dispatch_after_key(
-                                scope,
-                                &state,
-                                &self.input,
-                                target,
-                                self.key.clone(),
-                                self.code.clone(),
-                                self.location,
-                                self.generation,
-                                self.epoch,
-                                true,
-                            )?;
-                            self.result = Some(result);
-                            return Ok(self.result);
-                        }
-                    }
-                    self.phase = 6;
                 }
                 32 => {
                     if !self.prompt.as_mut().unwrap().poll(scope)? {
@@ -933,6 +946,7 @@ impl Drop for Receipt {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::v8_bindings::native_platform::publication;
     fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, code: &str) -> v8::Local<'s, v8::Value> {
         let source = v8::String::new(scope, code).unwrap();
         v8::Script::compile(scope, source, None)

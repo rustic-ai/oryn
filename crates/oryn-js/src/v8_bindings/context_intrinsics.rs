@@ -100,6 +100,36 @@ pub(super) fn retain_object_for(
     )
 }
 
+/// Roll back an unpublished native cache edge. Names are private owner keys.
+pub(super) fn release_object_for(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    name: &str,
+) -> Result<(), V8BindingError> {
+    let context = state
+        .realm_context
+        .to_local(scope)
+        .ok_or(V8BindingError::Allocation("intrinsic owner Context"))?;
+    if context.get_slot::<IntrinsicDataInitialized>().is_none() {
+        return Ok(());
+    }
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let holder = context
+        .get_embedder_data(scope, INTRINSIC_DATA_SLOT)
+        .and_then(|value| value.try_cast::<v8::Object>().ok())
+        .ok_or(V8BindingError::Allocation("context intrinsic holder"))?;
+    let name = v8::String::new(
+        scope,
+        &format!("oryn.context.intrinsic.owner-{}-{name}", state.instance_id),
+    )
+    .ok_or(V8BindingError::Allocation("context intrinsic key"))?;
+    let key = v8::Private::for_api(scope, Some(name));
+    if holder.delete_private(scope, key) != Some(true) {
+        return Err(V8BindingError::JavaScriptException);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

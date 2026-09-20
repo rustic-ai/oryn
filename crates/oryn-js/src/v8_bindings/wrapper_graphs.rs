@@ -24,6 +24,34 @@ fn native_root(
     Some(root)
 }
 
+// Enumerate the inverse of retention_parent only in the selected tree.
+// Owner-document and template references are separate directed graph edges;
+// merging them here would incorrectly join otherwise independent components.
+fn retention_component_nodes(dom: &DomRuntime, root: NodeId) -> Vec<NodeId> {
+    let mut pending = vec![root];
+    let mut seen = BTreeSet::new();
+    while let Some(node) = pending.pop() {
+        let Ok(record) = dom.arena().get(node) else {
+            continue;
+        };
+        if !seen.insert(node) {
+            continue;
+        }
+        for child in record
+            .children
+            .iter()
+            .copied()
+            .chain(dom.arena().attribute_node_ids(node))
+            .chain(dom.arena().hosted_document(node))
+        {
+            if dom.retention_parent(child).ok().flatten() == Some(node) {
+                pending.push(child);
+            }
+        }
+    }
+    seen.into_iter().collect()
+}
+
 pub(super) fn retained_by_document(dom: &DomRuntime, node: NodeId) -> bool {
     let owner = match dom.arena().get(node).map(|record| &record.kind) {
         Ok(NodeKind::Attribute {
@@ -34,7 +62,210 @@ pub(super) fn retained_by_document(dom: &DomRuntime, node: NodeId) -> bool {
     dom.is_connected(owner).unwrap_or(false)
 }
 
+// A complete insertion-only journal can join an isolated wrapped leaf to an
+// existing detached fragment without rewriting every edge in that component.
+// All other mutations retain the general former/current-component rebuild.
+fn grow_detached_fragment(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+) -> Result<bool, V8BindingError> {
+    let Some(previous) = state.wrapper_graph_revision.get() else {
+        return Ok(false);
+    };
+    if state.execution_retired()
+        || node_migration::has_publications(scope)
+        || !state.wrapper_graph_new_nodes.borrow().is_empty()
+        || scope
+            .get_slot::<BindingStateRegistry>()
+            .is_some_and(|registry| registry.cross_realm_wrappers.get())
+    {
+        return Ok(false);
+    }
+    let Ok(dom) = state.dom.try_borrow() else {
+        return Ok(false);
+    };
+    let revision = dom.mutation_cursor().0;
+    if previous == revision {
+        return Ok(false);
+    }
+    let batch = dom.mutations_since(oryn_dom::MutationCursor(previous));
+    if batch.truncated {
+        return Ok(false);
+    }
+    let (node, parent) = match batch.mutations.as_slice() {
+        [
+            Mutation::Inserted {
+                node,
+                parent: Some(parent),
+                ..
+            },
+        ] => (*node, *parent),
+        [
+            Mutation::Inserted {
+                node,
+                parent: Some(parent),
+                ..
+            },
+            Mutation::ChildrenReplaced {
+                node: target,
+                added_nodes,
+                removed_nodes,
+                ..
+            },
+        ] if target == parent && added_nodes.as_slice() == [*node] && removed_nodes.is_empty() => {
+            (*node, *parent)
+        }
+        _ => return Ok(false),
+    };
+    let (Ok(leaf), Ok(fragment)) = (dom.arena().get(node), dom.arena().get(parent)) else {
+        return Ok(false);
+    };
+    if !matches!(fragment.kind, NodeKind::DocumentFragment)
+        || fragment.parent.is_some()
+        || fragment.template_host.is_some()
+        || leaf.parent != Some(parent)
+        || !leaf.children.is_empty()
+        || leaf.template_content.is_some()
+        || leaf.template_host.is_some()
+        || !dom.arena().attribute_node_ids(node).is_empty()
+        || dom.arena().hosted_document(node).is_some()
+        || leaf.owner_document.is_none()
+        || leaf.owner_document != fragment.owner_document
+        || !matches!(
+            leaf.kind,
+            NodeKind::Element { .. }
+                | NodeKind::Text { .. }
+                | NodeKind::Comment { .. }
+                | NodeKind::CDataSection { .. }
+                | NodeKind::ProcessingInstruction { .. }
+        )
+    {
+        return Ok(false);
+    }
+    let (leaf_id, leaf_object, array, expected_length) = {
+        let (Ok(wrappers), Ok(objects), Ok(components)) = (
+            state.wrappers.try_borrow(),
+            state.objects.try_borrow(),
+            state.wrapper_graph_components.try_borrow(),
+        ) else {
+            return Ok(false);
+        };
+        let Some(leaf_id) = wrappers.lookup(dom.arena().id(), state.realm, node) else {
+            return Ok(false);
+        };
+        let Some(parent_id) = wrappers.lookup(dom.arena().id(), state.realm, parent) else {
+            return Ok(false);
+        };
+        let (Some(leaf), Some(fragment)) = (objects.get(&leaf_id), objects.get(&parent_id)) else {
+            return Ok(false);
+        };
+        let (Some(old_members), Some(members)) = (components.get(&node), components.get(&parent))
+        else {
+            return Ok(false);
+        };
+        if leaf.retention_component != Some(node)
+            || fragment.retention_component != Some(parent)
+            || leaf.connected_root.is_some()
+            || fragment.connected_root.is_some()
+            || old_members.len() != 1
+            || !old_members.contains(&leaf_id)
+            || !members.contains(&parent_id)
+            || members.contains(&leaf_id)
+        {
+            return Ok(false);
+        }
+        let (Some(leaf_object), Some(parent_object)) =
+            (leaf.handle.to_local(scope), fragment.handle.to_local(scope))
+        else {
+            return Ok(false);
+        };
+        if leaf_object.internal_field_count() <= 5 {
+            return Ok(false);
+        }
+        let Some(array) = parent_object
+            .get_internal_field(scope, 5)
+            .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+            .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())
+        else {
+            return Ok(false);
+        };
+        // The completed prior rebuild has one entry per wrapper plus its
+        // common ownerDocument. Refuse stale/dead or more complex owner sets.
+        let Some(expected_length) = members
+            .len()
+            .checked_add(1)
+            .and_then(|length| u32::try_from(length).ok())
+            .filter(|length| *length < u32::MAX)
+        else {
+            return Ok(false);
+        };
+        if array.length() != expected_length {
+            return Ok(false);
+        }
+        (leaf_id, leaf_object, array, expected_length)
+    };
+    drop(dom);
+    // Refresh only the new leaf's registry edge. Existing members retain their
+    // component-registry edges, including registries on unwrapped descendants.
+    // Mutual reachability through the shared array retains the union of both.
+    custom_elements::trace_node_registry(scope, state, node, leaf_object)?;
+    custom_elements::trace_component_registries(scope, state, &[node], &[(node, leaf_object)])?;
+    let Some(key) = v8::String::new(scope, &expected_length.to_string()) else {
+        return Ok(false);
+    };
+    let (Ok(mut objects), Ok(mut components)) = (
+        state.objects.try_borrow_mut(),
+        state.wrapper_graph_components.try_borrow_mut(),
+    ) else {
+        return Ok(false);
+    };
+    let (Some(leaf), Some(members)) = (objects.get_mut(&leaf_id), components.get_mut(&parent))
+    else {
+        return Ok(false);
+    };
+    // Prepare the only allocating native index update before V8 publication.
+    // No wrapper-registry borrow survives allocation: weak finalizers may queue
+    // releases there. Locals keep the new leaf and existing component alive.
+    if !members.insert(leaf_id) {
+        return Ok(false);
+    }
+    // CreateDataProperty bypasses indexed Array.prototype setters. This private
+    // ordinary array cannot execute authored code, so our checked internal field
+    // and the native bookkeeping remain valid across allocation/GC.
+    if array.create_data_property(scope, key.into(), leaf_object.into()) != Some(true) {
+        members.remove(&leaf_id);
+        // Do not consume the journal. The general rebuild repairs even a
+        // partially published edge; it is only tracing, never native authority.
+        return Ok(false);
+    }
+    // The prechecked SetInternalField has no allocating or fallible branch.
+    leaf_object.set_internal_field(5, array.into());
+    leaf.retention_component = Some(parent);
+    components.remove(&node);
+    state.wrapper_graph_revision.set(Some(revision));
+    Ok(true)
+}
+
 pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
+    v8::scope!(let scope, scope);
+    match grow_detached_fragment(scope, state) {
+        Ok(true) => 0,
+        Ok(false) => rebuild(scope, state),
+        Err(error) => {
+            // Repair the whole graph before surfacing the allocation error.
+            // Neither a partial registry edge nor its journal becomes cached.
+            state.wrapper_graph_revision.set(None);
+            let released = rebuild(scope, state);
+            state.wrapper_graph_revision.set(None);
+            throw_binding_error(scope, &error);
+            released
+        }
+    }
+}
+
+fn rebuild(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
+    // Graph observation handles must end with this refresh, not the caller task.
+    v8::scope!(let scope, scope);
     let Ok(dom) = state.dom.try_borrow() else {
         state.wrapper_graph_revision.set(None);
         return 0;
@@ -106,15 +337,17 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
             .get(*node)
             .map_or(true, |record| matches!(record.kind, NodeKind::Document))
     });
-    for (node, record) in dom.arena().iter().filter(|_| new_owner_document) {
-        if record
-            .owner_document
-            .is_some_and(|owner| new_nodes.contains(&owner))
-            && let Some(object) = wrappers
-                .lookup(dom.arena().id(), state.realm, node)
-                .and_then(|id| objects.get(&id))
-        {
-            affected.extend(object.retention_component);
+    if new_owner_document {
+        for (node, record) in dom.arena().iter() {
+            if record
+                .owner_document
+                .is_some_and(|owner| new_nodes.contains(&owner))
+                && let Some(object) = wrappers
+                    .lookup(dom.arena().id(), state.realm, node)
+                    .and_then(|id| objects.get(&id))
+            {
+                affected.extend(object.retention_component);
+            }
         }
     }
     for node in changed {
@@ -223,18 +456,12 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
             nodes.insert(*owner, local);
         }
     }
-    // Partition native nodes once: detached descendants need not have a JS
-    // wrapper yet, but their scoped registries are observable through traversal.
-    let mut component_nodes = BTreeMap::<NodeId, Vec<NodeId>>::new();
-    if !groups.is_empty() {
-        for (node, _) in dom.arena().iter() {
-            if let Some(root) = native_root(&dom, node, &mut roots)
-                && groups.contains_key(&root)
-            {
-                component_nodes.entry(root).or_default().push(node);
-            }
-        }
-    }
+    // Detached descendants may have observable registries without wrappers.
+    // Visit only affected retention trees rather than every node in the arena.
+    let component_nodes = groups
+        .keys()
+        .map(|root| (*root, retention_component_nodes(&dom, *root)))
+        .collect::<BTreeMap<_, _>>();
     drop(components);
     drop(objects);
     drop(wrappers);
@@ -295,6 +522,8 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
 /// Only weak native handles are read; the arrays are ordinary collectable V8
 /// cycles. No native Global cycle or cross-arena wrapper lookup is introduced.
 pub(super) fn refresh_agent(scope: &mut v8::PinScope, state: &V8BindingState) {
+    // Graph observation handles must end with this refresh, not the caller task.
+    v8::scope!(let scope, scope);
     if !scope
         .get_slot::<BindingStateRegistry>()
         .is_some_and(|registry| registry.cross_realm_wrappers.get())
@@ -423,4 +652,298 @@ pub(super) fn attach_new_leaf(
     }
     state.wrapper_graph_revision.set(Some(revision));
     true
+}
+
+#[cfg(test)]
+mod component_traversal_tests {
+    use super::*;
+
+    fn compare_with_arena_partition(dom: &DomRuntime) {
+        let mut roots = BTreeMap::new();
+        let mut expected = BTreeMap::<NodeId, BTreeSet<NodeId>>::new();
+        for (node, _) in dom.arena().iter() {
+            if let Some(root) = native_root(dom, node, &mut roots) {
+                expected.entry(root).or_default().insert(node);
+            }
+        }
+        for (root, members) in expected {
+            assert_eq!(
+                retention_component_nodes(dom, root)
+                    .into_iter()
+                    .collect::<BTreeSet<_>>(),
+                members,
+                "retention tree rooted at {root:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn affected_tree_traversal_matches_arena_partition_across_native_edges() {
+        let mut dom = oryn_dom::html::parse_inert_with_declarative_shadow(
+            "<body><main id=parent><span id=child data-value=kept></span></main><iframe id=frame></iframe><template id=template><b data-value=inert></b></template><div id=shadowhost><template shadowrootmode=open><i>shadow</i></template></div></body>"
+        ).into_runtime().unwrap();
+        let shadow_host = dom.find_by_id("shadowhost").unwrap();
+        let shadow = dom
+            .attached_shadow_root(shadow_host, false)
+            .unwrap()
+            .unwrap();
+        let template = dom.find_by_id("template").unwrap();
+        let content = dom.arena().get(template).unwrap().template_content.unwrap();
+        assert!(!dom.arena().get(content).unwrap().children.is_empty());
+        assert!(retention_component_nodes(&dom, dom.document()).contains(&shadow));
+        assert!(!retention_component_nodes(&dom, dom.document()).contains(&content));
+        compare_with_arena_partition(&dom);
+        let child = dom.find_by_id("child").unwrap();
+        dom.attribute_node(child, "data-value").unwrap().unwrap();
+        let frame = dom.find_by_id("frame").unwrap();
+        let hosted = dom.create(NodeKind::Document);
+        let hosted_child = dom.create_element("section");
+        dom.append_child(hosted, hosted_child).unwrap();
+        dom.set_hosted_document(frame, Some(hosted)).unwrap();
+        compare_with_arena_partition(&dom);
+
+        let first = dom.create_fragment();
+        let second = dom.create_fragment();
+        dom.retain_native(first).unwrap();
+        dom.retain_native(second).unwrap();
+        dom.append_child(first, child).unwrap();
+        compare_with_arena_partition(&dom);
+        dom.append_child(second, child).unwrap();
+        compare_with_arena_partition(&dom);
+        dom.append_child(second, frame).unwrap();
+        compare_with_arena_partition(&dom);
+        assert!(!retention_component_nodes(&dom, first).contains(&child));
+        assert!(retention_component_nodes(&dom, second).contains(&hosted_child));
+        dom.release_native(first).unwrap();
+        dom.release_native(second).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod fragment_growth_tests {
+    use super::*;
+
+    fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, source: &str) -> v8::Local<'s, v8::Value> {
+        let source = v8::String::new(scope, source).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+    }
+
+    fn graph<'s>(
+        scope: &mut v8::PinScope<'s, '_>,
+        object: v8::Local<v8::Object>,
+    ) -> v8::Local<'s, v8::Array> {
+        let field = object.get_internal_field(scope, 5).unwrap();
+        let value = v8::Local::<v8::Value>::try_from(field).unwrap();
+        v8::Local::<v8::Array>::try_from(value).unwrap()
+    }
+
+    #[test]
+    fn fragment_growth_reuses_graph_without_setters_and_split_releases_old_component() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(306), 1).unwrap();
+        let old_fragment = {
+            v8::scope!(let scope, scope);
+            let fragment = v8::Local::<v8::Object>::try_from(eval(
+                scope,
+                r#"
+                (()=>{globalThis.fragment=document.createDocumentFragment();
+                const seed=document.createElement('i');seed.saved='seed';fragment.appendChild(seed);
+                globalThis.held=document.createElement('b');held.saved='leaf';return fragment;})()
+            "#,
+            ))
+            .unwrap();
+            let leaf = v8::Local::<v8::Object>::try_from(eval(scope, "held")).unwrap();
+            let parent = resolve_receiver(scope, &state, fragment, "Node").unwrap();
+            let node = resolve_receiver(scope, &state, leaf, "Node").unwrap();
+            let before = graph(scope, fragment);
+            let length = before.length();
+            eval(
+                scope,
+                &format!(
+                    "globalThis.setterCalls=0;Object.defineProperty(Array.prototype,'{length}',{{configurable:true,set(){{setterCalls++}}}})"
+                ),
+            );
+            state
+                .dom
+                .borrow_mut()
+                .insert_dom_node(parent, node, None)
+                .unwrap();
+            assert!(grow_detached_fragment(scope, &state).unwrap());
+            let after = graph(scope, leaf);
+            assert!(before.strict_equals(after.into()));
+            assert_eq!(after.length(), length + 1);
+            assert!(
+                eval(
+                    scope,
+                    "setterCalls===0 && held.parentNode===fragment && held.ownerDocument===document"
+                )
+                .is_true()
+            );
+            eval(
+                scope,
+                &format!("delete Array.prototype['{length}'];fragment=null"),
+            );
+            v8::Weak::new(scope, fragment)
+        };
+        scope.low_memory_notification();
+        {
+            v8::scope!(let scope, scope);
+            assert!(old_fragment.to_local(scope).is_some());
+            assert!(
+                eval(
+                    scope,
+                    "held.parentNode.firstChild.saved==='seed' && held.saved==='leaf'"
+                )
+                .is_true()
+            );
+            eval(scope, "held.remove()");
+        }
+        scope.low_memory_notification();
+        assert!(old_fragment.is_empty());
+        assert!(
+            eval(
+                scope,
+                "held.parentNode===null && held.saved==='leaf' && held.ownerDocument===document"
+            )
+            .is_true()
+        );
+    }
+
+    #[test]
+    fn failed_graph_append_preserves_singleton_index_and_pending_journal_for_rebuild() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(307), 1).unwrap();
+        let fragment = v8::Local::<v8::Object>::try_from(eval(scope, "globalThis.fragment=document.createDocumentFragment();fragment.appendChild(document.createTextNode('seed'));globalThis.leaf=document.createElement('b');fragment")).unwrap();
+        let leaf = v8::Local::<v8::Object>::try_from(eval(scope, "leaf")).unwrap();
+        let parent = resolve_receiver(scope, &state, fragment, "Node").unwrap();
+        let node = resolve_receiver(scope, &state, leaf, "Node").unwrap();
+        let old = graph(scope, fragment);
+        assert_eq!(
+            old.set_integrity_level(scope, v8::IntegrityLevel::Frozen),
+            Some(true)
+        );
+        let previous = state.wrapper_graph_revision.get();
+        state
+            .dom
+            .borrow_mut()
+            .insert_dom_node(parent, node, None)
+            .unwrap();
+        assert!(!grow_detached_fragment(scope, &state).unwrap());
+        assert_eq!(state.wrapper_graph_revision.get(), previous);
+        let id = state
+            .wrappers
+            .borrow()
+            .lookup(state.dom.borrow().arena().id(), state.realm, node)
+            .unwrap();
+        assert_eq!(
+            state.objects.borrow().get(&id).unwrap().retention_component,
+            Some(node)
+        );
+        assert!(
+            state
+                .wrapper_graph_components
+                .borrow()
+                .get(&node)
+                .unwrap()
+                .contains(&id)
+        );
+        assert!(
+            !state
+                .wrapper_graph_components
+                .borrow()
+                .get(&parent)
+                .unwrap()
+                .contains(&id)
+        );
+        refresh(scope, &state);
+        let repaired = graph(scope, fragment);
+        let leaf_graph = graph(scope, leaf);
+        assert!(!old.strict_equals(repaired.into()));
+        assert!(repaired.strict_equals(leaf_graph.into()));
+        assert_eq!(
+            state.wrapper_graph_revision.get(),
+            Some(state.dom.borrow().mutation_cursor().0)
+        );
+        assert!(eval(scope, "leaf.parentNode===fragment && fragment.lastChild===leaf && leaf.ownerDocument===document").is_true());
+    }
+    #[test]
+    fn growth_unites_new_leaf_registry_with_existing_unwrapped_descendant_registry() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(308), 1).unwrap();
+        {
+            v8::scope!(let scope, scope);
+            let fragment = v8::Local::<v8::Object>::try_from(eval(scope, r#"(()=>{
+                const oldRegistry=new CustomElementRegistry();
+                oldRegistry.define('x-old',class extends HTMLElement{ping(){return 42}});
+                const source=document.createElement('section');
+                source.appendChild(document.createElement('x-old',{customElementRegistry:oldRegistry}));
+                globalThis.fragment=document.createDocumentFragment();
+                fragment.appendChild(source.cloneNode(true));
+                const newRegistry=new CustomElementRegistry();
+                newRegistry.define('x-new',class extends HTMLElement{ping(){return 73}});
+                globalThis.held=document.createElement('x-new',{customElementRegistry:newRegistry});
+                return fragment;
+            })()"#)).unwrap();
+            let leaf = v8::Local::<v8::Object>::try_from(eval(scope, "held")).unwrap();
+            let parent = resolve_receiver(scope, &state, fragment, "Node").unwrap();
+            let node = resolve_receiver(scope, &state, leaf, "Node").unwrap();
+            let old = graph(scope, fragment);
+            state
+                .dom
+                .borrow_mut()
+                .insert_dom_node(parent, node, None)
+                .unwrap();
+            assert!(grow_detached_fragment(scope, &state).unwrap());
+            let current = graph(scope, leaf);
+            assert!(old.strict_equals(current.into()));
+            eval(scope, "fragment=null");
+        }
+        scope.low_memory_notification();
+        scope.low_memory_notification();
+        {
+            v8::scope!(let scope, scope);
+            assert!(
+                eval(
+                    scope,
+                    r#"(()=>{
+                const old=held.parentNode.firstChild.firstChild;
+                return old.ping()===42 && held.ping()===73
+                    && old.customElementRegistry.get('x-old')===old.constructor
+                    && held.customElementRegistry.get('x-new')===held.constructor;
+            })()"#
+                )
+                .is_true()
+            );
+        }
+    }
 }

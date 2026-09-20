@@ -59,6 +59,7 @@ pub(crate) struct Ticket {
     stage: OutcomeStage,
 }
 impl Custody {
+    #[cfg(test)]
     pub(crate) fn admit(self: &Arc<Self>) -> Result<Ticket, String> {
         self.admit_target(None)
     }
@@ -308,15 +309,15 @@ impl Ticket {
             return;
         }
         let mut error_truncated = false;
-        if let Err(message) = &mut result {
-            if message.len() > 4096 {
-                let mut boundary = 4096;
-                while !message.is_char_boundary(boundary) {
-                    boundary -= 1;
-                }
-                message.truncate(boundary);
-                error_truncated = true;
+        if let Err(message) = &mut result
+            && message.len() > 4096
+        {
+            let mut boundary = 4096;
+            while !message.is_char_boundary(boundary) {
+                boundary -= 1;
             }
+            message.truncate(boundary);
+            error_truncated = true;
         }
         let mut state = self.owner.state.lock().unwrap_or_else(|e| e.into_inner());
         state.active -= 1;
@@ -341,15 +342,15 @@ impl Ticket {
 }
 
 fn normalize_execution(outcome: &mut NavigationExecutionOutcome) -> bool {
-    if let NavigationExecutionOutcome::Failed { message } = outcome {
-        if message.len() > 4096 {
-            let mut end = 4096;
-            while !message.is_char_boundary(end) {
-                end -= 1;
-            }
-            message.truncate(end);
-            return true;
+    if let NavigationExecutionOutcome::Failed { message } = outcome
+        && message.len() > 4096
+    {
+        let mut end = 4096;
+        while !message.is_char_boundary(end) {
+            end -= 1;
         }
+        message.truncate(end);
+        return true;
     }
     false
 }

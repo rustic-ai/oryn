@@ -13,7 +13,9 @@ use std::{
     },
     time::{Duration, Instant},
 };
+#[cfg(any(feature = "v8-host", test))]
 const LIMIT: usize = 32 * 1024 * 1024;
+#[cfg(any(feature = "v8-host", test))]
 fn response_bytes(response: &Response) -> Option<usize> {
     struct Count(usize);
     impl std::io::Write for Count {
@@ -36,6 +38,7 @@ fn response_bytes(response: &Response) -> Option<usize> {
 
 #[derive(PartialEq, Eq)]
 struct Key(Vec<u8>);
+#[cfg(any(feature = "v8-host", test))]
 #[derive(Clone, Copy)]
 enum Kind {
     Script,
@@ -109,6 +112,7 @@ fn key(request: &Request) -> Result<Key, RuntimeError> {
     }
     Ok(Key(key))
 }
+#[cfg(test)]
 pub(super) fn consumption_key(request: &Request) -> Result<Vec<u8>, RuntimeError> {
     key(request).map(|key| key.0)
 }
@@ -136,6 +140,7 @@ pub(super) fn reuse_key(request: &Request) -> Result<Vec<u8>, RuntimeError> {
 }
 pub(crate) struct Entry {
     pub(super) status: crate::render_request_status::Status,
+    #[cfg(any(feature = "v8-host", test))]
     kind: Kind,
     key: Key,
     reuse_key: Vec<u8>,
@@ -143,6 +148,7 @@ pub(crate) struct Entry {
     expires: Instant,
     cancelled: AtomicBool,
     claimed: AtomicBool,
+    #[cfg(any(feature = "v8-host", test))]
     started: AtomicBool,
     changed: Condvar,
     lease: Mutex<Option<ContextScriptLoad>>,
@@ -157,9 +163,11 @@ impl Entry {
     pub(super) fn same_request(&self, request: &Request) -> bool {
         key(request).is_ok_and(|key| self.key == key)
     }
+    #[cfg(any(feature = "v8-host", test))]
     pub(super) fn start(&self) -> bool {
         !self.started.swap(true, Ordering::AcqRel)
     }
+    #[cfg(any(feature = "v8-host", test))]
     pub(super) fn attach(&self, lease: ContextScriptLoad) -> Result<(), RuntimeError> {
         let mut current = self.lease.lock().unwrap_or_else(|e| e.into_inner());
         if self.cancelled.load(Ordering::Acquire) {
@@ -184,6 +192,7 @@ impl Entry {
             lease.cancel();
         }
     }
+    #[cfg(any(feature = "v8-host", test))]
     pub(super) fn complete(&self, result: Result<Response, RuntimeError>) {
         self.status.finish();
         if self.cancelled() {
@@ -247,6 +256,7 @@ impl Entry {
                 .0;
         }
     }
+    #[cfg(any(feature = "v8-host", test))]
     pub(crate) fn outcome(&self) -> Option<Result<Response, ScriptLoadFailure>> {
         if self.cancelled() {
             self.cancel();
@@ -257,6 +267,7 @@ impl Entry {
             .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
+    #[cfg(test)]
     pub(crate) fn result(&self) -> Option<Result<Response, RuntimeError>> {
         self.outcome()
             .map(|result| result.map_err(ScriptLoadFailure::runtime))
@@ -273,10 +284,12 @@ impl Drop for Entry {
 pub(super) struct Store {
     entries: Mutex<VecDeque<Arc<Entry>>>,
     owners: Mutex<Vec<Weak<Entry>>>,
+    #[cfg(any(feature = "v8-host", test))]
     budget: Arc<AtomicUsize>,
     retired: AtomicBool,
 }
 impl Store {
+    #[cfg(any(feature = "v8-host", test))]
     pub(super) fn admit(&self, request: &Request) -> Result<Arc<Entry>, RuntimeError> {
         let reuse_key = reuse_key(request)?;
         let key = key(request)?;
@@ -388,13 +401,16 @@ impl Store {
 // An encoding restart keeps the same Document and authority epoch. Preserve
 // exact baseline producers, and explicitly revoke tentative producers even if
 // an old parser consumer has already claimed one from the lookup queue.
+#[cfg(any(feature = "v8-host", test))]
 pub(crate) struct Snapshot {
     store: Arc<Store>,
     entries: Vec<(Arc<Entry>, bool)>,
     owners: Vec<Arc<Entry>>,
     restored: AtomicBool,
 }
+#[cfg(any(feature = "v8-host", test))]
 impl Snapshot {
+    #[cfg(feature = "v8-host")]
     pub(crate) fn retained_bytes(&self) -> usize {
         self.owners
             .iter()
@@ -442,6 +458,7 @@ impl Snapshot {
     }
 }
 impl Store {
+    #[cfg(any(feature = "v8-host", test))]
     pub(super) fn snapshot(self: &Arc<Self>) -> Snapshot {
         let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         let owners = self.owners.lock().unwrap_or_else(|e| e.into_inner());
@@ -677,8 +694,9 @@ mod tests {
             }),
             None,
             Default::default(),
-            None,
             Default::default(),
+            #[cfg(feature = "v8-host")]
+            None,
         );
         let link = client.begin_resource_preload(request()).unwrap();
         let status = link.status.clone();

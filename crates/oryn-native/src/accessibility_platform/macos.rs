@@ -16,7 +16,7 @@ mod picture_in_picture;
 mod text_input;
 mod text_markers;
 pub enum Update {
-    Snapshot(Snapshot),
+    Snapshot(Box<Snapshot>),
     Receipts(Vec<crate::webdriver_actions::OsKeyReceipt>),
 }
 type Id = *mut c_void;
@@ -312,7 +312,7 @@ struct Entry {
     viewport_height: f64,
     sender: SyncSender<ActionRequest>,
 }
-thread_local! {static ENTRIES:RefCell<BTreeMap<usize,Entry>>=RefCell::new(BTreeMap::new());}
+thread_local! {static ENTRIES:RefCell<BTreeMap<usize,Entry>>=const { RefCell::new(BTreeMap::new()) };}
 fn with_entry<T>(object: Id, default: T, f: impl FnOnce(&Entry) -> T) -> T {
     ENTRIES.with(|entries| {
         entries
@@ -813,23 +813,22 @@ unsafe extern "C" fn set_attribute(object: Id, _: Sel, value: Id, name: Id) {
             }
         }
         Some("AXSelectedTextRange") => {
-            if let Some(range) = unsafe { get_range(value) } {
-                if let Some(end) = range
+            if let Some(range) = unsafe { get_range(value) }
+                && let Some(end) = range
                     .location
                     .checked_add(range.length)
                     .filter(|end| *end <= u32::MAX as usize)
-                {
-                    let expected = with_entry(object, None, |entry| entry.node.text.clone());
-                    if let Some(expected) = expected {
-                        enqueue(
-                            object,
-                            Action::SelectText {
-                                start: range.location as u32,
-                                end: end as u32,
-                                expected,
-                            },
-                        );
-                    }
+            {
+                let expected = with_entry(object, None, |entry| entry.node.text.clone());
+                if let Some(expected) = expected {
+                    enqueue(
+                        object,
+                        Action::SelectText {
+                            start: range.location as u32,
+                            end: end as u32,
+                            expected,
+                        },
+                    );
                 }
             }
         }
@@ -1618,10 +1617,11 @@ impl Host {
                 std::mem::transmute(objc_msgSend as *const ());
             let active = active(self.application, sel("isActive")) != 0
                 && active(self.window, sel("isKeyWindow")) != 0;
-            if self.input_active && !active {
-                if let Err(error) = self.cancel_os_input() {
-                    self.failure = Some(error);
-                }
+            if self.input_active
+                && !active
+                && let Err(error) = self.cancel_os_input()
+            {
+                self.failure = Some(error);
             }
             self.input_active = active;
             text_input::update_secure_input(self.view, active);
@@ -1666,7 +1666,7 @@ impl Host {
     pub fn run(mut self, updates: Receiver<Result<Update, String>>) -> Result<(), String> {
         while self.pump() {
             match updates.try_recv() {
-                Ok(Ok(Update::Snapshot(snapshot))) => self.publish(snapshot)?,
+                Ok(Ok(Update::Snapshot(snapshot))) => self.publish(*snapshot)?,
                 Ok(Ok(Update::Receipts(receipts))) => text_input::receipts(self.view, receipts)?,
                 Ok(Err(error)) => return Err(error),
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => break,

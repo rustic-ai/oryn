@@ -1,4 +1,16 @@
 //! Native CSS media query parser and evaluator shared by layout and page algorithms.
+
+/// Inputs for source size.
+pub struct SourceSizeInputs<'a> {
+    pub sizes: &'a str,
+    pub base_url: &'a str,
+    pub quirks: bool,
+    pub viewport: ViewportState,
+    pub color_scheme: ColorScheme,
+    pub reduced_motion: bool,
+    pub print_media: bool,
+    pub auto_width: Option<f64>,
+}
 use super::{BaseDocument, BlitzColorScheme, BlitzViewport, ColorScheme, DocumentConfig};
 use oryn_common::v4::ViewportState;
 
@@ -109,21 +121,23 @@ mod tests {
 
 /// The HTML sizes algorithm uses the CSS parser and media-query evaluation device,
 /// including calc(), viewport units, font-relative lengths and invalid-item recovery.
-pub fn source_size(
-    sizes: &str,
-    base_url: &str,
-    quirks: bool,
-    viewport: ViewportState,
-    color_scheme: ColorScheme,
-    reduced_motion: bool,
-    print_media: bool,
-    auto_width: Option<f64>,
-) -> Result<f64, String> {
+pub fn source_size(params: SourceSizeInputs<'_>) -> Result<f64, String> {
+    let SourceSizeInputs {
+        sizes,
+        base_url,
+        quirks,
+        viewport,
+        color_scheme,
+        reduced_motion,
+        print_media,
+        auto_width,
+    } = params;
+
     use style::{
         context::QuirksMode,
-        media_queries::{MediaList, MediaType},
+        media_queries::MediaType,
         parser::ParserContext,
-        stylesheets::{CssRuleType, CustomMediaEvaluator, Origin, UrlExtraData},
+        stylesheets::{CssRuleType, Origin, UrlExtraData},
     };
     let url = UrlExtraData::from(url::Url::parse(base_url).map_err(|e| e.to_string())?);
     let quirks = if quirks {
@@ -131,7 +145,7 @@ pub fn source_size(
     } else {
         QuirksMode::NoQuirks
     };
-    let mut context = ParserContext::new(
+    let context = ParserContext::new(
         Origin::Author,
         &url,
         Some(CssRuleType::Media),
@@ -192,20 +206,20 @@ mod source_size_tests {
     #[test]
     fn responsive_sizes_use_css_math_media_and_initial_font() {
         let evaluate = |sizes, auto| {
-            source_size(
+            source_size(SourceSizeInputs {
                 sizes,
-                "https://images.test/",
-                false,
-                ViewportState {
+                base_url: "https://images.test/",
+                quirks: false,
+                viewport: ViewportState {
                     width: 800.,
                     height: 600.,
                     device_pixel_ratio: 2.,
                 },
-                ColorScheme::Light,
-                false,
-                false,
-                auto,
-            )
+                color_scheme: ColorScheme::Light,
+                reduced_motion: false,
+                print_media: false,
+                auto_width: auto,
+            })
             .unwrap()
         };
         assert_eq!(

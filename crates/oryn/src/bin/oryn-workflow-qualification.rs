@@ -120,21 +120,21 @@ async fn release_commit_gate(
     let done = PathBuf::from(format!("{}.done", gate.marker.display()));
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
-        if let Ok(bytes) = std::fs::read(&done) {
-            if let Ok(value) = serde_json::from_slice::<Value>(&bytes) {
-                let terminal = if gate.phase == "before_commit" {
-                    "aborted_before_commit"
-                } else {
-                    "released_after_commit"
-                };
-                if value["token"].as_str() != Some(gate.token.as_str())
-                    || value["phase"].as_str() != Some(gate.phase.as_str())
-                    || value["terminal"] != terminal
-                {
-                    return Err("fixture release acknowledgement mismatch".into());
-                }
-                return Ok(());
+        if let Ok(bytes) = std::fs::read(&done)
+            && let Ok(value) = serde_json::from_slice::<Value>(&bytes)
+        {
+            let terminal = if gate.phase == "before_commit" {
+                "aborted_before_commit"
+            } else {
+                "released_after_commit"
+            };
+            if value["token"].as_str() != Some(gate.token.as_str())
+                || value["phase"].as_str() != Some(gate.phase.as_str())
+                || value["terminal"] != terminal
+            {
+                return Err("fixture release acknowledgement mismatch".into());
             }
+            return Ok(());
         }
         if tokio::time::Instant::now() >= deadline {
             return Err("fixture release acknowledgement deadline".into());
@@ -211,8 +211,8 @@ fn validate(plan: &Plan) -> Result<(), String> {
         if let Some(fault) = &session.fault {
             fault.validate(session.steps.len())?;
         }
-        if let Some(recovery) = &session.commit_recovery {
-            if recovery
+        if let Some(recovery) = &session.commit_recovery
+            && (recovery
                 .outcome_url
                 .chars()
                 .any(|character| matches!(character, '\n' | '\r' | '"'))
@@ -222,10 +222,9 @@ fn validate(plan: &Plan) -> Result<(), String> {
                     .fault
                     .as_ref()
                     .and_then(|fault| fault.commit_gate.as_ref())
-                    .is_none()
-            {
-                return Err("invalid conditional commit recovery".into());
-            }
+                    .is_none())
+        {
+            return Err("invalid conditional commit recovery".into());
         }
         let mut labels = BTreeSet::new();
         for upload in &session.uploads {
@@ -235,14 +234,13 @@ fn validate(plan: &Plan) -> Result<(), String> {
         }
     }
     for session in &plan.sessions {
-        if let Some(owner) = &session.adversarial_for {
-            if !plan
+        if let Some(owner) = &session.adversarial_for
+            && !plan
                 .sessions
                 .iter()
                 .any(|candidate| candidate.id == *owner && candidate.adversarial_for.is_none())
-            {
-                return Err("adversarial context requires an explicit cohort owner".into());
-            }
+        {
+            return Err("adversarial context requires an explicit cohort owner".into());
         }
     }
     Ok(())
@@ -313,10 +311,10 @@ async fn main() -> anyhow::Result<()> {
                 let fault=session_plan.fault.as_ref().filter(|fault|fault.before_step==index || (fault.commit_gate.is_some() && !gate_consumed && index>=fault.before_step));
                 if let Some(FaultPlan{kind:FaultKind::WorkerFailure,commit_gate:None,..})=fault {
                     #[cfg(unix)]
-                    match context.terminate_qualification_worker(page_id).await {
+                    match context.terminate_qualification_worker(page.page_id()).await {
                         Ok(evidence)=>{fault_evidence=json!({"fault":"worker_failure","injected":true,"boundary":"before_step_idle_worker","native":evidence});
                             let replacement=context.new_page();
-                            if let Err(error)=context.activate_page(replacement.id()) {errors.push(error.to_string());break;}
+                            if let Err(error)=context.activate_page(replacement.page_id()) {errors.push(error.to_string());break;}
                         },
                         Err(error)=>{errors.push(error.to_string());break;}
                     }
@@ -370,12 +368,11 @@ async fn main() -> anyhow::Result<()> {
                 steps.push(json!({"index":index,"outputs":outputs,"error":error,"native_error":native_error,"timed_out":timed_out,"expected_error_matched":matched,"operation_elapsed_ns":operation_started.elapsed().as_nanos()}));
                 if cancellation {
                     #[cfg(unix)]
-                    match context.cancel_qualification_operation(page_id).await {
+                    match context.cancel_qualification_operation(page.page_id()).await {
                         Ok(native)=>{let interrupted=native["interrupted_inflight"]==true;
                             fault_evidence=json!({"fault":fault.map(|fault|&fault.kind),"injected":interrupted,"native":native,"commit_gate":gate});
-                            if let Some(gate)=gate.filter(|_|gate_observed && interrupted && native["reaped"]==true) {
-                                if let Err(error)=release_commit_gate(gate).await {errors.push(error);fault_evidence["injected"]=json!(false);}
-                            }
+                            if let Some(gate)=gate.filter(|_|gate_observed && interrupted && native["reaped"]==true)
+                                && let Err(error)=release_commit_gate(gate).await {errors.push(error);fault_evidence["injected"]=json!(false);}
                             if !interrupted {errors.push("cancellation did not interrupt an inflight native operation".into());}
                         },
                         Err(error)=>errors.push(error.to_string()),
@@ -386,7 +383,7 @@ async fn main() -> anyhow::Result<()> {
                         if errors.is_empty() {
                             if let Some(policy)=&session_plan.commit_recovery {
                                 let replacement=context.new_page();
-                                if let Err(error)=context.activate_page(replacement.id()) {errors.push(error.to_string());}
+                                if let Err(error)=context.activate_page(replacement.page_id()) {errors.push(error.to_string());}
                                 let inspect=[format!("goto \"{}\"",policy.outcome_url),"extract text css(#commit-state)".to_owned()];
                                 let mut state=None;
                                 for input in inspect {
@@ -406,14 +403,13 @@ async fn main() -> anyhow::Result<()> {
                                     Some("committed")=>Some("click \"Continue committed request\""),
                                     _=>{errors.push("durable outcome did not establish commit state".into());None},
                                 };
-                                if errors.is_empty() {
-                                    if let Some(command)=command {
+                                if errors.is_empty()
+                                    && let Some(command)=command {
                                         match tokio::time::timeout(Duration::from_secs(30),session.execute(command)).await {
                                             Ok(Ok(outputs))=>recovery.push(json!({"stage":"resolve_commit","state":state,"outputs":outputs,"error":null})),
                                             result=>errors.push(format!("commit recovery action failed: {result:?}")),
                                         }
                                     }
-                                }
                                 resume_after=Some(policy.resume_after);
                             } else {errors.push("commit interruption has no conditional recovery policy".into());}
                         }
@@ -421,7 +417,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                     if !session_plan.recovery_steps.is_empty() {
                         let replacement=context.new_page();
-                        if let Err(error)=context.activate_page(replacement.id()) {errors.push(error.to_string());}
+                        if let Err(error)=context.activate_page(replacement.page_id()) {errors.push(error.to_string());}
                         for (recovery_index,recovery_step) in session_plan.recovery_steps.iter().enumerate() {
                             let result=tokio::time::timeout(Duration::from_millis(recovery_step.timeout_ms),session.execute(&recovery_step.oil)).await;
                             match result {

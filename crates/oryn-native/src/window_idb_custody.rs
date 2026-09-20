@@ -208,10 +208,9 @@ impl Ledger {
             .execute(StorageRequest::IndexedDb { origin, command })
             .map_err(|error| failure(error.to_string()));
         if matches!(&result,Ok(StorageResponse::IndexedDb{response})if !response.transaction_blocked)
+            && let (Some((token, _, false)), Some(entry)) = (&transaction, &entry)
         {
-            if let (Some((token, _, false)), Some(entry)) = (&transaction, &entry) {
-                self.remove(&(owner.clone(), token.clone()), entry);
-            }
+            self.remove(&(owner.clone(), token.clone()), entry);
         }
         result
     }
@@ -864,13 +863,14 @@ mod retirement_fanout_tests {
         assert!(error.to_string().contains("deferred registry poisoned"));
         assert!(target.retired.load(Ordering::Acquire));
         assert!(!survivor.retired.load(Ordering::Acquire));
-        let entries = context.inner.window_idb.entries.lock().unwrap();
-        assert!(!entries.contains_key(&(owner(page), "token".into())));
-        assert!(Arc::ptr_eq(
-            entries.get(&(owner(sibling), "token".into())).unwrap(),
-            &survivor
-        ));
-        drop(entries);
+        {
+            let entries = context.inner.window_idb.entries.lock().unwrap();
+            assert!(!entries.contains_key(&(owner(page), "token".into())));
+            assert!(Arc::ptr_eq(
+                entries.get(&(owner(sibling), "token".into())).unwrap(),
+                &survivor
+            ));
+        }
         // Retry reports the unresolved first owner, without resurrecting the
         // released transaction or consuming another page's remaining custody.
         assert!(context.retire_page_agents(page).await.is_err());

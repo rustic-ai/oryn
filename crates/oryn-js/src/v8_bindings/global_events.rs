@@ -1,4 +1,6 @@
 //! Native global event dispatch and callback reporting.
+type EventCallback<'s> = (v8::Local<'s, v8::Function>, v8::Local<'s, v8::Value>);
+
 use super::*;
 pub(super) const GLOBAL_TARGET: u64 = 0;
 const WINDOW_HANDLER_TYPES: &[&str] = &[
@@ -500,13 +502,13 @@ pub(super) fn phase<'s>(
                         }
                         if let Some(value) = converted {
                             let mut events = event_state.events.borrow_mut();
-                            if let Some(event) = events.get_mut(&id) {
-                                if let Some(old) = event.before_unload_return_value.as_mut() {
-                                    if old.is_empty() {
-                                        *old = value;
-                                    }
-                                    event.default_prevented = true;
+                            if let Some(event) = events.get_mut(&id)
+                                && let Some(old) = event.before_unload_return_value.as_mut()
+                            {
+                                if old.is_empty() {
+                                    *old = value;
                                 }
+                                event.default_prevented = true;
                             }
                         }
                     } else if (is_error && value.is_true())
@@ -581,7 +583,7 @@ pub(super) fn resolve_listener<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     listener: v8::Local<'s, v8::Value>,
     receiver: v8::Local<'s, v8::Value>,
-) -> Result<Option<(v8::Local<'s, v8::Function>, v8::Local<'s, v8::Value>)>, V8BindingError> {
+) -> Result<Option<EventCallback<'s>>, V8BindingError> {
     if let Ok(function) = v8::Local::<v8::Function>::try_from(listener) {
         return Ok(Some((function, receiver)));
     }
@@ -613,11 +615,11 @@ pub(super) fn resolve_listener<'s>(
         }
         (function, exception, message)
     };
-    if let Some(exception) = exception {
-        if !scope.is_execution_terminating() {
-            let scope = &mut v8::ContextScope::new(scope, context);
-            let _ = report_exception(scope, exception, message);
-        }
+    if let Some(exception) = exception
+        && !scope.is_execution_terminating()
+    {
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _ = report_exception(scope, exception, message);
     }
     Ok(result
         .filter(|_| !scope.is_execution_terminating())

@@ -68,24 +68,20 @@ pub(super) fn viewport_style(
     if ["overflow-x", "overflow-y"]
         .iter()
         .all(|axis| style_value(&style, axis, "visible") == "visible")
-    {
-        if let Some(body) = input
+        && let Some(body) = input
             .nodes
             .iter()
             .find(|node| node.parent == Some(root.id) && node.tag == "body")
-        {
-            if let Some(body_style) = styles.get(&body.id) {
-                if !matches!(
-                    style_value(body_style, "display", "block"),
-                    "none" | "contents"
-                ) {
-                    for axis in ["overflow-x", "overflow-y"] {
-                        style.insert(axis.into(), style_value(body_style, axis, "visible").into());
-                    }
-                    source = body.id;
-                }
-            }
+        && let Some(body_style) = styles.get(&body.id)
+        && !matches!(
+            style_value(body_style, "display", "block"),
+            "none" | "contents"
+        )
+    {
+        for axis in ["overflow-x", "overflow-y"] {
+            style.insert(axis.into(), style_value(body_style, axis, "visible").into());
         }
+        source = body.id;
     }
     for axis in ["overflow-x", "overflow-y"] {
         let value = style_value(&style, axis, "visible");

@@ -1914,9 +1914,23 @@ impl DomRuntime {
             return Ok(());
         }
         let document = self.arena.node_document(node)?;
-        let document_registry = document
+        let document_registry_slot = document
             .and_then(|document| self.arena.get(document).ok())
-            .and_then(|record| record.custom_element_registry.flatten());
+            .and_then(|record| record.custom_element_registry);
+        if record.custom_element_registry.is_none()
+            && document_registry_slot.is_none()
+            && record
+                .parent
+                .filter(|_| Some(node) != root)
+                .and_then(|parent| self.arena.get(parent).ok())
+                .and_then(|record| record.custom_element_registry)
+                .is_none()
+        {
+            // Parser/import initialization before a binding realm is installed
+            // must not manufacture an explicit null registry association.
+            return Ok(());
+        }
+        let document_registry = document_registry_slot.flatten();
         let registry = match record.kind {
             NodeKind::ShadowRoot { .. } => {
                 if association.is_none() && record.custom_element_registry_keep_null {
@@ -2990,7 +3004,20 @@ impl DomRuntime {
         for child in &nodes {
             self.insert_before(parent, *child, reference)?;
         }
-        self.mutations.suppress_tree_observers_since(cursor, parent);
+        // The grouped insertion replaces only insertion rows. A same-parent
+        // move still exposes the preceding removal with its original siblings.
+        for (sequence, mutation) in &mut self.mutations.entries {
+            if *sequence > cursor.0
+                && let Mutation::Inserted {
+                    parent: Some(owner),
+                    observer_suppressed,
+                    ..
+                } = mutation
+                && *owner == parent
+            {
+                *observer_suppressed = true;
+            }
+        }
         if !nodes.is_empty() {
             self.record_mutation(Mutation::ChildrenReplaced {
                 node: parent,
@@ -5219,9 +5246,14 @@ impl DomRuntime {
         // including mutations whose nodes are later reclaimed. Identity tokens
         // cannot wrap and do not depend on the bounded journal retaining nodes.
         let changed: Vec<NodeId> = match &mutation {
-            Mutation::Inserted { node, parent, .. } => {
-                std::iter::once(*node).chain(*parent).collect()
-            }
+            Mutation::Inserted {
+                node,
+                parent: Some(parent),
+                ..
+            } => vec![*node, *parent],
+            // Allocation alone does not mutate a document tree. Fresh nodes
+            // receive their actual owner after allocation (e.g. inert Documents).
+            Mutation::Inserted { parent: None, .. } => Vec::new(),
             Mutation::Removed {
                 node,
                 former_parent,
@@ -8922,5 +8954,52 @@ mod synchronous_native_handoff_regressions {
             );
             assert!(dom.roots.values().all(|roots| roots.native == 0));
         }
+    }
+}
+
+#[cfg(test)]
+mod uninitialized_registry_tests {
+    use super::*;
+    #[test]
+    fn parser_and_import_preserve_absent_registry_until_destination_is_initialized() {
+        let parsed = html::parse("<body><div><span>text</span></div></body>");
+        assert!(
+            parsed
+                .dom
+                .iter()
+                .filter(|(_, record)| matches!(record.kind, NodeKind::Element { .. }))
+                .all(|(_, record)| record.custom_element_registry.is_none())
+        );
+        let mut dom = DomRuntime::new();
+        let imported = dom.import_subtree(&parsed.dom, parsed.document).unwrap();
+        let span = dom.query_selector(imported, "span").unwrap().unwrap();
+        assert_eq!(dom.arena().get(span).unwrap().custom_element_registry, None);
+        let destination = dom.document();
+        dom.register_global_custom_element_registry(941);
+        dom.set_custom_element_registry(destination, Some(941))
+            .unwrap();
+        dom.set_node_document(span, destination).unwrap();
+        assert_eq!(
+            dom.arena().get(span).unwrap().custom_element_registry,
+            Some(Some(941))
+        );
+    }
+    #[test]
+    fn explicit_null_and_scoped_associations_are_not_uninitialized() {
+        let mut dom = DomRuntime::new();
+        let node = dom.create_element("span");
+        dom.set_custom_element_registry(node, None).unwrap();
+        dom.set_node_document(node, dom.document()).unwrap();
+        assert_eq!(
+            dom.arena().get(node).unwrap().custom_element_registry,
+            Some(None)
+        );
+        dom.set_custom_element_registry(node, Some(942)).unwrap();
+        let other = dom.create(NodeKind::Document);
+        dom.set_node_document(node, other).unwrap();
+        assert_eq!(
+            dom.arena().get(node).unwrap().custom_element_registry,
+            Some(Some(942))
+        );
     }
 }

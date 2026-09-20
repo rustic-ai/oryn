@@ -4,6 +4,7 @@ pub(super) struct Entry {
     owner: RcWeak<V8BindingState>,
     document: navigation_api::AdmissionDocument,
     delta: i64,
+    admission: Option<navigation_api::NativeNavigationToken>,
     claimed: Cell<bool>,
 }
 pub struct HistoryTraversalTask {
@@ -11,6 +12,9 @@ pub struct HistoryTraversalTask {
     completed: bool,
 }
 impl HistoryTraversalTask {
+    pub(super) fn navigation_admission(&self) -> Option<&navigation_api::NativeNavigationToken> {
+        self.entry.admission.as_ref()
+    }
     pub fn delta(&self) -> i64 {
         self.entry.delta
     }
@@ -61,6 +65,20 @@ impl Drop for HistoryTraversalTask {
     }
 }
 pub(super) fn enqueue(state: &Rc<V8BindingState>, delta: i64) -> Result<(), V8BindingError> {
+    enqueue_with_admission(state, delta, None)
+}
+pub(super) fn enqueue_navigation(
+    state: &Rc<V8BindingState>,
+    delta: i64,
+    admission: navigation_api::NativeNavigationToken,
+) -> Result<(), V8BindingError> {
+    enqueue_with_admission(state, delta, Some(admission))
+}
+fn enqueue_with_admission(
+    state: &Rc<V8BindingState>,
+    delta: i64,
+    admission: Option<navigation_api::NativeNavigationToken>,
+) -> Result<(), V8BindingError> {
     if state.execution_retired() || state.execution_suspended() {
         return Err(V8BindingError::Unsupported {
             interface: "History".into(),
@@ -78,6 +96,7 @@ pub(super) fn enqueue(state: &Rc<V8BindingState>, delta: i64) -> Result<(), V8Bi
         owner: Rc::downgrade(state),
         document: navigation_api::AdmissionDocument::capture(state),
         delta,
+        admission,
         claimed: Cell::new(false),
     }));
     Ok(())

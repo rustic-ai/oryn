@@ -113,9 +113,16 @@ impl Roots {
                 None,
             );
             state.standalone_root = Some(realm);
-            state.adopt_agent_document(
-                executable, url, generation, origin, history, policy, referrer, isolation,
-            );
+            state.adopt_agent_document(crate::runtime::AgentDocumentInputs {
+                executable,
+                url,
+                generation,
+                origin,
+                history,
+                policy,
+                referrer,
+                isolation,
+            });
             self.drivers.insert(realm, Box::new(state));
             self.unclaimed.pop_front();
         }
@@ -154,7 +161,7 @@ impl Roots {
             }
             if let Some(executable) = state.executable.as_mut() {
                 if let Err((error, returned)) = executable.install_agent_host(owned) {
-                    *host = Some(returned);
+                    *host = Some(*returned);
                     first.get_or_insert(error);
                     continue;
                 }

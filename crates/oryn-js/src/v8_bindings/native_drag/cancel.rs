@@ -122,10 +122,10 @@ impl Cancel {
                         if !foreign.poll(scope)? {
                             return Ok(false);
                         }
-                    } else if let Some(target) = self.target.filter(|node| self.present(*node)) {
-                        if !self.emit(scope, target, "dragleave")? {
-                            return Ok(false);
-                        }
+                    } else if let Some(target) = self.target.filter(|node| self.present(*node))
+                        && !self.emit(scope, target, "dragleave")?
+                    {
+                        return Ok(false);
                     }
                     self.foreign.take();
                     self.phase = Phase::Commit;

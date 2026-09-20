@@ -4,6 +4,104 @@
 //! realm, document-generation and node-generation checks happen before a
 //! generated callback reaches a Rust behavior implementation.
 
+pub struct StartedClassicScriptInputs<'a> {
+    pub resource_name: &'a str,
+    pub muted_errors: bool,
+    pub include_credentials: bool,
+    pub referrer_policy: &'a str,
+    pub base_url: &'a str,
+    pub started: &'a mut dyn FnMut(),
+}
+
+pub struct ClassicScriptInputs<'a> {
+    pub resource_name: &'a str,
+    pub muted_errors: bool,
+    pub include_credentials: bool,
+    pub referrer_policy: &'a str,
+    pub base_url: &'a str,
+}
+
+pub(super) struct NativeInputEventInputs<'a> {
+    pub(super) interface: &'a str,
+    pub(super) event_type: &'a str,
+    pub(super) bubbles: bool,
+    pub(super) cancelable: bool,
+    pub(super) composed: bool,
+    pub(super) detail: i32,
+    pub(super) related: Option<NodeId>,
+    pub(super) fields: &'a [(&'a str, NativeInputValue<'a>)],
+}
+
+struct CanvasImageInputs<'a> {
+    rect: [f64; 8],
+    smooth: bool,
+    global_alpha: f64,
+    matrix: [f64; 6],
+    composite: Composite,
+    clips: &'a [canvas_path::Clip],
+}
+
+#[cfg(test)]
+type NestedScrollInput = ((f64, f64), BTreeMap<NodeId, (f64, f64)>);
+
+#[cfg(test)]
+type ViewportScrollInput = ((f64, f64), (f64, f64));
+
+type DeferredFetchBackendProvider =
+    fn(
+        &mut v8::PinScope,
+        &V8BindingState,
+    ) -> Result<Rc<dyn crate::fetch_later::DeferredFetchBackend>, V8BindingError>;
+
+type ControlEdit = (
+    NodeId,
+    String,
+    (u32, u32, String),
+    String,
+    (u32, u32, String),
+);
+
+type PromiseInput<'s> = (v8::Local<'s, v8::Value>, Option<Vec<Vec<String>>>, bool);
+
+type RealmValues<'s> = (Rc<V8BindingState>, Vec<v8::Local<'s, v8::Value>>);
+
+type RealmNodes = Vec<(Rc<V8BindingState>, NodeId)>;
+
+type FrameViewportParent = (std::rc::Weak<V8BindingState>, NodeId, Option<u64>);
+
+type ControlCaretGoal = (NodeId, (u32, u32, String), (f64, f64), (u64, usize));
+
+type SelectionCaretGoal = (u64, (u64, usize), f64);
+
+type RangeCompanion = (RcWeak<Cell<Option<u64>>>, RcWeak<Cell<Option<u64>>>);
+
+type BeforeUnloadOwner = (Rc<()>, u64, u64, u64);
+
+type AgentEventPublisher = Rc<dyn Fn(crate::worker_wire::AgentEvent) -> Result<(), String>>;
+
+type TrustedPolicyCheck =
+    Rc<dyn Fn(&V8BindingState, &crate::trusted_types::PolicyCheck) -> Result<bool, String>>;
+
+type ParserCreatorUrl = Rc<dyn Fn(crate::worker_wire::Creator) -> Result<String, String>>;
+
+type ScriptPolicyProvider = Rc<dyn Fn() -> Result<std::sync::Arc<ScriptPolicySnapshot>, String>>;
+
+type ParserInlinePolicy = Rc<
+    dyn Fn(
+        crate::worker_wire::Creator,
+        &str,
+        Option<&str>,
+        Option<&str>,
+        bool,
+        bool,
+    ) -> Result<bool, String>,
+>;
+
+type LocalInlinePolicy =
+    Rc<dyn Fn(&V8BindingState, &str, Option<&str>, bool, bool) -> Result<bool, String>>;
+
+type MetaCspPolicy = Rc<dyn Fn(&V8BindingState, &str) -> Result<(), String>>;
+
 mod binding_installation;
 mod blob_construction;
 mod document_factory_arguments;
@@ -438,7 +536,7 @@ impl BindingGlobal {
 /// for the page orchestrator to perform navigation at the next scheduler
 /// checkpoint. Bindings never perform network or page-group work directly.
 pub enum PendingDefaultAction {
-    Click(submissions::RootedTarget),
+    Click(Box<submissions::RootedTarget>),
     Submit(Box<submissions::SubmissionTransaction>),
 }
 
@@ -696,10 +794,9 @@ impl From<&RangeRecord> for LiveRange {
 
 #[derive(Debug, Clone)]
 struct HistoryEntry {
+    #[cfg(test)]
     url: String,
-    state_json: Option<crate::message_wire::WireValue>,
     navigation_id: String,
-    document_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -852,7 +949,8 @@ fn input_body_stream(
 #[derive(Clone)]
 struct BodyStreamLease {
     owner: std::rc::Weak<V8BindingState>,
-    wrapper: v8::Global<v8::Object>,
+    // Keeps the stream wrapper alive until the asynchronous body lease ends.
+    _wrapper: v8::Global<v8::Object>,
     id: u64,
 }
 impl BodyStreamLease {
@@ -864,7 +962,7 @@ impl BodyStreamLease {
         let wrapper = new_platform_object(scope, owner, "ReadableStream", id)?;
         Ok(Self {
             owner: Rc::downgrade(owner),
-            wrapper: v8::Global::new(scope, wrapper),
+            _wrapper: v8::Global::new(scope, wrapper),
             id,
         })
     }
@@ -1079,7 +1177,7 @@ enum PlatformObjectRecord {
     MediaTrackList {
         media: NodeId,
         video: bool,
-        _root: submissions::RootedTarget,
+        _root: Box<submissions::RootedTarget>,
     },
     TextTrackCue(Rc<RefCell<text_tracks::Cue>>),
     TextTrackList(text_tracks::List),
@@ -1292,8 +1390,6 @@ enum PendingPlatformOperation {
     },
     WebSocketClose {
         websocket_id: u64,
-        code: Option<u16>,
-        reason: String,
     },
     WebSocketSend {
         websocket_id: u64,
@@ -1413,7 +1509,7 @@ impl PreparedDynamicScript {
 }
 
 enum DeferredPlatformTask {
-    ScriptError(script_error_task::Task),
+    ScriptError(Box<script_error_task::Task>),
     FileReader(file_reader::ReadTask),
     WebSocketTerminal(websocket_lifecycle::Terminal),
     WebSocketEvents(websocket_lifecycle::Events),
@@ -2198,15 +2294,7 @@ pub struct V8BindingState {
     fetch_bodies: RefCell<fetch_body::Registry>,
     deferred_fetch: RefCell<fetch_later::Registry>,
     deferred_fetch_backend: RefCell<Option<Rc<dyn crate::fetch_later::DeferredFetchBackend>>>,
-    deferred_fetch_backend_provider: Cell<
-        Option<
-            fn(
-                &mut v8::PinScope,
-                &V8BindingState,
-            )
-                -> Result<Rc<dyn crate::fetch_later::DeferredFetchBackend>, V8BindingError>,
-        >,
-    >,
+    deferred_fetch_backend_provider: Cell<Option<DeferredFetchBackendProvider>>,
     body_consumers: RefCell<Vec<(std::rc::Weak<V8BindingState>, u64)>>,
     native_drag: RefCell<Option<native_drag::Session>>,
     drag_images: RefCell<native_drag_image::State>,
@@ -2227,7 +2315,7 @@ pub struct V8BindingState {
     native_drag_dispatching: Cell<bool>,
     before_unload_prototype: RefCell<Option<v8::Weak<v8::Object>>>,
     before_unload_dispatching: Cell<bool>,
-    before_unload_owner: RefCell<Option<(Rc<()>, u64, u64, u64)>>,
+    before_unload_owner: RefCell<Option<BeforeUnloadOwner>>,
     instance_id: u64,
     dom: SharedDom,
     realm: RealmId,
@@ -2246,7 +2334,7 @@ pub struct V8BindingState {
     wrapper_graph_revision: Cell<Option<u64>>,
     wrapper_graph_new_nodes: RefCell<BTreeSet<NodeId>>,
     wrapper_graph_components: RefCell<BTreeMap<NodeId, BTreeSet<WrapperId>>>,
-    instance_templates: RefCell<BTreeMap<&'static str, v8::Global<v8::ObjectTemplate>>>,
+    instance_templates: RefCell<BTreeMap<&'static str, v8::Weak<v8::ObjectTemplate>>>,
     html_constructors: RefCell<BTreeMap<&'static str, v8::Weak<v8::Function>>>,
     html_prototypes: RefCell<BTreeMap<&'static str, v8::Weak<v8::Object>>>,
     associated_wrappers: RefCell<BTreeMap<(NodeId, &'static str), v8::Weak<v8::Object>>>,
@@ -2277,8 +2365,7 @@ pub struct V8BindingState {
     // the allocation realm of this exact binding state.
     realm_context: v8::Weak<v8::Context>,
     reporting_exception: Cell<bool>,
-    worker_error_reporter:
-        RefCell<Option<Rc<dyn Fn(crate::worker_wire::AgentEvent) -> Result<(), String>>>>,
+    worker_error_reporter: RefCell<Option<AgentEventPublisher>>,
     next_event_listener_id: Cell<u64>,
     ranges: Rc<RefCell<BTreeMap<u64, RangeRecord>>>,
     static_ranges: Rc<RefCell<BTreeSet<u64>>>,
@@ -2290,7 +2377,7 @@ pub struct V8BindingState {
     selection_range: Rc<Cell<Option<u64>>>,
     selection_composed_range: Rc<Cell<Option<u64>>>,
     selection_range_removal_revision: Cell<u64>,
-    range_companions: Rc<RefCell<Vec<(RcWeak<Cell<Option<u64>>>, RcWeak<Cell<Option<u64>>>)>>>,
+    range_companions: Rc<RefCell<Vec<RangeCompanion>>>,
     range_selections: SharedRangeSelections,
     rooted_range_selection_ids: Rc<RefCell<Option<BTreeSet<u64>>>>,
     inherited_base_url: RefCell<Option<String>>,
@@ -2299,11 +2386,11 @@ pub struct V8BindingState {
     selection_focus: Cell<Option<BoundaryPoint>>,
     selection_revision: Cell<u64>,
     selection_modify_inline: Cell<Option<(u64, (f64, f64))>>,
-    selection_modify_caret: Cell<Option<(u64, (u64, usize), f64)>>,
+    selection_modify_caret: Cell<Option<SelectionCaretGoal>>,
     delivered_selection_revision: Cell<u64>,
     selected_text_control: RefCell<Option<oryn_dom::TrackedNodeLease>>,
     text_control_selections: RefCell<BTreeMap<NodeId, (u32, u32, String)>>,
-    control_modify_goal: RefCell<Option<(NodeId, (u32, u32, String), (f64, f64), (u64, usize))>>,
+    control_modify_goal: RefCell<Option<ControlCaretGoal>>,
     control_event_tasks: RefCell<VecDeque<(NodeId, v8::Global<v8::Object>)>>,
     stylesheet_event_tasks: RefCell<VecDeque<stylesheet_event_task::Task>>,
     window_messages: RefCell<window_messages::Queue>,
@@ -2361,7 +2448,6 @@ pub struct V8BindingState {
     audio_worklet: RefCell<audio_worklet::WindowState>,
     cache_storage: RefCell<cache_storage::Bindings>,
     blob_urls: RefCell<BTreeMap<String, u64>>,
-    next_blob_url_id: Cell<u64>,
     idb_transactions_to_deactivate: RefCell<BTreeSet<u64>>,
     next_traversal_id: Cell<u64>,
     node_iterators: RefCell<BTreeMap<u64, Rc<node_iterators::Record>>>,
@@ -2369,7 +2455,7 @@ pub struct V8BindingState {
     layout: RefCell<BindingLayout>,
     layout_cache_key: RefCell<Option<LayoutCacheKey>>,
     layout_provider: RefCell<Option<Rc<dyn BindingLayoutProvider>>>,
-    frame_viewport_parent: RefCell<Option<(std::rc::Weak<V8BindingState>, NodeId, Option<u64>)>>,
+    frame_viewport_parent: RefCell<Option<FrameViewportParent>>,
     paint_environment: RefCell<(Vec<u8>, u64)>,
     page_paint_environment: RefCell<(Vec<u8>, u64)>,
     frame_roots: RefCell<BTreeMap<NodeId, NodeId>>,
@@ -2390,28 +2476,11 @@ pub struct V8BindingState {
     snapshot_inline_styles: RefCell<BTreeMap<NodeId, (u64, u64)>>,
     inline_style_checks: RefCell<BTreeMap<(NodeId, bool), inline_style_policy::Check>>,
     script_report_retirement: RefCell<Option<Rc<dyn Fn()>>>,
-    meta_csp_policy: RefCell<Option<Rc<dyn Fn(&V8BindingState, &str) -> Result<(), String>>>>,
-    local_script_policy_capture:
-        RefCell<Option<Rc<dyn Fn() -> Result<std::sync::Arc<ScriptPolicySnapshot>, String>>>>,
-    local_inline_script_policy: RefCell<
-        Option<Rc<dyn Fn(&V8BindingState, &str, Option<&str>, bool, bool) -> Result<bool, String>>>,
-    >,
-    script_policy_capture:
-        RefCell<Option<Rc<dyn Fn(crate::worker_wire::Creator) -> Result<String, String>>>>,
-    parser_inline_policy: RefCell<
-        Option<
-            Rc<
-                dyn Fn(
-                    crate::worker_wire::Creator,
-                    &str,
-                    Option<&str>,
-                    Option<&str>,
-                    bool,
-                    bool,
-                ) -> Result<bool, String>,
-            >,
-        >,
-    >,
+    meta_csp_policy: RefCell<Option<MetaCspPolicy>>,
+    local_script_policy_capture: RefCell<Option<ScriptPolicyProvider>>,
+    local_inline_script_policy: RefCell<Option<LocalInlinePolicy>>,
+    script_policy_capture: RefCell<Option<ParserCreatorUrl>>,
+    parser_inline_policy: RefCell<Option<ParserInlinePolicy>>,
     document_parser_gate: RefCell<Option<Rc<DocumentParserGate>>>,
     parser_insertion_suppression: Cell<Option<(NodeId, u64, u64, u64)>>,
     parser_input_active: Cell<bool>,
@@ -2480,11 +2549,7 @@ pub struct V8BindingState {
     local_activation_backend:
         RefCell<Option<Rc<dyn crate::user_activation::LocalActivationBackend>>>,
     trusted_registry: RefCell<TrustedTypesRegistry>,
-    trusted_policy_check: RefCell<
-        Option<
-            Rc<dyn Fn(&V8BindingState, &crate::trusted_types::PolicyCheck) -> Result<bool, String>>,
-        >,
-    >,
+    trusted_policy_check: RefCell<Option<TrustedPolicyCheck>>,
     trusted_policies: RefCell<BTreeMap<u64, TrustedPolicyCallbacks>>,
     trusted_values: RefCell<BTreeMap<u64, TrustedValue>>,
     trusted_prototypes: RefCell<BTreeMap<String, v8::Weak<v8::Object>>>,
@@ -2826,10 +2891,10 @@ impl V8BindingState {
                 if let Ok(creator) = workers::native_creator(self) {
                     let _ = backend.notify(creator);
                 }
-            } else if let Some(backend) = self.local_activation_backend.borrow().clone() {
-                if let Ok(creator) = self.native_local_creator_identity() {
-                    let _ = backend.notify(creator);
-                }
+            } else if let Some(backend) = self.local_activation_backend.borrow().clone()
+                && let Ok(creator) = self.native_local_creator_identity()
+            {
+                let _ = backend.notify(creator);
             }
         }
     }
@@ -2909,7 +2974,7 @@ impl V8BindingState {
         use_base_element: bool,
     ) -> Result<String, V8BindingError> {
         let href = self.request_initiator_url()?;
-        let fallback = if matches!(href.as_str(), "about:srcdoc" | "about:blank") {
+        let fallback = if document_url_uses_inherited_base(&href) {
             self.inherited_base_url.borrow().clone().unwrap_or(href)
         } else {
             href
@@ -2959,19 +3024,17 @@ impl V8BindingState {
             .document_metadata
             .as_ref()
             .is_some_and(|metadata| metadata.provenance.is_some());
-        if installed {
-            if let Err(error) = self.refresh_document_provenance() {
-                self.dom
-                    .borrow_mut()
-                    .arena_mut()
-                    .get_mut(self.document_root())?
-                    .document_metadata
-                    .as_mut()
-                    .unwrap()
-                    .url = Some(previous.to_string());
-                *self.location_url.borrow_mut() = previous;
-                return Err(error);
-            }
+        if installed && let Err(error) = self.refresh_document_provenance() {
+            self.dom
+                .borrow_mut()
+                .arena_mut()
+                .get_mut(self.document_root())?
+                .document_metadata
+                .as_mut()
+                .unwrap()
+                .url = Some(previous.to_string());
+            *self.location_url.borrow_mut() = previous;
+            return Err(error);
         }
         Ok(())
     }
@@ -3180,10 +3243,7 @@ impl V8BindingState {
     ) -> Option<std::sync::Arc<crate::v8_shared_memory::MappingLease>> {
         crate::v8_shared_memory::lookup(buffer)
     }
-    pub fn set_worker_error_reporter(
-        &self,
-        reporter: Rc<dyn Fn(crate::worker_wire::AgentEvent) -> Result<(), String>>,
-    ) {
+    pub fn set_worker_error_reporter(&self, reporter: AgentEventPublisher) {
         *self.worker_error_reporter.borrow_mut() = Some(reporter);
     }
     pub fn set_worker_transport(
@@ -3274,14 +3334,7 @@ impl V8BindingState {
         self.execution_suspended.get()
     }
     /// Host-owned BFCache custody. Suspension leaves Document metadata intact.
-    pub fn set_deferred_fetch_backend_provider(
-        &self,
-        provider: fn(
-            &mut v8::PinScope,
-            &V8BindingState,
-        )
-            -> Result<Rc<dyn crate::fetch_later::DeferredFetchBackend>, V8BindingError>,
-    ) {
+    pub fn set_deferred_fetch_backend_provider(&self, provider: DeferredFetchBackendProvider) {
         self.deferred_fetch_backend_provider.set(Some(provider));
     }
     pub fn set_deferred_fetch_backend(
@@ -3353,14 +3406,12 @@ impl V8BindingState {
                 *self.message_target.borrow(),
                 crate::message_wire::WindowTarget::Root
             )
+            && let Some(transport) = self.message_transport.borrow().clone()
         {
-            if let Some(transport) = self.message_transport.borrow().clone() {
-                let _ =
-                    transport.request(crate::message_wire::MessageRequest::RetireRootDocument {
-                        document_generation: self.document_generation(),
-                        stream_epoch: self.document_authority_epoch(),
-                    });
-            }
+            let _ = transport.request(crate::message_wire::MessageRequest::RetireRootDocument {
+                document_generation: self.document_generation(),
+                stream_epoch: self.document_authority_epoch(),
+            });
         }
         native_composition::retire(self);
         navigation_api::retire_publications(self);
@@ -3627,13 +3678,13 @@ impl V8BindingState {
                             )
                             .ok_or(V8BindingError::Allocation("transfer callback string"))?;
                             let receiver = v8::undefined(scope).into();
-                            if function.call(scope, receiver, &[value.into()]).is_none() {
-                                if let Some(exception) = scope.exception() {
-                                    let message = scope.message();
-                                    global_events::report_script_exception(
-                                        scope, exception, message, false,
-                                    )?;
-                                }
+                            if function.call(scope, receiver, &[value.into()]).is_none()
+                                && let Some(exception) = scope.exception()
+                            {
+                                let message = scope.message();
+                                global_events::report_script_exception(
+                                    scope, exception, message, false,
+                                )?;
                             }
                         }
                     }
@@ -3655,13 +3706,13 @@ impl V8BindingState {
                             v8::tc_scope!(let scope, scope);
                             let callback = v8::Local::new(scope, callback);
                             let receiver = v8::undefined(scope).into();
-                            if callback.call(scope, receiver, &[value]).is_none() {
-                                if let Some(exception) = scope.exception() {
-                                    let message = scope.message();
-                                    global_events::report_script_exception(
-                                        scope, exception, message, false,
-                                    )?;
-                                }
+                            if callback.call(scope, receiver, &[value]).is_none()
+                                && let Some(exception) = scope.exception()
+                            {
+                                let message = scope.message();
+                                global_events::report_script_exception(
+                                    scope, exception, message, false,
+                                )?;
                             }
                         }
                     }
@@ -4270,24 +4321,24 @@ impl V8BindingState {
                 self.queued_idb_operations
                     .borrow_mut()
                     .push_back(QueuedIdbOperation { request, pending });
-                if let Ok(PlatformHostResult::IndexedDb { response }) = &completion.result {
-                    if response.connection_blocked {
-                        let notify = match &mut *platform_object_mut(self, blocked_request)? {
-                            PlatformObjectRecord::IdbRequest(request) => {
-                                let notify = !request.versionchange_notified;
-                                request.versionchange_notified = true;
-                                notify
-                            }
-                            _ => false,
-                        };
-                        if notify {
-                            idb_delivery::blocked(
-                                self,
-                                blocked_request,
-                                response.old_version.unwrap_or(0),
-                                response.version,
-                            );
+                if let Ok(PlatformHostResult::IndexedDb { response }) = &completion.result
+                    && response.connection_blocked
+                {
+                    let notify = match &mut *platform_object_mut(self, blocked_request)? {
+                        PlatformObjectRecord::IdbRequest(request) => {
+                            let notify = !request.versionchange_notified;
+                            request.versionchange_notified = true;
+                            notify
                         }
+                        _ => false,
+                    };
+                    if notify {
+                        idb_delivery::blocked(
+                            self,
+                            blocked_request,
+                            response.old_version.unwrap_or(0),
+                            response.version,
+                        );
                     }
                 }
                 return Ok(());
@@ -4418,7 +4469,7 @@ impl V8BindingState {
                     let response_id = register_platform_object(
                         self,
                         PlatformObjectRecord::Response(ResponseRecord {
-                            timing,
+                            timing: timing.map(|timing| *timing),
                             internal_response,
                             body_owner: None,
                             response_type: response_type.map_or(
@@ -4904,7 +4955,7 @@ impl V8BindingState {
                 let reason = readable_streams::type_error(scope, &error.to_string())?;
                 readable_streams::error(scope, self, stream_object_id, reason)?;
             }
-            (pending, Err(error)) => {
+            (pending, Err(_error)) => {
                 if let PendingPlatformOperation::ImageStart {
                     node, generation, ..
                 }
@@ -5231,14 +5282,14 @@ impl V8BindingState {
             if let Some(host) = self.platform_host.borrow().as_ref() {
                 host.cancel(id);
             }
-            if let Some(stream_id) = stream {
-                if let Err(error) = submit_platform_operation(
+            if let Some(stream_id) = stream
+                && let Err(error) = submit_platform_operation(
                     self,
                     PlatformHostRequest::HttpAbort { stream_id },
                     PendingPlatformOperation::WebSocketCommand,
-                ) {
-                    failure.get_or_insert(error);
-                }
+                )
+            {
+                failure.get_or_insert(error);
             }
             // Dropping the pending operation releases its native target lease.
         }
@@ -5501,6 +5552,8 @@ impl V8BindingState {
     /// Returns the number of roots released so the host can request GC only
     /// when it can reclaim detached wrapper graphs.
     pub fn refresh_connected_wrapper_roots(&self, scope: &mut v8::PinScope<'_, '_>) -> usize {
+        // Graph observation handles must end with this refresh, not the caller task.
+        v8::scope!(let scope, scope);
         let released = refresh_range_wrapper_roots(scope, self) + stylesheet_ownership::sweep(self);
         apply_range_memory_accounting(scope, self);
         node_lists::account_memory(scope, self);
@@ -5569,11 +5622,9 @@ impl V8BindingState {
                 .document_metadata
                 .as_ref()
                 .is_some_and(|metadata| metadata.provenance.is_some());
-            if installed {
-                if let Err(error) = self.refresh_document_provenance() {
-                    *self.document_referrer_policy.borrow_mut() = previous;
-                    return Err(error);
-                }
+            if installed && let Err(error) = self.refresh_document_provenance() {
+                *self.document_referrer_policy.borrow_mut() = previous;
+                return Err(error);
             }
         }
         Ok(())
@@ -5659,12 +5710,12 @@ impl V8BindingState {
         width: f64,
         height: f64,
     ) -> Result<(), V8BindingError> {
-        if child.layout_provider.borrow().is_none() {
-            if let Some(provider) = self.layout_provider.borrow().as_ref().and_then(|provider| {
+        if child.layout_provider.borrow().is_none()
+            && let Some(provider) = self.layout_provider.borrow().as_ref().and_then(|provider| {
                 provider.fork_document(child.dom.clone(), child.document_root(), width, height)
-            }) {
-                child.set_layout_provider(provider);
-            }
+            })
+        {
+            child.set_layout_provider(provider);
         }
         child.set_native_layout_viewport(width, height, false)?;
         Ok(())
@@ -5709,13 +5760,13 @@ impl V8BindingState {
         );
         let group = self.joint_history.borrow().clone();
         let route = self.joint_route.borrow().clone();
-        if group.borrow().selected(&route).is_none() {
-            if let Some(snapshot) = self.navigation_history_snapshot() {
-                group
-                    .borrow_mut()
-                    .attach_at(route, snapshot, self.joint_attach_step.get())
-                    .map_err(|_| V8BindingError::Allocation("joint child history"))?;
-            }
+        if group.borrow().selected(&route).is_none()
+            && let Some(snapshot) = self.navigation_history_snapshot()
+        {
+            group
+                .borrow_mut()
+                .attach_at(route, snapshot, self.joint_attach_step.get())
+                .map_err(|_| V8BindingError::Allocation("joint child history"))?;
         }
         Ok(())
     }
@@ -5726,14 +5777,11 @@ impl V8BindingState {
         let relation = self.frame_viewport_parent.borrow().clone();
         if let Some((parent, frame, connection)) = relation
             && let Some(parent) = parent.upgrade()
+            && !parent.execution_retired()
+            && parent.dom.borrow().frame_context_generation(frame) == connection
+            && let Some((width, height)) = parent.native_frame_content_size(frame)?
         {
-            if !parent.execution_retired()
-                && parent.dom.borrow().frame_context_generation(frame) == connection
-            {
-                if let Some((width, height)) = parent.native_frame_content_size(frame)? {
-                    self.set_native_layout_viewport(width, height, true)?;
-                }
-            }
+            self.set_native_layout_viewport(width, height, true)?;
         }
         Ok(())
     }
@@ -6199,12 +6247,7 @@ impl V8BindingState {
             .set(self.parser_script_depth.get().saturating_sub(1));
     }
 
-    pub fn set_trusted_types_policy(
-        &self,
-        check: Rc<
-            dyn Fn(&V8BindingState, &crate::trusted_types::PolicyCheck) -> Result<bool, String>,
-        >,
-    ) {
+    pub fn set_trusted_types_policy(&self, check: TrustedPolicyCheck) {
         *self.trusted_policy_check.borrow_mut() = Some(check);
     }
 
@@ -6246,7 +6289,7 @@ impl V8BindingState {
             .try_reserve(1)
             .map_err(|_| V8BindingError::Allocation("deferred script error queue"))?;
         self.dom.borrow_mut().mark_script_started(script)?;
-        queue.push_back(DeferredPlatformTask::ScriptError(task));
+        queue.push_back(DeferredPlatformTask::ScriptError(Box::new(task)));
         Ok(())
     }
 
@@ -6616,15 +6659,19 @@ pub(super) enum NativeInputValue<'a> {
 pub(super) fn create_native_input_event<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
-    interface: &str,
-    event_type: &str,
-    bubbles: bool,
-    cancelable: bool,
-    composed: bool,
-    detail: i32,
-    related: Option<NodeId>,
-    fields: &[(&str, NativeInputValue<'_>)],
+    params: NativeInputEventInputs<'_>,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let NativeInputEventInputs {
+        interface,
+        event_type,
+        bubbles,
+        cancelable,
+        composed,
+        detail,
+        related,
+        fields,
+    } = params;
+
     if state.execution_retired() {
         return Err(V8BindingError::Allocation("native input document retired"));
     }
@@ -6959,7 +7006,7 @@ fn focus_html_element(
 
     let unavailable = {
         let dom = state.dom.borrow();
-        !dom.is_connected(node)? || dom.is_inert(node)?
+        !dom.is_connected(node)? || dom.is_inert(node)? || dom.control_disabled(node)?
     };
     if unavailable || css_suppresses_focus(state, node)? {
         return Ok(());
@@ -6987,6 +7034,7 @@ fn focus_html_element(
         if state.focus_transition_revision.get() != revision
             || !state.dom.borrow().is_connected(node)?
             || state.dom.borrow().is_inert(node)?
+            || state.dom.borrow().control_disabled(node)?
         {
             return Ok(());
         }
@@ -7177,7 +7225,7 @@ fn pointer_boundary_snapshot(
             .get_slot::<V8BindingState>()
             .ok_or(V8BindingError::Allocation("pointer boundary state"))?;
         let mut targets = [None, None];
-        for index in 0..2 {
+        for (index, target) in targets.iter_mut().enumerate() {
             let value = args.get(index as i32);
             if value.is_null_or_undefined() {
                 continue;
@@ -7189,7 +7237,7 @@ fn pointer_boundary_snapshot(
                     member: "WrongDocumentError".into(),
                 });
             }
-            targets[index] = Some(node);
+            *target = Some(node);
         }
         let (leaves, enters) = state
             .dom
@@ -7262,7 +7310,7 @@ fn focus_native_pointer_target(
         found
     };
     if let Some(node) = focus_target {
-        focus_html_element(scope, &state, node, true)?;
+        focus_html_element(scope, state, node, true)?;
     }
     Ok(())
 }
@@ -8294,7 +8342,19 @@ fn response_json_static<'s>(
             let serialized =
                 serialized.filter(|_| !tc.has_terminated() && !tc.is_execution_terminating());
             match serialized {
-                Some(value) => value.to_rust_string_lossy(tc).into_bytes(),
+                Some(value) => {
+                    let bytes = value.to_rust_string_lossy(tc).into_bytes();
+                    // V8's C++ JSON API converts the undefined result to the
+                    // string "undefined". It is not a serialized JSON value;
+                    // this also covers toJSON() returning undefined.
+                    if bytes == b"undefined" {
+                        return Err(V8BindingError::Unsupported {
+                            interface: "Response".into(),
+                            member: "data is not JSON serializable".into(),
+                        });
+                    }
+                    bytes
+                }
                 None if tc.has_terminated() || tc.is_execution_terminating() => {
                     tc.rethrow();
                     return Err(V8BindingError::JavaScriptException);
@@ -8800,12 +8860,11 @@ fn idb_projection_node(
     if let Some(object) = value.to_object(scope)
         && let Ok(id) = stateful_id(scope, object)
         && let Ok(record) = platform_object(state, id)
+        && let PlatformObjectRecord::Blob(blob) = &*record
     {
-        if let PlatformObjectRecord::Blob(blob) = &*record {
-            return Ok(
-                serde_json::json!({"__oryn_clone_type":"blob","size":blob.bytes.len(),"type":blob.media_type,"name":blob.file.as_ref().map(|file| &file.name),"lastModified":blob.file.as_ref().map(|file| file.last_modified)}),
-            );
-        }
+        return Ok(
+            serde_json::json!({"__oryn_clone_type":"blob","size":blob.bytes.len(),"type":blob.media_type,"name":blob.file.as_ref().map(|file| &file.name),"lastModified":blob.file.as_ref().map(|file| file.last_modified)}),
+        );
     }
     if let Ok(buffer) = v8::Local::<v8::ArrayBuffer>::try_from(value) {
         return Ok(serde_json::json!({
@@ -9155,7 +9214,7 @@ fn idb_json_to_value<'s>(
             .instance_templates
             .borrow()
             .get("DOMQuad")
-            .cloned()
+            .and_then(|template| template.to_global(scope))
             .ok_or(V8BindingError::MissingInterface("DOMQuad"))?;
         let object = v8::Local::new(scope, &template)
             .new_instance(scope)
@@ -9708,7 +9767,7 @@ fn queue_idb(
         _ => None,
     };
     // A request success event makes its transaction active for the whole
-    // event task, including the microtask checkpoint. `finish_idb_request`
+    // event task, including the microtask checkpoint. Retained IDB delivery
     // may already have staged the auto-commit task before a promise
     // continuation issues the next request. That staged task has not run yet,
     // so extending the transaction must revoke it. Explicit `commit()` is
@@ -9937,33 +9996,6 @@ fn cancel_idb_transaction_requests(
     Ok(())
 }
 
-fn finish_idb_request(state: &V8BindingState, request_id: u64) -> Result<(), V8BindingError> {
-    let finished_connection = state
-        .active_idb_connections
-        .borrow_mut()
-        .remove(&request_id)
-        .is_some();
-    if finished_connection {
-        state.flush_queued_idb_operations()?;
-    }
-    let transaction_id = match &*platform_object(state, request_id)? {
-        PlatformObjectRecord::IdbRequest(request) => request.transaction_id,
-        _ => None,
-    };
-    let Some(transaction_id) = transaction_id else {
-        return Ok(());
-    };
-    if let PlatformObjectRecord::IdbTransaction(transaction) =
-        &mut *platform_object_mut(state, transaction_id)?
-    {
-        transaction.pending_requests = transaction.pending_requests.saturating_sub(1);
-        if transaction.mode != "versionchange" && transaction.pending_requests == 0 {
-            transaction.completion_requested = true;
-        }
-    }
-    queue_idb_transaction_completion(state, transaction_id)
-}
-
 fn queue_idb_transaction_completion(
     state: &V8BindingState,
     transaction_id: u64,
@@ -10078,10 +10110,9 @@ fn finalize_failed_idb_upgrade_retained(
         _ => return Err(V8BindingError::Allocation("IDBTransaction record")),
     };
     if let PlatformObjectRecord::IdbRequest(request) = &mut *platform_object_mut(state, request_id)?
+        && request.failure_event_queued
     {
-        if request.failure_event_queued {
-            return Ok(());
-        }
+        return Ok(());
     }
     let (name, old_version, base_definitions) = {
         let mut record = platform_object_mut(state, database_id)?;
@@ -10439,24 +10470,22 @@ fn trusted_create_policy(
         }
         _ => {}
     }
-    let retained_callbacks = (|| -> Result<_, V8BindingError> {
-        callbacks
-            .by_ref()
-            .enumerate()
-            .map(|(index, callback)| {
-                callback
-                    .map(|callback| {
-                        let callback = v8::Local::new(scope, &callback);
-                        context_intrinsics::retain_function(
-                            scope,
-                            &format!("trusted-policy-{}-{policy_id}-{index}", state.instance_id),
-                            callback,
-                        )
-                    })
-                    .transpose()
-            })
-            .collect::<Result<Vec<_>, _>>()
-    })();
+    let retained_callbacks = callbacks
+        .by_ref()
+        .enumerate()
+        .map(|(index, callback)| {
+            callback
+                .map(|callback| {
+                    let callback = v8::Local::new(scope, &callback);
+                    context_intrinsics::retain_function(
+                        scope,
+                        &format!("trusted-policy-{}-{policy_id}-{index}", state.instance_id),
+                        callback,
+                    )
+                })
+                .transpose()
+        })
+        .collect::<Result<Vec<_>, _>>();
     let mut callbacks = match retained_callbacks {
         Ok(callbacks) => callbacks.into_iter(),
         Err(error) => {
@@ -10494,10 +10523,10 @@ fn trusted_create_policy(
             create_script_url: callbacks.next().flatten(),
         },
     );
-    if name == "default" {
-        if let Some(record) = state.trusted_policies.borrow_mut().get_mut(&policy_id) {
-            record.default_object = default_object;
-        }
+    if name == "default"
+        && let Some(record) = state.trusted_policies.borrow_mut().get_mut(&policy_id)
+    {
+        record.default_object = default_object;
     }
     return_value.set(policy.into());
 }
@@ -10653,30 +10682,6 @@ fn set_trusted_prototype(
         .ok_or(V8BindingError::Allocation(
             "Trusted Types prototype publication",
         ))?;
-    Ok(())
-}
-
-fn set_generated_prototype(
-    scope: &mut v8::PinScope,
-    context: v8::Local<v8::Context>,
-    object: v8::Local<v8::Object>,
-    interface: &str,
-) -> Result<(), V8BindingError> {
-    let name = v8::String::new(scope, interface)
-        .ok_or(V8BindingError::Allocation("generated interface name"))?;
-    let constructor = context
-        .global(scope)
-        .get(scope, name.into())
-        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
-        .ok_or(V8BindingError::Allocation(
-            "generated interface constructor",
-        ))?;
-    let prototype_name =
-        v8::String::new(scope, "prototype").ok_or(V8BindingError::Allocation("prototype name"))?;
-    let prototype = constructor
-        .get(scope, prototype_name.into())
-        .ok_or(V8BindingError::Allocation("generated interface prototype"))?;
-    object.set_prototype(scope, prototype);
     Ok(())
 }
 
@@ -11471,7 +11476,7 @@ fn dom_rect_object<'s>(
         .instance_templates
         .borrow()
         .get("DOMRect")
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface("DOMRect"))?;
     let object = v8::Local::new(scope, &template)
         .new_instance(scope)
@@ -11751,7 +11756,7 @@ fn convert_request_init<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &V8BindingState,
     value: v8::Local<'s, v8::Value>,
-) -> Result<(v8::Local<'s, v8::Value>, Option<Vec<Vec<String>>>, bool), V8BindingError> {
+) -> Result<PromiseInput<'s>, V8BindingError> {
     let snapshot = v8::Object::new(scope);
     let null = v8::null(scope);
     if snapshot.set_prototype(scope, null.into()) != Some(true) {
@@ -12617,6 +12622,10 @@ fn initialize_platform_constructor<'s>(
             PlatformObjectRecord::MessageChannel { port1_id, port2_id },
         );
         bind_platform_object(scope, state, id, args.this());
+        // Both endpoints exist from construction, even if their getters are
+        // never read. Materialize their collection watchers and channel edges.
+        new_platform_object(scope, state, "MessagePort", port1_id)?;
+        new_platform_object(scope, state, "MessagePort", port2_id)?;
         return Ok(true);
     }
     if name == "FormData" {
@@ -13220,7 +13229,7 @@ fn initialize_platform_constructor<'s>(
         return Ok(true);
     }
     if name == "WebSocket" {
-        let (url, protocols) = websocket_lifecycle::constructor_arguments(scope, &args)?;
+        let (url, protocols) = websocket_lifecycle::constructor_arguments(scope, args)?;
         let id = register_platform_object(
             state,
             PlatformObjectRecord::WebSocket(WebSocketRecord {
@@ -13466,15 +13475,14 @@ fn request_following_signal_from(
             },
         }),
     );
-    if !aborted {
-        if let PlatformObjectRecord::AbortSignal(signal) =
+    if !aborted
+        && let PlatformObjectRecord::AbortSignal(signal) =
             &mut *platform_object_mut(source_owner, source)?
-        {
-            signal.foreign_followers.push(ForeignSignalLink {
-                owner: Rc::downgrade(&target),
-                id,
-            });
-        }
+    {
+        signal.foreign_followers.push(ForeignSignalLink {
+            owner: Rc::downgrade(&target),
+            id,
+        });
     }
     // Both graph ends are native wrapper edges; no author callback/property
     // participates in linking, and no strong Rust cycle retains either realm.
@@ -13508,11 +13516,11 @@ fn request_following_signal(
             foreign_sources: Vec::new(),
         }),
     );
-    if !aborted && let Some(source) = source {
-        if let PlatformObjectRecord::AbortSignal(signal) = &mut *platform_object_mut(state, source)?
-        {
-            signal.followers.push(id);
-        }
+    if !aborted
+        && let Some(source) = source
+        && let PlatformObjectRecord::AbortSignal(signal) = &mut *platform_object_mut(state, source)?
+    {
+        signal.followers.push(id);
     }
     Ok(id)
 }
@@ -13598,6 +13606,11 @@ fn resolve_document_base(
         .resolve_document_base(document, &fallback, use_base_element)?)
 }
 
+// A same-document fragment update retains the inherited about-document base.
+fn document_url_uses_inherited_base(url: &str) -> bool {
+    matches!(url.split('#').next(), Some("about:blank" | "about:srcdoc"))
+}
+
 fn retained_document_base_url(
     state: &V8BindingState,
     document: NodeId,
@@ -13607,7 +13620,7 @@ fn retained_document_base_url(
     let url = metadata
         .and_then(|metadata| metadata.url.clone())
         .unwrap_or_else(|| "about:blank".into());
-    let fallback = if matches!(url.as_str(), "about:blank" | "about:srcdoc") {
+    let fallback = if document_url_uses_inherited_base(&url) {
         metadata
             .and_then(|metadata| metadata.inherited_base_url.clone())
             .unwrap_or(url)
@@ -13711,13 +13724,13 @@ fn blob_url_revoke_callback(
         return;
     };
     let url = args.get(0).to_rust_string_lossy(scope);
-    if let Some(transport) = state.worker_transport.borrow().clone() {
-        if let Ok(creator) = workers::native_creator(&state) {
-            let _ = transport.request(crate::worker_wire::AgentServiceRequest::BlobRevoke {
-                creator,
-                url: url.clone(),
-            });
-        }
+    if let Some(transport) = state.worker_transport.borrow().clone()
+        && let Ok(creator) = workers::native_creator(&state)
+    {
+        let _ = transport.request(crate::worker_wire::AgentServiceRequest::BlobRevoke {
+            creator,
+            url: url.clone(),
+        });
     }
     state.blob_urls.borrow_mut().remove(&url);
 }
@@ -13881,19 +13894,6 @@ fn headers_from_entries(
         state,
         PlatformObjectRecord::Headers(headers),
     ))
-}
-
-fn string_sequence(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Vec<String> {
-    if value.is_null_or_undefined() {
-        return Vec::new();
-    }
-    if let Ok(array) = v8::Local::<v8::Array>::try_from(value) {
-        return (0..array.length())
-            .filter_map(|index| array.get_index(scope, index))
-            .map(|value| value.to_rust_string_lossy(scope))
-            .collect();
-    }
-    vec![value.to_rust_string_lossy(scope)]
 }
 
 fn idb_dom_string_sequence(
@@ -14757,26 +14757,25 @@ fn generated_constructor<'s>(
     ) {
         if !args.is_construct_call() {
             throw_type_error(scope, "input event constructor requires new");
-        } else if let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() {
-            if initialize_native_input_event(scope, &state, name, &args).is_some()
-                && name == "DragEvent"
-            {
-                let init = if args.get(1).is_null_or_undefined() {
-                    None
+        } else if let Some(state) = scope.get_current_context().get_slot::<V8BindingState>()
+            && initialize_native_input_event(scope, &state, name, &args).is_some()
+            && name == "DragEvent"
+        {
+            let init = if args.get(1).is_null_or_undefined() {
+                None
+            } else {
+                args.get(1).to_object(scope)
+            };
+            if let Some(value) = event_init_member(scope, init, "dataTransfer") {
+                let value = if value.is_undefined() {
+                    v8::null(scope).into()
                 } else {
-                    args.get(1).to_object(scope)
+                    value
                 };
-                if let Some(value) = event_init_member(scope, init, "dataTransfer") {
-                    let value = if value.is_undefined() {
-                        v8::null(scope).into()
-                    } else {
-                        value
-                    };
-                    if let Err(error) =
-                        data_transfer::attach_event(scope, args.this(), "DragEvent", value)
-                    {
-                        throw_binding_error(scope, &error);
-                    }
+                if let Err(error) =
+                    data_transfer::attach_event(scope, args.this(), "DragEvent", value)
+                {
+                    throw_binding_error(scope, &error);
                 }
             }
         }
@@ -14965,13 +14964,12 @@ fn generated_constructor<'s>(
                 return;
             }
         }
-        if name == "CloseEvent" {
-            if let Err(error) =
+        if name == "CloseEvent"
+            && let Err(error) =
                 websocket_lifecycle::initialize_close_event(scope, args.this(), init)
-            {
-                throw_binding_error(scope, &error);
-                return;
-            }
+        {
+            throw_binding_error(scope, &error);
+            return;
         }
         let progress = if name == "ProgressEvent" {
             let Some(computable) = event_init_member(scope, init, "lengthComputable") else {
@@ -15078,36 +15076,35 @@ fn generated_constructor<'s>(
                 return;
             }
         }
-        if name == "StorageEvent" {
-            if let Err(error) = storage_events::initialize(scope, args.this(), init) {
-                throw_binding_error(scope, &error);
-                return;
-            }
+        if name == "StorageEvent"
+            && let Err(error) = storage_events::initialize(scope, args.this(), init)
+        {
+            throw_binding_error(scope, &error);
+            return;
         }
-        if name == "SecurityPolicyViolationEvent" {
-            if let Err(error) = csp_events::initialize(scope, args.this(), init) {
-                throw_binding_error(scope, &error);
-                return;
-            }
+        if name == "SecurityPolicyViolationEvent"
+            && let Err(error) = csp_events::initialize(scope, args.this(), init)
+        {
+            throw_binding_error(scope, &error);
+            return;
         }
-        if name == "MediaQueryListEvent" {
-            if let Err(error) = media_queries::initialize_event(scope, args.this(), init) {
-                throw_binding_error(scope, &error);
-                return;
-            }
+        if name == "MediaQueryListEvent"
+            && let Err(error) = media_queries::initialize_event(scope, args.this(), init)
+        {
+            throw_binding_error(scope, &error);
+            return;
         }
-        if matches!(name, "FetchEvent" | "ExtendableMessageEvent") {
-            if let Err(error) =
+        if matches!(name, "FetchEvent" | "ExtendableMessageEvent")
+            && let Err(error) =
                 service_worker_events::initialize(scope, &state, args.this(), name, init)
-            {
-                throw_binding_error(scope, &error);
-                return;
-            }
+        {
+            throw_binding_error(scope, &error);
+            return;
         }
-        if let Some(progress) = progress {
-            if let Some(record) = state.events.borrow_mut().get_mut(&event_id) {
-                record.progress = Some(progress);
-            }
+        if let Some(progress) = progress
+            && let Some(record) = state.events.borrow_mut().get_mut(&event_id)
+        {
+            record.progress = Some(progress);
         }
         if let Some(persisted) = persisted {
             let value = v8::Boolean::new(scope, persisted);
@@ -15156,17 +15153,17 @@ fn generated_constructor<'s>(
                 return;
             }
         }
-        if name == "CommandEvent" {
-            if let Err(error) = command::initialize_event(scope, args.this(), init) {
-                throw_binding_error(scope, &error);
-                return;
-            }
+        if name == "CommandEvent"
+            && let Err(error) = command::initialize_event(scope, args.this(), init)
+        {
+            throw_binding_error(scope, &error);
+            return;
         }
-        if name == "InterestEvent" {
-            if let Err(error) = interest::initialize_event(scope, &state, args.this(), init) {
-                throw_binding_error(scope, &error);
-                return;
-            }
+        if name == "InterestEvent"
+            && let Err(error) = interest::initialize_event(scope, &state, args.this(), init)
+        {
+            throw_binding_error(scope, &error);
+            return;
         }
         if name == "ToggleEvent" {
             let payload = v8::Array::new(scope, 3);
@@ -15441,11 +15438,11 @@ fn generated_constructor<'s>(
         };
         let brand = most_derived_brand(&kind);
         let document = state.dom.borrow_mut().create(kind);
-        if name == "Document" {
-            if let Err(error) = state.derive_document_provenance(state.document_root(), document) {
-                throw_binding_error(scope, &error);
-                return;
-            }
+        if name == "Document"
+            && let Err(error) = state.derive_document_provenance(state.document_root(), document)
+        {
+            throw_binding_error(scope, &error);
+            return;
         }
         let owner = if name == "Document" {
             document
@@ -16009,7 +16006,7 @@ fn generated_attribute_getter<'s>(
         let result = (|| -> Result<v8::Local<v8::Value>, V8BindingError> {
             let sheet = resolve_receiver(scope, &state, args.this(), "CSSStyleSheet")?;
             if member == "type" {
-                return Ok(v8_string(scope, "text/css")?);
+                return v8_string(scope, "text/css");
             }
             let owner = stylesheet_ownership::active_owner(&state, sheet)?;
             if member == "ownerNode" {
@@ -16412,11 +16409,10 @@ fn generated_attribute_getter<'s>(
             .this()
             .get_internal_field(scope, 2)
             .and_then(|value| value.try_cast::<v8::Array>().ok())
+            && let Some(value) = payload.get_index(scope, index)
         {
-            if let Some(value) = payload.get_index(scope, index) {
-                return_value.set(value);
-                return;
-            }
+            return_value.set(value);
+            return;
         }
         throw_type_error(scope, "incompatible ToggleEvent receiver");
         return;
@@ -17262,17 +17258,17 @@ fn generated_operation_impl<'s>(
         return;
     }
     if interface == "InputEvent" && member == "getTargetRanges" {
-        if let Some(value) = clipboard_actions::input_property(scope, args.this(), "targetRanges") {
-            if let Ok(array) = v8::Local::<v8::Array>::try_from(value) {
-                let mut values = Vec::new();
-                for index in 0..array.length() {
-                    if let Some(value) = array.get_index(scope, index) {
-                        values.push(value);
-                    }
+        if let Some(value) = clipboard_actions::input_property(scope, args.this(), "targetRanges")
+            && let Ok(array) = v8::Local::<v8::Array>::try_from(value)
+        {
+            let mut values = Vec::new();
+            for index in 0..array.length() {
+                if let Some(value) = array.get_index(scope, index) {
+                    values.push(value);
                 }
-                return_value.set(v8::Array::new_with_elements(scope, &values).into());
-                return;
             }
+            return_value.set(v8::Array::new_with_elements(scope, &values).into());
+            return;
         }
         let key = v8::String::new(scope, "__oryn_target_ranges")
             .expect("static InputEvent target-ranges key");
@@ -17731,12 +17727,15 @@ fn dispatch_platform_event_capturing(
                 | PlatformObjectRecord::VisualViewport
                 | PlatformObjectRecord::MediaQueryList { .. }
                 | PlatformObjectRecord::XPathNamespace
+                | PlatformObjectRecord::MessagePort(_)
                 | PlatformObjectRecord::EventTarget
                 | PlatformObjectRecord::TextTrack
                 | PlatformObjectRecord::TextTrackCue(_)
                 | PlatformObjectRecord::TextTrackList(text_tracks::List::Tracks(_))
                 | PlatformObjectRecord::MediaTrackList { .. }
                 | PlatformObjectRecord::PictureInPictureWindow(_)
+                | PlatformObjectRecord::WebNotification
+                | PlatformObjectRecord::XhrUpload
         )
     {
         if existing.is_none()
@@ -18116,18 +18115,6 @@ fn platform_event_stop(
 ) {
 }
 
-fn dispatch_platform_message_event(
-    scope: &mut v8::PinScope,
-    state: &V8BindingState,
-    id: u64,
-    data: v8::Local<v8::Value>,
-) -> Result<(), V8BindingError> {
-    let event = v8::Object::new(scope);
-    let key = v8::String::new(scope, "data").ok_or(V8BindingError::Allocation("message data"))?;
-    event.create_data_property(scope, key.into(), data);
-    dispatch_platform_event(scope, state, id, "message", Some(event))
-}
-
 fn record_platform_trace(scope: &mut v8::PinScope, kind: &str, detail: serde_json::Value) {
     let global = scope.get_current_context().global(scope);
     let Some(name) = v8::String::new(scope, "__oryn_context_trace") else {
@@ -18283,7 +18270,7 @@ fn new_stateful_object<'s>(
         .instance_templates
         .borrow()
         .get(interface)
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface(interface))?;
     let object = v8::Local::new(scope, &template)
         .new_instance(scope)
@@ -18938,6 +18925,7 @@ fn range_text(dom: &DomRuntime, range: &RangeRecord) -> Result<String, V8Binding
     Ok(oryn_dom::dom_string::from_units(&text))
 }
 
+#[cfg(test)]
 fn insert_at_boundary(
     dom: &mut DomRuntime,
     container: NodeId,
@@ -18962,6 +18950,7 @@ fn insert_at_boundary(
     }
 }
 
+#[cfg(test)]
 fn insert_range_node(
     dom: &mut DomRuntime,
     parent: NodeId,
@@ -19043,20 +19032,19 @@ fn synchronize_selection_range(state: &V8BindingState) -> Result<(), V8BindingEr
         let range = state.dom.borrow().live_range(LiveRangeId(primary))?.into();
         state.ranges.borrow_mut().insert(primary, range);
     }
-    if state.selection_composed_range.get().is_none() {
-        if let Some(id) = state.selection_range.get() {
-            let dom = state.dom.borrow();
-            let range = dom.live_range(LiveRangeId(id))?;
-            let invalid = dom.range_shadow_removal_revision(LiveRangeId(id))
-                != state.selection_range_removal_revision.get()
-                || shadow_including_tree_root(&dom, range.start.container)?
-                    != state.document_root()
-                || shadow_including_tree_root(&dom, range.end.container)? != state.document_root();
-            drop(dom);
-            if invalid {
-                clear_selection(state);
-                return Ok(());
-            }
+    if state.selection_composed_range.get().is_none()
+        && let Some(id) = state.selection_range.get()
+    {
+        let dom = state.dom.borrow();
+        let range = dom.live_range(LiveRangeId(id))?;
+        let invalid = dom.range_shadow_removal_revision(LiveRangeId(id))
+            != state.selection_range_removal_revision.get()
+            || shadow_including_tree_root(&dom, range.start.container)? != state.document_root()
+            || shadow_including_tree_root(&dom, range.end.container)? != state.document_root();
+        drop(dom);
+        if invalid {
+            clear_selection(state);
+            return Ok(());
         }
     }
     let selection_id = state
@@ -19811,12 +19799,11 @@ fn recover_editing_snapshots(
             failure.get_or_insert(error);
         }
     }
-    if failure.is_none() {
-        if let Some(snapshot) = snapshots.first() {
-            if let Err(error) = restore_editing_snapshot_selection(state, snapshot) {
-                failure = Some(error);
-            }
-        }
+    if failure.is_none()
+        && let Some(snapshot) = snapshots.first()
+        && let Err(error) = restore_editing_snapshot_selection(state, snapshot)
+    {
+        failure = Some(error);
     }
     if let Some(error) = failure {
         // Keep the whole transaction rooted: its shared selection may depend
@@ -19847,6 +19834,7 @@ fn undo_unit_bytes(unit: &UndoUnit) -> usize {
         },
     )
 }
+#[cfg(test)]
 fn release_undo_unit(dom: &mut DomRuntime, unit: &UndoUnit) -> Result<(), V8BindingError> {
     for segment in &unit.native_segments {
         release_editing_snapshot(dom, &segment.before)?;
@@ -20177,16 +20165,17 @@ fn restore_compound_undo(
         rollback.push(capture_editing_snapshot(state, host)?);
     }
     let result = (|| {
-        if unit.companions.is_empty() && !redo {
-            if let Some((left, right, left_placeholder, right_placeholder)) = unit.split_nodes {
-                return undo_paragraph_split(
-                    state,
-                    left,
-                    right,
-                    [left_placeholder, right_placeholder],
-                    unit.before.selection,
-                );
-            }
+        if unit.companions.is_empty()
+            && !redo
+            && let Some((left, right, left_placeholder, right_placeholder)) = unit.split_nodes
+        {
+            return undo_paragraph_split(
+                state,
+                left,
+                right,
+                [left_placeholder, right_placeholder],
+                unit.before.selection,
+            );
         }
         // A shared selection can point into any companion editor. Restore
         // every tree before validating/publishing those selection offsets.
@@ -20265,17 +20254,16 @@ fn undo_edit(state: &V8BindingState, redo: bool) -> Result<bool, V8BindingError>
     {
         return Ok(false);
     }
-    if !unit.native_segments.is_empty() {
-        if unit.before.document_identity
+    if !unit.native_segments.is_empty()
+        && (unit.before.document_identity
             != (
                 state.document_root(),
                 state.document_generation(),
                 state.document_stream_epoch(),
             )
-            || !state.dom.borrow().is_document_connected(unit.before.host)?
-        {
-            return Ok(false);
-        }
+            || !state.dom.borrow().is_document_connected(unit.before.host)?)
+    {
+        return Ok(false);
     }
     if resumed.is_none()
         && !native_keyboard::can_document_undo(state, &unit.identity, &unit.control_owners, redo)?
@@ -20917,7 +20905,7 @@ fn move_caret_to_following_editing_block(
 }
 
 fn utf16_delete_span(data: &str, offset: u32, forward: bool) -> (u32, u32) {
-    let units = oryn_dom::dom_string::units(&data);
+    let units = oryn_dom::dom_string::units(data);
     let offset = (offset as usize).min(units.len());
     if forward {
         if offset == units.len() {
@@ -21022,584 +21010,9 @@ fn has_ancestor_element_before(
     }
 }
 
-fn merge_document_root_editing_boundary(
-    state: &V8BindingState,
-    container: NodeId,
-    host: NodeId,
-    forward: bool,
-) -> Result<bool, V8BindingError> {
-    if element_local_name(&state.dom.borrow(), host) != Some("html") {
-        return Ok(false);
-    }
-    let (current, adjacent) = {
-        let dom = state.dom.borrow();
-        let Some(current) = document_root_editing_unit(&dom, container, host)? else {
-            return Ok(false);
-        };
-        let mut units = Vec::new();
-        collect_document_root_editing_units(&dom, host, &mut units)?;
-        let Some(index) = units.iter().position(|candidate| *candidate == current) else {
-            return Ok(false);
-        };
-        let adjacent = if forward {
-            units.get(index + 1).copied()
-        } else {
-            index
-                .checked_sub(1)
-                .and_then(|index| units.get(index))
-                .copied()
-        };
-        (current, adjacent)
-    };
-    let Some(adjacent) = adjacent else {
-        return Ok(false);
-    };
-    let (left, right) = if forward {
-        (current, adjacent)
-    } else {
-        (adjacent, current)
-    };
-    {
-        let dom = state.dom.borrow();
-        if !matches!(element_local_name(&dom, left), Some("body")) && !is_editing_block(&dom, left)
-            || !matches!(element_local_name(&dom, right), Some("body"))
-                && !is_editing_block(&dom, right)
-        {
-            return Ok(false);
-        }
-    }
-
-    let destination = {
-        let dom = state.dom.borrow();
-        let left_in_body = has_ancestor_element_before(&dom, left, "body", host);
-        let right_in_body = has_ancestor_element_before(&dom, right, "body", host);
-        if right_in_body && !left_in_body {
-            right
-        } else {
-            left
-        }
-    };
-    let source = if destination == left { right } else { left };
-    let destination_was_empty = node_is_placeholder_empty(&state.dom.borrow(), destination)?;
-    let source_was_empty = node_is_placeholder_empty(&state.dom.borrow(), source)?;
-    let destination_children = light_children(&state.dom.borrow(), destination)?;
-    let source_children = light_children(&state.dom.borrow(), source)?;
-    let caret_offset = if destination == left {
-        editing_caret_end(&state.dom.borrow(), destination)?
-    } else {
-        source_children
-            .iter()
-            .filter(|child| !is_preserved_editing_boundary(&state.dom.borrow(), **child))
-            .count() as u32
-    };
-    let moving = source_children
-        .into_iter()
-        .filter(|child| !is_preserved_editing_boundary(&state.dom.borrow(), *child))
-        .collect::<Vec<_>>();
-    {
-        let mut dom = state.dom.borrow_mut();
-        if destination_was_empty {
-            for child in destination_children {
-                if element_local_name(&dom, child) == Some("br") {
-                    dom.remove_child(destination, child)?;
-                }
-            }
-        }
-        if destination == left {
-            for child in moving {
-                dom.append_child(destination, child)?;
-            }
-        } else {
-            let before = light_children(&dom, destination)?.first().copied();
-            for child in moving {
-                dom.insert_before(destination, child, before)?;
-            }
-        }
-        if (source_was_empty || light_children(&dom, source)?.is_empty())
-            && element_local_name(&dom, source) != Some("body")
-            && let Some(parent) = dom.parent(source)?
-        {
-            dom.remove_child(parent, source)?;
-        }
-    }
-    let point = if node_is_placeholder_empty(&state.dom.borrow(), destination)? {
-        editing_placeholder_caret(&state.dom.borrow(), destination)?
-    } else {
-        BoundaryPoint {
-            container: destination,
-            offset: caret_offset.min(boundary_length(&state.dom.borrow(), destination)?),
-        }
-    };
-    set_selection_boundaries(state, point, point)?;
-    Ok(true)
-}
-
 // Join one rendered line, retaining later lines in their original paragraph.
 // ExtractContents preserves wholly selected nodes and clones partial inline
 // ancestors; the style wrapper keeps the source's inherited whitespace intact.
-#[cfg(test)]
-fn join_first_editing_line(
-    state: &V8BindingState,
-    destination: NodeId,
-    source: NodeId,
-) -> Result<BoundaryPoint, V8BindingError> {
-    join_first_editing_line_before(state, destination, source, None)
-}
-
-#[cfg(test)]
-fn join_first_editing_line_before(
-    state: &V8BindingState,
-    destination: NodeId,
-    source: NodeId,
-    before: Option<NodeId>,
-) -> Result<BoundaryPoint, V8BindingError> {
-    let destination_mode = editing_white_space(state, destination)?;
-    let source_is_placeholder = matches!(
-        state.dom.borrow().arena().get(source)?.kind,
-        NodeKind::Element { .. }
-    ) && node_is_placeholder_empty(&state.dom.borrow(), source)?;
-    let mut line_root = source;
-    loop {
-        let first = light_children(&state.dom.borrow(), line_root)?
-            .into_iter()
-            .find(|node| !is_ignored_editing_sibling(&state.dom.borrow(), *node));
-        let Some(first) = first else { break };
-        if nearest_rendered_editing_block(state, first, source)? != first {
-            break;
-        }
-        line_root = first;
-    }
-    let source_mode = editing_white_space(state, line_root)?;
-    // Matching whitespace modes can retain the source's internal line breaks
-    // in a single merged block. Different modes and nested source blocks use
-    // the first-line join, preserving the remaining source paragraph's style.
-    let host = editing_host(state)?.unwrap_or(destination);
-    let merge_whole_block = before.is_none()
-        && line_root == source
-        && source_mode == destination_mode
-        && nearest_rendered_editing_block(state, destination, host)? == destination
-        && nearest_rendered_editing_block(state, source, host)? == source;
-    let source_is_inline = matches!(
-        state.dom.borrow().arena().get(line_root)?.kind,
-        NodeKind::Text { .. } | NodeKind::CDataSection { .. }
-    ) || state
-        .layout
-        .borrow()
-        .styles
-        .get(&node_key(line_root))
-        .and_then(|style| style.get("display"))
-        .is_some_and(|display| display == "inline");
-    // Semantic inline elements are part of the moved line, rather than its
-    // paragraph container. A span used as a whitespace carrier is rebuilt below.
-    let preserve_inline_shell = source_is_inline
-        && matches!(
-            state.dom.borrow().arena().get(line_root)?.kind,
-            NodeKind::Element { .. }
-        )
-        && element_local_name(&state.dom.borrow(), line_root) != Some("span");
-    let destination_absorbs_inline_whitespace = source_is_inline
-        && editing_host(state)?.is_some_and(|host| {
-            let dom = state.dom.borrow();
-            ["pre", "listing"]
-                .into_iter()
-                .any(|tag| has_ancestor_element_before(&dom, destination, tag, host))
-        });
-    let source_has_author_whitespace = {
-        let dom = state.dom.borrow();
-        let style_node = if matches!(
-            dom.arena().get(line_root)?.kind,
-            NodeKind::Text { .. } | NodeKind::CDataSection { .. }
-        ) {
-            dom.parent(line_root)?.unwrap_or(line_root)
-        } else {
-            line_root
-        };
-        state
-            .layout
-            .borrow()
-            .author_whitespace
-            .contains(&node_key(style_node))
-    };
-    // Reuse a single inline container when that preserves its computed mode
-    // without rewriting an existing inline declaration block.
-    let reusable_inline = light_children(&state.dom.borrow(), line_root)?
-        .first()
-        .copied()
-        .is_some_and(|node| {
-            let dom = state.dom.borrow();
-            let layout = state.layout.borrow();
-            matches!(
-                dom.arena().get(node).map(|n| &n.kind),
-                Ok(NodeKind::Element { .. })
-            ) && dom
-                .attribute_in_null_namespace(node, "style")
-                .ok()
-                .flatten()
-                .is_none()
-                && layout.styles.get(&node_key(node)).is_some_and(|style| {
-                    style
-                        .get("display")
-                        .is_some_and(|display| display == "inline")
-                        && style.get("white-space") == Some(&source_mode)
-                })
-        });
-    let mut end = BoundaryPoint {
-        container: line_root,
-        offset: boundary_length(&state.dom.borrow(), line_root)?,
-    };
-    let mut separator = None;
-    let mut cleanup = Vec::new();
-    let mut line_nodes = if matches!(
-        state.dom.borrow().arena().get(line_root)?.kind,
-        NodeKind::Text { .. } | NodeKind::CDataSection { .. }
-    ) {
-        vec![line_root]
-    } else {
-        light_children(&state.dom.borrow(), line_root)?
-    };
-    line_nodes.reverse();
-    while let Some(node) = line_nodes.pop() {
-        let kind = state.dom.borrow().arena().get(node)?.kind.clone();
-        if is_preserved_editing_boundary(&state.dom.borrow(), node) {
-            let (container, offset) = relative_boundary(&state.dom.borrow(), node, false)?;
-            end = BoundaryPoint { container, offset };
-            break;
-        }
-        match kind {
-            NodeKind::Element { .. } => {
-                let hidden = state
-                    .layout
-                    .borrow()
-                    .styles
-                    .get(&node_key(node))
-                    .and_then(|style| style.get("display"))
-                    .is_some_and(|display| display == "none");
-                if hidden || is_ignored_editing_sibling(&state.dom.borrow(), node) {
-                    continue;
-                }
-                if !merge_whole_block && element_local_name(&state.dom.borrow(), node) == Some("br")
-                {
-                    let (container, offset) = relative_boundary(&state.dom.borrow(), node, false)?;
-                    end = BoundaryPoint { container, offset };
-                    separator = Some((node, false));
-                    break;
-                }
-                if nearest_rendered_editing_block(state, node, line_root)? == node {
-                    let (container, offset) = relative_boundary(&state.dom.borrow(), node, false)?;
-                    end = BoundaryPoint { container, offset };
-                    break;
-                }
-                line_nodes.extend(light_children(&state.dom.borrow(), node)?.into_iter().rev());
-            }
-            NodeKind::Text { data } | NodeKind::CDataSection { data } => {
-                let mode = editing_white_space(state, node)?;
-                if !merge_whole_block
-                    && matches!(
-                        mode.as_str(),
-                        "pre" | "pre-wrap" | "pre-line" | "break-spaces"
-                    )
-                    && let Some(index) = oryn_dom::dom_string::units(&data)
-                        .iter()
-                        .position(|unit| *unit == 10)
-                {
-                    end = BoundaryPoint {
-                        container: node,
-                        offset: index as u32,
-                    };
-                    separator = Some((node, true));
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    // The paragraph's first line can end at a break immediately outside an
-    // inline source container (including a bare text node).
-    let following_break = if source_is_inline
-        && !source_is_placeholder
-        && separator.is_none()
-        && end.container == line_root
-        && end.offset == boundary_length(&state.dom.borrow(), line_root)?
-    {
-        let dom = state.dom.borrow();
-        dom.parent(source)?
-            .map(|parent| light_children(&dom, parent))
-            .transpose()?
-            .and_then(|children| {
-                children
-                    .windows(2)
-                    .find(|pair| pair[0] == source)
-                    .map(|pair| pair[1])
-            })
-            .filter(|node| element_local_name(&dom, *node) == Some("br"))
-    } else {
-        None
-    };
-    if let Some((node, _)) = separator {
-        let mut current = Some(node);
-        while let Some(node) = current {
-            cleanup.push(node);
-            if node == line_root {
-                break;
-            }
-            current = state.dom.borrow().parent(node)?;
-        }
-    }
-    let mut dom = state.dom.borrow_mut();
-    let caret_offset = if let Some(before) = before {
-        relative_boundary(&dom, before, false)?.1
-    } else {
-        editing_caret_end(&dom, destination)?
-    };
-    let fragment = range_contents_for_edit(
-        &mut dom,
-        state,
-        &RangeRecord {
-            start_container: line_root,
-            start_offset: 0,
-            end_container: end.container,
-            end_offset: end.offset,
-        },
-        RangeContentsMode::Extract,
-    )?;
-    if let Some((node, newline)) = separator {
-        if newline {
-            dom.replace_character_data(node, 0, 1, "")?;
-        } else if let Some(parent) = dom.parent(node)? {
-            dom.remove_child(parent, node)?;
-        }
-    }
-    for node in cleanup {
-        if node == line_root {
-            break;
-        }
-        let empty = match &dom.arena().get(node)?.kind {
-            NodeKind::Text { data } | NodeKind::CDataSection { data } => data.is_empty(),
-            NodeKind::Element { .. } => dom.arena().get(node)?.children.is_empty(),
-            _ => false,
-        };
-        if empty && let Some(parent) = dom.parent(node)? {
-            dom.remove_child(parent, node)?;
-        }
-    }
-    if let Some(node) = following_break
-        && let Some(parent) = dom.parent(node)?
-    {
-        dom.remove_child(parent, node)?;
-    }
-    if preserve_inline_shell && !source_is_placeholder {
-        let children = light_children(&dom, fragment)?;
-        if !children.is_empty() {
-            let shell = if light_children(&dom, line_root)?.is_empty() {
-                // Reuse a wholly consumed element so listeners and identity survive.
-                line_root
-            } else {
-                dom.clone_node(line_root, false)?
-            };
-            for child in children {
-                dom.append_child(shell, child)?;
-            }
-            dom.append_child(fragment, shell)?;
-        }
-    }
-    let moving = if source_is_placeholder {
-        Vec::new()
-    } else {
-        light_children(&dom, fragment)?
-    };
-    if !moving.is_empty() {
-        // A final placeholder is replaced by the joined line.
-        if before.is_none()
-            && let Some(last) = light_children(&dom, destination)?.last().copied()
-            && element_local_name(&dom, last) == Some("br")
-        {
-            dom.remove_child(destination, last)?;
-        }
-        let target = if source_mode != destination_mode
-            && !destination_absorbs_inline_whitespace
-            && (source_has_author_whitespace || source_is_inline)
-        {
-            if reusable_inline
-                && !preserve_inline_shell
-                && moving.len() == 1
-                && matches!(dom.arena().get(moving[0])?.kind, NodeKind::Element { .. })
-            {
-                dom.set_attribute_ns(
-                    moving[0],
-                    None,
-                    "style",
-                    format!("white-space: {source_mode};"),
-                )?;
-                destination
-            } else {
-                let span = dom.create_element("span");
-                dom.set_attribute_ns(span, None, "style", format!("white-space: {source_mode};"))?;
-                dom.insert_before(destination, span, before)?;
-                span
-            }
-        } else {
-            destination
-        };
-        for child in moving {
-            dom.insert_before(
-                target,
-                child,
-                if target == destination { before } else { None },
-            )?;
-        }
-    }
-    let mut empty = line_root;
-    while match &dom.arena().get(empty)?.kind {
-        NodeKind::Text { data } | NodeKind::CDataSection { data } => data.is_empty(),
-        _ => light_children(&dom, empty)?.is_empty(),
-    } {
-        let Some(parent) = dom.parent(empty)? else {
-            break;
-        };
-        dom.remove_child(parent, empty)?;
-        if empty == source {
-            break;
-        }
-        empty = parent;
-    }
-    if node_is_placeholder_empty(&dom, destination)? {
-        return editing_placeholder_caret(&dom, destination);
-    }
-    Ok(BoundaryPoint {
-        container: destination,
-        offset: caret_offset.min(boundary_length(&dom, destination)?),
-    })
-}
-
-#[cfg(test)]
-fn merge_adjacent_editing_block(
-    state: &V8BindingState,
-    container: NodeId,
-    forward: bool,
-) -> Result<bool, V8BindingError> {
-    let Some(host) = editing_host(state)? else {
-        return Ok(false);
-    };
-    let (block, parent, sibling, ignored) = {
-        let dom = state.dom.borrow();
-        let block = nearest_editing_block(&dom, container, host)?;
-        if block == host {
-            drop(dom);
-            return merge_document_root_editing_boundary(state, container, host, forward);
-        }
-        let Some(parent) = dom.parent(block)? else {
-            return Ok(false);
-        };
-        let children = light_children(&dom, parent)?;
-        let Some(index) = children.iter().position(|node| *node == block) else {
-            return Ok(false);
-        };
-        let sibling_index = if forward {
-            children
-                .iter()
-                .enumerate()
-                .skip(index + 1)
-                .find(|(_, candidate)| !is_ignored_editing_sibling(&dom, **candidate))
-                .map(|(index, _)| index)
-        } else {
-            children[..index]
-                .iter()
-                .enumerate()
-                .rev()
-                .find(|(_, candidate)| !is_ignored_editing_sibling(&dom, **candidate))
-                .map(|(index, _)| index)
-        };
-        let sibling = sibling_index.map(|index| children[index]);
-        let ignored = sibling_index.map_or_else(Vec::new, |sibling_index| {
-            let range = if forward {
-                index + 1..sibling_index
-            } else {
-                sibling_index + 1..index
-            };
-            children[range]
-                .iter()
-                .copied()
-                .filter(|candidate| is_ignored_editing_sibling(&dom, *candidate))
-                .collect()
-        });
-        (block, parent, sibling, ignored)
-    };
-    if let Some(sibling) = sibling
-        && state.dom.borrow().arena().get(sibling).is_ok()
-        && matches!(
-            state.dom.borrow().arena().get(sibling)?.kind,
-            NodeKind::Element { .. }
-        )
-        && is_mergeable_editing_sibling(&state.dom.borrow(), sibling)
-    {
-        let (destination, source) = if forward {
-            (block, sibling)
-        } else {
-            (sibling, block)
-        };
-        for separator in ignored {
-            let mut dom = state.dom.borrow_mut();
-            if matches!(dom.arena().get(separator).map(|record| &record.kind),
-                Ok(NodeKind::Text { data } | NodeKind::CDataSection { data }) if data.trim().is_empty())
-            {
-                dom.remove_child(parent, separator)?;
-            }
-        }
-        let point = join_first_editing_line(state, destination, source)?;
-        set_selection_boundaries(state, point, point)?;
-        return Ok(true);
-    }
-
-    // An empty final nested list/list-item collapses back into its containing
-    // editable item rather than leaving an unreachable empty sub-list.
-    if node_is_placeholder_empty(&state.dom.borrow(), block)?
-        && matches!(
-            element_local_name(&state.dom.borrow(), block),
-            Some("li" | "dt" | "dd")
-        )
-        && matches!(
-            element_local_name(&state.dom.borrow(), parent),
-            Some("ul" | "ol" | "dl")
-        )
-        && parent != host
-    {
-        let grand = state.dom.borrow().parent(parent)?.unwrap_or(host);
-        let grand_tag = element_local_name(&state.dom.borrow(), grand).map(str::to_string);
-        if matches!(grand_tag.as_deref(), Some("li" | "dt" | "dd")) {
-            state.dom.borrow_mut().remove_child(grand, parent)?;
-        } else {
-            let replacement_tag = if grand_tag.as_deref() == Some("dl") {
-                "dd"
-            } else {
-                "li"
-            };
-            let replacement =
-                if element_local_name(&state.dom.borrow(), block) == Some(replacement_tag) {
-                    block
-                } else {
-                    // Flatten into the item type required by the containing list.
-                    let item = state.dom.borrow_mut().create_element(replacement_tag);
-                    let children = light_children(&state.dom.borrow(), block)?;
-                    for child in children {
-                        state.dom.borrow_mut().append_child(item, child)?;
-                    }
-                    item
-                };
-            state
-                .dom
-                .borrow_mut()
-                .insert_before(grand, replacement, Some(parent))?;
-            state.dom.borrow_mut().remove_child(grand, parent)?;
-        }
-        let point = BoundaryPoint {
-            container: grand,
-            offset: editing_caret_end(&state.dom.borrow(), grand)?,
-        };
-        set_selection_boundaries(state, point, point)?;
-        return Ok(true);
-    }
-    merge_document_root_editing_boundary(state, container, host, forward)
-}
 
 fn is_ignored_editing_sibling(dom: &DomRuntime, node: NodeId) -> bool {
     if matches!(
@@ -21672,7 +21085,7 @@ fn rightmost_text_with_trailing_newline(
         _ => return Ok(None),
     };
     let units = oryn_dom::dom_string::units(data);
-    Ok((units.last() == Some(&10)).then(|| (text, units.len() as u32)))
+    Ok((units.last() == Some(&10)).then_some((text, units.len() as u32)))
 }
 
 fn editing_context_preserves_newlines(
@@ -21701,108 +21114,6 @@ fn editing_context_preserves_newlines(
         };
         node = parent;
     }
-}
-
-fn remove_line_before_nested_block(
-    state: &V8BindingState,
-    container: NodeId,
-) -> Result<bool, V8BindingError> {
-    let Some(host) = editing_host(state)? else {
-        return Ok(false);
-    };
-    let block = nearest_editing_block(&state.dom.borrow(), container, host)?;
-    if block == host {
-        return Ok(false);
-    }
-    let (parent, preceding) = {
-        let dom = state.dom.borrow();
-        let Some(parent) = dom.parent(block)? else {
-            return Ok(false);
-        };
-        let children = light_children(&dom, parent)?;
-        let Some(index) = children.iter().position(|candidate| *candidate == block) else {
-            return Ok(false);
-        };
-        let preceding = index
-            .checked_sub(1)
-            .and_then(|index| children.get(index))
-            .copied();
-        (parent, preceding)
-    };
-    let Some(preceding) = preceding else {
-        return Ok(false);
-    };
-    let trailing_newline = {
-        let dom = state.dom.borrow();
-        if editing_context_preserves_newlines(&dom, preceding, host)? {
-            rightmost_text_with_trailing_newline(&dom, preceding)?
-        } else {
-            None
-        }
-    };
-    if let Some((trailing_text, length)) = trailing_newline {
-        state.dom.borrow_mut().replace_character_data(
-            trailing_text,
-            length.saturating_sub(1),
-            1,
-            "",
-        )?;
-        if matches!(
-            state.dom.borrow().arena().get(preceding)?.kind,
-            NodeKind::Element { .. }
-        ) && node_is_placeholder_empty(&state.dom.borrow(), preceding)?
-        {
-            state.dom.borrow_mut().remove_child(parent, preceding)?;
-        }
-        return Ok(true);
-    }
-    if element_local_name(&state.dom.borrow(), preceding) == Some("br")
-        || (matches!(
-            state.dom.borrow().arena().get(preceding)?.kind,
-            NodeKind::Element { .. }
-        ) && is_mergeable_editing_sibling(&state.dom.borrow(), preceding)
-            && node_is_placeholder_empty(&state.dom.borrow(), preceding)?)
-    {
-        state.dom.borrow_mut().remove_child(parent, preceding)?;
-        return Ok(true);
-    }
-    let preceding_can_own_editable_line = !matches!(
-        element_local_name(&state.dom.borrow(), preceding),
-        Some(
-            "html"
-                | "head"
-                | "body"
-                | "meta"
-                | "link"
-                | "base"
-                | "template"
-                | "title"
-                | "style"
-                | "script"
-        )
-    );
-    let trailing_break = preceding_can_own_editable_line
-        .then(|| traversal_nodes(&state.dom.borrow(), preceding))
-        .transpose()?
-        .into_iter()
-        .flatten()
-        .rev()
-        .find(|candidate| element_local_name(&state.dom.borrow(), *candidate) == Some("br"));
-    let trailing_break_owner = trailing_break
-        .map(|trailing_break| {
-            state
-                .dom
-                .borrow()
-                .parent(trailing_break)
-                .map(|owner| owner.map(|owner| (trailing_break, owner)))
-        })
-        .transpose()?
-        .flatten();
-    if let Some((trailing_break, owner)) = trailing_break_owner {
-        state.dom.borrow_mut().remove_child(owner, trailing_break)?;
-        return Ok(true);
-    }
-    Ok(false)
 }
 
 fn selection_ends_at_nested_block_start(
@@ -22126,92 +21437,6 @@ fn rendered_editing_boundary(
     }
 }
 
-#[cfg(test)]
-fn join_rendered_editing_boundary(
-    state: &V8BindingState,
-    range: &RangeRecord,
-    forward: bool,
-) -> Result<bool, V8BindingError> {
-    let Some(host) = editing_host(state)? else {
-        return Ok(false);
-    };
-    if element_local_name(&state.dom.borrow(), host) == Some("html") {
-        return Ok(false);
-    }
-    refresh_layout(state)?;
-    let selected =
-        range.start_container != range.end_container || range.start_offset != range.end_offset;
-    let start = BoundaryPoint {
-        container: range.start_container,
-        offset: range.start_offset,
-    };
-    let Some((left, right)) = rendered_editing_boundary(state, start, host, selected || forward)?
-    else {
-        return Ok(false);
-    };
-    if selected {
-        let end = BoundaryPoint {
-            container: range.end_container,
-            offset: range.end_offset,
-        };
-        if rendered_editing_boundary(state, end, host, false)? != Some((left, right)) {
-            return Ok(false);
-        }
-    }
-    let parent = state
-        .dom
-        .borrow()
-        .parent(left)?
-        .ok_or(V8BindingError::Allocation("editing boundary parent"))?;
-    let left_is_block = nearest_rendered_editing_block(state, left, host)? == left;
-    let (mut destination, before) = if left_is_block {
-        (left, None)
-    } else {
-        (parent, Some(right))
-    };
-    if left_is_block {
-        loop {
-            let children = light_children(&state.dom.borrow(), destination)?;
-            let mut last = None;
-            for child in children.into_iter().rev() {
-                if !editing_join_ignored(state, child)? {
-                    last = Some(child);
-                    break;
-                }
-            }
-            let Some(last) = last else {
-                break;
-            };
-            if editing_join_structural_boundary(&state.dom.borrow(), last)
-                || nearest_rendered_editing_block(state, last, host)? != last
-            {
-                break;
-            }
-            destination = last;
-        }
-    }
-    let children = light_children(&state.dom.borrow(), parent)?;
-    let left_index = children
-        .iter()
-        .position(|node| *node == left)
-        .ok_or(V8BindingError::Allocation("editing left unit"))?;
-    let right_index = children
-        .iter()
-        .position(|node| *node == right)
-        .ok_or(V8BindingError::Allocation("editing right unit"))?;
-    for node in &children[left_index + 1..right_index] {
-        if matches!(
-            state.dom.borrow().arena().get(*node)?.kind,
-            NodeKind::Text { .. } | NodeKind::CDataSection { .. }
-        ) {
-            state.dom.borrow_mut().remove_child(parent, *node)?;
-        }
-    }
-    let point = join_first_editing_line_before(state, destination, right, before)?;
-    set_selection_boundaries(state, point, point)?;
-    Ok(true)
-}
-
 fn editing_point_is_at_block_edge(
     dom: &DomRuntime,
     mut point: BoundaryPoint,
@@ -22234,242 +21459,6 @@ fn editing_point_is_at_block_edge(
         let (container, offset) = relative_boundary(dom, point.container, at_end)?;
         point = BoundaryPoint { container, offset };
     }
-}
-
-#[cfg(test)]
-fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(), V8BindingError> {
-    let Some(id) = state.selection_range.get() else {
-        return Ok(());
-    };
-    let range = state
-        .ranges
-        .borrow()
-        .get(&id)
-        .cloned()
-        .ok_or(V8BindingError::Allocation("Range record"))?;
-    if compare_boundary_points(
-        &state.dom.borrow(),
-        (range.start_container, range.start_offset),
-        (range.end_container, range.end_offset),
-    )? != 0
-    {
-        if join_rendered_editing_boundary(state, &range, forward)? {
-            return Ok(());
-        }
-        // Selecting only the boundary between adjacent paragraphs has the
-        // same line-joining behavior as deleting at either collapsed endpoint.
-        if let Some(host) = editing_host(state)? {
-            let left = nearest_rendered_editing_block(state, range.start_container, host)?;
-            let right = nearest_rendered_editing_block(state, range.end_container, host)?;
-            let boundary_only = {
-                let dom = state.dom.borrow();
-                left != right
-                    && dom.parent(left)? == dom.parent(right)?
-                    && editing_point_is_at_block_edge(
-                        &dom,
-                        BoundaryPoint {
-                            container: range.start_container,
-                            offset: range.start_offset,
-                        },
-                        left,
-                        true,
-                    )?
-                    && editing_point_is_at_block_edge(
-                        &dom,
-                        BoundaryPoint {
-                            container: range.end_container,
-                            offset: range.end_offset,
-                        },
-                        right,
-                        false,
-                    )?
-                    && dom.parent(left)?.is_some_and(|parent| {
-                        light_children(&dom, parent).is_ok_and(|children| {
-                            children
-                                .iter()
-                                .skip_while(|node| **node != left)
-                                .skip(1)
-                                .find(|node| !is_ignored_editing_sibling(&dom, **node))
-                                == Some(&right)
-                        })
-                    })
-            };
-            if boundary_only && merge_adjacent_editing_block(state, range.start_container, true)? {
-                return Ok(());
-            }
-        }
-        let preserve_nested_caret =
-            !forward && selection_ends_at_nested_block_start(state, &range)?;
-        replace_selection_with_text(state, "")?;
-        if preserve_nested_caret && state.dom.borrow().arena().get(range.end_container).is_ok() {
-            let point = BoundaryPoint {
-                container: range.end_container,
-                offset: 0,
-            };
-            set_selection_boundaries(state, point, point)?;
-        }
-        return Ok(());
-    }
-    let kind = state
-        .dom
-        .borrow()
-        .arena()
-        .get(range.start_container)?
-        .kind
-        .clone();
-    if let NodeKind::Text { data } | NodeKind::CDataSection { data } = kind {
-        let (start, end) = utf16_delete_span(&data, range.start_offset, forward);
-        if start == end {
-            if !forward && remove_line_before_nested_block(state, range.start_container)? {
-                let point = BoundaryPoint {
-                    container: range.start_container,
-                    offset: range.start_offset,
-                };
-                set_selection_boundaries(state, point, point)?;
-                return Ok(());
-            }
-            if join_rendered_editing_boundary(state, &range, forward)? {
-                return Ok(());
-            }
-            return merge_adjacent_editing_block(state, range.start_container, forward).map(|_| ());
-        }
-        state.dom.borrow_mut().replace_character_data(
-            range.start_container,
-            start,
-            end.saturating_sub(start),
-            "",
-        )?;
-        if forward
-            && end == oryn_dom::dom_string::len(&data) as u32
-            && move_caret_to_following_editing_block(
-                state,
-                range.start_container,
-                range.start_offset,
-            )?
-        {
-            return Ok(());
-        }
-        let point = BoundaryPoint {
-            container: range.start_container,
-            offset: start,
-        };
-        set_selection_boundaries(state, point, point)?;
-    } else {
-        if join_rendered_editing_boundary(state, &range, forward)? {
-            return Ok(());
-        }
-        if node_is_placeholder_empty(&state.dom.borrow(), range.start_container)?
-            && merge_adjacent_editing_block(state, range.start_container, forward)?
-        {
-            return Ok(());
-        }
-        let adjacent = {
-            let dom = state.dom.borrow();
-            let children = dom.arena().get(range.start_container)?.children.clone();
-            if forward {
-                children.get(range.start_offset as usize).copied()
-            } else {
-                range
-                    .start_offset
-                    .checked_sub(1)
-                    .and_then(|index| children.get(index as usize))
-                    .copied()
-            }
-        };
-        if let Some(adjacent) = adjacent {
-            let adjacent_kind = state.dom.borrow().arena().get(adjacent)?.kind.clone();
-            if let NodeKind::Text { data } | NodeKind::CDataSection { data } = adjacent_kind {
-                let length = oryn_dom::dom_string::len(&data) as u32;
-                let (start, end) =
-                    utf16_delete_span(&data, if forward { 0 } else { length }, forward);
-                state.dom.borrow_mut().replace_character_data(
-                    adjacent,
-                    start,
-                    end.saturating_sub(start),
-                    "",
-                )?;
-                let point = if forward {
-                    BoundaryPoint {
-                        container: range.start_container,
-                        offset: range.start_offset,
-                    }
-                } else {
-                    BoundaryPoint {
-                        container: adjacent,
-                        offset: start,
-                    }
-                };
-                set_selection_boundaries(state, point, point)?;
-            } else if matches!(
-                element_local_name(&state.dom.borrow(), adjacent),
-                Some("br")
-            ) {
-                let container = range.start_container;
-                state.dom.borrow_mut().remove_child(container, adjacent)?;
-                if forward
-                    && move_caret_to_following_editing_block(state, container, range.start_offset)?
-                {
-                    return Ok(());
-                }
-                if light_children(&state.dom.borrow(), container)?.is_empty()
-                    && is_editing_block(&state.dom.borrow(), container)
-                {
-                    let br = state.dom.borrow_mut().create_element("br");
-                    state.dom.borrow_mut().append_child(container, br)?;
-                }
-                let point = BoundaryPoint {
-                    container,
-                    offset: (if forward {
-                        range.start_offset
-                    } else {
-                        range.start_offset.saturating_sub(1)
-                    })
-                    .min(boundary_length(&state.dom.borrow(), container)?),
-                };
-                set_selection_boundaries(state, point, point)?;
-            } else {
-                let trailing_break = (!forward)
-                    .then(|| {
-                        light_children(&state.dom.borrow(), range.start_container)
-                            .ok()?
-                            .get(range.start_offset as usize)
-                            .copied()
-                    })
-                    .flatten()
-                    .filter(|node| element_local_name(&state.dom.borrow(), *node) == Some("br"));
-                if let Some(trailing_break) = trailing_break {
-                    state
-                        .dom
-                        .borrow_mut()
-                        .remove_child(range.start_container, trailing_break)?;
-                    let preceding = light_children(&state.dom.borrow(), range.start_container)?
-                        .get(range.start_offset.saturating_sub(1) as usize)
-                        .copied();
-                    let point = if let Some(preceding) = preceding {
-                        if node_is_placeholder_empty(&state.dom.borrow(), preceding)? {
-                            editing_placeholder_caret(&state.dom.borrow(), preceding)?
-                        } else {
-                            BoundaryPoint {
-                                container: preceding,
-                                offset: editing_caret_end(&state.dom.borrow(), preceding)?,
-                            }
-                        }
-                    } else {
-                        BoundaryPoint {
-                            container: range.start_container,
-                            offset: range.start_offset.saturating_sub(1),
-                        }
-                    };
-                    set_selection_boundaries(state, point, point)?;
-                } else {
-                    merge_adjacent_editing_block(state, adjacent, forward)?;
-                }
-            }
-        } else {
-            merge_adjacent_editing_block(state, range.start_container, forward)?;
-        }
-    }
-    Ok(())
 }
 
 // Editing decisions use the same resolved style snapshot as getComputedStyle.
@@ -22953,6 +21942,7 @@ fn insert_editing_text(state: &V8BindingState, text: &str) -> Result<(), V8Bindi
 // The inserted text will give this line a caret position, so remove its
 // redundant placeholder first. Text insertion must be the final DOM mutation
 // exposed to editors. Keep visible breaks and stay inside this editing block.
+#[cfg(test)]
 fn remove_editing_placeholder_before_typing(
     state: &V8BindingState,
     text: &str,
@@ -23265,77 +22255,6 @@ fn html_insertion_boundary(
 }
 
 #[cfg(test)]
-fn replace_selection_with_html(
-    state: &V8BindingState,
-    markup: &str,
-    pasted_markup: bool,
-) -> Result<(), V8BindingError> {
-    let overrides = state.editing_overrides.borrow().clone();
-    replace_selection_with_text(state, "")?;
-    let id = state
-        .selection_range
-        .get()
-        .ok_or(V8BindingError::Allocation("selection range"))?;
-    let range = state
-        .ranges
-        .borrow()
-        .get(&id)
-        .cloned()
-        .ok_or(V8BindingError::Allocation("Range record"))?;
-    let parsed = oryn_dom::html::parse_fragment(markup, "div");
-    let document_children = parsed.dom.get(parsed.document)?.children.clone();
-    let children = document_children
-        .first()
-        .and_then(|root| parsed.dom.get(*root).ok())
-        .filter(|root| {
-            matches!(&root.kind, NodeKind::Element { name } if name.local.as_ref() == "html")
-        })
-        .map(|root| root.children.clone())
-        .unwrap_or(document_children);
-    let mut point = BoundaryPoint {
-        container: range.start_container,
-        offset: range.start_offset,
-    };
-    if children.is_empty() {
-        return Ok(());
-    }
-    if pasted_markup {
-        point = html_insertion_boundary(state, point)?;
-    }
-    let mut last_inserted = None;
-    for child in children {
-        let imported = state.dom.borrow_mut().import_subtree(&parsed.dom, child)?;
-        insert_at_boundary(
-            &mut state.dom.borrow_mut(),
-            point.container,
-            point.offset,
-            imported,
-        )?;
-        last_inserted = Some(imported);
-        let (container, offset) = relative_boundary(&state.dom.borrow(), imported, true)?;
-        point = BoundaryPoint { container, offset };
-    }
-    if pasted_markup && let Some(mut last) = last_inserted {
-        let dom = state.dom.borrow();
-        while let Some(child) = light_children(&dom, last)?.last().copied() {
-            last = child;
-        }
-        if matches!(
-            dom.arena().get(last)?.kind,
-            NodeKind::Text { .. } | NodeKind::CDataSection { .. }
-        ) {
-            point = BoundaryPoint {
-                container: last,
-                offset: boundary_length(&dom, last)?,
-            };
-        }
-    }
-    set_selection_boundaries(state, point, point)?;
-    *state.editing_overrides.borrow_mut() = overrides;
-    Ok(())
-}
-
-#[cfg(test)]
 fn insert_editing_element(
     state: &V8BindingState,
     tag: &str,
@@ -23485,138 +22404,6 @@ fn apply_inline_format(
 
 // Editing moves keep boundaries attached to moved content instead of applying
 // the ordinary DOM removal rule that relocates them to the old parent.
-fn move_editing_node_preserving_ranges(
-    state: &V8BindingState,
-    node: NodeId,
-    new_parent: NodeId,
-    new_index: u32,
-) -> Result<(), V8BindingError> {
-    synchronize_live_ranges(state)?;
-    let (old_parent, old_index, reference) = {
-        let dom = state.dom.borrow();
-        let old_parent = dom.parent(node)?;
-        let old_index = old_parent
-            .map(|parent| relative_boundary(&dom, node, false).map(|point| (parent, point.1)))
-            .transpose()?
-            .map(|(_, index)| index);
-        let children = light_children(&dom, new_parent)?;
-        if new_index as usize > children.len() {
-            return Err(V8BindingError::Allocation("editing move index"));
-        }
-        (
-            old_parent,
-            old_index,
-            children.get(new_index as usize).copied(),
-        )
-    };
-    let mut ranges = state.ranges.borrow().clone();
-    let static_ranges = state.static_ranges.borrow().clone();
-    for (id, range) in &mut ranges {
-        if static_ranges.contains(id) {
-            continue;
-        }
-        for (container, offset) in [
-            (&mut range.start_container, &mut range.start_offset),
-            (&mut range.end_container, &mut range.end_offset),
-        ] {
-            if *container == new_parent && *offset > new_index {
-                *offset += 1;
-            }
-            if Some(*container) == old_parent {
-                let old_index = old_index.expect("parent has an index");
-                if *offset == old_index || *offset == old_index + 1 {
-                    *container = new_parent;
-                    *offset = new_index + (*offset - old_index);
-                } else if *offset > old_index + 1 {
-                    *offset -= 1;
-                }
-            }
-        }
-    }
-    state
-        .dom
-        .borrow_mut()
-        .insert_before(new_parent, node, reference)?;
-    for (id, range) in ranges {
-        if !static_ranges.contains(&id) {
-            state.ranges.borrow_mut().insert(id, range);
-            persist_live_range(state, id)?;
-        }
-    }
-    synchronize_live_ranges(state)
-}
-
-fn unwrap_element(dom: &mut DomRuntime, node: NodeId) -> Result<(), V8BindingError> {
-    let parent = dom.parent(node)?.ok_or(V8BindingError::Unsupported {
-        interface: "Document".into(),
-        member: "cannot unwrap a root".into(),
-    })?;
-    let reference = light_children(dom, parent)?
-        .iter()
-        .position(|candidate| *candidate == node)
-        .and_then(|index| light_children(dom, parent).ok()?.get(index + 1).copied());
-    for child in light_children(dom, node)? {
-        dom.insert_before(parent, child, reference)?;
-    }
-    dom.remove_child(parent, node)?;
-    Ok(())
-}
-
-fn remove_selection_format(state: &V8BindingState) -> Result<(), V8BindingError> {
-    let Some(host) = editing_host(state)? else {
-        return Ok(());
-    };
-    let selected = state
-        .selection_range
-        .get()
-        .and_then(|id| state.ranges.borrow().get(&id).cloned());
-    let Some(range) = selected else {
-        return Ok(());
-    };
-    let removable = traversal_nodes(&state.dom.borrow(), host)?
-        .into_iter()
-        .filter(|node| {
-            let dom = state.dom.borrow();
-            let Ok(before) = relative_boundary(&dom, *node, false) else {
-                return false;
-            };
-            let Ok(after) = relative_boundary(&dom, *node, true) else {
-                return false;
-            };
-            let intersects =
-                compare_boundary_points(&dom, (range.end_container, range.end_offset), before)
-                    .is_ok_and(|ordering| ordering > 0)
-                    && compare_boundary_points(
-                        &dom,
-                        (range.start_container, range.start_offset),
-                        after,
-                    )
-                    .is_ok_and(|ordering| ordering < 0);
-            intersects
-                && matches!(
-                    element_local_name(&dom, *node),
-                    Some(
-                        "a" | "b"
-                            | "font"
-                            | "i"
-                            | "s"
-                            | "span"
-                            | "strike"
-                            | "strong"
-                            | "sub"
-                            | "sup"
-                            | "u"
-                    )
-                )
-        })
-        .collect::<Vec<_>>();
-    for node in removable.into_iter().rev() {
-        if state.dom.borrow().arena().get(node).is_ok() {
-            unwrap_element(&mut state.dom.borrow_mut(), node)?;
-        }
-    }
-    synchronize_live_ranges(state)
-}
 
 fn alignment_node_is_block(dom: &DomRuntime, layout: &BindingLayout, node: NodeId) -> bool {
     if !matches!(
@@ -23907,83 +22694,6 @@ fn alignment_allows_div_child(dom: &DomRuntime, node: NodeId) -> Result<bool, V8
     })
 }
 
-fn clear_contained_alignment(state: &V8BindingState) -> Result<(), V8BindingError> {
-    let Some(range) = editing_alignment_range(state)? else {
-        return Ok(());
-    };
-    let nodes = contained_alignment_nodes(state, &range)?;
-    for node in nodes {
-        let needs_cleanup = {
-            let dom = state.dom.borrow();
-            matches!(dom.arena().get(node)?.kind, NodeKind::Element { .. })
-                && (dom.attribute_in_null_namespace(node, "align")?.is_some()
-                    || element_local_name(&dom, node) == Some("center")
-                    || dom
-                        .attribute_in_null_namespace(node, "style")?
-                        .is_some_and(|style| {
-                            style.split(';').any(|declaration| {
-                                declaration.split_once(':').is_some_and(|(name, _)| {
-                                    name.trim().eq_ignore_ascii_case("text-align")
-                                })
-                            })
-                        }))
-        };
-        if !needs_cleanup {
-            continue;
-        }
-        {
-            let mut dom = state.dom.borrow_mut();
-            dom.remove_attribute_ns(node, None, "align")?;
-            set_inline_style_property(&mut dom, node, "text-align", "")?;
-            if dom.attribute_in_null_namespace(node, "style")? == Some("") {
-                dom.remove_attribute_ns(node, None, "style")?;
-            }
-        }
-        let (name, attributes, parent) = {
-            let dom = state.dom.borrow();
-            (
-                element_local_name(&dom, node).unwrap_or("").to_owned(),
-                dom.arena().get(node)?.attributes.clone(),
-                dom.parent(node)?,
-            )
-        };
-        let Some(parent) = parent else {
-            continue;
-        };
-        if matches!(name.as_str(), "div" | "span" | "center") && attributes.is_empty() {
-            let children = light_children(&state.dom.borrow(), node)?;
-            for child in children {
-                let (_, index) = relative_boundary(&state.dom.borrow(), node, false)?;
-                move_editing_node_preserving_ranges(state, child, parent, index)?;
-            }
-            state.dom.borrow_mut().remove_child(parent, node)?;
-            synchronize_live_ranges(state)?;
-        } else if name == "center" {
-            let replacement = state.dom.borrow_mut().create_element("div");
-            {
-                let mut dom = state.dom.borrow_mut();
-                dom.insert_before(parent, replacement, Some(node))?;
-                for attribute in attributes.records() {
-                    dom.set_attribute_ns(
-                        replacement,
-                        attribute.namespace.clone(),
-                        &attribute.name,
-                        &attribute.value,
-                    )?;
-                }
-            }
-            let children = light_children(&state.dom.borrow(), node)?;
-            for child in children {
-                let index = boundary_length(&state.dom.borrow(), replacement)?;
-                move_editing_node_preserving_ranges(state, child, replacement, index)?;
-            }
-            state.dom.borrow_mut().remove_child(parent, node)?;
-            synchronize_live_ranges(state)?;
-        }
-    }
-    Ok(())
-}
-
 fn reusable_alignment_wrapper(dom: &DomRuntime, node: NodeId, alignment: &str) -> bool {
     if element_local_name(dom, node) != Some("div") {
         return false;
@@ -24010,308 +22720,6 @@ fn reusable_alignment_wrapper(dom: &DomRuntime, node: NodeId, alignment: &str) -
                 _ => false,
             })
     })
-}
-
-fn separate_alignment_inline_runs(
-    state: &V8BindingState,
-    wrapper: NodeId,
-    incoming: &[NodeId],
-    prepend: bool,
-) -> Result<(), V8BindingError> {
-    refresh_layout(state)?;
-    let needs_break = {
-        let dom = state.dom.borrow();
-        let layout = state.layout.borrow();
-        let children = light_children(&dom, wrapper)?;
-        let visible = |nodes: &[NodeId]| -> Result<Vec<NodeId>, V8BindingError> {
-            let mut result = Vec::new();
-            for node in nodes {
-                if alignment_node_is_visible(&dom, &layout, *node)? {
-                    result.push(*node);
-                }
-            }
-            Ok(result)
-        };
-        let existing = visible(&children)?;
-        let incoming_visible = visible(incoming)?;
-        let (left, right, last) = if prepend {
-            (incoming_visible.last(), existing.first(), incoming.last())
-        } else {
-            (existing.last(), incoming_visible.first(), children.last())
-        };
-        alignment_node_is_block(&dom, &layout, wrapper)
-            && left.zip(right).is_some_and(|(left, right)| {
-                !alignment_node_is_block(&dom, &layout, *left)
-                    && !alignment_node_is_block(&dom, &layout, *right)
-            })
-            && !last.is_some_and(|node| element_local_name(&dom, *node) == Some("br"))
-    };
-    if needs_break {
-        let reference = if prepend {
-            light_children(&state.dom.borrow(), wrapper)?
-                .first()
-                .copied()
-        } else {
-            None
-        };
-        let mut dom = state.dom.borrow_mut();
-        let br = dom.create_element("br");
-        dom.insert_before(wrapper, br, reference)?;
-    }
-    Ok(())
-}
-
-fn wrap_alignment_contents(state: &V8BindingState, alignment: &str) -> Result<(), V8BindingError> {
-    let Some(range) = editing_alignment_range(state)? else {
-        return Ok(());
-    };
-    let mut selected = Vec::new();
-    for node in contained_alignment_nodes(state, &range)? {
-        let covered = {
-            let dom = state.dom.borrow();
-            let mut parent = dom.parent(node)?;
-            let mut covered = false;
-            while let Some(ancestor) = parent {
-                if selected.contains(&ancestor) {
-                    covered = true;
-                    break;
-                }
-                parent = dom.parent(ancestor)?;
-            }
-            covered || !alignment_allows_div_child(&dom, node)?
-        };
-        if !covered && editing_alignment_value(state, node)? != alignment {
-            selected.push(node);
-        }
-    }
-    let mut index = 0;
-    while index < selected.len() {
-        let first = selected[index];
-        let (parent, position) = relative_boundary(&state.dom.borrow(), first, false)?;
-        let mut end = index + 1;
-        {
-            let dom = state.dom.borrow();
-            let siblings = light_children(&dom, parent)?;
-            while end < selected.len()
-                && siblings.get(position as usize + end - index) == Some(&selected[end])
-            {
-                end += 1;
-            }
-        }
-        let mut has_visible_content = false;
-        {
-            let dom = state.dom.borrow();
-            let layout = state.layout.borrow();
-            for node in &selected[index..end] {
-                if alignment_node_is_visible(&dom, &layout, *node)?
-                    || element_local_name(&dom, *node) == Some("br")
-                {
-                    has_visible_content = true;
-                    break;
-                }
-            }
-        }
-        if !has_visible_content {
-            index = end;
-            continue;
-        }
-        let (run, position) = {
-            let dom = state.dom.borrow();
-            let layout = state.layout.borrow();
-            let siblings = light_children(&dom, parent)?;
-            let mut start = position as usize;
-            let mut limit = start + end - index;
-            let last = siblings[limit - 1];
-            if !alignment_node_is_block(&dom, &layout, last)
-                && element_local_name(&dom, last) != Some("br")
-                && siblings
-                    .get(limit)
-                    .is_some_and(|node| element_local_name(&dom, *node) == Some("br"))
-            {
-                limit += 1;
-            }
-            while start > 0 && !alignment_node_is_visible(&dom, &layout, siblings[start - 1])? {
-                start -= 1;
-            }
-            while limit < siblings.len()
-                && !alignment_node_is_visible(&dom, &layout, siblings[limit])?
-            {
-                limit += 1;
-            }
-            (siblings[start..limit].to_vec(), start as u32)
-        };
-        while end < selected.len() && run.contains(&selected[end]) {
-            end += 1;
-        }
-        let first = run[0];
-        let (previous, next) = {
-            let dom = state.dom.borrow();
-            let siblings = light_children(&dom, parent)?;
-            (
-                position
-                    .checked_sub(1)
-                    .and_then(|i| siblings.get(i as usize))
-                    .copied()
-                    .filter(|node| reusable_alignment_wrapper(&dom, *node, alignment)),
-                siblings
-                    .get(position as usize + run.len())
-                    .copied()
-                    .filter(|node| reusable_alignment_wrapper(&dom, *node, alignment)),
-            )
-        };
-        let wrapper = if let Some(previous) = previous {
-            previous
-        } else if let Some(next) = next {
-            next
-        } else {
-            let wrapper = state.dom.borrow_mut().create_element("div");
-            set_inline_style_property(
-                &mut state.dom.borrow_mut(),
-                wrapper,
-                "text-align",
-                alignment,
-            )?;
-            state
-                .dom
-                .borrow_mut()
-                .insert_before(parent, wrapper, Some(first))?;
-            synchronize_live_ranges(state)?;
-            let ids = state.ranges.borrow().keys().copied().collect::<Vec<_>>();
-            for id in ids {
-                if state.static_ranges.borrow().contains(&id) {
-                    continue;
-                }
-                {
-                    let mut ranges = state.ranges.borrow_mut();
-                    let range = ranges.get_mut(&id).expect("registered range");
-                    if range.start_container == parent && range.start_offset == position {
-                        range.start_offset += 1;
-                    }
-                    if range.end_container == parent && range.end_offset == position {
-                        range.end_offset += 1;
-                    }
-                }
-                persist_live_range(state, id)?;
-            }
-            synchronize_live_ranges(state)?;
-            wrapper
-        };
-        let prepend = previous.is_none() && next.is_some();
-        separate_alignment_inline_runs(state, wrapper, &run, prepend)?;
-        if prepend {
-            for node in run.iter().rev() {
-                move_editing_node_preserving_ranges(state, *node, wrapper, 0)?;
-            }
-        } else {
-            for node in &run {
-                let offset = boundary_length(&state.dom.borrow(), wrapper)?;
-                move_editing_node_preserving_ranges(state, *node, wrapper, offset)?;
-            }
-        }
-        if let Some(next) = next.filter(|next| *next != wrapper) {
-            let children = light_children(&state.dom.borrow(), next)?;
-            separate_alignment_inline_runs(state, wrapper, &children, false)?;
-            for child in children {
-                let offset = boundary_length(&state.dom.borrow(), wrapper)?;
-                move_editing_node_preserving_ranges(state, child, wrapper, offset)?;
-            }
-            state.dom.borrow_mut().remove_child(parent, next)?;
-            synchronize_live_ranges(state)?;
-        }
-        index = end;
-    }
-    synchronize_live_ranges(state)
-}
-
-#[cfg(test)]
-fn apply_block_command(
-    state: &V8BindingState,
-    command: &str,
-    value: &str,
-) -> Result<(), V8BindingError> {
-    let Some(anchor) = state.selection_anchor.get() else {
-        return Ok(());
-    };
-    let alignment = match command {
-        "justifyleft" => "left",
-        "justifycenter" => "center",
-        "justifyright" => "right",
-        "justifyfull" => "justify",
-        _ => return apply_block_command_at_boundary(state, command, value, anchor),
-    };
-    clear_contained_alignment(state)?;
-    wrap_alignment_contents(state, alignment)
-}
-
-#[cfg(test)]
-fn apply_block_command_at_boundary(
-    state: &V8BindingState,
-    command: &str,
-    value: &str,
-    anchor: BoundaryPoint,
-) -> Result<(), V8BindingError> {
-    let Some(host) = editing_host(state)? else {
-        return Ok(());
-    };
-    let block = nearest_editing_block(&state.dom.borrow(), anchor.container, host)?;
-    match command {
-        "indent" => {
-            set_inline_style_property(&mut state.dom.borrow_mut(), block, "margin-left", "40px")?;
-        }
-        "outdent" => {
-            set_inline_style_property(&mut state.dom.borrow_mut(), block, "margin-left", "")?;
-        }
-        "insertorderedlist" | "insertunorderedlist" => {
-            let list = if command == "insertorderedlist" {
-                "ol"
-            } else {
-                "ul"
-            };
-            let list_node = insert_editing_element(state, list, &[])?;
-            let children = light_children(&state.dom.borrow(), list_node)?;
-            if !children
-                .iter()
-                .all(|child| element_local_name(&state.dom.borrow(), *child) == Some("li"))
-            {
-                let item = state.dom.borrow_mut().create_element("li");
-                for child in children {
-                    state.dom.borrow_mut().append_child(item, child)?;
-                }
-                state.dom.borrow_mut().append_child(list_node, item)?;
-            }
-        }
-        "formatblock" => {
-            let tag = value.trim_matches(|character| character == '<' || character == '>');
-            let allowed = matches!(
-                tag.to_ascii_lowercase().as_str(),
-                "address"
-                    | "article"
-                    | "blockquote"
-                    | "dd"
-                    | "div"
-                    | "dt"
-                    | "h1"
-                    | "h2"
-                    | "h3"
-                    | "h4"
-                    | "h5"
-                    | "h6"
-                    | "p"
-                    | "pre"
-            );
-            if allowed {
-                insert_editing_element(state, &tag.to_ascii_lowercase(), &[])?;
-            }
-        }
-        "defaultparagraphseparator" => {
-            let separator = value.to_ascii_lowercase();
-            if matches!(separator.as_str(), "div" | "p") {
-                *state.default_paragraph_separator.borrow_mut() = separator;
-            }
-        }
-        _ => {}
-    }
-    Ok(())
 }
 
 fn clone_editing_element(dom: &mut DomRuntime, source: NodeId) -> Result<NodeId, V8BindingError> {
@@ -24351,6 +22759,7 @@ fn insert_after_node(
 
 // A split can leave empty text nodes inside formatting elements. Those nodes
 // still need a line box, with the placeholder inside the formatting context.
+#[cfg(test)]
 fn ensure_split_paragraph_placeholder(
     dom: &mut DomRuntime,
     block: NodeId,
@@ -24651,18 +23060,6 @@ fn global_property<'s>(
         .ok_or(V8BindingError::Allocation("global property"))
 }
 
-fn location_href(scope: &mut v8::PinScope) -> Result<String, V8BindingError> {
-    let state = scope
-        .get_current_context()
-        .get_slot::<V8BindingState>()
-        .ok_or(V8BindingError::Allocation("native history document"))?;
-    if state.binding_global != BindingGlobal::Window || state.execution_retired() {
-        return Err(V8BindingError::Allocation("inactive history document"));
-    }
-    let url = state.location_url.borrow().to_string();
-    Ok(url)
-}
-
 fn request_initiator_url(scope: &mut v8::PinScope) -> Option<String> {
     scope
         .get_current_context()
@@ -24692,10 +23089,9 @@ fn ensure_history(
         let projection = navigation_api::prepare_initial_history_projection(state)?;
         state.history.borrow_mut().replace(HistoryRecord {
             entries: vec![HistoryEntry {
+                #[cfg(test)]
                 url: snapshot.url,
-                state_json: snapshot.history_state,
                 navigation_id: snapshot.id,
-                document_id: snapshot.document_id,
             }],
             index: 0,
             scroll_restoration: snapshot.scroll.mode.as_str().into(),
@@ -24705,15 +23101,6 @@ fn ensure_history(
         }
     }
     Ok(())
-}
-
-fn parse_json<'s>(
-    scope: &mut v8::PinScope<'s, '_>,
-    encoded: &str,
-) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    let encoded =
-        v8::String::new(scope, encoded).ok_or(V8BindingError::Allocation("history state"))?;
-    v8::json::parse(scope, encoded).ok_or(V8BindingError::Allocation("history state parse"))
 }
 
 fn clone_history_state(
@@ -25029,7 +23416,7 @@ fn storage_entries(
 
 fn call_storage_operation<'s>(
     scope: &mut v8::PinScope<'s, '_>,
-    state: &Rc<V8BindingState>,
+    _state: &Rc<V8BindingState>,
     object: v8::Local<'s, v8::Object>,
     member: &str,
     args: &v8::FunctionCallbackArguments,
@@ -27036,10 +25423,10 @@ fn set_platform_attribute(
             .to_string(scope)
             .ok_or(V8BindingError::JavaScriptException)?
             .to_rust_string_lossy(scope);
-        if matches!(kind.as_str(), "blob" | "arraybuffer") {
-            if let PlatformObjectRecord::WebSocket(socket) = &mut *platform_object_mut(state, id)? {
-                socket.binary_type = kind;
-            }
+        if matches!(kind.as_str(), "blob" | "arraybuffer")
+            && let PlatformObjectRecord::WebSocket(socket) = &mut *platform_object_mut(state, id)?
+        {
+            socket.binary_type = kind;
         }
         return Ok(());
     }
@@ -27131,6 +25518,7 @@ fn xhr_upload_event(
     )?;
     let id = event_id(scope, event)?;
     if let Some(record) = state.events.borrow_mut().get_mut(&id) {
+        record.is_trusted = true;
         record.progress = Some((total != 0, loaded as f64, total as f64));
     }
     dispatch_platform_event(scope, state, upload_id, event_type, Some(event))
@@ -27306,7 +25694,7 @@ fn read_native_stream<'s>(
         )?;
     }
     readable_streams::pull(scope, state, stream_id)?;
-    return Ok(Some(promise.into()));
+    Ok(Some(promise.into()))
 }
 
 fn call_platform_operation<'s>(
@@ -29238,9 +27626,9 @@ fn call_platform_operation<'s>(
                     .as_ref()
                     .is_some_and(|metadata| metadata.is_html);
                 let serialized = if html {
-                    template_links::serialize_html(scope, &owner, document)?
+                    template_links::serialize_html(scope, owner, document)?
                 } else {
-                    template_links::serialize_xml(scope, &owner, document)?
+                    template_links::serialize_xml(scope, owner, document)?
                 };
                 (
                     String::from_utf16_lossy(&oryn_dom::dom_string::units(&serialized))
@@ -31319,7 +29707,7 @@ pub fn wrap_node<'s>(
         .instance_templates
         .borrow()
         .get(interface)
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface(interface))?;
     let object = {
         let context = state
@@ -32423,17 +30811,15 @@ fn deliver_pending_mutation_notifications(scope: &mut v8::PinScope) -> Result<()
             ));
         };
         let scope = &mut v8::ContextScope::new(scope, context);
-        match deliver_mutation_observer_ids(scope, &state, vec![id]) {
-            Ok(delivered) => {
-                pending.remaining.pop_front();
-                let registry = scope
-                    .get_slot::<BindingStateRegistry>()
-                    .expect("binding registry");
-                registry
-                    .delivered_observers
-                    .set(registry.delivered_observers.get().saturating_add(delivered));
-            }
-            Err(error) => return Err(error),
+        {
+            let delivered = deliver_mutation_observer_ids(scope, &state, vec![id])?;
+            pending.remaining.pop_front();
+            let registry = scope
+                .get_slot::<BindingStateRegistry>()
+                .expect("binding registry");
+            registry
+                .delivered_observers
+                .set(registry.delivered_observers.get().saturating_add(delivered));
         }
         if scope.is_execution_terminating() {
             return Ok(());
@@ -33222,18 +31608,6 @@ fn query_selector_nodes(
     })
 }
 
-fn validate_css_selector(state: &V8BindingState, selector: &str) -> Result<(), V8BindingError> {
-    if let Some(provider) = state.layout_provider.borrow().as_ref() {
-        provider
-            .canonicalize_selector(selector)
-            .map_err(|_| V8BindingError::Unsupported {
-                interface: "Selectors".into(),
-                member: "SyntaxError".into(),
-            })?;
-    }
-    Ok(())
-}
-
 /// CSS property values and priorities use LegacyNullToEmptyString; cssText
 /// uses ordinary DOMString conversion. Preserve conversion exceptions before
 /// any declaration parsing or DOM mutation.
@@ -33569,6 +31943,27 @@ fn get_attribute_value<'s>(
     }
     if interface == "HTMLMediaElement" && matches!(member, "audioTracks" | "videoTracks") {
         return av_tracks::node_get(scope, state, node, member == "videoTracks");
+    }
+    if interface == "HTMLTrackElement" && member == "default" {
+        return Ok(v8::Boolean::new(
+            scope,
+            state
+                .dom
+                .borrow()
+                .attribute_in_null_namespace(node, "default")?
+                .is_some(),
+        )
+        .into());
+    }
+    if interface == "HTMLTrackElement" && member == "srclang" {
+        return v8_string(
+            scope,
+            state
+                .dom
+                .borrow()
+                .attribute_in_null_namespace(node, "srclang")?
+                .unwrap_or(""),
+        );
     }
     if interface == "HTMLTrackElement" && member == "kind" {
         let value = state
@@ -33921,6 +32316,11 @@ fn get_attribute_value<'s>(
                 None
             } else {
                 let mut active = dom.focused_element_in(node)?;
+                // The document viewport can own focus internally, but
+                // activeElement exposes its body/document-element fallback.
+                if interface == "Document" && active == Some(node) {
+                    active = None;
+                }
                 if active.is_none()
                     && interface == "Document"
                     && let Some(root) = dom.first_element_child(node)?
@@ -34211,6 +32611,34 @@ fn get_attribute_value<'s>(
                 )?
                 .unwrap_or(""),
         );
+    }
+    if (interface == "Element" && member == "slot")
+        || (interface == "HTMLSourceElement" && matches!(member, "srcset" | "sizes"))
+    {
+        return v8_string(
+            scope,
+            state
+                .dom
+                .borrow()
+                .attribute_in_null_namespace(node, member)?
+                .unwrap_or(""),
+        );
+    }
+    if interface == "HTMLSourceElement" && matches!(member, "width" | "height") {
+        let dom = state.dom.borrow();
+        let value = dom
+            .attribute_in_null_namespace(node, member)?
+            .and_then(|value| {
+                let value = value.trim_start_matches([' ', '\t', '\n', '\r', '\u{c}']);
+                let value = value.strip_prefix('+').unwrap_or(value);
+                let length = value.bytes().take_while(u8::is_ascii_digit).count();
+                value[..length]
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|value| *value <= i32::MAX as u32)
+            })
+            .unwrap_or(0);
+        return Ok(v8::Integer::new_from_unsigned(scope, value).into());
     }
     if interface == "HTMLDivElement" && member == "align" {
         return v8_string(
@@ -34912,7 +33340,7 @@ fn get_attribute_value<'s>(
                 .get_null(member)
                 .map_or("", String::as_str),
         )?,
-        ("HTMLElement", "hidden" | "inert") => {
+        ("HTMLElement", "hidden" | "inert" | "autofocus") | ("SVGElement", "autofocus") => {
             v8::Boolean::new(scope, record.attributes.get_null(member).is_some()).into()
         }
         ("CSSStyleDeclaration", "parentRule") => v8::null(scope).into(),
@@ -35203,6 +33631,13 @@ fn get_attribute_value<'s>(
             };
             v8::Boolean::new(scope, record.attributes.get_null(attribute).is_some()).into()
         }
+        ("HTMLAreaElement", "coords" | "shape") => v8_string(
+            scope,
+            record
+                .attributes
+                .get_null(member)
+                .map_or("", String::as_str),
+        )?,
         ("HTMLDialogElement", "returnValue") => v8_string(scope, &record.dialog_return_value)?,
         (
             interface,
@@ -35329,7 +33764,7 @@ fn get_attribute_value<'s>(
                         let url = metadata
                             .and_then(|metadata| metadata.url.as_deref())
                             .unwrap_or("about:blank");
-                        if matches!(url, "about:blank" | "about:srcdoc") {
+                        if document_url_uses_inherited_base(url) {
                             metadata
                                 .and_then(|metadata| metadata.inherited_base_url.clone())
                                 .unwrap_or_else(|| url.into())
@@ -35428,15 +33863,14 @@ fn set_attribute_value<'s>(
     member: &str,
     value: v8::Local<'s, v8::Value>,
 ) -> Result<(), V8BindingError> {
-    let value = if value.is_null_or_undefined()
+    let value = if (value.is_null_or_undefined()
         && matches!(
             (interface, member),
             ("Node", "nodeValue" | "textContent") | ("HTMLScriptElement", "textContent")
-        ) {
-        v8::String::empty(scope).into()
-    } else if value.is_null()
-        && matches!(interface, "HTMLElement" | "HTMLScriptElement")
-        && member == "innerText"
+        ))
+        || (value.is_null()
+            && matches!(interface, "HTMLElement" | "HTMLScriptElement")
+            && member == "innerText")
     {
         v8::String::empty(scope).into()
     } else {
@@ -35468,6 +33902,48 @@ fn set_attribute_value<'s>(
             .borrow_mut()
             .set_attribute_ns(node, None, member, value)?;
         return attribute_resource_changed(scope, &owner, node, None, member);
+    }
+    if interface == "HTMLTrackElement" && matches!(member, "kind" | "srclang" | "default") {
+        if member == "default" {
+            if value.boolean_value(scope) {
+                state
+                    .dom
+                    .borrow_mut()
+                    .set_attribute_ns(node, None, member, "")?;
+            } else {
+                state
+                    .dom
+                    .borrow_mut()
+                    .remove_attribute_ns(node, None, member)?;
+            }
+            return attribute_resource_changed(scope, state, node, None, member);
+        }
+        let original = wrap_node(scope, state, node)?;
+        let value = value
+            .to_string(scope)
+            .ok_or(V8BindingError::JavaScriptException)?;
+        let value = rust_string_preserving_utf16(scope, value)?;
+        let (owner, node) =
+            node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
+        owner
+            .dom
+            .borrow_mut()
+            .set_attribute_ns(node, None, member, value)?;
+        return attribute_resource_changed(scope, &owner, node, None, member);
+    }
+    if interface == "HTMLAreaElement" && matches!(member, "coords" | "shape") {
+        let original = wrap_node(scope, state, node)?;
+        let string = value
+            .to_string(scope)
+            .ok_or(V8BindingError::JavaScriptException)?;
+        let string = rust_string_preserving_utf16(scope, string)?;
+        let (owner, node) =
+            node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
+        owner
+            .dom
+            .borrow_mut()
+            .set_attribute_ns(node, None, member, string)?;
+        return Ok(());
     }
     if (interface == "HTMLDivElement" && member == "align")
         || (interface == "HTMLInputElement"
@@ -35508,6 +33984,40 @@ fn set_attribute_value<'s>(
     }
     if interface == "Document" && member == "domain" {
         return document_domain::set(scope, state, node, value);
+    }
+    if (interface == "Element" && member == "slot")
+        || (interface == "HTMLSourceElement"
+            && matches!(
+                member,
+                "src" | "type" | "media" | "srcset" | "sizes" | "width" | "height"
+            ))
+    {
+        let original = wrap_node(scope, state, node)?;
+        let string = if matches!(member, "width" | "height") {
+            value
+                .uint32_value(scope)
+                .ok_or(V8BindingError::JavaScriptException)?
+                .to_string()
+        } else {
+            let value = value
+                .to_string(scope)
+                .ok_or(V8BindingError::JavaScriptException)?;
+            if member == "src" {
+                value.to_rust_string_lossy(scope)
+            } else {
+                rust_string_preserving_utf16(scope, value)?
+            }
+        };
+        let (owner, node) =
+            node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
+        owner
+            .dom
+            .borrow_mut()
+            .set_attribute_ns(node, None, member, string)?;
+        if interface == "HTMLSourceElement" {
+            return attribute_resource_changed(scope, &owner, node, None, member);
+        }
+        return Ok(());
     }
     if matches!(
         interface,
@@ -35888,10 +34398,11 @@ fn set_attribute_value<'s>(
         }
         return Ok(());
     }
-    if interface.starts_with("HTML")
+    if (interface.starts_with("HTML") || interface == "SVGElement" && member == "autofocus")
         && matches!(
             member,
-            "inert"
+            "autofocus"
+                | "inert"
                 | "switch"
                 | "checked"
                 | "defaultChecked"
@@ -36386,15 +34897,15 @@ fn set_attribute_value<'s>(
                     post_connection_scripts::capture_replacement(scope, state, node, &[node])?;
                 let trusted = (interface == "HTMLScriptElement").then(|| value.clone());
                 let result = state.dom.borrow_mut().set_text_content(node, value);
-                if result.is_ok() {
-                    if let Some(trusted) = trusted {
-                        state
-                            .dom
-                            .borrow_mut()
-                            .arena_mut()
-                            .get_mut(node)?
-                            .script_trusted_text = trusted;
-                    }
+                if result.is_ok()
+                    && let Some(trusted) = trusted
+                {
+                    state
+                        .dom
+                        .borrow_mut()
+                        .arena_mut()
+                        .get_mut(node)?
+                        .script_trusted_text = trusted;
                 }
                 preparation.finish_mutation(scope, result)?;
             }
@@ -36671,9 +35182,7 @@ fn call_document_write<'s>(
     if node == state.document_root() && state.is_unloading() {
         return Ok(None);
     }
-    if let Some((parser, bytes)) = state.detached_document_parsers.borrow_mut().get_mut(&node) {
-        bytes.reserve(markup.len())?;
-        parser.push_dom_string(&markup);
+    if document_parser_gate::write_detached(state, node, &markup)? {
         return Ok(None);
     }
     let suppressed = state.parser_insertion_suppression.get()
@@ -36707,11 +35216,8 @@ fn call_document_write<'s>(
         let gate = state.document_parser_gate.borrow().clone();
         if let Some(gate) = gate.filter(|gate| gate.document() == node) {
             document_parser_gate::write(scope, state, &gate, markup)?;
-        } else if let Some((parser, bytes)) =
-            state.detached_document_parsers.borrow_mut().get_mut(&node)
-        {
-            bytes.reserve(markup.len())?;
-            parser.push_dom_string(&markup);
+        } else {
+            document_parser_gate::write_detached(state, node, &markup)?;
         }
     }
     Ok(None)
@@ -36779,21 +35285,18 @@ fn call_operation<'s>(
             ),
             Ok(crate::media_capture::Response::UrlSupport(true))
         );
-        return Ok(Some(
-            v8_string(
-                scope,
-                if supported {
-                    if mime.to_ascii_lowercase().contains("codecs=") {
-                        "probably"
-                    } else {
-                        "maybe"
-                    }
+        return Ok(Some(v8_string(
+            scope,
+            if supported {
+                if mime.to_ascii_lowercase().contains("codecs=") {
+                    "probably"
                 } else {
-                    ""
-                },
-            )?
-            .into(),
-        ));
+                    "maybe"
+                }
+            } else {
+                ""
+            },
+        )?));
     }
     if interface == "HTMLMediaElement" && member == "addTextTrack" {
         return text_tracks::add_track(scope, state, node, args);
@@ -37747,7 +36250,7 @@ fn scroll_element_into_view(
             };
             let root_font = dom
                 .first_element_child(state.document_root())?
-                .map(|id| font_size(id))
+                .map(&font_size)
                 .unwrap_or(16.);
             let used_length = |id, property: &str, basis| {
                 let value = editing_snapshot_property(&dom, &layout, id, property)
@@ -38068,8 +36571,8 @@ fn scroll_extent_in_layout(
             .or_else(|| geometry(node))
             .or_else(|| {
                 Some((
-                    inline_px(&dom, node, "width")?,
-                    inline_px(&dom, node, "height")?,
+                    inline_px(dom, node, "width")?,
+                    inline_px(dom, node, "height")?,
                 ))
             });
         if let Some((width, height)) = root_size {
@@ -38154,8 +36657,8 @@ fn scroll_extent_in_layout(
     }
     let Some((width, height)) = geometry(node).or_else(|| {
         Some((
-            inline_px(&dom, node, "width")?,
-            inline_px(&dom, node, "height")?,
+            inline_px(dom, node, "width")?,
+            inline_px(dom, node, "height")?,
         ))
     }) else {
         return (0.0, 0.0);
@@ -38166,8 +36669,8 @@ fn scroll_extent_in_layout(
         .filter_map(|child| {
             geometry(*child).or_else(|| {
                 Some((
-                    inline_px(&dom, *child, "width")?,
-                    inline_px(&dom, *child, "height")?,
+                    inline_px(dom, *child, "width")?,
+                    inline_px(dom, *child, "height")?,
                 ))
             })
         })
@@ -38882,8 +37385,8 @@ fn canvas_transform(
             return Err(V8BindingError::JavaScriptException);
         }
         let mut values = [0.0; 6];
-        for index in 0..required as usize {
-            values[index] = args
+        for (index, value) in values.iter_mut().enumerate().take(required as usize) {
+            *value = args
                 .get(index as i32)
                 .number_value(scope)
                 .ok_or(V8BindingError::JavaScriptException)?;
@@ -38958,12 +37461,11 @@ fn matrix_sequence_number(
     // return getter/call itself throws or returns a primitive.
     {
         v8::tc_scope!(let tc, scope);
-        if let Some(key) = v8::String::new(tc, "return") {
-            if let Some(method) = iterator.get(tc, key.into()) {
-                if let Ok(method) = v8::Local::<v8::Function>::try_from(method) {
-                    let _ = method.call(tc, iterator.into(), &[]);
-                }
-            }
+        if let Some(key) = v8::String::new(tc, "return")
+            && let Some(method) = iterator.get(tc, key.into())
+            && let Ok(method) = v8::Local::<v8::Function>::try_from(method)
+        {
+            let _ = method.call(tc, iterator.into(), &[]);
         }
         if !tc.has_caught() {
             let _ = crate::v8_termination::checkpoint(tc);
@@ -38974,10 +37476,10 @@ fn matrix_sequence_number(
             tc.reset();
         }
     }
-    if !scope.is_execution_terminating() {
-        if let Some(exception) = exception {
-            scope.throw_exception(exception);
-        }
+    if !scope.is_execution_terminating()
+        && let Some(exception) = exception
+    {
+        scope.throw_exception(exception);
     }
     Err(V8BindingError::JavaScriptException)
 }
@@ -39397,7 +37899,7 @@ fn restore_geometry_clone<'s>(
         .instance_templates
         .borrow()
         .get(name)
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface(name))?;
     let object = v8::Local::new(scope, &template)
         .new_instance(scope)
@@ -39511,7 +38013,7 @@ fn matrix_typed_array_factory(
             .instance_templates
             .borrow()
             .get(name)
-            .cloned()
+            .and_then(|template| template.to_global(scope))
             .ok_or(V8BindingError::Allocation("matrix template"))?;
         let object = v8::Local::new(scope, &template)
             .new_instance(scope)
@@ -39545,7 +38047,7 @@ fn geometry_dictionary_factory(
             .instance_templates
             .borrow()
             .get(name.as_str())
-            .cloned()
+            .and_then(|template| template.to_global(scope))
             .ok_or(V8BindingError::Allocation("geometry template"))?;
         if name.starts_with("DOMRect") {
             let rect = rect_dictionary_components(scope, args.get(0))?;
@@ -39613,7 +38115,7 @@ fn initialize_quad(
         .instance_templates
         .borrow()
         .get("DOMPoint")
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface("DOMPoint"))?;
     let points = v8::Array::new(scope, 4);
     for (index, point) in coordinates.into_iter().enumerate() {
@@ -39704,7 +38206,7 @@ fn quad_operation(
             .instance_templates
             .borrow()
             .get("DOMRect")
-            .cloned()
+            .and_then(|template| template.to_global(scope))
             .ok_or(V8BindingError::MissingInterface("DOMRect"))?;
         let object = v8::Local::new(scope, &template)
             .new_instance(scope)
@@ -39759,7 +38261,7 @@ fn quad_factory(
             .instance_templates
             .borrow()
             .get("DOMQuad")
-            .cloned()
+            .and_then(|template| template.to_global(scope))
             .ok_or(V8BindingError::MissingInterface("DOMQuad"))?;
         let object = v8::Local::new(scope, &template)
             .new_instance(scope)
@@ -40100,7 +38602,7 @@ fn point_matrix_transform(
             .instance_templates
             .borrow()
             .get("DOMPoint")
-            .cloned()
+            .and_then(|template| template.to_global(scope))
             .ok_or(V8BindingError::MissingInterface("DOMPoint"))?;
         let object = v8::Local::new(scope, &template)
             .new_instance(scope)
@@ -40425,13 +38927,13 @@ fn inverse_matrix_components(matrix: [f64; 16]) -> Option<[f64; 16]> {
             *value /= divisor;
         }
         let pivot_row = rows[column];
-        for row in 0..4 {
+        for (row, values) in rows.iter_mut().enumerate() {
             if row == column {
                 continue;
             }
-            let factor = rows[row][column];
-            for index in 0..8 {
-                rows[row][index] -= factor * pivot_row[index];
+            let factor = values[column];
+            for (value, pivot) in values.iter_mut().zip(pivot_row) {
+                *value -= factor * pivot;
             }
         }
     }
@@ -40560,7 +39062,7 @@ fn matrix_snapshot_operation(
                     .instance_templates
                     .borrow()
                     .get("DOMPoint")
-                    .cloned()
+                    .and_then(|template| template.to_global(scope))
                     .ok_or(V8BindingError::MissingInterface("DOMPoint"))?;
                 let object = v8::Local::new(scope, &template)
                     .new_instance(scope)
@@ -40752,7 +39254,7 @@ fn matrix_snapshot_operation(
                         .instance_templates
                         .borrow()
                         .get("DOMMatrix")
-                        .cloned()
+                        .and_then(|template| template.to_global(scope))
                         .ok_or(V8BindingError::MissingInterface("DOMMatrix"))?;
                     let object = v8::Local::new(scope, &template)
                         .new_instance(scope)
@@ -40808,7 +39310,7 @@ fn matrix_snapshot_operation(
                         .instance_templates
                         .borrow()
                         .get("DOMMatrix")
-                        .cloned()
+                        .and_then(|template| template.to_global(scope))
                         .ok_or(V8BindingError::MissingInterface("DOMMatrix"))?;
                     let object = v8::Local::new(scope, &template)
                         .new_instance(scope)
@@ -40850,7 +39352,7 @@ fn matrix_snapshot_operation(
                         .instance_templates
                         .borrow()
                         .get("DOMMatrix")
-                        .cloned()
+                        .and_then(|template| template.to_global(scope))
                         .ok_or(V8BindingError::MissingInterface("DOMMatrix"))?;
                     let object = v8::Local::new(scope, &template)
                         .new_instance(scope)
@@ -41034,7 +39536,7 @@ fn canvas_get_transform(
             .instance_templates
             .borrow()
             .get("DOMMatrix")
-            .cloned()
+            .and_then(|template| template.to_global(scope))
             .ok_or(V8BindingError::MissingInterface("DOMMatrix"))?;
         let object = v8::Local::new(scope, &template)
             .new_instance(scope)
@@ -41596,13 +40098,11 @@ fn canvas_round_radii(
                     if !scope.is_execution_terminating() {
                         {
                             v8::tc_scope!(let tc,scope);
-                            if let Some(key) = v8::String::new(tc, "return") {
-                                if let Some(method) = iterator.get(tc, key.into()) {
-                                    if let Ok(method) = v8::Local::<v8::Function>::try_from(method)
-                                    {
-                                        let _ = method.call(tc, iterator.into(), &[]);
-                                    }
-                                }
+                            if let Some(key) = v8::String::new(tc, "return")
+                                && let Some(method) = iterator.get(tc, key.into())
+                                && let Ok(method) = v8::Local::<v8::Function>::try_from(method)
+                            {
+                                let _ = method.call(tc, iterator.into(), &[]);
                             }
                             if !tc.has_caught() {
                                 let _ = crate::v8_termination::checkpoint(tc);
@@ -41613,10 +40113,10 @@ fn canvas_round_radii(
                                 tc.reset();
                             }
                         }
-                        if !scope.is_execution_terminating() {
-                            if let Some(exception) = exception {
-                                scope.throw_exception(exception);
-                            }
+                        if !scope.is_execution_terminating()
+                            && let Some(exception) = exception
+                        {
+                            scope.throw_exception(exception);
                         }
                     }
                     return Err(error);
@@ -41782,24 +40282,24 @@ fn path2d_operation(
             "bezierCurveTo" => {
                 path.curve_to(point(n[0], n[1]), point(n[2], n[3]), point(n[4], n[5]))
             }
-            "arc" => path.ellipse(
-                (n[0], n[1]),
-                (n[2], n[2]),
-                0.0,
-                n[3],
-                n[4],
-                args.get(5).boolean_value(scope),
-                CANVAS_IDENTITY,
-            ),
-            "ellipse" => path.ellipse(
-                (n[0], n[1]),
-                (n[2], n[3]),
-                n[4],
-                n[5],
-                n[6],
-                args.get(7).boolean_value(scope),
-                CANVAS_IDENTITY,
-            ),
+            "arc" => path.ellipse(canvas_path::EllipseInputs {
+                center: (n[0], n[1]),
+                radii: (n[2], n[2]),
+                rotation: 0.0,
+                start: n[3],
+                end: n[4],
+                counterclockwise: args.get(5).boolean_value(scope),
+                matrix: CANVAS_IDENTITY,
+            }),
+            "ellipse" => path.ellipse(canvas_path::EllipseInputs {
+                center: (n[0], n[1]),
+                radii: (n[2], n[3]),
+                rotation: n[4],
+                start: n[5],
+                end: n[6],
+                counterclockwise: args.get(7).boolean_value(scope),
+                matrix: CANVAS_IDENTITY,
+            }),
             "arcTo" => path.arc_to(
                 point(n[0], n[1]),
                 point(n[2], n[3]),
@@ -41959,8 +40459,8 @@ fn canvas_path_operation(
             }
             let (width, height) = canvas_dimensions(&state, canvas)?;
             let mut images = state.canvas_images.borrow_mut();
-            if !images.contains_key(&canvas) {
-                images.insert(canvas, empty_canvas_bitmap(width, height)?);
+            if let std::collections::btree_map::Entry::Vacant(e) = images.entry(canvas) {
+                e.insert(empty_canvas_bitmap(width, height)?);
             }
             let target = images
                 .get_mut(&canvas)
@@ -42036,24 +40536,24 @@ fn canvas_path_operation(
                 draw.transform,
                 canvas_matrix_inverse(draw.transform),
             ),
-            "arc" => path.ellipse(
-                (numbers[0], numbers[1]),
-                (numbers[2], numbers[2]),
-                0.0,
-                numbers[3],
-                numbers[4],
-                args.get(5).boolean_value(scope),
-                draw.transform,
-            ),
-            "ellipse" => path.ellipse(
-                (numbers[0], numbers[1]),
-                (numbers[2], numbers[3]),
-                numbers[4],
-                numbers[5],
-                numbers[6],
-                args.get(7).boolean_value(scope),
-                draw.transform,
-            ),
+            "arc" => path.ellipse(canvas_path::EllipseInputs {
+                center: (numbers[0], numbers[1]),
+                radii: (numbers[2], numbers[2]),
+                rotation: 0.0,
+                start: numbers[3],
+                end: numbers[4],
+                counterclockwise: args.get(5).boolean_value(scope),
+                matrix: draw.transform,
+            }),
+            "ellipse" => path.ellipse(canvas_path::EllipseInputs {
+                center: (numbers[0], numbers[1]),
+                radii: (numbers[2], numbers[3]),
+                rotation: numbers[4],
+                start: numbers[5],
+                end: numbers[6],
+                counterclockwise: args.get(7).boolean_value(scope),
+                matrix: draw.transform,
+            }),
             _ => {}
         }
         Ok(())
@@ -42102,8 +40602,8 @@ fn canvas_fill_rect(
         };
         let (width, height) = canvas_dimensions(&state, canvas)?;
         let mut bitmaps = state.canvas_images.borrow_mut();
-        if !bitmaps.contains_key(&canvas) {
-            bitmaps.insert(canvas, empty_canvas_bitmap(width, height)?);
+        if let std::collections::btree_map::Entry::Vacant(e) = bitmaps.entry(canvas) {
+            e.insert(empty_canvas_bitmap(width, height)?);
         }
         let bitmap = bitmaps.get_mut(&canvas).expect("canvas bitmap inserted");
         let draw = state
@@ -42115,12 +40615,14 @@ fn canvas_fill_rect(
         raster_canvas_image_transformed(
             bitmap,
             &source,
-            [0.0, 0.0, 1.0, 1.0, rect[0], rect[1], rect[2], rect[3]],
-            false,
-            draw.global_alpha,
-            draw.transform,
-            draw.composite,
-            &draw.clips,
+            CanvasImageInputs {
+                rect: [0.0, 0.0, 1.0, 1.0, rect[0], rect[1], rect[2], rect[3]],
+                smooth: false,
+                global_alpha: draw.global_alpha,
+                matrix: draw.transform,
+                composite: draw.composite,
+                clips: &draw.clips,
+            },
         );
         Ok(())
     })();
@@ -42208,24 +40710,30 @@ fn raster_canvas_image_with_alpha(
     raster_canvas_image_transformed(
         target,
         source,
-        rect,
-        smooth,
-        global_alpha,
-        CANVAS_IDENTITY,
-        Composite::SourceOver,
-        &[],
+        CanvasImageInputs {
+            rect,
+            smooth,
+            global_alpha,
+            matrix: CANVAS_IDENTITY,
+            composite: Composite::SourceOver,
+            clips: &[],
+        },
     );
 }
 fn raster_canvas_image_transformed(
     target: &mut DecodedImage,
     source: &DecodedImage,
-    mut rect: [f64; 8],
-    smooth: bool,
-    global_alpha: f64,
-    matrix: [f64; 6],
-    composite: Composite,
-    clips: &[canvas_path::Clip],
+    params: CanvasImageInputs<'_>,
 ) {
+    let CanvasImageInputs {
+        mut rect,
+        smooth,
+        global_alpha,
+        matrix,
+        composite,
+        clips,
+    } = params;
+
     let Some(inverse) = canvas_matrix_inverse(matrix) else {
         return;
     };
@@ -42389,8 +40897,8 @@ fn canvas_draw_image(
             2
         };
         let mut numbers = [0.0; 8];
-        for index in 0..count {
-            numbers[index] = args
+        for (index, number) in numbers.iter_mut().enumerate().take(count) {
+            *number = args
                 .get(index as i32 + 1)
                 .number_value(scope)
                 .ok_or(V8BindingError::JavaScriptException)?;
@@ -42448,12 +40956,14 @@ fn canvas_draw_image(
         raster_canvas_image_transformed(
             &mut target,
             &decoded,
-            rect,
-            draw_state.image_smoothing,
-            draw_state.global_alpha,
-            draw_state.transform,
-            draw_state.composite,
-            &draw_state.clips,
+            CanvasImageInputs {
+                rect,
+                smooth: draw_state.image_smoothing,
+                global_alpha: draw_state.global_alpha,
+                matrix: draw_state.transform,
+                composite: draw_state.composite,
+                clips: &draw_state.clips,
+            },
         );
         target.origin_clean = !state.tainted_canvases.borrow().contains(&canvas);
         state.canvas_images.borrow_mut().insert(canvas, target);
@@ -42572,7 +41082,7 @@ fn allocate_image_data<'s>(
         .instance_templates
         .borrow()
         .get("ImageData")
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface("ImageData"))?;
     let object = v8::Local::new(scope, &template)
         .new_instance(scope)
@@ -43633,12 +42143,14 @@ fn execute_inline_classic_script(
         state,
         node,
         source,
-        &resource_name,
-        false,
-        include,
-        &policy,
-        &base,
-        &mut || state.mark_script_started(node),
+        StartedClassicScriptInputs {
+            resource_name: &resource_name,
+            muted_errors: false,
+            include_credentials: include,
+            referrer_policy: &policy,
+            base_url: &base,
+            started: &mut || state.mark_script_started(node),
+        },
     )
     .map(|_| ())
 }
@@ -43673,23 +42185,29 @@ pub fn execute_classic_script<'text>(
     state: &Rc<V8BindingState>,
     node: NodeId,
     source: impl Into<crate::script_source::ScriptSourceRef<'text>>,
-    resource_name: &str,
-    muted_errors: bool,
-    include_credentials: bool,
-    referrer_policy: &str,
-    base_url: &str,
+    params: ClassicScriptInputs<'_>,
 ) -> Result<Option<String>, V8BindingError> {
-    execute_classic_script_with_started(
-        scope,
-        state,
-        node,
-        source,
+    let ClassicScriptInputs {
         resource_name,
         muted_errors,
         include_credentials,
         referrer_policy,
         base_url,
-        &mut || {},
+    } = params;
+
+    execute_classic_script_with_started(
+        scope,
+        state,
+        node,
+        source,
+        StartedClassicScriptInputs {
+            resource_name,
+            muted_errors,
+            include_credentials,
+            referrer_policy,
+            base_url,
+            started: &mut || {},
+        },
     )
 }
 
@@ -43700,13 +42218,17 @@ pub fn execute_classic_script_with_started<'text>(
     state: &Rc<V8BindingState>,
     node: NodeId,
     source: impl Into<crate::script_source::ScriptSourceRef<'text>>,
-    resource_name: &str,
-    muted_errors: bool,
-    include_credentials: bool,
-    referrer_policy: &str,
-    base_url: &str,
-    started: &mut dyn FnMut(),
+    params: StartedClassicScriptInputs<'_>,
 ) -> Result<Option<String>, V8BindingError> {
+    let StartedClassicScriptInputs {
+        resource_name,
+        muted_errors,
+        include_credentials,
+        referrer_policy,
+        base_url,
+        started,
+    } = params;
+
     let source = source.into();
     if state.execution_retired() {
         return Ok(None);
@@ -44739,7 +43261,7 @@ fn associated_wrapper<'s>(
         .instance_templates
         .borrow()
         .get(interface)
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface(interface))?;
     let object = {
         let context = state
@@ -44788,39 +43310,6 @@ fn associated_wrapper<'s>(
         .borrow_mut()
         .insert((node, association), v8::Weak::new(scope, object));
     Ok(object.into())
-}
-
-fn associated_node_array<'s>(
-    scope: &mut v8::PinScope<'s, '_>,
-    state: &Rc<V8BindingState>,
-    nodes: &[NodeId],
-    interface: &'static str,
-) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    let values = nodes
-        .iter()
-        .map(|node| associated_wrapper(scope, state, *node, interface))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(v8::Array::new_with_elements(scope, &values).into())
-}
-
-fn validate_class_token(token: &str) -> Result<(), V8BindingError> {
-    let error = if token.is_empty() {
-        Some("SyntaxError")
-    } else if token
-        .chars()
-        .any(|character| matches!(character, '\t' | '\n' | '\x0c' | '\r' | ' '))
-    {
-        Some("InvalidCharacterError")
-    } else {
-        None
-    };
-    match error {
-        Some(member) => Err(V8BindingError::Unsupported {
-            interface: "DOMTokenList".into(),
-            member: member.into(),
-        }),
-        None => Ok(()),
-    }
 }
 
 fn validate_pre_insertion(
@@ -45748,7 +44237,7 @@ fn create_event_object_with_interface<'s>(
         .instance_templates
         .borrow()
         .get(interface)
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::Allocation("event interface template"))?;
     let object = v8::Local::new(scope, &template)
         .new_instance(scope)
@@ -45797,7 +44286,7 @@ fn create_input_event_object<'s>(
         .instance_templates
         .borrow()
         .get("InputEvent")
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface("InputEvent"))?;
     let object = v8::Local::new(scope, &template)
         .new_instance(scope)
@@ -46203,17 +44692,22 @@ fn dispatch_event_with_started<'s>(
         pending.activation(activation);
     }
     let result = dispatch_event_listeners(scope, state, target, object, started);
+    if scope.is_execution_terminating() {
+        // Dropping the dispatch guard clears native dispatch state. Further V8
+        // calls can consume termination before the host checkpoint observes it.
+        return result;
+    }
     clear_event_path(scope, object);
     drop(dispatch);
-    let (target_owner, target) = node_identity::argument(scope, target_wrapper.into())?
+    let (target_owner, _target) = node_identity::argument(scope, target_wrapper.into())?
         .ok_or(V8BindingError::Allocation("event target after dispatch"))?;
     if let Some(pending) = pending_default {
         pending.finish(scope, result.as_ref().is_ok_and(|accepted| *accepted))?;
     }
-    if result.as_ref().is_ok_and(|accepted| *accepted) {
-        if let Some(source) = interest_activation {
-            interest::activate(scope, &target_owner, source)?;
-        }
+    if result.as_ref().is_ok_and(|accepted| *accepted)
+        && let Some(source) = interest_activation
+    {
+        interest::activate(scope, &target_owner, source)?;
     }
     result
 }
@@ -46226,6 +44720,22 @@ fn dispatch_event_listeners<'s>(
     started: impl FnOnce(),
 ) -> Result<bool, V8BindingError> {
     v8::tc_scope!(let scope, scope);
+    let result = dispatch_event_listeners_inner(scope, state, target, object, started);
+    // Listener invocation rethrows termination through each native boundary.
+    // Preserve it even when path cleanup returns early with a binding error.
+    if scope.has_terminated() || scope.is_execution_terminating() {
+        scope.rethrow();
+    }
+    result
+}
+
+fn dispatch_event_listeners_inner<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    target: NodeId,
+    object: v8::Local<'s, v8::Object>,
+    started: impl FnOnce(),
+) -> Result<bool, V8BindingError> {
     let id = event_id(scope, object)?;
     let event_state = binding_state_for_receiver(scope, object)
         .ok_or(V8BindingError::Allocation("event owner"))?;
@@ -46262,18 +44772,19 @@ fn dispatch_event_listeners<'s>(
         .ok_or(V8BindingError::Allocation("event record"))?
         .composed;
     let related_node = native_event_related_node(scope, state, object);
-    if let Some(related) = related_node {
-        if related != target && state.dom.borrow().retarget_node(related, Some(target))? == target {
-            event_state.events.borrow_mut().get_mut(&id).unwrap().target = None;
-            object.set_internal_field(4, v8::null(scope).into());
-            started();
-            return Ok(!event_state
-                .events
-                .borrow()
-                .get(&id)
-                .unwrap()
-                .default_prevented);
-        }
+    if let Some(related) = related_node
+        && related != target
+        && state.dom.borrow().retarget_node(related, Some(target))? == target
+    {
+        event_state.events.borrow_mut().get_mut(&id).unwrap().target = None;
+        object.set_internal_field(4, v8::null(scope).into());
+        started();
+        return Ok(!event_state
+            .events
+            .borrow()
+            .get(&id)
+            .unwrap()
+            .default_prevented);
     }
     let (ancestors, native_flags, clear_target) = {
         let dom = state.dom.borrow();
@@ -46292,10 +44803,10 @@ fn dispatch_event_listeners<'s>(
                     flag |= 4;
                     // This root may terminate a non-composed path. The final
                     // target is cleared below instead of exposing its host.
-                    if composed || current != origin_root {
-                        if let Some(host) = record.parent {
-                            adjusted = host;
-                        }
+                    if (composed || current != origin_root)
+                        && let Some(host) = record.parent
+                    {
+                        adjusted = host;
                     }
                 }
             }
@@ -46375,6 +44886,9 @@ fn dispatch_event_listeners<'s>(
     started();
     if reaches_document {
         invoke_global_event_phase(scope, state, object, true, 1)?;
+        if scope.is_execution_terminating() {
+            return Err(V8BindingError::JavaScriptException);
+        }
     }
     for receiver in path[1..ancestors.len() + 1].iter().rev().copied() {
         if event_state
@@ -46439,6 +44953,9 @@ fn dispatch_event_listeners<'s>(
                 .is_some_and(|event| event.propagation_stopped)
         {
             invoke_global_event_phase(scope, state, object, false, 3)?;
+            if scope.is_execution_terminating() {
+                return Err(V8BindingError::JavaScriptException);
+            }
         }
     }
     if let Some(last) = path.last() {
@@ -46548,7 +45065,7 @@ fn invoke_node_event_listeners(
             .unwrap()
             .in_passive_listener = false;
         if scope.is_execution_terminating() {
-            break;
+            return Err(V8BindingError::JavaScriptException);
         }
         if event_state
             .events
@@ -46582,6 +45099,9 @@ fn invoke_node_event_listeners(
         {
             let result =
                 global_events::invoke(scope, handler.into(), receiver.into(), &[object.into()]);
+            if scope.is_execution_terminating() {
+                return Err(V8BindingError::JavaScriptException);
+            }
             if result.is_some_and(|result| result.is_false()) {
                 let mut events = event_state.events.borrow_mut();
                 let event = events.get_mut(&id).unwrap();
@@ -46810,7 +45330,7 @@ pub fn native_node_identity(
 pub fn native_node_collection(
     scope: &mut v8::PinScope,
     value: v8::Local<v8::Value>,
-) -> Result<Option<Vec<(Rc<V8BindingState>, NodeId)>>, V8BindingError> {
+) -> Result<Option<RealmNodes>, V8BindingError> {
     let Ok(object) = v8::Local::<v8::Object>::try_from(value) else {
         return Ok(None);
     };
@@ -46838,7 +45358,7 @@ pub fn native_node_collection(
 pub fn native_collection_values<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     value: v8::Local<'s, v8::Value>,
-) -> Result<Option<(Rc<V8BindingState>, Vec<v8::Local<'s, v8::Value>>)>, V8BindingError> {
+) -> Result<Option<RealmValues<'s>>, V8BindingError> {
     let Ok(object) = v8::Local::<v8::Object>::try_from(value) else {
         return Ok(None);
     };
@@ -47190,8 +45710,10 @@ mod tests {
             .query_selector(shadow, "#inner")
             .unwrap()
             .unwrap();
-        let mut layout = BindingLayout::default();
-        layout.viewport = Some((100., 100.));
+        let mut layout = BindingLayout {
+            viewport: Some((100., 100.)),
+            ..Default::default()
+        };
         for (id, x) in [(inner, 0.), (assigned, 20.), (unassigned, 40.)] {
             layout.geometry.insert(
                 node_key(id),
@@ -47505,23 +46027,13 @@ mod tests {
         })()"#,
         )
         .unwrap();
-        assert!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .is_true()
-        );
+        assert!(test_eval::run(scope, source).is_true());
         let source=v8::String::new(scope,r#"
             (()=>{const i=document.getElementById('target'),s=document.getElementById('inline');
             return [i.width,i.height,i.clientWidth,i.clientHeight,i.naturalWidth,i.naturalHeight,s.clientWidth,s.clientHeight,i.clientLeft,i.clientTop].join('|')})()
         "#).unwrap();
         assert_eq!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .to_rust_string_lossy(scope),
+            test_eval::run(scope, source).to_rust_string_lossy(scope),
             "80|40|90|50|300|100|0|0|2|3"
         );
         // Keep the old layout snapshot installed while removing the node.
@@ -47531,24 +46043,28 @@ mod tests {
             document.body.appendChild(i);return result})()
         "#).unwrap();
         assert_eq!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .to_rust_string_lossy(scope),
+            test_eval::run(scope, source).to_rust_string_lossy(scope),
             "999|100|0|0|0|0"
+        );
+        // Reinsertion selects the image again. With no src there is no decoded
+        // resource; the previous injected intrinsic dimensions must be cleared.
+        assert_eq!(
+            state
+                .dom
+                .borrow()
+                .arena()
+                .get(target)
+                .unwrap()
+                .image_dimensions,
+            None
         );
         state.set_layout(BindingLayout::default());
         let source=v8::String::new(scope,r#"
             (()=>{const i=document.getElementById('target');return [i.width,i.height,i.clientWidth,i.clientHeight,i.clientLeft,i.clientTop].join('|')})()
         "#).unwrap();
         assert_eq!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .to_rust_string_lossy(scope),
-            "999|100|0|0|0|0"
+            test_eval::run(scope, source).to_rust_string_lossy(scope),
+            "999|0|0|0|0|0"
         );
     }
 
@@ -47566,8 +46082,10 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
-        let mut layout = BindingLayout::default();
-        layout.viewport = Some((100., 100.));
+        let mut layout = BindingLayout {
+            viewport: Some((100., 100.)),
+            ..Default::default()
+        };
         layout.geometry.insert(
             node_key(target),
             BindingGeometry::Available(BindingRect {
@@ -47675,9 +46193,18 @@ mod tests {
         );
         state.set_layout(BindingLayout {
             viewport: Some((100., 100.)),
+            geometry: BTreeMap::from([(node_key(target), BindingGeometry::Hidden)]),
             ..Default::default()
         });
         assert_eq!(native_automation_click_ready(&state, target).unwrap(), None);
+        state.set_layout(BindingLayout {
+            viewport: Some((100., 100.)),
+            ..Default::default()
+        });
+        assert!(matches!(
+            native_automation_click_ready(&state, target),
+            Err(V8BindingError::Unsupported { .. })
+        ));
     }
 
     #[test]
@@ -47754,7 +46281,16 @@ mod tests {
           document.elementFromPoint(-1,5) === null &&
           document.elementFromPoint(101,5) === null &&
           document.elementsFromPoint(5,101).length === 0 &&
-          document.elementFromPoint(NaN,5) === null
+          (() => {
+            for (const method of ['elementFromPoint','elementsFromPoint']) {
+              for (const args of [[NaN,5],[Infinity,5],[5,-Infinity]]) {
+                let rejected=false;
+                try { document[method](...args); } catch (error) { rejected=error instanceof TypeError; }
+                if (!rejected) return false;
+              }
+            }
+            return true;
+          })()
         "#,
         )
         .unwrap();
@@ -47944,6 +46480,14 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        // Codec coverage uses existing native backing; broker admission is
+        // covered by shared-memory tests, not this decoder fixture.
+        let shared = v8::SharedArrayBuffer::new(scope, 4).unwrap();
+        let key = v8::String::new(scope, "shared").unwrap();
+        context
+            .global(scope)
+            .set(scope, key.into(), shared.into())
+            .unwrap();
         let source = v8::String::new(scope, r#"
           const errors=[];const eq=(a,b,label)=>{if(a!==b)errors.push(label+': '+a+' != '+b)};
           const fail=(fn,type,label)=>{let good=false;try{fn()}catch(e){good=e instanceof type}eq(good,true,label)};
@@ -47996,15 +46540,17 @@ mod tests {
           let calls=0;const input={toString(){calls++;return 'x'}};
           fail(()=>TextEncoder.prototype.encode.call(d,input),TypeError,'receiver brand');
           eq(calls,0,'brand before conversion');
-          const shared=new SharedArrayBuffer(4);new Uint8Array(shared)[0]=65;
+          new Uint8Array(shared)[0]=65;
           eq(d.decode(new Uint8Array(shared,0,1)),'A','shared view input');
           eq(encoder.encodeInto('BC',new Uint8Array(shared,1)).written,2,'shared destination');
           eq([...new Uint8Array(shared)].join(','),'65,66,67,0','shared writes');
           fail(()=>d.decode(new ArrayBuffer(4,{maxByteLength:8})),TypeError,'resizable input');
           errors.length?errors.join('\n'):'ok';
         "#).unwrap();
-        let script = v8::Script::compile(scope, source, None).unwrap();
-        assert_eq!(script.run(scope).unwrap().to_rust_string_lossy(scope), "ok");
+        assert_eq!(
+            test_eval::run(scope, source).to_rust_string_lossy(scope),
+            "ok"
+        );
     }
 
     #[test]
@@ -48492,6 +47038,7 @@ mod tests {
 
     #[derive(Default)]
     struct TestPlatformHost {
+        idb_old_versions: BTreeMap<(String, u64), u64>,
         block_idb_admission_once: std::sync::atomic::AtomicBool,
         idb_connection_managed: bool,
         idb_connection_events: Mutex<VecDeque<crate::platform::IdbConnectionEvent>>,
@@ -48647,7 +47194,8 @@ mod tests {
                 request => (request, None),
             };
             let result = match request {
-                PlatformHostRequest::HttpStart { request } => {
+                PlatformHostRequest::HttpStart { request }
+                | PlatformHostRequest::ImageStart { request, .. } => {
                     self.requests.lock().unwrap().push(request.clone());
                     PlatformHostResult::HttpStarted {
                         timing: None,
@@ -48673,13 +47221,15 @@ mod tests {
                     done: true,
                 },
                 PlatformHostRequest::IndexedDb {
-                    command: IdbHostCommand::Open { version, .. },
+                    command: IdbHostCommand::Open { name, version },
                     ..
                 } => PlatformHostResult::IndexedDb {
                     response: crate::platform::IdbHostResponse {
                         connection_managed: self.idb_connection_managed,
                         version: Some(version),
-                        old_version: Some(0),
+                        old_version: Some(
+                            *self.idb_old_versions.get(&(name, version)).unwrap_or(&0),
+                        ),
                         upgrade_needed: true,
                         object_stores: vec![],
                         ..Default::default()
@@ -48883,6 +47433,8 @@ mod tests {
         dom.borrow_mut().remove(removed).unwrap();
         let mutations = dom.borrow_mut().drain_mutations();
         dom.borrow_mut().release_mutation_roots(&mutations).unwrap();
+        // Reconcile selection after the native removal, as the page scheduler does.
+        prepare_document_images(scope, &state).unwrap();
         assert!(
             !state.has_pending_images(),
             "removed images must not delay document load"
@@ -49279,7 +47831,34 @@ mod tests {
 
     #[test]
     fn native_rectangles_update_edges_preserve_readonly_and_clone_slots() {
-        check_global_event_prototype_script(
+        struct RectangleProvider {
+            dom: SharedDom,
+        }
+        impl BindingLayoutProvider for RectangleProvider {
+            fn compute_layout(
+                &self,
+                _: &BTreeMap<NodeId, BTreeSet<String>>,
+            ) -> Result<BindingLayout, String> {
+                let node = self
+                    .dom
+                    .borrow()
+                    .find_by_id("rectangle-probe")
+                    .ok_or_else(|| "rectangle probe absent".to_owned())?;
+                Ok(BindingLayout {
+                    geometry: BTreeMap::from([(
+                        node_key(node),
+                        BindingGeometry::Available(BindingRect {
+                            x: 11.,
+                            y: 13.,
+                            width: 17.,
+                            height: 19.,
+                        }),
+                    )]),
+                    ..Default::default()
+                })
+            }
+        }
+        check_global_event_prototype_script_with_setup(
             r#"(() => {
             const r=new DOMRect(10,20,-4,-8);
             if(!(r instanceof DOMRectReadOnly)||Object.keys(r).length)throw Error('rect native inheritance');
@@ -49302,10 +47881,17 @@ mod tests {
             if(!Object.is(special.x,-0)||!Number.isNaN(special.width)||!(special instanceof DOMRectReadOnly)||special instanceof DOMRect)throw Error('rect special values');
             const marker={};error=undefined;try{new DOMRect({valueOf(){throw marker}})}catch(e){error=e}
             if(error!==marker)throw Error('constructor swallowed conversion');
-            const element=document.createElement('div');document.body.appendChild(element);
-            if(!(element.getBoundingClientRect() instanceof DOMRect))throw Error('layout rectangle type');
+            const element=document.createElement('div');element.id='rectangle-probe';document.body.appendChild(element);
+            const bounds=element.getBoundingClientRect();
+            if(!(bounds instanceof DOMRect))throw Error('layout rectangle type');
+            if([bounds.x,bounds.y,bounds.width,bounds.height,bounds.right,bounds.bottom].join()!=='11,13,17,19,28,32')throw Error('layout rectangle coordinates');
             return true;
         })()"#,
+            |state| {
+                state.set_layout_provider(Rc::new(RectangleProvider {
+                    dom: state.dom.clone(),
+                }))
+            },
         );
     }
 
@@ -49938,7 +48524,8 @@ mod tests {
             if(ctx.getTransform().a!==2)throw Error('snapshot changed canvas');
             ctx.setTransform(snapshot);
             if(ctx.getTransform().a!==8||ctx.getTransform().f!==9)throw Error('matrix round trip');
-            const getter=Object.getOwnPropertyDescriptor(DOMMatrix.prototype,'a').get;
+            const getter=Object.getOwnPropertyDescriptor(Matrix.prototype,'a').get;
+            if(DOMMatrix===Matrix)throw Error('author constructor replacement was lost');
             let rejected=false;try{getter.call({a:1})}catch(e){rejected=e instanceof TypeError}
             return rejected;
         })()"#,
@@ -49983,24 +48570,28 @@ mod tests {
         raster_canvas_image_transformed(
             &mut filled,
             &source,
-            [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0],
-            false,
-            1.0,
-            matrix,
-            Composite::SourceOver,
-            &[],
+            CanvasImageInputs {
+                rect: [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0],
+                smooth: false,
+                global_alpha: 1.0,
+                matrix,
+                composite: Composite::SourceOver,
+                clips: &[],
+            },
         );
         assert_eq!(filled.rgba, vec![255, 0, 0, 128, 255, 0, 0, 128]);
         let mut fractional = empty_canvas_bitmap(1, 1).unwrap();
         raster_canvas_image_transformed(
             &mut fractional,
             &source,
-            [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.25, 1.0],
-            false,
-            1.0,
-            CANVAS_IDENTITY,
-            Composite::SourceOver,
-            &[],
+            CanvasImageInputs {
+                rect: [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.25, 1.0],
+                smooth: false,
+                global_alpha: 1.0,
+                matrix: CANVAS_IDENTITY,
+                composite: Composite::SourceOver,
+                clips: &[],
+            },
         );
         assert_eq!(fractional.rgba, vec![255, 0, 0, 64]);
     }
@@ -51266,15 +49857,41 @@ mod tests {
                 operation_id: sent,
                 result: Ok(PlatformHostResult::WebSocketSent),
             });
-        state.drain_platform_completions(scope, 1).unwrap();
+        assert_eq!(state.drain_platform_completions(scope, 1).unwrap(), 1);
         assert!(
-            matches!(&*platform_object(&state,socket).unwrap(),PlatformObjectRecord::WebSocket(record) if record.buffered_amount==12)
+            matches!(&*platform_object(&state,socket).unwrap(),PlatformObjectRecord::WebSocket(record)
+                if record.ready_state==2 && record.buffered_amount==19),
+            "the open task publishes before poll admission fails and queues terminal delivery: {:?}; pending tasks={}",
+            match &*platform_object(&state, socket).unwrap() {
+                PlatformObjectRecord::WebSocket(record) =>
+                    Some((record.ready_state, record.buffered_amount)),
+                _ => None,
+            },
+            state.deferred_platform_tasks.borrow().len()
         );
-        if let PlatformObjectRecord::WebSocket(record) =
-            &mut *platform_object_mut(&state, socket).unwrap()
-        {
-            record.ready_state = 3;
-        }
+        assert!(
+            state
+                .pending_platform_operations
+                .borrow()
+                .contains_key(&sent)
+        );
+        // Fair draining alternates host receipts and deferred tasks: the send
+        // receipt retires its exact bytes before the terminal task is delivered.
+        assert_eq!(state.drain_platform_completions(scope, 1).unwrap(), 1);
+        assert!(
+            !state
+                .pending_platform_operations
+                .borrow()
+                .contains_key(&sent)
+        );
+        assert!(
+            matches!(&*platform_object(&state,socket).unwrap(),PlatformObjectRecord::WebSocket(record) if record.ready_state==2 && record.buffered_amount==12)
+        );
+        assert_eq!(host.decisions.borrow().get(&opened), Some(&true));
+        assert_eq!(state.drain_platform_completions(scope, 1).unwrap(), 1);
+        assert!(
+            matches!(&*platform_object(&state,socket).unwrap(),PlatformObjectRecord::WebSocket(record) if record.ready_state==3 && record.buffered_amount==12)
+        );
         // Late poll and close receipts cannot publish duplicate terminal events
         // or restart polling after an earlier completion closed the socket.
         let wrapper = new_platform_object(scope, &state, "WebSocket", socket).unwrap();
@@ -51284,10 +49901,7 @@ mod tests {
             .set(scope, key.into(), wrapper.into())
             .unwrap();
         let source=v8::String::new(scope,"globalThis.lateSocketEvents=0;closedSocket.onmessage=closedSocket.onclose=()=>lateSocketEvents++").unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        test_eval::run(scope, source);
         for (operation_id, pending, result) in [
             (
                 HostOperationId(904),
@@ -51310,8 +49924,6 @@ mod tests {
                 HostOperationId(905),
                 PendingPlatformOperation::WebSocketClose {
                     websocket_id: socket,
-                    code: Some(1000),
-                    reason: String::new(),
                 },
                 PlatformHostResult::WebSocketClosed {
                     code: 1000,
@@ -51805,7 +50417,8 @@ mod tests {
                 Vec::new()
             }
         }
-        for element in ["img"] {
+        {
+            let element = "img";
             initialize_v8();
             let dom = Rc::new(RefCell::new(
                 html::parse("<base href='/assets/'><body></body>")
@@ -52039,16 +50652,16 @@ mod tests {
             )
             .unwrap();
             state.set_platform_host(child_host.clone());
-            let source =
-                v8::String::new(scope, "location.href='https://example.test/child/page'").unwrap();
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
+            state
+                .commit_location("https://example.test/child/page")
                 .unwrap();
         }
         {
             let scope = &mut v8::ContextScope::new(scope, parent);
             let state = install_generated_bindings(scope, parent, dom, RealmId(0), 1).unwrap();
+            state
+                .commit_location("https://example.test/parent/page")
+                .unwrap();
             state.set_platform_host(parent_host.clone());
             let key = v8::String::new(scope, "child").unwrap();
             parent
@@ -52057,7 +50670,6 @@ mod tests {
             let source = v8::String::new(
                 scope,
                 r#"
-                location.href='https://example.test/parent/page';
                 const image=document.createElement('img');image.src='picture.png';
                 Node.prototype.appendChild.call(child.document.body,image);
                 Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src').set.call(image,'second.png');
@@ -52136,10 +50748,7 @@ mod tests {
             const xhr = new XMLHttpRequest(); xhr.open('GET', '/xhr'); xhr.send();
             const image = document.createElement('img'); image.src='/image'; document.body.appendChild(image);
         "#).unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        test_eval::run(scope, source);
         let expected: Vec<_> = [
             ("default", "same-origin"),
             ("explicit", "origin"),
@@ -52760,10 +51369,7 @@ mod tests {
             .set(scope, key.into(), callback.into())
             .unwrap();
         let source=v8::String::new(scope,"var log=[];document.getElementById('a').addEventListener('slotchange',()=>{log.push('A');stopNow()});document.getElementById('b').addEventListener('slotchange',()=>log.push('B'))").unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        test_eval::run(scope, source);
         let queue = Rc::clone(
             &scope
                 .get_slot::<BindingStateRegistry>()
@@ -52790,8 +51396,12 @@ mod tests {
             .instance_templates
             .borrow_mut()
             .insert("Event", template);
-        let _ = deliver_pending_mutation_notifications(scope);
-        assert!(scope.is_execution_terminating());
+        let resumed = deliver_pending_mutation_notifications(scope);
+        assert!(
+            scope.is_execution_terminating(),
+            "resumed={resumed:?}; queued={:?}",
+            queue.borrow().iter().map(|v| v.1).collect::<Vec<_>>()
+        );
         scope.cancel_terminate_execution();
         reset_mutation_observer_microtask_after_termination(scope);
         assert_eq!(
@@ -52801,13 +51411,7 @@ mod tests {
         deliver_pending_mutation_notifications(scope).unwrap();
         assert!(queue.borrow().is_empty());
         let source = v8::String::new(scope, "log.join(',')==='A,B'").unwrap();
-        assert!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .is_true()
-        );
+        assert!(test_eval::run(scope, source).is_true());
     }
 
     #[test]
@@ -53143,6 +51747,83 @@ mod tests {
         );
     }
 
+    // These binding tests isolate scrolling algorithms from the layout engine.
+    // Supply the measured 10px scrollport, 50px content, and computed overflow.
+    fn install_scroll_binding_fixture(state: &V8BindingState) {
+        let node = state.dom.borrow().find_by_id("scroller").unwrap();
+        install_scroll_binding_fixture_for_node(state, node);
+    }
+
+    fn install_scroll_binding_fixture_for_node(state: &V8BindingState, node: NodeId) {
+        use oryn_common::v4::{BoxModel, CssRect, EdgeSizes, PaintProjection, PaintScrollGeometry};
+        let previous = state.layout.borrow().clone();
+        let port = CssRect {
+            x: 0.,
+            y: 0.,
+            width: 10.,
+            height: 10.,
+        };
+        let edges = EdgeSizes {
+            top: 0.,
+            right: 0.,
+            bottom: 0.,
+            left: 0.,
+        };
+        state.set_layout(BindingLayout {
+            viewport: previous.viewport.or(Some((1280., 720.))),
+            geometry: BTreeMap::from([(
+                node_key(node),
+                BindingGeometry::Available(BindingRect {
+                    x: 0.,
+                    y: 0.,
+                    width: 10.,
+                    height: 10.,
+                }),
+            )]),
+            styles: BTreeMap::from([(
+                node_key(node),
+                std::sync::Arc::new(BTreeMap::from([
+                    ("overflow-x".into(), "auto".into()),
+                    ("overflow-y".into(), "auto".into()),
+                ])),
+            )]),
+            hit_projections: BTreeMap::from([(
+                node_key(node),
+                PaintProjection {
+                    scroll: Some(PaintScrollGeometry {
+                        offset_x: 0.,
+                        offset_y: 0.,
+                        scrollport: port,
+                        scrollable: CssRect {
+                            width: 50.,
+                            height: 50.,
+                            ..port
+                        },
+                    }),
+                    matrix: [
+                        1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
+                    ],
+                    box_model: BoxModel {
+                        border_box: port,
+                        padding_box: port,
+                        content_box: port,
+                        margin: edges,
+                        border: edges,
+                        padding: edges,
+                    },
+                    fragment_boxes: Vec::new(),
+                    border_segments: Vec::new(),
+                    border_edges: None,
+                    text_matrix: None,
+                    text_clips: Vec::new(),
+                    text: Vec::new(),
+                    clips: Vec::new(),
+                },
+            )]),
+            ..previous
+        });
+    }
+
     #[test]
     fn element_scroll_overloads_convert_before_mutating_and_clamp_every_axis() {
         initialize_v8();
@@ -53154,7 +51835,8 @@ mod tests {
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        install_scroll_binding_fixture(&state);
         let source = v8::String::new(
             scope,
             r#"
@@ -53216,6 +51898,7 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        install_scroll_binding_fixture(&state);
         let code = v8::String::new(
             scope,
             r#"
@@ -53274,6 +51957,7 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        install_scroll_binding_fixture(&state);
         let code = v8::String::new(
             scope,
             r#"
@@ -53344,6 +52028,7 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        install_scroll_binding_fixture(&state);
         let source = v8::String::new(
             scope,
             "globalThis.scrollEvents=[];const target=document.getElementById('scroller');target.addEventListener('scroll',()=>scrollEvents.push('scroll'));target.scrollTop=5;target.scrollLeft=6;target.remove()",
@@ -53872,15 +52557,37 @@ mod tests {
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
-        let source = v8::String::new(
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/start").unwrap();
+        navigation_api::sync_history(
             scope,
-            "globalThis.location.href='https://example.test/start';const events=[];globalThis.dispatchEvent=event=>{events.push([event.type,event.state,event.oldURL,event.newURL]);return true};history.pushState({step:1},'', '/next#one');const first=history.state;first.step=9;history.replaceState({step:2},'', '#two');history.back();[history instanceof History,history.length,history.state,location.href,events[0][0],events[1][0],first.step].join('|')",
+            vec![navigation_api::NavigationHistorySnapshot {
+                scroll: Default::default(),
+                key: "initial-key".into(),
+                id: "initial-id".into(),
+                url: "https://example.test/start".into(),
+                document_id: "document-one".into(),
+                state: None,
+                history_state: None,
+            }],
+            0,
+            "push",
         )
         .unwrap();
-        let script = v8::Script::compile(scope, source, None).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const events=[];globalThis.dispatchEvent=()=>{throw Error('author dispatch must not run')};for(const type of ['popstate','hashchange'])addEventListener(type,event=>events.push([event.type,event.state,event.oldURL,event.newURL]));history.pushState({step:1},'', '/next#one');const first=history.state;first.step=9;history.replaceState({step:2},'', '#two');history.back();events.length===0&&location.href==='https://example.test/next#two'",
+        )
+        .unwrap();
+        assert!(test_eval::run(scope, source).is_true());
+        let task = state.take_history_traversal().unwrap();
+        assert_eq!(task.delta(), -1);
+        let destination = state.navigation_history_entries()[0].clone();
+        navigation_api::run_history_task(scope, task, Some(destination)).unwrap();
+        assert!(!state.has_history_traversal());
+        let source = v8::String::new(scope, "[history instanceof History,history.length,history.state,location.href,events[0][0],events[1][0],first.step].join('|')").unwrap();
         assert_eq!(
-            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            test_eval::run(scope, source).to_rust_string_lossy(scope),
             "true|2||https://example.test/start|popstate|hashchange|9"
         );
     }
@@ -54070,6 +52777,7 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(scope, r#"
             let result='pending';
@@ -54097,7 +52805,7 @@ mod tests {
                 check(cancelReasons[0]==='left' && cancelReasons[1]==='right','combined reasons');
                 await Promise.resolve();check(!settled,'wait for source cancellation');
                 finish();await cancellation;await other;
-                location.href='https://example.test/app';
+                
                 const fetched=await fetch('/bytes');const fetchedClone=fetched.clone();
                 check(await fetched.text()==='native' && await fetchedClone.text()==='native','host body clone');
                 result='ok';
@@ -54182,6 +52890,29 @@ mod tests {
             state.native_document_base_url(false).unwrap(),
             "https://example.test/parent/page"
         );
+        for href in ["about:blank#next", "about:srcdoc#next"] {
+            state.commit_location(href).unwrap();
+            assert_eq!(state.request_initiator_url().unwrap(), href);
+            assert_eq!(
+                state.native_document_base_url(false).unwrap(),
+                "https://example.test/parent/page"
+            );
+            assert_eq!(
+                state.native_document_base_url(true).unwrap(),
+                "https://example.test/assets/"
+            );
+            assert_eq!(
+                retained_document_base_url(&state, state.document_root()).unwrap(),
+                "https://example.test/assets/"
+            );
+            assert_eq!(
+                state
+                    .native_document_resource_url("image.png")
+                    .unwrap()
+                    .as_str(),
+                "https://example.test/assets/image.png"
+            );
+        }
         let source = v8::String::new(
             scope,
             r#"
@@ -54257,12 +52988,13 @@ mod tests {
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         let source = v8::String::new(scope, r#"
             let result='pending';
             (async()=>{
                 const check=(value,message)=>{if(!value)throw Error(message)};
-                location.href='https://example.test/app';
+                
                 const source=new FormData();source.append('name','first');source.append('name','second');
                 source.append('upload',new File([new Uint8Array([0,128,255])],'binary.dat',{type:'application/octet-stream'}));
                 for(const make of [body=>new Response(body),body=>new Request('/data',{method:'POST',body})]){
@@ -54309,12 +53041,13 @@ mod tests {
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         let source = v8::String::new(scope, r#"
             let result='pending';
             (async()=>{
                 const check=(value,message)=>{if(!value)throw Error(message)};
-                location.href='https://example.test/app';
+                
                 const headers={'Content-Type':'Application/X-WWW-Form-Urlencoded;charset=windows-1252'};
                 for(const make of [body=>new Response(body,{headers}),body=>new Request('/data',{method:'POST',body,headers})]){
                     const body=make('a=one&a=two&space=hello+world&utf8=%C3%A9&bad=%FF&empty&=value');
@@ -54359,12 +53092,13 @@ mod tests {
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         let source = v8::String::new(scope, r#"
             let result='pending';
             (async()=>{
                 const check=(value,message)=>{if(!value)throw Error(message)};
-                location.href='https://example.test/app';
+                
                 for(const make of [body=>new Response(body),body=>new Request('/data',{method:'POST',body})]){
                     check((await make('{"value":2}').json()).value===2,'JSON result');
                     const invalid=make('invalid JSON');let promise;
@@ -54454,12 +53188,13 @@ mod tests {
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         let source = v8::String::new(scope, r#"
             let result='pending';
             (async()=>{
                 const check=(value,message)=>{if(!value)throw Error(message)};
-                location.href='https://example.test/app';
+                
                 const params=new URLSearchParams([['a','hello world'],['a','é']]);
                 params.toString=()=>{throw Error('public stringifier')};
                 for(const make of [body=>new Response(body),body=>new Request('/data',{method:'POST',body})]){
@@ -54509,13 +53244,14 @@ mod tests {
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         let source = v8::String::new(scope, r#"
             let result='pending';
             (async()=>{
                 const check=(value,message)=>{if(!value)throw Error(message)};
                 const fail=fn=>{let caught;try{fn()}catch(error){caught=error}check(caught instanceof TypeError,'expected TypeError')};
-                location.href='https://example.test/app';
+                
                 for(const method of ['GET','HEAD'])for(const body of ['',new Uint8Array(0),new Blob([])])fail(()=>new Request('/data',{method,body}));
                 const absent=new Request('/data');check(absent.body===null,'absent body');
                 check(await absent.text()==='' && await absent.text()==='' && !absent.bodyUsed,'absent reusable');
@@ -54565,10 +53301,13 @@ mod tests {
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state
+            .commit_location("https://example.test/path/app")
+            .unwrap();
         let source = v8::String::new(scope, r#"
             const check=(value,message)=>{if(!value)throw Error(message)};
-            location.href='https://example.test/path/app';
+            
             check(new Request('/data').referrer==='about:client','client default');
             check(new Request('/data',{referrer:'about:client'}).referrer==='about:client','explicit client');
             check(new Request('/data',{referrer:''}).referrer==='','no referrer');
@@ -54601,10 +53340,11 @@ mod tests {
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         let source = v8::String::new(scope, r#"
             const check=(value,message)=>{if(!value)throw Error(message)};
-            location.href='https://example.test/app';
+            
             for(const credentials of ['omit','same-origin','include'])check(new Request('/data',{credentials}).credentials===credentials,'credentials');
             for(const value of [null,'','INCLUDE',' include','invalid']){
                 let caught;try{new Request('/data',{credentials:value})}catch(error){caught=error}
@@ -54646,10 +53386,11 @@ mod tests {
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         let source = v8::String::new(scope, r#"
             const check=(value,message)=>{if(!value)throw Error(message)};
-            location.href='https://example.test/app';
+            
             const controller=new AbortController();
             const request=new Request('/data',{signal:controller.signal});
             const copy=new Request(request), clone=request.clone();
@@ -54693,13 +53434,14 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(scope, r#"
             let result='pending';
             (async()=>{
                 const check=(value,message)=>{if(!value)throw Error(message)};
                 const fail=fn=>{let caught;try{fn()}catch(error){caught=error}check(caught instanceof TypeError,'expected TypeError')};
-                location.href='https://example.test/app';
+                
                 for(const [method,expected] of [['get','GET'],['pOsT','POST'],['patch','patch'],['X-Custom2','X-Custom2'],[null,'null']]){
                     check(new Request('/data',{method}).method===expected,'method '+method);
                 }
@@ -54747,12 +53489,13 @@ mod tests {
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         let source = v8::String::new(scope, r#"
             let result='pending';
             (async()=>{
                 const check=(value,message)=>{if(!value)throw Error(message)};
-                location.href='https://example.test/app';
+                
                 let promise,caught;
                 try{promise=fetch('/no-host')}catch(error){throw Error('synchronous fetch throw')}
                 check(promise instanceof Promise,'returns promise');
@@ -54801,13 +53544,14 @@ mod tests {
             let context = v8::Context::new(scope, Default::default());
             let scope = &mut v8::ContextScope::new(scope, context);
             let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+            state.commit_location("https://example.test/app").unwrap();
             let host = Rc::new(TestPlatformHost {
                 response_status: Some(status),
                 ..Default::default()
             });
             state.set_platform_host(host.clone());
             let source = v8::String::new(scope, &format!(r#"
-                let result='pending';location.href='https://example.test/app';
+                let result='pending';
                 fetch('/empty',{{method:'{method}'}}).then(async response=>{{
                     if(response.body!==null || response.clone().body!==null)throw Error('body must be null');
                     if(await response.text()!=='' || await response.text()!=='' || response.bodyUsed)throw Error('null body consumption');
@@ -54847,12 +53591,13 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(scope, r#"
             let result='pending';
             (async()=>{
                 const check=(value,message)=>{if(!value)throw Error(message)};
-                location.href='https://example.test/app';
+                
                 const response=await fetch('/data');const clone=response.clone();
                 for(const headers of [response.headers,clone.headers]){
                     for(const method of ['set','append','delete']){
@@ -55090,30 +53835,17 @@ mod tests {
             "#
             );
             let source = v8::String::new(scope, &source).unwrap();
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap();
+            test_eval::run(scope, source);
             state.drain_platform_completions(scope, 1).unwrap();
             let source = v8::String::new(scope, "uploads.join(',')").unwrap();
             assert_eq!(
-                v8::Script::compile(scope, source, None)
-                    .unwrap()
-                    .run(scope)
-                    .unwrap()
-                    .to_rust_string_lossy(scope),
+                test_eval::run(scope, source).to_rust_string_lossy(scope),
                 expected
             );
             if reopen {
                 let source =
                     v8::String::new(scope, "xhr.readyState===1 && !states.includes(2)").unwrap();
-                assert!(
-                    v8::Script::compile(scope, source, None)
-                        .unwrap()
-                        .run(scope)
-                        .unwrap()
-                        .boolean_value(scope)
-                );
+                assert!(test_eval::run(scope, source).boolean_value(scope));
                 assert!(host.aborted_streams.lock().unwrap().contains(&7));
             }
         }
@@ -55155,11 +53887,7 @@ mod tests {
             'ok';
         "#).unwrap();
         assert_eq!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .to_rust_string_lossy(scope),
+            test_eval::run(scope, source).to_rust_string_lossy(scope),
             "ok"
         );
         assert!(host.requests.lock().unwrap().is_empty());
@@ -55232,11 +53960,7 @@ mod tests {
             'ok';
         "#).unwrap();
         assert_eq!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .to_rust_string_lossy(scope),
+            test_eval::run(scope, source).to_rust_string_lossy(scope),
             "ok"
         );
     }
@@ -55859,7 +54583,7 @@ mod tests {
             let node = {
                 let mut dom = dom.borrow_mut();
                 let node = dom.create_element("script");
-                dom.set_attribute(node, "src", &format!("/{index}.js"))
+                dom.set_attribute(node, "src", format!("/{index}.js"))
                     .unwrap();
                 if index == 256 {
                     dom.set_attribute(node, "blocking", "render").unwrap();
@@ -55882,12 +54606,26 @@ mod tests {
         }
         let node = last.unwrap();
         assert!(!dom.borrow().script_already_started(node).unwrap());
-        assert!(!dom.borrow_mut().render_blocked(state.document_root()));
+        // An unfinished head itself blocks rendering. Inspect this rejected
+        // resource's membership independently of that parser gate.
+        let revision = dom.borrow().arena().stylesheet_revision(node).unwrap();
+        assert!(
+            dom.borrow()
+                .retain_render_resource(node, revision)
+                .is_none()
+        );
         state.pending_dynamic_scripts.borrow_mut().clear();
         prepare_inline_script_or_queue(scope, &state, node).unwrap();
         assert!(dom.borrow_mut().render_blocked(state.document_root()));
         prepare_inline_script_or_queue(scope, &state, node).unwrap();
         assert_eq!(state.pending_dynamic_scripts.borrow().len(), 1);
+        assert!(
+            state.pending_dynamic_scripts.borrow()[0]
+                .render_blocker
+                .is_some()
+        );
+        parser.push("</head><body>");
+        assert!(dom.borrow_mut().render_blocked(state.document_root()));
         state.pending_dynamic_scripts.borrow_mut().clear();
         assert!(!dom.borrow_mut().render_blocked(state.document_root()));
     }
@@ -56131,6 +54869,11 @@ mod tests {
                 ..Default::default()
             });
         }
+        // Standalone V8 contexts otherwise have distinct opaque access tokens.
+        // The native page host assigns one token to these same-origin realms.
+        let token = v8::String::new(scope, "https://example.test").unwrap();
+        context.set_security_token(token.into());
+        foreign_context.set_security_token(token.into());
         let foreign = foreign_context.global(scope);
         let global = context.global(scope);
         set_object_property(scope, global, "foreign", foreign.into()).unwrap();
@@ -56160,13 +54903,7 @@ mod tests {
             }
             return true;
         })()"#).unwrap();
-        assert!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .is_true()
-        );
+        assert!(test_eval::run(scope, source).is_true());
         assert_eq!(foreign_state.trusted_policies.borrow().len(), 1);
         assert_eq!(state.trusted_policies.borrow().len(), 1);
     }
@@ -58324,9 +57061,9 @@ target.srcdoc='raw';
         let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(scope, r#"
             const check=(value,message)=>{if(!value)throw Error(message)};
-            const fail=(fn,kind)=>{let caught;try{fn()}catch(error){caught=error}check(caught instanceof kind,'expected '+kind.name)};
+            const fail=(fn,kind)=>{let caught;try{fn()}catch(error){caught=error}check(caught instanceof kind,'expected '+kind.name+' for '+fn+', got '+String(caught))};
             fail(()=>Response.json(),TypeError);
-            for(const data of [undefined,()=>{},Symbol('x')])fail(()=>Response.json(data),TypeError);
+            for(const data of [undefined,()=>{},Symbol('x'),{toJSON(){return undefined}},{toJSON(){return Symbol('x')}},{toJSON(){return ()=>{}}}])fail(()=>Response.json(data),TypeError);
             fail(()=>Response.json(1n),TypeError);
             const cycle={};cycle.self=cycle;fail(()=>Response.json(cycle),TypeError);
             for(const status of [0,199,600])fail(()=>Response.json({}, {status}),RangeError);
@@ -58339,21 +57076,15 @@ target.srcdoc='raw';
             check(response.status===201 && response.statusText==='Created','metadata');
             check(response.headers.get('content-type')==='application/json','inferred content type');
             check(Response.json({}, {headers:{'Content-Type':'custom/type'}}).headers.get('content-type')==='custom/type','explicit content type');
+            check(Response.json('undefined').status===200,'ordinary string remains JSON serializable');
             globalThis.result='pending';
             response.json().then(value=>{check(value.x===1,'serialized body');result='ok'},()=>{result='rejected'});
         "#).unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        test_eval::run(scope, source);
         scope.perform_microtask_checkpoint();
         let source = v8::String::new(scope, "result").unwrap();
         assert_eq!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .to_rust_string_lossy(scope),
+            test_eval::run(scope, source).to_rust_string_lossy(scope),
             "ok"
         );
     }
@@ -58587,6 +57318,7 @@ target.srcdoc='raw';
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost {
             redirected: true,
             ..Default::default()
@@ -58594,7 +57326,7 @@ target.srcdoc='raw';
         let source = v8::String::new(
             scope,
             r#"
-            location.href='https://example.test/app';
+            
             let result='';
             fetch('/roundtrip').then(response=>{
                 const clone=response.clone();
@@ -58633,8 +57365,9 @@ target.srcdoc='raw';
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
-        let source = v8::String::new(scope, "globalThis.location.href='https://example.test/app';let result='';const controller=new AbortController();controller.signal.addEventListener('abort',()=>result+='abort|');controller.abort('stop');fetch('/data').then(response=>{result+=response.status+'|'+response.ok+'|'+response.headers.get('content-type')});const opened=indexedDB.open('app',2);opened.onupgradeneeded=()=>result+='|upgrade';opened.onsuccess=()=>result+='|db:'+opened.result.version;").unwrap();
+        let source = v8::String::new(scope, "let result='';const controller=new AbortController();controller.signal.addEventListener('abort',()=>result+='abort|');controller.abort('stop');fetch('/data').then(response=>{result+=response.status+'|'+response.ok+'|'+response.headers.get('content-type')});const opened=indexedDB.open('app',2);opened.onupgradeneeded=()=>result+='|upgrade';opened.onsuccess=()=>result+='|db:'+opened.result.version;").unwrap();
         v8::Script::compile(scope, source, None)
             .unwrap()
             .run(scope)
@@ -58664,9 +57397,10 @@ target.srcdoc='raw';
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/").unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(scope, r#"
-            globalThis.location.href='https://example.test/';
+            
             const completionOrder=[];
             const completing=indexedDB.open('completion-state',2);
             let completedDatabase;
@@ -58683,20 +57417,13 @@ target.srcdoc='raw';
             };
             completing.onsuccess=()=>completionOrder.push(completing.transaction===null && completing.result===completedDatabase && completing.readyState==='done'?'success':'bad-success');
         "#).unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        test_eval::run(scope, source);
         for _ in 0..24 {
             state.drain_platform_completions(scope, 1).unwrap();
             scope.perform_microtask_checkpoint();
         }
         let source = v8::String::new(scope, "completionOrder.join('|')").unwrap();
-        let actual = v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap()
-            .to_rust_string_lossy(scope);
+        let actual = test_eval::run(scope, source).to_rust_string_lossy(scope);
         assert_eq!(actual, "complete|InvalidStateError|microtask|success");
     }
 
@@ -58771,11 +57498,12 @@ target.srcdoc='raw';
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/").unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(
             scope,
             r#"
-            globalThis.location.href='https://example.test/';
+            
             const abortOrder=[];
             const opening=indexedDB.open('deferred-abort',2);
             opening.onupgradeneeded=()=>{
@@ -58798,20 +57526,13 @@ target.srcdoc='raw';
         "#,
         )
         .unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        test_eval::run(scope, source);
         for _ in 0..24 {
             state.drain_platform_completions(scope, 1).unwrap();
             scope.perform_microtask_checkpoint();
         }
         let source = v8::String::new(scope, "abortOrder.join('|')").unwrap();
-        let actual = v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap()
-            .to_rust_string_lossy(scope);
+        let actual = test_eval::run(scope, source).to_rust_string_lossy(scope);
         assert_eq!(
             actual,
             "returned|InvalidStateError|microtask|request0:AbortError|request0-microtask|request1:AbortError|request1-microtask|transaction|database|abort-microtask|AbortError:null"
@@ -59373,7 +58094,6 @@ target.srcdoc='raw';
             "Symbol('key')",
             "new WeakMap()",
             "new Proxy({}, {})",
-            "new SharedArrayBuffer(4)",
         ] {
             v8::tc_scope!(let caught,scope);
             let source = v8::String::new(caught, source).unwrap();
@@ -59384,6 +58104,12 @@ target.srcdoc='raw';
             assert!(idb_value_to_json(caught, &state, value).is_err());
             assert!(caught.has_caught());
         }
+        // Supply native backing directly: this tests storage rejection, not
+        // broker admission for the exposed SharedArrayBuffer constructor.
+        v8::tc_scope!(let caught, scope);
+        let shared = v8::SharedArrayBuffer::new(caught, 4).unwrap();
+        assert!(idb_value_to_json(caught, &state, shared.into()).is_err());
+        assert!(caught.has_caught());
     }
 
     #[test]
@@ -59774,30 +58500,26 @@ target.srcdoc='raw';
         let parsed = html::parse("<main></main>");
         let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
         let mut isolate = v8::Isolate::new(Default::default());
+        // Match the native host: transaction jobs run at explicit checkpoints.
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/").unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(
             scope,
-            "globalThis.location.href='https://example.test/';let result='';const request=indexedDB.open('abort-me',2);request.onupgradeneeded=e=>{result=(e instanceof Event)+'|'+(e instanceof IDBVersionChangeEvent)+'|'+e.target.transaction.mode+'|'+(e.target.transaction.db===e.target.result);e.target.transaction.onabort=event=>result+='|abort:'+event.target.db.version;e.target.transaction.abort()};request.onerror=e=>result+='|error:'+e.target.error.name+'|'+String(e.target.transaction)",
+            "let result='';const request=indexedDB.open('abort-me',2);request.onupgradeneeded=e=>{result=(e instanceof Event)+'|'+(e instanceof IDBVersionChangeEvent)+'|'+e.target.transaction.mode+'|'+(e.target.transaction.db===e.target.result);e.target.transaction.onabort=event=>result+='|abort:'+event.target.db.version;e.target.transaction.abort()};request.onerror=e=>result+='|error:'+e.target.error.name+'|'+String(e.target.transaction)",
         )
         .unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        test_eval::run(scope, source);
         state.drain_platform_completions(scope, 8).unwrap();
         scope.perform_microtask_checkpoint();
         state.drain_platform_completions(scope, 8).unwrap();
         scope.perform_microtask_checkpoint();
         let source = v8::String::new(scope, "result").unwrap();
-        let result = v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap()
-            .to_rust_string_lossy(scope);
+        let result = test_eval::run(scope, source).to_rust_string_lossy(scope);
         assert_eq!(
             result,
             "true|true|versionchange|true|abort:0|error:AbortError|null"
@@ -59861,9 +58583,15 @@ target.srcdoc='raw';
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
-        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        state.commit_location("https://example.test/").unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost {
+            // The command-result mock must report the database created above
+            // version 0 when this fixture opens it again at version 2.
+            idb_old_versions: BTreeMap::from([(("close-upgrade".into(), 2), 1)]),
+            ..Default::default()
+        }));
         let source=v8::String::new(scope,r#"
-            location.href='https://example.test/';globalThis.events=[];
+            globalThis.events=[];
             const first=indexedDB.open('close-upgrade',1);
             first.onupgradeneeded=()=>first.result.createObjectStore('items');
             first.onsuccess=()=>{
@@ -59875,26 +58603,23 @@ target.srcdoc='raw';
                 abort.abort();db.close();
                 db.onversionchange=()=>events.push('unexpected-versionchange');
                 const upgrade=indexedDB.open('close-upgrade',2);
-                upgrade.onblocked=()=>events.push('unexpected-blocked');
+                upgrade.onblocked=e=>events.push('blocked:'+e.oldVersion+':'+e.newVersion);
                 upgrade.onupgradeneeded=()=>events.push('upgrade:'+events.filter(x=>x==='complete'||x==='abort').length);
                 upgrade.onsuccess=()=>{events.push('success');upgrade.result.close()};
             };
         "#).unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        test_eval::run(scope, source);
         for _ in 0..128 {
             state.drain_platform_completions(scope, 32).unwrap();
             scope.perform_microtask_checkpoint();
         }
-        let source=v8::String::new(scope,"events.length===4&&events.includes('complete')&&events.includes('abort')&&events[2]==='upgrade:2'&&events[3]==='success'").unwrap();
+        // IndexedDB opening/closing algorithms: close-pending connections
+        // still block upgrades until their existing transactions finish.
+        let source=v8::String::new(scope,"events.length===5&&events[0]==='blocked:1:2'&&events.includes('complete')&&events.includes('abort')&&events[3]==='upgrade:2'&&events[4]==='success'").unwrap();
         assert!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .is_true()
+            test_eval::run(scope, source).is_true(),
+            "events: {}",
+            test_eval::eval(scope, "JSON.stringify(events)").to_rust_string_lossy(scope)
         );
     }
 
@@ -60656,11 +59381,7 @@ target.srcdoc='raw';
             }
             'ok'
         "#).unwrap();
-        let actual = v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap()
-            .to_rust_string_lossy(scope);
+        let actual = test_eval::run(scope, source).to_rust_string_lossy(scope);
         assert_eq!(actual, "ok");
     }
 
@@ -61299,11 +60020,12 @@ target.srcdoc='raw';
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/").unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(
             scope,
             r#"
-            globalThis.location.href = 'https://example.test/';
+            
             (() => {
                 const a = new XMLHttpRequest();
                 a.open('POST', '/a');
@@ -61498,8 +60220,9 @@ target.srcdoc='raw';
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
-        let source = v8::String::new(scope, "globalThis.location.href='https://example.test/app';const states=[];let xhrResult='';const xhr=new XMLHttpRequest();xhr.onreadystatechange=()=>states.push(xhr.readyState);xhr.onload=()=>xhrResult=states.join(',')+'|'+xhr.status+'|'+xhr.responseText;xhr.open('GET','/data');xhr.send();").unwrap();
+        let source = v8::String::new(scope, "const states=[];let xhrResult='';const xhr=new XMLHttpRequest();xhr.onreadystatechange=()=>states.push(xhr.readyState);xhr.onload=()=>xhrResult=states.join(',')+'|'+xhr.status+'|'+xhr.responseText;xhr.open('GET','/data');xhr.send();").unwrap();
         v8::Script::compile(scope, source, None)
             .unwrap()
             .run(scope)
@@ -61528,8 +60251,9 @@ target.srcdoc='raw';
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
-        let source = v8::String::new(scope, "globalThis.location.href='https://example.test/app';let cancelled='';const controller=new AbortController();fetch('/data',{signal:controller.signal}).catch(reason=>cancelled+='fetch:'+reason);controller.abort('stop');const xhr=new XMLHttpRequest();xhr.onabort=()=>cancelled+='|xhr:abort';xhr.onload=()=>cancelled+='|xhr:load';xhr.open('GET','/data');xhr.send();xhr.abort();").unwrap();
+        let source = v8::String::new(scope, "let cancelled='';const controller=new AbortController();fetch('/data',{signal:controller.signal}).catch(reason=>cancelled+='fetch:'+reason);controller.abort('stop');const xhr=new XMLHttpRequest();xhr.onabort=()=>cancelled+='|xhr:abort';xhr.onload=()=>cancelled+='|xhr:load';xhr.open('GET','/data');xhr.send();xhr.abort();").unwrap();
         v8::Script::compile(scope, source, None)
             .unwrap()
             .run(scope)
@@ -62095,30 +60819,34 @@ target.srcdoc='raw';
                 &state,
                 node,
                 "globalThis.runs=(globalThis.runs||0)+1",
-                "https://example.test/source.js",
-                false,
-                false,
-                "no-referrer",
-                "https://example.test/",
-                &mut || entries.set(entries.get() + 1)
+                StartedClassicScriptInputs {
+                    resource_name: "https://example.test/source.js",
+                    muted_errors: false,
+                    include_credentials: false,
+                    referrer_policy: "no-referrer",
+                    base_url: "https://example.test/",
+                    started: &mut || entries.set(entries.get() + 1)
+                }
             )
             .is_err()
         );
         assert_eq!(entries.get(), 0);
         assert!(state.current_script.get().is_none());
-        execute_classic_script_with_started(scope,&state,node,"globalThis.runs=(globalThis.runs||0)+1;globalThis.errors=[];onerror=(message,url,line,column,error)=>{errors.push(error.name);return true}","https://example.test/source.js",false,false,"no-referrer","https://example.test/",&mut ||entries.set(entries.get()+1)).unwrap();
+        execute_classic_script_with_started(scope, &state, node, "globalThis.runs=(globalThis.runs||0)+1;globalThis.errors=[];onerror=(message,url,line,column,error)=>{errors.push(error.name);return true}", StartedClassicScriptInputs { resource_name: "https://example.test/source.js", muted_errors: false, include_credentials: false, referrer_policy: "no-referrer", base_url: "https://example.test/", started: &mut ||entries.set(entries.get()+1) }).unwrap();
         assert_eq!(entries.get(), 1);
         execute_classic_script_with_started(
             scope,
             &state,
             node,
             "let =",
-            "https://example.test/broken.js",
-            false,
-            false,
-            "no-referrer",
-            "https://example.test/",
-            &mut || entries.set(entries.get() + 1),
+            StartedClassicScriptInputs {
+                resource_name: "https://example.test/broken.js",
+                muted_errors: false,
+                include_credentials: false,
+                referrer_policy: "no-referrer",
+                base_url: "https://example.test/",
+                started: &mut || entries.set(entries.get() + 1),
+            },
         )
         .unwrap();
         assert_eq!(entries.get(), 2);
@@ -62621,7 +61349,7 @@ target.srcdoc='raw';
     fn layout_provider_receives_viewport_and_scroll_changes_without_dom_mutations() {
         struct Provider {
             viewport: Cell<(f64, f64)>,
-            inputs: RefCell<Vec<((f64, f64), (f64, f64))>>,
+            inputs: RefCell<Vec<ViewportScrollInput>>,
         }
         impl BindingLayoutProvider for Provider {
             fn set_viewport(&self, width: f64, height: f64) {
@@ -62809,8 +61537,10 @@ target.srcdoc='raw';
                 if elements.is_empty() && self.fail_corrected.get() {
                     return Err("projection unavailable".into());
                 }
-                let mut layout = BindingLayout::default();
-                layout.viewport = Some((100., 100.));
+                let mut layout = BindingLayout {
+                    viewport: Some((100., 100.)),
+                    ..Default::default()
+                };
                 layout
                     .geometry
                     .insert(node_key(self.node), BindingGeometry::Hidden);
@@ -62891,7 +61621,7 @@ target.srcdoc='raw';
     fn layout_provider_receives_nested_scrolls_and_cache_tracks_offset_changes() {
         #[derive(Default)]
         struct Provider {
-            inputs: RefCell<Vec<((f64, f64), BTreeMap<NodeId, (f64, f64)>)>>,
+            inputs: RefCell<Vec<NestedScrollInput>>,
         }
         impl BindingLayoutProvider for Provider {
             fn layout_revision(&self) -> Option<u64> {
@@ -63544,6 +62274,9 @@ target.srcdoc='raw';
             ..Default::default()
         };
         dispatch_native_pointer(scope, &state, &input, NativePointerAction::Move).unwrap();
+        assert!(!native_pointer::native_pointer_owns_routing(
+            &state, input.id
+        ));
         assert!(!native_pointer::capture(&state, t, 2, "hasPointerCapture").unwrap());
         assert!(native_pointer::capture(&state, t, 2, "setPointerCapture").is_err());
         let code = v8::String::new(scope, "log.length===0").unwrap();
@@ -64366,19 +63099,21 @@ target.srcdoc='raw';
         let event = create_native_input_event(
             scope,
             &state,
-            "KeyboardEvent",
-            "keydown",
-            true,
-            true,
-            true,
-            0,
-            None,
-            &[
-                ("key", NativeInputValue::String(&[0xd800])),
-                ("code", NativeInputValue::String(&[75, 101, 121, 65])),
-                ("ctrlKey", NativeInputValue::Bool(true)),
-                ("location", NativeInputValue::Number(2.)),
-            ],
+            NativeInputEventInputs {
+                interface: "KeyboardEvent",
+                event_type: "keydown",
+                bubbles: true,
+                cancelable: true,
+                composed: true,
+                detail: 0,
+                related: None,
+                fields: &[
+                    ("key", NativeInputValue::String(&[0xd800])),
+                    ("code", NativeInputValue::String(&[75, 101, 121, 65])),
+                    ("ctrlKey", NativeInputValue::Bool(true)),
+                    ("location", NativeInputValue::Number(2.)),
+                ],
+            },
         )
         .unwrap();
         let key = native_input_property(scope, event, "KeyboardEvent", "key")
@@ -64405,14 +63140,16 @@ target.srcdoc='raw';
             create_native_input_event(
                 scope,
                 &state,
-                "KeyboardEvent",
-                "keydown",
-                true,
-                true,
-                true,
-                0,
-                None,
-                &[("location", NativeInputValue::Number(f64::NAN))]
+                NativeInputEventInputs {
+                    interface: "KeyboardEvent",
+                    event_type: "keydown",
+                    bubbles: true,
+                    cancelable: true,
+                    composed: true,
+                    detail: 0,
+                    related: None,
+                    fields: &[("location", NativeInputValue::Number(f64::NAN))]
+                }
             )
             .is_err()
         );
@@ -64497,10 +63234,11 @@ target.srcdoc='raw';
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://fixture.test/app").unwrap();
         let source = v8::String::new(
             scope,
-            "globalThis.location.href='https://fixture.test/app';const button=document.getElementById('go');let events='';button.onfocus=()=>events+='focus';button.onblur=()=>events+=':blur';button.focus();const focused=document.activeElement===button;button.scrollIntoView();button.blur();document.URL+'|'+document.baseURI+'|'+(document.location===location)+'|'+focused+'|'+(document.activeElement===document.body)+'|'+events",
+            "const button=document.getElementById('go');let events='';button.onfocus=()=>events+='focus';button.onblur=()=>events+=':blur';button.focus();const focused=document.activeElement===button;button.scrollIntoView();button.blur();document.URL+'|'+document.baseURI+'|'+(document.location===location)+'|'+focused+'|'+(document.activeElement===document.body)+'|'+events",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
@@ -64859,6 +63597,12 @@ target.srcdoc='raw';
             b.addEventListener('focusin',()=>c.focus(),{once:true});
             b.focus();
             checks.push(document.activeElement===c && bFocus===2);
+            a.focus();b.disabled=true;b.focus();
+            checks.push(document.activeElement===a && bFocus===2);
+            b.disabled=false;a.onblur=()=>{b.disabled=true};b.focus();
+            checks.push(document.activeElement!==b && bFocus===2);
+            a.onblur=null;b.disabled=false;b.focus();
+            checks.push(document.activeElement===b && bFocus===3);
             checks.every(Boolean)
         "#,
         )
@@ -64883,18 +63627,26 @@ target.srcdoc='raw';
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
             "const dialog=document.getElementById('dialog'),right=document.getElementById('right');let events='';dialog.addEventListener('cancel',()=>events+='cancel:');dialog.addEventListener('close',()=>events+='close');dialog.showModal();const modalBefore=dialog.matches(':modal');right.moveBefore(dialog,null);const preserved=dialog.open&&dialog.matches(':modal');dialog.requestClose('accepted');[dialog instanceof HTMLDialogElement,modalBefore,preserved,dialog.open,dialog.returnValue,events].join('|')",
         )
         .unwrap();
-        let result = v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap()
-            .to_rust_string_lossy(scope);
-        assert_eq!(result, "true|true|true|false|accepted|cancel:close");
+        let result = test_eval::run(scope, source).to_rust_string_lossy(scope);
+        assert_eq!(result, "true|true|true|false|accepted|cancel:");
+        state.drain_platform_completions(scope, 8).unwrap();
+        let source = v8::String::new(scope, "events").unwrap();
+        assert_eq!(
+            test_eval::run(scope, source).to_rust_string_lossy(scope),
+            "cancel:close"
+        );
+        state.drain_platform_completions(scope, 8).unwrap();
+        let source = v8::String::new(scope, "events").unwrap();
+        assert_eq!(
+            test_eval::run(scope, source).to_rust_string_lossy(scope),
+            "cancel:close"
+        );
     }
 
     #[test]
@@ -65173,6 +63925,23 @@ target.srcdoc='raw';
             document.body.append(nested);
             nested.addEventListener('scroll',e=>seen.push('nested:'+e.bubbles));
             document.addEventListener('scroll',e=>seen.push('document:'+e.bubbles));
+        "#,
+        )
+        .unwrap();
+        v8::Script::compile(scope, code, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let nested = state
+            .dom
+            .borrow()
+            .query_selector(state.document_root(), "body > html")
+            .unwrap()
+            .unwrap();
+        install_scroll_binding_fixture_for_node(&state, nested);
+        let code = v8::String::new(
+            scope,
+            r#"
             nested.scrollTo(100,100);
             [nested.scrollLeft,nested.scrollTop,scrollX,scrollY].join('|')
         "#,
@@ -65435,11 +64204,10 @@ target.srcdoc='raw';
                 vec![(8, "right", 6), (8, "left", 12)]
             } {
                 let source = format!(
-                    "{{const t=document.getElementById('t').firstChild,s=getSelection();s.collapse(t,{start});s.modify('move','{direction}','word');if(s.focusOffset!=={end})throw Error('visual word');}}"
+                    "{{const t=document.getElementById('t').firstChild,s=getSelection();s.collapse(t,{start});s.modify('move','{direction}','word');if(s.focusOffset!=={end})throw Error('visual word: got '+s.focusOffset+' expected {end}');}}"
                 );
                 let code = v8::String::new(scope, &source).unwrap();
-                let script = v8::Script::compile(scope, code, None).unwrap();
-                assert!(script.run(scope).is_some());
+                test_eval::run(scope, code);
             }
             for (direction, end) in [
                 ("left", if rtl { 18 } else { 0 }),
@@ -65449,8 +64217,7 @@ target.srcdoc='raw';
                     "{{const t=document.getElementById('t').firstChild,s=getSelection();s.collapse(t,8);s.modify('move','{direction}','lineboundary');if(s.focusOffset!=={end})throw Error('paragraph line boundary');}}"
                 );
                 let code = v8::String::new(scope, &source).unwrap();
-                let script = v8::Script::compile(scope, code, None).unwrap();
-                assert!(script.run(scope).is_some());
+                test_eval::run(scope, code);
             }
             for (start, direction, end) in vectors {
                 for alter in ["move", "extend"] {
@@ -65997,16 +64764,13 @@ target.srcdoc='raw';
             if(s.focusOffset!==2)throw Error('Hangul Latin boundary');
             const symbols=document.getElementById('symbols').firstChild;s.collapse(symbols,7);s.modify('move','forward','word');
             if(s.focusOffset!==10)throw Error('symbol run');
-            const detached=document.createTextNode('foreign');s.collapse(detached,2);s.modify('move','forward','character');
-            s.focusNode===detached&&s.focusOffset===2
+            const detached=document.createTextNode('foreign'),previous=s.getRangeAt(0);
+            s.collapse(detached,2);
+            if(s.getRangeAt(0)!==previous||s.focusNode!==symbols||s.focusOffset!==10)throw Error('detached collapse must preserve selection');
+            s.modify('move','forward','character');
+            if(s.focusNode!==symbols||s.focusOffset!==10)throw Error('motion entered detached text');true
         "#).unwrap();
-        assert!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .is_true()
-        );
+        assert!(test_eval::run(scope, source).is_true());
     }
 
     #[test]
@@ -67240,7 +66004,12 @@ target.srcdoc='raw';
           navigation.addEventListener('navigateerror',()=>{failed=document.activeElement===document.body;},{once:true});
           try{await navigation.navigate('#focus-error').finished;}catch(error){if(error!=='expected')throw error;}
           if(!failed)throw Error('reset must precede error');
-          second.autofocus=true;first.focus();navigation.addEventListener('navigate',e=>e.intercept(),{once:true});
+          second.autofocus=true;
+          if(!second.hasAttribute('autofocus')||!second.autofocus)throw Error('autofocus reflection');
+          const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.autofocus=true;
+          if(!svg.hasAttribute('autofocus')||!svg.autofocus)throw Error('SVG autofocus reflection');
+          svg.autofocus=false;if(svg.hasAttribute('autofocus')||svg.autofocus)throw Error('SVG autofocus removal');
+          first.focus();navigation.addEventListener('navigate',e=>e.intercept(),{once:true});
           await navigation.navigate('#focus-autofocus').finished;
           if(document.activeElement!==second)throw Error('eligible autofocus target');
           globalThis.__navigationResult=true;
@@ -67249,6 +66018,12 @@ target.srcdoc='raw';
     }
 
     pub(super) fn check_global_event_prototype_script(source: &str) {
+        check_global_event_prototype_script_with_setup(source, |_| {});
+    }
+    fn check_global_event_prototype_script_with_setup(
+        source: &str,
+        setup: impl FnOnce(&Rc<V8BindingState>),
+    ) {
         initialize_v8();
         let dom = Rc::new(RefCell::new(
             html::parse("<body></body>").into_runtime().unwrap(),
@@ -67257,7 +66032,8 @@ target.srcdoc='raw';
         v8::scope!(let scope,&mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        setup(&state);
         let source = v8::String::new(scope, source).unwrap();
         v8::tc_scope!(let tc,scope);
         let value = v8::Script::compile(tc, source, None).unwrap().run(tc);
@@ -68647,18 +67423,12 @@ target.srcdoc='raw';
             siblingObserver.observe(fragment, {childList:true});
             fragment.insertBefore(c, b); a.remove(); fragment.insertBefore(b, c);
             var siblings = siblingObserver.takeRecords();
-            if (siblings.length !== 4 || siblings[0].previousSibling !== a || siblings[0].nextSibling !== b || siblings[1].nextSibling !== c || siblings[2].previousSibling !== c || siblings[3].previousSibling !== null || siblings[3].nextSibling !== c) throw Error('historical sibling identities');
+            if (siblings.length !== 4 || siblings[0].previousSibling !== a || siblings[0].nextSibling !== b || siblings[1].nextSibling !== c || siblings[2].previousSibling !== c || siblings[3].previousSibling !== null || siblings[3].nextSibling !== c) throw Error('historical sibling identities: '+JSON.stringify(siblings.map(r=>({previous:r.previousSibling?.tagName,next:r.nextSibling?.tagName,added:[...r.addedNodes].map(n=>n.tagName),removed:[...r.removedNodes].map(n=>n.tagName)}))));
             siblingObserver.disconnect();
             target.setAttribute('delivered', 'yes');
             true;
         "#).unwrap();
-        assert!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .is_true()
-        );
+        assert!(test_eval::run(scope, source).is_true());
         let mutations = dom.borrow_mut().drain_mutations();
         assert_eq!(
             deliver_mutation_observers(scope, &state, &mutations).unwrap(),
@@ -68669,13 +67439,7 @@ target.srcdoc='raw';
             "child.setAttribute('after-checkpoint', 'yes'); observerHits === 1 && observer.takeRecords().length === 0",
         )
         .unwrap();
-        assert!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .is_true()
-        );
+        assert!(test_eval::run(scope, source).is_true());
     }
 
     #[test]
@@ -68965,6 +67729,13 @@ target.srcdoc='raw';
                 .unwrap()
                 .is_true()
         );
+        // No observers are installed; finish the host mutation checkpoint so
+        // removal-journal custody does not outlive the operation under test.
+        {
+            let mut dom = dom.borrow_mut();
+            let mutations = dom.drain_mutations();
+            dom.release_mutation_roots(&mutations).unwrap();
+        }
         scope.low_memory_notification();
         state.process_weak_releases().unwrap();
         let source = v8::String::new(
@@ -69056,6 +67827,13 @@ target.srcdoc='raw';
                     .then_some(id)
             })
             .unwrap();
+        // No observers are installed; finish the host mutation checkpoint so
+        // removal-journal custody does not outlive the operation under test.
+        {
+            let mut dom = dom.borrow_mut();
+            let mutations = dom.drain_mutations();
+            dom.release_mutation_roots(&mutations).unwrap();
+        }
         scope.low_memory_notification();
         state.process_weak_releases().unwrap();
         assert!(
@@ -69118,6 +67896,13 @@ target.srcdoc='raw';
                     .then_some(id)
             })
             .unwrap();
+        // No observers are installed; finish the host mutation checkpoint so
+        // removal-journal custody does not outlive the operation under test.
+        {
+            let mut dom = dom.borrow_mut();
+            let mutations = dom.drain_mutations();
+            dom.release_mutation_roots(&mutations).unwrap();
+        }
         scope.low_memory_notification();
         state.process_weak_releases().unwrap();
         assert!(dom.borrow().arena().get(parent).is_ok());
@@ -70390,13 +69175,7 @@ target.srcdoc='raw';
                 for (let i = 0; i < 256; ++i) s.extend(text, i % 6);
             })(); true
         "#).unwrap();
-        assert!(
-            v8::Script::compile(scope, source, None)
-                .unwrap()
-                .run(scope)
-                .unwrap()
-                .is_true()
-        );
+        assert!(test_eval::run(scope, source).is_true());
         scope.low_memory_notification();
         state.process_weak_releases().unwrap();
         assert_eq!(state.ranges.borrow().len(), 1);

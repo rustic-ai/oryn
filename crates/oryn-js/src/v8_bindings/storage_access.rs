@@ -176,6 +176,8 @@ mod tests {
     fn inherited_blank_storage_access_is_native_promise_and_does_not_force_navigation() {
         super::super::tests::initialize_v8();
         let mut isolate = v8::Isolate::new(Default::default());
+        // Match the native host: promise jobs run at its explicit checkpoint.
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
         v8::scope!(let scope,&mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);

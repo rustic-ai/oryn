@@ -68,10 +68,10 @@ pub(super) fn append(
         let mut included = BTreeSet::new();
         let mut pending = roots.clone();
         while let Some(id) = pending.pop() {
-            if included.insert(id) {
-                if let Some(node) = sources.get(&id) {
-                    pending.extend(node.children.iter().copied());
-                }
+            if included.insert(id)
+                && let Some(node) = sources.get(&id)
+            {
+                pending.extend(node.children.iter().copied());
             }
         }
         let mut picker = input.clone();
@@ -372,142 +372,138 @@ pub(super) fn append(
                 layout = compute_with_styles(&picker, limits, styles.clone())?;
             }
         }
-        if let Some(state) = entry.picker.filter(|state| state.reveal) {
-            if let Some(active) = state.active.filter(|active| included.contains(active)) {
-                if let (Some(projection), Some(target)) = (
-                    layout.paint_projections.get(&id),
-                    layout
-                        .geometry
-                        .get(&active)
-                        .and_then(|geometry| geometry.box_model.as_ref())
-                        .map(|model| model.border_box),
-                ) {
-                    if let Some(scroll) = &projection.scroll {
-                        let mut bounds = CssRect {
-                            x: f64::INFINITY,
-                            y: f64::INFINITY,
-                            width: 0.,
-                            height: 0.,
-                        };
-                        let mut right = f64::NEG_INFINITY;
-                        let mut bottom = f64::NEG_INFINITY;
-                        for (x, y) in [
-                            (target.x, target.y),
-                            (target.right(), target.y),
-                            (target.x, target.bottom()),
-                            (target.right(), target.bottom()),
-                        ] {
-                            if let Some((x, y)) = projection.viewport_to_local(x, y) {
-                                bounds.x = bounds.x.min(x);
-                                bounds.y = bounds.y.min(y);
-                                right = right.max(x);
-                                bottom = bottom.max(y);
-                            }
-                        }
-                        bounds.width = right - bounds.x;
-                        bounds.height = bottom - bounds.y;
-                        if bounds.x.is_finite() && bounds.y.is_finite() {
-                            let mut port = scroll.scrollport;
-                            if let Some(style) = styles.get(&active) {
-                                let font = length(
-                                    style_value(style, "font-size", "16px"),
-                                    16.,
-                                    16.,
-                                    input.viewport,
-                                );
-                                let margin = edge(style, "scroll-margin", 0., font, input.viewport);
-                                bounds.x -= margin.left;
-                                bounds.y -= margin.top;
-                                bounds.width += margin.left + margin.right;
-                                bounds.height += margin.top + margin.bottom;
-                            }
-                            if let Some(style) = styles.get(&id) {
-                                let font = length(
-                                    style_value(style, "font-size", "16px"),
-                                    16.,
-                                    16.,
-                                    input.viewport,
-                                );
-                                let used = |property: &str, basis| {
-                                    length(
-                                        style_value(style, property, "0px"),
-                                        basis,
-                                        font,
-                                        input.viewport,
-                                    )
-                                    .max(0.)
-                                };
-                                let left = used("scroll-padding-left", port.width);
-                                let right = used("scroll-padding-right", port.width);
-                                let top = used("scroll-padding-top", port.height);
-                                let bottom = used("scroll-padding-bottom", port.height);
-                                port.x += left;
-                                port.y += top;
-                                port.width = (port.width - left - right).max(0.);
-                                port.height = (port.height - top - bottom).max(0.);
-                            }
+        if let Some(state) = entry.picker.filter(|state| state.reveal)
+            && let Some(active) = state.active.filter(|active| included.contains(active))
+            && let (Some(projection), Some(target)) = (
+                layout.paint_projections.get(&id),
+                layout
+                    .geometry
+                    .get(&active)
+                    .and_then(|geometry| geometry.box_model.as_ref())
+                    .map(|model| model.border_box),
+            )
+            && let Some(scroll) = &projection.scroll
+        {
+            let mut bounds = CssRect {
+                x: f64::INFINITY,
+                y: f64::INFINITY,
+                width: 0.,
+                height: 0.,
+            };
+            let mut right = f64::NEG_INFINITY;
+            let mut bottom = f64::NEG_INFINITY;
+            for (x, y) in [
+                (target.x, target.y),
+                (target.right(), target.y),
+                (target.x, target.bottom()),
+                (target.right(), target.bottom()),
+            ] {
+                if let Some((x, y)) = projection.viewport_to_local(x, y) {
+                    bounds.x = bounds.x.min(x);
+                    bounds.y = bounds.y.min(y);
+                    right = right.max(x);
+                    bottom = bottom.max(y);
+                }
+            }
+            bounds.width = right - bounds.x;
+            bounds.height = bottom - bounds.y;
+            if bounds.x.is_finite() && bounds.y.is_finite() {
+                let mut port = scroll.scrollport;
+                if let Some(style) = styles.get(&active) {
+                    let font = length(
+                        style_value(style, "font-size", "16px"),
+                        16.,
+                        16.,
+                        input.viewport,
+                    );
+                    let margin = edge(style, "scroll-margin", 0., font, input.viewport);
+                    bounds.x -= margin.left;
+                    bounds.y -= margin.top;
+                    bounds.width += margin.left + margin.right;
+                    bounds.height += margin.top + margin.bottom;
+                }
+                if let Some(style) = styles.get(&id) {
+                    let font = length(
+                        style_value(style, "font-size", "16px"),
+                        16.,
+                        16.,
+                        input.viewport,
+                    );
+                    let used = |property: &str, basis| {
+                        length(
+                            style_value(style, property, "0px"),
+                            basis,
+                            font,
+                            input.viewport,
+                        )
+                        .max(0.)
+                    };
+                    let left = used("scroll-padding-left", port.width);
+                    let right = used("scroll-padding-right", port.width);
+                    let top = used("scroll-padding-top", port.height);
+                    let bottom = used("scroll-padding-bottom", port.height);
+                    port.x += left;
+                    port.y += top;
+                    port.width = (port.width - left - right).max(0.);
+                    port.height = (port.height - top - bottom).max(0.);
+                }
 
-                            let nearest = |start: f64, end: f64, lo: f64, hi: f64| {
-                                if (start >= lo && end <= hi) || (start < lo && end > hi) {
-                                    0.
-                                } else if start < lo {
-                                    start - lo
-                                } else {
-                                    end - hi
-                                }
-                            };
-                            let next = (
-                                scroll.offset_x
-                                    + nearest(bounds.x, bounds.right(), port.x, port.right()),
-                                scroll.offset_y
-                                    + nearest(bounds.y, bounds.bottom(), port.y, port.bottom()),
-                            );
-                            if next != (scroll.offset_x, scroll.offset_y) {
-                                picker.element_scrolls.insert(id, next);
-                                layout = compute_with_styles(&picker, limits, styles.clone())?;
-                            }
-                        }
+                let nearest = |start: f64, end: f64, lo: f64, hi: f64| {
+                    if (start >= lo && end <= hi) || (start < lo && end > hi) {
+                        0.
+                    } else if start < lo {
+                        start - lo
+                    } else {
+                        end - hi
                     }
+                };
+                let next = (
+                    scroll.offset_x + nearest(bounds.x, bounds.right(), port.x, port.right()),
+                    scroll.offset_y + nearest(bounds.y, bounds.bottom(), port.y, port.bottom()),
+                );
+                if next != (scroll.offset_x, scroll.offset_y) {
+                    picker.element_scrolls.insert(id, next);
+                    layout = compute_with_styles(&picker, limits, styles.clone())?;
                 }
             }
         }
-        if let Some(mut context) = anchor_context {
-            if position_visibility != "always" {
-                // Conditional visibility also needs the outer anchor's clipped
-                // projection; an isolated subtree cannot answer this question.
-                let mut combined_styles = output.computed_styles.clone();
-                combined_styles.extend(layout.computed_styles.clone());
-                Arc::make_mut(combined_styles.get_mut(&id).unwrap())
-                    .insert("position-visibility".into(), position_visibility);
-                let authored = combined_styles.clone();
-                let mut geometry = output.geometry.clone();
-                geometry.extend(layout.geometry.clone());
-                let mut projections = output.paint_projections.clone();
-                projections.extend(layout.paint_projections.clone());
-                let private_ids = picker
-                    .nodes
-                    .iter()
-                    .map(|node| node.id)
-                    .collect::<BTreeSet<_>>();
-                context.nodes.retain(|node| !private_ids.contains(&node.id));
-                context.nodes.extend(picker.nodes.iter().cloned());
-                anchor_positioning::visibility(
-                    &context,
-                    &authored,
-                    &mut combined_styles,
-                    &mut geometry,
-                    &projections,
-                    EdgeSizes::default(),
-                );
-                for (node, value) in &mut layout.geometry {
-                    if let Some(updated) = geometry.remove(node) {
-                        *value = updated;
-                    }
+        if let Some(mut context) = anchor_context
+            && position_visibility != "always"
+        {
+            // Conditional visibility also needs the outer anchor's clipped
+            // projection; an isolated subtree cannot answer this question.
+            let mut combined_styles = output.computed_styles.clone();
+            combined_styles.extend(layout.computed_styles.clone());
+            Arc::make_mut(combined_styles.get_mut(&id).unwrap())
+                .insert("position-visibility".into(), position_visibility);
+            let authored = combined_styles.clone();
+            let mut geometry = output.geometry.clone();
+            geometry.extend(layout.geometry.clone());
+            let mut projections = output.paint_projections.clone();
+            projections.extend(layout.paint_projections.clone());
+            let private_ids = picker
+                .nodes
+                .iter()
+                .map(|node| node.id)
+                .collect::<BTreeSet<_>>();
+            context.nodes.retain(|node| !private_ids.contains(&node.id));
+            context.nodes.extend(picker.nodes.iter().cloned());
+            anchor_positioning::visibility(
+                &context,
+                &authored,
+                &mut combined_styles,
+                &mut geometry,
+                &projections,
+                EdgeSizes::default(),
+            );
+            for (node, value) in &mut layout.geometry {
+                if let Some(updated) = geometry.remove(node) {
+                    *value = updated;
                 }
-                for (node, value) in &mut layout.computed_styles {
-                    if let Some(updated) = combined_styles.remove(node) {
-                        *value = updated;
-                    }
+            }
+            for (node, value) in &mut layout.computed_styles {
+                if let Some(updated) = combined_styles.remove(node) {
+                    *value = updated;
                 }
             }
         }

@@ -99,14 +99,12 @@ impl Delivery {
                     )
                 })
             };
-            if self.source_first_port {
-                if let Some((_, ports)) = &decoded {
-                    if let Some(port) = ports.first() {
-                        let port = v8::Local::new(scope, port);
-                        self.source =
-                            Some(v8::Global::new(scope, v8::Local::<v8::Value>::from(port)));
-                    }
-                }
+            if self.source_first_port
+                && let Some((_, ports)) = &decoded
+                && let Some(port) = ports.first()
+            {
+                let port = v8::Local::new(scope, port);
+                self.source = Some(v8::Global::new(scope, v8::Local::<v8::Value>::from(port)));
             }
             self.payload = Some(Payload::Decoded(decoded));
         }

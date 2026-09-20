@@ -114,7 +114,7 @@ pub(super) fn node_get<'s>(
             PlatformObjectRecord::MediaTrackList {
                 media,
                 video,
-                _root: submissions::RootedTarget::new(state, media)?,
+                _root: Box::new(submissions::RootedTarget::new(state, media)?),
             },
         );
         state.av_tracks.borrow_mut().lists.insert(key, id);
@@ -222,18 +222,16 @@ pub(super) fn set(
             .cloned()
             .unwrap_or_default();
         for other in ids {
-            if let Ok(other) = record(state, other) {
-                if other.borrow().session == session {
-                    other.borrow_mut().enabled = false;
-                }
+            if let Ok(other) = record(state, other)
+                && other.borrow().session == session
+            {
+                other.borrow_mut().enabled = false;
             }
         }
     }
     record_value.borrow_mut().enabled = enabled;
-    if current {
-        if let Some(list) = state.av_tracks.borrow().lists.get(&(media, video)).copied() {
-            text_tracks::queue_platform(state, list, "change", None);
-        }
+    if current && let Some(list) = state.av_tracks.borrow().lists.get(&(media, video)).copied() {
+        text_tracks::queue_platform(state, list, "change", None);
     }
     Ok(())
 }
@@ -308,7 +306,7 @@ pub(super) fn migrate(
             PlatformObjectRecord::MediaTrackList {
                 media,
                 video: key.1,
-                _root: root,
+                _root: Box::new(root),
             },
         );
         source.av_tracks.borrow_mut().lists.remove(&key);

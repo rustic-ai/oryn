@@ -63,14 +63,14 @@ pub(super) struct Cue {
 }
 impl Drop for Cue {
     fn drop(&mut self) {
-        if let Some((owner, id)) = self.region.take() {
-            if let Some(owner) = owner.upgrade() {
-                let mut all = owner.text_tracks.borrow_mut();
-                if let Some(count) = all.region_refs.get_mut(&id) {
-                    *count = count.saturating_sub(1);
-                    if *count == 0 {
-                        all.region_refs.remove(&id);
-                    }
+        if let Some((owner, id)) = self.region.take()
+            && let Some(owner) = owner.upgrade()
+        {
+            let mut all = owner.text_tracks.borrow_mut();
+            if let Some(count) = all.region_refs.get_mut(&id) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    all.region_refs.remove(&id);
                 }
             }
         }
@@ -225,13 +225,13 @@ fn cue_capacity(state: &V8BindingState, count: usize, bytes: usize) -> Result<()
     let mut seen = std::collections::BTreeSet::new();
     let mut retained = 0usize;
     for record in state.platform_objects.borrow().values() {
-        if let PlatformObjectRecord::TextTrackCue(cue) = record {
-            if seen.insert(Rc::as_ptr(cue) as usize) {
-                let cue = cue.borrow();
-                retained = retained
-                    .saturating_add(cue.data.text.len())
-                    .saturating_add(cue.data.id.len());
-            }
+        if let PlatformObjectRecord::TextTrackCue(cue) = record
+            && seen.insert(Rc::as_ptr(cue) as usize)
+        {
+            let cue = cue.borrow();
+            retained = retained
+                .saturating_add(cue.data.text.len())
+                .saturating_add(cue.data.id.len());
         }
     }
     if seen.len().saturating_add(count) > oryn_dom::webvtt::MAX_CUES
@@ -412,20 +412,31 @@ pub(super) fn object<'s>(
     state: &Rc<V8BindingState>,
     id: u64,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    let value = object_identity(scope, state, id)?;
+    // Publishing a track must also expose its native owner graph, including
+    // media elements whose wrappers have never otherwise been requested.
+    refresh_gc_edges(scope, state)?;
+    Ok(value)
+}
+fn object_identity<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    id: u64,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
     let canonical = state.text_tracks.borrow().canonical.get(&id).cloned();
-    if let Some((owner, original)) = canonical {
-        if let Some(owner) = owner.upgrade() {
-            let interface = platform_interface_for_id(&owner, original)
-                .ok_or_else(|| fail("InvalidStateError"))?;
-            return Ok(new_platform_object(scope, &owner, interface, original)?.into());
-        }
+    if let Some((owner, original)) = canonical
+        && let Some(owner) = owner.upgrade()
+    {
+        let interface =
+            platform_interface_for_id(&owner, original).ok_or_else(|| fail("InvalidStateError"))?;
+        return Ok(new_platform_object(scope, &owner, interface, original)?.into());
     }
     if let Ok(value) = cue(state, id) {
         let canonical = value.borrow().canonical.clone();
-        if let Some((owner, original)) = canonical {
-            if let Some(owner) = owner.upgrade() {
-                return Ok(new_platform_object(scope, &owner, "VTTCue", original)?.into());
-            }
+        if let Some((owner, original)) = canonical
+            && let Some(owner) = owner.upgrade()
+        {
+            return Ok(new_platform_object(scope, &owner, "VTTCue", original)?.into());
         }
     }
     let interface = platform_interface_for_id(state, id).ok_or_else(|| fail("TypeError"))?;
@@ -755,21 +766,21 @@ pub(super) fn set(
                 }
                 Some((Rc::downgrade(&region_owner), region))
             };
-            if let Some((owner, id)) = &region {
-                if let Some(owner) = owner.upgrade() {
-                    let mut all = owner.text_tracks.borrow_mut();
-                    *all.region_refs.entry(*id).or_default() += 1;
-                }
+            if let Some((owner, id)) = &region
+                && let Some(owner) = owner.upgrade()
+            {
+                let mut all = owner.text_tracks.borrow_mut();
+                *all.region_refs.entry(*id).or_default() += 1;
             }
             let old = std::mem::replace(&mut cue.borrow_mut().region, region);
-            if let Some((owner, id)) = old {
-                if let Some(owner) = owner.upgrade() {
-                    let mut all = owner.text_tracks.borrow_mut();
-                    if let Some(count) = all.region_refs.get_mut(&id) {
-                        *count = count.saturating_sub(1);
-                        if *count == 0 {
-                            all.region_refs.remove(&id);
-                        }
+            if let Some((owner, id)) = old
+                && let Some(owner) = owner.upgrade()
+            {
+                let mut all = owner.text_tracks.borrow_mut();
+                if let Some(count) = all.region_refs.get_mut(&id) {
+                    *count = count.saturating_sub(1);
+                    if *count == 0 {
+                        all.region_refs.remove(&id);
                     }
                 }
             }
@@ -1003,14 +1014,14 @@ fn cancel(state: &V8BindingState, id: u64) -> Result<(), V8BindingError> {
         if let Some(host) = state.platform_host.borrow().clone() {
             host.cancel(operation);
         }
-        if let Some(PendingPlatformOperation::TextTrack(p)) = pending {
-            if let Some(stream_id) = p.stream {
-                submit_platform_operation(
-                    state,
-                    PlatformHostRequest::HttpAbort { stream_id },
-                    PendingPlatformOperation::WebSocketCommand,
-                )?;
-            }
+        if let Some(PendingPlatformOperation::TextTrack(p)) = pending
+            && let Some(stream_id) = p.stream
+        {
+            submit_platform_operation(
+                state,
+                PlatformHostRequest::HttpAbort { stream_id },
+                PendingPlatformOperation::WebSocketCommand,
+            )?;
         }
     }
     Ok(())
@@ -1548,15 +1559,15 @@ fn update_active(
                 media_element::call(scope, state, media, "pause")?;
             }
             let canonical = value.borrow().canonical.clone();
-            if let Some((owner, original)) = canonical {
-                if let Some(owner) = owner.upgrade() {
-                    owner
-                        .text_tracks
-                        .borrow_mut()
-                        .events
-                        .push_back((Target::Platform(original), name));
-                    continue;
-                }
+            if let Some((owner, original)) = canonical
+                && let Some(owner) = owner.upgrade()
+            {
+                owner
+                    .text_tracks
+                    .borrow_mut()
+                    .events
+                    .push_back((Target::Platform(original), name));
+                continue;
             }
             state
                 .text_tracks
@@ -2174,21 +2185,21 @@ pub(super) fn queue_platform(
 ) {
     let canonical = state.text_tracks.borrow().canonical.get(&id).cloned();
     let track_owner = state.text_tracks.borrow().self_owner.clone();
-    if let Some((owner, original)) = canonical {
-        if let Some(owner) = owner.upgrade() {
-            let target = track.map_or(Target::Platform(original), |track| {
-                Target::TrackEvent(original, track_owner, track)
-            });
-            let mut all = owner.text_tracks.borrow_mut();
-            if name != "change"
-                || !all.events.iter().any(|(target, event)| {
-                    *event == name && matches!(target,Target::Platform(id)if *id==original)
-                })
-            {
-                all.events.push_back((target, name));
-            }
-            return;
+    if let Some((owner, original)) = canonical
+        && let Some(owner) = owner.upgrade()
+    {
+        let target = track.map_or(Target::Platform(original), |track| {
+            Target::TrackEvent(original, track_owner, track)
+        });
+        let mut all = owner.text_tracks.borrow_mut();
+        if name != "change"
+            || !all.events.iter().any(|(target, event)| {
+                *event == name && matches!(target,Target::Platform(id)if *id==original)
+            })
+        {
+            all.events.push_back((target, name));
         }
+        return;
     }
     let target = track.map_or(Target::Platform(id), |track| {
         Target::TrackEvent(id, track_owner, track)
@@ -2256,6 +2267,393 @@ pub(super) fn event_track<'s>(
         .filter(|value| !value.is_undefined())
         .unwrap_or_else(|| v8::null(scope).into()))
 }
+
+/// Native media relationships participate in V8's traced graph, so a listener
+/// closing over its cue/list is collectible once native activity ends.
+pub(super) fn refresh_gc_edges(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+) -> Result<(), V8BindingError> {
+    // Temporary observation handles must not become roots in the caller's
+    // long-lived scope after the graph has been published.
+    v8::scope!(let scope, scope);
+    let name = v8::String::new(scope, "oryn.native.media.track.edges")
+        .ok_or_else(|| fail("QuotaExceededError"))?;
+    let key = v8::Private::for_api(scope, Some(name));
+    let mut edges: BTreeMap<u64, Vec<(std::rc::Weak<V8BindingState>, u64)>> = BTreeMap::new();
+    let mut nodes: BTreeMap<NodeId, Vec<u64>> = BTreeMap::new();
+    let self_owner = state.text_tracks.borrow().self_owner.clone();
+    {
+        let all = state.text_tracks.borrow();
+        for (id, track) in &all.tracks {
+            let related = edges.entry(*id).or_default();
+            related.extend(
+                track
+                    .cues
+                    .iter()
+                    .chain(track.cues_list.iter())
+                    .chain(track.active_list.iter())
+                    .map(|id| (self_owner.clone(), *id)),
+            );
+            for node in track.node.into_iter().chain(track.media) {
+                nodes.entry(node).or_default().push(*id);
+            }
+        }
+        for ((node, _), id) in &all.lists {
+            nodes.entry(*node).or_default().push(*id);
+            edges.entry(*id).or_default().extend(
+                all.tracks
+                    .iter()
+                    .filter(|(_, track)| track.media == Some(*node))
+                    .map(|(id, _)| (self_owner.clone(), *id)),
+            );
+        }
+    }
+    {
+        let objects = state.platform_objects.borrow();
+        for (id, record) in objects.iter() {
+            if state.text_tracks.borrow().forward.contains_key(id) {
+                continue;
+            }
+            match record {
+                PlatformObjectRecord::TextTrackCue(cue) => {
+                    let cue = cue.borrow();
+                    if let Some(track) = cue.track {
+                        edges.entry(*id).or_default().push((
+                            cue.track_owner
+                                .clone()
+                                .unwrap_or_else(|| self_owner.clone()),
+                            track,
+                        ));
+                    }
+                    if let Some(region) = &cue.region {
+                        edges.entry(*id).or_default().push(region.clone());
+                    }
+                }
+                PlatformObjectRecord::TextTrackList(List::Cues(track_id, _)) => {
+                    if let Ok(track) = track(state, *track_id) {
+                        edges
+                            .entry(*id)
+                            .or_default()
+                            .push((self_owner.clone(), *track_id));
+                        edges
+                            .entry(*id)
+                            .or_default()
+                            .extend(track.cues.iter().map(|id| (self_owner.clone(), *id)));
+                    }
+                }
+                PlatformObjectRecord::MediaTrack(_) => {
+                    if let Some((media, list)) = av_tracks::association(state, *id) {
+                        nodes.entry(media).or_default().push(*id);
+                        edges
+                            .entry(*id)
+                            .or_default()
+                            .extend(list.into_iter().map(|id| (self_owner.clone(), id)));
+                    }
+                }
+                PlatformObjectRecord::MediaTrackList { media, .. } => {
+                    nodes.entry(*media).or_default().push(*id);
+                    edges.entry(*id).or_default().extend(
+                        av_tracks::ids(state, *id)?
+                            .into_iter()
+                            .map(|id| (self_owner.clone(), id)),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+    // Canonical wrappers can belong to another realm after node/cue adoption.
+    fn local<'s>(
+        scope: &mut v8::PinScope<'s, '_>,
+        owner: &V8BindingState,
+        id: u64,
+    ) -> Option<v8::Local<'s, v8::Object>> {
+        let canonical = owner
+            .text_tracks
+            .borrow()
+            .canonical
+            .get(&id)
+            .cloned()
+            .or_else(|| {
+                cue(owner, id)
+                    .ok()
+                    .and_then(|cue| cue.borrow().canonical.clone())
+            });
+        if let Some((state, original)) = canonical
+            && let Some(state) = state.upgrade()
+            && (state.instance_id != owner.instance_id || original != id)
+        {
+            return state
+                .platform_wrappers
+                .borrow()
+                .get(&original)
+                .and_then(|wrapper| wrapper.to_local(scope));
+        }
+        owner
+            .platform_wrappers
+            .borrow()
+            .get(&id)
+            .and_then(|wrapper| wrapper.to_local(scope))
+    }
+    // A track can own both a track element and its media element. Accumulate
+    // all node and platform edges first; publishing once avoids replacing the
+    // first owner when the second node is visited.
+    let mut values: BTreeMap<u64, Vec<v8::Local<v8::Value>>> = BTreeMap::new();
+    for (node, ids) in nodes {
+        let targets = ids
+            .iter()
+            .filter_map(|id| local(scope, state, *id))
+            .map(Into::into)
+            .collect::<Vec<v8::Local<v8::Value>>>();
+        let existing = state
+            .wrappers
+            .borrow()
+            .lookup(state.dom.borrow().arena().id(), state.realm, node)
+            .and_then(|id| {
+                state
+                    .objects
+                    .borrow()
+                    .get(&id)
+                    .and_then(|object| object.handle.to_local(scope))
+            });
+        let wrapper = if existing.is_none() && !targets.is_empty() {
+            let owner = scope
+                .get_slot::<BindingStateRegistry>()
+                .and_then(|registry| {
+                    registry
+                        .instances
+                        .borrow()
+                        .get(&state.instance_id)
+                        .and_then(RcWeak::upgrade)
+                })
+                .ok_or(V8BindingError::Allocation("track graph owner"))?;
+            Some(wrap_node(scope, &owner, node)?)
+        } else {
+            existing
+        };
+        if let Some(wrapper) = wrapper {
+            let array = v8::Array::new_with_elements(scope, &targets);
+            wrapper
+                .set_private(scope, key, array.into())
+                .filter(|ok| *ok)
+                .ok_or(V8BindingError::JavaScriptException)?;
+            for id in ids {
+                values.entry(id).or_default().push(wrapper.into());
+            }
+        }
+    }
+    for (id, related) in edges {
+        let values = values.entry(id).or_default();
+        for (owner, id) in related {
+            if let Some(owner) = owner.upgrade()
+                && let Some(value) = local(scope, &owner, id)
+            {
+                values.push(value.into());
+            }
+        }
+    }
+    for (id, values) in values {
+        if let Some(target) = local(scope, state, id) {
+            let array = v8::Array::new_with_elements(scope, &values);
+            target
+                .set_private(scope, key, array.into())
+                .filter(|ok| *ok)
+                .ok_or(V8BindingError::JavaScriptException)?;
+        }
+    }
+    Ok(())
+}
+pub(super) fn active_platforms(state: &V8BindingState) -> BTreeSet<u64> {
+    let all = state.text_tracks.borrow();
+    let mut result = all.delivery_targets.clone();
+    for (target, _) in &all.events {
+        match target {
+            Target::Platform(id) => {
+                result.insert(*id);
+            }
+            Target::TrackEvent(id, owner, track) => {
+                result.insert(*id);
+                if owner
+                    .upgrade()
+                    .is_some_and(|owner| owner.instance_id == state.instance_id)
+                {
+                    result.insert(*track);
+                }
+            }
+            Target::Node(_) => {}
+        }
+    }
+    for (id, track) in &all.tracks {
+        if track.ready == 1 {
+            result.insert(*id);
+            result.extend(track.cues.iter().copied());
+        }
+    }
+    result
+}
+pub(super) fn release_collected(state: &V8BindingState, id: u64) {
+    let removable = match state.platform_objects.borrow().get(&id) {
+        Some(PlatformObjectRecord::TextTrackCue(cue)) => cue.borrow().track.is_none(),
+        Some(PlatformObjectRecord::VttRegion(_)) => {
+            state
+                .text_tracks
+                .borrow()
+                .region_refs
+                .get(&id)
+                .copied()
+                .unwrap_or(0)
+                == 0
+        }
+        _ => false,
+    };
+    if removable {
+        state.platform_objects.borrow_mut().remove(&id);
+    }
+}
+
+fn prune_detached(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+) -> Result<(), V8BindingError> {
+    let live_node = |scope: &mut v8::PinScope, node: NodeId| {
+        let dom = state.dom.borrow();
+        if dom.is_connected(node).unwrap_or(false) {
+            return true;
+        }
+        let id = state
+            .wrappers
+            .borrow()
+            .lookup(dom.arena().id(), state.realm, node);
+        id.and_then(|id| {
+            state
+                .objects
+                .borrow()
+                .get(&id)
+                .and_then(|object| object.handle.to_local(scope))
+        })
+        .is_some()
+    };
+    let active = active_platforms(state);
+    let ids = state
+        .text_tracks
+        .borrow()
+        .tracks
+        .iter()
+        .filter_map(|(id, track)| {
+            let wrapper = state
+                .platform_wrappers
+                .borrow()
+                .get(id)
+                .and_then(|wrapper| wrapper.to_local(scope))
+                .is_some();
+            (!wrapper
+                && !active.contains(id)
+                && !track
+                    .node
+                    .into_iter()
+                    .chain(track.media)
+                    .any(|node| live_node(scope, node)))
+            .then_some(*id)
+        })
+        .collect::<Vec<_>>();
+    for id in ids {
+        cancel(state, id)?;
+        let Some(track) = state.text_tracks.borrow_mut().tracks.remove(&id) else {
+            continue;
+        };
+        if let Some(node) = track.node {
+            state.text_tracks.borrow_mut().nodes.remove(&node);
+        }
+        for cue_id in track.cues {
+            if let Ok(cue) = cue(state, cue_id) {
+                let mut cue = cue.borrow_mut();
+                cue.track = None;
+                cue.track_owner = None;
+            }
+            if state
+                .platform_wrappers
+                .borrow()
+                .get(&cue_id)
+                .and_then(|wrapper| wrapper.to_local(scope))
+                .is_none()
+            {
+                state.platform_objects.borrow_mut().remove(&cue_id);
+                state.platform_wrappers.borrow_mut().remove(&cue_id);
+            }
+        }
+        for list_id in track.cues_list.into_iter().chain(track.active_list) {
+            if state
+                .platform_wrappers
+                .borrow()
+                .get(&list_id)
+                .and_then(|wrapper| wrapper.to_local(scope))
+                .is_none()
+            {
+                state.platform_objects.borrow_mut().remove(&list_id);
+                state.platform_wrappers.borrow_mut().remove(&list_id);
+            }
+        }
+        state.platform_objects.borrow_mut().remove(&id);
+        state.platform_wrappers.borrow_mut().remove(&id);
+    }
+    let lists = state
+        .text_tracks
+        .borrow()
+        .lists
+        .iter()
+        .filter_map(|(key, id)| {
+            (!active.contains(id)
+                && state
+                    .platform_wrappers
+                    .borrow()
+                    .get(id)
+                    .and_then(|wrapper| wrapper.to_local(scope))
+                    .is_none()
+                && !live_node(scope, key.0))
+            .then_some((*key, *id))
+        })
+        .collect::<Vec<_>>();
+    for (key, id) in lists {
+        state.text_tracks.borrow_mut().lists.remove(&key);
+        state.platform_objects.borrow_mut().remove(&id);
+        state.platform_wrappers.borrow_mut().remove(&id);
+    }
+
+    let regions = state
+        .platform_objects
+        .borrow()
+        .iter()
+        .filter_map(|(id, record)| {
+            (matches!(record, PlatformObjectRecord::VttRegion(_))
+                && state
+                    .platform_wrappers
+                    .borrow()
+                    .get(id)
+                    .and_then(|wrapper| wrapper.to_local(scope))
+                    .is_none())
+            .then_some(*id)
+        })
+        .collect::<Vec<_>>();
+    for id in regions {
+        release_collected(state, id);
+    }
+
+    Ok(())
+}
+
+pub(super) fn owned_native_roots(
+    state: &V8BindingState,
+    roots: &mut traced_native_roots::Snapshot,
+) -> Result<(), V8BindingError> {
+    for track in state.text_tracks.borrow().tracks.values() {
+        for target in track._node.iter().chain(track._media.iter()) {
+            roots.add_lease(&target.native_lease())?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2626,6 +3024,38 @@ mod tests {
     }
 
     #[test]
+    fn track_reflection_preserves_content_values_and_reentrant_owner_changes() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        assert!(eval(scope, r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            const t=document.createElement('track');
+            check(t.kind==='subtitles'&&t.srclang===''&&!t.default,'missing defaults');
+            for(const kind of ['subtitles','captions','descriptions','chapters','metadata']){
+                t.kind=kind.toUpperCase();check(t.kind===kind&&t.getAttribute('kind')===kind.toUpperCase(),'kind reflection');
+            }
+            t.kind='unknown';check(t.kind==='metadata'&&t.track.kind==='metadata','invalid kind');
+            t.srclang='en-\ud800';check(t.srclang==='en-\ud800'&&t.getAttribute('srclang')==='en-\ud800','DOMString preservation');
+            t.default={valueOf(){throw Error('Boolean conversion invoked user code')}};check(t.default&&t.getAttribute('default')==='','boolean presence');
+            t.default=0;check(!t.default&&!t.hasAttribute('default'),'boolean removal');
+            const other=document.implementation.createHTMLDocument();
+            t.kind={toString(){other.adoptNode(t);return 'captions'}};
+            check(t.ownerDocument===other&&t.kind==='captions'&&t.track.kind==='captions','conversion adoption');
+            const marker={};try{t.srclang={toString(){throw marker}};throw Error('expected conversion failure')}catch(e){check(e===marker,'original exception')}
+            check(t.srclang==='en-\ud800','failed setter preserved value');return true;
+        })()"#).is_true());
+    }
+
+    #[test]
     fn inert_media_lists_and_cue_idl_numeric_contracts() {
         super::super::tests::initialize_v8();
         let dom = Rc::new(RefCell::new(
@@ -2700,7 +3130,16 @@ mod tests {
                 .unwrap()
                 .try_cast::<v8::Object>()
                 .unwrap();
-            let media = existing_agent_wrapper(temporary, &state, media)
+            let wrapper = state
+                .wrappers
+                .borrow()
+                .lookup(state.dom.borrow().arena().id(), state.realm, media)
+                .expect("retained track registers its unexposed media owner");
+            let media = state
+                .objects
+                .borrow()
+                .get(&wrapper)
+                .and_then(|object| object.handle.to_local(temporary))
                 .expect("retained track publishes its unexposed media owner");
             (
                 v8::Weak::new(temporary, media),
@@ -2798,388 +3237,4 @@ mod tests {
         poll(scope, &state).unwrap();
         assert!(state.text_tracks.borrow().tracks.is_empty());
     }
-}
-
-/// Native media relationships participate in V8's traced graph, so a listener
-/// closing over its cue/list is collectible once native activity ends.
-pub(super) fn refresh_gc_edges(
-    scope: &mut v8::PinScope,
-    state: &V8BindingState,
-) -> Result<(), V8BindingError> {
-    let name = v8::String::new(scope, "oryn.native.media.track.edges")
-        .ok_or_else(|| fail("QuotaExceededError"))?;
-    let key = v8::Private::for_api(scope, Some(name));
-    let mut edges: BTreeMap<u64, Vec<(std::rc::Weak<V8BindingState>, u64)>> = BTreeMap::new();
-    let mut nodes: BTreeMap<NodeId, Vec<u64>> = BTreeMap::new();
-    let self_owner = state.text_tracks.borrow().self_owner.clone();
-    {
-        let all = state.text_tracks.borrow();
-        for (id, track) in &all.tracks {
-            let related = edges.entry(*id).or_default();
-            related.extend(
-                track
-                    .cues
-                    .iter()
-                    .chain(track.cues_list.iter())
-                    .chain(track.active_list.iter())
-                    .map(|id| (self_owner.clone(), *id)),
-            );
-            for node in track.node.into_iter().chain(track.media) {
-                nodes.entry(node).or_default().push(*id);
-            }
-        }
-        for ((node, _), id) in &all.lists {
-            nodes.entry(*node).or_default().push(*id);
-            edges.entry(*id).or_default().extend(
-                all.tracks
-                    .iter()
-                    .filter(|(_, track)| track.media == Some(*node))
-                    .map(|(id, _)| (self_owner.clone(), *id)),
-            );
-        }
-    }
-    {
-        let objects = state.platform_objects.borrow();
-        for (id, record) in objects.iter() {
-            if state.text_tracks.borrow().forward.contains_key(id) {
-                continue;
-            }
-            match record {
-                PlatformObjectRecord::TextTrackCue(cue) => {
-                    let cue = cue.borrow();
-                    if let Some(track) = cue.track {
-                        edges.entry(*id).or_default().push((
-                            cue.track_owner
-                                .clone()
-                                .unwrap_or_else(|| self_owner.clone()),
-                            track,
-                        ));
-                    }
-                    if let Some(region) = &cue.region {
-                        edges.entry(*id).or_default().push(region.clone());
-                    }
-                }
-                PlatformObjectRecord::TextTrackList(List::Cues(track_id, _)) => {
-                    if let Ok(track) = track(state, *track_id) {
-                        edges
-                            .entry(*id)
-                            .or_default()
-                            .push((self_owner.clone(), *track_id));
-                        edges
-                            .entry(*id)
-                            .or_default()
-                            .extend(track.cues.iter().map(|id| (self_owner.clone(), *id)));
-                    }
-                }
-                PlatformObjectRecord::MediaTrack(_) => {
-                    if let Some((media, list)) = av_tracks::association(state, *id) {
-                        nodes.entry(media).or_default().push(*id);
-                        edges
-                            .entry(*id)
-                            .or_default()
-                            .extend(list.into_iter().map(|id| (self_owner.clone(), id)));
-                    }
-                }
-                PlatformObjectRecord::MediaTrackList { media, .. } => {
-                    nodes.entry(*media).or_default().push(*id);
-                    edges.entry(*id).or_default().extend(
-                        av_tracks::ids(state, *id)?
-                            .into_iter()
-                            .map(|id| (self_owner.clone(), id)),
-                    );
-                }
-                _ => {}
-            }
-        }
-    }
-    // Canonical wrappers can belong to another realm after node/cue adoption.
-    fn local<'s>(
-        scope: &mut v8::PinScope<'s, '_>,
-        owner: &V8BindingState,
-        id: u64,
-    ) -> Option<v8::Local<'s, v8::Object>> {
-        let canonical = owner
-            .text_tracks
-            .borrow()
-            .canonical
-            .get(&id)
-            .cloned()
-            .or_else(|| {
-                cue(owner, id)
-                    .ok()
-                    .and_then(|cue| cue.borrow().canonical.clone())
-            });
-        if let Some((state, original)) = canonical {
-            if let Some(state) = state.upgrade() {
-                if state.instance_id != owner.instance_id || original != id {
-                    return state
-                        .platform_wrappers
-                        .borrow()
-                        .get(&original)
-                        .and_then(|wrapper| wrapper.to_local(scope));
-                }
-            }
-        }
-        owner
-            .platform_wrappers
-            .borrow()
-            .get(&id)
-            .and_then(|wrapper| wrapper.to_local(scope))
-    }
-    // A track can own both a track element and its media element. Accumulate
-    // all node and platform edges first; publishing once avoids replacing the
-    // first owner when the second node is visited.
-    let mut values: BTreeMap<u64, Vec<v8::Local<v8::Value>>> = BTreeMap::new();
-    for (node, ids) in nodes {
-        let targets = ids
-            .iter()
-            .filter_map(|id| local(scope, state, *id))
-            .map(Into::into)
-            .collect::<Vec<v8::Local<v8::Value>>>();
-        let existing = state
-            .wrappers
-            .borrow()
-            .lookup(state.dom.borrow().arena().id(), state.realm, node)
-            .and_then(|id| {
-                state
-                    .objects
-                    .borrow()
-                    .get(&id)
-                    .and_then(|object| object.handle.to_local(scope))
-            });
-        let wrapper = if existing.is_none() && !targets.is_empty() {
-            let owner = scope
-                .get_slot::<BindingStateRegistry>()
-                .and_then(|registry| {
-                    registry
-                        .instances
-                        .borrow()
-                        .get(&state.instance_id)
-                        .and_then(RcWeak::upgrade)
-                })
-                .ok_or(V8BindingError::Allocation("track graph owner"))?;
-            Some(wrap_node(scope, &owner, node)?)
-        } else {
-            existing
-        };
-        if let Some(wrapper) = wrapper {
-            let array = v8::Array::new_with_elements(scope, &targets);
-            wrapper
-                .set_private(scope, key, array.into())
-                .filter(|ok| *ok)
-                .ok_or(V8BindingError::JavaScriptException)?;
-            for id in ids {
-                values.entry(id).or_default().push(wrapper.into());
-            }
-        }
-    }
-    for (id, related) in edges {
-        let values = values.entry(id).or_default();
-        for (owner, id) in related {
-            if let Some(owner) = owner.upgrade() {
-                if let Some(value) = local(scope, &owner, id) {
-                    values.push(value.into());
-                }
-            }
-        }
-    }
-    for (id, values) in values {
-        if let Some(target) = local(scope, state, id) {
-            let array = v8::Array::new_with_elements(scope, &values);
-            target
-                .set_private(scope, key, array.into())
-                .filter(|ok| *ok)
-                .ok_or(V8BindingError::JavaScriptException)?;
-        }
-    }
-    Ok(())
-}
-pub(super) fn active_platforms(state: &V8BindingState) -> BTreeSet<u64> {
-    let all = state.text_tracks.borrow();
-    let mut result = all.delivery_targets.clone();
-    for (target, _) in &all.events {
-        match target {
-            Target::Platform(id) => {
-                result.insert(*id);
-            }
-            Target::TrackEvent(id, owner, track) => {
-                result.insert(*id);
-                if owner
-                    .upgrade()
-                    .is_some_and(|owner| owner.instance_id == state.instance_id)
-                {
-                    result.insert(*track);
-                }
-            }
-            Target::Node(_) => {}
-        }
-    }
-    for (id, track) in &all.tracks {
-        if track.ready == 1 {
-            result.insert(*id);
-            result.extend(track.cues.iter().copied());
-        }
-    }
-    result
-}
-pub(super) fn release_collected(state: &V8BindingState, id: u64) {
-    let removable = match state.platform_objects.borrow().get(&id) {
-        Some(PlatformObjectRecord::TextTrackCue(cue)) => cue.borrow().track.is_none(),
-        Some(PlatformObjectRecord::VttRegion(_)) => {
-            state
-                .text_tracks
-                .borrow()
-                .region_refs
-                .get(&id)
-                .copied()
-                .unwrap_or(0)
-                == 0
-        }
-        _ => false,
-    };
-    if removable {
-        state.platform_objects.borrow_mut().remove(&id);
-    }
-}
-
-fn prune_detached(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-) -> Result<(), V8BindingError> {
-    let live_node = |scope: &mut v8::PinScope, node: NodeId| {
-        let dom = state.dom.borrow();
-        if dom.is_connected(node).unwrap_or(false) {
-            return true;
-        }
-        let id = state
-            .wrappers
-            .borrow()
-            .lookup(dom.arena().id(), state.realm, node);
-        id.and_then(|id| {
-            state
-                .objects
-                .borrow()
-                .get(&id)
-                .and_then(|object| object.handle.to_local(scope))
-        })
-        .is_some()
-    };
-    let active = active_platforms(state);
-    let ids = state
-        .text_tracks
-        .borrow()
-        .tracks
-        .iter()
-        .filter_map(|(id, track)| {
-            let wrapper = state
-                .platform_wrappers
-                .borrow()
-                .get(id)
-                .and_then(|wrapper| wrapper.to_local(scope))
-                .is_some();
-            (!wrapper
-                && !active.contains(id)
-                && !track
-                    .node
-                    .into_iter()
-                    .chain(track.media)
-                    .any(|node| live_node(scope, node)))
-            .then_some(*id)
-        })
-        .collect::<Vec<_>>();
-    for id in ids {
-        cancel(state, id)?;
-        let Some(track) = state.text_tracks.borrow_mut().tracks.remove(&id) else {
-            continue;
-        };
-        if let Some(node) = track.node {
-            state.text_tracks.borrow_mut().nodes.remove(&node);
-        }
-        for cue_id in track.cues {
-            if let Ok(cue) = cue(state, cue_id) {
-                let mut cue = cue.borrow_mut();
-                cue.track = None;
-                cue.track_owner = None;
-            }
-            if state
-                .platform_wrappers
-                .borrow()
-                .get(&cue_id)
-                .and_then(|wrapper| wrapper.to_local(scope))
-                .is_none()
-            {
-                state.platform_objects.borrow_mut().remove(&cue_id);
-                state.platform_wrappers.borrow_mut().remove(&cue_id);
-            }
-        }
-        for list_id in track.cues_list.into_iter().chain(track.active_list) {
-            if state
-                .platform_wrappers
-                .borrow()
-                .get(&list_id)
-                .and_then(|wrapper| wrapper.to_local(scope))
-                .is_none()
-            {
-                state.platform_objects.borrow_mut().remove(&list_id);
-                state.platform_wrappers.borrow_mut().remove(&list_id);
-            }
-        }
-        state.platform_objects.borrow_mut().remove(&id);
-        state.platform_wrappers.borrow_mut().remove(&id);
-    }
-    let lists = state
-        .text_tracks
-        .borrow()
-        .lists
-        .iter()
-        .filter_map(|(key, id)| {
-            (!active.contains(id)
-                && state
-                    .platform_wrappers
-                    .borrow()
-                    .get(id)
-                    .and_then(|wrapper| wrapper.to_local(scope))
-                    .is_none()
-                && !live_node(scope, key.0))
-            .then_some((*key, *id))
-        })
-        .collect::<Vec<_>>();
-    for (key, id) in lists {
-        state.text_tracks.borrow_mut().lists.remove(&key);
-        state.platform_objects.borrow_mut().remove(&id);
-        state.platform_wrappers.borrow_mut().remove(&id);
-    }
-
-    let regions = state
-        .platform_objects
-        .borrow()
-        .iter()
-        .filter_map(|(id, record)| {
-            (matches!(record, PlatformObjectRecord::VttRegion(_))
-                && state
-                    .platform_wrappers
-                    .borrow()
-                    .get(id)
-                    .and_then(|wrapper| wrapper.to_local(scope))
-                    .is_none())
-            .then_some(*id)
-        })
-        .collect::<Vec<_>>();
-    for id in regions {
-        release_collected(state, id);
-    }
-
-    Ok(())
-}
-
-pub(super) fn owned_native_roots(
-    state: &V8BindingState,
-    roots: &mut traced_native_roots::Snapshot,
-) -> Result<(), V8BindingError> {
-    for track in state.text_tracks.borrow().tracks.values() {
-        for target in track._node.iter().chain(track._media.iter()) {
-            roots.add_lease(&target.native_lease())?;
-        }
-    }
-    Ok(())
 }

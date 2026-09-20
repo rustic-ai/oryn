@@ -1,5 +1,55 @@
 //! Inverse-mapped paint on the source z=0 plane. Sampling tests homogeneous w
 //! before shading, so boxes crossing the perspective plane retain visible parts.
+
+struct ShadeRegionInputs<'a> {
+    pixels: &'a mut [u8],
+    width: u32,
+    height: u32,
+    scale: f64,
+    mapping: &'a Mapping,
+    clips: &'a [Clip],
+    rect: Option<CssRect>,
+}
+
+struct ShadeInputs<'a> {
+    pixels: &'a mut [u8],
+    width: u32,
+    height: u32,
+    scale: f64,
+    mapping: &'a Mapping,
+    clips: &'a [Clip],
+    rect: CssRect,
+}
+
+/// Inputs for walk.
+struct PaintBoundsWalk<'a> {
+    snapshot: &'a PaintSnapshot,
+    commands: &'a [PaintCommand],
+    matrix: [f64; 16],
+    clips: &'a [oryn_common::v4::PaintClip],
+    scale: f64,
+    font: &'a Font,
+    cache: &'a mut RasterCache,
+    total: &'a mut Option<CssRect>,
+    depth: usize,
+}
+/// Inputs for paint.
+pub(super) struct ProjectedPaintInputs<'a> {
+    pub(super) pixels: &'a mut [u8],
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) scale: f64,
+    pub(super) matrix: [f64; 16],
+    pub(super) clip_records: &'a [oryn_common::v4::PaintClip],
+    pub(super) commands: &'a [PaintCommand],
+    pub(super) snapshot: &'a PaintSnapshot,
+    pub(super) font: &'a Font,
+    pub(super) cache: &'a mut RasterCache,
+}
+type IndexedGlyphKey = (String, u32, u32, bool, u32, Vec<i16>);
+
+type GlyphRaster = std::sync::Arc<(fontdue::Metrics, Vec<u8>)>;
+
 use super::*;
 
 fn oriented_glyph_bounds(
@@ -86,13 +136,13 @@ impl Mapping {
                 *entry /= divisor;
             }
             let pivot_row = rows[column];
-            for row in 0..3 {
+            for (row, values) in rows.iter_mut().enumerate() {
                 if row == column {
                     continue;
                 }
-                let factor = rows[row][column];
-                for entry in 0..6 {
-                    rows[row][entry] -= factor * pivot_row[entry];
+                let factor = values[column];
+                for (value, pivot) in values.iter_mut().zip(pivot_row) {
+                    *value -= factor * pivot;
                 }
             }
         }
@@ -116,6 +166,24 @@ impl Mapping {
         let forward_w = self.forward[6] * x + self.forward[7] * y + self.forward[8];
         (x.is_finite() && y.is_finite() && forward_w > 0.).then_some((x, y))
     }
+    // SVG rasters already contain pixel-area coverage. An axis-aligned 1:1
+    // copy must not bilinearly filter that coverage again at every subsample.
+    fn matches_raster_grid(&self, rect: CssRect, scale: f64, width: u32, height: u32) -> bool {
+        let m = self.forward;
+        if m[1] != 0. || m[3] != 0. || m[6] != 0. || m[7] != 0. || m[8] <= 0. {
+            return false;
+        }
+        let x = (m[0] * rect.x + m[2]) / m[8] * scale;
+        let y = (m[4] * rect.y + m[5]) / m[8] * scale;
+        let w = m[0] / m[8] * rect.width * scale;
+        let h = m[4] / m[8] * rect.height * scale;
+        [x, y, w, h].iter().all(|value| value.is_finite())
+            && (x - x.round()).abs() < 1e-9
+            && (y - y.round()).abs() < 1e-9
+            && (w - f64::from(width)).abs() < 1e-9
+            && (h - f64::from(height)).abs() < 1e-9
+    }
+
     fn scale_at(&self, x: f64, y: f64) -> (f64, f64) {
         let m = self.forward;
         let w = m[6] * x + m[7] * y + m[8];
@@ -262,37 +330,41 @@ impl Clip {
     }
 }
 
-fn shade(
-    pixels: &mut [u8],
-    width: u32,
-    height: u32,
-    scale: f64,
-    mapping: &Mapping,
-    clips: &[Clip],
-    rect: CssRect,
-    sample: impl FnMut(f64, f64) -> [u8; 4],
-) {
-    shade_region(
+fn shade(params: ShadeInputs<'_>, sample: impl FnMut(f64, f64) -> [u8; 4]) {
+    let ShadeInputs {
         pixels,
         width,
         height,
         scale,
         mapping,
         clips,
-        Some(rect),
+        rect,
+    } = params;
+
+    shade_region(
+        ShadeRegionInputs {
+            pixels,
+            width,
+            height,
+            scale,
+            mapping,
+            clips,
+            rect: Some(rect),
+        },
         sample,
     );
 }
-fn shade_region(
-    pixels: &mut [u8],
-    width: u32,
-    height: u32,
-    scale: f64,
-    mapping: &Mapping,
-    clips: &[Clip],
-    rect: Option<CssRect>,
-    mut sample: impl FnMut(f64, f64) -> [u8; 4],
-) {
+fn shade_region(params: ShadeRegionInputs<'_>, mut sample: impl FnMut(f64, f64) -> [u8; 4]) {
+    let ShadeRegionInputs {
+        pixels,
+        width,
+        height,
+        scale,
+        mapping,
+        clips,
+        rect,
+    } = params;
+
     if rect.is_some_and(|rect| rect.width <= 0. || rect.height <= 0.) {
         return;
     }
@@ -413,13 +485,10 @@ pub(super) struct RasterCache {
     svg_images:
         std::collections::BTreeMap<(usize, u32, u32, [u64; 5]), std::sync::Arc<image::RgbaImage>>,
     svg_bytes: usize,
-    glyphs: std::collections::BTreeMap<(char, u32), std::sync::Arc<(fontdue::Metrics, Vec<u8>)>>,
+    glyphs: std::collections::BTreeMap<(char, u32), GlyphRaster>,
     glyph_bytes: usize,
     fonts: std::collections::BTreeMap<String, std::sync::Arc<Font>>,
-    indexed_glyphs: std::collections::BTreeMap<
-        (String, u32, u32, bool, u32, Vec<i16>),
-        std::sync::Arc<(fontdue::Metrics, Vec<u8>)>,
-    >,
+    indexed_glyphs: std::collections::BTreeMap<IndexedGlyphKey, GlyphRaster>,
 }
 impl RasterCache {
     fn shadow(
@@ -468,6 +537,21 @@ impl RasterCache {
             .fonts
             .get(key)
             .ok_or_else(|| RenderError::Font(format!("missing shaped font {key}")))?;
+        // Match bytes, not the scene's authored key: a custom face must never
+        // alias the bundled face merely by presenting the same name or hash.
+        if source.collection_index == 0
+            && source.bytes.as_slice() == oryn_layout::DEFAULT_FONT_BYTES
+        {
+            let font = crate::default_render_font()
+                .as_ref()
+                .map_err(|error| RenderError::Font(error.clone()))?
+                .clone();
+            if self.fonts.len() >= 64 {
+                self.fonts.clear();
+            }
+            self.fonts.insert(key.to_owned(), font.clone());
+            return Ok(font);
+        }
         let font = std::sync::Arc::new(
             Font::from_bytes(
                 source.bytes.as_slice(),
@@ -491,7 +575,7 @@ impl RasterCache {
         run: &oryn_common::v4::PaintGlyphRun,
         id: u32,
         size: f32,
-    ) -> Result<std::sync::Arc<(fontdue::Metrics, Vec<u8>)>, RenderError> {
+    ) -> Result<GlyphRaster, RenderError> {
         if !run.scale_x.is_finite() || run.scale_x <= 0. {
             return Err(RenderError::Font("invalid glyph horizontal scale".into()));
         }
@@ -619,7 +703,7 @@ impl RasterCache {
         font: &Font,
         character: char,
         size: f32,
-    ) -> Result<std::sync::Arc<(fontdue::Metrics, Vec<u8>)>, RenderError> {
+    ) -> Result<GlyphRaster, RenderError> {
         if !size.is_finite() || size <= 0. || size > 1_000_000. {
             return Err(RenderError::Font("invalid legacy glyph size".into()));
         }
@@ -747,11 +831,11 @@ fn decoration_gaps(
     gaps.sort_by(|a, b| a.0.total_cmp(&b.0));
     let mut merged: Vec<(f64, f64)> = Vec::new();
     for gap in gaps {
-        if let Some(last) = merged.last_mut() {
-            if gap.0 <= last.1 {
-                last.1 = last.1.max(gap.1);
-                continue;
-            }
+        if let Some(last) = merged.last_mut()
+            && gap.0 <= last.1
+        {
+            last.1 = last.1.max(gap.1);
+            continue;
         }
         merged.push(gap);
     }
@@ -993,18 +1077,20 @@ impl<'a> PreparedBackground<'a> {
     }
 }
 
-pub(super) fn paint(
-    pixels: &mut [u8],
-    width: u32,
-    height: u32,
-    scale: f64,
-    matrix: [f64; 16],
-    clip_records: &[oryn_common::v4::PaintClip],
-    commands: &[PaintCommand],
-    snapshot: &PaintSnapshot,
-    font: &Font,
-    cache: &mut RasterCache,
-) -> Result<(), RenderError> {
+pub(super) fn paint(params: ProjectedPaintInputs<'_>) -> Result<(), RenderError> {
+    let ProjectedPaintInputs {
+        pixels,
+        width,
+        height,
+        scale,
+        matrix,
+        clip_records,
+        commands,
+        snapshot,
+        font,
+        cache,
+    } = params;
+
     let Some(mapping) = Mapping::new(matrix) else {
         return Ok(());
     };
@@ -1068,31 +1154,36 @@ pub(super) fn paint(
                         clip_y: true,
                     });
                 }
-                paint(
-                    &mut layer,
+                paint(ProjectedPaintInputs {
+                    pixels: &mut layer,
                     width,
                     height,
                     scale,
                     matrix,
                     clip_records,
-                    &content,
+                    commands: &content,
                     snapshot,
                     font,
                     cache,
-                )?;
-                paint(
-                    &mut mask,
+                })?;
+                paint(ProjectedPaintInputs {
+                    pixels: &mut mask,
                     width,
                     height,
                     scale,
-                    extra,
-                    &mask_clips,
-                    &mask_commands,
+                    matrix: extra,
+                    clip_records: &mask_clips,
+                    commands: &mask_commands,
                     snapshot,
                     font,
                     cache,
-                )?;
-                for (pixel, mask) in layer.chunks_exact_mut(4).zip(mask.chunks_exact(4)) {
+                })?;
+                for (pixel, mask) in layer
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
+                    .zip(mask.as_chunks::<4>().0.iter())
+                {
                     pixel[3] = ((u16::from(pixel[3]) * u16::from(mask[3]) + 127) / 255) as u8;
                 }
                 composite_layer(pixels, &layer, 1.);
@@ -1100,13 +1191,15 @@ pub(super) fn paint(
             PaintCommand::Canvas { color, layers } => {
                 if color[3] > 0 {
                     shade_region(
-                        pixels,
-                        width,
-                        height,
-                        scale,
-                        &mapping,
-                        &clips,
-                        None,
+                        ShadeRegionInputs {
+                            pixels,
+                            width,
+                            height,
+                            scale,
+                            mapping: &mapping,
+                            clips: &clips,
+                            rect: None,
+                        },
                         |_, _| *color,
                     );
                 }
@@ -1129,13 +1222,15 @@ pub(super) fn paint(
                                 0,
                             )?;
                             shade_region(
-                                pixels,
-                                width,
-                                height,
-                                scale,
-                                &mapping,
-                                &clips,
-                                None,
+                                ShadeRegionInputs {
+                                    pixels,
+                                    width,
+                                    height,
+                                    scale,
+                                    mapping: &mapping,
+                                    clips: &clips,
+                                    rect: None,
+                                },
                                 |x, y| {
                                     let (a, b) = mapping.scale_at(x, y);
                                     tile.map(x, y)
@@ -1147,13 +1242,15 @@ pub(super) fn paint(
                             );
                         }
                         BackgroundSource::Gradient(gradient) => shade_region(
-                            pixels,
-                            width,
-                            height,
-                            scale,
-                            &mapping,
-                            &clips,
-                            None,
+                            ShadeRegionInputs {
+                                pixels,
+                                width,
+                                height,
+                                scale,
+                                mapping: &mapping,
+                                clips: &clips,
+                                rect: None,
+                            },
                             |x, y| {
                                 tile.map(x, y)
                                     .map(|(x, y)| gradient.sample(x, y))
@@ -1199,13 +1296,15 @@ pub(super) fn paint(
                                 cache.image(*resource, source)?
                             };
                             shade_region(
-                                pixels,
-                                width,
-                                height,
-                                scale,
-                                &mapping,
-                                &clips,
-                                None,
+                                ShadeRegionInputs {
+                                    pixels,
+                                    width,
+                                    height,
+                                    scale,
+                                    mapping: &mapping,
+                                    clips: &clips,
+                                    rect: None,
+                                },
                                 |x, y| {
                                     let (sx, sy) = mapping.scale_at(x, y);
                                     let Some((x, y)) = tile.map(x, y) else {
@@ -1262,15 +1361,17 @@ pub(super) fn paint(
                         (bounds.1 as f64 + bounds.3 as f64) / 2.,
                         bounds.3 as f64,
                     ] {
-                        if let Some((x, y)) = mapping.source(px / scale, py / scale) {
-                            if x >= rect.x && x <= rect.right() && y >= rect.y && y <= rect.bottom()
-                            {
-                                let (a, b) = mapping.scale_at(x, y);
-                                density = density.max(
-                                    (a * rect.width / child.viewport.width)
-                                        .max(b * rect.height / child.viewport.height),
-                                );
-                            }
+                        if let Some((x, y)) = mapping.source(px / scale, py / scale)
+                            && x >= rect.x
+                            && x <= rect.right()
+                            && y >= rect.y
+                            && y <= rect.bottom()
+                        {
+                            let (a, b) = mapping.scale_at(x, y);
+                            density = density.max(
+                                (a * rect.width / child.viewport.width)
+                                    .max(b * rect.height / child.viewport.height),
+                            );
                         }
                     }
                 }
@@ -1303,13 +1404,15 @@ pub(super) fn paint(
 
                 let image = crate::frames::raster(child, (scale * density).max(0.01))?;
                 shade(
-                    pixels,
-                    width,
-                    height,
-                    scale,
-                    &mapping,
-                    &clips,
-                    *rect,
+                    ShadeInputs {
+                        pixels,
+                        width,
+                        height,
+                        scale,
+                        mapping: &mapping,
+                        clips: &clips,
+                        rect: *rect,
+                    },
                     |x, y| {
                         sample_image_mode(
                             &image,
@@ -1344,13 +1447,15 @@ pub(super) fn paint(
                     scale * density.0.max(density.1),
                 )?;
                 shade(
-                    pixels,
-                    width,
-                    height,
-                    scale,
-                    &mapping,
-                    &clips,
-                    *rect,
+                    ShadeInputs {
+                        pixels,
+                        width,
+                        height,
+                        scale,
+                        mapping: &mapping,
+                        clips: &clips,
+                        rect: *rect,
+                    },
                     |x, y| {
                         sample_image_mode(
                             &image,
@@ -1381,6 +1486,7 @@ pub(super) fn paint(
                 let resource = captured.images.len();
                 captured.images.push(oryn_common::v4::PaintImageResource {
                     svg_document_snapshot: false,
+                    svg_instances: Vec::new(),
                     content_type: None,
                     url: "oryn-private-backdrop:".into(),
                     url_aliases: Vec::new(),
@@ -1418,27 +1524,27 @@ pub(super) fn paint(
                 };
                 let mut filtered = vec![0; pixels.len()];
                 let mut private_cache = RasterCache::default();
-                paint(
-                    &mut filtered,
+                paint(ProjectedPaintInputs {
+                    pixels: &mut filtered,
                     width,
                     height,
                     scale,
                     matrix,
-                    &[],
-                    &[command],
-                    &captured,
+                    clip_records: &[],
+                    commands: &[command],
+                    snapshot: &captured,
                     font,
-                    &mut private_cache,
-                )?;
+                    cache: &mut private_cache,
+                })?;
                 let mut coverage = vec![0; pixels.len()];
-                paint(
-                    &mut coverage,
+                paint(ProjectedPaintInputs {
+                    pixels: &mut coverage,
                     width,
                     height,
                     scale,
-                    multiply(matrix, *plane),
+                    matrix: multiply(matrix, *plane),
                     clip_records,
-                    &[PaintCommand::FillRoundedRect {
+                    commands: &[PaintCommand::FillRoundedRect {
                         rect: *rect,
                         color: [255; 4],
                         radii: *radii,
@@ -1446,11 +1552,13 @@ pub(super) fn paint(
                     snapshot,
                     font,
                     cache,
-                )?;
+                })?;
                 for ((pixel, filtered), coverage) in pixels
-                    .chunks_exact_mut(4)
-                    .zip(filtered.chunks_exact(4))
-                    .zip(coverage.chunks_exact(4))
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
+                    .zip(filtered.as_chunks::<4>().0.iter())
+                    .zip(coverage.as_chunks::<4>().0.iter())
                 {
                     let coverage = f64::from(coverage[3]) / 255.;
                     let before = f64::from(pixel[3]) * (1. - coverage);
@@ -1473,8 +1581,8 @@ pub(super) fn paint(
                 let _budget =
                     crate::filters::RasterBudget::enter(width as usize * height as usize * 3)?;
                 let mut layer = vec![0; pixels.len()];
-                paint(
-                    &mut layer,
+                paint(ProjectedPaintInputs {
+                    pixels: &mut layer,
                     width,
                     height,
                     scale,
@@ -1484,23 +1592,26 @@ pub(super) fn paint(
                     snapshot,
                     font,
                     cache,
-                )?;
+                })?;
                 let mut coverage = vec![0.; width as usize * height as usize];
                 for (index, mask) in layers.iter().enumerate() {
                     let mut mask_pixels = vec![0; pixels.len()];
-                    paint(
-                        &mut mask_pixels,
+                    paint(ProjectedPaintInputs {
+                        pixels: &mut mask_pixels,
                         width,
                         height,
                         scale,
                         matrix,
                         clip_records,
-                        &mask.commands,
+                        commands: &mask.commands,
                         snapshot,
                         font,
                         cache,
-                    )?;
-                    for (alpha, pixel) in coverage.iter_mut().zip(mask_pixels.chunks_exact(4)) {
+                    })?;
+                    for (alpha, pixel) in coverage
+                        .iter_mut()
+                        .zip(mask_pixels.as_chunks::<4>().0.iter())
+                    {
                         let source = crate::masks::alpha(pixel, mask.luminance);
                         *alpha = if index == 0 {
                             source
@@ -1509,7 +1620,7 @@ pub(super) fn paint(
                         };
                     }
                 }
-                for (pixel, alpha) in layer.chunks_exact_mut(4).zip(coverage) {
+                for (pixel, alpha) in layer.as_chunks_mut::<4>().0.iter_mut().zip(coverage) {
                     pixel[3] = (f64::from(pixel[3]) * alpha).round().clamp(0., 255.) as u8;
                 }
                 composite_layer(pixels, &layer, 1.);
@@ -1585,39 +1696,41 @@ pub(super) fn paint(
                 let translation = [
                     1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., -bounds.x, -bounds.y, 0., 1.,
                 ];
-                paint(
-                    &mut layer,
-                    wide,
-                    high,
-                    resolution,
-                    multiply(translation, inverse),
-                    &[],
+                paint(ProjectedPaintInputs {
+                    pixels: &mut layer,
+                    width: wide,
+                    height: high,
+                    scale: resolution,
+                    matrix: multiply(translation, inverse),
+                    clip_records: &[],
                     commands,
                     snapshot,
                     font,
                     cache,
-                )?;
-                let filtered = crate::filters::apply_source(
+                })?;
+                let filtered = crate::filters::apply_source(crate::filters::FilterSourceInputs {
                     snapshot,
-                    &layer,
-                    wide,
-                    high,
+                    pixels: &layer,
+                    width: wide,
+                    height: high,
                     source,
-                    current_color,
+                    current: current_color,
                     resolution,
                     bounds,
                     source_bounds,
-                )?;
+                })?;
                 let image = image::RgbaImage::from_raw(wide, high, filtered)
                     .ok_or_else(|| RenderError::Encode("filter raster dimensions".into()))?;
                 shade(
-                    pixels,
-                    width,
-                    height,
-                    scale,
-                    &effect_mapping,
-                    &clips,
-                    bounds,
+                    ShadeInputs {
+                        pixels,
+                        width,
+                        height,
+                        scale,
+                        mapping: &effect_mapping,
+                        clips: &clips,
+                        rect: bounds,
+                    },
                     |x, y| {
                         sample_image_mode(
                             &image,
@@ -1631,8 +1744,8 @@ pub(super) fn paint(
             }
             PaintCommand::Opacity { opacity, commands } => {
                 let mut layer = vec![0; pixels.len()];
-                paint(
-                    &mut layer,
+                paint(ProjectedPaintInputs {
+                    pixels: &mut layer,
                     width,
                     height,
                     scale,
@@ -1642,7 +1755,7 @@ pub(super) fn paint(
                     snapshot,
                     font,
                     cache,
-                )?;
+                })?;
                 composite_layer(pixels, &layer, *opacity);
             }
             PaintCommand::Background {
@@ -1668,13 +1781,15 @@ pub(super) fn paint(
                         0,
                     )?;
                     shade(
-                        pixels,
-                        width,
-                        height,
-                        scale,
-                        &mapping,
-                        &clips,
-                        *rect,
+                        ShadeInputs {
+                            pixels,
+                            width,
+                            height,
+                            scale,
+                            mapping: &mapping,
+                            clips: &clips,
+                            rect: *rect,
+                        },
                         |x, y| {
                             if !borders::inside(*rect, *radii, x, y) {
                                 return [0; 4];
@@ -1689,13 +1804,15 @@ pub(super) fn paint(
                     );
                 }
                 BackgroundSource::Gradient(gradient) => shade(
-                    pixels,
-                    width,
-                    height,
-                    scale,
-                    &mapping,
-                    &clips,
-                    *rect,
+                    ShadeInputs {
+                        pixels,
+                        width,
+                        height,
+                        scale,
+                        mapping: &mapping,
+                        clips: &clips,
+                        rect: *rect,
+                    },
                     |x, y| {
                         if !borders::inside(*rect, *radii, x, y) {
                             return [0; 4];
@@ -1751,13 +1868,15 @@ pub(super) fn paint(
                         cache.image(*resource, source)?
                     };
                     shade(
-                        pixels,
-                        width,
-                        height,
-                        scale,
-                        &mapping,
-                        &clips,
-                        *rect,
+                        ShadeInputs {
+                            pixels,
+                            width,
+                            height,
+                            scale,
+                            mapping: &mapping,
+                            clips: &clips,
+                            rect: *rect,
+                        },
                         |x, y| {
                             if !borders::inside(*rect, *radii, x, y) {
                                 return [0; 4];
@@ -1804,13 +1923,15 @@ pub(super) fn paint(
                 .fold(0f64, f64::max);
                 let mask = cache.shadow(*rect, *radii, shadow, scale * density)?;
                 shade(
-                    pixels,
-                    width,
-                    height,
-                    scale,
-                    &mapping,
-                    &clips,
-                    area,
+                    ShadeInputs {
+                        pixels,
+                        width,
+                        height,
+                        scale,
+                        mapping: &mapping,
+                        clips: &clips,
+                        rect: area,
+                    },
                     |x, y| {
                         if borders::inside(*rect, *radii, x, y) != shadow.inset {
                             return [0; 4];
@@ -1827,13 +1948,15 @@ pub(super) fn paint(
                 gradient,
                 radii,
             } => shade(
-                pixels,
-                width,
-                height,
-                scale,
-                &mapping,
-                &clips,
-                *rect,
+                ShadeInputs {
+                    pixels,
+                    width,
+                    height,
+                    scale,
+                    mapping: &mapping,
+                    clips: &clips,
+                    rect: *rect,
+                },
                 |x, y| {
                     if borders::inside(*rect, *radii, x, y) {
                         gradient.sample(x, y)
@@ -1847,13 +1970,15 @@ pub(super) fn paint(
                 gradient,
                 radii,
             } => shade(
-                pixels,
-                width,
-                height,
-                scale,
-                &mapping,
-                &clips,
-                *rect,
+                ShadeInputs {
+                    pixels,
+                    width,
+                    height,
+                    scale,
+                    mapping: &mapping,
+                    clips: &clips,
+                    rect: *rect,
+                },
                 |x, y| {
                     if borders::inside(*rect, *radii, x, y) {
                         gradient.sample(x, y)
@@ -1863,13 +1988,15 @@ pub(super) fn paint(
                 },
             ),
             PaintCommand::FillRoundedRect { rect, color, radii } => shade(
-                pixels,
-                width,
-                height,
-                scale,
-                &mapping,
-                &clips,
-                *rect,
+                ShadeInputs {
+                    pixels,
+                    width,
+                    height,
+                    scale,
+                    mapping: &mapping,
+                    clips: &clips,
+                    rect: *rect,
+                },
                 |x, y| {
                     if borders::inside(*rect, *radii, x, y) {
                         *color
@@ -1879,13 +2006,15 @@ pub(super) fn paint(
                 },
             ),
             PaintCommand::FillRect { rect, color } => shade(
-                pixels,
-                width,
-                height,
-                scale,
-                &mapping,
-                &clips,
-                *rect,
+                ShadeInputs {
+                    pixels,
+                    width,
+                    height,
+                    scale,
+                    mapping: &mapping,
+                    clips: &clips,
+                    rect: *rect,
+                },
                 |_, _| *color,
             ),
             PaintCommand::BorderEdges { rect, edges, radii } => {
@@ -1893,13 +2022,15 @@ pub(super) fn paint(
                     .each_ref()
                     .map(|edge| parse_color(&edge.color).unwrap_or([0, 0, 0, 255]));
                 shade(
-                    pixels,
-                    width,
-                    height,
-                    scale,
-                    &mapping,
-                    &clips,
-                    *rect,
+                    ShadeInputs {
+                        pixels,
+                        width,
+                        height,
+                        scale,
+                        mapping: &mapping,
+                        clips: &clips,
+                        rect: *rect,
+                    },
                     |x, y| borders::sample(*rect, edges, *radii, colors, x, y),
                 );
             }
@@ -1908,13 +2039,15 @@ pub(super) fn paint(
                 widths,
                 color,
             } => shade(
-                pixels,
-                width,
-                height,
-                scale,
-                &mapping,
-                &clips,
-                *rect,
+                ShadeInputs {
+                    pixels,
+                    width,
+                    height,
+                    scale,
+                    mapping: &mapping,
+                    clips: &clips,
+                    rect: *rect,
+                },
                 |x, y| {
                     if x < rect.x + widths[3]
                         || x >= rect.right() - widths[1]
@@ -1945,13 +2078,15 @@ pub(super) fn paint(
                 let h = (rect.height * scale * density.1).ceil();
                 let image = crate::builtin_image::raster(image, w, h)?;
                 shade(
-                    pixels,
-                    width,
-                    height,
-                    scale,
-                    &mapping,
-                    &clips,
-                    *rect,
+                    ShadeInputs {
+                        pixels,
+                        width,
+                        height,
+                        scale,
+                        mapping: &mapping,
+                        clips: &clips,
+                        rect: *rect,
+                    },
                     |x, y| {
                         if clip.is_some_and(|clip| {
                             x < clip.x || x >= clip.right() || y < clip.y || y >= clip.bottom()
@@ -2004,14 +2139,22 @@ pub(super) fn paint(
                     h.max(1.) as u32,
                     *environment,
                 )?;
+                let rendering =
+                    if mapping.matches_raster_grid(*rect, scale, image.width(), image.height()) {
+                        ImageRendering::CrispEdges
+                    } else {
+                        ImageRendering::Auto
+                    };
                 shade(
-                    pixels,
-                    width,
-                    height,
-                    scale,
-                    &mapping,
-                    &clips,
-                    *rect,
+                    ShadeInputs {
+                        pixels,
+                        width,
+                        height,
+                        scale,
+                        mapping: &mapping,
+                        clips: &clips,
+                        rect: *rect,
+                    },
                     |x, y| {
                         if clip.is_some_and(|clip| {
                             x < clip.x || x >= clip.right() || y < clip.y || y >= clip.bottom()
@@ -2022,7 +2165,7 @@ pub(super) fn paint(
                             &image,
                             (x - rect.x) / rect.width * image.width() as f64 - 0.5,
                             (y - rect.y) / rect.height * image.height() as f64 - 0.5,
-                            ImageRendering::Auto,
+                            rendering,
                             (1., 1.),
                         )
                     },
@@ -2037,13 +2180,15 @@ pub(super) fn paint(
                 if let Some(source) = snapshot.images.get(*resource) {
                     let image = cache.image(*resource, source)?;
                     shade(
-                        pixels,
-                        width,
-                        height,
-                        scale,
-                        &mapping,
-                        &clips,
-                        *rect,
+                        ShadeInputs {
+                            pixels,
+                            width,
+                            height,
+                            scale,
+                            mapping: &mapping,
+                            clips: &clips,
+                            rect: *rect,
+                        },
                         |x, y| {
                             if clip.is_some_and(|clip| {
                                 x < clip.x || x >= clip.right() || y < clip.y || y >= clip.bottom()
@@ -2070,29 +2215,31 @@ pub(super) fn paint(
                     for run in &fragment.glyph_runs {
                         let boxes = crate::text_boxes::commands(snapshot, fragment, run)?;
                         if !boxes.is_empty() {
-                            paint(
+                            paint(ProjectedPaintInputs {
                                 pixels,
                                 width,
                                 height,
                                 scale,
                                 matrix,
                                 clip_records,
-                                &boxes,
+                                commands: &boxes,
                                 snapshot,
                                 font,
                                 cache,
-                            )?;
+                            })?;
                         }
                         if let Some((rect, color)) = crate::decorations::background(fragment, run)?
                         {
                             shade(
-                                pixels,
-                                width,
-                                height,
-                                scale,
-                                &mapping,
-                                &clips,
-                                rect,
+                                ShadeInputs {
+                                    pixels,
+                                    width,
+                                    height,
+                                    scale,
+                                    mapping: &mapping,
+                                    clips: &clips,
+                                    rect,
+                                },
                                 |_, _| color,
                             );
                         }
@@ -2117,11 +2264,11 @@ pub(super) fn paint(
                         gaps.sort_by(|a, b| a.0.total_cmp(&b.0));
                         let mut merged: Vec<(f64, f64)> = Vec::new();
                         for gap in gaps.drain(..) {
-                            if let Some(last) = merged.last_mut() {
-                                if gap.0 <= last.1 {
-                                    last.1 = last.1.max(gap.1);
-                                    continue;
-                                }
+                            if let Some(last) = merged.last_mut()
+                                && gap.0 <= last.1
+                            {
+                                last.1 = last.1.max(gap.1);
+                                continue;
                             }
                             merged.push(gap);
                         }
@@ -2133,13 +2280,15 @@ pub(super) fn paint(
                                 continue;
                             }
                             shade(
-                                pixels,
-                                width,
-                                height,
-                                scale,
-                                &mapping,
-                                &clips,
-                                stroke.rect,
+                                ShadeInputs {
+                                    pixels,
+                                    width,
+                                    height,
+                                    scale,
+                                    mapping: &mapping,
+                                    clips: &clips,
+                                    rect: stroke.rect,
+                                },
                                 |x, y| {
                                     let inline = if stroke.vertical { y } else { x };
                                     let index = gaps.partition_point(|gap| gap.1 <= inline);
@@ -2178,13 +2327,15 @@ pub(super) fn paint(
                             };
                             let rect = oriented_glyph_bounds(unrotated, origin, run.orientation);
                             shade(
-                                pixels,
-                                width,
-                                height,
-                                scale,
-                                &mapping,
-                                &clips,
-                                rect,
+                                ShadeInputs {
+                                    pixels,
+                                    width,
+                                    height,
+                                    scale,
+                                    mapping: &mapping,
+                                    clips: &clips,
+                                    rect,
+                                },
                                 |x, y| {
                                     let (x, y) = glyph_source_point(
                                         x - origin.0,
@@ -2229,13 +2380,15 @@ pub(super) fn paint(
                         height: metrics.height as f64 / scale,
                     };
                     shade(
-                        pixels,
-                        width,
-                        height,
-                        scale,
-                        &mapping,
-                        &clips,
-                        rect,
+                        ShadeInputs {
+                            pixels,
+                            width,
+                            height,
+                            scale,
+                            mapping: &mapping,
+                            clips: &clips,
+                            rect,
+                        },
                         |x, y| {
                             let ix =
                                 (((x - rect.x) * scale).floor() as usize).min(metrics.width - 1);
@@ -2261,18 +2414,18 @@ pub(super) fn paint(
                     clip.matrix = multiply(matrix, clip.matrix);
                     clip
                 }));
-                paint(
+                paint(ProjectedPaintInputs {
                     pixels,
                     width,
                     height,
                     scale,
-                    composed,
-                    &nested_clips,
+                    matrix: composed,
+                    clip_records: &nested_clips,
                     commands,
                     snapshot,
                     font,
                     cache,
-                )?;
+                })?;
             }
         }
     }
@@ -2282,6 +2435,32 @@ pub(super) fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bundled_shaped_font_reuse_is_bound_to_bytes_not_scene_key() {
+        let mut snapshot = crate::tests::empty_snapshot();
+        snapshot.fonts.insert(
+            "same-key".into(),
+            oryn_common::v4::PaintFontResource {
+                bytes: oryn_layout::DEFAULT_FONT_BYTES.to_vec(),
+                collection_index: 0,
+            },
+        );
+        let first = RasterCache::default()
+            .shaped_font("same-key", &snapshot)
+            .unwrap();
+        let second = RasterCache::default()
+            .shaped_font("same-key", &snapshot)
+            .unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &second));
+        assert!(first.metrics('A', 16.).advance_width > 0.);
+        snapshot.fonts.get_mut("same-key").unwrap().bytes = vec![0; 16];
+        assert!(
+            RasterCache::default()
+                .shaped_font("same-key", &snapshot)
+                .is_err()
+        );
+    }
+
     #[test]
     fn glyph_bounds_are_checked_before_allocating_rasters() {
         let font =
@@ -2508,9 +2687,18 @@ mod tests {
             shape: Some(shape),
         };
         let mut pixels = vec![0; 8 * 8 * 4];
-        shade(&mut pixels, 8, 8, 1., &mapping, &[clip], rect, |_, _| {
-            [0, 255, 0, 255]
-        });
+        shade(
+            ShadeInputs {
+                pixels: &mut pixels,
+                width: 8,
+                height: 8,
+                scale: 1.,
+                mapping: &mapping,
+                clips: &[clip],
+                rect,
+            },
+            |_, _| [0, 255, 0, 255],
+        );
         assert_eq!(pixels[3], 0);
         assert_eq!(pixels[(4 * 8 + 4) * 4 + 3], 255);
     }
@@ -2533,17 +2721,19 @@ mod tests {
         };
         let mut pixels = vec![0; 4 * 2 * 4];
         shade(
-            &mut pixels,
-            4,
-            2,
-            1.,
-            &mapping,
-            &[clip],
-            CssRect {
-                x: 0.,
-                y: 0.,
-                width: 4.,
-                height: 2.,
+            ShadeInputs {
+                pixels: &mut pixels,
+                width: 4,
+                height: 2,
+                scale: 1.,
+                mapping: &mapping,
+                clips: &[clip],
+                rect: CssRect {
+                    x: 0.,
+                    y: 0.,
+                    width: 4.,
+                    height: 2.,
+                },
             },
             |_, _| [0, 255, 0, 255],
         );
@@ -2561,22 +2751,24 @@ mod tests {
         let mapping = Mapping::new(matrix).unwrap();
         let mut pixels = vec![0; 4 * 2 * 4];
         shade(
-            &mut pixels,
-            4,
-            2,
-            1.,
-            &mapping,
-            &[],
-            CssRect {
-                x: 0.,
-                y: 0.,
-                width: 2.,
-                height: 2.,
+            ShadeInputs {
+                pixels: &mut pixels,
+                width: 4,
+                height: 2,
+                scale: 1.,
+                mapping: &mapping,
+                clips: &[],
+                rect: CssRect {
+                    x: 0.,
+                    y: 0.,
+                    width: 2.,
+                    height: 2.,
+                },
             },
             |_, _| [0, 255, 0, 255],
         );
-        for pixel in pixels.chunks_exact(4) {
-            assert_eq!(pixel, [0, 255, 0, 255]);
+        for pixel in pixels.as_chunks::<4>().0 {
+            assert_eq!(*pixel, [0, 255, 0, 255]);
         }
         assert!(mapping.source(-3., 0.).is_none());
     }
@@ -2592,22 +2784,24 @@ mod tests {
         let mapping = Mapping::new(matrix).unwrap();
         let mut pixels = vec![0; 4 * 4 * 4];
         shade(
-            &mut pixels,
-            4,
-            4,
-            1.,
-            &mapping,
-            &[],
-            CssRect {
-                x: 0.,
-                y: 0.,
-                width: 2.,
-                height: 2.,
+            ShadeInputs {
+                pixels: &mut pixels,
+                width: 4,
+                height: 4,
+                scale: 1.,
+                mapping: &mapping,
+                clips: &[],
+                rect: CssRect {
+                    x: 0.,
+                    y: 0.,
+                    width: 2.,
+                    height: 2.,
+                },
             },
             |_, _| [255, 0, 0, 255],
         );
         assert_eq!(pixels[3], 0);
-        assert!(pixels[(1 * 4 + 1) * 4 + 3] > 0);
+        assert!(pixels[(4 + 1) * 4 + 3] > 0);
         assert_eq!(pixels[(3 * 4 + 3) * 4 + 3], 0);
     }
     #[test]
@@ -2691,17 +2885,19 @@ pub(super) fn ink_bounds(
             height: max.1 - min.1,
         })
     }
-    fn walk(
-        snapshot: &PaintSnapshot,
-        commands: &[PaintCommand],
-        matrix: [f64; 16],
-        clips: &[oryn_common::v4::PaintClip],
-        scale: f64,
-        font: &Font,
-        cache: &mut RasterCache,
-        total: &mut Option<CssRect>,
-        depth: usize,
-    ) -> Result<(), RenderError> {
+    fn walk(params: PaintBoundsWalk<'_>) -> Result<(), RenderError> {
+        let PaintBoundsWalk {
+            snapshot,
+            commands,
+            matrix,
+            clips,
+            scale,
+            font,
+            cache,
+            total,
+            depth,
+        } = params;
+
         if depth > 256 {
             return Err(RenderError::InvalidPrint(
                 "offscreen paint exceeds depth 256".into(),
@@ -2716,7 +2912,7 @@ pub(super) fn ink_bounds(
                     continue;
                 }
                 PaintCommand::Mask { commands, .. } => {
-                    walk(
+                    walk(PaintBoundsWalk {
                         snapshot,
                         commands,
                         matrix,
@@ -2725,8 +2921,8 @@ pub(super) fn ink_bounds(
                         font,
                         cache,
                         total,
-                        depth + 1,
-                    )?;
+                        depth: depth + 1,
+                    })?;
                     continue;
                 }
                 PaintCommand::Filter {
@@ -2746,17 +2942,17 @@ pub(super) fn ink_bounds(
                         q[8],
                     ];
                     let mut bounds = None;
-                    walk(
+                    walk(PaintBoundsWalk {
                         snapshot,
                         commands,
-                        inverse,
-                        &[],
+                        matrix: inverse,
+                        clips: &[],
                         scale,
                         font,
                         cache,
-                        &mut bounds,
-                        depth + 1,
-                    )?;
+                        total: &mut bounds,
+                        depth: depth + 1,
+                    })?;
                     if let Some(reference) = reference_box.or(bounds) {
                         let rect = bounds
                             .map(|ink| effect_union(ink, reference))
@@ -2776,7 +2972,7 @@ pub(super) fn ink_bounds(
                 }
                 PaintCommand::Opacity { opacity, commands } => {
                     if *opacity > 0. {
-                        walk(
+                        walk(PaintBoundsWalk {
                             snapshot,
                             commands,
                             matrix,
@@ -2785,8 +2981,8 @@ pub(super) fn ink_bounds(
                             font,
                             cache,
                             total,
-                            depth + 1,
-                        )?;
+                            depth: depth + 1,
+                        })?;
                     }
                     continue;
                 }
@@ -2800,32 +2996,32 @@ pub(super) fn ink_bounds(
                         clip.matrix = multiply(matrix, clip.matrix);
                         clip
                     }));
-                    walk(
+                    walk(PaintBoundsWalk {
                         snapshot,
                         commands,
-                        multiply(matrix, *local),
-                        &nested,
+                        matrix: multiply(matrix, *local),
+                        clips: &nested,
                         scale,
                         font,
                         cache,
                         total,
-                        depth + 1,
-                    )?;
+                        depth: depth + 1,
+                    })?;
                     continue;
                 }
                 PaintCommand::TextClip { owner, .. } => {
                     let (extra, mask) = text_clip_mask(snapshot, *owner, matrix)?;
-                    walk(
+                    walk(PaintBoundsWalk {
                         snapshot,
-                        &mask,
-                        extra,
+                        commands: &mask,
+                        matrix: extra,
                         clips,
                         scale,
                         font,
                         cache,
                         total,
-                        depth + 1,
-                    )?;
+                        depth: depth + 1,
+                    })?;
                     continue;
                 }
                 PaintCommand::Canvas { .. } => {
@@ -2884,17 +3080,16 @@ pub(super) fn ink_bounds(
                     } else {
                         for run in &fragment.glyph_runs {
                             let text_boxes = crate::text_boxes::commands(snapshot, fragment, run)?;
-                            if !text_boxes.is_empty() {
-                                if let Some(rect) = ink_bounds(snapshot, &text_boxes, scale)? {
-                                    boxes.push(rect);
-                                }
+                            if !text_boxes.is_empty()
+                                && let Some(rect) = ink_bounds(snapshot, &text_boxes, scale)?
+                            {
+                                boxes.push(rect);
                             }
                             if let Some((rect, color)) =
                                 crate::decorations::background(fragment, run)?
+                                && color[3] != 0
                             {
-                                if color[3] != 0 {
-                                    boxes.push(rect);
-                                }
+                                boxes.push(rect);
                             }
                             boxes.extend(
                                 crate::decorations::strokes(snapshot, fragment, run)?
@@ -2966,22 +3161,23 @@ pub(super) fn ink_bounds(
         }
         Ok(())
     }
-    let font = Font::from_bytes(oryn_layout::DEFAULT_FONT_BYTES, FontSettings::default())
-        .map_err(|error| RenderError::Font(error.to_string()))?;
+    let font = crate::default_render_font()
+        .as_ref()
+        .map_err(|error| RenderError::Font(error.clone()))?;
     let mut total = None;
-    walk(
+    walk(PaintBoundsWalk {
         snapshot,
         commands,
-        [
+        matrix: [
             1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
         ],
-        &[],
+        clips: &[],
         scale,
-        &font,
-        &mut RasterCache::default(),
-        &mut total,
-        0,
-    )?;
+        font,
+        cache: &mut RasterCache::default(),
+        total: &mut total,
+        depth: 0,
+    })?;
     Ok(total)
 }
 
@@ -3215,7 +3411,9 @@ mod horizon_bounds_tests {
         let scene = build_display_list(&snapshot, options).unwrap();
         let pixels = rasterize(&snapshot, &scene, options).unwrap();
         let red = pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .enumerate()
             .filter(|(_, pixel)| pixel[0] > 200 && pixel[1] < 100 && pixel[2] < 100)
             .map(|(index, _)| index % scene.width as usize)
@@ -3377,9 +3575,59 @@ mod text_background_tests {
 mod svg_environment_cache_tests {
     use super::*;
     #[test]
+    fn aligned_svg_coverage_does_not_leak_across_pixel_boundaries() {
+        let mut snapshot = crate::tests::empty_snapshot();
+        snapshot.images.push(oryn_common::v4::PaintImageResource {
+            svg_document_snapshot: true, svg_instances: Vec::new(), content_type: None,
+            url_aliases: Vec::new(), url: "https://example.test/edge.svg".into(),
+            media_type: "image/svg+xml".into(),
+            bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect x="10" width="10" height="10" fill="blue"/></svg>"#.to_vec(),
+        });
+        for offset in [0., 1.] {
+            let rect = CssRect {
+                x: offset,
+                y: 0.,
+                width: 20.,
+                height: 10.,
+            };
+            let scene = DisplayList {
+                contract_version: crate::RENDER_CONTRACT_VERSION,
+                width: 22,
+                height: 10,
+                diagnostics: Vec::new(),
+                commands: vec![PaintCommand::SvgImage {
+                    rect,
+                    clip: None,
+                    resource: 0,
+                    environment: SvgEnvironment {
+                        width: 20.,
+                        height: 10.,
+                        ..Default::default()
+                    },
+                }],
+            };
+            let pixels = crate::rasterize(
+                &snapshot,
+                &scene,
+                RenderOptions {
+                    background: [0; 4],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            for y in 0..10usize {
+                let left = (y * 22 + 9 + offset as usize) * 4;
+                let right = left + 4;
+                assert_eq!(&pixels[left..left + 4], &[0; 4]);
+                assert_eq!(&pixels[right..right + 4], &[0, 0, 255, 255]);
+            }
+        }
+    }
+
+    #[test]
     fn same_resource_separate_consumers_and_preference_mutations_never_reuse_wrong_svg() {
         let mut snapshot = crate::tests::empty_snapshot();
-        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false,content_type:None,url_aliases:Vec::new(),url:"https://example.test/shared.svg".into(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><style>rect{fill:red}@media(prefers-color-scheme:dark){rect{fill:blue}}@media(prefers-reduced-motion:reduce){rect{fill:lime}}</style><rect width="10" height="10"/></svg>"#.to_vec()});
+        snapshot.images.push(oryn_common::v4::PaintImageResource{svg_document_snapshot:false, svg_instances: Vec::new(),content_type:None,url_aliases:Vec::new(),url:"https://example.test/shared.svg".into(),media_type:"image/svg+xml".into(),bytes:br#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><style>rect{fill:red}@media(prefers-color-scheme:dark){rect{fill:blue}}@media(prefers-reduced-motion:reduce){rect{fill:lime}}</style><rect width="10" height="10"/></svg>"#.to_vec()});
         let mut cache = RasterCache::default();
         let light = SvgEnvironment {
             width: 10.,

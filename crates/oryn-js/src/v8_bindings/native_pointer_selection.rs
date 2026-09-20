@@ -1,4 +1,6 @@
 //! Selection gestures use native shaped caret positions and native ranges.
+type SelectionHit = (NodeId, (f64, f64));
+
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -293,27 +295,26 @@ impl Selection {
         let Some(mut point) = point else {
             return Ok(Some(Self::completed(state, (!release).then_some(gesture))));
         };
-        if let Some((start, end)) = gesture.unit {
-            if let Some((next_start, next_end)) =
+        if let Some((start, end)) = gesture.unit
+            && let Some((next_start, next_end)) =
                 selection_movement::pointer_unit(state, point, gesture.count)?
-            {
-                let before = if gesture.control {
-                    next_start.offset < start.offset
-                } else {
-                    compare_boundary_points(
-                        &state.dom.borrow(),
-                        (next_start.container, next_start.offset),
-                        (start.container, start.offset),
-                    )
-                    .is_ok_and(|order| order < 0)
-                };
-                if before {
-                    gesture.anchor = end;
-                    point = next_start;
-                } else {
-                    gesture.anchor = start;
-                    point = next_end;
-                }
+        {
+            let before = if gesture.control {
+                next_start.offset < start.offset
+            } else {
+                compare_boundary_points(
+                    &state.dom.borrow(),
+                    (next_start.container, next_start.offset),
+                    (start.container, start.offset),
+                )
+                .is_ok_and(|order| order < 0)
+            };
+            if before {
+                gesture.anchor = end;
+                point = next_start;
+            } else {
+                gesture.anchor = start;
+                point = next_end;
             }
         }
         let start = gesture.deferred && !release && !gesture.control;
@@ -434,6 +435,7 @@ impl Selection {
         }
     }
 }
+#[cfg(test)]
 pub(super) fn begin(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
@@ -485,7 +487,7 @@ fn scroll_plan(
     gesture: Gesture,
     x: f64,
     y: f64,
-) -> Result<Option<(NodeId, (f64, f64))>, V8BindingError> {
+) -> Result<Option<SelectionHit>, V8BindingError> {
     if !live(state, gesture) || gesture.deferred {
         return Ok(None);
     }

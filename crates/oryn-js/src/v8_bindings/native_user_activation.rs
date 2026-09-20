@@ -169,7 +169,7 @@ pub(super) fn snapshot<'s>(
     };
     let object = v8::Object::new(scope);
     object.set_prototype(scope, prototype.into());
-    let bits = v8::Integer::new(scope, i32::from(value[0]) | i32::from(value[1]) * 2);
+    let bits = v8::Integer::new(scope, i32::from(value[0]) | (i32::from(value[1]) * 2));
     let key = private(scope, "oryn.native.userActivation.snapshot");
     object.set_private(scope, key, bits.into());
     Ok(object)

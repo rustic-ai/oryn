@@ -3,7 +3,7 @@
   "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
   "patch_sha256": "2f5d505baae3313e32e80acbe46302447feb9a875762517356f81eb59049c74f",
   "required_patch_sha256": {
-    "window-proxy-structural-semantics": "42332f3f8b47282c6074e0f0175e30700ab67d5691b8c77659bff629629d6579",
+    "window-proxy-structural-semantics": "9aad2f472de612f6f08f34c139d04428a54963c7c279da4f9d62665dbf869f6b",
     "shared-memory-growth": "63e630f2136d2690058ed0b647533572c957604bbca83f7aaa3359ad56432acd",
     "shared-memory-wait": "b113edc50dd5788b86e4b5c2c68c7805ae49401898fff0c88cdce1c9f188480e",
     "shared-wasm-size": "8d1ea11c9b35f6e59853ebf781b0a92d86e0d2b138a3136fa3ebf5132da70365",

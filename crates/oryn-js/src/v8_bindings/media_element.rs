@@ -658,15 +658,6 @@ fn poll_one(
     }
     Ok(changed)
 }
-pub(super) fn active(state: &V8BindingState) -> bool {
-    !state.native_media.borrow().events.is_empty()
-        || state.native_media.borrow().playback.values().any(|value| {
-            !value.paused
-                || !value.url_events.is_empty()
-                || !value.aborted.is_empty()
-                || value.seeking
-        })
-}
 
 pub(super) fn is_playing(value: &Playback) -> bool {
     !value.paused || !value.url_events.is_empty() || !value.aborted.is_empty() || value.seeking
@@ -1074,7 +1065,7 @@ fn poll_url(
         let reason = dom_exception_value(scope, "AbortError")?;
         resolver.reject(scope, reason);
     }
-    let mut changed = 0;
+    let changed = 0;
     // Each checkpoint publishes a stable event phase. A seeking handler and its
     // microtasks observe seeking=true before the following seeked task.
     let delivered_seeking = state.native_media.borrow().playback[&node]
@@ -1279,6 +1270,182 @@ pub(super) fn command(
         _ => return Ok(false),
     }
     Ok(true)
+}
+
+pub(super) fn suspend(state: &V8BindingState, suspended: bool) {
+    let now = std::time::Instant::now();
+    for value in state.native_media.borrow_mut().playback.values_mut() {
+        if value.stream.is_some() {
+            continue;
+        }
+        if suspended {
+            if let Some(anchor) = value.anchor.take() {
+                value.time = (value.time + now.saturating_duration_since(anchor).as_secs_f64())
+                    .min(value.duration);
+            }
+        } else if value.asset.is_some() {
+            value.seek_sampled = false;
+            if !value.paused {
+                value.anchor = Some(now);
+            }
+        }
+    }
+}
+
+pub(super) fn picture_in_picture_asset(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+) -> Result<String, V8BindingError> {
+    if !state
+        .dom
+        .borrow()
+        .is_element(node, "http://www.w3.org/1999/xhtml", "video")
+        || state.dom.borrow().node_document(node)? != Some(state.document_root())
+    {
+        return Err(fail("InvalidStateError"));
+    }
+    let media = state.native_media.borrow();
+    let value = media.playback.get(&node).ok_or(fail("InvalidStateError"))?;
+    if value.ready == 0 || value.width == 0 || value.height == 0 {
+        return Err(fail("InvalidStateError"));
+    }
+    if let Some(asset) = &value.asset {
+        return Ok(asset.clone());
+    }
+    let stream = value.stream.clone().ok_or(fail("InvalidStateError"))?;
+    drop(media);
+    let stream = v8::Local::new(scope, stream);
+    native_media::stream_tracks(scope, state, stream)?
+        .into_iter()
+        .find(|track| track.kind == crate::media_capture::Kind::Video && !track.ended)
+        .map(|track| track.id)
+        .ok_or(fail("InvalidStateError"))
+}
+pub(super) fn picture_in_picture_refresh(state: &V8BindingState, node: NodeId) {
+    if let Some(value) = state.native_media.borrow_mut().playback.get_mut(&node)
+        && value.asset.is_some()
+    {
+        value.seek_sampled = false;
+        value.url_events.push_back("__resolveplay");
+    }
+}
+
+pub(super) struct EventTask {
+    node: NodeId,
+    session: u64,
+    epoch: u64,
+    name: &'static str,
+    event: Option<retained_dom_event::Event>,
+}
+fn flush_events(state: &V8BindingState) -> Result<(), V8BindingError> {
+    let mut media = state.native_media.borrow_mut();
+    let nodes = media.playback.keys().copied().collect::<Vec<_>>();
+    for node in nodes {
+        while let Some(name) = media.playback[&node].url_events.front().copied() {
+            if media.events.len() >= 512 {
+                return Err(V8BindingError::Allocation("media event bound"));
+            }
+            let value = media.playback.get_mut(&node).unwrap();
+            value.url_events.pop_front();
+            let session = value.session;
+            media.events.push_back(EventTask {
+                node,
+                session,
+                epoch: state.document_stream_epoch(),
+                name,
+                event: None,
+            });
+        }
+    }
+    Ok(())
+}
+fn poll_events(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+) -> Result<(usize, bool), V8BindingError> {
+    let mut count = 0;
+    for _ in 0..128 {
+        if state.execution_suspended() || state.execution_retired() {
+            break;
+        }
+        let Some(mut task) = state.native_media.borrow_mut().events.pop_front() else {
+            break;
+        };
+        if task.epoch != state.document_stream_epoch() {
+            continue;
+        }
+        let same = state
+            .native_media
+            .borrow()
+            .playback
+            .get(&task.node)
+            .is_some_and(|value| value.session == task.session);
+        if task.event.is_none() && !same {
+            continue;
+        }
+        let result = (|| -> Result<bool, V8BindingError> {
+            if task.name != "__resolveplay" {
+                if task.event.is_none() {
+                    let event = create_event_object(scope, state, task.name, false, false)?;
+                    let id = event_id(scope, event)?;
+                    if let Some(record) = state.events.borrow_mut().get_mut(&id) {
+                        record.is_trusted = true;
+                    }
+                    task.event = Some(retained_dom_event::Event::new(
+                        scope, state, task.node, task.name, event,
+                    )?);
+                }
+                if task.event.as_mut().unwrap().poll(scope, state)?.is_none() {
+                    return Ok(false);
+                }
+            }
+            if matches!(task.name, "playing" | "__resolveplay") {
+                loop {
+                    let pending = {
+                        let media = state.native_media.borrow();
+                        media
+                            .playback
+                            .get(&task.node)
+                            .filter(|value| {
+                                value.session == task.session && !value.paused && value.ready >= 3
+                            })
+                            .and_then(|value| value.pending.first().cloned())
+                    };
+                    let Some(pending) = pending else { break };
+                    let resolver = v8::Local::new(scope, pending);
+                    let value = v8::undefined(scope);
+                    resolver
+                        .resolve(scope, value.into())
+                        .ok_or(V8BindingError::JavaScriptException)?;
+                    if let Some(value) = state
+                        .native_media
+                        .borrow_mut()
+                        .playback
+                        .get_mut(&task.node)
+                        .filter(|value| value.session == task.session)
+                        && !value.pending.is_empty()
+                    {
+                        value.pending.remove(0);
+                    }
+                }
+            }
+            Ok(true)
+        })();
+        match result {
+            Ok(true) => {
+                count += 1;
+                if task.name == "seeking" {
+                    return Ok((count, true));
+                }
+            }
+            result => {
+                state.native_media.borrow_mut().events.push_front(task);
+                return result.map(|_| (count, false));
+            }
+        }
+    }
+    Ok((count, false))
 }
 
 #[cfg(test)]
@@ -1611,181 +1778,4 @@ mod url_tests {
         state.retire_execution();
         messages.assert_lifecycle(1);
     }
-}
-
-pub(super) fn suspend(state: &V8BindingState, suspended: bool) {
-    let now = std::time::Instant::now();
-    for value in state.native_media.borrow_mut().playback.values_mut() {
-        if value.stream.is_some() {
-            continue;
-        }
-        if suspended {
-            if let Some(anchor) = value.anchor.take() {
-                value.time = (value.time + now.saturating_duration_since(anchor).as_secs_f64())
-                    .min(value.duration);
-            }
-        } else if value.asset.is_some() {
-            value.seek_sampled = false;
-            if !value.paused {
-                value.anchor = Some(now);
-            }
-        }
-    }
-}
-
-pub(super) fn picture_in_picture_asset(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    node: NodeId,
-) -> Result<String, V8BindingError> {
-    if !state
-        .dom
-        .borrow()
-        .is_element(node, "http://www.w3.org/1999/xhtml", "video")
-        || state.dom.borrow().node_document(node)? != Some(state.document_root())
-    {
-        return Err(fail("InvalidStateError"));
-    }
-    let media = state.native_media.borrow();
-    let value = media.playback.get(&node).ok_or(fail("InvalidStateError"))?;
-    if value.ready == 0 || value.width == 0 || value.height == 0 {
-        return Err(fail("InvalidStateError"));
-    }
-    if let Some(asset) = &value.asset {
-        return Ok(asset.clone());
-    }
-    let stream = value.stream.clone().ok_or(fail("InvalidStateError"))?;
-    drop(media);
-    let stream = v8::Local::new(scope, stream);
-    native_media::stream_tracks(scope, state, stream)?
-        .into_iter()
-        .find(|track| track.kind == crate::media_capture::Kind::Video && !track.ended)
-        .map(|track| track.id)
-        .ok_or(fail("InvalidStateError"))
-}
-pub(super) fn picture_in_picture_refresh(state: &V8BindingState, node: NodeId) {
-    if let Some(value) = state.native_media.borrow_mut().playback.get_mut(&node) {
-        if value.asset.is_some() {
-            value.seek_sampled = false;
-            value.url_events.push_back("__resolveplay");
-        }
-    }
-}
-
-pub(super) struct EventTask {
-    node: NodeId,
-    session: u64,
-    epoch: u64,
-    name: &'static str,
-    event: Option<retained_dom_event::Event>,
-}
-fn flush_events(state: &V8BindingState) -> Result<(), V8BindingError> {
-    let mut media = state.native_media.borrow_mut();
-    let nodes = media.playback.keys().copied().collect::<Vec<_>>();
-    for node in nodes {
-        while let Some(name) = media.playback[&node].url_events.front().copied() {
-            if media.events.len() >= 512 {
-                return Err(V8BindingError::Allocation("media event bound"));
-            }
-            let value = media.playback.get_mut(&node).unwrap();
-            value.url_events.pop_front();
-            let session = value.session;
-            media.events.push_back(EventTask {
-                node,
-                session,
-                epoch: state.document_stream_epoch(),
-                name,
-                event: None,
-            });
-        }
-    }
-    Ok(())
-}
-fn poll_events(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-) -> Result<(usize, bool), V8BindingError> {
-    let mut count = 0;
-    for _ in 0..128 {
-        if state.execution_suspended() || state.execution_retired() {
-            break;
-        }
-        let Some(mut task) = state.native_media.borrow_mut().events.pop_front() else {
-            break;
-        };
-        if task.epoch != state.document_stream_epoch() {
-            continue;
-        }
-        let same = state
-            .native_media
-            .borrow()
-            .playback
-            .get(&task.node)
-            .is_some_and(|value| value.session == task.session);
-        if task.event.is_none() && !same {
-            continue;
-        }
-        let result = (|| -> Result<bool, V8BindingError> {
-            if task.name != "__resolveplay" {
-                if task.event.is_none() {
-                    let event = create_event_object(scope, state, task.name, false, false)?;
-                    let id = event_id(scope, event)?;
-                    if let Some(record) = state.events.borrow_mut().get_mut(&id) {
-                        record.is_trusted = true;
-                    }
-                    task.event = Some(retained_dom_event::Event::new(
-                        scope, state, task.node, task.name, event,
-                    )?);
-                }
-                if task.event.as_mut().unwrap().poll(scope, state)?.is_none() {
-                    return Ok(false);
-                }
-            }
-            if matches!(task.name, "playing" | "__resolveplay") {
-                loop {
-                    let pending = {
-                        let media = state.native_media.borrow();
-                        media
-                            .playback
-                            .get(&task.node)
-                            .filter(|value| {
-                                value.session == task.session && !value.paused && value.ready >= 3
-                            })
-                            .and_then(|value| value.pending.first().cloned())
-                    };
-                    let Some(pending) = pending else { break };
-                    let resolver = v8::Local::new(scope, pending);
-                    let value = v8::undefined(scope);
-                    resolver
-                        .resolve(scope, value.into())
-                        .ok_or(V8BindingError::JavaScriptException)?;
-                    if let Some(value) = state
-                        .native_media
-                        .borrow_mut()
-                        .playback
-                        .get_mut(&task.node)
-                        .filter(|value| value.session == task.session)
-                    {
-                        if !value.pending.is_empty() {
-                            value.pending.remove(0);
-                        }
-                    }
-                }
-            }
-            Ok(true)
-        })();
-        match result {
-            Ok(true) => {
-                count += 1;
-                if task.name == "seeking" {
-                    return Ok((count, true));
-                }
-            }
-            result => {
-                state.native_media.borrow_mut().events.push_front(task);
-                return result.map(|_| (count, false));
-            }
-        }
-    }
-    Ok((count, false))
 }

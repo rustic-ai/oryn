@@ -12,6 +12,8 @@ use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
 pub struct Session {
+    #[cfg(test)]
+    lookup_wait_observer: Option<tokio::sync::oneshot::Sender<()>>,
     context: Option<BrowserContext>,
     current: Option<PageHandle>,
     handles: BTreeMap<String, PageId>,
@@ -51,17 +53,16 @@ async fn close_context(context: BrowserContext) -> Result<(), CommandError> {
     let mut errors = Vec::new();
     let graceful = tokio::time::timeout(std::time::Duration::from_secs(5), async {
         for page in context.pages() {
-            if page.status != PageStatus::Closed {
-                if let Err(error) = context.close_page(page.page.page_id).await {
-                    let already_closed =
-                        matches!(error, oryn_native::RuntimeError::PageNotFound(_))
-                            && context.pages().iter().any(|entry| {
-                                entry.page.page_id == page.page.page_id
-                                    && entry.status == PageStatus::Closed
-                            });
-                    if !already_closed {
-                        errors.push(error.to_string());
-                    }
+            if page.status != PageStatus::Closed
+                && let Err(error) = context.close_page(page.page.page_id).await
+            {
+                let already_closed = matches!(error, oryn_native::RuntimeError::PageNotFound(_))
+                    && context.pages().iter().any(|entry| {
+                        entry.page.page_id == page.page.page_id
+                            && entry.status == PageStatus::Closed
+                    });
+                if !already_closed {
+                    errors.push(error.to_string());
                 }
             }
         }
@@ -129,6 +130,8 @@ impl Session {
             });
         }
         let mut session = Self {
+            #[cfg(test)]
+            lookup_wait_observer: None,
             context: Some(context),
             current: Some(page),
             handles: BTreeMap::new(),
@@ -594,6 +597,10 @@ impl Session {
             {
                 return self.finalize_script_result(value);
             }
+            #[cfg(test)]
+            if let Some(observer) = self.lookup_wait_observer.take() {
+                let _ = observer.send(());
+            }
             let delay = deadline
                 .map(|deadline| {
                     deadline
@@ -802,16 +809,15 @@ impl Session {
             .iter()
             .find(|entry| entry.live && entry.parent_realm.is_none())
             .ok_or_else(no_window)?;
-        if let Some(selected) = &self.selected_frame {
-            if !inventory
+        if let Some(selected) = &self.selected_frame
+            && !inventory
                 .iter()
                 .any(|entry| entry.same_document_as(selected))
-            {
-                return Err(CommandError {
-                    code: "no such frame",
-                    message: "selected frame document is no longer current".into(),
-                });
-            }
+        {
+            return Err(CommandError {
+                code: "no such frame",
+                message: "selected frame document is no longer current".into(),
+            });
         }
         let mut handles = vec![WindowHandleBinding {
             realm: root.realm,
@@ -862,6 +868,49 @@ impl Session {
         self.selected_frame = None;
         self.frame_references.clear();
         close_context(context).await
+    }
+}
+
+impl Session {
+    pub async fn crash_qualification_worker(&self) -> Result<serde_json::Value, CommandError> {
+        let page = self.current_page()?;
+        #[cfg(unix)]
+        {
+            self.context()?
+                .terminate_qualification_worker(page.page_id())
+                .await
+                .map_err(runtime_error)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = page;
+            Err(CommandError {
+                code: "unsupported operation",
+                message: "native worker crash qualification requires Unix process ownership".into(),
+            })
+        }
+    }
+    pub fn queued_navigation_evidence(&self) -> Result<serde_json::Value, CommandError> {
+        let context = self.context()?;
+        let mut pages = Vec::new();
+        // Include closed pages: their retained terminal history is still part
+        // of this session, even after their public window handle was removed.
+        for page in context.pages() {
+            let id = page.page.page_id;
+            let snapshot = context
+                .queued_navigation_status(id)
+                .map_err(runtime_error)?;
+            pages.push(serde_json::json!({"page_id":id,"window":self.handles.iter().find(|(_,value)|**value==id).map(|(handle,_)|handle),"snapshot":snapshot}));
+        }
+        Ok(serde_json::json!({"schema_version":1,"pages":pages}))
+    }
+    pub fn execution_placement(&self, nonce: &str) -> Result<serde_json::Value, CommandError> {
+        self.context()?
+            .execution_placement_snapshot(nonce)
+            .map_err(|error| CommandError {
+                code: "unknown error",
+                message: error.to_string(),
+            })
     }
 }
 
@@ -1130,19 +1179,23 @@ mod tests {
                 .code,
             "invalid selector"
         );
-        page.evaluate("setTimeout(()=>{document.open();document.write('<body><div id=replacement></div>');document.close()},30)").await.unwrap();
-        assert_eq!(
-            session
-                .find_elements(
-                    None,
-                    vec!["#replacement".into()],
-                    std::sync::Arc::new(super::super::registry::SessionCancellation::default())
-                )
-                .await
-                .unwrap_err()
-                .code,
-            "no such frame"
+        // Trigger replacement only after lookup has captured the old document
+        // and observed an empty result. A wall-clock timer can fire before the
+        // lookup is admitted, which legitimately selects the new document.
+        let (observed, waiting) = tokio::sync::oneshot::channel();
+        session.lookup_wait_observer = Some(observed);
+        let lookup = session.find_elements(
+            None,
+            vec!["#replacement".into()],
+            std::sync::Arc::new(super::super::registry::SessionCancellation::default()),
         );
+        let replacement = async {
+            waiting.await.unwrap();
+            page.evaluate("document.open();document.write('<body><div id=replacement></div>');document.close()")
+                .await.unwrap();
+        };
+        let (result, ()) = tokio::join!(lookup, replacement);
+        assert_eq!(result.unwrap_err().code, "no such frame");
         session.delete().await.unwrap();
     }
     #[tokio::test]
@@ -1214,48 +1267,5 @@ mod tests {
         assert_eq!(a.current_page().err().unwrap().code, "invalid session id");
         assert!(b.current_page().is_ok());
         b.delete().await.unwrap();
-    }
-}
-
-impl Session {
-    pub async fn crash_qualification_worker(&self) -> Result<serde_json::Value, CommandError> {
-        let page = self.current_page()?;
-        #[cfg(unix)]
-        {
-            self.context()?
-                .terminate_qualification_worker(page.page_id())
-                .await
-                .map_err(runtime_error)
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = page;
-            Err(CommandError {
-                code: "unsupported operation",
-                message: "native worker crash qualification requires Unix process ownership".into(),
-            })
-        }
-    }
-    pub fn queued_navigation_evidence(&self) -> Result<serde_json::Value, CommandError> {
-        let context = self.context()?;
-        let mut pages = Vec::new();
-        // Include closed pages: their retained terminal history is still part
-        // of this session, even after their public window handle was removed.
-        for page in context.pages() {
-            let id = page.page.page_id;
-            let snapshot = context
-                .queued_navigation_status(id)
-                .map_err(runtime_error)?;
-            pages.push(serde_json::json!({"page_id":id,"window":self.handles.iter().find(|(_,value)|**value==id).map(|(handle,_)|handle),"snapshot":snapshot}));
-        }
-        Ok(serde_json::json!({"schema_version":1,"pages":pages}))
-    }
-    pub fn execution_placement(&self, nonce: &str) -> Result<serde_json::Value, CommandError> {
-        self.context()?
-            .execution_placement_snapshot(nonce)
-            .map_err(|error| CommandError {
-                code: "unknown error",
-                message: error.to_string(),
-            })
     }
 }

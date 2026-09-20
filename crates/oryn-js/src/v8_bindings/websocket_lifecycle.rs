@@ -62,8 +62,10 @@ pub(super) fn constructor_arguments(
             );
         }
     }
-    let syntax =
-        || V8BindingError::Message("SyntaxError: invalid WebSocket URL or protocols".into());
+    let syntax = || V8BindingError::Unsupported {
+        interface: "WebSocket".into(),
+        member: "SyntaxError".into(),
+    };
     let base = scope
         .get_current_context()
         .get_slot::<V8BindingState>()
@@ -183,20 +185,16 @@ pub(super) fn pump(
                     code,
                     reason: reason.clone(),
                 },
-                PendingPlatformOperation::WebSocketClose {
-                    websocket_id: id,
-                    code,
-                    reason,
-                },
+                PendingPlatformOperation::WebSocketClose { websocket_id: id },
             ))
         } else {
             None
         }
     };
-    if let Some((request, pending)) = operation {
-        if submit_platform_operation(state, request, pending).is_err() {
-            terminal(scope, state, id, 1006, String::new(), false, true)?;
-        }
+    if let Some((request, pending)) = operation
+        && submit_platform_operation(state, request, pending).is_err()
+    {
+        terminal(scope, state, id, 1006, String::new(), false, true)?;
     }
     Ok(())
 }
@@ -388,6 +386,194 @@ pub(super) fn close_property<'s>(
         .ok_or(V8BindingError::Allocation("CloseEvent payload"))
 }
 
+pub(super) struct Events {
+    id: u64,
+    open: bool,
+    frames: VecDeque<PlatformWebSocketFrame>,
+    target: v8::Global<v8::Object>,
+    delivery: Option<file_reader::Delivery>,
+}
+pub(super) fn queue_events(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    id: u64,
+    open: bool,
+    frames: Vec<PlatformWebSocketFrame>,
+) -> Result<(), V8BindingError> {
+    let target = new_platform_object(scope, state, "WebSocket", id)?;
+    state
+        .deferred_platform_tasks
+        .borrow_mut()
+        .push_back(DeferredPlatformTask::WebSocketEvents(Events {
+            id,
+            open,
+            frames: frames.into(),
+            target: v8::Global::new(scope, target),
+            delivery: None,
+        }));
+    Ok(())
+}
+pub(super) fn deliver_events(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    mut task: Events,
+) -> Result<(), V8BindingError> {
+    if state.execution_retired() {
+        return Ok(());
+    }
+    let mut more = false;
+    let result = (|| {
+        loop {
+            let (ready, binary, url) = match &*platform_object(state, task.id)? {
+                PlatformObjectRecord::WebSocket(socket) => (
+                    socket.ready_state,
+                    socket.binary_type.clone(),
+                    socket.url.clone(),
+                ),
+                _ => return Err(V8BindingError::Allocation("WebSocket record")),
+            };
+            if ready == 3 && task.delivery.is_none() {
+                return Ok(());
+            }
+            if task.delivery.is_none() {
+                let event = if task.open {
+                    if ready != 0 {
+                        return Ok(());
+                    }
+
+                    create_event_object_with_interface(scope, state, "Event", "open", false, false)?
+                } else {
+                    let Some(frame) = task.frames.front() else {
+                        break;
+                    };
+                    if let PlatformWebSocketFrame::Close { code, reason } = frame {
+                        return terminal(
+                            scope,
+                            state,
+                            task.id,
+                            code.unwrap_or(1005),
+                            reason.clone(),
+                            true,
+                            false,
+                        );
+                    }
+                    if ready != 1 {
+                        task.frames.pop_front();
+                        continue;
+                    }
+                    let data = match frame {
+                        PlatformWebSocketFrame::Text { value } => v8_scalar_string(scope, value)?,
+                        PlatformWebSocketFrame::Binary { bytes } => {
+                            if binary == "arraybuffer" {
+                                array_buffer_from_bytes(scope, bytes).into()
+                            } else {
+                                let id = register_platform_object(
+                                    state,
+                                    PlatformObjectRecord::Blob(BlobRecord {
+                                        bytes: bytes.clone(),
+                                        media_type: String::new(),
+                                        file: None,
+                                    }),
+                                );
+                                new_platform_object(scope, state, "Blob", id)?.into()
+                            }
+                        }
+                        _ => unreachable!(),
+                    };
+                    let event = create_event_object_with_interface(
+                        scope,
+                        state,
+                        "MessageEvent",
+                        "message",
+                        false,
+                        false,
+                    )?;
+                    message_events::initialize_empty(scope, state, event)
+                        .ok_or(V8BindingError::Allocation("WebSocket message"))?;
+                    let fields = event
+                        .get_internal_field(scope, 2)
+                        .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())
+                        .ok_or(V8BindingError::Allocation("WebSocket message fields"))?;
+                    let origin = url::Url::parse(&url)
+                        .map(|url| url.origin().ascii_serialization())
+                        .unwrap_or_default();
+                    let origin = v8_scalar_string(scope, &origin)?;
+                    if fields.set_index(scope, 0, data) != Some(true)
+                        || fields.set_index(scope, 1, origin) != Some(true)
+                    {
+                        return Err(V8BindingError::Allocation("WebSocket message fields"));
+                    }
+                    event
+                };
+                let id = event_id(scope, event)?;
+                if let Some(record) = state.events.borrow_mut().get_mut(&id) {
+                    record.is_trusted = true;
+                }
+                task.delivery = Some(file_reader::Delivery::from_event(
+                    scope,
+                    event,
+                    if task.open { "open" } else { "message" },
+                )?);
+                if task.open
+                    && let PlatformObjectRecord::WebSocket(socket) =
+                        &mut *platform_object_mut(state, task.id)?
+                {
+                    socket.protocol = socket.lifecycle.protocol.take().unwrap_or_default();
+                    socket.ready_state = 1;
+                }
+            }
+            task.delivery
+                .as_mut()
+                .unwrap()
+                .resume(scope, state, task.id, &task.target)?;
+            task.delivery = None;
+            if task.open {
+                task.open = false
+            } else {
+                task.frames.pop_front();
+            }
+            // One received message is one networking task, including its
+            // microtask checkpoint. Do not batch author callbacks into a task.
+            if !task.frames.is_empty() {
+                more = true;
+                return Ok(());
+            }
+        }
+        let socket_id = match &*platform_object(state, task.id)? {
+            PlatformObjectRecord::WebSocket(socket) if socket.ready_state == 1 => socket.socket_id,
+            _ => None,
+        };
+        if let Some(socket_id) = socket_id
+            && submit_platform_operation(
+                state,
+                PlatformHostRequest::WebSocketPoll {
+                    socket_id,
+                    max_frames: 32,
+                },
+                PendingPlatformOperation::WebSocketPoll {
+                    websocket_id: task.id,
+                },
+            )
+            .is_err()
+        {
+            terminal(scope, state, task.id, 1006, String::new(), false, true)?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        state
+            .deferred_platform_tasks
+            .borrow_mut()
+            .push_front(DeferredPlatformTask::WebSocketEvents(task));
+    } else if more {
+        state
+            .deferred_platform_tasks
+            .borrow_mut()
+            .push_back(DeferredPlatformTask::WebSocketEvents(task));
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,10 +630,7 @@ mod tests {
           if(ws.binaryType!=='arraybuffer')throw Error('enum reentry');
           try{ws.binaryType={toString(){throw sentinel}};throw Error('accepted')}catch(e){if(e!==sentinel)throw e}
         "#).unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        super::super::test_eval::run(scope, source);
         assert_eq!(host.requests.borrow().len(), 1);
         assert!(
             matches!(&host.requests.borrow()[0].1,PlatformHostRequest::WebSocketOpen{url,protocols}if url=="wss://a.test/socket"&&protocols==&vec!["x".to_string(),"X".to_string()])
@@ -469,10 +652,7 @@ mod tests {
         let host = Rc::new(Host::default());
         *state.platform_host.borrow_mut() = Some(host.clone());
         let source=v8::String::new(scope,"globalThis.log=[];globalThis.ws=new WebSocket('wss://a.test/');ws.onopen=()=>log.push('open');ws.onerror=()=>log.push('error');ws.onclose=e=>log.push([e instanceof CloseEvent,e.code,e.wasClean,ws.readyState].join(':'));ws.close();if(ws.readyState!==2||log.length)throw Error('synchronous terminal')").unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        super::super::test_eval::run(scope, source);
         let operation = host.requests.borrow()[0].0;
         state
             .handle_platform_completion(
@@ -490,10 +670,7 @@ mod tests {
         state.drain_platform_completions(scope, 8).unwrap();
         state.drain_platform_completions(scope, 8).unwrap();
         let source=v8::String::new(scope,"if(log.join(',')!=='error,true:1006:false:3')throw Error(log);ws.close();if(log.length!==2)throw Error('duplicate')").unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        super::super::test_eval::run(scope, source);
     }
     #[test]
     fn outbound_sends_are_serialized_before_close_and_use_peer_receipt() {
@@ -618,10 +795,7 @@ mod tests {
             .set(scope, key.into(), object.into())
             .unwrap();
         let source=v8::String::new(scope,"globalThis.calls=[];socket.addEventListener('error',()=>calls.push('first'));socket.addEventListener('error',()=>calls.push('once'),{once:true});socket.onclose=e=>calls.push(e.code)").unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        super::super::test_eval::run(scope, source);
         terminal(scope, &state, id, 1006, String::new(), false, true).unwrap();
         file_reader::FAILURE.with(|slot| *slot.borrow_mut() = Some(("once_refresh", 0)));
         assert!(state.drain_platform_completions(scope, 8).is_err());
@@ -633,201 +807,6 @@ mod tests {
             "if(calls.join(',')!=='first,once,1006')throw Error(calls)",
         )
         .unwrap();
-        v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        super::super::test_eval::run(scope, source);
     }
-}
-
-pub(super) struct Events {
-    id: u64,
-    open: bool,
-    frames: VecDeque<PlatformWebSocketFrame>,
-    target: v8::Global<v8::Object>,
-    delivery: Option<file_reader::Delivery>,
-}
-pub(super) fn queue_events(
-    scope: &mut v8::PinScope,
-    state: &V8BindingState,
-    id: u64,
-    open: bool,
-    frames: Vec<PlatformWebSocketFrame>,
-) -> Result<(), V8BindingError> {
-    let target = new_platform_object(scope, state, "WebSocket", id)?;
-    state
-        .deferred_platform_tasks
-        .borrow_mut()
-        .push_back(DeferredPlatformTask::WebSocketEvents(Events {
-            id,
-            open,
-            frames: frames.into(),
-            target: v8::Global::new(scope, target),
-            delivery: None,
-        }));
-    Ok(())
-}
-pub(super) fn deliver_events(
-    scope: &mut v8::PinScope,
-    state: &V8BindingState,
-    mut task: Events,
-) -> Result<(), V8BindingError> {
-    if state.execution_retired() {
-        return Ok(());
-    }
-    let mut more = false;
-    let result = (|| {
-        loop {
-            let (ready, binary, url) = match &*platform_object(state, task.id)? {
-                PlatformObjectRecord::WebSocket(socket) => (
-                    socket.ready_state,
-                    socket.binary_type.clone(),
-                    socket.url.clone(),
-                ),
-                _ => return Err(V8BindingError::Allocation("WebSocket record")),
-            };
-            if ready == 3 && task.delivery.is_none() {
-                return Ok(());
-            }
-            if task.delivery.is_none() {
-                let event = if task.open {
-                    if ready != 0 {
-                        return Ok(());
-                    }
-                    let event = create_event_object_with_interface(
-                        scope, state, "Event", "open", false, false,
-                    )?;
-                    event
-                } else {
-                    let Some(frame) = task.frames.front() else {
-                        break;
-                    };
-                    if let PlatformWebSocketFrame::Close { code, reason } = frame {
-                        return terminal(
-                            scope,
-                            state,
-                            task.id,
-                            code.unwrap_or(1005),
-                            reason.clone(),
-                            true,
-                            false,
-                        );
-                    }
-                    if ready != 1 {
-                        task.frames.pop_front();
-                        continue;
-                    }
-                    let data = match frame {
-                        PlatformWebSocketFrame::Text { value } => v8_scalar_string(scope, value)?,
-                        PlatformWebSocketFrame::Binary { bytes } => {
-                            if binary == "arraybuffer" {
-                                array_buffer_from_bytes(scope, bytes).into()
-                            } else {
-                                let id = register_platform_object(
-                                    state,
-                                    PlatformObjectRecord::Blob(BlobRecord {
-                                        bytes: bytes.clone(),
-                                        media_type: String::new(),
-                                        file: None,
-                                    }),
-                                );
-                                new_platform_object(scope, state, "Blob", id)?.into()
-                            }
-                        }
-                        _ => unreachable!(),
-                    };
-                    let event = create_event_object_with_interface(
-                        scope,
-                        state,
-                        "MessageEvent",
-                        "message",
-                        false,
-                        false,
-                    )?;
-                    message_events::initialize_empty(scope, state, event)
-                        .ok_or(V8BindingError::Allocation("WebSocket message"))?;
-                    let fields = event
-                        .get_internal_field(scope, 2)
-                        .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())
-                        .ok_or(V8BindingError::Allocation("WebSocket message fields"))?;
-                    let origin = url::Url::parse(&url)
-                        .map(|url| url.origin().ascii_serialization())
-                        .unwrap_or_default();
-                    let origin = v8_scalar_string(scope, &origin)?;
-                    if fields.set_index(scope, 0, data) != Some(true)
-                        || fields.set_index(scope, 1, origin) != Some(true)
-                    {
-                        return Err(V8BindingError::Allocation("WebSocket message fields"));
-                    }
-                    event
-                };
-                let id = event_id(scope, event)?;
-                if let Some(record) = state.events.borrow_mut().get_mut(&id) {
-                    record.is_trusted = true;
-                }
-                task.delivery = Some(file_reader::Delivery::from_event(
-                    scope,
-                    event,
-                    if task.open { "open" } else { "message" },
-                )?);
-                if task.open {
-                    if let PlatformObjectRecord::WebSocket(socket) =
-                        &mut *platform_object_mut(state, task.id)?
-                    {
-                        socket.protocol = socket.lifecycle.protocol.take().unwrap_or_default();
-                        socket.ready_state = 1;
-                    }
-                }
-            }
-            task.delivery
-                .as_mut()
-                .unwrap()
-                .resume(scope, state, task.id, &task.target)?;
-            task.delivery = None;
-            if task.open {
-                task.open = false
-            } else {
-                task.frames.pop_front();
-            }
-            // One received message is one networking task, including its
-            // microtask checkpoint. Do not batch author callbacks into a task.
-            if !task.frames.is_empty() {
-                more = true;
-                return Ok(());
-            }
-        }
-        let socket_id = match &*platform_object(state, task.id)? {
-            PlatformObjectRecord::WebSocket(socket) if socket.ready_state == 1 => socket.socket_id,
-            _ => None,
-        };
-        if let Some(socket_id) = socket_id {
-            if submit_platform_operation(
-                state,
-                PlatformHostRequest::WebSocketPoll {
-                    socket_id,
-                    max_frames: 32,
-                },
-                PendingPlatformOperation::WebSocketPoll {
-                    websocket_id: task.id,
-                },
-            )
-            .is_err()
-            {
-                terminal(scope, state, task.id, 1006, String::new(), false, true)?;
-            }
-        }
-        Ok(())
-    })();
-    if result.is_err() {
-        state
-            .deferred_platform_tasks
-            .borrow_mut()
-            .push_front(DeferredPlatformTask::WebSocketEvents(task));
-    } else if more {
-        state
-            .deferred_platform_tasks
-            .borrow_mut()
-            .push_back(DeferredPlatformTask::WebSocketEvents(task));
-    }
-    result
 }

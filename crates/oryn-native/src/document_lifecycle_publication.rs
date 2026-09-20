@@ -416,9 +416,9 @@ impl RustExecutableDocument {
                     pending.stage.set(if content_loaded { 1 } else { 4 });
                     #[cfg(test)]
                     lifecycle_failure(if content_loaded {
-                        LifecycleFailure::AfterDomReceipt
+                        LifecycleFailure::Dom
                     } else {
-                        LifecycleFailure::AfterLoadReceipt
+                        LifecycleFailure::Load
                     })?;
                 }
                 1 | 4 => {
@@ -461,7 +461,7 @@ impl RustExecutableDocument {
                     pending.receipt.set(Some(receipt));
                     pending.stage.set(6);
                     #[cfg(test)]
-                    lifecycle_failure(LifecycleFailure::AfterFrameReceipt)?;
+                    lifecycle_failure(LifecycleFailure::Frame)?;
                 }
                 6 => {
                     let parent = pending.parent.get().unwrap();
@@ -491,9 +491,9 @@ impl RustExecutableDocument {
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq)]
 enum LifecycleFailure {
-    AfterDomReceipt,
-    AfterLoadReceipt,
-    AfterFrameReceipt,
+    Dom,
+    Load,
+    Frame,
 }
 #[cfg(test)]
 thread_local! {static LIFECYCLE_FAILURE:Cell<Option<LifecycleFailure>>=const{Cell::new(None)};}
@@ -560,7 +560,7 @@ mod tests {
         let realm = page.top_realm;
         reset(&mut page, realm);
         page.agent.host.execute("globalThis.calls=[];document.addEventListener('DOMContentLoaded',()=>calls.push('dom'));addEventListener('load',e=>calls.push(e.target===document&&e.currentTarget===window?'load':'bad-target'))").unwrap();
-        LIFECYCLE_FAILURE.with(|failure| failure.set(Some(LifecycleFailure::AfterDomReceipt)));
+        LIFECYCLE_FAILURE.with(|failure| failure.set(Some(LifecycleFailure::Dom)));
         assert!(page.queue_document_load(realm).is_err());
         assert_eq!(
             page.agent.host.evaluate_string("calls.join(',')").unwrap(),
@@ -597,7 +597,7 @@ mod tests {
             .host
             .execute("globalThis.loads=0;addEventListener('load',()=>loads++)")
             .unwrap();
-        LIFECYCLE_FAILURE.with(|failure| failure.set(Some(LifecycleFailure::AfterLoadReceipt)));
+        LIFECYCLE_FAILURE.with(|failure| failure.set(Some(LifecycleFailure::Load)));
         assert!(page.queue_document_load(realm).is_err());
         assert_eq!(
             page.agent.host.evaluate_string("String(loads)").unwrap(),
@@ -622,7 +622,7 @@ mod tests {
         assert!(page.agent.host.realm_has_pending_images(realm));
         prepare_images(&mut page, realm);
         assert!(!page.agent.host.realm_has_pending_images(realm));
-        LIFECYCLE_FAILURE.with(|failure| failure.set(Some(LifecycleFailure::AfterFrameReceipt)));
+        LIFECYCLE_FAILURE.with(|failure| failure.set(Some(LifecycleFailure::Frame)));
         assert!(
             page.queue_document_load(realm).is_err(),
             "{}",
@@ -700,7 +700,7 @@ mod tests {
         page.agent.host.activate_realm(child).unwrap();
         reset(&mut page, child);
         page.agent.host.execute("addEventListener('load',()=>{const document=globalThis.document.getElementById('g').contentDocument;document.open();document.write('<body>waiting')},{once:true})").unwrap();
-        LIFECYCLE_FAILURE.with(|failure| failure.set(Some(LifecycleFailure::AfterLoadReceipt)));
+        LIFECYCLE_FAILURE.with(|failure| failure.set(Some(LifecycleFailure::Load)));
         assert!(page.queue_document_load(child).is_err());
         let pending = page.document_publications[&child].clone();
         assert_eq!(pending.stage.get(), 4);
@@ -722,7 +722,7 @@ mod tests {
             .host
             .execute("globalThis.loads=0;addEventListener('load',()=>loads++)")
             .unwrap();
-        LIFECYCLE_FAILURE.with(|failure| failure.set(Some(LifecycleFailure::AfterDomReceipt)));
+        LIFECYCLE_FAILURE.with(|failure| failure.set(Some(LifecycleFailure::Dom)));
         assert!(page.queue_document_load(realm).is_err());
         page.agent.host.execute("document.open()").unwrap();
         resume(&mut page);
@@ -746,7 +746,7 @@ mod tests {
         observer.loader_owned();
         let identity = page.agent.host.automation_realm_identity(realm).unwrap();
         page.frame_realms.get_mut(&realm).unwrap().execution = Some((observer, identity));
-        LIFECYCLE_FAILURE.with(|failure| failure.set(Some(LifecycleFailure::AfterFrameReceipt)));
+        LIFECYCLE_FAILURE.with(|failure| failure.set(Some(LifecycleFailure::Frame)));
         assert!(page.queue_document_load(realm).is_err());
         page.settle_frame_navigation_executions();
         assert!(results.lock().unwrap().is_empty());

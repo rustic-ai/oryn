@@ -20,7 +20,7 @@ mod use_node;
 mod text;
 
 pub use image::{ImageHrefDataResolverFn, ImageHrefResolver, ImageHrefStringResolverFn, ImageSvgViewportResolverFn};
-pub use options::Options;
+pub use options::{native_instance_reference, NativeInstanceContent, NativeInstanceKey, NativeInstanceStyles, Options};
 pub(crate) use svgtree::{AId, EId};
 
 /// List of all errors.
@@ -90,6 +90,13 @@ impl<T> OptionLog for Option<T> {
     }
 }
 
+/// Whether a use-reference target can enter this parser's SVG tree. Native
+/// style producers use this same admission rule before expanding references.
+pub fn native_instance_reference_tag(namespace: Option<&str>, local_name: &str) -> bool {
+    matches!(namespace, None | Some("http://www.w3.org/2000/svg"))
+        && svgtree::EId::from_str(local_name).is_some()
+}
+
 impl crate::Tree {
     /// Parses `Tree` from an SVG data.
     ///
@@ -120,7 +127,7 @@ impl crate::Tree {
 
     /// Parses `Tree` from `roxmltree::Document`.
     pub fn from_xmltree(doc: &roxmltree::Document, opt: &Options) -> Result<Self, Error> {
-        let doc = svgtree::Document::parse_tree(doc, opt.style_sheet.as_deref())?;
+        let doc = svgtree::Document::parse_tree(doc, opt.style_sheet.as_deref(), &opt.native_instance_styles, &opt.native_instance_content, &opt.native_style_roots)?;
         self::converter::convert_doc(&doc, opt)
     }
 }

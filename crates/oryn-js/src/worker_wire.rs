@@ -103,12 +103,20 @@ pub struct AgentPolicy {
     pub policy_self_url: Option<String>,
     #[serde(default)]
     pub policy_self_urls: Vec<Option<String>>,
+    /// Native origin used by newly parsed document meta policies. This is
+    /// distinct from each inherited policy's original self origin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_self_url: Option<String>,
     pub headers: Vec<(String, String)>,
 }
 impl AgentPolicy {
     pub fn with_document_url(mut self, url: String) -> Self {
         if self.url != url && self.policy_self_url.is_none() {
             self.policy_self_url = Some(self.url.clone());
+        }
+        if self.url != url && !matches!(url.split('#').next(), Some("about:blank" | "about:srcdoc"))
+        {
+            self.document_self_url = None;
         }
         self.url = url;
         self
@@ -311,7 +319,7 @@ pub enum WorkletCommand {
     Construct {
         id: u64,
         name: String,
-        value: WireValue,
+        value: Box<WireValue>,
     },
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -539,5 +547,52 @@ mod authority_schema_regressions {
         let copy: WorkerOptions =
             serde_json::from_value(serde_json::to_value(&options).unwrap()).unwrap();
         assert_eq!(options, copy);
+    }
+}
+
+#[cfg(test)]
+mod policy_document_origin_tests {
+    use super::AgentPolicy;
+
+    #[test]
+    fn legacy_policy_wire_defaults_native_document_origin_without_changing_bytes() {
+        let legacy = serde_json::json!({"url":"https://a.test/path","headers":[]});
+        let policy: AgentPolicy = serde_json::from_value(legacy).unwrap();
+        assert!(policy.document_self_url.is_none());
+        assert!(
+            serde_json::to_value(&policy)
+                .unwrap()
+                .get("document_self_url")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn rebasing_retains_blank_origin_but_does_not_grant_it_to_data_or_http() {
+        let policy = AgentPolicy {
+            url: "https://a.test/path".into(),
+            document_self_url: Some("https://a.test".into()),
+            ..Default::default()
+        };
+        for target in ["about:blank", "about:blank#fragment", "about:srcdoc"] {
+            let inherited = policy.clone().with_document_url(target.into());
+            assert_eq!(
+                inherited.document_self_url.as_deref(),
+                Some("https://a.test")
+            );
+            assert_eq!(
+                inherited.policy_self_url.as_deref(),
+                Some("https://a.test/path")
+            );
+        }
+        for target in ["data:text/html,new", "https://b.test/next"] {
+            assert!(
+                policy
+                    .clone()
+                    .with_document_url(target.into())
+                    .document_self_url
+                    .is_none()
+            );
+        }
     }
 }

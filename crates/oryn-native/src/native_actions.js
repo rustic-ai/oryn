@@ -18,7 +18,7 @@
   const cancelInputs = [];
   const modifiers = globalThis.__oryn_testdriver_modifiers ||= new Set();
   const special = {'\uE003':'Backspace','\uE004':'Tab','\uE007':'Enter',
-    '\uE008':'Shift','\uE009':'Control','\uE00A':'Alt','\uE010':'End','\uE011':'Home',
+    '\uE008':'Shift','\uE009':'Control','\uE00A':'Alt','\uE00C':'Escape','\uE010':'End','\uE011':'Home',
     '\uE012':'ArrowLeft','\uE013':'ArrowUp','\uE014':'ArrowRight','\uE015':'ArrowDown',
     '\uE017':'Delete','\uE03D':'Meta'};
   const unsupported = () => { throw new Error('not implemented: action variant'); };
@@ -164,10 +164,8 @@
   }
   async function run(sources,explicit) {
     check(); validate(sources);
-    // Pinned WPT resets Actions state before the next sequence, not before
-    // resolving the current one (held keys remain observable until then).
-    release(explicit);
-    pointer.x=0; pointer.y=0; pointer.target=null;
+    // Successive action calls share device state until explicit release.
+    // Retain the previous hit target for boundary events across calls.
     try {
       const length=Math.max(0,...sources.map(s=>s.actions.length));
       for(let tick=0;tick<length;tick++) {

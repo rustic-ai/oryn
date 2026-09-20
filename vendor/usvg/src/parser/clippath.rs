@@ -100,6 +100,12 @@ fn resolve_clip_path_transform(node: SvgNode, state: &converter::State) -> Optio
         None => return Some(Transform::default()),
     };
 
+    // Native computed CSS serializes the identity as `none`. Keep malformed
+    // matrices on the existing rejection path; only the CSS identity is new.
+    if value.trim().eq_ignore_ascii_case("none") {
+        return Some(Transform::default());
+    }
+
     let ts = match svgtypes::Transform::from_str(value) {
         Ok(v) => v,
         Err(_) => {

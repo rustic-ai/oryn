@@ -1,6 +1,7 @@
 // Explicit VP9/Opus decoder for WebM packets demuxed by webm.rs. This adapter
 // has no URL API. Container byte bounds and track selection precede admission.
 #import <VideoToolbox/VideoToolbox.h>
+#import <dispatch/dispatch.h>
 #include <vpx/vpx_decoder.h>
 #include <vpx/vp8dx.h>
 #include <limits.h>
@@ -32,6 +33,15 @@ static void OrynVP9Output(void *ref,void *source,OSStatus status,VTDecodeInfoFla
 }
 static BOOL OrynVP9Session(OrynWebM *media){
  if(media->isVP8){if(media->vp8Ready){vpx_codec_destroy(&media->vp8);media->vp8Ready=NO;}if(media->image){CVPixelBufferRelease(media->image);media->image=NULL;}vpx_codec_dec_cfg_t cfg={1,media.width,media.height};media->vp8Ready=vpx_codec_dec_init(&media->vp8,vpx_codec_vp8_dx(),&cfg,0)==VPX_CODEC_OK;return media->vp8Ready;}
+
+ // VP9 can be a supplemental decoder: opt in in this process before both
+ // capability probes and actual playback create a VideoToolbox session.
+ static dispatch_once_t vp9Registration;
+ dispatch_once(&vp9Registration, ^{
+  if (@available(macOS 11.0, *)) {
+   VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_VP9);
+  }
+ });
 
  if(media->decoder){VTDecompressionSessionInvalidate(media->decoder);CFRelease(media->decoder);media->decoder=NULL;}
  if(media->image){CVPixelBufferRelease(media->image);media->image=NULL;}media->decodeError=0;

@@ -1,5 +1,7 @@
 //! Native Web Animations objects, promises and renderer samples. Every time is
 //! derived from the owning document clock shared with performance and rAF.
+type TimelineCallback<'s> = (v8::Local<'s, v8::Object>, v8::Local<'s, v8::Function>);
+
 use super::animation_timing::{Direction, Easing, Fill, Timing};
 use super::*;
 #[derive(Default)]
@@ -367,7 +369,7 @@ fn string<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     value: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    v8_string(scope, value).map(Into::into)
+    v8_string(scope, value)
 }
 fn number(
     scope: &mut v8::PinScope,
@@ -590,7 +592,7 @@ fn names(
 fn iterable<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     value: v8::Local<'s, v8::Value>,
-) -> Result<Option<(v8::Local<'s, v8::Object>, v8::Local<'s, v8::Function>)>, V8BindingError> {
+) -> Result<Option<TimelineCallback<'s>>, V8BindingError> {
     let Ok(object) = v8::Local::<v8::Object>::try_from(value) else {
         return Ok(None);
     };
@@ -690,8 +692,8 @@ fn distribute_offsets(
             break;
         };
         let finish = frames[end].0.unwrap();
-        for index in start + 1..end {
-            frames[index].1.offset =
+        for (index, frame) in frames.iter_mut().enumerate().take(end).skip(start + 1) {
+            frame.1.offset =
                 begin + (finish - begin) * (index - start) as f64 / (end - start) as f64;
         }
         start = end;
@@ -882,12 +884,10 @@ fn document_timeline(
         .timelines
         .get(&document)
         .copied()
-    {
-        if let Some(PlatformObjectRecord::WebAnimationTimeline(timeline)) =
+        && let Some(PlatformObjectRecord::WebAnimationTimeline(timeline)) =
             state.platform_objects.borrow().get(&id)
-        {
-            return Ok(timeline.clone());
-        }
+    {
+        return Ok(timeline.clone());
     }
     let timeline = Rc::new(Timeline {
         owner: Rc::downgrade(state),
@@ -938,7 +938,7 @@ pub(super) fn end_rendering(state: &V8BindingState) {
 }
 fn trace(
     scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
+    _state: &Rc<V8BindingState>,
     wrapper: v8::Local<v8::Object>,
     animation: &Animation,
     extra: &[v8::Local<v8::Value>],
@@ -952,12 +952,11 @@ fn trace(
             values.push(wrapper.into())
         }
     }
-    if let Some(timeline) = &animation.timeline {
-        if let Some(owner) = timeline.owner.upgrade() {
-            values.push(
-                new_platform_object(scope, &owner, "DocumentTimeline", timeline.id.get())?.into(),
-            )
-        }
+    if let Some(timeline) = &animation.timeline
+        && let Some(owner) = timeline.owner.upgrade()
+    {
+        values
+            .push(new_platform_object(scope, &owner, "DocumentTimeline", timeline.id.get())?.into())
     }
     for promise in [&animation.ready, &animation.finished] {
         if let Some(value) = promise.resolver.to_local(scope) {
@@ -1388,17 +1387,17 @@ fn css_event_changes(
 ) -> Vec<(&'static str, f64)> {
     let mut result = Vec::new();
     let Some(value) = new else {
-        if let Some(old) = old {
-            if css_phase(old) != CssPhase::After {
-                result.push((
-                    if old.transition {
-                        "transitioncancel"
-                    } else {
-                        "animationcancel"
-                    },
-                    css_elapsed(old),
-                ));
-            }
+        if let Some(old) = old
+            && css_phase(old) != CssPhase::After
+        {
+            result.push((
+                if old.transition {
+                    "transitioncancel"
+                } else {
+                    "animationcancel"
+                },
+                css_elapsed(old),
+            ));
         }
         return result;
     };
@@ -1430,23 +1429,21 @@ fn css_event_changes(
         && before == CssPhase::Active
         && after == CssPhase::Active
         && value.iteration_duration_ms > 0.
+        && let Some(old) = old
     {
-        if let Some(old) = old {
-            let previous =
-                ((old.current_time_ms - old.delay_ms) / old.iteration_duration_ms).floor();
-            let current =
-                ((value.current_time_ms - value.delay_ms) / value.iteration_duration_ms).floor();
-            if previous != current {
-                result.push((
-                    "animationiteration",
-                    if current > previous {
-                        current
-                    } else {
-                        current + 1.
-                    } * value.iteration_duration_ms
-                        / 1000.,
-                ));
-            }
+        let previous = ((old.current_time_ms - old.delay_ms) / old.iteration_duration_ms).floor();
+        let current =
+            ((value.current_time_ms - value.delay_ms) / value.iteration_duration_ms).floor();
+        if previous != current {
+            result.push((
+                "animationiteration",
+                if current > previous {
+                    current
+                } else {
+                    current + 1.
+                } * value.iteration_duration_ms
+                    / 1000.,
+            ));
         }
     }
     if before != CssPhase::After && after == CssPhase::After
@@ -1541,10 +1538,10 @@ fn node_handler_invoke<'s>(
             let owner = binding_state_for_receiver(scope, event).ok_or_else(failed)?;
             let id = event_id(scope, event)?;
             let mut events = owner.events.borrow_mut();
-            if let Some(event) = events.get_mut(&id) {
-                if event.cancelable {
-                    event.default_prevented = true;
-                }
+            if let Some(event) = events.get_mut(&id)
+                && event.cancelable
+            {
+                event.default_prevented = true;
             }
         }
         Ok(())
@@ -1608,12 +1605,11 @@ fn set_node_handler(
                 passive: false,
                 signal: None,
             });
-    } else if !value.is_function() {
-        if let Some(id) = old {
-            if let Some(entries) = owner.listeners.borrow_mut().get_mut(&(node, name.into())) {
-                entries.retain(|entry| entry.registration_id != id);
-            }
-        }
+    } else if !value.is_function()
+        && let Some(id) = old
+        && let Some(entries) = owner.listeners.borrow_mut().get_mut(&(node, name.into()))
+    {
+        entries.retain(|entry| entry.registration_id != id);
     }
     receiver
         .set_private(scope, key, value)
@@ -2155,10 +2151,9 @@ fn setter(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8
                         .animation
                         .take()
                         .and_then(|old| old.upgrade())
+                        && !Rc::ptr_eq(&old, &record)
                     {
-                        if !Rc::ptr_eq(&old, &record) {
-                            old.borrow_mut().effect = None;
-                        }
+                        old.borrow_mut().effect = None;
                     }
                     effect.borrow_mut().animation = Some(Rc::downgrade(&record));
                 }
@@ -2235,10 +2230,10 @@ fn setter(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8
         link_target(&record);
         Ok(())
     })();
-    if result.is_ok() {
-        if let Some(state) = binding_state_for_receiver(scope, args.this()) {
-            drain_settlements(scope, &state);
-        }
+    if result.is_ok()
+        && let Some(state) = binding_state_for_receiver(scope, args.this())
+    {
+        drain_settlements(scope, &state);
     }
     if let Err(error) = result {
         throw_binding_error(scope, &error)
@@ -2350,7 +2345,7 @@ fn finish_animation(
     Ok(())
 }
 fn commit_styles(
-    scope: &mut v8::PinScope,
+    _scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     record: &Rc<RefCell<Animation>>,
 ) -> Result<(), V8BindingError> {
@@ -2645,10 +2640,10 @@ fn operation<'s>(
         update_root(scope, &state, args.this(), &animation);
         Ok(None)
     })();
-    if result.is_ok() {
-        if let Some(state) = binding_state_for_receiver(scope, args.this()) {
-            drain_settlements(scope, &state);
-        }
+    if result.is_ok()
+        && let Some(state) = binding_state_for_receiver(scope, args.this())
+    {
+        drain_settlements(scope, &state);
     }
     match result {
         Ok(Some(value)) => rv.set(value),
@@ -2746,13 +2741,12 @@ fn get_animations<'s>(
         .unwrap_or_default();
     for css in snapshots {
         let existing = state.web_animations.borrow().css.get(&css.id).copied();
-        if let Some(id) = existing {
-            if let Some(PlatformObjectRecord::WebAnimation(animation)) =
+        if let Some(id) = existing
+            && let Some(PlatformObjectRecord::WebAnimation(animation)) =
                 state.platform_objects.borrow().get(&id)
-            {
-                animation.borrow_mut().css = Some(css);
-                continue;
-            }
+        {
+            animation.borrow_mut().css = Some(css);
+            continue;
         }
         let timeline = default_timeline(scope, state)?;
         let effect = css_effect(scope, state, &css)?;
@@ -2958,10 +2952,9 @@ pub(super) fn retire(state: &V8BindingState) {
                 .target
                 .as_ref()
                 .and_then(|target| target.owner.upgrade())
-        }) {
-            if target.instance_id != state.instance_id {
-                invalidate_samples(&target);
-            }
+        }) && target.instance_id != state.instance_id
+        {
+            invalidate_samples(&target);
         }
     }
     let mut animations = state.web_animations.borrow_mut();

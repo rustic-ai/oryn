@@ -1,5 +1,12 @@
 //! Collection identities are independent of the arena that currently owns
 //! their members. Native migration already transfers their root counters.
+type MovingList = (
+    u64,
+    v8::Global<v8::Object>,
+    v8::Global<v8::Symbol>,
+    v8::Global<v8::Array>,
+);
+
 use super::*;
 #[cfg(test)]
 thread_local! {static FAIL_PUBLICATION:Cell<bool>=const{Cell::new(false)};}
@@ -8,12 +15,7 @@ struct Entry {
     id: u64,
     updates: Vec<(NodeId, NodeId)>,
     _object: v8::Global<v8::Object>,
-    moving: Option<(
-        u64,
-        v8::Global<v8::Object>,
-        v8::Global<v8::Symbol>,
-        v8::Global<v8::Array>,
-    )>,
+    moving: Option<MovingList>,
     published: bool,
 }
 pub(in crate::v8_bindings) struct Prepared {
@@ -119,7 +121,7 @@ pub(in crate::v8_bindings) fn capture_migration(
                     .next
                     .get()
                     .checked_add(1)
-                    .filter(|id| *id <= (1_u64 << 53) - 1)
+                    .filter(|id| *id < (1_u64 << 53))
                     .ok_or(V8BindingError::Allocation("NodeList migration identity"))?;
                 destination.node_lists.next.set(id);
                 let mut slot = if list.interface == "HTMLAllCollection" {
@@ -272,10 +274,10 @@ impl Prepared {
                     .borrow_mut()
                     .remove(&entry.id)
                     .ok_or_else(invalid_receiver)?;
-                if let Some((cache, root)) = cache(&entry.state.node_lists, &list.contents) {
-                    if cache.borrow().get(&root) == Some(&entry.id) {
-                        cache.borrow_mut().remove(&root);
-                    }
+                if let Some((cache, root)) = cache(&entry.state.node_lists, &list.contents)
+                    && cache.borrow().get(&root) == Some(&entry.id)
+                {
+                    cache.borrow_mut().remove(&root);
                 }
                 remap(&mut list.contents, nodes);
                 list.roots = list.roots.iter().map(|node| nodes[node]).collect();
@@ -387,7 +389,7 @@ mod tests {
         .unwrap();
         let mut wrappers = crate::v8_bindings::node_migration::Wrappers::capture(
             scope,
-            &[source.clone()],
+            std::slice::from_ref(&source),
             &target,
             &moved,
         )
@@ -430,7 +432,7 @@ mod tests {
         .unwrap();
         let mut wrappers = crate::v8_bindings::node_migration::Wrappers::capture(
             scope,
-            &[target.clone()],
+            std::slice::from_ref(&target),
             &source,
             &moved,
         )
@@ -556,9 +558,13 @@ mod tests {
             &nodes,
         )
         .unwrap();
-        let mut wrappers =
-            node_migration::Wrappers::capture(scope, &[source.clone()], &destination, &nodes)
-                .unwrap();
+        let mut wrappers = node_migration::Wrappers::capture(
+            scope,
+            std::slice::from_ref(&source),
+            &destination,
+            &nodes,
+        )
+        .unwrap();
         let moved =
             DomRuntime::commit_subtree_migration(&source_dom, &destination_dom, &mut native)
                 .unwrap();

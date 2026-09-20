@@ -1,5 +1,17 @@
 //! Native line breaking against Taffy's float exclusion bands. Custom inline
 //! box yields retain DOM order; no text is wrapped using guessed font metrics.
+
+/// Inputs for break layout.
+pub(crate) struct FloatLineInputs<'a> {
+    pub(crate) layout: &'a mut Layout<TextBrush>,
+    pub(crate) width: f64,
+    pub(crate) specs: &'a BTreeMap<u64, FloatSpec>,
+    pub(crate) context: &'a mut FloatContext,
+    pub(crate) origin: f64,
+    pub(crate) context_width: f64,
+    pub(crate) containing_insets: [f64; 2],
+    pub(crate) fragment: Option<(f64, f64)>,
+}
 use super::*;
 use taffy::{Clear, FloatDirection, compute::FloatContext};
 #[derive(Clone, Copy)]
@@ -195,16 +207,18 @@ fn configure(
     state.set_line_max_advance(slot.width.max(0.).min((width - x).max(0.)));
     state.set_line_max_height(slot.height.max(0.));
 }
-pub(super) fn break_layout(
-    layout: &mut Layout<TextBrush>,
-    width: f64,
-    specs: &BTreeMap<u64, FloatSpec>,
-    context: &mut FloatContext,
-    origin: f64,
-    context_width: f64,
-    containing_insets: [f64; 2],
-    fragment: Option<(f64, f64)>,
-) -> Vec<InlinePlacement> {
+pub(super) fn break_layout(params: FloatLineInputs<'_>) -> Vec<InlinePlacement> {
+    let FloatLineInputs {
+        layout,
+        width,
+        specs,
+        context,
+        origin,
+        context_width,
+        containing_insets,
+        fragment,
+    } = params;
+
     let width = width.max(0.);
     let context_width = (if context_width > 0. {
         context_width
@@ -233,40 +247,39 @@ pub(super) fn break_layout(
     while let Some(yielded) = breaker.break_next() {
         match yielded {
             parley::layout::YieldData::InlineBoxBreak(data) => {
-                if let Some(spec) = specs.get(&data.inline_box_id).copied() {
-                    if !placed.contains_key(&data.inline_box_id)
-                        && !deferred.iter().any(|(id, _)| *id == data.inline_box_id)
+                if let Some(spec) = specs.get(&data.inline_box_id).copied()
+                    && !placed.contains_key(&data.inline_box_id)
+                    && !deferred.iter().any(|(id, _)| *id == data.inline_box_id)
+                {
+                    let mut trial = context.clone();
+                    let position =
+                        spec.place(&mut trial, breaker.state().line_y(), insets, fragment);
+                    let available =
+                        fragment_slot(&trial, breaker.state().line_y(), 0., insets, fragment);
+                    if data.advance > 0.
+                        && (available.y as f64 > breaker.state().line_y() + 0.0001
+                            || available.width + 0.0001 < data.advance)
                     {
-                        let mut trial = context.clone();
-                        let position =
-                            spec.place(&mut trial, breaker.state().line_y(), insets, fragment);
-                        let available =
-                            fragment_slot(&trial, breaker.state().line_y(), 0., insets, fragment);
-                        if data.advance > 0.
-                            && (available.y as f64 > breaker.state().line_y() + 0.0001
-                                || available.width + 0.0001 < data.advance)
-                        {
-                            deferred.push((data.inline_box_id, spec)); // An unbreakable run may already overflow. Its consumed advance is
-                            // not additional available space for the following text or float.
-                            let limit = breaker.state().line_max_advance().min(data.advance);
-                            breaker.state_mut().set_line_max_advance(limit);
-                        } else {
-                            *context = trial;
-                            placed.insert(
-                                data.inline_box_id,
-                                InlinePlacement {
-                                    node: data.inline_box_id,
-                                    rect: CssRect {
-                                        x: f64::from(position.x),
-                                        y: f64::from(position.y),
-                                        width: spec.width,
-                                        height: spec.height,
-                                    },
-                                    line: usize::MAX,
+                        deferred.push((data.inline_box_id, spec)); // An unbreakable run may already overflow. Its consumed advance is
+                        // not additional available space for the following text or float.
+                        let limit = breaker.state().line_max_advance().min(data.advance);
+                        breaker.state_mut().set_line_max_advance(limit);
+                    } else {
+                        *context = trial;
+                        placed.insert(
+                            data.inline_box_id,
+                            InlinePlacement {
+                                node: data.inline_box_id,
+                                rect: CssRect {
+                                    x: f64::from(position.x),
+                                    y: f64::from(position.y),
+                                    width: spec.width,
+                                    height: spec.height,
                                 },
-                            );
-                            configure(breaker.state_mut(), available, width, insets[0]);
-                        }
+                                line: usize::MAX,
+                            },
+                        );
+                        configure(breaker.state_mut(), available, width, insets[0]);
                     }
                 }
                 breaker
@@ -291,13 +304,13 @@ pub(super) fn break_layout(
                     );
                 }
                 let available =
-                    fragment_slot(&context, breaker.state().line_y(), 0., insets, fragment);
+                    fragment_slot(context, breaker.state().line_y(), 0., insets, fragment);
                 configure(breaker.state_mut(), available, width, insets[0]);
                 checkpoint = breaker.state().clone();
             }
             parley::layout::YieldData::MaxHeightExceeded(data) => {
                 let available = fragment_slot(
-                    &context,
+                    context,
                     breaker.state().line_y(),
                     data.line_height,
                     insets,
@@ -393,15 +406,15 @@ mod tests {
             engine.float_context = Some(FloatContext::new());
             engine.float_context_width = 100.;
             engine.float_block_offset = origin;
-            let layout = engine.shape_paragraph(
-                "abc",
-                100.,
-                16.,
-                &style,
-                ViewportState::default(),
-                &[],
-                true,
-            );
+            let layout = engine.shape_paragraph(crate::ParagraphShapeInputs {
+                text: "abc",
+                width: 100.,
+                font_size: 16.,
+                style: &style,
+                viewport: ViewportState::default(),
+                ranges: &[],
+                first_paragraph: true,
+            });
             assert_eq!(layout.height, 20.);
             assert_eq!(layout.line_heights, vec![20.]);
             assert_eq!(layout.lines[0].3, 0.);
@@ -425,16 +438,16 @@ mod tests {
                 expected.set_text_indent(indent, Default::default());
                 expected.break_all_lines(Some(width as f32));
                 let mut context = FloatContext::new();
-                break_layout(
-                    &mut actual,
+                break_layout(FloatLineInputs {
+                    layout: &mut actual,
                     width,
-                    &BTreeMap::new(),
-                    &mut context,
-                    0.,
-                    500.,
-                    [12., 8.],
-                    None,
-                );
+                    specs: &BTreeMap::new(),
+                    context: &mut context,
+                    origin: 0.,
+                    context_width: 500.,
+                    containing_insets: [12., 8.],
+                    fragment: None,
+                });
                 assert_eq!(
                     actual
                         .lines()
@@ -472,16 +485,16 @@ mod tests {
                 monolithic: false,
             },
         )]);
-        let placements = break_layout(
-            &mut layout,
-            1.,
-            &specs,
-            &mut FloatContext::new(),
-            0.,
-            1.,
-            [0.; 2],
-            None,
-        );
+        let placements = break_layout(FloatLineInputs {
+            layout: &mut layout,
+            width: 1.,
+            specs: &specs,
+            context: &mut FloatContext::new(),
+            origin: 0.,
+            context_width: 1.,
+            containing_insets: [0.; 2],
+            fragment: None,
+        });
         assert_eq!(placements.len(), 1);
         assert_eq!(placements[0].node, 77);
         assert_eq!(layout.lines().last().unwrap().text_range().end, text.len());
@@ -508,16 +521,16 @@ mod tests {
                 monolithic: false,
             },
         )]);
-        break_layout(
-            &mut layout,
-            100.,
-            &specs,
-            &mut FloatContext::new(),
-            0.,
-            100.,
-            [0.; 2],
-            None,
-        );
+        break_layout(FloatLineInputs {
+            layout: &mut layout,
+            width: 100.,
+            specs: &specs,
+            context: &mut FloatContext::new(),
+            origin: 0.,
+            context_width: 100.,
+            containing_insets: [0.; 2],
+            fragment: None,
+        });
         layout.align(Alignment::Left, Default::default());
         let line = layout.lines().next().unwrap();
         let run = line

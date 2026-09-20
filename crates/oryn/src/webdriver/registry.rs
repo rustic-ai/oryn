@@ -42,12 +42,14 @@ impl SessionCancellation {
     }
 }
 
+type SessionRetirement = (String, Option<Result<(), CommandError>>);
+
 pub struct Registry {
     entries: Mutex<BTreeMap<String, Arc<Entry>>>,
     capacity: Arc<Semaphore>,
     closing: AtomicBool,
     max_sessions: u32,
-    retirements: Mutex<VecDeque<(String, Option<Result<(), CommandError>>)>>,
+    retirements: Mutex<VecDeque<SessionRetirement>>,
 }
 
 /// Holding a lease serializes one command against other commands in its session.

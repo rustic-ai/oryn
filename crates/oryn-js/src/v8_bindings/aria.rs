@@ -1,9 +1,11 @@
 //! ARIA reflection and ElementInternals defaults use separate native stores.
+type RelationArrays = BTreeMap<(NodeId, String, String), (Vec<NodeId>, v8::Weak<v8::Array>)>;
+
 use super::*;
 #[derive(Default)]
 pub(super) struct Registry {
     pub(super) migrated: RefCell<Vec<v8::Weak<v8::Object>>>,
-    arrays: RefCell<BTreeMap<(NodeId, String, String), (Vec<NodeId>, v8::Weak<v8::Array>)>>,
+    arrays: RefCell<RelationArrays>,
 }
 pub(super) fn collect(state: &V8BindingState) {
     state
@@ -233,12 +235,11 @@ pub(super) fn get_relation<'s>(
         };
     }
     let cache_key = (node, interface.to_owned(), member.to_owned());
-    if let Some((old, weak)) = state.aria.arrays.borrow().get(&cache_key) {
-        if old == &targets {
-            if let Some(array) = weak.to_local(scope) {
-                return Ok(array.into());
-            }
-        }
+    if let Some((old, weak)) = state.aria.arrays.borrow().get(&cache_key)
+        && old == &targets
+        && let Some(array) = weak.to_local(scope)
+    {
+        return Ok(array.into());
     }
     let mut values = Vec::new();
     for target in &targets {
@@ -552,12 +553,11 @@ pub(super) fn capture_migration(
                         } else {
                             record.default_accessibility_references(name)
                         };
-                        if let Some(refs) = refs {
-                            if nodes.contains(&owner)
-                                || refs.iter().any(|node| nodes.contains(node))
-                            {
-                                records.push((owner, name, explicit, refs.to_vec()));
-                            }
+                        if let Some(refs) = refs
+                            && (nodes.contains(&owner)
+                                || refs.iter().any(|node| nodes.contains(node)))
+                        {
+                            records.push((owner, name, explicit, refs.to_vec()));
                         }
                     }
                 }
@@ -643,10 +643,10 @@ pub(super) fn reconcile_node(
                 let value = values
                     .get_index(scope, index)
                     .ok_or(V8BindingError::JavaScriptException)?;
-                if let Some((owner, target)) = node_identity::argument(scope, value)? {
-                    if Rc::ptr_eq(&owner.dom, &state.dom) {
-                        projected.push(target);
-                    }
+                if let Some((owner, target)) = node_identity::argument(scope, value)?
+                    && Rc::ptr_eq(&owner.dom, &state.dom)
+                {
+                    projected.push(target);
                 }
             }
             if current.as_ref() != Some(&projected) {

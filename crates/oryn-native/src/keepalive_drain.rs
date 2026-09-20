@@ -38,7 +38,7 @@ impl Pool {
             for job in jobs {
                 let poll = job.poll.lock().unwrap_or_else(|e| e.into_inner()).take();
                 let done = if let Some(mut poll) = poll {
-                    let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| poll()))
+                    let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(&mut poll))
                         .unwrap_or(true);
                     if !done {
                         *job.poll.lock().unwrap_or_else(|e| e.into_inner()) = Some(poll);

@@ -108,166 +108,6 @@ unsafe extern "C" fn release(context: *mut c_void) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex;
-    struct Broker(Mutex<Vec<SharedMemoryRequest>>);
-    impl WorkerTransport for Broker {
-        fn request(
-            &self,
-            request: AgentServiceRequest,
-        ) -> Result<AgentServiceResponse, crate::worker_wire::WorkerError> {
-            let AgentServiceRequest::SharedMemory {
-                creator:
-                    Creator::Window {
-                        target: crate::message_wire::WindowTarget::Root,
-                        document_generation: 7,
-                        stream_epoch: 3,
-                    },
-                request,
-            } = request
-            else {
-                panic!("wrong native principal")
-            };
-            self.0.lock().unwrap().push(request);
-            Ok(AgentServiceResponse::SharedMemory(SharedMemoryResponse {
-                isolated: true,
-                outcome: SharedMemoryOutcome::Length(8),
-                descriptor: None,
-                native_descriptor: None,
-            }))
-        }
-    }
-    #[test]
-    fn wasm_growth_callback_preserves_atomic_previous_pages_and_call_limit() {
-        let broker = Arc::new(Broker(Mutex::new(Vec::new())));
-        let token = SharedMemoryToken([41; 32]);
-        let lease = Arc::new(MappingLease {
-            mapping_live: AtomicBool::new(true),
-            transport: broker.clone(),
-            creator: Creator::Window {
-                target: crate::message_wire::WindowTarget::Root,
-                document_generation: 7,
-                stream_epoch: 3,
-            },
-            descriptor: SharedMemoryDescriptor {
-                token,
-                byte_length: 65536,
-                mapped_length: 16 * 65536 + 4096,
-                maximum_length: 16 * 65536,
-                data_offset: 4096,
-                reserved_length: 16 * 65536,
-                guard_length: 0,
-                wasm: true,
-                growable: false,
-                memory64: false,
-            },
-        });
-        let context = Box::into_raw(Box::new(lease)).cast();
-        let mut previous = 99;
-        assert!(unsafe { grow_pages(context, 2, 16, &mut previous) });
-        assert_eq!(previous, 8);
-        previous = 99;
-        assert!(!unsafe { grow_pages(context, 2, 7, &mut previous) });
-        assert_eq!(
-            previous, 99,
-            "failed validation must not publish a previous size"
-        );
-        unsafe { release(context) };
-        let calls = broker.0.lock().unwrap();
-        assert!(matches!(
-            calls.as_slice(),
-            [
-                SharedMemoryRequest::GrowByPages {
-                    pages: 2,
-                    maximum_pages: 16,
-                    ..
-                },
-                SharedMemoryRequest::GrowByPages {
-                    pages: 2,
-                    maximum_pages: 7,
-                    ..
-                },
-                SharedMemoryRequest::Release { .. }
-            ]
-        ));
-    }
-    #[test]
-    fn retired_native_mapping_cannot_authenticate_reused_address_with_live_wait_lease() {
-        let broker = Arc::new(Broker(Mutex::new(Vec::new())));
-        let lease = Arc::new(MappingLease {
-            mapping_live: AtomicBool::new(true),
-            transport: broker.clone(),
-            creator: Creator::Window {
-                target: crate::message_wire::WindowTarget::Root,
-                document_generation: 7,
-                stream_epoch: 3,
-            },
-            descriptor: SharedMemoryDescriptor {
-                token: SharedMemoryToken([43; 32]),
-                byte_length: 8,
-                mapped_length: 8192,
-                maximum_length: 4096,
-                data_offset: 4096,
-                reserved_length: 4096,
-                guard_length: 0,
-                wasm: false,
-                growable: true,
-                memory64: false,
-            },
-        });
-        let waiter = lease.clone();
-        let context = Box::into_raw(Box::new(lease)).cast();
-        unsafe { release(context) };
-        assert!(!waiter.mapping_live.load(Ordering::Acquire));
-        assert!(
-            broker.0.lock().unwrap().is_empty(),
-            "waiter retains physical capability until acknowledgement"
-        );
-        drop(waiter);
-        assert!(matches!(
-            broker.0.lock().unwrap().as_slice(),
-            [SharedMemoryRequest::Release { .. }]
-        ));
-    }
-    #[test]
-    fn mapping_callback_owns_one_release_and_preserves_exact_creator() {
-        let broker = Arc::new(Broker(Mutex::new(Vec::new())));
-        let token = SharedMemoryToken([42; 32]);
-        let lease = Arc::new(MappingLease {
-            mapping_live: AtomicBool::new(true),
-            transport: broker.clone(),
-            creator: Creator::Window {
-                target: crate::message_wire::WindowTarget::Root,
-                document_generation: 7,
-                stream_epoch: 3,
-            },
-            descriptor: SharedMemoryDescriptor {
-                token,
-                byte_length: 8,
-                mapped_length: 8192,
-                maximum_length: 4096,
-                data_offset: 4096,
-                reserved_length: 4096,
-                guard_length: 0,
-                wasm: false,
-                growable: true,
-                memory64: false,
-            },
-        });
-        let weak = Arc::downgrade(&lease);
-        let context = Box::into_raw(Box::new(lease)).cast();
-        assert_eq!(unsafe { grow(context, 16) }, 0);
-        assert!(weak.upgrade().is_some());
-        unsafe { release(context) };
-        assert!(weak.upgrade().is_none());
-        let calls = broker.0.lock().unwrap();
-        assert!(
-            matches!(calls.as_slice(), [SharedMemoryRequest::GrowAbsolute { token: seen, length: 16 }, SharedMemoryRequest::Release { token: released }] if *seen == token && *released == token)
-        );
-    }
-}
 unsafe extern "C" fn grow(context: *mut c_void, length: usize) -> i32 {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let lease = unsafe { &*context.cast::<Arc<MappingLease>>() };
@@ -440,4 +280,165 @@ fn map_kind<'s>(
         v8::SharedArrayBuffer::with_backing_store(scope, &backing),
         weak,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+    struct Broker(Mutex<Vec<SharedMemoryRequest>>);
+    impl WorkerTransport for Broker {
+        fn request(
+            &self,
+            request: AgentServiceRequest,
+        ) -> Result<AgentServiceResponse, crate::worker_wire::WorkerError> {
+            let AgentServiceRequest::SharedMemory {
+                creator:
+                    Creator::Window {
+                        target: crate::message_wire::WindowTarget::Root,
+                        document_generation: 7,
+                        stream_epoch: 3,
+                    },
+                request,
+            } = request
+            else {
+                panic!("wrong native principal")
+            };
+            self.0.lock().unwrap().push(request);
+            Ok(AgentServiceResponse::SharedMemory(SharedMemoryResponse {
+                isolated: true,
+                outcome: SharedMemoryOutcome::Length(8),
+                descriptor: None,
+                native_descriptor: None,
+            }))
+        }
+    }
+    #[test]
+    fn wasm_growth_callback_preserves_atomic_previous_pages_and_call_limit() {
+        let broker = Arc::new(Broker(Mutex::new(Vec::new())));
+        let token = SharedMemoryToken([41; 32]);
+        let lease = Arc::new(MappingLease {
+            mapping_live: AtomicBool::new(true),
+            transport: broker.clone(),
+            creator: Creator::Window {
+                target: crate::message_wire::WindowTarget::Root,
+                document_generation: 7,
+                stream_epoch: 3,
+            },
+            descriptor: SharedMemoryDescriptor {
+                token,
+                byte_length: 65536,
+                mapped_length: 16 * 65536 + 4096,
+                maximum_length: 16 * 65536,
+                data_offset: 4096,
+                reserved_length: 16 * 65536,
+                guard_length: 0,
+                wasm: true,
+                growable: false,
+                memory64: false,
+            },
+        });
+        let context = Box::into_raw(Box::new(lease)).cast();
+        let mut previous = 99;
+        assert!(unsafe { grow_pages(context, 2, 16, &mut previous) });
+        assert_eq!(previous, 8);
+        previous = 99;
+        assert!(!unsafe { grow_pages(context, 2, 7, &mut previous) });
+        assert_eq!(
+            previous, 99,
+            "failed validation must not publish a previous size"
+        );
+        unsafe { release(context) };
+        let calls = broker.0.lock().unwrap();
+        assert!(matches!(
+            calls.as_slice(),
+            [
+                SharedMemoryRequest::GrowByPages {
+                    pages: 2,
+                    maximum_pages: 16,
+                    ..
+                },
+                SharedMemoryRequest::GrowByPages {
+                    pages: 2,
+                    maximum_pages: 7,
+                    ..
+                },
+                SharedMemoryRequest::Release { .. }
+            ]
+        ));
+    }
+    #[test]
+    fn retired_native_mapping_cannot_authenticate_reused_address_with_live_wait_lease() {
+        let broker = Arc::new(Broker(Mutex::new(Vec::new())));
+        let lease = Arc::new(MappingLease {
+            mapping_live: AtomicBool::new(true),
+            transport: broker.clone(),
+            creator: Creator::Window {
+                target: crate::message_wire::WindowTarget::Root,
+                document_generation: 7,
+                stream_epoch: 3,
+            },
+            descriptor: SharedMemoryDescriptor {
+                token: SharedMemoryToken([43; 32]),
+                byte_length: 8,
+                mapped_length: 8192,
+                maximum_length: 4096,
+                data_offset: 4096,
+                reserved_length: 4096,
+                guard_length: 0,
+                wasm: false,
+                growable: true,
+                memory64: false,
+            },
+        });
+        let waiter = lease.clone();
+        let context = Box::into_raw(Box::new(lease)).cast();
+        unsafe { release(context) };
+        assert!(!waiter.mapping_live.load(Ordering::Acquire));
+        assert!(
+            broker.0.lock().unwrap().is_empty(),
+            "waiter retains physical capability until acknowledgement"
+        );
+        drop(waiter);
+        assert!(matches!(
+            broker.0.lock().unwrap().as_slice(),
+            [SharedMemoryRequest::Release { .. }]
+        ));
+    }
+    #[test]
+    fn mapping_callback_owns_one_release_and_preserves_exact_creator() {
+        let broker = Arc::new(Broker(Mutex::new(Vec::new())));
+        let token = SharedMemoryToken([42; 32]);
+        let lease = Arc::new(MappingLease {
+            mapping_live: AtomicBool::new(true),
+            transport: broker.clone(),
+            creator: Creator::Window {
+                target: crate::message_wire::WindowTarget::Root,
+                document_generation: 7,
+                stream_epoch: 3,
+            },
+            descriptor: SharedMemoryDescriptor {
+                token,
+                byte_length: 8,
+                mapped_length: 8192,
+                maximum_length: 4096,
+                data_offset: 4096,
+                reserved_length: 4096,
+                guard_length: 0,
+                wasm: false,
+                growable: true,
+                memory64: false,
+            },
+        });
+        let weak = Arc::downgrade(&lease);
+        let context = Box::into_raw(Box::new(lease)).cast();
+        assert_eq!(unsafe { grow(context, 16) }, 0);
+        assert!(weak.upgrade().is_some());
+        unsafe { release(context) };
+        assert!(weak.upgrade().is_none());
+        let calls = broker.0.lock().unwrap();
+        assert!(
+            matches!(calls.as_slice(), [SharedMemoryRequest::GrowAbsolute { token: seen, length: 16 }, SharedMemoryRequest::Release { token: released }] if *seen == token && *released == token)
+        );
+    }
 }

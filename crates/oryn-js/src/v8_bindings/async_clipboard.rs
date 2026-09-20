@@ -444,19 +444,16 @@ fn as_blob(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv
             return Err(failure("InvalidStateError"));
         }
         let media_type = args.data().to_rust_string_lossy(scope);
-        if let Ok(object) = v8::Local::<v8::Object>::try_from(args.get(0)) {
-            if let Some(owner) = binding_state_for_receiver(scope, object) {
-                if let Ok(id) = stateful_id(scope, object) {
-                    if let Ok(record) = platform_object(&owner, id) {
-                        if let PlatformObjectRecord::Blob(blob) = &*record {
-                            if blob.media_type != media_type {
-                                return Err(failure("TypeError"));
-                            }
-                            return Ok(object.into());
-                        }
-                    }
-                }
+        if let Ok(object) = v8::Local::<v8::Object>::try_from(args.get(0))
+            && let Some(owner) = binding_state_for_receiver(scope, object)
+            && let Ok(id) = stateful_id(scope, object)
+            && let Ok(record) = platform_object(&owner, id)
+            && let PlatformObjectRecord::Blob(blob) = &*record
+        {
+            if blob.media_type != media_type {
+                return Err(failure("TypeError"));
             }
+            return Ok(object.into());
         }
         if !args.get(0).is_string() {
             return Err(failure("TypeError"));
@@ -767,10 +764,9 @@ fn reject_write(scope: &mut v8::PinScope, data: v8::Local<v8::Array>, error: &V8
     if let Some(resolver) = data
         .get_index(scope, 0)
         .map(|value| unsafe { v8::Local::<v8::PromiseResolver>::cast_unchecked(value) })
+        && let Ok(exception) = clipboard_exception(scope, error)
     {
-        if let Ok(exception) = clipboard_exception(scope, error) {
-            resolver.reject(scope, exception);
-        }
+        resolver.reject(scope, exception);
     }
 }
 fn clipboard_exception<'s>(

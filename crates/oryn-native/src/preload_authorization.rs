@@ -46,6 +46,7 @@ fn error(message: &str) -> RuntimeError {
     RuntimeError::ProtocolViolation(message.into())
 }
 impl Registry {
+    #[cfg(test)]
     pub(super) fn capture(
         &self,
         owner: AgentOwner,
@@ -149,6 +150,7 @@ impl Registry {
 impl Proof {
     /// Native enqueue only: the lock spans enqueue and receipt commit, never author
     /// callbacks or transport. Failed enqueue keeps the same consumption retryable.
+    #[cfg(test)]
     pub(super) fn publish_hash_once(
         &self,
         consumer: &[u8],
@@ -187,7 +189,7 @@ impl Proof {
 
 use super::{
     ContextServiceRequest as Request, ContextServiceResponse as Response, PageResourceOptions,
-    ParentContextService,
+    ParentContextService, TracedPageScriptInputs,
 };
 impl ParentContextService {
     fn preload_request_owner(
@@ -251,25 +253,25 @@ impl ParentContextService {
                 script_policy,
                 parser_inserted,
                 ..
-            } => match self.load_page_script_classified_traced(
+            } => match self.load_page_script_classified_traced(TracedPageScriptInputs {
                 page_id,
-                &url,
+                requested_url: &url,
                 module,
-                nonce.as_deref(),
-                initiator_url.as_deref(),
-                referrer_policy.as_deref(),
-                integrity.as_deref(),
-                cross_origin.as_deref(),
-                referrer_source.as_deref(),
-                None,
-                Some(&lease.cancel),
-                Some(&creator),
-                script_policy.as_deref(),
+                nonce: nonce.as_deref(),
+                initiator_url: initiator_url.as_deref(),
+                referrer_policy: referrer_policy.as_deref(),
+                integrity: integrity.as_deref(),
+                cross_origin: cross_origin.as_deref(),
+                referrer_source: referrer_source.as_deref(),
+                kind: None,
+                cancellation: Some(&lease.cancel),
+                creator: Some(&creator),
+                script_policy: script_policy.as_deref(),
                 parser_inserted,
-                fallback_encoding.as_deref(),
-                Some(&mut trace),
-                Some(&mut hash_evidence),
-            ) {
+                fallback_encoding: fallback_encoding.as_deref(),
+                trace: Some(&mut trace),
+                hash_evidence: Some(&mut hash_evidence),
+            }) {
                 Ok(response) => response,
                 Err(failure) => Response::ScriptLoadFailed { failure },
             },
@@ -442,14 +444,13 @@ impl ParentContextService {
             }
             if destination == crate::csp::CspDestination::Script
                 && matches!(&owner, AgentOwner::Window { .. })
+                && let Some(evidence) = evidence
             {
-                if let Some(evidence) = evidence {
-                    context.deliver_script_hash_reports(
-                        Some(page),
-                        &top,
-                        csp.hash_reports_from_evidence(destination, "script", requested, evidence),
-                    );
-                }
+                context.deliver_script_hash_reports(
+                    Some(page),
+                    &top,
+                    csp.hash_reports_from_evidence(destination, "script", requested, evidence),
+                );
             }
             Ok(())
         })?;
@@ -476,6 +477,7 @@ mod tests {
                 None
             };
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: if next.is_some() { 302 } else { 200 },

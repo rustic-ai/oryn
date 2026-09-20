@@ -49,6 +49,7 @@ impl Waiter {
     }
     /// Bounded wait lets a native engine interruption checkpoint run even when
     /// the JavaScript timeout is infinite. Terminal outcomes remain stable.
+    #[cfg(test)]
     pub(crate) fn wait_slice(&self, budget: Duration) -> WaitOutcome {
         let _ = self.poll();
         let state = self

@@ -1,5 +1,7 @@
 //! Native service-worker wrappers and promise polling. Registry and worker IDs
 //! remain in private native tables; public properties never authorize a request.
+type DecodedMessage = (v8::Global<v8::Value>, Vec<v8::Global<v8::Object>>);
+
 use super::*;
 use crate::{
     service_worker_wire::*,
@@ -40,18 +42,19 @@ pub(super) struct Bindings {
     ready: Option<v8::Weak<v8::Promise>>,
     controller: Option<ServiceVersionId>,
 }
+struct MessagePublication {
+    activation: Option<[bool; 2]>,
+    container: u64,
+    source: WorkerSnapshot,
+    origin: String,
+    wire: Option<crate::message_wire::WireValue>,
+    cleanup: Option<structured_clone::SharedReceiveGuard>,
+    source_object: Option<v8::Global<v8::Value>>,
+    decoded: Option<Option<DecodedMessage>>,
+}
 enum PublicationPayload {
     Event(u64, &'static str),
-    Message {
-        activation: Option<[bool; 2]>,
-        container: u64,
-        source: WorkerSnapshot,
-        origin: String,
-        wire: Option<crate::message_wire::WireValue>,
-        cleanup: Option<structured_clone::SharedReceiveGuard>,
-        source_object: Option<v8::Global<v8::Value>>,
-        decoded: Option<Option<(v8::Global<v8::Value>, Vec<v8::Global<v8::Object>>)>>,
-    },
+    Message(Box<MessagePublication>),
 }
 struct Publication {
     payload: PublicationPayload,
@@ -68,10 +71,10 @@ impl Drop for PollBatch {
         let mut bindings = self.state.service_workers.borrow_mut();
         bindings.polling = false;
         if self.state.execution_retired() {
-            if let Some(publication) = self.publication.take() {
-                if let Some(dispatch) = publication.dispatch {
-                    dispatch.cancel(&self.state);
-                }
+            if let Some(publication) = self.publication.take()
+                && let Some(dispatch) = publication.dispatch
+            {
+                dispatch.cancel(&self.state);
             }
             return;
         }
@@ -480,7 +483,7 @@ fn install_prototypes(
         global.create_data_property(scope, key.into(), constructor.into());
         let retained = context_intrinsics::retain_object_for(
             scope,
-            &state,
+            state,
             &format!("service_workers-prototype-{name}"),
             prototype,
         )?;
@@ -509,17 +512,15 @@ fn hide_insecure_exposure(
         let value = global
             .get(scope, key.into())
             .ok_or(V8BindingError::JavaScriptException)?;
-        if let Ok(constructor) = value.try_cast::<v8::Object>() {
-            if let Some(prototype) = constructor
+        if let Ok(constructor) = value.try_cast::<v8::Object>()
+            && let Some(prototype) = constructor
                 .get(scope, prototype.into())
                 .and_then(|value| value.try_cast::<v8::Object>().ok())
-            {
-                if prototype.delete(scope, member.into()) != Some(true) {
-                    return Err(V8BindingError::Allocation(
-                        "insecure service prototype exposure",
-                    ));
-                }
-            }
+            && prototype.delete(scope, member.into()) != Some(true)
+        {
+            return Err(V8BindingError::Allocation(
+                "insecure service prototype exposure",
+            ));
         }
     }
     let key = v8::String::new(scope, "navigator")
@@ -527,12 +528,11 @@ fn hide_insecure_exposure(
     if let Some(navigator) = global
         .get(scope, key.into())
         .and_then(|value| value.try_cast::<v8::Object>().ok())
+        && navigator.delete(scope, member.into()) != Some(true)
     {
-        if navigator.delete(scope, member.into()) != Some(true) {
-            return Err(V8BindingError::Allocation(
-                "insecure service navigator exposure",
-            ));
-        }
+        return Err(V8BindingError::Allocation(
+            "insecure service navigator exposure",
+        ));
     }
     for name in [
         "ServiceWorker",
@@ -1268,9 +1268,8 @@ pub(super) fn poll(
                             .map(|worker| worker.version_id)
                 })
                 && registration.installing.is_some();
-            if update {
-                if let Some((id,_))=bindings.entities.iter().find(|(_,entity)|matches!(entity.kind,Kind::Registration(id) if id==registration.id)){events.push((*id,"updatefound"));}
-            }
+            if update
+                && let Some((id,_))=bindings.entities.iter().find(|(_,entity)|matches!(entity.kind,Kind::Registration(id) if id==registration.id)){events.push((*id,"updatefound"));}
             for worker in [
                 &registration.installing,
                 &registration.waiting,
@@ -1283,9 +1282,7 @@ pub(super) fn poll(
                     .workers
                     .get(&worker.version_id)
                     .is_some_and(|previous| previous.state != worker.state)
-                {
-                    if let Some((id,_))=bindings.entities.iter().find(|(_,entity)|matches!(entity.kind,Kind::Worker(id) if id==worker.version_id)){events.push((*id,"statechange"));}
-                }
+                    && let Some((id,_))=bindings.entities.iter().find(|(_,entity)|matches!(entity.kind,Kind::Worker(id) if id==worker.version_id)){events.push((*id,"statechange"));}
                 bindings.workers.insert(worker.version_id, worker.clone());
             }
             bindings.registrations.insert(registration.id, registration);
@@ -1309,27 +1306,26 @@ pub(super) fn poll(
         }
         for message in messages {
             let cleanup = structured_clone::shared_receive_guard(state, &message.value);
-            if let Some(container) = bindings.container {
-                if let Some(target) = bindings
+            if let Some(container) = bindings.container
+                && let Some(target) = bindings
                     .entities
                     .get(&container)
                     .and_then(|entity| entity.object.to_local(scope))
-                {
-                    bindings.publications.push_back(Publication {
-                        payload: PublicationPayload::Message {
-                            activation: message.value.user_activation(),
-                            container,
-                            source: message.source,
-                            origin: message.origin,
-                            wire: Some(message.value),
-                            cleanup: Some(cleanup),
-                            source_object: None,
-                            decoded: None,
-                        },
-                        _target: v8::Global::new(scope, target),
-                        dispatch: None,
-                    });
-                }
+            {
+                bindings.publications.push_back(Publication {
+                    payload: PublicationPayload::Message(Box::new(MessagePublication {
+                        activation: message.value.user_activation(),
+                        container,
+                        source: message.source,
+                        origin: message.origin,
+                        wire: Some(message.value),
+                        cleanup: Some(cleanup),
+                        source_object: None,
+                        decoded: None,
+                    })),
+                    _target: v8::Global::new(scope, target),
+                    dispatch: None,
+                });
             }
         }
     }
@@ -1389,16 +1385,18 @@ fn drain_publications(
                     *name,
                     create_event_object(scope, state, name, false, false)?,
                 ),
-                PublicationPayload::Message {
-                    activation,
-                    container,
-                    source,
-                    origin,
-                    wire,
-                    cleanup,
-                    source_object,
-                    decoded,
-                } => {
+                PublicationPayload::Message(message) => {
+                    let MessagePublication {
+                        activation,
+                        container,
+                        source,
+                        origin,
+                        wire,
+                        cleanup,
+                        source_object,
+                        decoded,
+                    } = message.as_mut();
+
                     if source_object.is_none() {
                         let (value, _) = message_source(
                             scope,
@@ -1462,7 +1460,7 @@ fn drain_publications(
                         .ok_or(V8BindingError::Allocation("service message fields"))?;
                     let source = v8::Local::new(scope, source_object.as_ref().unwrap());
                     let origin = v8_string(scope, origin)?;
-                    for (index, value) in [("3", source), ("1", origin.into())] {
+                    for (index, value) in [("3", source), ("1", origin)] {
                         let key = v8::String::new(scope, index)
                             .ok_or(V8BindingError::Allocation("service message index"))?;
                         if fields.create_data_property(scope, key.into(), value) != Some(true) {
@@ -1686,13 +1684,6 @@ fn agent_skip_waiting(
     mut rv: v8::ReturnValue,
 ) {
     agent_operation(scope, ServiceRequest::SkipWaiting, &mut rv)
-}
-fn agent_claim(
-    scope: &mut v8::PinScope,
-    _: v8::FunctionCallbackArguments,
-    mut rv: v8::ReturnValue,
-) {
-    agent_operation(scope, ServiceRequest::Claim, &mut rv)
 }
 fn agent_operation(scope: &mut v8::PinScope, request: ServiceRequest, rv: &mut v8::ReturnValue) {
     let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
@@ -1930,6 +1921,7 @@ mod publication_tests {
         fail_ack: AtomicBool,
         results: Mutex<BTreeMap<u64, ServiceResult>>,
         snapshot: Mutex<Option<ContainerSnapshot>>,
+        controller: Mutex<Option<WorkerSnapshot>>,
         polls: AtomicUsize,
         snapshots: AtomicUsize,
     }
@@ -1961,16 +1953,30 @@ mod publication_tests {
                         Ok(AgentServiceResponse::Service(ServiceResponse::Done))
                     }
                 }
+                AgentServiceRequest::Service(ServiceRequest::Controller { .. }) => {
+                    let controller = self
+                        .snapshot
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .map(|snapshot| snapshot.controller.clone())
+                        .unwrap_or_else(|| self.controller.lock().unwrap().clone());
+                    Ok(AgentServiceResponse::Service(ServiceResponse::Controller(
+                        controller,
+                    )))
+                }
                 AgentServiceRequest::Service(ServiceRequest::Snapshot {
                     take_messages, ..
                 }) => {
                     self.snapshots.fetch_add(1, Ordering::SeqCst);
                     let mut snapshot = self.snapshot.lock().unwrap();
                     let mut value = snapshot.clone().unwrap_or(ContainerSnapshot {
-                        controller: None,
+                        controller: self.controller.lock().unwrap().clone(),
                         registrations: Vec::new(),
                         messages: Vec::new(),
                     });
+                    // Taking queued messages does not detach the client's controller.
+                    *self.controller.lock().unwrap() = value.controller.clone();
                     if take_messages {
                         snapshot.take();
                     } else {
@@ -1989,6 +1995,7 @@ mod publication_tests {
             fail_ack: AtomicBool::new(false),
             results: Mutex::new(BTreeMap::new()),
             snapshot: Mutex::new(None),
+            controller: Mutex::new(None),
             polls: AtomicUsize::new(0),
             snapshots: AtomicUsize::new(0),
         })
@@ -2163,7 +2170,7 @@ mod publication_tests {
             .create_data_property(scope, key.into(), container.into());
         eval(
             scope,
-            "globalThis.seen=[];globalThis.saved=null;container.addEventListener('controllerchange',e=>{saved=e;seen.push('first')},{once:true});container.addEventListener('controllerchange',e=>{if(saved!==e)throw Error('event replaced');seen.push('second')});container.onmessage=e=>{if(e.data!=='payload'||e.origin!=='https://example.test'||e.source!==container.controller)throw Error('message identity');seen.push('message')};",
+            "globalThis.seen=[];globalThis.saved=null;container.addEventListener('controllerchange',e=>{saved=e;seen.push('first')},{once:true});container.addEventListener('controllerchange',e=>{if(saved!==e)throw Error('event replaced');seen.push('second')});container.onmessage=e=>{globalThis.messageObserved=[e.type,e.data,e.origin,e.source===container.controller];if(e.data!=='payload'||e.origin!=='https://example.test'||e.source!==container.controller)throw Error('message identity');seen.push('message')};",
         );
         let worker = WorkerSnapshot {
             version_id: ServiceVersionId([1; 16]),
@@ -2197,7 +2204,12 @@ mod publication_tests {
             .borrow_mut()
             .insert("MessageEvent", template);
         assert_eq!(poll(scope, &state).unwrap(), 1);
-        assert!(eval(scope, "seen.join(',')==='first,second,message'").is_true());
+        assert_eq!(
+            eval(scope, "seen.join(',')").to_rust_string_lossy(scope),
+            "first,second,message",
+            "message details: {}",
+            eval(scope, "JSON.stringify(globalThis.messageObserved)").to_rust_string_lossy(scope)
+        );
         assert_eq!(transport.snapshots.load(Ordering::SeqCst), 1);
     }
     #[test]

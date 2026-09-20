@@ -16,7 +16,7 @@
     "src/isolate.rs": "98da7b09a722b4d8dae80cb3a2acc0c4e5e0367a5449655b19182c580c83299e",
     "build.rs": "c0bcac8f1beaddbdab39cc801aade8086b577a7da07f4811a41df3b7d78beb53",
     "Cargo.toml": "cbe6ef406259f5f42a56b0cbbfdc3aaacad7e10163f1d66c42a42bfbd588b58e",
-    "tests/oryn_weak_teardown.rs": "c482fe9aee665095a607b8b63cd3c8f21544b7277dc9257769df7028da04eb96"
+    "tests/oryn_weak_teardown.rs": "4fa240834cbe61f2e16f83dbc652267452f0740f3369ea9f0a84fc0e5f7c473c"
   },
-  "patch_sha256": "ac4352f5cb39d1b434fdcf8dfefb42e2ffdcf3d409a0b824dab0c604de5a7574"
+  "patch_sha256": "b021431d15fe5a8ffe605b0c37e8f8f9fe43a31d5c69fcad5d3846bceca740fe"
 }

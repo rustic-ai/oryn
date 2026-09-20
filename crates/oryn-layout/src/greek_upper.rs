@@ -69,11 +69,11 @@ pub(super) fn replacements(
         }
         let precomposed_accent = marks.accent;
         let mut precomposed_diaeresis = marks.diaeresis;
-        if matches!(upper, 'Ι' | 'Υ') {
-            if let Some(precomposed) = previous_accent {
-                marks.diaeresis = true;
-                precomposed_diaeresis |= precomposed;
-            }
+        if matches!(upper, 'Ι' | 'Υ')
+            && let Some(precomposed) = previous_accent
+        {
+            marks.diaeresis = true;
+            precomposed_diaeresis |= precomposed;
         }
         let mut end = index + 1;
         while end < chars.len() && eligible(end) && marks.add(chars[end]) {

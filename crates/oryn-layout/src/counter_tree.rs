@@ -69,20 +69,18 @@ fn references(source: &str) -> Vec<String> {
     let mut parser = cssparser::Parser::new(&mut input);
     let mut result = Vec::new();
     while let Ok(token) = parser.next() {
-        if let cssparser::Token::Function(name) = token {
-            if name.eq_ignore_ascii_case("counter") || name.eq_ignore_ascii_case("counters") {
-                if let Ok(name) = parser.parse_nested_block(
-                    |p| -> Result<String, cssparser::ParseError<'_, ()>> {
-                        let name = p.expect_ident_cloned()?.to_string();
-                        while !p.is_exhausted() {
-                            p.next()?;
-                        }
-                        Ok(name)
-                    },
-                ) {
-                    result.push(name);
-                }
-            }
+        if let cssparser::Token::Function(name) = token
+            && (name.eq_ignore_ascii_case("counter") || name.eq_ignore_ascii_case("counters"))
+            && let Ok(name) =
+                parser.parse_nested_block(|p| -> Result<String, cssparser::ParseError<'_, ()>> {
+                    let name = p.expect_ident_cloned()?.to_string();
+                    while !p.is_exhausted() {
+                        p.next()?;
+                    }
+                    Ok(name)
+                })
+        {
+            result.push(name);
         }
     }
     result
@@ -106,7 +104,7 @@ fn events(
         let Some(style) = styles.get(&id) else {
             continue;
         };
-        if pseudo != "" {
+        if !pseudo.is_empty() {
             let pseudo_style = pseudos.get(&id).and_then(|styles| styles.get(pseudo));
             if pseudo_style.is_none() && pseudo != "marker" {
                 continue;

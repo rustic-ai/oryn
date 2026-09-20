@@ -236,10 +236,11 @@ pub(super) fn escape(
         .borrow_mut()
         .remove_attribute_ns(entry.node, None, "open")?;
     state.layout_cache_key.borrow_mut().take();
-    if let Some(target) = entry.previous_focus {
-        if state.dom.borrow().is_connected(target)? && !state.dom.borrow().is_inert(target)? {
-            focus_html_element(scope, state, target, false)?;
-        }
+    if let Some(target) = entry.previous_focus
+        && state.dom.borrow().is_connected(target)?
+        && !state.dom.borrow().is_inert(target)?
+    {
+        focus_html_element(scope, state, target, false)?;
     }
     state
         .deferred_platform_tasks
@@ -405,21 +406,6 @@ impl Drop for Pointer {
         }
     }
 }
-pub(super) fn pointer(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    target: NodeId,
-    down: bool,
-) -> Result<(), V8BindingError> {
-    let mut job = Pointer::new(state, target, down);
-    if job.poll(scope)? {
-        Ok(())
-    } else {
-        Err(V8BindingError::Allocation(
-            "pointer light dismissal suspended",
-        ))
-    }
-}
 
 pub(super) fn invoker_target(
     state: &V8BindingState,
@@ -442,7 +428,7 @@ pub(super) fn invoker_target(
             return Ok(None);
         };
         let root = dom.control_tree_root(source)?;
-        let Some(target) = dom.get_element_by_id(root, &id)? else {
+        let Some(target) = dom.get_element_by_id(root, id)? else {
             return Ok(None);
         };
         if dom
@@ -762,18 +748,14 @@ impl PendingToggle {
                     } else {
                         previous.filter(|_| focus_inside)
                     };
-                    if let Some(target) = focus {
-                        if state.dom.borrow().is_connected(target)?
-                            && !state.dom.borrow().is_inert(target)?
-                        {
-                            if let Some(target) = focus_navigation::delegated_target(state, target)?
-                            {
-                                self.focus =
-                                    Some(native_platform::focus_publication::Transition::new(
-                                        state, target,
-                                    ));
-                            }
-                        }
+                    if let Some(target) = focus
+                        && state.dom.borrow().is_connected(target)?
+                        && !state.dom.borrow().is_inert(target)?
+                        && let Some(target) = focus_navigation::delegated_target(state, target)?
+                    {
+                        self.focus = Some(native_platform::focus_publication::Transition::new(
+                            state, target,
+                        ));
                     }
                     if self.show {
                         let mut dom = state.dom.borrow_mut();
@@ -786,10 +768,10 @@ impl PendingToggle {
                     self.stage = 5;
                 }
                 5 => {
-                    if let Some(focus) = self.focus.as_mut() {
-                        if !focus.resume(scope, state)? {
-                            return Ok(false);
-                        }
+                    if let Some(focus) = self.focus.as_mut()
+                        && !focus.resume(scope, state)?
+                    {
+                        return Ok(false);
                     }
                     self.focus = None;
                     self.stage = 6;

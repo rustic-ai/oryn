@@ -1,4 +1,5 @@
 //! Bounded document-owned report delivery for standalone native brokers.
+#![cfg(any(feature = "v8-host", test))]
 use crate::{
     csp::{CspPolicySet, CspViolation},
     network::{NetworkRequest, SharedNetworkBroker, collect_operation_bounded_with_cancel},
@@ -20,7 +21,7 @@ fn submit_report(job: impl FnOnce() + Send + 'static) -> Result<(), String> {
     if FAIL_SUBMIT.with(|failure| failure.replace(false)) {
         return Err("injected report executor admission".into());
     }
-    crate::executable::resource_io_executor::submit(job)
+    crate::resource_io_executor::submit(job)
 }
 
 #[derive(Default)]
@@ -54,6 +55,7 @@ impl Drop for Permit {
     }
 }
 impl Sender {
+    #[cfg(feature = "v8-host")]
     pub(crate) fn cancel(&self) {
         self.cancel.store(true, Ordering::Release);
     }
@@ -203,7 +205,7 @@ impl Sender {
             method: "POST".into(),
             url: endpoint_url,
             headers: vec![
-                ("content-type".into(), content_type.into()),
+                ("content-type".into(), content_type),
                 ("cache-control".into(), "no-store".into()),
             ],
             body,
@@ -264,6 +266,7 @@ mod tests {
             let request_id = request.request_id;
             self.0.lock().unwrap().push(request);
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id,
                 status: 204,
@@ -304,15 +307,15 @@ mod tests {
         );
         let target = url::Url::parse("https://foreign.test/image.png").unwrap();
         let report = policy
-            .response(
-                "https://source.test",
-                false,
-                &target,
-                false,
-                true,
-                &[],
-                "image",
-            )
+            .response(crate::coep_reporting::ResponsePolicyInputs {
+                origin: "https://source.test",
+                opaque: false,
+                target: &target,
+                cors: false,
+                credentials: true,
+                headers: &[],
+                destination: "image",
+            })
             .remove(0);
         sender
             .queue_payload(

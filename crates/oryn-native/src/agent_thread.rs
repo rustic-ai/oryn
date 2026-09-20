@@ -343,12 +343,15 @@ impl AgentProcess for AgentThreadProcess {
         if matches!(command, AgentCommand::Stop) {
             return self.terminate();
         }
-        if let AgentCommand::Message { value, .. }
-        | AgentCommand::Worklet(oryn_js::worker_wire::WorkletCommand::Construct {
-            value,
-            ..
-        }) = &command
-        {
+        let message = match &command {
+            AgentCommand::Message { value, .. } => Some(value),
+            AgentCommand::Worklet(oryn_js::worker_wire::WorkletCommand::Construct {
+                value,
+                ..
+            }) => Some(value.as_ref()),
+            _ => None,
+        };
+        if let Some(value) = message {
             value
                 .validate()
                 .map_err(|error| WorkerError::new("DataCloneError", error))?;
@@ -374,10 +377,10 @@ impl AgentProcess for AgentThreadProcess {
             .map_err(|_| invalid("worker mailbox poisoned"))?;
         // Accepted events precede the terminal runtime failure. The queue is
         // bounded and the failure remains available after its final receipt.
-        if state.events.values.is_empty() {
-            if let Some(error) = &state.failure {
-                return Err(error.clone());
-            }
+        if state.events.values.is_empty()
+            && let Some(error) = &state.failure
+        {
+            return Err(error.clone());
         }
         let mut events = Vec::new();
         while events.len() < max {

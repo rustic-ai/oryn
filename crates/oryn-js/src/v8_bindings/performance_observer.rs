@@ -405,11 +405,14 @@ pub(super) fn poll(
             .create_data_property(scope, key.into(), count.into())
             .ok_or(V8BindingError::Allocation("observer dropped count"))?;
         #[cfg(test)]
-        if {
-            let mut observers = state.performance_observers.borrow_mut();
-            std::mem::take(&mut observers.fail_preparation)
-        } {
-            return Err(V8BindingError::Allocation("injected observer preparation"));
+        {
+            let failed = {
+                let mut observers = state.performance_observers.borrow_mut();
+                std::mem::take(&mut observers.fail_preparation)
+            };
+            if failed {
+                return Err(V8BindingError::Allocation("injected observer preparation"));
+            }
         }
         let id = register_platform_object(
             state,

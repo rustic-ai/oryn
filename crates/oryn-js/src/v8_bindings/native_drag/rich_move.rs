@@ -207,24 +207,24 @@ impl RichMove {
                         self.cancel();
                         continue;
                     }
-                    if let SelectedKind::Range { range, .. } = &self.source.kind {
-                        if !self.target_control {
-                            let dom = state.dom.borrow();
-                            let inside = compare_boundary_points(
+                    if let SelectedKind::Range { range, .. } = &self.source.kind
+                        && !self.target_control
+                    {
+                        let dom = state.dom.borrow();
+                        let inside = compare_boundary_points(
+                            &dom,
+                            (self.caret.container, self.caret.offset),
+                            (range.start_container, range.start_offset),
+                        )? >= 0
+                            && compare_boundary_points(
                                 &dom,
                                 (self.caret.container, self.caret.offset),
-                                (range.start_container, range.start_offset),
-                            )? >= 0
-                                && compare_boundary_points(
-                                    &dom,
-                                    (self.caret.container, self.caret.offset),
-                                    (range.end_container, range.end_offset),
-                                )? <= 0;
-                            drop(dom);
-                            if inside {
-                                self.cancel();
-                                continue;
-                            }
+                                (range.end_container, range.end_offset),
+                            )? <= 0;
+                        drop(dom);
+                        if inside {
+                            self.cancel();
+                            continue;
                         }
                     }
                     if self.target_control {

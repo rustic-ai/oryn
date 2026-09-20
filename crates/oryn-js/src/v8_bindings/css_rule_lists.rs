@@ -114,7 +114,7 @@ pub(super) fn wrap<'s>(
         .instance_templates
         .borrow()
         .get("CSSRuleList")
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface("CSSRuleList"))?;
     let template = v8::Local::new(scope, template);
     let list = template
@@ -147,7 +147,7 @@ pub(super) fn wrap_rule<'s>(
         .instance_templates
         .borrow()
         .get("CSSRuleList")
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface("CSSRuleList"))?;
     let template = v8::Local::new(scope, template);
     let list = template

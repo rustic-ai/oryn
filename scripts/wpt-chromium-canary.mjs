@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { dispatchDriver, settleAutomation } from './wpt-chromium-driver.mjs';
+import { createFocusBarrier, shutdownFocusSession } from './wpt-chromium-focus.mjs';
 import { createDiagnostics } from './wpt-chromium-diagnostics.mjs';
 
 const [binary, url, deadlineText = '30000'] = process.argv.slice(2);
@@ -67,7 +68,8 @@ const exited = new Promise(resolve => child.once('exit', (code, signal) => {
 }));
 let spawnError;
 child.on('error', error => { spawnError = error; diagnostics.browser('spawn_error', {error_code:error.code}); });
-let socket, executionError;
+let socket, browserSocket, focusBarrier, executionError, shuttingDown=false;
+const pending=new Map();
 try {
   let port;
   const startupDeadline = Date.now() + 15000;
@@ -88,8 +90,16 @@ try {
     socket.addEventListener('open', resolve, { once: true });
     socket.addEventListener('error', reject, { once: true });
   });
+  const browserEndpoint=await fetch(`http://127.0.0.1:${port}/json/version`,{signal:AbortSignal.timeout(5000)}).then(response=>response.json());
+  browserSocket=new WebSocket(browserEndpoint.webSocketDebuggerUrl);
+  await new Promise((resolve,reject)=>{browserSocket.addEventListener('open',resolve,{once:true});browserSocket.addEventListener('error',reject,{once:true})});
+  browserSocket.addEventListener('message',event=>{
+    const response=JSON.parse(event.data),waiter=pending.get(response.id);
+    if(!waiter||waiter.endpoint!==browserSocket)return;
+    pending.delete(response.id);clearTimeout(waiter.timer);diagnostics.response(response.id,!!response.error);
+    response.error?waiter.reject(new Error(JSON.stringify(response.error))):waiter.resolve(response.result);
+  });
   let nextId = 0;
-  const pending = new Map();
   const contexts = new Map();
   const driverStates = new Map();
   const bridgeErrors = [];
@@ -108,6 +118,7 @@ try {
   socket.addEventListener('message', event => {
     const response = JSON.parse(event.data);
     diagnostics.event(response);
+    focusBarrier?.event(response);
     const sessionId = response.sessionId;
     if (response.method === 'Runtime.bindingCalled' && !sessionId &&
         response.params.name === '__oryn_reference_focus') {
@@ -115,6 +126,8 @@ try {
         const observation = JSON.parse(response.params.payload);
         if (observation.phase === 'document_created' && creationFocus === undefined) creationFocus = observation.focused === true;
         if (observation.phase === 'report_ready' && entryFocus === undefined) {
+          const current=contexts.get(contextKey(sessionId,response.params.executionContextId));
+          if(!focusBarrier?.admitted(response.params.executionContextId,current))throw Error('report without native pre-author focus admission');
           entryFocus = observation.focused === true;
           const key = contextKey(sessionId, response.params.executionContextId);
           entryContext = {key, generation:contexts.get(key), id:response.params.executionContextId};
@@ -174,20 +187,21 @@ try {
       }).catch(() => {});
     }
     const waiter = pending.get(response.id);
-    if (!waiter) return;
+    if (!waiter || waiter.endpoint!==socket) return;
     pending.delete(response.id);
     diagnostics.response(response.id, !!response.error);
     clearTimeout(waiter.timer);
     if (response.error) waiter.reject(new Error(JSON.stringify(response.error)));
     else waiter.resolve(response.result);
   });
-  function call(method, params = {}, sessionId) {
+  function call(method, params = {}, sessionId, endpoint=socket) {
+    if(shuttingDown)return Promise.reject(new Error('Chromium bridge shutting down'));
     return new Promise((resolve, reject) => {
       const id = ++nextId;
       const diagnosticRequest = diagnostics.request(id, method, sessionId);
       const timer = setTimeout(() => { pending.delete(id); diagnostics.timeout(id, 10000, diagnosticRequest); reject(new Error(`CDP timeout: ${method}`)); }, 10000);
-      pending.set(id, { resolve, reject, timer });
-      socket.send(JSON.stringify({ id, method, params, ...(sessionId ? {sessionId} : {}) }));
+      pending.set(id, { resolve, reject, timer, endpoint });
+      endpoint.send(JSON.stringify({ id, method, params, ...(sessionId ? {sessionId} : {}) }));
     });
   }
   diagnostics.phase('cdp_setup');
@@ -196,10 +210,9 @@ try {
   await call('Network.enable');
   await call('Runtime.addBinding', {name:'__oryn_driver_request'});
   await call('Runtime.addBinding', {name:'__oryn_reference_focus'});
-  // Observe the new document, not just the about:blank predecessor. A fast
-  // renderer swap can lose focus despite a successful bringToFront response.
-  await call('Page.addScriptToEvaluateOnNewDocument', {
-    source:"if(window===top)__oryn_reference_focus(JSON.stringify({phase:'document_created',focused:document.hasFocus()}))"});
+  focusBarrier=createFocusBarrier({call,activate:targetId=>call('Target.activateTarget',{targetId},undefined,browserSocket),targetId:endpoint.id,
+    observe:(kind,data)=>{if(kind==='preauthor_focus_observed'&&creationFocus===undefined)creationFocus=data.focused;diagnostics.phase(kind)}});
+  await focusBarrier.install((await call('Page.getFrameTree')).frameTree.frame.id);
   await call('Target.setAutoAttach', {autoAttach:true, waitForDebuggerOnStart:true, flatten:true});
   const version = await call('Browser.getVersion');
   // /json/new creates a background target. Focus must be established before
@@ -211,17 +224,22 @@ try {
     expression: 'document.hasFocus()', returnByValue: true });
   if (focusProbe.result?.value !== true) throw new Error('Chromium initial focus preflight failed');
   diagnostics.phase('navigate');
-  await call('Page.navigate', { url });
+  focusBarrier.beginNavigation(url);
+  focusBarrier.navigationReply(await call('Page.navigate', { url }));
+  await focusBarrier.ready();
   diagnostics.phase('completion');
   const deadline = Date.now() + Number(deadlineText);
   let completion;
   while (Date.now() < deadline) {
+    await focusBarrier.idle();
     const value = await call('Runtime.evaluate', {
       expression: 'globalThis.__oryn_wpt_completion || null', returnByValue: true });
     if (value.result?.value) { completion = value.result.value; break; }
     await delay(25);
   }
   if (!completion) throw new Error('Chromium completion timeout');
+  await focusBarrier.idle();
+  diagnostics.completion(completion);
   if (entryFocus !== true) throw new Error(`Chromium document-entry focus unverified (${entryFocus === undefined ? 'missing observation' : 'unfocused'})`);
   diagnostics.phase('settle_automation');
   completion = await settleAutomation(() => automationQueue, async () => {
@@ -231,8 +249,12 @@ try {
     return value.result?.value;
   }, () => entryContext?.generation !== undefined &&
     contexts.get(entryContext.key) === entryContext.generation, deadline);
+  await focusBarrier.idle();
+  if(!focusBarrier.admitted(entryContext.id,entryContext.generation))throw Error('completion native focus identity retired');
+  await focusBarrier.finish(entryContext.id,entryContext.generation);
   process.stdout.write(JSON.stringify({ completion, version, automation_events:automationEvents,
     initial_focus_verified:true,
+    preauthor_focus_verified:true,
     entry_focus_verified:true,
     entry_focus_phase:'report_ready',
     creation_focus_observed:creationFocus ?? null,
@@ -244,11 +266,18 @@ try {
   throw error;
 } finally {
   diagnostics.phase('cleanup');
-  socket?.close();
-  if (child.exitCode === null) child.kill('SIGTERM');
-  await Promise.race([exited, delay(5000)]);
-  if (child.exitCode === null) { child.kill('SIGKILL'); await exited; }
-  focusLease.stdin.end();
-  await rm(profile, { recursive: true, force: true });
+  try {
+    await shutdownFocusSession({barrier:focusBarrier,
+      cancel(){shuttingDown=true;for(const waiter of pending.values()){clearTimeout(waiter.timer);waiter.reject(new Error('Chromium bridge shutting down'))}pending.clear()},
+      async stopBrowser(){
+        if(child.exitCode===null&&child.signalCode===null)child.kill('SIGTERM');
+        await Promise.race([exited,delay(5000)]);
+        if(child.exitCode===null&&child.signalCode===null){child.kill('SIGKILL');await Promise.race([exited,delay(5000)])}
+        if(child.exitCode===null&&child.signalCode===null)throw Error('owned Chromium did not terminate');
+      },
+      detach(){socket?.close();browserSocket?.close()},
+      async release(){focusLease.stdin.end();await rm(profile,{recursive:true,force:true})},
+    });
+  }catch(cleanupError){emitFailure(cleanupError,'cleanup');throw cleanupError}
   if (executionError) emitFailure(executionError, 'cleanup');
 }

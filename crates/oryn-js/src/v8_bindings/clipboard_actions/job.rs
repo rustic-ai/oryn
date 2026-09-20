@@ -79,18 +79,17 @@ impl ClipboardJob {
     }
     fn release(&mut self) {
         if self.active {
-            if let Some(owner) = self.owner.upgrade() {
-                if owner.clipboard_operation_identity.get()
+            if let Some(owner) = self.owner.upgrade()
+                && owner.clipboard_operation_identity.get()
                     == Some((
                         self.grant.document,
                         self.grant.generation,
                         self.grant.epoch,
                         self.grant.authority,
                     ))
-                {
-                    owner.clipboard_operation_active.set(false);
-                    owner.clipboard_operation_identity.set(None);
-                }
+            {
+                owner.clipboard_operation_active.set(false);
+                owner.clipboard_operation_identity.set(None);
             }
             self.active = false;
         }

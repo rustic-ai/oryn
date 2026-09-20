@@ -126,14 +126,13 @@ pub(super) fn cancel(
             stream: Some(stream_id),
             ..
         })) = operation
-        {
-            if let Err(error) = submit_platform_operation(
+            && let Err(error) = submit_platform_operation(
                 state,
                 PlatformHostRequest::HttpAbort { stream_id },
                 PendingPlatformOperation::WebSocketCommand,
-            ) {
-                abort_error = Some(error);
-            }
+            )
+        {
+            abort_error = Some(error);
         }
     }
     for url in removed {
@@ -512,55 +511,56 @@ pub(super) fn complete(
                             }
                         })
                         .sum::<usize>();
-                    if total.saturating_add(pending.bytes.len()) <= MAX_TOTAL {
-                        if let (Some((size, media_type)), Some(final_url)) = (
+                    if total.saturating_add(pending.bytes.len()) <= MAX_TOTAL
+                        && let (Some((size, media_type)), Some(final_url)) = (
                             decode_with_type(&pending.bytes, pending.content_type.as_deref()),
                             pending.final_url.clone(),
-                        ) {
-                            let aliases = if final_url != pending.url {
-                                vec![pending.url.clone()]
-                            } else {
-                                Vec::new()
-                            };
-                            // SVG image/resource documents use secure processing: their
-                            // nested network references are failed resources, not new page requests.
-                            let dependencies: Result<BTreeSet<String>, V8BindingError> =
-                                Ok(BTreeSet::new());
-                            if let Ok(dependencies) = dependencies {
-                                let admitted = {
-                                    let images = state.css_images.borrow();
-                                    let mut graph = images.dependencies.clone();
-                                    graph.insert(pending.url.clone(), dependencies.clone());
-                                    dependency_closure(
-                                        images
-                                            .layout_wanted
-                                            .union(&images.capture_wanted)
-                                            .cloned()
-                                            .collect(),
-                                        &graph,
-                                    )
-                                    .is_ok()
-                                };
-                                if admitted {
-                                    let mut images = state.css_images.borrow_mut();
+                        )
+                    {
+                        let aliases = if final_url != pending.url {
+                            vec![pending.url.clone()]
+                        } else {
+                            Vec::new()
+                        };
+                        // SVG image/resource documents use secure processing: their
+                        // nested network references are failed resources, not new page requests.
+                        let dependencies: Result<BTreeSet<String>, V8BindingError> =
+                            Ok(BTreeSet::new());
+                        if let Ok(dependencies) = dependencies {
+                            let admitted = {
+                                let images = state.css_images.borrow();
+                                let mut graph = images.dependencies.clone();
+                                graph.insert(pending.url.clone(), dependencies.clone());
+                                dependency_closure(
                                     images
-                                        .dependencies
-                                        .insert(pending.url.clone(), dependencies);
-                                    images.entries.insert(
-                                        pending.url.clone(),
-                                        Entry::Ready {
-                                            resource: oryn_common::v4::PaintImageResource {
-                                                svg_document_snapshot: false,
-                                                content_type: pending.content_type.clone(),
-                                                url: final_url,
-                                                url_aliases: aliases,
-                                                media_type,
-                                                bytes: std::mem::take(&mut pending.bytes),
-                                            },
-                                            size,
+                                        .layout_wanted
+                                        .union(&images.capture_wanted)
+                                        .cloned()
+                                        .collect(),
+                                    &graph,
+                                )
+                                .is_ok()
+                            };
+                            if admitted {
+                                let mut images = state.css_images.borrow_mut();
+                                images
+                                    .dependencies
+                                    .insert(pending.url.clone(), dependencies);
+                                images.entries.insert(
+                                    pending.url.clone(),
+                                    Entry::Ready {
+                                        resource: oryn_common::v4::PaintImageResource {
+                                            svg_document_snapshot: false,
+                                            svg_instances: Vec::new(),
+                                            content_type: pending.content_type.clone(),
+                                            url: final_url,
+                                            url_aliases: aliases,
+                                            media_type,
+                                            bytes: std::mem::take(&mut pending.bytes),
                                         },
-                                    );
-                                }
+                                        size,
+                                    },
+                                );
                             }
                         }
                     }
@@ -1225,16 +1225,18 @@ fn svg_dependencies_with_type(
                         .namespaced(Some("http://www.w3.org/1999/xlink"), "href")
                         .map(|value| value.value.as_str())
                 });
-            if let Some(href) = href {
-                if !href.trim().is_empty() && !href.starts_with('#') && !href.starts_with("data:") {
-                    let mut target = current.join(href).map_err(|_| failure())?;
-                    target.set_fragment(None);
-                    let mut own = base.clone();
-                    own.set_fragment(None);
-                    if target != own {
-                        dependencies.insert(target.to_string());
-                        validate_urls(dependencies.iter())?;
-                    }
+            if let Some(href) = href
+                && !href.trim().is_empty()
+                && !href.starts_with('#')
+                && !href.starts_with("data:")
+            {
+                let mut target = current.join(href).map_err(|_| failure())?;
+                target.set_fragment(None);
+                let mut own = base.clone();
+                own.set_fragment(None);
+                if target != own {
+                    dependencies.insert(target.to_string());
+                    validate_urls(dependencies.iter())?;
                 }
             }
         }

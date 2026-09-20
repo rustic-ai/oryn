@@ -23,7 +23,7 @@ enum Motion {
         duration: u64,
         properties: PointerProperties,
         progress: f64,
-        pending: Option<(PointerProgress, f64)>,
+        pending: Option<(Box<PointerProgress>, f64)>,
     },
     Wheel {
         transaction: WheelTransaction,
@@ -94,14 +94,13 @@ impl ActionExecution {
             if let Motion::Pointer {
                 pending, progress, ..
             } = motion
+                && let Some((receipt, destination)) = pending.as_mut()
             {
-                if let Some((receipt, destination)) = pending.as_mut() {
-                    if !receipt.poll(page, now)? {
-                        return Ok(false);
-                    }
-                    *progress = *destination;
-                    *pending = None;
+                if !receipt.poll(page, now)? {
+                    return Ok(false);
                 }
+                *progress = *destination;
+                *pending = None;
             }
         }
         {
@@ -141,10 +140,10 @@ impl ActionExecution {
                                 false,
                             )?;
                         }
-                        if let Some(keyboard) = self.keyboard.as_mut() {
-                            if !keyboard.poll(page, input, now)? {
-                                return Ok(false);
-                            }
+                        if let Some(keyboard) = self.keyboard.as_mut()
+                            && !keyboard.poll(page, input, now)?
+                        {
+                            return Ok(false);
                         }
                         self.keyboard = None;
                     }
@@ -185,10 +184,10 @@ impl ActionExecution {
                             self.keyboard =
                                 prepare_key(page, &self.selected, input, &source.id, value, *down)?;
                         }
-                        if let Some(keyboard) = self.keyboard.as_mut() {
-                            if !keyboard.poll(page, input, now)? {
-                                return Ok(false);
-                            }
+                        if let Some(keyboard) = self.keyboard.as_mut()
+                            && !keyboard.poll(page, input, now)?
+                        {
+                            return Ok(false);
                         }
                         self.keyboard = None;
                     }
@@ -902,7 +901,6 @@ fn pointer_input_snapshot(
         shift: modifiers.shift,
         alt: modifiers.alt,
         meta: modifiers.meta,
-        ..Default::default()
     })
 }
 
@@ -917,14 +915,13 @@ fn advance(
     if let Motion::Pointer {
         pending, progress, ..
     } = motion
+        && let Some((receipt, destination)) = pending.as_mut()
     {
-        if let Some((receipt, destination)) = pending.as_mut() {
-            if !receipt.poll(page, now)? {
-                return Ok(false);
-            }
-            *progress = *destination;
-            *pending = None;
+        if !receipt.poll(page, now)? {
+            return Ok(false);
         }
+        *progress = *destination;
+        *pending = None;
     }
     let (duration, previous) = match motion {
         Motion::Pointer {
@@ -973,7 +970,12 @@ fn advance(
                 )?;
                 input.move_pointer(source, position.0, position.1)?;
                 *pending = Some((
-                    PointerProgress::new(page, selected, event, NativePointerAction::Move)?,
+                    Box::new(PointerProgress::new(
+                        page,
+                        selected,
+                        event,
+                        NativePointerAction::Move,
+                    )?),
                     progress,
                 ));
                 if !pending.as_mut().unwrap().0.poll(page, now)? {
@@ -2584,6 +2586,30 @@ mod image_map_pointer_tests {
         assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 0);
         page
     }
+    #[test]
+    fn area_geometry_reflects_dom_attributes_and_recomputes_native_hits() {
+        let mut page = image_page(
+            "<style>body{margin:0}img{display:block;width:100px;height:100px}</style><img id=picture usemap=#m src='data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw=='><map id=m><area id=first coords='0,0,50,50' href='#first'><area id=rest shape=default href='#rest'></map>",
+        );
+        assert_eq!(
+            page.evaluate("[first.coords,first.shape].join('|')")
+                .unwrap(),
+            "0,0,50,50|"
+        );
+        assert_eq!(page.evaluate(r#"(()=>{const area=document.createElement('area');const other=document.implementation.createHTMLDocument();const lone=String.fromCharCode(0xd800);area.coords={toString(){other.adoptNode(area);return lone}};area.shape=lone;return area.ownerDocument===other&&area.coords.charCodeAt(0)===0xd800&&area.getAttribute('coords').charCodeAt(0)===0xd800&&area.shape.charCodeAt(0)===0xd800})()"#).unwrap(), "true");
+        page.execute("first.shape='circle';first.coords='75,75,10'")
+            .unwrap();
+        assert_eq!(page.evaluate("[first.getAttribute('shape'),first.getAttribute('coords'),document.elementFromPoint(75,75).id,document.elementFromPoint(20,20).id].join('|')").unwrap(), "circle|75,75,10|first|rest");
+        page.execute("first.setAttribute('coords','20,20,5')")
+            .unwrap();
+        assert_eq!(
+            page.evaluate("[first.coords,document.elementFromPoint(20,20).id].join('|')")
+                .unwrap(),
+            "20,20,5|first"
+        );
+        assert_eq!(page.evaluate("(()=>{try{first.coords={toString(){throw Error('conversion')}}}catch(e){return e.message==='conversion'&&first.coords==='20,20,5'}return false})()").unwrap(), "true");
+    }
+
     #[test]
     fn mapped_pointer_uses_area_for_cssom_trusted_click_and_live_shape_changes() {
         let mut page = image_page(

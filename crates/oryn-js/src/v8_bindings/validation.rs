@@ -131,7 +131,8 @@ pub(super) fn request_submit(
         return Ok(false);
     };
     let form_object = wrap_node(scope, state, form)?;
-    let result = (|| -> Result<bool, V8BindingError> {
+
+    (|| -> Result<bool, V8BindingError> {
         state.dom.borrow_mut().mark_form_user_validity(form)?;
         if !skip_validation && !validate_form(scope, state, form, true)? {
             return Ok(false);
@@ -155,8 +156,7 @@ pub(super) fn request_submit(
         let connected = active_document_state_for_node(scope, &owner, form).is_some()
             && owner.dom.borrow().is_connected(form)?;
         Ok(connected)
-    })();
-    result
+    })()
 }
 
 /// Snapshot invalid controls before any event callback can change ownership,

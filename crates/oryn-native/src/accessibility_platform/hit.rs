@@ -1,5 +1,4 @@
 //! Immutable native hit geometry shared with the painter, including frame clips.
-use super::*;
 #[derive(Clone, Debug)]
 pub struct Hit {
     pub projection: Option<oryn_common::v4::PaintProjection>,

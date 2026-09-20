@@ -1,4 +1,9 @@
 //! Contact suppression and pinch cancellation retain their event suffixes.
+type PinchContacts = (
+    native_touch::PinchCandidate,
+    Vec<(i32, native_touch::Contact)>,
+);
+
 use super::*;
 struct CancelContact {
     state: Rc<V8BindingState>,
@@ -6,12 +11,7 @@ struct CancelContact {
     input: NativePointerInput,
     target: NodeId,
     contact: Option<Box<native_touch::Contact>>,
-    pinch: Option<
-        Box<(
-            native_touch::PinchCandidate,
-            Vec<(i32, native_touch::Contact)>,
-        )>,
-    >,
+    pinch: Option<Box<PinchContacts>>,
     phase: u8,
     event: Option<Box<Event>>,
     capture: Option<Box<Capture>>,
@@ -86,12 +86,14 @@ impl CancelContact {
                             Event::new(
                                 scope,
                                 &self.state,
-                                &self.input,
-                                self.target,
-                                "pointercancel",
-                                true,
-                                false,
-                                None,
+                                event::PointerEventInputs {
+                                    input: &self.input,
+                                    target: self.target,
+                                    name: "pointercancel",
+                                    bubbles: true,
+                                    cancelable: false,
+                                    related: None,
+                                },
                             )
                         })?);
                     }
@@ -102,25 +104,18 @@ impl CancelContact {
                     self.phase = 1;
                 }
                 1 => {
-                    if self.event.is_none() {
-                        if let Some((target, object)) =
+                    if self.event.is_none()
+                        && let Some((target, object)) =
                             prepare_touch_event(scope, &self.state, &self.input, "touchcancel")?
-                        {
-                            self.event = Some(allocation::try_boxed(|| {
-                                Event::from_object(
-                                    scope,
-                                    &self.state,
-                                    target,
-                                    "touchcancel",
-                                    object,
-                                )
-                            })?);
-                        }
+                    {
+                        self.event = Some(allocation::try_boxed(|| {
+                            Event::from_object(scope, &self.state, target, "touchcancel", object)
+                        })?);
                     }
-                    if let Some(event) = &mut self.event {
-                        if event.poll(scope)?.is_none() {
-                            return Ok(false);
-                        }
+                    if let Some(event) = &mut self.event
+                        && event.poll(scope)?.is_none()
+                    {
+                        return Ok(false);
                     }
                     self.event.take();
                     self.phase = 2;
@@ -500,14 +495,13 @@ impl Touch {
                 }
                 1 => {
                     if !self.was_active {
-                        if self.event.is_none() {
-                            if let Some((target, object)) =
+                        if self.event.is_none()
+                            && let Some((target, object)) =
                                 prepare_touch_event(scope, &state, input, "touchmove")?
-                            {
-                                self.event = Some(allocation::try_boxed(|| {
-                                    Event::from_object(scope, &state, target, "touchmove", object)
-                                })?);
-                            }
+                        {
+                            self.event = Some(allocation::try_boxed(|| {
+                                Event::from_object(scope, &state, target, "touchmove", object)
+                            })?);
                         }
                         if let Some(event) = &mut self.event {
                             let Some(accepted) = event.poll(scope)? else {
@@ -515,16 +509,15 @@ impl Touch {
                             };
                             if !accepted {
                                 self.contact.as_mut().unwrap().prevent_default();
-                                if self.owner.current() {
-                                    if let Some(pointer) = state
+                                if self.owner.current()
+                                    && let Some(pointer) = state
                                         .native_pointers
                                         .borrow_mut()
                                         .pointers
                                         .get_mut(&input.id)
-                                    {
-                                        pointer.prevent_mouse = true;
-                                        pointer.down_targets.clear();
-                                    }
+                                {
+                                    pointer.prevent_mouse = true;
+                                    pointer.down_targets.clear();
                                 }
                             }
                         }
@@ -616,10 +609,10 @@ impl Touch {
                     self.phase = 4;
                 }
                 4 => {
-                    if let Some(cancel) = &mut self.cancel {
-                        if !cancel.poll(scope)? {
-                            return Ok(None);
-                        }
+                    if let Some(cancel) = &mut self.cancel
+                        && !cancel.poll(scope)?
+                    {
+                        return Ok(None);
                     }
                     self.cancel.take();
                     self.phase = 5;

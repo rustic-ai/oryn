@@ -1,5 +1,5 @@
 //! SVG path-data parsing with valid-prefix recovery for Path2D.
-use super::canvas_path::CanvasPath;
+use super::canvas_path::{self, CanvasPath};
 use kurbo::{Arc, Point, SvgArc};
 
 struct Input<'a> {
@@ -230,15 +230,15 @@ pub(super) fn parse(text: &str) -> CanvasPath {
                         {
                             break;
                         }
-                        path.ellipse(
-                            (arc.center.x, arc.center.y),
-                            (arc.radii.x, arc.radii.y),
-                            arc.x_rotation,
-                            arc.start_angle,
-                            arc.start_angle + arc.sweep_angle,
-                            arc.sweep_angle < 0.0,
-                            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                        );
+                        path.ellipse(canvas_path::EllipseInputs {
+                            center: (arc.center.x, arc.center.y),
+                            radii: (arc.radii.x, arc.radii.y),
+                            rotation: arc.x_rotation,
+                            start: arc.start_angle,
+                            end: arc.start_angle + arc.sweep_angle,
+                            counterclockwise: arc.sweep_angle < 0.0,
+                            matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                        });
                     } else {
                         path.line_to(end);
                     }

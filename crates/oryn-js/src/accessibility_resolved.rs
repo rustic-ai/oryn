@@ -170,10 +170,11 @@ pub(crate) fn resolved_nodes(
                         output.offsets[offset] = anchor;
                     }
                 }
-                if let Some(end) = output.ends.get_mut(anchor) {
-                    if *end >= alias.source_start as u32 && *end <= alias.source_end as u32 {
-                        *end = alias.source_end as u32;
-                    }
+                if let Some(end) = output.ends.get_mut(anchor)
+                    && *end >= alias.source_start as u32
+                    && *end <= alias.source_end as u32
+                {
+                    *end = alias.source_end as u32;
                 }
             }
         }

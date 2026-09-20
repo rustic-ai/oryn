@@ -37,7 +37,7 @@ pub(crate) fn wrap<'s>(
         .instance_templates
         .borrow()
         .get("MediaList")
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface("MediaList"))?;
     let template = v8::Local::new(scope, template);
     let list = template
@@ -69,7 +69,7 @@ pub(crate) fn wrap_sheet<'s>(
         .instance_templates
         .borrow()
         .get("MediaList")
-        .cloned()
+        .and_then(|template| template.to_global(scope))
         .ok_or(V8BindingError::MissingInterface("MediaList"))?;
     let list = v8::Local::new(scope, template)
         .new_instance(scope)

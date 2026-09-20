@@ -25,7 +25,7 @@ struct Span {
     visible: bool,
 }
 enum Operation {
-    Start(Span),
+    Start(Box<Span>),
     Read(u64),
     Abort(u64),
 }
@@ -49,6 +49,7 @@ impl Default for State {
         }
     }
 }
+#[cfg(test)]
 pub(super) fn external(
     state: &V8BindingState,
     name: String,
@@ -128,7 +129,7 @@ pub(super) fn admit(
                 PendingPlatformOperation::FetchStart { .. } => "fetch",
                 _ => "xmlhttprequest",
             };
-            Operation::Start(Span {
+            Operation::Start(Box::new(Span {
                 entry: Entry {
                     navigation: None,
                     render_blocking: false,
@@ -142,7 +143,7 @@ pub(super) fn admit(
                     details: None,
                 },
                 visible: false,
-            })
+            }))
         }
         PlatformHostRequest::HttpRead { stream_id, .. } => Operation::Read(*stream_id),
         PlatformHostRequest::HttpAbort { stream_id } => Operation::Abort(*stream_id),
@@ -163,7 +164,7 @@ pub(super) fn complete(
     let Some(operation) = operation else { return };
     match (operation, result) {
         (
-            Operation::Start(mut span),
+            Operation::Start(span),
             Ok(PlatformHostResult::HttpStarted {
                 stream_id,
                 url,
@@ -174,6 +175,7 @@ pub(super) fn complete(
                 ..
             }),
         ) => {
+            let mut span = *span;
             let own = state
                 .request_initiator_url()
                 .ok()
@@ -197,7 +199,7 @@ pub(super) fn complete(
                                     })
                                 }))
                 });
-            span.entry.details = timing.clone();
+            span.entry.details = timing.as_deref().cloned();
             span.entry.status = timing
                 .as_ref()
                 .map_or(*status, |timing| timing.response_status);
@@ -235,7 +237,7 @@ pub(super) fn complete(
         }
         // A foreign receipt cannot terminate or publish the requested stream.
         (Operation::Read(_), Ok(PlatformHostResult::HttpChunk { .. })) => {}
-        (Operation::Start(span), _) => push(state, span),
+        (Operation::Start(span), _) => push(state, *span),
         (Operation::Read(stream) | Operation::Abort(stream), _) => {
             let span = state.resource_timing.borrow_mut().streams.remove(&stream);
             if let Some(span) = span {
@@ -1160,7 +1162,7 @@ mod tests {
             let id = HostOperationId(if allowed { 2 } else { 1 });
             state.resource_timing.borrow_mut().operations.insert(
                 id,
-                Operation::Start(Span {
+                Operation::Start(Box::new(Span {
                     entry: Entry {
                         navigation: None,
                         render_blocking: false,
@@ -1174,13 +1176,13 @@ mod tests {
                         details: None,
                     },
                     visible: false,
-                }),
+                })),
             );
             complete(
                 &state,
                 id,
                 &Ok(PlatformHostResult::HttpStarted {
-                    timing: Some(crate::platform::ResourceTimingMetadata {
+                    timing: Some(Box::new(crate::platform::ResourceTimingMetadata {
                         server_timing: Vec::new(),
                         response_end_micros: None,
                         navigation_phases: None,
@@ -1194,7 +1196,7 @@ mod tests {
                         response_start_micros: 1200,
                         encoded_body_size: Some(3),
                         content_type: "image/png".into(),
-                    }),
+                    })),
                     internal_response: Some(crate::platform::InternalResponseMetadata {
                         status: 200,
                         headers: Vec::new(),

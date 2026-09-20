@@ -37,14 +37,12 @@ fn queue_report(state: &V8BindingState, report: Report) {
         .filter(|old| old.value["type"].as_str() == Some(kind))
         .count()
         >= 100
-    {
-        if let Some(index) = registry
+        && let Some(index) = registry
             .buffer
             .iter()
             .position(|old| old.value["type"].as_str() == Some(kind))
-        {
-            registry.buffer.remove(index);
-        }
+    {
+        registry.buffer.remove(index);
     }
     registry.buffer.push(report.clone());
     for observer in registry.observers.values_mut() {

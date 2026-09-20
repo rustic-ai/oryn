@@ -663,7 +663,7 @@ pub(super) fn dispatch_document_createprocessinginstruction<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
-    { document_processing_instruction::create(scope, state, node, args) }
+    document_processing_instruction::create(scope, state, node, args)
 }
 
 #[inline(never)]
@@ -1409,7 +1409,7 @@ pub(super) fn dispatch_htmlelement_attachinternals<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
-    { custom_elements::attach_internals(scope, state, node, args.get(0)).map(Some) }
+    custom_elements::attach_internals(scope, state, node, args.get(0)).map(Some)
 }
 
 #[inline(never)]
@@ -1422,7 +1422,7 @@ pub(super) fn dispatch_customstateset_keys<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
-    { custom_state_iterator::create(scope, args.this(), member == "entries").map(Some) }
+    custom_state_iterator::create(scope, args.this(), member == "entries").map(Some)
 }
 
 #[inline(never)]
@@ -2542,7 +2542,7 @@ pub(super) fn dispatch_element_setattributenode<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
-    { node_lists::attributes::element_operation(scope, state, node, member, args).map(Some) }
+    node_lists::attributes::element_operation(scope, state, node, member, args).map(Some)
 }
 
 #[inline(never)]
@@ -3588,7 +3588,7 @@ pub(super) fn dispatch_document_exitfullscreen<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
-    { Ok(Some(fullscreen::promise(scope, state, node, true)?)) }
+    Ok(Some(fullscreen::promise(scope, state, node, true)?))
 }
 
 #[inline(never)]
@@ -3753,10 +3753,10 @@ pub(super) fn dispatch_htmlinputelement_htmltextareaelement_97<'s>(
         if !state.dom.borrow().supports_select_all(node)? {
             return Ok(None);
         }
-        if state.dom.borrow().focused() == Some(node) {
-            if let Some(control) = selection_text::prepare_control(state, node)? {
-                *state.selected_text_control.borrow_mut() = Some(control);
-            }
+        if state.dom.borrow().focused() == Some(node)
+            && let Some(control) = selection_text::prepare_control(state, node)?
+        {
+            *state.selected_text_control.borrow_mut() = Some(control);
         }
         let length = oryn_dom::dom_string::len(&state.dom.borrow().control_value(node)?) as u32;
         let next = (0, length, "none".into());
@@ -3913,7 +3913,7 @@ pub(super) fn dispatch_element_scrollintoview<'s>(
                         .ok_or(V8BindingError::JavaScriptException)?,
                 )
             };
-            let mut read =
+            let read =
                 |name: &str, default: &str, allowed: &[&str]| -> Result<String, V8BindingError> {
                     let Some(options) = options.as_ref() else {
                         return Ok(default.into());
@@ -4040,7 +4040,7 @@ pub(super) fn dispatch_htmlcanvaselement_getcontext<'s>(
             .instance_templates
             .borrow()
             .get("CanvasRenderingContext2D")
-            .cloned()
+            .and_then(|template| template.to_global(scope))
             .ok_or(V8BindingError::MissingInterface("CanvasRenderingContext2D"))?;
         let context = v8::Local::new(scope, &template)
             .new_instance(scope)

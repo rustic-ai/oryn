@@ -47,13 +47,13 @@ fn get_stack(
         }
         return;
     }
-    if object.is_native_error() {
-        if let Ok(getter) = v8::Local::<v8::Function>::try_from(args.data()) {
-            if let Some(value) = getter.call(scope, object.into(), &[]) {
-                rv.set(value)
-            }
-            return;
+    if object.is_native_error()
+        && let Ok(getter) = v8::Local::<v8::Function>::try_from(args.data())
+    {
+        if let Some(value) = getter.call(scope, object.into(), &[]) {
+            rv.set(value)
         }
+        return;
     }
     throw_type_error(scope, "Error stack receiver required");
 }

@@ -62,7 +62,7 @@ fn delay_for(state: &V8BindingState, node: NodeId, gain: bool) -> Duration {
         .and_then(|value| value.strip_suffix("s"))
         .and_then(|value| value.parse::<f64>().ok())
         .filter(|value| value.is_finite() && *value >= 0.)
-        .unwrap_or(if gain { 0.5 } else { 0.5 });
+        .unwrap_or(0.5);
     Duration::from_secs_f64(seconds.min(86400.))
 }
 fn reconcile(state: &Rc<V8BindingState>) -> Result<(), V8BindingError> {
@@ -111,10 +111,10 @@ fn reconcile(state: &Rc<V8BindingState>) -> Result<(), V8BindingError> {
     // reinserting a missing target cannot manufacture a new input cycle.
     let mut desired = BTreeMap::new();
     for source in &inputs {
-        if let Some(target) = registry.input_targets.get(source).copied().flatten() {
-            if dom.interest_invoker_target(*source)? == Some(target) {
-                desired.insert(*source, target);
-            }
+        if let Some(target) = registry.input_targets.get(source).copied().flatten()
+            && dom.interest_invoker_target(*source)? == Some(target)
+        {
+            desired.insert(*source, target);
         }
     }
     for source in sticky {
@@ -322,6 +322,7 @@ pub(super) fn admit_pointer_down(
     }
     Ok(())
 }
+#[cfg(test)]
 pub(super) fn pointer_down(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
@@ -677,10 +678,10 @@ impl Loss {
         }
     }
     pub(super) fn cancel(&mut self, state: &V8BindingState) {
-        if let Some(current) = self.current.take() {
-            if let Some(dispatch) = current.dispatch {
-                dispatch.cancel(state);
-            }
+        if let Some(current) = self.current.take()
+            && let Some(dispatch) = current.dispatch
+        {
+            dispatch.cancel(state);
         }
         self.jobs.clear();
     }
@@ -725,10 +726,10 @@ impl Loss {
 
 pub(super) fn retire(state: &V8BindingState) {
     let previous = std::mem::take(&mut *state.interests.borrow_mut());
-    if let Some(transition) = previous.transition {
-        if let Some(dispatch) = transition.dispatch {
-            dispatch.cancel(state);
-        }
+    if let Some(transition) = previous.transition
+        && let Some(dispatch) = transition.dispatch
+    {
+        dispatch.cancel(state);
     }
     let mut dom = state.dom.borrow_mut();
     for (source, target) in previous.active {
@@ -867,14 +868,16 @@ mod tests {
         let event = create_native_input_event(
             scope,
             &state,
-            "PointerEvent",
-            "click",
-            true,
-            true,
-            true,
-            0,
-            None,
-            &[("button", NativeInputValue::Number(0.))],
+            NativeInputEventInputs {
+                interface: "PointerEvent",
+                event_type: "click",
+                bubbles: true,
+                cancelable: true,
+                composed: true,
+                detail: 0,
+                related: None,
+                fields: &[("button", NativeInputValue::Number(0.))],
+            },
         )
         .unwrap();
         mark_pseudo_click(scope, &state, event, 9, source, 175., 30.).unwrap();

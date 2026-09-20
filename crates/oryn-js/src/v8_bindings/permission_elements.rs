@@ -142,6 +142,7 @@ struct Element {
     operation: Option<(u64, u64, u64)>,
     prompt_result: Option<(crate::platform_control::PromptChoice, PermissionState)>,
     pending: Option<bool>,
+    capture_from_prompt: bool,
     autolocated: bool,
     location: Option<(native_platform::ElementLocation, u64)>,
     captured: Option<v8::Global<v8::Object>>,
@@ -169,6 +170,7 @@ impl Default for Element {
             operation: None,
             prompt_result: None,
             pending: None,
+            capture_from_prompt: false,
             autolocated: false,
             location: None,
             captured: None,
@@ -187,6 +189,7 @@ impl Default for Element {
 #[derive(Default)]
 pub(super) struct State {
     pub(super) prompt: Option<(NodeId, String)>,
+    pub(super) prompt_keys: BTreeSet<String>,
     pub(super) suppress_activation: Option<NodeId>,
     pub(super) prompt_pointer: Option<(i32, Option<String>)>,
     elements: BTreeMap<NodeId, Element>,
@@ -428,10 +431,10 @@ fn constraint_value(
     let Ok(object) = v8::Local::<v8::Object>::try_from(value) else {
         return primitive_constraint(scope, value, kind);
     };
-    if matches!(kind, ConstraintType::String) {
-        if let Some(sequence) = string_sequence(scope, object)? {
-            return Ok(sequence);
-        }
+    if matches!(kind, ConstraintType::String)
+        && let Some(sequence) = string_sequence(scope, object)?
+    {
+        return Ok(sequence);
     }
     let mut result = serde_json::Map::new();
     // Dictionary inheritance visits range members before derived exact/ideal.
@@ -632,16 +635,16 @@ fn invalid_reason(state: &V8BindingState, node: NodeId) -> Result<String, V8Bind
     }
     let (viewport, rect) = native_input_geometry(state, Some(node))?;
     let style = state.layout.borrow().styles.get(&node_key(node)).cloned();
-    if let Some(style) = &style {
-        if !matches!(
+    if let Some(style) = &style
+        && !matches!(
             style
                 .get("display")
                 .map(String::as_str)
                 .unwrap_or("inline-block"),
             "block" | "inline-block" | "flex" | "inline-flex"
-        ) {
-            return Ok("style_invalid".into());
-        }
+        )
+    {
+        return Ok("style_invalid".into());
     }
     let Some(rect) = rect else {
         return Ok("intersection_out_of_viewport_or_clipped".into());
@@ -649,11 +652,11 @@ fn invalid_reason(state: &V8BindingState, node: NodeId) -> Result<String, V8Bind
     let geometry = (rect.x, rect.y, rect.width, rect.height);
     {
         let mut registry = state.permission_elements.borrow_mut();
-        if let Some(element) = registry.elements.get_mut(&node) {
-            if element.geometry != Some(geometry) {
-                element.geometry = Some(geometry);
-                element.geometry_changed = Some(std::time::Instant::now());
-            }
+        if let Some(element) = registry.elements.get_mut(&node)
+            && element.geometry != Some(geometry)
+        {
+            element.geometry = Some(geometry);
+            element.geometry_changed = Some(std::time::Instant::now());
         }
     }
     if state
@@ -677,17 +680,17 @@ fn invalid_reason(state: &V8BindingState, node: NodeId) -> Result<String, V8Bind
     let visibility = permission_visibility::assess(state, node)?;
     {
         let mut registry = state.permission_elements.borrow_mut();
-        if let Some(element) = registry.elements.get_mut(&node) {
-            if element.visibility != Some(visibility) {
-                element.visibility_changed = Some(if element.visibility.is_none() {
-                    element
-                        .geometry_changed
-                        .unwrap_or_else(std::time::Instant::now)
-                } else {
-                    std::time::Instant::now()
-                });
-                element.visibility = Some(visibility);
-            }
+        if let Some(element) = registry.elements.get_mut(&node)
+            && element.visibility != Some(visibility)
+        {
+            element.visibility_changed = Some(if element.visibility.is_none() {
+                element
+                    .geometry_changed
+                    .unwrap_or_else(std::time::Instant::now)
+            } else {
+                std::time::Instant::now()
+            });
+            element.visibility = Some(visibility);
         }
     }
     match visibility {
@@ -752,6 +755,7 @@ pub(super) fn activate(
         element.prompt_result = None;
         element.autolocated = false;
     }
+    element.capture_from_prompt = false;
     element.pending = Some(trusted);
     element.operation = Some(identity);
     Ok(())
@@ -974,13 +978,10 @@ fn publish_prompt_result(
         && choice == crate::platform_control::PromptChoice::Allow
     {
         activate(state, node, true)?;
-        state
-            .permission_elements
-            .borrow_mut()
-            .elements
-            .get_mut(&node)
-            .unwrap()
-            .prompt_result = None;
+        let mut registry = state.permission_elements.borrow_mut();
+        let element = registry.elements.get_mut(&node).unwrap();
+        element.capture_from_prompt = true;
+        element.prompt_result = None;
     } else {
         let error = dom_exception_value(scope, "NotAllowedError")?;
         {
@@ -1047,16 +1048,17 @@ fn publish_capture_failure(
 pub(super) fn poll(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
-    mut revision: u64,
-    mut hidden: bool,
+    _revision: u64,
+    _hidden: bool,
 ) -> Result<usize, V8BindingError> {
-    if {
+    let res = {
         let registry = state.permission_elements.borrow();
         registry.publishing
             || registry
                 .retry_at
                 .is_some_and(|deadline| deadline > std::time::Instant::now())
-    } {
+    };
+    if res {
         return Ok(0);
     }
     state.permission_elements.borrow_mut().retry_at = None;
@@ -1098,6 +1100,7 @@ pub(super) fn poll(
                 let owned = dom.node_document(*node).ok().flatten() == Some(state.document_root());
                 if !dom.is_connected(*node).unwrap_or(false) {
                     value.pending = None;
+                    value.capture_from_prompt = false;
                     value.prompt_result = None;
                     value.location = None;
                     value.captured = None;
@@ -1132,7 +1135,7 @@ pub(super) fn poll(
         else {
             return Ok(count);
         };
-        (hidden, revision) = observed;
+        let (hidden, revision) = observed;
         if !state.dom.borrow().is_connected(node).unwrap_or(false)
             || state.dom.borrow().node_document(node).ok().flatten() != Some(state.document_root())
         {
@@ -1147,6 +1150,7 @@ pub(super) fn poll(
             let mut registry = state.permission_elements.borrow_mut();
             let element = registry.elements.get_mut(&node).unwrap();
             element.pending = None;
+            element.capture_from_prompt = false;
             element.prompt_result = None;
             element.location = None;
             element.captured = None;
@@ -1450,6 +1454,21 @@ pub(super) fn poll(
                 .unwrap()
                 .operation = Some((generation, stream, authority));
             let permission = state.permission_elements.borrow().elements[&node].current;
+            {
+                let mut registry = state.permission_elements.borrow_mut();
+                let element = registry.elements.get_mut(&node).unwrap();
+                // A native grant changes the private label and may resize the
+                // control. Keep the admitted request pending until it is stable;
+                // do not turn the browser's own resize into a capture error.
+                // Occlusion, clipping and all authority checks still apply.
+                if element.capture_from_prompt
+                    && pending == Some(true)
+                    && element.reason == "intersection_changed"
+                {
+                    continue;
+                }
+                element.capture_from_prompt = false;
+            }
             let result = if pending == Some(false) || !valid {
                 Err(fail("InvalidStateError"))
             } else if permission != PermissionState::Granted {
@@ -1555,10 +1574,10 @@ pub(super) fn poll(
 pub(super) fn retire(state: &V8BindingState) {
     let old = std::mem::take(&mut *state.permission_elements.borrow_mut());
     for element in old.elements.into_values() {
-        if let Some(publication) = element.publication {
-            if let Some(notification) = publication.notification {
-                notification.cancel(state);
-            }
+        if let Some(publication) = element.publication
+            && let Some(notification) = publication.notification
+        {
+            notification.cancel(state);
         }
     }
 }

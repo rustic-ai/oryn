@@ -883,17 +883,27 @@ mod tests {
             .bind_frame_worker_policy(page, token.clone(), 1, 0, url, &ticket)
             .unwrap();
         context
-            .register_activation_parent(page, token.clone(), 1, 0, WindowTarget::Root, 1, 0)
+            .register_activation_parent(crate::runtime::worker_service::ActivationParentInputs {
+                page,
+                frame: token.clone(),
+                generation: 1,
+                epoch: 0,
+                parent: WindowTarget::Root,
+                parent_generation: 1,
+                parent_epoch: 0,
+            })
             .unwrap();
         context
             .register_isolation_container(
-                page,
-                token.clone(),
-                1,
-                0,
-                String::new(),
-                url.into(),
-                None,
+                crate::runtime::worker_service::IsolationContainerInputs {
+                    page,
+                    frame: token.clone(),
+                    generation: 1,
+                    epoch: 0,
+                    allow: String::new(),
+                    source: url.into(),
+                    sandbox: None,
+                },
             )
             .unwrap();
         let owner = context
@@ -973,25 +983,29 @@ mod tests {
                 .unwrap();
             context
                 .inherit_frame_worker_policy_at_url(
-                    page,
-                    frame.clone(),
-                    2,
-                    0,
-                    &WindowTarget::Root,
-                    1,
-                    0,
-                    url,
+                    crate::runtime::worker_service::InheritedFramePolicyInputs {
+                        page,
+                        frame: frame.clone(),
+                        generation: 2,
+                        epoch: 0,
+                        parent: &WindowTarget::Root,
+                        parent_generation: 1,
+                        parent_epoch: 0,
+                        document_url: url,
+                    },
                 )
                 .unwrap();
             context
                 .register_isolation_container(
-                    page,
-                    frame.clone(),
-                    2,
-                    0,
-                    String::new(),
-                    url.into(),
-                    None,
+                    crate::runtime::worker_service::IsolationContainerInputs {
+                        page,
+                        frame: frame.clone(),
+                        generation: 2,
+                        epoch: 0,
+                        allow: String::new(),
+                        source: url.into(),
+                        sandbox: None,
+                    },
                 )
                 .unwrap();
             let owner = context
@@ -1206,11 +1220,11 @@ mod tests {
         ] {
             assert!(!requested_origin_keying(&header(value)), "{value}");
         }
-        assert!(!requested_origin_keying(&vec![(
+        assert!(!requested_origin_keying(&[(
             "Origin-Agent-Cluster-Report-Only".into(),
             "?1".into()
         )]));
-        assert!(!requested_origin_keying(&vec![
+        assert!(!requested_origin_keying(&[
             ("Origin-Agent-Cluster".into(), "?1".into()),
             ("Origin-Agent-Cluster".into(), "?1".into())
         ]));

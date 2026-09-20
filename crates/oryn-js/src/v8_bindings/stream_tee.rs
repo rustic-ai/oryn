@@ -64,7 +64,7 @@ pub(super) fn pump(
     state: &Rc<V8BindingState>,
     source: u64,
 ) -> Result<(), V8BindingError> {
-    if !stream_graph::algorithms_available(&state) {
+    if !stream_graph::algorithms_available(state) {
         return Ok(());
     }
     let (tee, controller) = match &*platform_object(state, source)? {
@@ -399,14 +399,13 @@ pub(super) fn demand(state: &V8BindingState, source: u64) -> Result<Option<bool>
         return Ok(None);
     };
     for branch in tee.borrow().branches {
-        if let PlatformObjectRecord::ReadableStream(stream) = &*platform_object(state, branch)? {
-            if !stream.closed
-                && (stream.consumer.is_some()
-                    || !stream.waiting.is_empty()
-                    || (stream.queue.len() as f64) < stream.high_water_mark)
-            {
-                return Ok(Some(true));
-            }
+        if let PlatformObjectRecord::ReadableStream(stream) = &*platform_object(state, branch)?
+            && !stream.closed
+            && (stream.consumer.is_some()
+                || !stream.waiting.is_empty()
+                || (stream.queue.len() as f64) < stream.high_water_mark)
+        {
+            return Ok(Some(true));
         }
     }
     Ok(Some(false))

@@ -402,11 +402,11 @@ impl ResponseGuard {
 }
 impl Drop for ResponseGuard {
     fn drop(&mut self) {
-        if let Some(scope) = &self.scope {
-            if let Some(context) = scope.context.upgrade() {
-                for action in self.actions.drain(..) {
-                    context.reclaim_context_response(scope.source, action);
-                }
+        if let Some(scope) = &self.scope
+            && let Some(context) = scope.context.upgrade()
+        {
+            for action in self.actions.drain(..) {
+                context.reclaim_context_response(scope.source, action);
             }
         }
     }
@@ -1074,12 +1074,12 @@ impl Publications {
         route: Option<WorkerRoute>,
         guard: ResponseGuard,
         permit: ContextDispatchPermit,
-    ) -> Result<(), (ResponseGuard, ContextDispatchPermit)> {
+    ) -> Result<(), Box<(ResponseGuard, ContextDispatchPermit)>> {
         if self.closed
             || self.pending.contains_key(&id)
             || self.pending.len() >= MAX_CONTEXT_OPERATIONS
         {
-            return Err((guard, permit));
+            return Err(Box::new((guard, permit)));
         }
         self.pending.insert(id, (route, guard, permit));
         Ok(())

@@ -1,6 +1,8 @@
 //! Vector PDF input from the native display list. Primitive geometry and shaped
 //! glyph outlines are preserved; localized raster fallback retains perspective
 //! and effects that the PDF/SVG vector pipeline cannot represent faithfully.
+type VectorGlyphKey = (String, u32, u64, bool, u32, Vec<i16>);
+
 use super::*;
 use base64::Engine as _;
 use oryn_common::v4::{PaintClip, PaintGlyphOrientation};
@@ -74,7 +76,7 @@ struct Export<'a> {
     next: usize,
     fallbacks: usize,
     fallback_pixels: usize,
-    glyphs: std::collections::BTreeMap<(String, u32, u64, bool, u32, Vec<i16>), String>,
+    glyphs: std::collections::BTreeMap<VectorGlyphKey, String>,
 }
 impl Export<'_> {
     fn id(&mut self) -> String {
@@ -705,6 +707,7 @@ pub(crate) fn tree(
     }
     let source = oryn_common::v4::PaintImageResource {
         svg_document_snapshot: false,
+        svg_instances: Vec::new(),
         content_type: None,
         url_aliases: Vec::new(),
         url: "oryn-print://native-page.svg".into(),

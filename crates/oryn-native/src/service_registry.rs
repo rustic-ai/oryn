@@ -1,6 +1,48 @@
 //! Context-owned service-worker versions and controlled document lifetimes.
 //! Native process events, not successful script evaluation alone, advance
 //! installing/waiting/active state. Blocking work never holds registry locks.
+
+/// Inputs for update job.
+struct ServiceUpdateJobInputs {
+    operation: u64,
+    owner: AgentOwner,
+    network: SharedNetworkBroker,
+    partition: String,
+    origin: AgentOrigin,
+    policy: AgentPolicy,
+    script: String,
+    scope: Option<String>,
+    script_type: ScriptType,
+    cache: String,
+    register: bool,
+}
+/// Inputs for update.
+struct ServiceUpdateInputs {
+    operation: u64,
+    owner: AgentOwner,
+    network: SharedNetworkBroker,
+    partition: String,
+    origin: AgentOrigin,
+    policy: AgentPolicy,
+    script: String,
+    scope: Option<String>,
+    script_type: ScriptType,
+    cache: String,
+}
+/// Inputs for run.
+struct ServiceRunInputs {
+    operation: u64,
+    owner: AgentOwner,
+    request: ServiceRequest,
+    network: SharedNetworkBroker,
+    partition: String,
+    origin: AgentOrigin,
+    policy: AgentPolicy,
+}
+type NavigationFetchTable = Arc<Mutex<BTreeMap<(oryn_common::v3::PageId, u64), Arc<AtomicBool>>>>;
+
+type MaintenanceEntry = (Arc<()>, Option<SoftUpdateSource>);
+
 use crate::{
     agent_registry::AgentOwner,
     network::SharedNetworkBroker,
@@ -70,9 +112,32 @@ struct ServiceJobAuthority {
     cookie_ancestor_urls: Vec<String>,
     cookie_top_level_url: Option<String>,
 }
+#[derive(Clone)]
+struct SoftUpdateSource {
+    agent: AgentId,
+    registration: RegistrationId,
+    partition: String,
+    origin: AgentOrigin,
+    policy: AgentPolicy,
+    authority: ServiceJobAuthority,
+}
+impl SoftUpdateSource {
+    fn from_bootstrap(bootstrap: &AgentBootstrap) -> Option<Self> {
+        Some(Self {
+            agent: bootstrap.id,
+            registration: bootstrap.service_registration?,
+            partition: bootstrap.partition.clone(),
+            origin: bootstrap.origin.clone(),
+            policy: bootstrap.policy.clone(),
+            authority: ServiceJobAuthority {
+                owner: AgentOwner::Agent(bootstrap.id),
+                cookie_ancestor_urls: bootstrap.cookie_ancestor_urls.clone(),
+                cookie_top_level_url: bootstrap.top_level_url.clone(),
+            },
+        })
+    }
+}
 struct EquivalentJob {
-    scope: String,
-    key: String,
     settled: bool,
     authority: ServiceJobAuthority,
     profile: Option<Arc<profile_jobs::SharedJob>>,
@@ -104,13 +169,13 @@ struct State {
     reserved_messages: BTreeMap<AgentOwner, usize>,
 }
 pub(crate) struct ServiceRegistry {
-    maintenance: Mutex<BTreeMap<AgentId, (Arc<()>, bool)>>,
+    maintenance: Mutex<BTreeMap<AgentId, MaintenanceEntry>>,
     maintenance_running: AtomicBool,
     maintenance_failure: Mutex<Option<WorkerError>>,
     preloads: Mutex<BTreeMap<u64, preload::PendingPreload>>,
     preload_owners: Mutex<Vec<Arc<preload::PreloadOwner>>>,
     persistence: Mutex<()>,
-    navigation_fetches: Arc<Mutex<BTreeMap<(oryn_common::v3::PageId, u64), Arc<AtomicBool>>>>,
+    navigation_fetches: NavigationFetchTable,
     weak_self: std::sync::Weak<ServiceRegistry>,
     context: WeakBrowserContext,
     state: Mutex<State>,
@@ -293,7 +358,7 @@ impl Drop for ServiceTaskSlot {
     }
 }
 struct NavigationFetchWait {
-    table: Arc<Mutex<BTreeMap<(oryn_common::v3::PageId, u64), Arc<AtomicBool>>>>,
+    table: NavigationFetchTable,
     key: (oryn_common::v3::PageId, u64),
 }
 impl Drop for NavigationFetchWait {
@@ -306,6 +371,7 @@ impl Drop for NavigationFetchWait {
 }
 struct ServiceEventLease {
     check_soft_update: bool,
+    soft_update_source: Option<SoftUpdateSource>,
     activity: Option<crate::storage::ServiceActivityLease>,
     registry: std::sync::Weak<ServiceRegistry>,
     agent: AgentId,
@@ -317,10 +383,15 @@ impl Drop for ServiceEventLease {
     fn drop(&mut self) {
         let final_local = self.inflight.fetch_sub(1, Ordering::AcqRel) == 1;
         drop(self.activity.take());
-        if final_local || self.check_soft_update {
-            if let Some(registry) = self.registry.upgrade() {
-                registry.enqueue_maintenance(self.agent, self.check_soft_update);
-            }
+        if (final_local || self.check_soft_update)
+            && let Some(registry) = self.registry.upgrade()
+        {
+            registry.enqueue_maintenance(
+                self.agent,
+                self.check_soft_update
+                    .then(|| self.soft_update_source.take())
+                    .flatten(),
+            );
         }
     }
 }
@@ -347,10 +418,10 @@ impl Drop for UpdateTicket {
                 self.registry.updates_changed.notify_all();
                 job
             };
-            if let Some(job) = job {
-                if let Some(profile) = job.profile {
-                    profile.finish();
-                }
+            if let Some(job) = job
+                && let Some(profile) = job.profile
+            {
+                profile.finish();
             }
         }
     }
@@ -407,7 +478,11 @@ impl ServiceRegistry {
     }
     /// Event/stream destructors only transfer a bounded native version ticket.
     /// Activation and process retirement run on this retained background job.
-    fn enqueue_maintenance(self: &Arc<Self>, agent: AgentId, soft_update: bool) {
+    fn enqueue_maintenance(
+        self: &Arc<Self>,
+        agent: AgentId,
+        soft_update: Option<SoftUpdateSource>,
+    ) {
         if self.retired.load(Ordering::Acquire) {
             return;
         }
@@ -419,7 +494,8 @@ impl ServiceRegistry {
             if self.retired.load(Ordering::Acquire) {
                 return;
             }
-            let soft_update = soft_update || pending.get(&agent).is_some_and(|(_, soft)| *soft);
+            let soft_update =
+                soft_update.or_else(|| pending.get(&agent).and_then(|(_, soft)| soft.clone()));
             pending.insert(agent, (Arc::new(()), soft_update));
         }
         self.start_maintenance();
@@ -487,10 +563,10 @@ impl ServiceRegistry {
         let mut failure = None;
         for (agent, (ticket, soft_update)) in pending {
             let result = (|| {
-                if soft_update {
-                    if let Some(registry) = self.weak_self.upgrade() {
-                        registry.schedule_stale_update(agent)?;
-                    }
+                if let Some(source) = soft_update
+                    && let Some(registry) = self.weak_self.upgrade()
+                {
+                    registry.schedule_stale_update(source)?;
                 }
                 let waiting = self
                     .state()?
@@ -546,10 +622,9 @@ impl ServiceRegistry {
             .lock()
             .map_err(|_| error("service maintenance poisoned"))?
             .is_empty()
+            && let Some(registry) = self.weak_self.upgrade()
         {
-            if let Some(registry) = self.weak_self.upgrade() {
-                registry.start_maintenance();
-            }
+            registry.start_maintenance();
         }
         if let Some(failure) = failure {
             return Err(failure);
@@ -931,12 +1006,10 @@ impl ServiceRegistry {
                             result: None,
                         },
                     );
-                    if let Some((scope, key)) = identity.clone() {
+                    if identity.is_some() {
                         state.equivalent_jobs.insert(
                             operation,
                             EquivalentJob {
-                                scope,
-                                key,
                                 settled: false,
                                 authority: authority.expect("ordered service job authority"),
                                 profile: None,
@@ -1029,9 +1102,15 @@ impl ServiceRegistry {
                     .spawn(move || {
                         let _ticket = ticket;
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            registry.run(
-                                operation, owner, request, network, partition, origin, policy,
-                            )
+                            registry.run(ServiceRunInputs {
+                                operation,
+                                owner,
+                                request,
+                                network,
+                                partition,
+                                origin,
+                                policy,
+                            })
                         }))
                         .unwrap_or_else(|_| Err(error("service job panicked")));
                         registry.publish_job_result(operation, result);
@@ -1255,16 +1334,17 @@ impl ServiceRegistry {
                 .map_err(|_| error("service update queue poisoned"))?;
         }
     }
-    fn run(
-        &self,
-        operation: u64,
-        owner: AgentOwner,
-        request: ServiceRequest,
-        network: SharedNetworkBroker,
-        partition: String,
-        origin: AgentOrigin,
-        policy: AgentPolicy,
-    ) -> Result<ServiceResult, WorkerError> {
+    fn run(&self, params: ServiceRunInputs) -> Result<ServiceResult, WorkerError> {
+        let ServiceRunInputs {
+            operation,
+            owner,
+            request,
+            network,
+            partition,
+            origin,
+            policy,
+        } = params;
+
         if matches!(
             &request,
             ServiceRequest::Register { .. }
@@ -1379,13 +1459,12 @@ impl ServiceRegistry {
                                 continue;
                             }
                         }
-                        if let Ok(client) = registry.client_snapshot(&candidate) {
-                            if client_type
+                        if let Ok(client) = registry.client_snapshot(&candidate)
+                            && client_type
                                 .as_ref()
                                 .is_none_or(|kind| *kind == client.client_type)
-                            {
-                                clients.push(client);
-                            }
+                        {
+                            clients.push(client);
                         }
                     }
                 }
@@ -1548,19 +1627,19 @@ impl ServiceRegistry {
                 script_type,
                 update_via_cache,
                 ..
-            } => self.update_job(
+            } => self.update_job(ServiceUpdateJobInputs {
                 operation,
                 owner,
                 network,
                 partition,
                 origin,
                 policy,
-                url,
+                script: url,
                 scope,
                 script_type,
-                update_via_cache,
-                true,
-            ),
+                cache: update_via_cache,
+                register: true,
+            }),
             ServiceRequest::Update { registration, .. } => {
                 let (url, scope, script_type, cache) = {
                     let state = self.state()?;
@@ -1576,18 +1655,18 @@ impl ServiceRegistry {
                         reg.snapshot.update_via_cache.clone(),
                     )
                 };
-                self.update(
+                self.update(ServiceUpdateInputs {
                     operation,
                     owner,
                     network,
                     partition,
                     origin,
                     policy,
-                    url,
+                    script: url,
                     scope,
                     script_type,
                     cache,
-                )
+                })
             }
             _ => Err(error("invalid service job")),
         }
@@ -1687,20 +1766,8 @@ impl ServiceRegistry {
         version.bootstrap.modules.insert(url, source);
         Ok(())
     }
-    fn update(
-        &self,
-        operation: u64,
-        owner: AgentOwner,
-        network: SharedNetworkBroker,
-        partition: String,
-        origin: AgentOrigin,
-        policy: AgentPolicy,
-        script: String,
-        scope: Option<String>,
-        script_type: ScriptType,
-        cache: String,
-    ) -> Result<ServiceResult, WorkerError> {
-        self.update_job(
+    fn update(&self, params: ServiceUpdateInputs) -> Result<ServiceResult, WorkerError> {
+        let ServiceUpdateInputs {
             operation,
             owner,
             network,
@@ -1711,23 +1778,37 @@ impl ServiceRegistry {
             scope,
             script_type,
             cache,
-            false,
-        )
+        } = params;
+
+        self.update_job(ServiceUpdateJobInputs {
+            operation,
+            owner,
+            network,
+            partition,
+            origin,
+            policy,
+            script,
+            scope,
+            script_type,
+            cache,
+            register: false,
+        })
     }
-    fn update_job(
-        &self,
-        operation: u64,
-        owner: AgentOwner,
-        network: SharedNetworkBroker,
-        partition: String,
-        origin: AgentOrigin,
-        policy: AgentPolicy,
-        script: String,
-        scope: Option<String>,
-        script_type: ScriptType,
-        cache: String,
-        register: bool,
-    ) -> Result<ServiceResult, WorkerError> {
+    fn update_job(&self, params: ServiceUpdateJobInputs) -> Result<ServiceResult, WorkerError> {
+        let ServiceUpdateJobInputs {
+            operation,
+            owner,
+            network,
+            partition,
+            origin,
+            policy,
+            script,
+            scope,
+            script_type,
+            cache,
+            register,
+        } = params;
+
         if !matches!(cache.as_str(), "imports" | "all" | "none") {
             return Err(WorkerError::new("TypeError", "invalid updateViaCache"));
         }
@@ -1852,16 +1933,15 @@ impl ServiceRegistry {
             }
         };
         let hash_report = |reports| {
-            if let AgentOwner::Window { page, .. } = &owner {
-                if !self.retired.load(std::sync::atomic::Ordering::Acquire)
-                    && context.retained_worker_authority(&owner).is_ok()
-                {
-                    context.deliver_script_hash_reports(
-                        Some(*page),
-                        cookie_top_level_url.as_deref().unwrap_or(&policy.url),
-                        reports,
-                    );
-                }
+            if let AgentOwner::Window { page, .. } = &owner
+                && !self.retired.load(std::sync::atomic::Ordering::Acquire)
+                && context.retained_worker_authority(&owner).is_ok()
+            {
+                context.deliver_script_hash_reports(
+                    Some(*page),
+                    cookie_top_level_url.as_deref().unwrap_or(&policy.url),
+                    reports,
+                );
             }
         };
         let revalidate_main = aged || cache != "all";
@@ -2899,19 +2979,19 @@ impl ServiceRegistry {
     fn source_snapshot(&self, owner: &AgentOwner) -> Result<MessageSource, WorkerError> {
         let context = self.context()?;
         let (_, origin, _) = context.native_worker_authority(owner)?;
-        if let AgentOwner::Agent(id) = owner {
-            if context.worker_bootstrap(*id)?.kind == AgentKind::Service {
-                let worker = self
-                    .state()?
-                    .versions
-                    .get(id)
-                    .map(|version| version.snapshot.clone())
-                    .ok_or_else(|| error("service source version unavailable"))?;
-                return Ok(MessageSource::ServiceWorker {
-                    worker,
-                    origin: origin.serialized,
-                });
-            }
+        if let AgentOwner::Agent(id) = owner
+            && context.worker_bootstrap(*id)?.kind == AgentKind::Service
+        {
+            let worker = self
+                .state()?
+                .versions
+                .get(id)
+                .map(|version| version.snapshot.clone())
+                .ok_or_else(|| error("service source version unavailable"))?;
+            return Ok(MessageSource::ServiceWorker {
+                worker,
+                origin: origin.serialized,
+            });
         }
         Ok(MessageSource::Client {
             client: self.client_snapshot(owner)?,
@@ -3014,13 +3094,12 @@ impl ServiceRegistry {
                         Some(&owner),
                     )
                     .is_err()
+                    && let Some(context) = registry.context.upgrade()
                 {
-                    if let Some(context) = registry.context.upgrade() {
-                        let _ = context.dispatch_worker_registry(|_, hub| {
-                            hub.discard_transit_value(Self::principal(&owner), retained)
-                                .map_err(error)
-                        });
-                    }
+                    let _ = context.dispatch_worker_registry(|_, hub| {
+                        hub.discard_transit_value(Self::principal(&owner), retained)
+                            .map_err(error)
+                    });
                 }
             })
             .map_err(|failure| {
@@ -3468,6 +3547,9 @@ impl ServiceRegistry {
         version.inflight.fetch_add(1, Ordering::AcqRel);
         Ok(ServiceEventLease {
             check_soft_update: false,
+            // Capture admitted authority while the version is owned. Event Drop
+            // must neither lock this state nor query a possibly retired process.
+            soft_update_source: SoftUpdateSource::from_bootstrap(&version.bootstrap),
             activity,
             registry: self.weak_self.clone(),
             agent,
@@ -3966,16 +4048,16 @@ impl ServiceRegistry {
                 .get(&id)
                 .and_then(|registration| registration.snapshot.waiting.clone())
         };
-        if let Some(waiting) = waiting {
-            if let Some((owner, current)) = self.remote_version(&waiting)? {
-                let registration = owner
-                    .state()?
-                    .versions
-                    .get(&current.id)
-                    .and_then(|version| version.bootstrap.service_registration)
-                    .ok_or_else(|| error("profile waiting registration retired"))?;
-                return owner.try_activate(registration);
-            }
+        if let Some(waiting) = waiting
+            && let Some((owner, current)) = self.remote_version(&waiting)?
+        {
+            let registration = owner
+                .state()?
+                .versions
+                .get(&current.id)
+                .and_then(|version| version.bootstrap.service_registration)
+                .ok_or_else(|| error("profile waiting registration retired"))?;
+            return owner.try_activate(registration);
         }
         let candidate = {
             let mut state = self.state()?;
@@ -4531,13 +4613,21 @@ impl ServiceRegistry {
         context.acknowledge_service_retirement(agent)
     }
     fn retire_version(&self, agent: AgentId) -> Result<(), WorkerError> {
+        if self.retire_version_if_idle(agent)? {
+            Ok(())
+        } else {
+            Err(error("service retirement already in progress"))
+        }
+    }
+    /// False retains the other retirement owner's duty; it is not completion.
+    fn retire_version_if_idle(&self, agent: AgentId) -> Result<bool, WorkerError> {
         {
             let mut state = self.state()?;
             let Some(version) = state.versions.get_mut(&agent) else {
-                return Ok(());
+                return Ok(true);
             };
             if version.retiring {
-                return Err(error("service retirement already in progress"));
+                return Ok(false);
             }
             version.retiring = true;
         }
@@ -4588,7 +4678,7 @@ impl ServiceRegistry {
                 ));
             }
         }
-        Ok(())
+        Ok(true)
     }
     pub(crate) fn controller_registration(&self, owner: &AgentOwner) -> Option<RegistrationId> {
         self.state()
@@ -4610,15 +4700,15 @@ impl ServiceRegistry {
         state
             .observed
             .insert(owner.clone(), bootstrap.script_url.clone());
-        if let Some(id) = bootstrap.service_controller {
-            if state.registrations.get(&id).is_some_and(|registration| {
+        if let Some(id) = bootstrap.service_controller
+            && state.registrations.get(&id).is_some_and(|registration| {
                 registration.partition == bootstrap.partition
                     && registration.origin == bootstrap.origin.authority
                     && registration.snapshot.active.is_some()
-            }) {
-                self.retain_profile_client(&mut state, &owner, id, false)?;
-                state.clients.insert(owner, id);
-            }
+            })
+        {
+            self.retain_profile_client(&mut state, &owner, id, false)?;
+            state.clients.insert(owner, id);
         }
         Ok(())
     }
@@ -4725,10 +4815,10 @@ impl ServiceRegistry {
         if let Some(context) = self.context.upgrade() {
             context.retire_worker_secure_context(owner);
             let client = self.state()?.client_ids.get(owner).cloned();
-            if let Some(client) = client {
-                if let Ok(coordinator) = context.context_store().service_coordinator() {
-                    coordinator.versions.retire_client(&client, &self.weak_self);
-                }
+            if let Some(client) = client
+                && let Ok(coordinator) = context.context_store().service_coordinator()
+            {
+                coordinator.versions.retire_client(&client, &self.weak_self);
             }
         }
         {
@@ -4764,6 +4854,7 @@ impl ServiceRegistry {
         let idle = self.cleanup_unregistered();
         cleanup.and(activation).and(idle).and(cache_cleanup)
     }
+    #[cfg(all(test, feature = "v8-host"))]
     pub(crate) fn fetch(
         &self,
         owner: &AgentOwner,
@@ -4855,7 +4946,10 @@ impl ServiceRegistry {
     fn registration_is_stale(last_check: u64, now: u64) -> bool {
         last_check > now || now.saturating_sub(last_check) > 24 * 60 * 60 * 1000
     }
-    fn schedule_stale_update(self: &Arc<Self>, agent: AgentId) -> Result<(), WorkerError> {
+    fn schedule_stale_update(
+        self: &Arc<Self>,
+        source: SoftUpdateSource,
+    ) -> Result<(), WorkerError> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|_| error("service update clock predates epoch"))?
@@ -4863,20 +4957,19 @@ impl ServiceRegistry {
             .min(u128::from(u64::MAX)) as u64;
         let stale = {
             let state = self.state()?;
-            state.registrations.values().any(|registration| {
-                !registration.unregistered
-                    && registration
-                        .snapshot
-                        .active
-                        .as_ref()
-                        .is_some_and(|active| active.id == agent)
-                    && Self::registration_is_stale(registration.last_update_check_ms, now)
-            })
+            state
+                .registrations
+                .get(&source.registration)
+                .is_some_and(|registration| {
+                    !registration.unregistered
+                        && registration.partition == source.partition
+                        && registration.origin == source.origin.authority
+                        && registration.snapshot.active.is_some()
+                        && Self::registration_is_stale(registration.last_update_check_ms, now)
+                })
         };
-        if stale {
-            if let Some(network) = self.context()?.shared_network_broker() {
-                self.schedule_soft_update(agent, network)?;
-            }
+        if stale && let Some(network) = self.context()?.shared_network_broker() {
+            self.schedule_soft_update_from_source(source, network)?;
         }
         Ok(())
     }
@@ -4887,10 +4980,25 @@ impl ServiceRegistry {
     ) -> Result<(), WorkerError> {
         let context = self.context()?;
         let bootstrap = context.worker_bootstrap(agent)?;
-        let registration = bootstrap
-            .service_registration
+        let mut source = SoftUpdateSource::from_bootstrap(&bootstrap)
             .ok_or_else(|| error("soft update registration unavailable"))?;
-        let authority = Self::capture_job_authority(&context, &AgentOwner::Agent(agent))?;
+        source.authority = Self::capture_job_authority(&context, &AgentOwner::Agent(agent))?;
+        self.schedule_soft_update_from_source(source, network)
+    }
+    fn schedule_soft_update_from_source(
+        self: &Arc<Self>,
+        source: SoftUpdateSource,
+        network: SharedNetworkBroker,
+    ) -> Result<(), WorkerError> {
+        let context = self.context()?;
+        let SoftUpdateSource {
+            agent,
+            registration,
+            partition,
+            origin,
+            policy,
+            authority,
+        } = source;
         let mut updates = self
             .updates
             .lock()
@@ -4923,9 +5031,9 @@ impl ServiceRegistry {
                         creator: Creator::Agent(agent),
                         registration,
                     },
-                    &bootstrap.partition,
-                    &bootstrap.origin,
-                    &bootstrap.policy,
+                    &partition,
+                    &origin,
+                    &policy,
                 )?
                 .ok_or_else(|| error("soft update registration retired"))?;
             let coordinator = context
@@ -4934,16 +5042,13 @@ impl ServiceRegistry {
                 .map_err(|failure| error(failure.to_string()))?;
             coordinator
                 .equivalent
-                .admit(identity.0.clone(), identity.1.clone(), Box::new(|_| {}))
-                .map(|shared| shared.map(|profile| (identity, profile)))
+                .admit(identity.0, identity.1, Box::new(|_| {}))
         })();
         match shared {
-            Ok(Some(((scope, key), profile))) => {
+            Ok(Some(profile)) => {
                 self.state()?.equivalent_jobs.insert(
                     operation,
                     EquivalentJob {
-                        scope,
-                        key,
                         settled: false,
                         authority,
                         profile: Some(profile),
@@ -5003,18 +5108,18 @@ impl ServiceRegistry {
                             registration.snapshot.update_via_cache.clone(),
                         )
                     };
-                    registry.update(
+                    registry.update(ServiceUpdateInputs {
                         operation,
-                        AgentOwner::Agent(agent),
+                        owner: AgentOwner::Agent(agent),
                         network,
-                        bootstrap.partition,
-                        bootstrap.origin,
-                        bootstrap.policy,
-                        url,
+                        partition,
+                        origin,
+                        policy,
+                        script: url,
                         scope,
                         script_type,
                         cache,
-                    )
+                    })
                 }))
                 .unwrap_or_else(|_| Err(error("service soft update panicked")));
                 registry.publish_job_result(operation, result);
@@ -5026,6 +5131,7 @@ impl ServiceRegistry {
             .push(job);
         Ok(())
     }
+    #[cfg(all(test, feature = "v8-host"))]
     pub(crate) fn intercept_navigation(
         &self,
         page: oryn_common::v3::PageId,
@@ -5165,6 +5271,7 @@ impl ServiceRegistry {
             ));
         }
         Ok(Some(crate::network::NetworkResponse {
+            response_policy: None,
             timing: crate::network::service_timing_provenance(response.timing.as_ref()),
             request_id: request.request_id,
             status: response.status,
@@ -5172,6 +5279,7 @@ impl ServiceRegistry {
             body: response.body,
         }))
     }
+    #[cfg(all(test, feature = "v8-host"))]
     pub(crate) fn intercept_navigation_operation(
         &self,
         page: oryn_common::v3::PageId,
@@ -5320,10 +5428,10 @@ impl ServiceRegistry {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clear();
-        if let Some(context) = self.context.upgrade() {
-            if let Ok(coordinator) = context.context_store().service_coordinator() {
-                coordinator.versions.retire_registry(&self.weak_self);
-            }
+        if let Some(context) = self.context.upgrade()
+            && let Ok(coordinator) = context.context_store().service_coordinator()
+        {
+            coordinator.versions.retire_registry(&self.weak_self);
         }
         let preloads = std::mem::take(
             &mut *self
@@ -5362,7 +5470,9 @@ impl ServiceRegistry {
         }
         let agents = self.state()?.versions.keys().copied().collect::<Vec<_>>();
         for agent in agents {
-            if let Err(error) = self.retire_version(agent) {
+            // An existing background owner may be finishing the same process.
+            // Join retained work below, then verify every remaining version.
+            if let Err(error) = self.retire_version_if_idle(agent) {
                 failure.get_or_insert(error);
             }
         }
@@ -5393,6 +5503,18 @@ impl ServiceRegistry {
         }
         if let Err(error) = self.drain_preload_owners(Duration::from_secs(2)) {
             failure.get_or_insert(error);
+        }
+        let remaining = self.state()?.versions.keys().copied().collect::<Vec<_>>();
+        for agent in remaining {
+            match self.retire_version_if_idle(agent) {
+                Ok(true) => {}
+                Ok(false) => {
+                    failure.get_or_insert_with(|| error("service retirement remains owned"));
+                }
+                Err(error) => {
+                    failure.get_or_insert(error);
+                }
+            }
         }
         failure.map_or(Ok(()), Err).and(cache_cleanup)
     }
@@ -5503,6 +5625,7 @@ mod tests {
         let inflight = Arc::new(std::sync::atomic::AtomicUsize::new(1));
         let lease = ServiceEventLease {
             check_soft_update: true,
+            soft_update_source: None,
             activity: None,
             registry: Arc::downgrade(&registry),
             agent: AgentId(999),
@@ -5532,7 +5655,7 @@ mod tests {
             .maintenance
             .lock()
             .unwrap()
-            .insert(AgentId(998), (ticket.clone(), false));
+            .insert(AgentId(998), (ticket.clone(), None));
         assert!(registry.run_maintenance().is_err());
         assert!(
             registry
@@ -5648,6 +5771,7 @@ mod tests {
                 .unwrap()
                 .push((path.clone(), revalidate));
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -5704,18 +5828,18 @@ mod tests {
         let (partition, origin, policy) = context.native_worker_authority(&owner).unwrap();
         let update = |cache: &str| {
             registry
-                .update(
-                    0,
-                    owner.clone(),
-                    network.clone(),
-                    partition.clone(),
-                    origin.clone(),
-                    policy.clone(),
-                    "/sw.js".into(),
-                    Some("/".into()),
-                    ScriptType::Classic,
-                    cache.into(),
-                )
+                .update(ServiceUpdateInputs {
+                    operation: 0,
+                    owner: owner.clone(),
+                    network: network.clone(),
+                    partition: partition.clone(),
+                    origin: origin.clone(),
+                    policy: policy.clone(),
+                    script: "/sw.js".into(),
+                    scope: Some("/".into()),
+                    script_type: ScriptType::Classic,
+                    cache: cache.into(),
+                })
                 .unwrap()
         };
         update("all");
@@ -5757,19 +5881,19 @@ mod tests {
         );
         let before = requests.lock().unwrap().len();
         let result = registry
-            .update_job(
-                0,
-                owner.clone(),
-                network.clone(),
-                partition.clone(),
-                origin.clone(),
-                policy.clone(),
-                "/sw.js".into(),
-                Some("/".into()),
-                ScriptType::Classic,
-                "none".into(),
-                true,
-            )
+            .update_job(ServiceUpdateJobInputs {
+                operation: 0,
+                owner: owner.clone(),
+                network: network.clone(),
+                partition: partition.clone(),
+                origin: origin.clone(),
+                policy: policy.clone(),
+                script: "/sw.js".into(),
+                scope: Some("/".into()),
+                script_type: ScriptType::Classic,
+                cache: "none".into(),
+                register: true,
+            })
             .unwrap();
         assert_eq!(
             requests.lock().unwrap().len(),
@@ -5780,6 +5904,58 @@ mod tests {
             panic!("registration result")
         };
         assert_eq!(registration.update_via_cache, "none");
+        {
+            let agent = registration.active.as_ref().unwrap().id;
+            let bootstrap = context.worker_bootstrap(agent).unwrap();
+            let (scope, key) = registry
+                .job_identity(
+                    &ServiceRequest::Update {
+                        creator: Creator::Agent(agent),
+                        registration: registration.id,
+                    },
+                    &bootstrap.partition,
+                    &bootstrap.origin,
+                    &bootstrap.policy,
+                )
+                .unwrap()
+                .unwrap();
+            let coordinator = context.context_store().service_coordinator().unwrap();
+            let delivered = Arc::new(Mutex::new(Vec::new()));
+            let recipient = delivered.clone();
+            let leader = coordinator
+                .equivalent
+                .admit(
+                    scope,
+                    key,
+                    Box::new(move |result| {
+                        recipient
+                            .lock()
+                            .unwrap()
+                            .push(matches!(result, Ok((ServiceResult::Bool(true), None))));
+                    }),
+                )
+                .unwrap()
+                .unwrap();
+            registry
+                .schedule_soft_update(agent, network.clone())
+                .unwrap();
+            assert!(
+                !registry
+                    .state()
+                    .unwrap()
+                    .soft_updates
+                    .contains(&registration.id),
+                "joining an equivalent profile job releases the local soft-update marker"
+            );
+            assert_eq!(
+                requests.lock().unwrap().len(),
+                before,
+                "an equivalent in-flight update must not start another script fetch"
+            );
+            leader.publish(Ok((ServiceResult::Bool(true), None)));
+            leader.finish();
+            assert_eq!(*delivered.lock().unwrap(), vec![true]);
+        }
         registry
             .schedule_soft_update(registration.active.as_ref().unwrap().id, network.clone())
             .unwrap();
@@ -5827,8 +6003,6 @@ mod tests {
         registry.state().unwrap().equivalent_jobs.insert(
             operation,
             EquivalentJob {
-                scope: String::new(),
-                key: String::new(),
                 settled: false,
                 authority,
                 profile: None,
@@ -5846,34 +6020,34 @@ mod tests {
         registry.retire_client(&owner).unwrap();
         assert!(context.retained_worker_authority(&owner).is_err());
         registry
-            .update(
+            .update(ServiceUpdateInputs {
                 operation,
-                owner.clone(),
-                network.clone(),
-                partition.clone(),
-                origin.clone(),
-                policy.clone(),
-                "/sw.js".into(),
-                Some("/".into()),
-                ScriptType::Classic,
-                "none".into(),
-            )
+                owner: owner.clone(),
+                network: network.clone(),
+                partition: partition.clone(),
+                origin: origin.clone(),
+                policy: policy.clone(),
+                script: "/sw.js".into(),
+                scope: Some("/".into()),
+                script_type: ScriptType::Classic,
+                cache: "none".into(),
+            })
             .unwrap();
         let before = requests.lock().unwrap().len();
         assert!(
             registry
-                .update(
-                    0,
-                    owner.clone(),
-                    network.clone(),
-                    partition.clone(),
-                    origin.clone(),
-                    policy.clone(),
-                    "/sw.js".into(),
-                    Some("/".into()),
-                    ScriptType::Classic,
-                    "none".into()
-                )
+                .update(ServiceUpdateInputs {
+                    operation: 0,
+                    owner: owner.clone(),
+                    network: network.clone(),
+                    partition: partition.clone(),
+                    origin: origin.clone(),
+                    policy: policy.clone(),
+                    script: "/sw.js".into(),
+                    scope: Some("/".into()),
+                    script_type: ScriptType::Classic,
+                    cache: "none".into()
+                })
                 .is_err()
         );
         assert_eq!(
@@ -5910,6 +6084,7 @@ mod tests {
                 )
             };
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status,
@@ -5953,18 +6128,18 @@ mod tests {
         let (partition, origin, policy) = context.native_worker_authority(&owner).unwrap();
         let update = || {
             registry
-                .update(
-                    0,
-                    owner.clone(),
-                    network.clone(),
-                    partition.clone(),
-                    origin.clone(),
-                    policy.clone(),
-                    "/sw.js".into(),
-                    Some("/".into()),
-                    ScriptType::Module,
-                    "none".into(),
-                )
+                .update(ServiceUpdateInputs {
+                    operation: 0,
+                    owner: owner.clone(),
+                    network: network.clone(),
+                    partition: partition.clone(),
+                    origin: origin.clone(),
+                    policy: policy.clone(),
+                    script: "/sw.js".into(),
+                    scope: Some("/".into()),
+                    script_type: ScriptType::Module,
+                    cache: "none".into(),
+                })
                 .unwrap()
         };
         update();
@@ -6086,6 +6261,7 @@ mod tests {
                 b"onfetch=e=>e.respondWith(new Response('same decoded source'));",
             );
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -6128,18 +6304,18 @@ mod tests {
         let (partition, origin, policy) = context.native_worker_authority(&owner).unwrap();
         let update = || {
             registry
-                .update(
-                    0,
-                    owner.clone(),
-                    network.clone(),
-                    partition.clone(),
-                    origin.clone(),
-                    policy.clone(),
-                    "/sw.js".into(),
-                    Some("/".into()),
-                    ScriptType::Classic,
-                    "none".into(),
-                )
+                .update(ServiceUpdateInputs {
+                    operation: 0,
+                    owner: owner.clone(),
+                    network: network.clone(),
+                    partition: partition.clone(),
+                    origin: origin.clone(),
+                    policy: policy.clone(),
+                    script: "/sw.js".into(),
+                    scope: Some("/".into()),
+                    script_type: ScriptType::Classic,
+                    cache: "none".into(),
+                })
                 .unwrap()
         };
         update();
@@ -6196,6 +6372,7 @@ mod tests {
             self.requests.lock().unwrap().push(request.clone());
             let script = request.url.ends_with("/sw.js");
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -6255,18 +6432,18 @@ mod tests {
         let registry = context.service_registry().unwrap();
         let (partition, origin, policy) = context.native_worker_authority(&owner).unwrap();
         registry
-            .update(
-                0,
-                owner.clone(),
-                network.clone(),
-                partition.clone(),
-                origin.clone(),
-                policy.clone(),
-                "/sw.js".into(),
-                Some("/".into()),
-                ScriptType::Classic,
-                "none".into(),
-            )
+            .update(ServiceUpdateInputs {
+                operation: 0,
+                owner: owner.clone(),
+                network: network.clone(),
+                partition: partition.clone(),
+                origin: origin.clone(),
+                policy: policy.clone(),
+                script: "/sw.js".into(),
+                scope: Some("/".into()),
+                script_type: ScriptType::Classic,
+                cache: "none".into(),
+            })
             .unwrap();
         let registration = registry
             .state()
@@ -6405,19 +6582,19 @@ mod tests {
         drop(captured);
         assert!(registry.take_preload(active, u64::MAX).is_err());
         registry
-            .run(
-                0,
-                owner.clone(),
-                ServiceRequest::NavigationPreload {
+            .run(ServiceRunInputs {
+                operation: 0,
+                owner: owner.clone(),
+                request: ServiceRequest::NavigationPreload {
                     creator: creator.clone(),
                     registration: registration.id,
                     operation: NavigationPreloadOperation::Disable,
                 },
-                network.clone(),
-                partition.clone(),
-                origin.clone(),
-                policy.clone(),
-            )
+                network: network.clone(),
+                partition: partition.clone(),
+                origin: origin.clone(),
+                policy: policy.clone(),
+            })
             .unwrap();
         let before = requests
             .lock()
@@ -6444,19 +6621,19 @@ mod tests {
         for invalid in ["bad\r\nheader", "\u{100}", "\u{1f600}"] {
             assert!(
                 registry
-                    .run(
-                        0,
-                        owner.clone(),
-                        ServiceRequest::NavigationPreload {
+                    .run(ServiceRunInputs {
+                        operation: 0,
+                        owner: owner.clone(),
+                        request: ServiceRequest::NavigationPreload {
                             creator: creator.clone(),
                             registration: registration.id,
                             operation: NavigationPreloadOperation::SetHeaderValue(invalid.into())
                         },
-                        network.clone(),
-                        partition.clone(),
-                        origin.clone(),
-                        policy.clone()
-                    )
+                        network: network.clone(),
+                        partition: partition.clone(),
+                        origin: origin.clone(),
+                        policy: policy.clone()
+                    })
                     .is_err()
             );
         }
@@ -6483,6 +6660,7 @@ mod tests {
             hide_nonces: false,
             policy_sources: Vec::new(),
             policy_self_urls: Vec::new(),
+            document_self_url: None,
             policy_self_url: None,
             url: "https://a.test/page".into(),
             headers: Vec::new(),
@@ -6600,6 +6778,7 @@ mod tests {
                 b"onpush=()=>{throw new Error('runtime remains alive')};onfetch=e=>e.respondWith(new Response('healthy'));".to_vec()
             };
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -6642,18 +6821,18 @@ mod tests {
         let registry = context.service_registry().unwrap();
         let (partition, origin, policy) = context.native_worker_authority(&owner).unwrap();
         let update = |script: &str| {
-            registry.update(
-                0,
-                owner.clone(),
-                network.clone(),
-                partition.clone(),
-                origin.clone(),
-                policy.clone(),
-                script.into(),
-                Some("/".into()),
-                ScriptType::Classic,
-                "none".into(),
-            )
+            registry.update(ServiceUpdateInputs {
+                operation: 0,
+                owner: owner.clone(),
+                network: network.clone(),
+                partition: partition.clone(),
+                origin: origin.clone(),
+                policy: policy.clone(),
+                script: script.into(),
+                scope: Some("/".into()),
+                script_type: ScriptType::Classic,
+                cache: "none".into(),
+            })
         };
         assert!(update("/startup.js").is_err());
         assert!(
@@ -6665,18 +6844,18 @@ mod tests {
         for script in ["/immediate-module.js", "/async-module.js"] {
             assert!(
                 registry
-                    .update(
-                        0,
-                        owner.clone(),
-                        network.clone(),
-                        partition.clone(),
-                        origin.clone(),
-                        policy.clone(),
-                        script.into(),
-                        Some("/".into()),
-                        ScriptType::Module,
-                        "none".into()
-                    )
+                    .update(ServiceUpdateInputs {
+                        operation: 0,
+                        owner: owner.clone(),
+                        network: network.clone(),
+                        partition: partition.clone(),
+                        origin: origin.clone(),
+                        policy: policy.clone(),
+                        script: script.into(),
+                        scope: Some("/".into()),
+                        script_type: ScriptType::Module,
+                        cache: "none".into()
+                    })
                     .is_err(),
                 "{script} must fail despite canceled ErrorEvent"
             );
@@ -6688,18 +6867,18 @@ mod tests {
             );
         }
         let ServiceResult::Registration(Some(pending)) = registry
-            .update(
-                0,
-                owner.clone(),
-                network.clone(),
-                partition.clone(),
-                origin.clone(),
-                policy.clone(),
-                "/timer-module.js".into(),
-                Some("/".into()),
-                ScriptType::Module,
-                "none".into(),
-            )
+            .update(ServiceUpdateInputs {
+                operation: 0,
+                owner: owner.clone(),
+                network: network.clone(),
+                partition: partition.clone(),
+                origin: origin.clone(),
+                policy: policy.clone(),
+                script: "/timer-module.js".into(),
+                scope: Some("/".into()),
+                script_type: ScriptType::Module,
+                cache: "none".into(),
+            })
             .unwrap()
         else {
             panic!("pending module registration")
@@ -6765,6 +6944,7 @@ mod tests {
     impl NetworkBroker for RejectedInstall {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -6806,27 +6986,22 @@ mod tests {
         context
             .publish_worker_secure_context(owner.clone(), true)
             .unwrap();
-        let creator = Creator::Window {
-            target: WindowTarget::Root,
-            document_generation: 1,
-            stream_epoch: 0,
-        };
         let registry = context.service_registry().unwrap();
         let (partition, origin, policy) = context.native_worker_authority(&owner).unwrap();
         let register = |url: &str, network: SharedNetworkBroker| {
-            registry.update_job(
-                0,
-                owner.clone(),
+            registry.update_job(ServiceUpdateJobInputs {
+                operation: 0,
+                owner: owner.clone(),
                 network,
-                partition.clone(),
-                origin.clone(),
-                policy.clone(),
-                url.into(),
-                Some("/".into()),
-                ScriptType::Classic,
-                "none".into(),
-                true,
-            )
+                partition: partition.clone(),
+                origin: origin.clone(),
+                policy: policy.clone(),
+                script: url.into(),
+                scope: Some("/".into()),
+                script_type: ScriptType::Classic,
+                cache: "none".into(),
+                register: true,
+            })
         };
         assert!(register("/failure.js", SharedNetworkBroker::new(RejectedInstall)).is_err());
         assert!(
@@ -6884,19 +7059,19 @@ mod tests {
         let registry = context.service_registry().unwrap();
         let (partition, origin, policy) = context.native_worker_authority(&owner).unwrap();
         let register = |url: &str| {
-            registry.update_job(
-                0,
-                owner.clone(),
-                network.clone(),
-                partition.clone(),
-                origin.clone(),
-                policy.clone(),
-                url.into(),
-                Some("/".into()),
-                ScriptType::Classic,
-                "none".into(),
-                true,
-            )
+            registry.update_job(ServiceUpdateJobInputs {
+                operation: 0,
+                owner: owner.clone(),
+                network: network.clone(),
+                partition: partition.clone(),
+                origin: origin.clone(),
+                policy: policy.clone(),
+                script: url.into(),
+                scope: Some("/".into()),
+                script_type: ScriptType::Classic,
+                cache: "none".into(),
+                register: true,
+            })
         };
         persistence::fail_next_publication();
         assert!(register("/first.js").is_err());
@@ -6931,7 +7106,7 @@ mod tests {
     struct Scripts;
     impl NetworkBroker for Scripts {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
-            Ok(NetworkResponse{timing:None,request_id:request.request_id,status:200,headers:vec![("content-type".into(),"text/javascript".into()),("service-worker-allowed".into(),"/".into())],body:br#"addEventListener('install',e=>e.waitUntil(registration.update().then(()=>{throw Error('install update was accepted')},error=>{if(error.name!=='InvalidStateError')throw error})));addEventListener('activate',e=>e.waitUntil(Promise.reject(new Error('activation extension rejection'))));addEventListener('fetch',e=>{if(e.request.url.endsWith('/response-error')){e.respondWith(Response.error());return;}if(e.request.destination==='iframe'){e.respondWith(new Response('native-frame-body',{headers:{'content-type':'text/html'}}));return;}if(e.request.url.endsWith('/intercepted.js')){e.respondWith(new Response('self.intercepted=true',{headers:{'content-type':'text/javascript'}}));return;}if(e.request.url.endsWith('/streaming-response')){e.respondWith(new Response(new ReadableStream({start(c){c.enqueue(new Uint8Array([4,5,6]));}}),{headers:{'content-type':'text/plain'}}));return;}if(e.request.url.endsWith('/pending-response')){e.respondWith(new Promise(()=>{}));return;}e.respondWith(Promise.resolve(new Response('native-service-body',{headers:{'content-type':'text/plain'}})));if(e.request.url.endsWith('/held'))e.waitUntil(new Promise(resolve=>globalThis.releaseHeld=resolve));});addEventListener('push',()=>{if(globalThis.releaseHeld)releaseHeld()});"#.to_vec()})
+            Ok(NetworkResponse{response_policy: None,timing:None,request_id:request.request_id,status:200,headers:vec![("content-type".into(),"text/javascript".into()),("service-worker-allowed".into(),"/".into())],body:br#"addEventListener('install',e=>e.waitUntil(registration.update().then(()=>{throw Error('install update was accepted')},error=>{if(error.name!=='InvalidStateError')throw error})));addEventListener('activate',e=>e.waitUntil(Promise.reject(new Error('activation extension rejection'))));addEventListener('fetch',e=>{if(e.request.url.endsWith('/response-error')){e.respondWith(Response.error());return;}if(e.request.destination==='iframe'){e.respondWith(new Response('native-frame-body',{headers:{'content-type':'text/html'}}));return;}if(e.request.url.endsWith('/intercepted.js')){e.respondWith(new Response('self.intercepted=true',{headers:{'content-type':'text/javascript'}}));return;}if(e.request.url.endsWith('/streaming-response')){e.respondWith(new Response(new ReadableStream({start(c){c.enqueue(new Uint8Array([4,5,6]));}}),{headers:{'content-type':'text/plain'}}));return;}if(e.request.url.endsWith('/pending-response')){e.respondWith(new Promise(()=>{}));return;}e.respondWith(Promise.resolve(new Response('native-service-body',{headers:{'content-type':'text/plain'}})));if(e.request.url.endsWith('/held'))e.waitUntil(new Promise(resolve=>globalThis.releaseHeld=resolve));});addEventListener('push',()=>{if(globalThis.releaseHeld)releaseHeld()});"#.to_vec()})
         }
     }
     #[test]
@@ -7077,18 +7252,18 @@ mod tests {
         let service_owner = AgentOwner::Agent(registration.active.as_ref().unwrap().id);
         let (partition, origin, policy) = context.native_worker_authority(&service_owner).unwrap();
         let clients = registry
-            .run(
-                0,
-                service_owner.clone(),
-                ServiceRequest::ClientsMatchAll {
+            .run(ServiceRunInputs {
+                operation: 0,
+                owner: service_owner.clone(),
+                request: ServiceRequest::ClientsMatchAll {
                     include_uncontrolled: false,
                     client_type: Some(ClientType::Window),
                 },
-                network.clone(),
-                partition.clone(),
-                origin.clone(),
-                policy.clone(),
-            )
+                network: network.clone(),
+                partition: partition.clone(),
+                origin: origin.clone(),
+                policy: policy.clone(),
+            })
             .unwrap();
         let ServiceResult::Clients(clients) = clients else {
             panic!("client list")
@@ -7153,50 +7328,50 @@ mod tests {
 
         assert!(matches!(
             registry
-                .run(
-                    0,
-                    service_owner.clone(),
-                    ServiceRequest::ClientsGet {
+                .run(ServiceRunInputs {
+                    operation: 0,
+                    owner: service_owner.clone(),
+                    request: ServiceRequest::ClientsGet {
                         client: client_id.clone()
                     },
-                    network.clone(),
-                    partition.clone(),
-                    origin.clone(),
-                    policy.clone()
-                )
+                    network: network.clone(),
+                    partition: partition.clone(),
+                    origin: origin.clone(),
+                    policy: policy.clone()
+                })
                 .unwrap(),
             ServiceResult::Client(Some(_))
         ));
         assert!(matches!(
             registry
-                .run(
-                    0,
-                    service_owner.clone(),
-                    ServiceRequest::ClientsGet {
+                .run(ServiceRunInputs {
+                    operation: 0,
+                    owner: service_owner.clone(),
+                    request: ServiceRequest::ClientsGet {
                         client: "forged".into()
                     },
-                    network.clone(),
-                    partition.clone(),
-                    origin.clone(),
-                    policy.clone()
-                )
+                    network: network.clone(),
+                    partition: partition.clone(),
+                    origin: origin.clone(),
+                    policy: policy.clone()
+                })
                 .unwrap(),
             ServiceResult::Client(None)
         ));
         assert!(
             registry
-                .run(
-                    0,
-                    owner.clone(),
-                    ServiceRequest::ClientsMatchAll {
+                .run(ServiceRunInputs {
+                    operation: 0,
+                    owner: owner.clone(),
+                    request: ServiceRequest::ClientsMatchAll {
                         include_uncontrolled: true,
                         client_type: None
                     },
-                    network.clone(),
-                    partition.clone(),
-                    origin.clone(),
-                    policy.clone()
-                )
+                    network: network.clone(),
+                    partition: partition.clone(),
+                    origin: origin.clone(),
+                    policy: policy.clone()
+                })
                 .is_err()
         );
         let response = registry
@@ -7526,14 +7701,14 @@ mod tests {
                     download: None,
                     script_authority: None,
                     page_id: page.page_id(),
-                    initiator: crate::context_service::ResourceInitiator {
+                    initiator: Box::new(crate::context_service::ResourceInitiator {
                         embedded_type: None,
                         request_state: None,
                         navigation: Default::default(),
                         creator: creator.clone(),
                         stylesheet: None,
                         prepared_policy: None,
-                    },
+                    }),
                     form_authority: None,
                     url: "https://example.test/frame".into(),
                     destination: "frame".into(),
@@ -7594,7 +7769,7 @@ mod tests {
             )
             .unwrap();
         let frame_creator = oryn_js::worker_wire::Creator::Window {
-            target: oryn_js::message_wire::WindowTarget::Frame(frame_token),
+            target: oryn_js::message_wire::WindowTarget::Frame(frame_token.clone()),
             document_generation: 2,
             stream_epoch: 0,
         };
@@ -7604,7 +7779,7 @@ mod tests {
                     crate::context_service::ContextServiceRequest::HttpStreamRead {
                         page_id: page.page_id(),
                         stream_id: frame_stream,
-                        creator: Some(frame_creator),
+                        creator: Some(frame_creator.clone()),
                         max_bytes: 4096,
                     },
                 )
@@ -7617,6 +7792,23 @@ mod tests {
                 .unwrap(),
             b"native-frame-body",
             "native frame stream dispatches service worker navigation fetch"
+        );
+        let frame_eof = client
+            .request(
+                crate::context_service::ContextServiceRequest::HttpStreamRead {
+                    page_id: page.page_id(),
+                    stream_id: frame_stream,
+                    creator: Some(frame_creator),
+                    max_bytes: 4096,
+                },
+            )
+            .unwrap();
+        assert!(
+            matches!(
+                frame_eof,
+                crate::context_service::ContextServiceResponse::HttpStreamChunk { done: true, .. }
+            ),
+            "release terminal frame response custody before client retirement"
         );
 
         let start = client
@@ -7846,7 +8038,12 @@ mod tests {
                 },
             )
             .unwrap();
+        let cancellation_started = Instant::now();
         assert!(request.join().unwrap().is_err());
+        assert!(
+            cancellation_started.elapsed() < Duration::from_secs(2),
+            "HTTP abort must interrupt service response waiting before the worker event deadline"
+        );
         let unregister_id = registry.id().unwrap();
         registry.updates.lock().unwrap().insert(unregister_id);
         let ticket = UpdateTicket {
@@ -7855,18 +8052,18 @@ mod tests {
         };
         assert!(matches!(
             registry
-                .run(
-                    unregister_id,
-                    owner.clone(),
-                    ServiceRequest::Unregister {
+                .run(ServiceRunInputs {
+                    operation: unregister_id,
+                    owner: owner.clone(),
+                    request: ServiceRequest::Unregister {
                         creator: creator.clone(),
                         registration: registration.id
                     },
-                    network.clone(),
+                    network: network.clone(),
                     partition,
                     origin,
                     policy
-                )
+                })
                 .unwrap(),
             ServiceResult::Bool(true)
         ));
@@ -7876,6 +8073,31 @@ mod tests {
             "unregister retains a version while its controlled client lives"
         );
         registry.retire_client(&owner).unwrap();
+        let frame_owner = AgentOwner::Window {
+            page: page.page_id(),
+            target: WindowTarget::Frame(frame_token.clone()),
+            generation: 2,
+            epoch: 0,
+        };
+        assert_eq!(
+            registry.controller_registration(&frame_owner),
+            Some(registration.id)
+        );
+        assert!(
+            context.worker_bootstrap(service_id).is_ok(),
+            "the live controlled frame retains the unregistered service after root retirement"
+        );
+        context
+            .handle_message_wire(
+                page.page_id(),
+                MessageRequest::RetireWindow {
+                    frame: frame_token,
+                    document_generation: 2,
+                    stream_epoch: 0,
+                },
+            )
+            .unwrap();
+        assert!(registry.controller_registration(&frame_owner).is_none());
         let cleanup_deadline = Instant::now() + Duration::from_secs(2);
         while registry
             .state()
@@ -8046,6 +8268,7 @@ mod local_window_creation_tests {
             if !request.url.ends_with("/sw.js") {
                 let redirect = request.url.ends_with("/redirect");
                 return Ok(NetworkResponse {
+                    response_policy: None,
                     timing: None,
                     request_id: request.request_id,
                     status: if redirect { 302 } else { 200 },
@@ -8058,6 +8281,7 @@ mod local_window_creation_tests {
                 });
             }
             Ok(NetworkResponse {
+                response_policy: None,
                 timing: None,
                 request_id: request.request_id,
                 status: 200,
@@ -8118,21 +8342,76 @@ mod local_window_creation_tests {
         context
             .publish_worker_secure_context(owner.clone(), true)
             .unwrap();
+        register_service(context, page, network, owner)
+    }
+
+    // Navigation tests need a native document. The default test binary delegates
+    // to the signed worker; V8-enabled tests use the same native engine locally.
+    // Capture its published creator instead of inventing a document generation.
+    fn setup_native_with_requests(
+        requests: Arc<Mutex<Vec<NetworkRequest>>>,
+    ) -> (
+        BrowserContext,
+        Arc<ServiceRegistry>,
+        crate::runtime::PageHandle,
+        AgentOwner,
+        AgentId,
+    ) {
+        let network = SharedNetworkBroker::new(Script { requests });
+        let context = crate::runtime::Browser::native_test_with_config(Default::default())
+            .new_native_test_context_with_broker(Default::default(), network.clone());
+        let page = context.new_page();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(page.load_html(
+                "https://service.test/app",
+                "<!doctype html><title>service source</title>",
+            ))
+            .expect("load native service source document");
+        let Creator::Window {
+            target,
+            document_generation,
+            stream_epoch,
+        } = context.root_navigation_creator(page.page_id()).unwrap()
+        else {
+            panic!("native service source Window creator")
+        };
+        let owner = context
+            .window_worker_creator(page.page_id(), &target, document_generation, stream_epoch)
+            .unwrap()
+            .0;
+        register_service(context, page, network, owner)
+    }
+
+    fn register_service(
+        context: BrowserContext,
+        page: crate::runtime::PageHandle,
+        network: SharedNetworkBroker,
+        owner: AgentOwner,
+    ) -> (
+        BrowserContext,
+        Arc<ServiceRegistry>,
+        crate::runtime::PageHandle,
+        AgentOwner,
+        AgentId,
+    ) {
         let registry = context.service_registry().unwrap();
         let (partition, origin, policy) = context.native_worker_authority(&owner).unwrap();
         let ServiceResult::Registration(Some(registration)) = registry
-            .update(
-                0,
-                owner.clone(),
+            .update(ServiceUpdateInputs {
+                operation: 0,
+                owner: owner.clone(),
                 network,
                 partition,
                 origin,
                 policy,
-                "/sw.js".into(),
-                Some("/".into()),
-                ScriptType::Classic,
-                "none".into(),
-            )
+                script: "/sw.js".into(),
+                scope: Some("/".into()),
+                script_type: ScriptType::Classic,
+                cache: "none".into(),
+            })
             .unwrap()
         else {
             panic!("registration")
@@ -8227,7 +8506,8 @@ mod local_window_creation_tests {
 
     #[test]
     fn controlled_root_client_can_navigate_to_data_and_about_is_rejected() {
-        let (context, registry, source, owner, agent) = setup();
+        let (context, registry, source, owner, agent) =
+            setup_native_with_requests(Arc::new(Mutex::new(Vec::new())));
         context.record_native_activation(owner).unwrap();
         let ServiceResult::WindowClient(Some(client)) = registry
             .window_action(
@@ -8309,7 +8589,15 @@ mod local_window_creation_tests {
             )
             .unwrap();
         context
-            .register_activation_parent(id, frame.clone(), 2, 0, WindowTarget::Root, 1, 0)
+            .register_activation_parent(crate::runtime::worker_service::ActivationParentInputs {
+                page: id,
+                frame: frame.clone(),
+                generation: 2,
+                epoch: 0,
+                parent: WindowTarget::Root,
+                parent_generation: 1,
+                parent_epoch: 0,
+            })
             .unwrap();
         let creator = Creator::Window {
             target: WindowTarget::Frame(frame),
@@ -8340,7 +8628,7 @@ mod local_window_creation_tests {
                 download: None,
                 script_authority: Some(script),
                 page_id: id,
-                initiator: ResourceInitiator {
+                initiator: Box::new(ResourceInitiator {
                     embedded_type: None,
                     request_state: None,
                     navigation: Default::default(),
@@ -8351,7 +8639,7 @@ mod local_window_creation_tests {
                     },
                     stylesheet: None,
                     prepared_policy: None,
-                },
+                }),
                 form_authority: None,
                 url: url.into(),
                 destination: "frame".into(),
@@ -8388,7 +8676,8 @@ mod local_window_creation_tests {
     #[test]
     fn service_http_navigation_uses_sealed_metadata_and_rejected_admissions_send_nothing() {
         let requests = Arc::new(Mutex::new(Vec::new()));
-        let (context, registry, source_page, _, agent) = setup_with_requests(requests.clone());
+        let (context, registry, source_page, _, agent) =
+            setup_native_with_requests(requests.clone());
         requests.lock().unwrap().clear();
         let bootstrap = context.worker_bootstrap(agent).unwrap();
         let page = context.new_service_window(agent).unwrap();
@@ -8623,7 +8912,8 @@ mod local_window_creation_tests {
     }
     #[test]
     fn service_open_window_data_returns_null_and_blob_returns_same_origin_client() {
-        let (context, registry, source, owner, agent) = setup();
+        let (context, registry, source, owner, agent) =
+            setup_native_with_requests(Arc::new(Mutex::new(Vec::new())));
         context.record_native_activation(owner.clone()).unwrap();
         assert!(matches!(
             registry

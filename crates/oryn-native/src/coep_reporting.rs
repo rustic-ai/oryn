@@ -1,4 +1,15 @@
 //! COEP reporting uses committed policy and the existing bounded native report queue.
+
+/// Inputs for response.
+pub(crate) struct ResponsePolicyInputs<'a> {
+    pub(crate) origin: &'a str,
+    pub(crate) opaque: bool,
+    pub(crate) target: &'a url::Url,
+    pub(crate) cors: bool,
+    pub(crate) credentials: bool,
+    pub(crate) headers: &'a [(String, String)],
+    pub(crate) destination: &'a str,
+}
 use crate::agent_isolation::{DocumentIsolationPolicy, EmbedderPolicy};
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Policy {
@@ -114,16 +125,17 @@ impl Policy {
             rules,
         }
     }
-    pub(crate) fn response(
-        &self,
-        origin: &str,
-        opaque: bool,
-        target: &url::Url,
-        cors: bool,
-        credentials: bool,
-        headers: &[(String, String)],
-        destination: &str,
-    ) -> Vec<Report> {
+    pub(crate) fn response(&self, params: ResponsePolicyInputs<'_>) -> Vec<Report> {
+        let ResponsePolicyInputs {
+            origin,
+            opaque,
+            target,
+            cors,
+            credentials,
+            headers,
+            destination,
+        } = params;
+
         self.rules
             .iter()
             .filter_map(|rule| {
@@ -230,15 +242,15 @@ mod tests {
             DocumentIsolationPolicy::from_headers(&headers).embedder,
             EmbedderPolicy::None
         );
-        let reports = policy.response(
-            "https://app.test",
-            false,
-            &target,
-            false,
-            true,
-            &[],
-            "image",
-        );
+        let reports = policy.response(ResponsePolicyInputs {
+            origin: "https://app.test",
+            opaque: false,
+            target: &target,
+            cors: false,
+            credentials: true,
+            headers: &[],
+            destination: "image",
+        });
         assert_eq!(reports.len(), 1);
         let value: serde_json::Value = serde_json::from_slice(&reports[0].body).unwrap();
         assert_eq!(
@@ -247,20 +259,28 @@ mod tests {
         );
         assert!(
             policy
-                .response("https://app.test", false, &target, true, true, &[], "image")
+                .response(ResponsePolicyInputs {
+                    origin: "https://app.test",
+                    opaque: false,
+                    target: &target,
+                    cors: true,
+                    credentials: true,
+                    headers: &[],
+                    destination: "image"
+                })
                 .is_empty()
         );
         assert!(
             policy
-                .response(
-                    "https://app.test",
-                    false,
-                    &target,
-                    false,
-                    true,
-                    &[("cross-origin-resource-policy".into(), "cross-origin".into())],
-                    "image"
-                )
+                .response(ResponsePolicyInputs {
+                    origin: "https://app.test",
+                    opaque: false,
+                    target: &target,
+                    cors: false,
+                    credentials: true,
+                    headers: &[("cross-origin-resource-policy".into(), "cross-origin".into())],
+                    destination: "image"
+                })
                 .is_empty()
         );
         let cross = policy.frame("https://app.test", false, &target, true, &[]);

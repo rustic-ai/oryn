@@ -260,197 +260,6 @@ fn rasterize_pen(pen: &Pen, radius: f64) -> Result<(fontdue::Metrics, Vec<u8>), 
     ))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn run() -> PaintGlyphRun {
-        PaintGlyphRun {
-            line_box: None,
-            text_box: None,
-            background: None,
-            decoration_rect: None,
-            scale_x: 1.,
-            vertical: false,
-            decorations: Vec::new(),
-            orientation: oryn_common::v4::PaintGlyphOrientation::Upright,
-            font_key: "fixture".into(),
-            font_size: 64.,
-            color: None,
-            glyphs: vec![],
-            embolden: false,
-            skew_degrees: 0.,
-            normalized_coords: vec![],
-        }
-    }
-    #[test]
-    fn vector_outlines_preserve_curves_and_native_variation_instance() {
-        let source = PaintFontResource {
-            bytes: include_bytes!("../tests/assets/variabletest_matching.ttf").to_vec(),
-            collection_index: 0,
-        };
-        let font = FontRef::from_index(&source.bytes, 0).unwrap();
-        let glyph = font.charmap().map('P').unwrap().to_u32();
-        let mut instance = run();
-        instance.normalized_coords = font
-            .axes()
-            .location(&[("wght", 900.)])
-            .coords()
-            .iter()
-            .map(|c| c.to_bits())
-            .collect();
-        let native = svg_path(&source, &instance, glyph).unwrap();
-        let reference =
-            svg_path(&source, &run(), font.charmap().map(',').unwrap().to_u32()).unwrap();
-        // Outline pens preserve the font's contour order. Equivalent contours
-        // may start at different vertices or reverse their winding; compare the
-        // actual vector geometry through an independent SVG renderer instead.
-        fn coverage(path: &str, scale: u32) -> Vec<u8> {
-            let svg = format!(
-                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"128\" height=\"80\"><path d=\"{path}\" fill=\"black\" transform=\"translate(2 70) scale(1 -1)\"/></svg>"
-            );
-            let tree = resvg::usvg::Tree::from_str(&svg, &resvg::usvg::Options::default()).unwrap();
-            let mut pixmap = resvg::tiny_skia::Pixmap::new(128 * scale, 80 * scale).unwrap();
-            resvg::render(
-                &tree,
-                resvg::tiny_skia::Transform::from_scale(scale as f32, scale as f32),
-                &mut pixmap.as_mut(),
-            );
-            pixmap.data().to_vec()
-        }
-        let mut light = run();
-        light.normalized_coords = font
-            .axes()
-            .location(&[("wght", 100.)])
-            .coords()
-            .iter()
-            .map(|c| c.to_bits())
-            .collect();
-        let light_path = svg_path(&source, &light, glyph).unwrap();
-        let light_reference =
-            svg_path(&source, &run(), font.charmap().map('/').unwrap().to_u32()).unwrap();
-        for scale in [1, 3] {
-            let actual = coverage(&native, scale);
-            assert!(actual.chunks_exact(4).any(|pixel| pixel[3] > 0));
-            assert_eq!(actual, coverage(&reference, scale));
-            assert_eq!(
-                coverage(&light_path, scale),
-                coverage(&light_reference, scale)
-            );
-            assert_ne!(
-                actual,
-                coverage(&light_path, scale),
-                "variation must change vector geometry"
-            );
-        }
-        let curved = PaintFontResource {
-            bytes: oryn_layout::DEFAULT_FONT_BYTES.to_vec(),
-            collection_index: 0,
-        };
-        let curved_font = FontRef::from_index(&curved.bytes, 0).unwrap();
-        let curve_path = svg_path(
-            &curved,
-            &run(),
-            curved_font.charmap().map('S').unwrap().to_u32(),
-        )
-        .unwrap();
-        assert!(
-            curve_path.contains('Q') || curve_path.contains('C'),
-            "native curve segments must remain vector curves"
-        );
-        assert!(
-            coverage(&curve_path, 1)
-                .chunks_exact(4)
-                .any(|pixel| pixel[3] > 0)
-        );
-        instance.font_size = f64::MAX;
-        assert!(svg_path(&source, &instance, glyph).is_err());
-    }
-    #[test]
-    fn variable_outline_matches_static_reference_glyphs_at_weight_extremes() {
-        let source = PaintFontResource {
-            bytes: include_bytes!("../tests/assets/variabletest_matching.ttf").to_vec(),
-            collection_index: 0,
-        };
-        let font = FontRef::from_index(&source.bytes, 0).unwrap();
-        let variable = font.charmap().map('P').unwrap().to_u32();
-        for (weight, reference) in [(100., '/'), (900., ',')] {
-            let mut instance = run();
-            instance.normalized_coords = font
-                .axes()
-                .location(&[("wght", weight)])
-                .coords()
-                .iter()
-                .map(|coord| coord.to_bits())
-                .collect();
-            let (actual, a) = rasterize(&source, &instance, variable, 64.).unwrap();
-            let (expected, b) = rasterize(
-                &source,
-                &run(),
-                font.charmap().map(reference).unwrap().to_u32(),
-                64.,
-            )
-            .unwrap();
-            assert_eq!(
-                (actual.xmin, actual.ymin, actual.width, actual.height),
-                (
-                    expected.xmin,
-                    expected.ymin,
-                    expected.width,
-                    expected.height
-                )
-            );
-            assert_eq!(a, b, "weight {weight}");
-        }
-    }
-    #[test]
-    fn synthetic_faces_change_real_outline_ink_and_validate_instances() {
-        let source = PaintFontResource {
-            bytes: oryn_layout::DEFAULT_FONT_BYTES.to_vec(),
-            collection_index: 0,
-        };
-        let font = FontRef::from_index(&source.bytes, 0).unwrap();
-        let id = font.charmap().map('A').unwrap().to_u32();
-        let (_, normal) = rasterize(&source, &run(), id, 32.).unwrap();
-        let mut bold = run();
-        bold.embolden = true;
-        let (_, heavy) = rasterize(&source, &bold, id, 32.).unwrap();
-        assert!(
-            heavy.iter().map(|v| *v as u64).sum::<u64>()
-                > normal.iter().map(|v| *v as u64).sum::<u64>()
-        );
-        let mut italic = run();
-        italic.skew_degrees = 14.;
-        assert_ne!(rasterize(&source, &italic, id, 32.).unwrap().1, normal);
-        italic.skew_degrees = f32::NAN;
-        assert!(rasterize(&source, &italic, id, 32.).is_err());
-    }
-
-    #[test]
-    fn winding_preserves_counters_and_emboldening_expands_ink() {
-        let mut pen = Pen::default();
-        pen.move_to(0., 0.);
-        pen.line_to(8., 0.);
-        pen.line_to(8., 8.);
-        pen.line_to(0., 8.);
-        pen.close();
-        pen.move_to(2., 2.);
-        pen.line_to(2., 6.);
-        pen.line_to(6., 6.);
-        pen.line_to(6., 2.);
-        pen.close();
-        let (normal, bitmap) = rasterize_pen(&pen, 0.).unwrap();
-        assert_eq!((normal.width, normal.height), (8, 8));
-        assert_eq!(bitmap[0], 255);
-        assert_eq!(bitmap[3 * 8 + 3], 0);
-        let (bold, heavy) = rasterize_pen(&pen, 0.5).unwrap();
-        assert!(bold.width > normal.width);
-        assert!(
-            heavy.iter().map(|v| *v as u64).sum::<u64>()
-                > bitmap.iter().map(|v| *v as u64).sum::<u64>()
-        );
-    }
-}
-
 /// Preserve native quadratic/cubic outline segments for vector print. Shaping,
 /// glyph selection, variation coordinates and synthesis come from the captured
 /// run, so PDF generation never re-shapes the fragment string.
@@ -555,4 +364,197 @@ pub(super) fn svg_path(
         ));
     }
     Ok(pen.path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn run() -> PaintGlyphRun {
+        PaintGlyphRun {
+            line_box: None,
+            text_box: None,
+            background: None,
+            decoration_rect: None,
+            scale_x: 1.,
+            vertical: false,
+            decorations: Vec::new(),
+            orientation: oryn_common::v4::PaintGlyphOrientation::Upright,
+            font_key: "fixture".into(),
+            font_size: 64.,
+            color: None,
+            glyphs: vec![],
+            embolden: false,
+            skew_degrees: 0.,
+            normalized_coords: vec![],
+        }
+    }
+    #[test]
+    fn vector_outlines_preserve_curves_and_native_variation_instance() {
+        let source = PaintFontResource {
+            bytes: include_bytes!("../tests/assets/variabletest_matching.ttf").to_vec(),
+            collection_index: 0,
+        };
+        let font = FontRef::from_index(&source.bytes, 0).unwrap();
+        let glyph = font.charmap().map('P').unwrap().to_u32();
+        let mut instance = run();
+        instance.normalized_coords = font
+            .axes()
+            .location(&[("wght", 900.)])
+            .coords()
+            .iter()
+            .map(|c| c.to_bits())
+            .collect();
+        let native = svg_path(&source, &instance, glyph).unwrap();
+        let reference =
+            svg_path(&source, &run(), font.charmap().map(',').unwrap().to_u32()).unwrap();
+        // Outline pens preserve the font's contour order. Equivalent contours
+        // may start at different vertices or reverse their winding; compare the
+        // actual vector geometry through an independent SVG renderer instead.
+        fn coverage(path: &str, scale: u32) -> Vec<u8> {
+            let svg = format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"128\" height=\"80\"><path d=\"{path}\" fill=\"black\" transform=\"translate(2 70) scale(1 -1)\"/></svg>"
+            );
+            let tree = resvg::usvg::Tree::from_str(&svg, &resvg::usvg::Options::default()).unwrap();
+            let mut pixmap = resvg::tiny_skia::Pixmap::new(128 * scale, 80 * scale).unwrap();
+            resvg::render(
+                &tree,
+                resvg::tiny_skia::Transform::from_scale(scale as f32, scale as f32),
+                &mut pixmap.as_mut(),
+            );
+            pixmap.data().to_vec()
+        }
+        let mut light = run();
+        light.normalized_coords = font
+            .axes()
+            .location(&[("wght", 100.)])
+            .coords()
+            .iter()
+            .map(|c| c.to_bits())
+            .collect();
+        let light_path = svg_path(&source, &light, glyph).unwrap();
+        let light_reference =
+            svg_path(&source, &run(), font.charmap().map('/').unwrap().to_u32()).unwrap();
+        for scale in [1, 3] {
+            let actual = coverage(&native, scale);
+            assert!(actual.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0));
+            assert_eq!(actual, coverage(&reference, scale));
+            assert_eq!(
+                coverage(&light_path, scale),
+                coverage(&light_reference, scale)
+            );
+            assert_ne!(
+                actual,
+                coverage(&light_path, scale),
+                "variation must change vector geometry"
+            );
+        }
+        let curved = PaintFontResource {
+            bytes: oryn_layout::DEFAULT_FONT_BYTES.to_vec(),
+            collection_index: 0,
+        };
+        let curved_font = FontRef::from_index(&curved.bytes, 0).unwrap();
+        let curve_path = svg_path(
+            &curved,
+            &run(),
+            curved_font.charmap().map('S').unwrap().to_u32(),
+        )
+        .unwrap();
+        assert!(
+            curve_path.contains('Q') || curve_path.contains('C'),
+            "native curve segments must remain vector curves"
+        );
+        assert!(
+            coverage(&curve_path, 1)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] > 0)
+        );
+        instance.font_size = f64::MAX;
+        assert!(svg_path(&source, &instance, glyph).is_err());
+    }
+    #[test]
+    fn variable_outline_matches_static_reference_glyphs_at_weight_extremes() {
+        let source = PaintFontResource {
+            bytes: include_bytes!("../tests/assets/variabletest_matching.ttf").to_vec(),
+            collection_index: 0,
+        };
+        let font = FontRef::from_index(&source.bytes, 0).unwrap();
+        let variable = font.charmap().map('P').unwrap().to_u32();
+        for (weight, reference) in [(100., '/'), (900., ',')] {
+            let mut instance = run();
+            instance.normalized_coords = font
+                .axes()
+                .location(&[("wght", weight)])
+                .coords()
+                .iter()
+                .map(|coord| coord.to_bits())
+                .collect();
+            let (actual, a) = rasterize(&source, &instance, variable, 64.).unwrap();
+            let (expected, b) = rasterize(
+                &source,
+                &run(),
+                font.charmap().map(reference).unwrap().to_u32(),
+                64.,
+            )
+            .unwrap();
+            assert_eq!(
+                (actual.xmin, actual.ymin, actual.width, actual.height),
+                (
+                    expected.xmin,
+                    expected.ymin,
+                    expected.width,
+                    expected.height
+                )
+            );
+            assert_eq!(a, b, "weight {weight}");
+        }
+    }
+    #[test]
+    fn synthetic_faces_change_real_outline_ink_and_validate_instances() {
+        let source = PaintFontResource {
+            bytes: oryn_layout::DEFAULT_FONT_BYTES.to_vec(),
+            collection_index: 0,
+        };
+        let font = FontRef::from_index(&source.bytes, 0).unwrap();
+        let id = font.charmap().map('A').unwrap().to_u32();
+        let (_, normal) = rasterize(&source, &run(), id, 32.).unwrap();
+        let mut bold = run();
+        bold.embolden = true;
+        let (_, heavy) = rasterize(&source, &bold, id, 32.).unwrap();
+        assert!(
+            heavy.iter().map(|v| *v as u64).sum::<u64>()
+                > normal.iter().map(|v| *v as u64).sum::<u64>()
+        );
+        let mut italic = run();
+        italic.skew_degrees = 14.;
+        assert_ne!(rasterize(&source, &italic, id, 32.).unwrap().1, normal);
+        italic.skew_degrees = f32::NAN;
+        assert!(rasterize(&source, &italic, id, 32.).is_err());
+    }
+
+    #[test]
+    fn winding_preserves_counters_and_emboldening_expands_ink() {
+        let mut pen = Pen::default();
+        pen.move_to(0., 0.);
+        pen.line_to(8., 0.);
+        pen.line_to(8., 8.);
+        pen.line_to(0., 8.);
+        pen.close();
+        pen.move_to(2., 2.);
+        pen.line_to(2., 6.);
+        pen.line_to(6., 6.);
+        pen.line_to(6., 2.);
+        pen.close();
+        let (normal, bitmap) = rasterize_pen(&pen, 0.).unwrap();
+        assert_eq!((normal.width, normal.height), (8, 8));
+        assert_eq!(bitmap[0], 255);
+        assert_eq!(bitmap[3 * 8 + 3], 0);
+        let (bold, heavy) = rasterize_pen(&pen, 0.5).unwrap();
+        assert!(bold.width > normal.width);
+        assert!(
+            heavy.iter().map(|v| *v as u64).sum::<u64>()
+                > bitmap.iter().map(|v| *v as u64).sum::<u64>()
+        );
+    }
 }

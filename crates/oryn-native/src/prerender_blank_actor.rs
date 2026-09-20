@@ -27,9 +27,9 @@ impl BlankTransfer{
         Some(Self{source,receipt,roster,client,source_page:state.page_id,source_url:state.url.clone(),broker,policy:state.referrer_policy,config:state.config.clone(),options:context.upgrade().map(|context|context.inner.options.clone()).unwrap_or_default(),context,candidate:None,reservation:None,pending:None,tree:None,realm:None,phase:0,retry:None})
     }
     fn cancel(&mut self,host:&mut Option<crate::host::RawV8Host>)->Result<bool,RuntimeError>{
-        self.roster.poll(None,host,self.client.clone(),self.source_page,self.broker.clone(),&self.source_url,self.policy,&self.config);
+        self.roster.poll(prerender_roster::PrerenderPollInput { snapshot: None, host, client: self.client.clone(), page: self.source_page, broker: self.broker.clone(), source_url: &self.source_url, policy: self.policy, config: &self.config });
         if self.roster.delay().is_some(){return Ok(false)}
-        if self.candidate.is_some(){if let Some(realm)=self.realm{host.as_mut().ok_or(RuntimeError::EvaluationUnavailable)?.retire_agent_root(realm).map_err(map_host_error)?;}}
+        if self.candidate.is_some()&& let Some(realm)=self.realm{host.as_mut().ok_or(RuntimeError::EvaluationUnavailable)?.retire_agent_root(realm).map_err(map_host_error)?;}
         self.candidate.take();self.reservation.take();Ok(true)
     }
     fn poll(&mut self,host:&mut Option<crate::host::RawV8Host>,entries:&mut Vec<Entry>,actor:&WorkerRoute,control:&std::sync::mpsc::SyncSender<Attach>)->Result<bool,RuntimeError>{
@@ -38,7 +38,7 @@ impl BlankTransfer{
         self.retry=None;
         if self.phase==255{return self.cancel(host)}
         if self.phase==0{
-            self.roster.poll(Some(self.source.clone()),host,self.client.clone(),self.source_page,self.broker.clone(),&self.source_url,self.policy,&self.config);
+            self.roster.poll(prerender_roster::PrerenderPollInput { snapshot: Some(self.source.clone()), host, client: self.client.clone(), page: self.source_page, broker: self.broker.clone(), source_url: &self.source_url, policy: self.policy, config: &self.config });
             let Some(candidate)=self.roster.take_for_blank_activation(&self.source,&self.receipt.url)else{if self.roster.delay().is_none(){return Err(RuntimeError::NavigationCancelled)}return Ok(false)};
             let matches=candidate.reservation.page_id==self.receipt.page_id&&candidate.reservation.token==self.receipt.token&&candidate.reservation.generation==self.receipt.generation&&candidate.reservation.epoch==self.receipt.epoch;
             self.realm=Some(candidate.executable.agent_root_realm());self.candidate=Some(candidate);
@@ -59,6 +59,11 @@ impl BlankTransfer{
             if admission.actor_route!=*actor||entries.len()>=256{return Err(RuntimeError::ProtocolViolation("blank actor admission unavailable".into()))}
             let route=admission.route.clone();let direct=admission.direct;
             if registry().lock().map_err(|_|RuntimeError::ContextService("related actor registry poisoned".into()))?.contains_key(&route){return Err(RuntimeError::ProtocolViolation("blank actor route already installed".into()))}
+            // The candidate driver has lent its host to this actor turn.
+            // Read its live identity from that owner before consuming custody.
+            let realm=self.realm.unwrap();
+            let (_,generation,epoch,true)=owned.automation_realm_identity(realm).ok_or(RuntimeError::NavigationCancelled)? else{return Err(RuntimeError::NavigationCancelled)};
+            let root_identity=Some((u64::from(realm.0),generation,epoch));
             let history=owned.navigation_history_snapshot().map_err(map_host_error)?;
             // This snapshot becomes the new blank actor's entire initial
             // session below; it has no predecessor from the source Window.
@@ -75,10 +80,9 @@ impl BlankTransfer{
             let candidate=self.candidate.take().unwrap();
             let prerender_load::CandidateDocument{reservation,executable,url,status,content_type,headers,broker,csp,origin,request_state,capture,..}=*candidate;
             let mut state=PageState::new(self.receipt.page_id,None,self.config.clone(),self.options.clone(),Some(broker),Some(reservation.client.clone()));
-            let root_identity=executable.form_history_root_identity().map(|(realm,generation,epoch)|(u64::from(realm.0),generation,epoch));
             state.pending_navigation_response=Some(PendingNavigationResponse{generation:reservation.generation,root_identity,current:Url::parse(&url).expect("admitted prerender URL"),status,response_headers:headers.clone(),essence:content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase(),capture});
             state.response_policy_headers=crate::standalone_document_policy::retained_headers(&headers);
-            state.adopt_agent_document(executable,url,reservation.generation,origin,history,csp,crate::referrer::ReferrerPolicy::default().after_response(&headers),crate::agent_isolation::DocumentIsolationPolicy::from_headers(&headers));
+            state.adopt_agent_document(crate::runtime::AgentDocumentInputs { executable, url, generation: reservation.generation, origin, history, policy: csp, referrer: crate::referrer::ReferrerPolicy::default().after_response(&headers), isolation: crate::agent_isolation::DocumentIsolationPolicy::from_headers(&headers) });
             if let Some(index)=state.history_index{state.history[index].request_state=Some(request_state);}
             state.lifecycle=vec![LifecycleState::Commit];
             if state.executable.as_ref().is_some_and(|page|page.document_interactive()){state.lifecycle.push(LifecycleState::DomContentLoaded);}
@@ -116,7 +120,7 @@ mod blank_transfer_tests{
     impl crate::network::NetworkBroker for CandidateResponse{
         fn send(&self,request:crate::network::NetworkRequest)->Result<crate::network::NetworkResponse,crate::network::NetworkError>{
             self.0.fetch_add(1,std::sync::atomic::Ordering::SeqCst);
-            Ok(crate::network::NetworkResponse{timing:None,request_id:request.request_id,status:200,headers:vec![("content-type".into(),"text/html".into())],body:br#"<script>globalThis.saved=document;globalThis.savedWindow=window;globalThis.activations=0;document.addEventListener('prerenderingchange',()=>activations++)</script><body>candidate"#.to_vec()})
+            Ok(crate::network::NetworkResponse{response_policy: None,timing:None,request_id:request.request_id,status:200,headers:vec![("content-type".into(),"text/html".into())],body:br#"<script>globalThis.saved=document;globalThis.savedWindow=window;globalThis.activations=0;document.addEventListener('prerenderingchange',()=>activations++)</script><body>candidate"#.to_vec()})
         }
     }
     #[test]

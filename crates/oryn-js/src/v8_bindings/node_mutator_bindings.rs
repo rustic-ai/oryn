@@ -40,10 +40,10 @@ fn local_nodes(
     for value in values {
         if let Converted::Node(value) = value {
             let value = v8::Local::new(scope, value);
-            if let Some((owner, node)) = node_identity::argument(scope, value)? {
-                if Rc::ptr_eq(&owner.dom, &state.dom) {
-                    result.push(node);
-                }
+            if let Some((owner, node)) = node_identity::argument(scope, value)?
+                && Rc::ptr_eq(&owner.dom, &state.dom)
+            {
+                result.push(node);
             }
         }
     }

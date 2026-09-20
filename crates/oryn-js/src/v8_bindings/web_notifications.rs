@@ -482,6 +482,6 @@ mod tests {
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         assert!(eval(scope,r#"(()=>{const data={x:1};data.self=data;globalThis.note=new Notification('title',{body:'body',data,vibrate:[10,20,30]});globalThis.errors=0;note.onerror=e=>{if(!e.isTrusted||e.target!==note)throw Error('event');errors++};data.x=2;return note.data===note.data&&note.data!==data&&note.data.self===note.data&&note.data.x===1&&note.title==='title'&&note.body==='body'&&Object.isFrozen(note.vibrate)&&errors===0})()"#).is_true());
         state.drain_platform_completions(scope, 16).unwrap();
-        assert!(eval(scope, "errors===1").is_true());
+        assert_eq!(eval(scope, "errors").integer_value(scope), Some(1));
     }
 }

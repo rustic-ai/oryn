@@ -1,6 +1,8 @@
 //! Native standalone response policy retained with the owning realm. Container
 //! edges are captured before loading; redirects cannot rewrite their src origin.
+#[cfg(feature = "v8-host")]
 use crate::{agent_isolation::DocumentIsolationPolicy, csp::CspPolicySet};
+#[cfg(any(feature = "v8-host", test))]
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PermissionEdge {
     parent_origin: String,
@@ -9,17 +11,20 @@ pub(crate) struct PermissionEdge {
     allow: String,
     source: String,
 }
+#[cfg(any(feature = "v8-host", test))]
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct DocumentPolicy {
     pub(crate) origin: String,
     pub(crate) headers: Vec<(String, String)>,
     edges: Vec<PermissionEdge>,
 }
+#[cfg(feature = "v8-host")]
 #[derive(Clone, Debug)]
 pub(crate) struct FramePolicy {
     pub(crate) csp: CspPolicySet,
     pub(crate) document: DocumentPolicy,
 }
+#[cfg(feature = "v8-host")]
 #[derive(Clone, Debug)]
 pub(crate) struct BlobResource {
     pub bytes: Vec<u8>,
@@ -48,7 +53,9 @@ pub(crate) fn retained_headers(headers: &[(String, String)]) -> Vec<(String, Str
         .cloned()
         .collect()
 }
+#[cfg(any(feature = "v8-host", test))]
 impl DocumentPolicy {
+    #[cfg(feature = "v8-host")]
     pub(crate) fn retained_bytes(&self) -> Result<usize, String> {
         let mut size = crate::retained_size::Size(std::mem::size_of::<Self>());
         size.string(&self.origin)?;
@@ -68,6 +75,7 @@ impl DocumentPolicy {
         Ok(size.0)
     }
 
+    #[cfg(feature = "v8-host")]
     pub(crate) fn snapshot(&self) -> oryn_js::permissions_policy::Snapshot {
         use oryn_js::permissions_policy::{Constraint, Snapshot};
         let fields = |headers: &[(String, String)]| {
@@ -137,6 +145,7 @@ impl DocumentPolicy {
             edges,
         })
     }
+    #[cfg(test)]
     pub(crate) fn allows(&self, feature: &str) -> bool {
         use crate::isolation_permissions::{allows_feature, container_allows_feature};
         if !allows_feature(&self.headers, feature, &self.origin, &self.origin) {
@@ -167,6 +176,7 @@ impl DocumentPolicy {
                 ))
         })
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn own_allows(&self, feature: &str) -> bool {
         crate::isolation_permissions::allows_feature(
             &self.headers,
@@ -175,11 +185,13 @@ impl DocumentPolicy {
             &self.origin,
         )
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn own_report_only_allows(&self, feature: &str) -> bool {
         let mut policy = self.clone();
         policy.edges.clear();
         policy.report_only_allows(feature)
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn edge_allows(
         &self,
         feature: &str,
@@ -200,6 +212,7 @@ impl DocumentPolicy {
                     child,
                 ))
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn edge_report_only_allows(&self, feature: &str, child: &str) -> bool {
         let fields = self
             .headers
@@ -238,9 +251,11 @@ impl DocumentPolicy {
                     && allowed(&edge.headers, &edge.parent_origin, &edge.child_origin)
             })
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn isolation(&self) -> DocumentIsolationPolicy {
         DocumentIsolationPolicy::from_headers(&self.headers)
     }
+    #[cfg(feature = "v8-host")]
     pub(crate) fn rebase_origin(&mut self, origin: String) {
         self.origin = origin.clone();
         if let Some(edge) = self.edges.last_mut() {
@@ -248,6 +263,17 @@ impl DocumentPolicy {
         }
     }
 }
+
+#[cfg(feature = "v8-host")]
+impl FramePolicy {
+    pub(crate) fn retained_bytes(&self) -> Result<usize, String> {
+        self.csp
+            .retained_bytes()?
+            .checked_add(self.document.retained_bytes()?)
+            .ok_or_else(|| "frame policy retained bytes overflow".into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,14 +345,5 @@ mod tests {
             )
             .unwrap();
         assert!(!denied.allows("geolocation"));
-    }
-}
-
-impl FramePolicy {
-    pub(crate) fn retained_bytes(&self) -> Result<usize, String> {
-        self.csp
-            .retained_bytes()?
-            .checked_add(self.document.retained_bytes()?)
-            .ok_or_else(|| "frame policy retained bytes overflow".into())
     }
 }

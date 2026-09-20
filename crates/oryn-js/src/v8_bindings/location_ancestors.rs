@@ -85,19 +85,15 @@ pub(super) fn get<'s>(
     if let Some(record) = location
         .get_private(scope, key)
         .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
-    {
-        if record
+        && record
             .get_internal_field(scope, 1)
             .and_then(|value| v8::Local::<v8::String>::try_from(value).ok())
             .is_some_and(|value| value.to_rust_string_lossy(scope) == identity)
-        {
-            if let Some(value) = record
-                .get_internal_field(scope, 0)
-                .and_then(|value| v8::Local::<v8::Value>::try_from(value).ok())
-            {
-                return Ok(value);
-            }
-        }
+        && let Some(value) = record
+            .get_internal_field(scope, 0)
+            .and_then(|value| v8::Local::<v8::Value>::try_from(value).ok())
+    {
+        return Ok(value);
     }
     let names = if state.execution_retired() {
         Vec::new()

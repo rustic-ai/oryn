@@ -73,6 +73,7 @@ impl BrowserContext {
         }
         result
     }
+    #[cfg(test)]
     pub(crate) fn reserve_blank_prerender_target(
         &self,
         source: PageId,
@@ -160,6 +161,7 @@ impl BrowserContext {
             url: scope.url.clone(),
         }))
     }
+    #[cfg(test)]
     pub(crate) fn hidden_prerender_page(&self, page: PageId) -> bool {
         self.inner
             .group

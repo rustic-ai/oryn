@@ -91,30 +91,31 @@ impl BrowserContext {
             if let Some(parent) = parent {
                 pending.push((parent, false));
             }
-            if recurse && matches!(context_target, WindowTarget::Root) {
-                if let Some(opener) = self.native_window_group(*page, *page, None)?.1 {
-                    let opener_target = self.native_opener_target(*page)?;
-                    let snapshot = self.read_related_window(
-                        *page,
-                        &match &candidate {
-                            AgentOwner::Window {
-                                target,
-                                generation,
-                                epoch,
-                                ..
-                            } => Creator::Window {
-                                target: target.clone(),
-                                document_generation: *generation,
-                                stream_epoch: *epoch,
-                            },
-                            _ => unreachable!(),
+            if recurse
+                && matches!(context_target, WindowTarget::Root)
+                && let Some(opener) = self.native_window_group(*page, *page, None)?.1
+            {
+                let opener_target = self.native_opener_target(*page)?;
+                let snapshot = self.read_related_window(
+                    *page,
+                    &match &candidate {
+                        AgentOwner::Window {
+                            target,
+                            generation,
+                            epoch,
+                            ..
+                        } => Creator::Window {
+                            target: target.clone(),
+                            document_generation: *generation,
+                            stream_epoch: *epoch,
                         },
-                        opener,
-                        &opener_target,
-                        None,
-                    )?;
-                    pending.push((owner(opener, &snapshot.creator)?, true));
-                }
+                        _ => unreachable!(),
+                    },
+                    opener,
+                    &opener_target,
+                    None,
+                )?;
+                pending.push((owner(opener, &snapshot.creator)?, true));
             }
         }
         // Do not let retirement/group separation during traversal authenticate

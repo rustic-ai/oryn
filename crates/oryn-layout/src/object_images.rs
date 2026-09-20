@@ -132,10 +132,10 @@ pub(super) fn project(input: &LayoutInput) -> (LayoutInput, BTreeSet<u64>) {
             .retain(|entry| !matches!(entry,LayoutContent::Element(id)if hidden.contains(id)));
     }
     for (index, scope) in &input.shadow_trees.stylesheet_scopes {
-        if !result.shadow_trees.roots.contains_key(scope) {
-            if let Some(sheet) = result.stylesheets.get_mut(*index) {
-                sheet.clear();
-            }
+        if !result.shadow_trees.roots.contains_key(scope)
+            && let Some(sheet) = result.stylesheets.get_mut(*index)
+        {
+            sheet.clear();
         }
     }
     result

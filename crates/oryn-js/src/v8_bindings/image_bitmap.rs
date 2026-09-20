@@ -72,68 +72,66 @@ fn source_with_orientation(
             .map(Some)
             .ok_or_else(|| error("InvalidStateError"));
     }
-    if extended {
-        if let Ok(object) = v8::Local::<v8::Object>::try_from(value) {
-            if let Some((width, height, pixels)) = native_image_data(scope, object) {
-                if pixels
-                    .buffer(scope)
-                    .is_none_or(|buffer| buffer.was_detached())
-                {
-                    return Err(error("InvalidStateError"));
+    if extended && let Ok(object) = v8::Local::<v8::Object>::try_from(value) {
+        if let Some((width, height, pixels)) = native_image_data(scope, object) {
+            if pixels
+                .buffer(scope)
+                .is_none_or(|buffer| buffer.was_detached())
+            {
+                return Err(error("InvalidStateError"));
+            }
+            let mut rgba = vec![0; pixels.byte_length()];
+            pixels.copy_contents(&mut rgba);
+            let bitmap = DecodedImage {
+                origin_clean: true,
+                width,
+                height,
+                rgba,
+            };
+            return if valid(&bitmap) {
+                Ok(Some(bitmap))
+            } else {
+                Err(error("InvalidStateError"))
+            };
+        }
+        if let Some(owner) = binding_state_for_receiver(scope, object)
+            && let Ok(id) = stateful_id(scope, object)
+        {
+            let blob = match owner.platform_objects.borrow().get(&id) {
+                Some(PlatformObjectRecord::Blob(blob)) => Some(blob.clone()),
+                _ => None,
+            };
+            if let Some(blob) = blob {
+                let mut reader = image::ImageReader::new(std::io::Cursor::new(&blob.bytes))
+                    .with_guessed_format()
+                    .map_err(|_| error("InvalidStateError"))?;
+                let mut limits = image::Limits::default();
+                limits.max_alloc = Some(32 * 1024 * 1024);
+                reader.limits(limits);
+                use image::ImageDecoder;
+                let mut decoder = reader
+                    .into_decoder()
+                    .map_err(|_| error("InvalidStateError"))?;
+                let orientation = decoder
+                    .orientation()
+                    .map_err(|_| error("InvalidStateError"))?;
+                let mut decoded = image::DynamicImage::from_decoder(decoder)
+                    .map_err(|_| error("InvalidStateError"))?;
+                if orient {
+                    decoded.apply_orientation(orientation);
                 }
-                let mut rgba = vec![0; pixels.byte_length()];
-                pixels.copy_contents(&mut rgba);
+                let rgba = decoded.to_rgba8();
                 let bitmap = DecodedImage {
                     origin_clean: true,
-                    width,
-                    height,
-                    rgba,
+                    width: rgba.width(),
+                    height: rgba.height(),
+                    rgba: rgba.into_raw(),
                 };
                 return if valid(&bitmap) {
                     Ok(Some(bitmap))
                 } else {
                     Err(error("InvalidStateError"))
                 };
-            }
-            if let Some(owner) = binding_state_for_receiver(scope, object) {
-                if let Ok(id) = stateful_id(scope, object) {
-                    let blob = match owner.platform_objects.borrow().get(&id) {
-                        Some(PlatformObjectRecord::Blob(blob)) => Some(blob.clone()),
-                        _ => None,
-                    };
-                    if let Some(blob) = blob {
-                        let mut reader = image::ImageReader::new(std::io::Cursor::new(&blob.bytes))
-                            .with_guessed_format()
-                            .map_err(|_| error("InvalidStateError"))?;
-                        let mut limits = image::Limits::default();
-                        limits.max_alloc = Some(32 * 1024 * 1024);
-                        reader.limits(limits);
-                        use image::ImageDecoder;
-                        let mut decoder = reader
-                            .into_decoder()
-                            .map_err(|_| error("InvalidStateError"))?;
-                        let orientation = decoder
-                            .orientation()
-                            .map_err(|_| error("InvalidStateError"))?;
-                        let mut decoded = image::DynamicImage::from_decoder(decoder)
-                            .map_err(|_| error("InvalidStateError"))?;
-                        if orient {
-                            decoded.apply_orientation(orientation);
-                        }
-                        let rgba = decoded.to_rgba8();
-                        let bitmap = DecodedImage {
-                            origin_clean: true,
-                            width: rgba.width(),
-                            height: rgba.height(),
-                            rgba: rgba.into_raw(),
-                        };
-                        return if valid(&bitmap) {
-                            Ok(Some(bitmap))
-                        } else {
-                            Err(error("InvalidStateError"))
-                        };
-                    }
-                }
             }
         }
     }
@@ -363,21 +361,23 @@ fn create(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
             raster_canvas_image_transformed(
                 &mut output,
                 &source,
-                [
-                    x as f64,
-                    y as f64,
-                    width as f64,
-                    height as f64,
-                    0.,
-                    0.,
-                    out_width as f64,
-                    out_height as f64,
-                ],
-                smooth,
-                1.,
-                [1., 0., 0., 1., 0., 0.],
-                CanvasDrawState::default().composite,
-                &[],
+                CanvasImageInputs {
+                    rect: [
+                        x as f64,
+                        y as f64,
+                        width as f64,
+                        height as f64,
+                        0.,
+                        0.,
+                        out_width as f64,
+                        out_height as f64,
+                    ],
+                    smooth,
+                    global_alpha: 1.,
+                    matrix: [1., 0., 0., 1., 0., 0.],
+                    composite: CanvasDrawState::default().composite,
+                    clips: &[],
+                },
             );
         }
         if flip {

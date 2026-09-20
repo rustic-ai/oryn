@@ -214,17 +214,17 @@ impl Host {
         self.input_dirty = false;
     }
     pub(super) fn cancel_os_input(&mut self) -> Result<(), String> {
-        if self.input_dirty {
-            if let Some((scope, target)) = &self.input_scope {
-                self.sender
-                    .try_send(ActionRequest {
-                        scope: Some(scope.clone()),
-                        target: *target,
-                        revision: Revision(0),
-                        action: Action::CancelInput,
-                    })
-                    .map_err(|_| String::from("native input cancellation queue unavailable"))?;
-            }
+        if self.input_dirty
+            && let Some((scope, target)) = &self.input_scope
+        {
+            self.sender
+                .try_send(ActionRequest {
+                    scope: Some(scope.clone()),
+                    target: *target,
+                    revision: Revision(0),
+                    action: Action::CancelInput,
+                })
+                .map_err(|_| String::from("native input cancellation queue unavailable"))?;
         }
         self.clear_os_input();
         Ok(())
@@ -268,22 +268,21 @@ impl Host {
         let modifiers = native_modifiers(flags);
         let mut actions = vec![Input::OsModifiers(modifiers)];
         for code in [56, 60, 59, 62, 58, 61, 55, 54, 63] {
-            if let Some((_, mask)) = modifier_key(code) {
-                if flags & mask == 0 {
-                    if let Some(value) = self.input_keys.remove(&code) {
-                        let (physical, location) = physical(code);
-                        actions.push(Input::OsKey(OsKey {
-                            interpretation: None,
-                            composing: false,
-                            value,
-                            code: physical.into(),
-                            location,
-                            repeat: false,
-                            down: false,
-                            modifiers,
-                        }));
-                    }
-                }
+            if let Some((_, mask)) = modifier_key(code)
+                && flags & mask == 0
+                && let Some(value) = self.input_keys.remove(&code)
+            {
+                let (physical, location) = physical(code);
+                actions.push(Input::OsKey(OsKey {
+                    interpretation: None,
+                    composing: false,
+                    value,
+                    code: physical.into(),
+                    location,
+                    repeat: false,
+                    down: false,
+                    modifiers,
+                }));
             }
         }
         self.queue_input(SourceKind::Key, actions)?;
@@ -304,7 +303,7 @@ impl Host {
             {
                 return Ok(true);
             }
-            if matches!(kind, 10 | 11 | 12) {
+            if matches!(kind, 10..=12) {
                 let flags = unsigned(event, "modifierFlags");
                 let code = short(event, "keyCode");
                 // Keep native application lifecycle/window shortcuts with AppKit.
@@ -488,7 +487,7 @@ impl Host {
                 x: point.x,
                 y: self.input_height - point.y,
                 screen_x: screen.x,
-                screen_y: unsafe { CGDisplayBounds(CGMainDisplayID()) }.size.height - screen.y,
+                screen_y: CGDisplayBounds(CGMainDisplayID()).size.height - screen.y,
             }];
             if matches!(kind, 1 | 2 | 3 | 4 | 25 | 26) {
                 let button = match unsigned(event, "buttonNumber") {

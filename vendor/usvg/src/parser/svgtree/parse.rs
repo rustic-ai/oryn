@@ -18,8 +18,11 @@ impl<'input> Document<'input> {
     pub fn parse_tree(
         xml: &roxmltree::Document<'input>,
         injected_stylesheet: Option<&'input str>,
+        native_instance_styles: &crate::NativeInstanceStyles,
+        native_instance_content: &crate::NativeInstanceContent,
+        native_style_roots: &std::collections::BTreeSet<String>,
     ) -> Result<Document<'input>, Error> {
-        parse(xml, injected_stylesheet)
+        parse(xml, injected_stylesheet, native_instance_styles, native_instance_content, native_style_roots)
     }
 
     pub(crate) fn append(&mut self, parent_id: NodeId, kind: NodeKind) -> NodeId {
@@ -65,11 +68,18 @@ impl<'input> Document<'input> {
 fn parse<'input>(
     xml: &roxmltree::Document<'input>,
     injected_stylesheet: Option<&'input str>,
+    native_instance_styles: &crate::NativeInstanceStyles,
+    native_instance_content: &crate::NativeInstanceContent,
+    native_style_roots: &std::collections::BTreeSet<String>,
 ) -> Result<Document<'input>, Error> {
     let mut doc = Document {
         nodes: Vec::new(),
         attrs: Vec::new(),
         links: HashMap::new(),
+        native_instance_styles: native_instance_styles.clone(),
+        native_instance_content: native_instance_content.clone(),
+        native_content_targets: native_instance_content.values().flatten().chain(native_style_roots.iter()).cloned().collect(),
+        native_instance_keys: std::collections::BTreeMap::new(),
     };
 
     // build a map of id -> node for resolve_href
@@ -198,7 +208,36 @@ fn parse_xml_node<'input>(
         tag_name = EId::G;
     }
 
+    // Parse generated definition trees with the same isolation as their content
+    // expansion. Their clip paths, gradients and other IDs are registered here
+    // before expansion and must retain the native formatter's computed paint.
+    let native_style_sheet;
+    let style_sheet = if node.attribute("id")
+        .is_some_and(|id| doc.native_content_targets.contains(id))
+    {
+        native_style_sheet = simplecss::StyleSheet::new();
+        &native_style_sheet
+    } else {
+        style_sheet
+    };
     let node_id = parse_svg_element(node, parent_id, tag_name, style_sheet, ignore_ids, doc)?;
+    // The native HTML formatter provides a separate vector subtree for each
+    // foreignObject instance. Keep this node's SVG effects and replace only
+    // its content; generated subtrees have no source-style markers.
+    let native_content = doc.native_instance_keys.get(&node_id.get_usize())
+        .and_then(|key| doc.native_instance_content.get(key)).cloned();
+    if let Some(content) = native_content {
+        if let Some(reference) = content {
+            let target = id_map.get(reference.as_str()).copied().ok_or(Error::NoRootNode)?;
+            // This vector subtree already contains native computed paint. Author
+            // selectors apply to the SVG instance above, not to generated HTML
+            // paint primitives. Keep inline vector attributes and inheritance.
+            let native_style_sheet = simplecss::StyleSheet::new();
+            parse_xml_node(target, origin, node_id, &native_style_sheet, true, depth + 1, doc, id_map)?;
+        }
+        return Ok(());
+    }
+
     if tag_name == EId::Text {
         super::text::parse_svg_text_element(node, node_id, style_sheet, doc)?;
     } else if tag_name == EId::Use {
@@ -227,6 +266,26 @@ pub(crate) fn parse_svg_element<'input>(
     ignore_ids: bool,
     doc: &mut Document<'input>,
 ) -> Result<NodeId, Error> {
+    let native_key = if doc.native_instance_styles.is_empty() && doc.native_instance_content.is_empty() {
+        None
+    } else {
+        xml_node.attribute("data-oryn-native-style-id")
+            .and_then(|value| value.parse::<u64>().ok())
+            .map(|source| {
+                let parent = doc.native_instance_keys.get(&parent_id.get_usize());
+                let mut ancestry = parent.map(|key| key.ancestry.clone()).unwrap_or_default();
+                if matches!(doc.nodes[parent_id.get_usize()].kind,
+                    NodeKind::Element { tag_name: EId::Use, .. })
+                {
+                    if let Some(parent) = parent {
+                        ancestry.push(parent.source);
+                    }
+                }
+                crate::NativeInstanceKey { ancestry, source }
+            })
+    };
+    let resolved_native = native_key.as_ref()
+        .and_then(|key| doc.native_instance_styles.get(key)).cloned();
     let attrs_start_idx = doc.attrs.len();
 
     // Copy presentational attributes first.
@@ -291,22 +350,10 @@ pub(crate) fn parse_svg_element<'input>(
                 let last_idx = doc.attrs.len() - 1;
                 let existing_idx = attrs_start_idx + idx;
 
-                // See https://developer.mozilla.org/en-US/docs/Web/CSS/important
-                // When a declaration is important, the order of precedence is reversed.
-                // Declarations marked as important in the user-agent style sheets override
-                // all important declarations in the user style sheets. Similarly, all important
-                // declarations in the user style sheets override all important declarations in the
-                // author's style sheets. Finally, all important declarations take precedence over
-                // all animations.
-                //
-                // Which means:
-                // 1) Existing is not important, new is not important -> swap
-                // 2) Existing is important, new is not important -> don't swap
-                // 3) Existing is not important, new is important -> swap
-                // 4) Existing is important, new is important -> don't swap (since the order
-                // is reversed, so existing important attributes take precedence over new
-                // important attributes)
-                let has_precedence = !doc.attrs[existing_idx].important;
+                // Rules and inline declarations arrive in author cascade order.
+                // Importance reverses origin/layer precedence, not source order
+                // among declarations of equal importance in the same origin.
+                let has_precedence = important || !doc.attrs[existing_idx].important;
 
                 if has_precedence {
                     doc.attrs.swap(existing_idx, last_idx);
@@ -389,6 +436,27 @@ pub(crate) fn parse_svg_element<'input>(
         }
     }
 
+    // Native values have already passed through the complete cascade. Replace
+    // only presentation attributes, leaving ids, hrefs and geometry handling
+    // in the normal parser. Authored importance must not override this result.
+    if let Some(values) = resolved_native {
+        for declaration in simplecss::DeclarationTokenizer::from(values.as_str()) {
+            let Some(aid) = AId::from_str(declaration.name).filter(|aid| aid.is_presentation()) else {
+                continue;
+            };
+            let existing = doc.attrs[attrs_start_idx..].iter().position(|attribute| attribute.name == aid);
+            if append_attribute(parent_id, tag_name, aid,
+                roxmltree::StringStorage::new_owned(declaration.value), false, doc)
+            {
+                if let Some(existing) = existing {
+                    let last = doc.attrs.len() - 1;
+                    doc.attrs.swap(attrs_start_idx + existing, last);
+                    doc.attrs.pop();
+                }
+            }
+        }
+    }
+
     if doc.nodes.len() > 1_000_000 {
         return Err(Error::NodesLimitReached);
     }
@@ -401,6 +469,9 @@ pub(crate) fn parse_svg_element<'input>(
         },
     );
 
+    if let Some(key) = native_key {
+        doc.native_instance_keys.insert(node_id.get_usize(), key);
+    }
     Ok(node_id)
 }
 

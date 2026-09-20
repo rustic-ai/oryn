@@ -45,7 +45,7 @@ def read_record(record):
 def render_contracts(root=ROOT):
     """Separate display-list and additive snapshot identities; never infer one from another."""
     declarations = {
-        'render_contract_version': ('crates/oryn-render-core/src/lib.rs', 'RENDER_CONTRACT_VERSION'),
+        'render_contract_version': ('crates/oryn-common/src/v4.rs', 'RENDER_CONTRACT_VERSION'),
         'local_effects_contract_version': ('crates/oryn-common/src/v4.rs', 'LOCAL_EFFECTS_CONTRACT_VERSION'),
     }
     result = {}

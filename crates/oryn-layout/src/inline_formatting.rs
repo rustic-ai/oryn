@@ -1,6 +1,40 @@
 //! Formatting-tree participants for shared inline paragraphs. DOM ancestry and
 //! text identities stay intact; anonymous paragraph boundaries are local layout
 //! records rather than fabricated DOM elements.
+
+/// Inputs for layout flow.
+pub(crate) struct InlineFlowInputs<'a> {
+    pub(crate) flow: Vec<FlowItem>,
+    pub(crate) style: &'a BTreeMap<String, String>,
+    pub(crate) inline: f64,
+    pub(crate) full_inline: f64,
+    pub(crate) block_available: f64,
+    pub(crate) block_limit: Option<f64>,
+    pub(crate) font_size: f64,
+    pub(crate) nodes: &'a BTreeMap<u64, &'a LayoutNode>,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) input: &'a LayoutInput,
+    pub(crate) geometry: &'a mut BTreeMap<u64, NodeGeometry>,
+    pub(crate) offsets: &'a mut BTreeMap<u64, (f64, f64)>,
+    pub(crate) resolved: &'a mut BTreeMap<u64, BTreeMap<String, String>>,
+    pub(crate) paint: &'a mut BTreeMap<u64, Vec<PaintTextFragment>>,
+    pub(crate) diagnostics: &'a mut Vec<String>,
+    pub(crate) engine: &'a mut TextEngine,
+}
+/// Inputs for inline geometry.
+pub(crate) struct InlineGeometryInputs<'a> {
+    pub(crate) paragraph: &'a Paragraph,
+    pub(crate) layout: &'a TextLayout,
+    pub(crate) root: u64,
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) nodes: &'a BTreeMap<u64, &'a LayoutNode>,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) viewport: ViewportState,
+    pub(crate) inline_basis: f64,
+    pub(crate) geometry: &'a mut BTreeMap<u64, NodeGeometry>,
+    pub(crate) offsets: &'a mut BTreeMap<u64, (f64, f64)>,
+}
 use super::*;
 #[derive(Debug, Default)]
 pub(super) struct Paragraph {
@@ -338,25 +372,23 @@ pub(super) fn paint_fragments(
                 previous_runs,
                 previous_direction,
             )) = spans.last_mut()
+                && *previous_owner == owner
+                && *previous_end == start
+                && direction.is_some()
+                && *previous_direction == direction
             {
-                if *previous_owner == owner
-                    && *previous_end == start
-                    && direction.is_some()
-                    && *previous_direction == direction
-                {
-                    let offset = start - *previous_start;
-                    for run in &mut runs {
-                        for glyph in &mut run.glyphs {
-                            if let Some(source) = &mut glyph.source {
-                                source.start += offset;
-                                source.end += offset;
-                            }
+                let offset = start - *previous_start;
+                for run in &mut runs {
+                    for glyph in &mut run.glyphs {
+                        if let Some(source) = &mut glyph.source {
+                            source.start += offset;
+                            source.end += offset;
                         }
                     }
-                    *previous_end = end;
-                    previous_runs.extend(runs);
-                    continue;
                 }
+                *previous_end = end;
+                previous_runs.extend(runs);
+                continue;
             }
             spans.push(((owner, start, end), runs, direction));
         }
@@ -463,19 +495,21 @@ fn union(a: CssRect, b: CssRect) -> CssRect {
     }
 }
 
-pub(super) fn inline_geometry(
-    paragraph: &Paragraph,
-    layout: &TextLayout,
-    root: u64,
-    x: f64,
-    y: f64,
-    nodes: &BTreeMap<u64, &LayoutNode>,
-    styles: &ComputedStyles,
-    viewport: ViewportState,
-    inline_basis: f64,
-    geometry: &mut BTreeMap<u64, NodeGeometry>,
-    offsets: &mut BTreeMap<u64, (f64, f64)>,
-) {
+pub(super) fn inline_geometry(params: InlineGeometryInputs<'_>) {
+    let InlineGeometryInputs {
+        paragraph,
+        layout,
+        root,
+        x,
+        y,
+        nodes,
+        styles,
+        viewport,
+        inline_basis,
+        geometry,
+        offsets,
+    } = params;
+
     let mut rectangles = BTreeMap::<u64, BTreeMap<usize, CssRect>>::new();
     let mut add = |owner: u64, line: usize, rect: CssRect| {
         let mut node = Some(owner);
@@ -530,33 +564,33 @@ pub(super) fn inline_geometry(
             y: y + item.rect.y,
             ..item.rect
         };
-        if let Some((_, start)) = paragraph.boundaries.get(&item.node) {
-            if let Some(style) = styles.get(&owner) {
-                let font = length(style_value(style, "font-size", "16px"), 16., 16., viewport);
-                let margin = edge(style, "margin", inline_basis, font, viewport);
-                let axes = writing_mode::Axes::new(
-                    style_value(style, "writing-mode", "horizontal-tb"),
-                    style_value(style, "direction", "ltr") == "rtl",
-                );
-                let reverse = if axes.vertical {
-                    axes.y_reverse
-                } else {
-                    axes.x_reverse
-                };
-                let start = *start != reverse;
-                if axes.vertical {
-                    let edge = if start { margin.top } else { margin.bottom };
-                    if start {
-                        rect.y += edge;
-                    }
-                    rect.height -= edge;
-                } else {
-                    let edge = if start { margin.left } else { margin.right };
-                    if start {
-                        rect.x += edge;
-                    }
-                    rect.width -= edge;
+        if let Some((_, start)) = paragraph.boundaries.get(&item.node)
+            && let Some(style) = styles.get(&owner)
+        {
+            let font = length(style_value(style, "font-size", "16px"), 16., 16., viewport);
+            let margin = edge(style, "margin", inline_basis, font, viewport);
+            let axes = writing_mode::Axes::new(
+                style_value(style, "writing-mode", "horizontal-tb"),
+                style_value(style, "direction", "ltr") == "rtl",
+            );
+            let reverse = if axes.vertical {
+                axes.y_reverse
+            } else {
+                axes.x_reverse
+            };
+            let start = *start != reverse;
+            if axes.vertical {
+                let edge = if start { margin.top } else { margin.bottom };
+                if start {
+                    rect.y += edge;
                 }
+                rect.height -= edge;
+            } else {
+                let edge = if start { margin.left } else { margin.right };
+                if start {
+                    rect.x += edge;
+                }
+                rect.width -= edge;
             }
         }
         add(owner, item.line, rect);
@@ -930,24 +964,24 @@ pub(super) fn measure_paragraph(
     engine.float_context_width = inline;
     engine.float_inline_insets = [0.; 2];
     let font = length(style_value(style, "font-size", "16px"), 16., 16., viewport);
-    let (_, layout, _) = layout_flow(
-        vec![FlowItem::Paragraph(paragraph)],
+    let (_, layout, _) = layout_flow(InlineFlowInputs {
+        flow: vec![FlowItem::Paragraph(paragraph)],
         style,
         inline,
-        inline,
-        viewport.width,
-        None,
-        font,
+        full_inline: inline,
+        block_available: viewport.width,
+        block_limit: None,
+        font_size: font,
         nodes,
         styles,
-        &input,
-        &mut BTreeMap::new(),
-        &mut BTreeMap::new(),
-        &mut BTreeMap::new(),
-        &mut BTreeMap::new(),
-        &mut Vec::new(),
+        input: &input,
+        geometry: &mut BTreeMap::new(),
+        offsets: &mut BTreeMap::new(),
+        resolved: &mut BTreeMap::new(),
+        paint: &mut BTreeMap::new(),
+        diagnostics: &mut Vec::new(),
         engine,
-    );
+    });
     engine.inline_sizes = sizes;
     engine.inline_extents = extents;
     engine.inline_floats = floats;
@@ -982,24 +1016,26 @@ impl MarginStrut {
     }
 }
 
-pub(super) fn layout_flow(
-    flow: Vec<FlowItem>,
-    style: &BTreeMap<String, String>,
-    inline: f64,
-    full_inline: f64,
-    block_available: f64,
-    block_limit: Option<f64>,
-    font_size: f64,
-    nodes: &BTreeMap<u64, &LayoutNode>,
-    styles: &ComputedStyles,
-    input: &LayoutInput,
-    geometry: &mut BTreeMap<u64, NodeGeometry>,
-    offsets: &mut BTreeMap<u64, (f64, f64)>,
-    resolved: &mut BTreeMap<u64, BTreeMap<String, String>>,
-    paint: &mut BTreeMap<u64, Vec<PaintTextFragment>>,
-    diagnostics: &mut Vec<String>,
-    engine: &mut TextEngine,
-) -> (Paragraph, TextLayout, bool) {
+pub(super) fn layout_flow(params: InlineFlowInputs<'_>) -> (Paragraph, TextLayout, bool) {
+    let InlineFlowInputs {
+        flow,
+        style,
+        inline,
+        full_inline,
+        block_available,
+        block_limit,
+        font_size,
+        nodes,
+        styles,
+        input,
+        geometry,
+        offsets,
+        resolved,
+        paint,
+        diagnostics,
+        engine,
+    } = params;
+
     let axes = writing_mode::Axes::new(
         style_value(style, "writing-mode", "horizontal-tb"),
         style_value(style, "direction", "ltr") == "rtl",
@@ -1024,31 +1060,32 @@ pub(super) fn layout_flow(
                 let spanning = engine
                     .column_context
                     .is_some_and(|(root, _)| columns::eligible_spanner(root, node, nodes, styles));
-                if spanning {
-                    if let Some(bottom) = engine
+                if spanning
+                    && let Some(bottom) = engine
                         .float_context
                         .as_ref()
                         .and_then(|context| context.cleared_threshold(taffy::Clear::Both))
-                    {
-                        cursor = cursor.max(f64::from(bottom) - float_origin);
-                        engine.float_block_offset = float_origin + cursor;
-                    }
+                {
+                    cursor = cursor.max(f64::from(bottom) - float_origin);
+                    engine.float_block_offset = float_origin + cursor;
                 }
                 let incoming_margin;
                 {
                     let top = if axes.vertical {
                         margin_collapse::vertical_edge(
-                            node,
-                            false,
-                            axes.x_reverse,
-                            inline,
-                            nodes,
-                            styles,
-                            input.viewport,
-                            margin_collapse::clear_obstacles(
-                                engine.float_context.as_ref(),
-                                engine.float_block_offset,
-                            ),
+                            crate::margin_collapse::VerticalMarginEdgeInputs {
+                                id: node,
+                                after: false,
+                                reverse: axes.x_reverse,
+                                basis: inline,
+                                nodes,
+                                styles,
+                                viewport: input.viewport,
+                                obstacles: margin_collapse::clear_obstacles(
+                                    engine.float_context.as_ref(),
+                                    engine.float_block_offset,
+                                ),
+                            },
                         )
                     } else {
                         margin_collapse::outer_edge(
@@ -1893,11 +1930,11 @@ pub(super) fn resolve_baselines(layout: &mut TextLayout, extents: &BTreeMap<u64,
             line_break.before.y += shift;
             line_break.before.height += additions[line_break.line];
         }
-        if let Some(after) = &mut line_break.after {
-            if let Some(shift) = shifts.get(line_break.line + 1) {
-                after.y += shift;
-                after.height += additions[line_break.line + 1];
-            }
+        if let Some(after) = &mut line_break.after
+            && let Some(shift) = shifts.get(line_break.line + 1)
+        {
+            after.y += shift;
+            after.height += additions[line_break.line + 1];
         }
     }
     layout.height += total;

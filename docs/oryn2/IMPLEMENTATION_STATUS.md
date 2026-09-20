@@ -1,4 +1,170 @@
+## Repair57: parent HTML-policy grant repair — September 19, 2026
+
+Root continues compilation, diagnostics, formatting and repairs without subagents. Repair56 passed workspace formatting, parent purity, 19 Python and two Rust targeted regressions, and the complete runtime/profile build. Signed parent and worker compilation and strict macOS signature verification passed. The prior manifest/handshake rejection is resolved. The subsequent HTML mutation smoke failed with `load HTML policy grant missing`; all source/runtime checks remained intact and the failed signed bundle is preserved.
+
+The complete repair57 source batch makes the parent-owned grant and cleanup lease available on Unix without requiring embedded V8. Worker-backed HTML loads stage and retain their real native payload-bound grant across dispatch. Direct V8-free pages retain local policy installation. Worker-side missing-grant rejection and foreign, substituted, replayed and stale grant checks remain. Three existing authority regressions now also compile without V8; two new Rust regressions cover worker-backed staging/cleanup and repeated direct loads, and a signed CLI regression covers actual HTML loading/evaluation.
+
+- [x] Pass repair56 runtime and signed-package compilation and signature checks.
+- [x] Resolve and verify the prior parent/worker render-contract handshake failure.
+- [x] Preserve and diagnose the HTML-policy failure through staging, forwarding, commit and cleanup callers.
+- [x] Generate repair57 implementation, caller integration and regression coverage locally.
+- [ ] Complete repair57 source reconciliation, formatting, freeze and execution.
+- [ ] Pass signed startup, full native/Python/engine/workspace/Clippy checks and repair remaining failures.
+- [ ] Verify every required Core profile, five families/eight frameworks and final release qualification.
+
+Repair57 has not yet been built or tested. Earlier repair54 distinct24 failing test names, broad native88 failures/691 missing terminal results, Python12 skips and final qualification obligations remain open. See `artifacts/completion-validation-2026-09-18/repair56-execution-status-01.json` and `repair56-root-signed-startup-diagnosis-01.json` for terminal evidence. Earlier checkpoints below are historical.
+
+---
+
+## Repair56: shared worker render-contract repair — September 19, 2026
+
+Root is performing compilation, diagnostics, formatting and repairs without subagents, as requested. Repair55 production builds and the full V8 runtime/snapshot/page-worker build passed, with source custody intact. Workspace formatting passed. Both signed-package compilation stages and strict macOS signature verification passed, but signed startup failed manifest validation: the V8-free parent compared the worker render version 3 with its own local renderer metadata (`None`). The initialization handshake repeated the same comparison.
+
+The complete repair56 source batch is generated and locally reviewed: version 3 now lives in the V8-free common contract, the renderer preserves its public constant through a re-export, and both parent checks use that shared protocol expectation. Local renderer capability reporting remains unchanged. The release provenance reader and its fixture now read the common declaration. One new Rust regression, expanded manifest rejection controls and two new Python regressions cover renderer-free parents and missing, unsupported or ambiguous versions. These are source changes, not passing execution evidence yet.
+
+- [x] Compile repair55 production executable and full V8 runtime, startup snapshot and worker.
+- [x] Pass repair55 workspace formatting and runtime provenance/source checks.
+- [x] Retain signed startup failure, signed bundle, parent executable and exact manifest evidence.
+- [x] Diagnose and integrate the complete shared-contract repair, both callers and regression sources locally.
+- [ ] Format, freeze and execute repair56 validation.
+- [ ] Complete signed-input preparation, full native35, Python14, engine30 and required workspace/Clippy checks.
+- [ ] Resolve original failures and verify all Core profiles, five families/eight frameworks, release and qualification gates.
+
+The repair54 no-V8 runs compiled and completed: no-default features had 1,141 passes/22 failures/one ignored; probe mode had 1,226 passes/24 failures/one ignored. There are 24 distinct failing test names in that batch. Earlier broad native 88 failures, 691 missing terminal results and Python12 prerequisite skips remain open; no failures or obligations are waived. Native35 and Python14 have not started. Full conformance and final release remain unverified.
+
+Current evidence: `artifacts/completion-validation-2026-09-18/repair55-execution-status-03.json`, `repair55-root-signed-startup-diagnosis-01.json`, and `repair55-root-native-failure-triage-01.json`. Historical checkpoints below retain their original candidate scope.
+
+---
+
 # Current full-plan status — September 18, 2026
+
+## Current checkpoint — September 19: isolated no-V8 failures diagnosed; complete repair54 source batch integrated
+
+**Repair53 passed canonical generation/format checks and froze all 51 requirements.** Both isolated no-V8 attempts passed parent dependency purity. Attempt01 then failed all three build configurations during libvpx configuration because the selected linker could not read the ambient macOS27 SDK stubs. Attempt02 used the existing Xcode toolchain and macOS26.5 SDK, passed that configuration stage, and exposed Rust errors: one production-parent diagnostic, 33 no-default test-build diagnostics, and seven explicit-probe test-build diagnostics. These are **41 diagnostic occurrences across 33 distinct sites**, not runtime failures. All commands terminated, process groups settled, and all 19,494 source and 8,659 review identities matched. No runtime tests ran in either attempt.
+
+**The complete repair54 implementation and regression batch is generated, integrated and independently source-reviewed.** Shared actor dispatch drains input receipts only when the V8 input state exists; the no-V8 path preserves its explicit unsupported-operation result and returns empty feedback/receipts. The probe constructor is available to internal unit tests without exposing it in a production build lacking the probe feature, preserving all 26 affected test functions. Image-loader helpers and their complete type/request-ID chain are available to tests, constructor argument guards match their declarations, and the portable mixed-content check preserves the existing algorithm and error. The original data-image, redirect, cookie and request-budget assertions remain. Two new regressions cover actor reply/lifetime behavior and rejection of cancelled or mixed-content image requests before broker admission.
+
+All 14 observed owned Rust warning sites have source corrections with no warning suppression or lost tests. Six dependency/generated Rust warning groups and 15 prior Clang warning sites remain separately recorded. The shared runtime source combines the three reviewed proposals without overlapping edits. The next admission assembler and isolated no-V8 recorder preserve their existing checks; execution uses explicit Xcode SDK settings. No repair54 build, test, formatter or generator has run.
+
+### Current execution checklist
+
+- [x] Pass repair53 canonical checks and freeze the complete reviewed source candidate.
+- [x] Run both complete isolated no-V8 attempts and retain every result and diagnostic.
+- [x] Verify parent dependency purity and diagnose/correct the SDK selection for the second attempt.
+- [x] Map all 41 compiler diagnostics to 33 sites and preserve the four complete repair groups.
+- [x] Integrate and independently review actor receipts, internal probe construction, image-helper fixtures and all 14 owned warning corrections.
+- [x] Preserve original tests/assertions and generate two new behavioral regressions.
+- [ ] Reconcile final repair54 source/status proofs and preserve the complete source checkpoint.
+- [ ] Complete canonical generation/format checks, derivative review and immutable freeze.
+- [ ] Run parent purity, the production-parent build and both complete isolated no-V8 native test configurations using explicit Xcode SDK settings.
+- [ ] Complete fresh runtime/profile/snapshot/worker, signed inputs, native/Python/workspace/Clippy validation and resulting repairs.
+- [ ] Verify full Core, all five families/eight frameworks and every qualification gate.
+- [ ] Produce signed reproducible clean-source release artifacts and the final code commit.
+
+Latest broad native evidence remains **5,392 named passes, 88 failures, seven ignored and 691 missing terminal results**. Python remains **727 passes and 12 prerequisite skips out of 739**, with its strict gate failing. Those observations remain open; these source repairs do not establish new runtime passes. Repair52 runtime and 30 engine passes, and repair49 isolated SVG passes, remain historical candidate-specific results. Native35 and Python14 have not started.
+
+Full qualification still requires **16,737 Core obligations in each of standard-block, standard-allow and legacy-block**, all five families/eight frameworks, 24 framework originals, 688 family/reliability originals across 29 cells, 210 performance/churn samples and every other plan gate. Actual private/public fixture routing and manual/native prerequisites remain open. No required result, profile, denominator or original failure is waived.
+
+Evidence: [first no-V8 attempt](../../artifacts/completion-validation-2026-09-18/repair53-no-v8-terminal-summary-01.json), [second no-V8 attempt](../../artifacts/completion-validation-2026-09-18/repair53-no-v8-terminal-summary-02.json), [SDK diagnosis](../../artifacts/completion-validation-2026-09-18/repair53-no-v8-sdk-toolchain-diagnosis-01/diagnosis.json), [actor integration](../../artifacts/completion-validation-2026-09-18/repair54-integration-receipts/01.json), [warning integration](../../artifacts/completion-validation-2026-09-18/repair54-integration-receipts/03.json), [combined runtime integration](../../artifacts/completion-validation-2026-09-18/repair54-integration-receipts/04.json), [combined source review](../../artifacts/completion-validation-2026-09-18/repair54-runtime-composition-independent-review-01.json), [next execution recorder review](../../artifacts/completion-validation-2026-09-18/repair54-no-v8-dispatch-independent-review-01.json). All checkpoints below are historical snapshots.
+
+
+## Current checkpoint — September 19: runtime and engine passed; complete parent repair integrated
+
+**Repair52 passed its complete runtime build and engine regressions.** All four canonical generation/format checks passed before the reviewed freeze of 51 requirements, 1,037 bound paths, 19,493 whole-source inputs and 104 Python test files. The canonical core-full runtime build exited zero after 622.25 seconds: startup snapshot, page worker and schema-6 runtime/profile provenance validated. All 30 engine invocations passed (20 baseline, five Liftoff-only and five without Liftoff). Independent source, ABI, production-output and process-cleanup checks passed. These are candidate-specific results, not final Core or family qualification.
+
+**Signed preparation failed before signing, during the V8-free parent CLI build.** Its wrapper exited one and Cargo exited 101 with exactly 50 diagnostics: 47 layout/helper references, one worker history-adapter trait and two stale executor paths. The parent must remain V8-free; enabling V8 there is not the repair. All source and runtime/profile identities remained intact, and the process group settled cleanly. Native35 and Python14 have not started.
+
+**The complete repair53 code and regression batch is generated, integrated and independently source-reviewed:** nine repository files plus the next-candidate assembler. The native parent shares the existing V8-free selector and Unicode algorithms; worker layout bridges retain worker/test guards, including the original canvas test. Pure node packing is available to real parent selectors. Shared I/O uses the existing singleton executor directly, and only the concrete V8 history adapter is gated; parent authority handlers and wire messages remain. The private resolved-accessibility module keeps its worker/test consumers. All six observed Rust warning groups have source corrections. Existing tests and assertions are preserved; two new consumer regressions cover no-V8 CSS/XPath/action identity and locale-sensitive text across inline nodes. No repair53 build, test, generator or formatter has run.
+
+### Current execution checklist
+
+- [x] Freeze reviewed repair52 and pass all four canonical checks.
+- [x] Build and validate the complete repair52 runtime, startup snapshot and page worker.
+- [x] Pass all 30 required engine invocations with independent custody review.
+- [x] Preserve the signed-parent compilation failure and map all 50 diagnostics.
+- [x] Generate, integrate and independently review all parent/layout/semantic/I/O/history repairs and two new regressions.
+- [x] Correct the six known Rust warning groups without suppressions or lost tests.
+- [x] Preserve the complete isolated no-V8 and V8 qualification matrix and prepare the next assembler/handoff.
+- [ ] Reconcile final repair53 source/status proofs and preserve the full source checkpoint.
+- [ ] Complete repair53 canonical checks, derivative review and immutable freeze.
+- [ ] Run parent-purity, production-parent build and isolated complete no-V8 native suites, including in-process-probe.
+- [ ] Build the next complete runtime, prepare signed inputs and execute full native/Python/workspace/Clippy validation; repair failures.
+- [ ] Verify full Core, all five families/eight frameworks and every qualification gate.
+- [ ] Produce signed reproducible clean-source release artifacts and the final code commit.
+
+The latest full native runtime observations remain **5,392 named passes, 88 failures, seven ignored and 691 missing terminal results**. Python12 remains **727 passes and 12 prerequisite skips out of 739**, with its strict gate failing. Those failures and missing results remain open despite source repairs. Isolated SVG results remain seven unit tests plus one documentation test passed under repair49. No complete native/Python passing aggregate or final qualification is claimed.
+
+The next validation explicitly includes separate complete native invocations with no default features, and with no default features plus in-process-probe. Workspace feature unification and V8-enabled tests cannot establish those paths. The exact V8-free production parent build and parent-purity checks remain required; existing tests and all V8/workspace/profile checks are retained.
+
+Full qualification still requires **16,737 Core obligations in each of standard-block, standard-allow and legacy-block**, all five families/eight frameworks, 24 framework originals, 688 family/reliability originals, 210 performance/churn samples and every other plan gate. Actual private/public fixture routing and manual/native prerequisites remain open. No failures or required denominators are waived.
+
+Evidence: [runtime52 audit](../../artifacts/completion-validation-2026-09-18/repair52-runtime-terminal-summary-01.json), [signed52 audit](../../artifacts/completion-validation-2026-09-18/repair52-signed-terminal-summary-01.json), [engine52 review](../../artifacts/completion-validation-2026-09-18/repair52-cctest-independent-review-01.json), [I/O/history and assembler integration](../../artifacts/completion-validation-2026-09-18/repair53-integration-receipts/01.json), [JS feature integration](../../artifacts/completion-validation-2026-09-18/repair53-integration-receipts/02.json), [layout/semantic integration](../../artifacts/completion-validation-2026-09-18/repair53-integration-receipts/03.json), [no-V8 coverage plan](../../artifacts/completion-validation-2026-09-18/repair53-no-v8-qualification-coverage-01/report.json). All checkpoints below are historical snapshots.
+
+## Current checkpoint — September 19: runtime51 terminal; repair52 integrated
+
+**Repair51 was independently reviewed and frozen:** all 51 requirements, 1,036 bound paths, 19,492 whole-source inputs and 104 Python test files were reconciled. All four canonical generation/formatting commands passed; the sole formatting delta was independently reviewed. All 8,132 declaration review references matched.
+
+The canonical runtime build finished with **exit 101 after 89.39 seconds**. The earlier accessibility constructor errors no longer appeared. Native compilation reported exactly three diagnostics from two causes: a contextless V8 scope passed to the CSP trace helper, and two obsolete `EquivalentJob` initializer fields. No runtime tests ran. All 19,492 source inputs matched before and after, and the owned process group settled without cleanup errors. Complete runtime/profile, snapshot and signed-worker qualification remain pending.
+
+**The complete repair52 source batch is generated, integrated and individually reviewed:** four source files plus the next-candidate assembler. The CSP helper accepts either incoming handle-scope marker and still enters the explicit report-owner context before tracing. Two new regressions cover context restoration, separate root ownership and once-only DOM event delivery. Service-worker job identity remains owned by the profile coordinator; both stale production and test initializers are corrected, and the existing soft-update test now also checks equivalent-job coalescing, no duplicate fetch and marker cleanup. Related cleanup review identified obsolete layout test helper calls; those now exercise the retained production geometry/resolver paths with all original assertions preserved. All 64 existing test methods across these files remain, including the extended service-worker test. Canonical runtime/signing/native/Python helpers need no source changes.
+
+### Current execution checklist
+
+- [x] Complete repair51 source/review reconciliation, canonical checks and freeze.
+- [x] Execute repair51 canonical runtime build and preserve its terminal failure.
+- [x] Diagnose all three emitted compiler diagnostics without claiming runtime passes.
+- [x] Generate, independently review and integrate CSP scope/realm repair and two regressions.
+- [x] Correct both service-worker constructors and strengthen real coalescing coverage.
+- [x] Review related cleanup callers and integrate both additional layout test corrections.
+- [x] Review and adopt the repair52 assembler; retain current parameterized execution helpers.
+- [ ] Complete repair52 source/status reconciliation and full prederivative checkpoint.
+- [ ] Run canonical generation/formatting, review derivatives and freeze repair52.
+- [ ] Build complete runtime profile, startup snapshot and worker; prepare signed inputs.
+- [ ] Run complete native/Python/workspace/Clippy validation and repair failures.
+- [ ] Verify full Core, all five families/eight frameworks and every qualification gate.
+- [ ] Produce signed reproducible clean-source release and final code commit.
+
+The last full native results remain **5,392 named passes, 88 failures, seven ignored and 691 missing terminal results**. Python12 remains **727 passes and 12 prerequisite skips out of 739**, with its strict gate failing. Native35 and Python14 have not started. Separate repair49 engine results remain 30 passing invocations and isolated SVG results remain seven passing unit tests plus one documentation test. These historical results do not establish repair52 correctness. No repair52 build, test, formatter or generator has run.
+
+Full qualification still requires **16,737 Core obligations in each of standard-block, standard-allow and legacy-block**, all five families/eight frameworks, 24 framework originals, 688 family/reliability originals, 210 performance/churn samples and every other plan gate. Real private/public fixture routing and manual/native prerequisites remain open. No failures or required denominators are waived.
+
+Evidence: [repair51 execution status](../../artifacts/completion-validation-2026-09-18/repair51-execution-status-02.json), [runtime terminal audit](../../artifacts/completion-validation-2026-09-18/repair51-runtime-terminal-summary-01.json), [repair51 freeze receipt](../../artifacts/completion-validation-2026-09-18/repair51-root-write-receipt-01.json), [service-worker/assembler integration](../../artifacts/completion-validation-2026-09-18/repair52-integration-receipts/01.json), [CSP/layout integration](../../artifacts/completion-validation-2026-09-18/repair52-integration-receipts/02.json), [service-worker review](../../artifacts/completion-validation-2026-09-18/repair52-equivalent-job-independent-review-01.json), [CSP review](../../artifacts/completion-validation-2026-09-18/repair52-native-csp-scope-independent-review-01.json), [layout caller review](../../artifacts/completion-validation-2026-09-18/repair52-layout-test-caller-independent-review-01.json). All checkpoints below are historical snapshots.
+
+## Current checkpoint — repair48 canonical generation and formatting passed
+
+The complete authored batch is integrated and source-reviewed: **29 integration receipts, 165 selected paths and 76 new tests** (59 Rust, two V8 cctests and 15 Python). All 51 requirements retain their source and test roles. The full prederivative checkpoint preserves 19,477 source files.
+
+**All four canonical commands passed:** WebIDL generation, generated-output freshness check, workspace formatting and formatting check. Generation changed one file; formatting changed 53 Rust files. Neither command reported an unexpected source change. Independent review of these deltas and final source-hash reconciliation are in progress; repair48 is not yet frozen.
+
+The latest runtime evidence remains native33: 5,392 named passes, 88 failures and seven ignored tests, with 691 tests lacking terminal results in aborted targets. These are not complete aggregate results. Source repairs cover 61 failures, one is partially corrected and 26 have diagnostics only; none is newly runtime-verified. Python12 remains 727 passes and 12 prerequisite skips out of 739; Python13 has not run.
+
+Next: complete derivative review and candidate reconciliation, freeze repair48, build fresh patched V8/runtime artifacts, run the full Rust/Python/workspace/Clippy checks and repair failures. Full Core in every required profile, all five families/eight frameworks, all qualification gates and signed reproducible release remain open. Azure access works, but discovery did not identify the required WPT fixture deployment/routing; the existing configuration request remains unresolved.
+
+Evidence: [authored batch closure](../../artifacts/completion-validation-2026-09-18/repair48-authored-source-complete-01.json), [WebIDL generation](../../artifacts/completion-validation-2026-09-18/repair48-webidl-generate-01.json), [WebIDL check](../../artifacts/completion-validation-2026-09-18/repair48-webidl-check-01.json), [formatting](../../artifacts/completion-validation-2026-09-18/repair48-workspace-format-01.json), [formatting check](../../artifacts/completion-validation-2026-09-18/repair48-workspace-format-check-01.json). All checkpoints below are historical snapshots.
+
+## Current source checkpoint — repair48 integration and tooling adoption 29
+
+**The complete authored repair code and tests are integrated and individually reviewed:**29 receipts cover165 selected source paths and76 new tests (59 Rust, two V8 cctests,15 Python). The final reviewed bindings preserve all51 requirements, with1,018 paths and1,674 roles. Python13 retains all103 prior test sources and adds one, for104. No repair48 build, test, formatter or canonical generator has run.
+
+The complete88-case map records61 source corrections, one partial correction (case61) and26 diagnostic-only cases.27 cases remain materially unresolved; none is newly runtime-verified. Original failures, ignored tests, panic-only observations and691 missing terminal results remain preserved. Latest runtime evidence is still native33; Python12 remains727 passes and12 prerequisite skips out of739.
+
+Next: preserve the complete source checkpoint, finish the whole-source/status readback and authorize canonical WebIDL generation/check plus formatting. Independently review the resulting source changes, freeze the candidate, build fresh engine/runtime artifacts, execute full Rust/Python/workspace/Clippy validation, and repair remaining failures. Full Core in all required profiles, all five families/eight frameworks, every qualification gate and signed reproducible release remain outstanding.
+
+Evidence: [source readback09](../../artifacts/completion-validation-2026-09-18/repair48-current-source-readback-09.json), [complete failure-map review](../../artifacts/completion-validation-2026-09-18/repair48-native33-case-reconciliation-independent-review-02.json), [final helper/requirement review](../../artifacts/completion-validation-2026-09-18/repair48-helper-binding-independent-review-01.json), [tooling adoption29](../../artifacts/completion-validation-2026-09-18/repair48-integration-receipts/29.json). All older checkpoints below are historical.
+
+## Latest checkpoint — September 19: native33 terminal; complete repair48 in preparation
+
+The complete native/JavaScript batch under repair47 finished with **exit 101 after 907.58 seconds**. Compilation and WebIDL freshness passed. All **19,469 whole-source inputs** matched before and after execution; process cleanup completed without errors. The source is committed through **`f8f73c5a491b4d2047445424b79a7a0c6bc791c4`**, following the requested implementation snapshot **`30e0b15383d3a2d46866e19044d9797329c434b7`**. Both commits have verified GPG signatures.
+
+**Native library:** 2,919 passed, 63 failed, seven ignored; all four long editing matrices completed and passed. **Window integration:** seven passed, one failed. **Render core:** 169 passed, 11 failed. JavaScript and V8 teardown targets aborted, so neither has a complete aggregate. Across named observations there are **5,392 passes, 88 failures and seven ignored**; the separate explicit completed-target totals are **4,309 passes, 75 failures and seven ignored**. These counts must not be presented as a complete all-target pass rate. Panic-only observations and tests without terminal results in aborted targets remain separately tracked.
+
+Of the original native29 **174 failures, 104 now pass and 70 still fail**. Of the earlier native27 143 failures, 131 now pass and 12 still fail. These are exact named comparisons, not proof that the whole implementation is correct. Passing completed targets include common141, DOM447, parser2, layout521, CSS10, semantic-action2, style2, net69 and WebIDL20.
+
+Repair48 is preparing one complete implementation/regression batch across JS lifetime/streams, loading/navigation, services/storage, OIL/input/accessibility, Window/GC and render failures, together with the audited owned warnings. Eight parallel lanes cover diagnosis, generation, warning reconciliation and failure evidence; root owns integration and checklist updates. Reviewed diagnoses include a Selection projection variable-shadowing defect, promise settlement under active native borrow guards, the V8 snapshot concurrency contract, and SRI encoded-size metadata loss. Source diagnoses and proposed repairs are **not runtime passes**. Complete all repairs, caller integration and independent review before formatting, freezing and executing the next candidate.
+
+Python12 remains **727 passed, zero failures/errors, 12 skipped out of 739**. Required signed-runtime prerequisites for those skips are open. Full Core conformance in every required profile, all five families/eight frameworks, workspace/Clippy checks and signed reproducible release qualification remain outstanding. No final qualification or completion is claimed.
+
+Evidence: [native33 result](../../artifacts/completion-validation-2026-09-18/native-js-tests-33.json), [original log](../../artifacts/completion-validation-2026-09-18/native-js-tests-33.log), [source custody](../../artifacts/completion-validation-2026-09-18/repair47-native33-whole-custody.json), [process cleanup](../../artifacts/completion-validation-2026-09-18/repair47-native33-process.json). Earlier checkpoints below are historical.
 
 ## Latest checkpoint — September 19: source committed; native32 compile result
 

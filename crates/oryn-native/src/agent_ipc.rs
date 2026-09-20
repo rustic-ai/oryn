@@ -10,14 +10,14 @@ pub const MAX_FRAME: usize = 32 * 1024 * 1024;
 pub enum ParentFrame {
     Bootstrap {
         version: u32,
-        bootstrap: AgentBootstrap,
+        bootstrap: Box<AgentBootstrap>,
     },
     Start,
     Suspension {
         epoch: u64,
         suspended: bool,
     },
-    Command(AgentCommand),
+    Command(Box<AgentCommand>),
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ChildFrame {
@@ -214,5 +214,38 @@ mod tests {
             panic!("script frame")
         };
         assert_eq!(source, vec![0xd800, 0x61, 0xdc00]);
+    }
+    #[test]
+    fn parent_commands_preserve_wire_shape_and_decode_existing_frames() {
+        for (command, expected) in [
+            (AgentCommand::Stop, br#"{"Command":"Stop"}"#.as_slice()),
+            (
+                AgentCommand::CancelTask { id: 42 },
+                br#"{"Command":{"CancelTask":{"id":42}}}"#.as_slice(),
+            ),
+        ] {
+            let frame = ParentFrame::Command(Box::new(command));
+            let mut encoded = Vec::new();
+            write_frame(&mut encoded, &frame).unwrap();
+            assert_eq!(&encoded[..4], &(expected.len() as u32).to_be_bytes());
+            assert_eq!(&encoded[4..], expected);
+            let mut original = (expected.len() as u32).to_be_bytes().to_vec();
+            original.extend_from_slice(expected);
+            let ParentFrame::Command(decoded) = read_frame(&mut original.as_slice()).unwrap()
+            else {
+                panic!("command frame");
+            };
+            let ParentFrame::Command(expected_command) = frame else {
+                unreachable!()
+            };
+            match (*expected_command, *decoded) {
+                (AgentCommand::Stop, AgentCommand::Stop) => {}
+                (
+                    AgentCommand::CancelTask { id: expected },
+                    AgentCommand::CancelTask { id: actual },
+                ) => assert_eq!(actual, expected),
+                _ => panic!("decoded command changed variant"),
+            }
+        }
     }
 }

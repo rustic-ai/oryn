@@ -1,5 +1,6 @@
 //! Timing custody for external resource loads performed outside PlatformHost.
 use super::{ContextServiceRequest as Request, ContextServiceResponse as Response, RuntimeError};
+#[cfg(any(feature = "v8-host", test))]
 use oryn_js::worker_wire::Creator;
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -8,14 +9,17 @@ use std::{
 pub(crate) struct Record {
     pub render_blocking: bool,
     pub details: Option<oryn_js::platform::ResourceTimingMetadata>,
+    #[cfg(any(feature = "v8-host", test))]
     pub creator: Creator,
+    #[cfg(feature = "v8-host")]
     pub name: String,
     pub initiator: String,
+    #[cfg(any(feature = "v8-host", test))]
     pub started: Instant,
     pub finished: Instant,
 }
 pub(super) enum Observation {
-    Start(Record),
+    Start(Box<Record>),
     Read(u64),
     Abort(u64),
 }
@@ -38,30 +42,43 @@ pub(super) fn observe(request: &Request) -> Option<Observation> {
             }
             Some(observation)
         }
-        Request::LoadScript { creator, url, .. }
-        | Request::LoadTypedModule { creator, url, .. } => Some(Observation::Start(Record {
+        Request::LoadScript {
+            creator: _creator,
+            url: _url,
+            ..
+        }
+        | Request::LoadTypedModule {
+            creator: _creator,
+            url: _url,
+            ..
+        } => Some(Observation::Start(Box::new(Record {
             render_blocking: false,
             details: None,
-            creator: creator.clone(),
-            name: url.clone(),
+            #[cfg(any(feature = "v8-host", test))]
+            creator: _creator.clone(),
+            #[cfg(feature = "v8-host")]
+            name: _url.clone(),
             initiator: "script".into(),
+            #[cfg(any(feature = "v8-host", test))]
             started: Instant::now(),
             finished: Instant::now(),
-        })),
+        }))),
         Request::LoadPageResource {
             initiator,
-            url,
+            url: _url,
             destination,
             ..
-        } => Some(Observation::Start(Record {
+        } => Some(Observation::Start(Box::new(Record {
             render_blocking: matches!(destination.as_str(), "style" | "stylesheet")
                 && initiator
                     .stylesheet
                     .as_ref()
                     .is_some_and(|options| options.render_blocking),
             details: None,
+            #[cfg(any(feature = "v8-host", test))]
             creator: initiator.creator.clone(),
-            name: url.clone(),
+            #[cfg(feature = "v8-host")]
+            name: _url.clone(),
             initiator: match destination.as_str() {
                 "style" | "stylesheet" => "link",
                 "font" => "css",
@@ -69,19 +86,23 @@ pub(super) fn observe(request: &Request) -> Option<Observation> {
                 _ => destination,
             }
             .into(),
+            #[cfg(any(feature = "v8-host", test))]
             started: Instant::now(),
             finished: Instant::now(),
-        })),
-        Request::TemplateStreamStart { request, .. } => request.client.as_ref().map(|creator| {
-            Observation::Start(Record {
+        }))),
+        Request::TemplateStreamStart { request, .. } => request.client.as_ref().map(|_creator| {
+            Observation::Start(Box::new(Record {
                 render_blocking: false,
                 details: None,
-                creator: creator.clone(),
+                #[cfg(any(feature = "v8-host", test))]
+                creator: _creator.clone(),
+                #[cfg(feature = "v8-host")]
                 name: request.url.clone(),
                 initiator: "template".into(),
+                #[cfg(any(feature = "v8-host", test))]
                 started: Instant::now(),
                 finished: Instant::now(),
-            })
+            }))
         }),
         Request::ReleaseNetworkResult {
             stream_id: Some(stream_id),
@@ -105,19 +126,20 @@ impl Queue {
         result: &Result<Response, RuntimeError>,
     ) {
         match observation {
-            Observation::Start(mut record) => {
+            Observation::Start(record) => {
+                let mut record = *record;
                 record.details = match result {
                     Ok(Response::PreloadedResource { response, .. }) => match response.as_ref() {
-                        Response::ScriptSource { timing, .. }
-                        | Response::PageResource { timing, .. } => timing.clone(),
+                        Response::ScriptSource { timing, .. } => timing.clone(),
+                        Response::PageResource { timing, .. } => timing.as_deref().cloned(),
                         _ => None,
                     },
                     Ok(
                         Response::ScriptSource { timing, .. }
-                        | Response::PageResource { timing, .. }
                         | Response::PageBinaryResource { timing, .. }
                         | Response::HttpStreamStarted { timing, .. },
                     ) => timing.clone(),
+                    Ok(Response::PageResource { timing, .. }) => timing.as_deref().cloned(),
                     _ => None,
                 };
                 if let Ok(
@@ -148,41 +170,38 @@ impl Queue {
                     encoded_body_size,
                     ..
                 }) = result
+                    && let Some(record) = self.streams.get_mut(&stream)
+                    && let Some(details) = &mut record.details
                 {
-                    if let Some(record) = self.streams.get_mut(&stream) {
-                        if let Some(details) = &mut record.details {
-                            let bytes = base64::Engine::decode(
-                                &base64::engine::general_purpose::STANDARD,
-                                body_base64,
-                            )
-                            .map_or(0, |bytes| bytes.len() as u64);
-                            details.decoded_body_size =
-                                Some(details.decoded_body_size.unwrap_or(0).saturating_add(bytes));
-                            if *done {
-                                details.encoded_body_size =
-                                    encoded_body_size.or(details.encoded_body_size);
-                            }
-                        }
+                    let bytes = base64::Engine::decode(
+                        &base64::engine::general_purpose::STANDARD,
+                        body_base64,
+                    )
+                    .map_or(0, |bytes| bytes.len() as u64);
+                    details.decoded_body_size =
+                        Some(details.decoded_body_size.unwrap_or(0).saturating_add(bytes));
+                    if *done {
+                        details.encoded_body_size = encoded_body_size.or(details.encoded_body_size);
                     }
                 }
-                if !matches!(result, Ok(Response::HttpStreamChunk { done: false, .. })) {
-                    if let Some(record) = self.streams.remove(&stream) {
-                        self.push(record)
-                    }
+                if !matches!(result, Ok(Response::HttpStreamChunk { done: false, .. }))
+                    && let Some(record) = self.streams.remove(&stream)
+                {
+                    self.push(record)
                 }
             }
             Observation::Abort(stream) => {
                 if matches!(
                     result,
                     Ok(Response::HttpStreamAborted | Response::NetworkResultReleased)
-                ) {
-                    if let Some(record) = self.streams.remove(&stream) {
-                        self.push(record)
-                    }
+                ) && let Some(record) = self.streams.remove(&stream)
+                {
+                    self.push(record)
                 }
             }
         }
     }
+    #[cfg(any(feature = "v8-host", test))]
     pub(super) fn drain(&mut self) -> Vec<Record> {
         self.ready.drain(..).collect()
     }
@@ -201,6 +220,7 @@ mod tests {
                 document_generation: 1,
                 stream_epoch: 0,
             },
+            #[cfg(feature = "v8-host")]
             name: "https://example.test/frame".into(),
             initiator: "iframe".into(),
             started: Instant::now(),
@@ -277,7 +297,7 @@ mod tests {
         let mut admitted = record();
         admitted.initiator = "template".into();
         queue.finish(
-            Observation::Start(admitted),
+            Observation::Start(Box::new(admitted)),
             &Ok(Response::HttpStreamStarted {
                 timing: None,
                 internal_response: None,

@@ -261,3 +261,58 @@
 
    /**
     * Detaches the global object from its context before
+--- a/src/objects/keys.cc
++++ b/src/objects/keys.cc
+@@ -18,6 +18,8 @@
+ #include "src/objects/field-index-inl.h"
+ #include "src/objects/hash-table-inl.h"
+ #include "src/objects/module-inl.h"
++#include "src/objects/js-function-inl.h"
++#include "src/objects/templates-inl.h"
+ #include "src/objects/objects-inl.h"
+ #include "src/objects/ordered-hash-table-inl.h"
+ #include "src/objects/property-descriptor.h"
+@@ -41,6 +43,24 @@
+   } while (false)
+ 
+ namespace {
++
++// Only embedder-opted-in Window/Location templates use HTML cross-origin
++// own-key enumeration. Unrelated access-checked objects retain V8's behavior.
++static bool HasWindowOrLocationStructuralSemantics(Tagged<JSObject> object) {
++  Tagged<Object> constructor = object->map()->GetConstructor();
++  Tagged<FunctionTemplateInfo> info;
++  if (IsFunctionTemplateInfo(constructor)) {
++    info = Cast<FunctionTemplateInfo>(constructor);
++  } else if (IsJSFunction(constructor) &&
++             Cast<JSFunction>(constructor)->shared()->IsApiFunction()) {
++    info = Cast<JSFunction>(constructor)->shared()->api_func_data();
++  } else {
++    return false;
++  }
++  Tagged<Object> instance = info->GetInstanceTemplate();
++  return IsObjectTemplateInfo(instance) &&
++         Cast<ObjectTemplateInfo>(instance)->window_proxy_structural_semantics();
++}
+ 
+ static bool ContainsOnlyValidKeys(DirectHandle<FixedArray> array) {
+   const uint32_t len = array->ulength().value();
+@@ -1190,13 +1210,13 @@
+   // Check access rights if required.
+   if (IsAccessCheckNeeded(*object) &&
+       !isolate_->MayAccess(isolate_->native_context(), object)) {
+-    // The cross-origin spec says that [[Enumerate]] shall return an empty
+-    // iterator when it doesn't have access...
+-    if (mode_ == KeyCollectionMode::kIncludePrototypes) {
++    // HTML WindowProxy for-in enumerates the enumerable allowlisted own keys.
++    // Its cross-origin prototype is null: collect the access-check interceptor
++    // keys below, then stop walking prototypes. Keep other embedders unchanged.
++    if (mode_ == KeyCollectionMode::kIncludePrototypes &&
++        !HasWindowOrLocationStructuralSemantics(*object)) {
+       return Just(false);
+     }
+-    // ...whereas [[OwnPropertyKeys]] shall return allowlisted properties.
+-    DCHECK_EQ(KeyCollectionMode::kOwnOnly, mode_);
+     DirectHandle<AccessCheckInfo> access_check_info;
+     {
+       DisallowGarbageCollection no_gc;

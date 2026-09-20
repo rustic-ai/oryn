@@ -1,4 +1,18 @@
 //! Native definition, construction and reaction ownership for autonomous elements.
+type QueuedReaction = (NodeId, Option<Reaction>, Rc<ReactionTarget>, Option<u64>);
+
+type FormStateValue = (
+    Vec<(Option<String>, v8::Global<v8::Value>)>,
+    v8::Global<v8::Value>,
+);
+
+type InitialReaction = (String, String, Option<String>);
+
+type PendingRestoration = (
+    std::sync::Arc<[crate::form_state::SavedFormControl]>,
+    BTreeSet<usize>,
+);
+
 use super::*;
 
 struct Definition {
@@ -44,17 +58,12 @@ enum Reaction {
 #[derive(Default)]
 pub(super) struct Registry {
     global: Rc<DefinitionRegistry>,
-    pending_restoration: RefCell<
-        Option<(
-            std::sync::Arc<[crate::form_state::SavedFormControl]>,
-            BTreeSet<usize>,
-        )>,
-    >,
+    pending_restoration: RefCell<Option<PendingRestoration>>,
     elements: RefCell<BTreeMap<NodeId, Element>>,
     reactions: RefCell<BTreeMap<NodeId, VecDeque<Reaction>>>,
     queued_targets: RefCell<BTreeMap<NodeId, RcWeak<ReactionTarget>>>,
     pending_upgrades: RefCell<BTreeSet<NodeId>>,
-    initial_reactions: RefCell<BTreeMap<NodeId, Vec<(String, String, Option<String>)>>>,
+    initial_reactions: RefCell<BTreeMap<NodeId, Vec<InitialReaction>>>,
     cursor: Cell<oryn_dom::MutationCursor>,
     parser_spans: RefCell<Vec<(u64, u64, NodeId)>>,
     converting_cursor: Cell<Option<u64>>,
@@ -235,9 +244,28 @@ fn native_retention(
     }
     Ok(retained)
 }
+// Registry rooting is existential within one validated refresh snapshot.
+// Once one native-retained node proves an ID, other nodes carrying that ID
+// cannot change the result. Failed proofs are not cached by registry ID.
+fn retain_registry_from_node(
+    dom: &DomRuntime,
+    roots: &traced_native_roots::Snapshot,
+    node: NodeId,
+    registry: u64,
+    retained: &mut BTreeSet<u64>,
+    memo: &mut BTreeMap<NodeId, bool>,
+) -> Result<(), V8BindingError> {
+    if !retained.contains(&registry) && native_retention(dom, roots, node, memo)? {
+        retained.insert(registry);
+    }
+    Ok(())
+}
+
 pub(super) fn refresh_native_registry_roots(
     scope: &mut v8::PinScope,
 ) -> Result<(), V8BindingError> {
+    // Graph observation handles must end with this refresh, not the caller task.
+    v8::scope!(let scope, scope);
     // Native migration may have committed while fallible wrapper publication
     // still owns the suffix. Preserve previous registry roots until it settles.
     if node_migration::has_publications(scope) {
@@ -280,17 +308,20 @@ pub(super) fn refresh_native_registry_roots(
         let mut memo = BTreeMap::new();
         for (node, record) in dom.arena().iter() {
             if let Some(id) = record.custom_element_registry.flatten() {
-                if native_retention(&dom, &roots, node, &mut memo)? {
-                    ids.insert(id);
-                }
+                retain_registry_from_node(&dom, &roots, node, id, &mut ids, &mut memo)?;
             }
         }
         for state in states {
             for (node, element) in state.custom_elements.elements.borrow().iter() {
-                if dom.arena().get(*node).is_ok()
-                    && native_retention(&dom, &roots, *node, &mut memo)?
-                {
-                    ids.insert(element.definition.registry);
+                if dom.arena().get(*node).is_ok() {
+                    retain_registry_from_node(
+                        &dom,
+                        &roots,
+                        *node,
+                        element.definition.registry,
+                        &mut ids,
+                        &mut memo,
+                    )?;
                 }
             }
         }
@@ -1130,15 +1161,14 @@ impl Drop for ConstructionGuard {
                 .as_ref()
                 .is_some_and(|entry| Rc::ptr_eq(entry, &self.entry))
         );
-        if let Some(owner) = self.entry.target.owner.borrow().clone() {
-            if let Some(element) = owner
+        if let Some(owner) = self.entry.target.owner.borrow().clone()
+            && let Some(element) = owner
                 .custom_elements
                 .elements
                 .borrow_mut()
                 .get_mut(&self.entry.target.node.get())
-            {
-                element.upgrading = false;
-            }
+        {
+            element.upgrading = false;
         }
     }
 }
@@ -1328,15 +1358,14 @@ impl DirectConstruction {
                 .get_mut(node)?
                 .custom_element_is = Some(name.clone());
         }
-        if definition.form_associated {
-            if let Err(error) = state
+        if definition.form_associated
+            && let Err(error) = state
                 .dom
                 .borrow_mut()
                 .register_form_associated_custom_element(node)
-            {
-                state.custom_elements.elements.borrow_mut().remove(&node);
-                return Err(error.into());
-            }
+        {
+            state.custom_elements.elements.borrow_mut().remove(&node);
+            return Err(error.into());
         }
         state
             .dom
@@ -2189,11 +2218,6 @@ pub(super) fn defer_checkpoint(scope: &mut v8::PinScope) {
         throw_binding_error(scope, &error);
     }
 }
-pub(super) fn checkpoint(scope: &mut v8::PinScope) {
-    if let Err(error) = finish_agent(scope) {
-        throw_binding_error(scope, &error);
-    }
-}
 
 fn agent_states(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Vec<Rc<V8BindingState>> {
     scope
@@ -2547,13 +2571,6 @@ pub(super) fn upgrade_for_document(
     }
     Ok(())
 }
-pub(super) fn upgrade(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    node: NodeId,
-) -> Result<(), V8BindingError> {
-    upgrade_with_registry(scope, state, node)
-}
 
 /// The synchronous create-an-element algorithm is distinct from upgrading an
 /// existing node: failure returns a fresh unknown element, preserving any
@@ -2839,7 +2856,7 @@ fn upgrade_with_definition(
         .records()
         .cloned()
         .collect::<Vec<_>>();
-    let wrapper =
+    let _wrapper =
         receiver_wrapper_id(scope, original).ok_or(V8BindingError::Allocation("custom wrapper"))?;
     state
         .dom
@@ -2989,19 +3006,17 @@ fn upgrade_with_definition(
         });
         drop(active_constructor.take());
         drop(guard.take());
-        if !success {
-            if let Some(owner) = target.owner.borrow().clone() {
-                owner
-                    .custom_elements
-                    .reactions
-                    .borrow_mut()
-                    .remove(&target.node.get());
-                owner
-                    .custom_elements
-                    .initial_reactions
-                    .borrow_mut()
-                    .remove(&target.node.get());
-            }
+        if !success && let Some(owner) = target.owner.borrow().clone() {
+            owner
+                .custom_elements
+                .reactions
+                .borrow_mut()
+                .remove(&target.node.get());
+            owner
+                .custom_elements
+                .initial_reactions
+                .borrow_mut()
+                .remove(&target.node.get());
         }
         if tc.has_terminated() || tc.is_execution_terminating() {
             tc.rethrow();
@@ -3811,48 +3826,41 @@ fn form_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
     value: v8::Local<'s, v8::Value>,
-) -> Result<
-    (
-        Vec<(Option<String>, v8::Global<v8::Value>)>,
-        v8::Global<v8::Value>,
-    ),
-    V8BindingError,
-> {
+) -> Result<FormStateValue, V8BindingError> {
     if value.is_null_or_undefined() {
         let value: v8::Local<v8::Value> = v8::null(scope).into();
         return Ok((Vec::new(), v8::Global::new(scope, value)));
     }
-    if let Ok(object) = v8::Local::<v8::Object>::try_from(value) {
-        if let Some(owner) = binding_state_for_receiver(scope, object) {
-            if let Ok(id) = stateful_id(scope, object) {
-                let record = platform_object(&owner, id)?;
-                match &*record {
-                    PlatformObjectRecord::FormData(data) => {
-                        let entries = data.entries.clone();
-                        drop(record);
-                        let snapshot = entries
-                            .iter()
-                            .map(|(name, value)| (Some(name.clone()), value.clone()))
-                            .collect();
-                        let id = register_platform_object(
-                            state,
-                            PlatformObjectRecord::FormData(FormDataRecord { entries }),
-                        );
-                        let object = new_platform_object(scope, state, "FormData", id)?;
-                        return Ok((
-                            snapshot,
-                            v8::Global::new(scope, v8::Local::<v8::Value>::from(object)),
-                        ));
-                    }
-                    PlatformObjectRecord::Blob(blob) if blob.file.is_some() => {
-                        return Ok((
-                            vec![(None, v8::Global::new(scope, value))],
-                            v8::Global::new(scope, value),
-                        ));
-                    }
-                    _ => {}
-                }
+    if let Ok(object) = v8::Local::<v8::Object>::try_from(value)
+        && let Some(owner) = binding_state_for_receiver(scope, object)
+        && let Ok(id) = stateful_id(scope, object)
+    {
+        let record = platform_object(&owner, id)?;
+        match &*record {
+            PlatformObjectRecord::FormData(data) => {
+                let entries = data.entries.clone();
+                drop(record);
+                let snapshot = entries
+                    .iter()
+                    .map(|(name, value)| (Some(name.clone()), value.clone()))
+                    .collect();
+                let id = register_platform_object(
+                    state,
+                    PlatformObjectRecord::FormData(FormDataRecord { entries }),
+                );
+                let object = new_platform_object(scope, state, "FormData", id)?;
+                return Ok((
+                    snapshot,
+                    v8::Global::new(scope, v8::Local::<v8::Value>::from(object)),
+                ));
             }
+            PlatformObjectRecord::Blob(blob) if blob.file.is_some() => {
+                return Ok((
+                    vec![(None, v8::Global::new(scope, value))],
+                    v8::Global::new(scope, value),
+                ));
+            }
+            _ => {}
         }
     }
     let text = value
@@ -6571,7 +6579,7 @@ pub(super) fn capture_form_states_limited(
     let pending = state.custom_elements.pending_restoration.borrow();
     if let Some((saved, consumed)) = pending.as_ref() {
         let live = capture_form_descriptors(scope, state, false)?;
-        for (index, target) in crate::form_state::restoration_mapping(&saved, &live) {
+        for (index, target) in crate::form_state::restoration_mapping(saved, &live) {
             if consumed.contains(&index) {
                 continue;
             }
@@ -6677,13 +6685,13 @@ fn capture_form_descriptors_with_budget(
         }
         let restoration = if include_state {
             let owner = form_owner_state(scope, state, node)?;
-            let value = owner
+
+            owner
                 .custom_elements
                 .elements
                 .borrow()
                 .get(&node)
-                .and_then(|element| element.restoration.clone());
-            value
+                .and_then(|element| element.restoration.clone())
         } else {
             None
         };
@@ -6957,15 +6965,17 @@ fn flush_pending_restoration(
             })
         };
         if admitted {
-            let result = (|| {
-                #[cfg(test)]
-                if FAIL_NEXT_FORM_RESTORE.with(|fault| fault.replace(false)) {
-                    return Err(V8BindingError::Allocation(
-                        "injected form restore preparation failure",
-                    ));
-                }
+            #[cfg(test)]
+            let failed_preparation = FAIL_NEXT_FORM_RESTORE.with(|fault| fault.replace(false));
+            #[cfg(not(test))]
+            let failed_preparation = false;
+            let result = if failed_preparation {
+                Err(V8BindingError::Allocation(
+                    "injected form restore preparation failure",
+                ))
+            } else {
                 restore_saved_form_state(scope, state, &saved[index], target, "restore")
-            })();
+            };
             if let Err(error) = result {
                 // Agent collection queues custom callbacks without invoking
                 // them; failure precedes callback admission. Restore retry
@@ -6975,10 +6985,9 @@ fn flush_pending_restoration(
                     .pending_restoration
                     .borrow_mut()
                     .as_mut()
+                    && std::sync::Arc::ptr_eq(current, &saved)
                 {
-                    if std::sync::Arc::ptr_eq(current, &saved) {
-                        done.remove(&index);
-                    }
+                    done.remove(&index);
                 }
                 return Err(error);
             }
@@ -7327,7 +7336,7 @@ mod reaction_custody_tests {
 /// the destination global registry.
 pub(super) struct NodeMigration {
     source: Rc<V8BindingState>,
-    entries: Vec<(NodeId, Option<Reaction>, Rc<ReactionTarget>, Option<u64>)>,
+    entries: Vec<QueuedReaction>,
     queue: ElementQueue,
 }
 fn adopted_registry_snapshot(
@@ -8530,6 +8539,74 @@ mod synchronous_fallback_root_tests {
 #[cfg(test)]
 mod native_retention_memo_tests {
     use super::*;
+    #[test]
+    fn registry_witness_skips_duplicate_walks_but_rechecks_released_custody() {
+        let mut dom = oryn_dom::html::parse("<body></body>")
+            .into_runtime()
+            .unwrap();
+        let first = dom.create_element("script");
+        let witness = dom.create_element("script");
+        let duplicate = dom.create_element("script");
+        let unrelated = dom.create_element("script");
+        for node in [first, witness, duplicate, unrelated] {
+            dom.retain_wrapper(node).unwrap();
+        }
+        let mutations = dom.drain_mutations();
+        dom.release_mutation_roots(&mutations).unwrap();
+        dom.retain_native(witness).unwrap();
+        let associations = [(first, 41), (witness, 41), (duplicate, 41), (unrelated, 42)];
+        let roots = traced_native_roots::Snapshot::default();
+        let mut ids = BTreeSet::new();
+        let mut memo = BTreeMap::new();
+        for (node, registry) in associations {
+            retain_registry_from_node(&dom, &roots, node, registry, &mut ids, &mut memo).unwrap();
+        }
+        let expected = associations
+            .iter()
+            .filter_map(|(node, registry)| {
+                dom.retained_by_native_root(*node)
+                    .unwrap()
+                    .then_some(*registry)
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(ids, expected);
+        assert_eq!(ids, BTreeSet::from([41]));
+        assert!(
+            memo.contains_key(&first),
+            "a failed first witness is examined"
+        );
+        assert!(
+            memo.contains_key(&witness),
+            "a later witness can establish custody"
+        );
+        assert!(
+            !memo.contains_key(&duplicate),
+            "proven registry skips another ancestry walk"
+        );
+        assert!(
+            memo.contains_key(&unrelated),
+            "another registry requires its own proof"
+        );
+
+        dom.release_native(witness).unwrap();
+        let mut ids = BTreeSet::new();
+        let mut memo = BTreeMap::new();
+        for (node, registry) in associations {
+            retain_registry_from_node(&dom, &roots, node, registry, &mut ids, &mut memo).unwrap();
+        }
+        assert!(
+            ids.is_empty(),
+            "a new snapshot must release the old registry root"
+        );
+        assert!(
+            memo.contains_key(&duplicate),
+            "failed proofs never suppress later candidates"
+        );
+        for node in [first, witness, duplicate, unrelated] {
+            dom.release_wrapper(node).unwrap();
+        }
+    }
+
     #[test]
     fn shared_ancestry_cache_matches_native_roots_and_excludes_wrapper_only_custody() {
         let mut dom = oryn_dom::html::parse("<section><div><i></i><b></b></div></section>")

@@ -432,10 +432,10 @@ impl Segment {
                             continue;
                         }
                     }
-                    if let Some(parent) = new.get(&node) {
-                        if !current(state, desired, *parent) || dom.arena().get(*parent).is_err() {
-                            continue;
-                        }
+                    if let Some(parent) = new.get(&node)
+                        && (!current(state, desired, *parent) || dom.arena().get(*parent).is_err())
+                    {
+                        continue;
                     }
                     eligible.insert(node);
                 }
@@ -512,21 +512,20 @@ impl Segment {
                 let dom = state.dom.borrow();
                 let progress_guard = self.progress.borrow();
                 let detached = &progress_guard.as_ref().unwrap().detached;
-                if let Some(parent) = parent {
-                    if let Some(record) = expected.nodes.iter().find(|record| record.node == parent)
-                    {
-                        let expected_index = record
-                            .children
-                            .iter()
-                            .filter(|child| !detached.contains(child))
-                            .position(|child| *child == node);
-                        let actual_index = dom
-                            .children(parent)?
-                            .iter()
-                            .filter(|child| record.children.contains(child))
-                            .position(|child| *child == node);
-                        valid = expected_index == actual_index;
-                    }
+                if let Some(parent) = parent
+                    && let Some(record) = expected.nodes.iter().find(|record| record.node == parent)
+                {
+                    let expected_index = record
+                        .children
+                        .iter()
+                        .filter(|child| !detached.contains(child))
+                        .position(|child| *child == node);
+                    let actual_index = dom
+                        .children(parent)?
+                        .iter()
+                        .filter(|child| record.children.contains(child))
+                        .position(|child| *child == node);
+                    valid = expected_index == actual_index;
                 }
                 if valid && old.contains_key(&node) && !new.contains_key(&node) {
                     valid = dom.arena().descendants_inclusive(node)?.iter().all(|id| {
@@ -702,11 +701,11 @@ impl Segment {
                     }
                 }
             }
-            if text(&source.kind) != text(&target.kind) && text(&actual.kind) == text(&source.kind)
+            if text(&source.kind) != text(&target.kind)
+                && text(&actual.kind) == text(&source.kind)
+                && let Some(data) = text(&target.kind)
             {
-                if let Some(data) = text(&target.kind) {
-                    state.dom.borrow_mut().set_text(target.node, data)?;
-                }
+                state.dom.borrow_mut().set_text(target.node, data)?;
             }
             if !desired
                 .controls

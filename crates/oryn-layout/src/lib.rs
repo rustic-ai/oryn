@@ -1,10 +1,46 @@
 //! Deterministic, non-painting style and layout service.
 //!
-//! The crate is linked only into the sandboxed page worker.  It accepts a
-//! read-only snapshot of Oryn's canonical DOM and returns computed style and
-//! geometry keyed by the stable DOM node identifier.  It never owns DOM,
-//! JavaScript, networking, cookies, or browser policy.
+//! Canonical selectors and accessibility text transformations are V8-free and
+//! shared with native semantic consumers. Browser style and layout execution
+//! remains in the sandboxed page worker: it accepts a read-only snapshot of
+//! Oryn's canonical DOM and returns computed style and geometry keyed by stable
+//! node identifiers. This crate never owns DOM, JavaScript, networking, cookies,
+//! or browser policy.
 
+/// Inputs for taffy child placements.
+pub(crate) struct ChildPlacementInputs<'a> {
+    pub(crate) node: &'a LayoutNode,
+    pub(crate) parent_style: &'a BTreeMap<String, String>,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) width: f64,
+    pub(crate) height: Option<f64>,
+    pub(crate) viewport: ViewportState,
+    pub(crate) nodes: &'a BTreeMap<u64, &'a LayoutNode>,
+    pub(crate) text_engine: &'a mut TextEngine,
+}
+/// Inputs for project layout tree.
+pub(crate) struct LayoutTreeProjectionInputs<'a> {
+    pub(crate) input: &'a LayoutInput,
+    pub(crate) by_id: &'a BTreeMap<u64, &'a LayoutNode>,
+    pub(crate) styles: &'a ComputedStyles,
+    pub(crate) geometry: &'a mut BTreeMap<u64, NodeGeometry>,
+    pub(crate) text_fragments: &'a mut BTreeMap<u64, Vec<PaintTextFragment>>,
+    pub(crate) resolved_values: &'a mut BTreeMap<u64, BTreeMap<String, String>>,
+    pub(crate) paint_projections: &'a mut BTreeMap<u64, oryn_common::v4::PaintProjection>,
+    pub(crate) scrollbar_gutters: &'a BTreeMap<u64, EdgeSizes>,
+    pub(crate) viewport_scrollport: Option<CssRect>,
+    pub(crate) diagnostics: &'a mut Vec<String>,
+}
+/// Inputs for shape paragraph.
+pub(crate) struct ParagraphShapeInputs<'a> {
+    pub(crate) text: &'a str,
+    pub(crate) width: f64,
+    pub(crate) font_size: f64,
+    pub(crate) style: &'a BTreeMap<String, String>,
+    pub(crate) viewport: ViewportState,
+    pub(crate) ranges: &'a [StyledTextRange<'a>],
+    pub(crate) first_paragraph: bool,
+}
 mod anchor_positioning;
 mod backdrop;
 mod columns;
@@ -34,6 +70,7 @@ mod svg_clip_external;
 mod svg_clip_text;
 pub mod svg_fonts;
 mod svg_geometry;
+pub mod svg_instances;
 mod tables;
 mod temporal_picker;
 mod text_decoration;
@@ -74,7 +111,6 @@ use oryn_common::v4::{
 use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, Layout, LayoutContext, StyleProperty,
 };
-use regex::Regex;
 #[cfg(test)]
 use selectors::{
     Element as SelectorElement, OpaqueElement,
@@ -564,7 +600,6 @@ pub use blitz_dom::{
     NativeAnimationEffect, NativeAnimationKeyframe, NativeCssAnimation, NativeCssAnimationControl,
 };
 pub fn animation_pseudo_name(pseudo: &style::selector_parser::PseudoElement) -> String {
-    use style_traits::ToCss;
     pseudo.to_css_string()
 }
 pub fn animation_pseudo(name: &str) -> Option<style::selector_parser::PseudoElement> {
@@ -591,9 +626,15 @@ pub struct StyleEngine {
     effects: Vec<blitz_dom::NativeAnimationEffect>,
     samples: BTreeMap<u64, BTreeMap<String, String>>,
     continuity: blitz_dom::StyleContinuity,
+    instance_sample: Option<svg_instances::StyleSample>,
+    static_layout: Option<(LayoutInput, LayoutLimits, LayoutOutput)>,
 }
 
 impl StyleEngine {
+    /// Snapshot of the last successful layout's native animation session.
+    pub fn instance_style_sample(&self) -> Option<svg_instances::StyleSample> {
+        self.instance_sample.clone()
+    }
     pub fn compute(
         &mut self,
         input: &LayoutInput,
@@ -611,6 +652,7 @@ impl StyleEngine {
         time: Option<f64>,
         now: f64,
     ) -> Result<(), String> {
+        self.static_layout = None;
         self.continuity
             .control_css_animation(id, control, time, now)
     }
@@ -624,6 +666,7 @@ impl StyleEngine {
         if self.effects == effects {
             return false;
         }
+        self.static_layout = None;
         self.effects = effects;
         true
     }
@@ -641,6 +684,23 @@ impl StyleEngine {
         now: f64,
     ) -> Result<LayoutOutput, LayoutError> {
         validate(input, limits)?;
+        // Forced getters and actor rendering can request the same static scene
+        // several times in one turn. Reuse only a complete successful result;
+        // animated sessions retain their native timeline sampling below.
+        if let Some((previous, previous_limits, output)) = &self.static_layout
+            && previous == input
+            && previous_limits == limits
+        {
+            self.instance_sample = Some(svg_instances::StyleSample {
+                now,
+                continuity: self.continuity.clone(),
+                effects: self.effects.clone(),
+            });
+            return Ok(output.clone());
+        }
+        // A failed recomputation must not leave a result from an older native
+        // style session eligible for reuse.
+        self.static_layout = None;
         let (computed_styles, author_whitespace, pseudo_styles) = stylo_computed_values_timed(
             input,
             false,
@@ -662,6 +722,17 @@ impl StyleEngine {
         generated::finish(&generated, &mut output);
         backdrop::append(&generated.input, limits, &mut output)?;
         object_images::finish(&mut output, &object_hidden);
+        self.instance_sample = Some(svg_instances::StyleSample {
+            now,
+            continuity: self.continuity.clone(),
+            effects: self.effects.clone(),
+        });
+        if !self.continuity.active
+            && self.effects.is_empty()
+            && self.continuity.css_animations(now).is_empty()
+        {
+            self.static_layout = Some((input.clone(), limits.clone(), output.clone()));
+        }
         Ok(output)
     }
 }
@@ -984,6 +1055,12 @@ impl Default for TextBrush {
         }
     }
 }
+
+type StyledTextRange<'a> = (
+    std::ops::Range<usize>,
+    &'a BTreeMap<String, String>,
+    Option<fontique::Language>,
+);
 
 struct TextEngine {
     font_demands: BTreeMap<u64, BTreeMap<String, BTreeSet<u32>>>,
@@ -1697,14 +1774,18 @@ impl TextEngine {
         font_size: f64,
         style: &BTreeMap<String, String>,
         viewport: ViewportState,
-        ranges: &[(
-            std::ops::Range<usize>,
-            &BTreeMap<String, String>,
-            Option<fontique::Language>,
-        )],
+        ranges: &[StyledTextRange<'_>],
     ) -> TextLayout {
         if !text.contains(['\n', '\u{2029}']) {
-            return self.shape_paragraph(text, width, font_size, style, viewport, ranges, true);
+            return self.shape_paragraph(ParagraphShapeInputs {
+                text,
+                width,
+                font_size,
+                style,
+                viewport,
+                ranges,
+                first_paragraph: true,
+            });
         }
         let mut combined = TextLayout {
             resolved_text: Vec::new(),
@@ -1753,15 +1834,15 @@ impl TextEngine {
             if self.float_context.is_some() {
                 self.float_block_offset = previous_offset + combined.height;
             }
-            let mut paragraph = self.shape_paragraph(
+            let mut paragraph = self.shape_paragraph(ParagraphShapeInputs {
                 text,
                 width,
                 font_size,
                 style,
                 viewport,
-                &paragraph_ranges,
-                byte_offset == 0,
-            );
+                ranges: &paragraph_ranges,
+                first_paragraph: byte_offset == 0,
+            });
             self.float_block_offset = previous_offset;
             // Parley exposes a trailing empty caret line after a final break.
             // CSS does not add an extra final line box for that caret position.
@@ -1843,11 +1924,7 @@ impl TextEngine {
         font_size: f64,
         style: &BTreeMap<String, String>,
         viewport: ViewportState,
-        ranges: &[(
-            std::ops::Range<usize>,
-            &BTreeMap<String, String>,
-            Option<fontique::Language>,
-        )],
+        ranges: &[StyledTextRange<'_>],
     ) -> Layout<TextBrush> {
         // Layout is in CSS pixels and is subsequently transformed/scaled by
         // the native paint owner. Device-pixel snapping here would round line
@@ -1903,11 +1980,11 @@ impl TextEngine {
                         }
                     }
                 }
-                if let Some((_, end, previous)) = &mut pending {
-                    if *previous == family {
-                        *end = offset + cluster.len();
-                        continue;
-                    }
+                if let Some((_, end, previous)) = &mut pending
+                    && *previous == family
+                {
+                    *end = offset + cluster.len();
+                    continue;
                 }
                 if let Some((start, end, family)) = pending.take() {
                     builder.push(
@@ -1985,9 +2062,16 @@ impl TextEngine {
                     .is_some_and(|style| style_value(style, "float", "none") != "none")
             });
             if container {
-                if let Some(placements) =
-                    taffy_child_placements(node, style, styles, width, None, viewport, nodes, self)
-                {
+                if let Some(placements) = taffy_child_placements(ChildPlacementInputs {
+                    node,
+                    parent_style: style,
+                    styles,
+                    width,
+                    height: None,
+                    viewport,
+                    nodes,
+                    text_engine: self,
+                }) {
                     height += node
                         .children
                         .iter()
@@ -2470,20 +2554,17 @@ impl TextEngine {
         (f64::from(widths.min), f64::from(widths.max))
     }
 
-    fn shape_paragraph(
-        &mut self,
-        text: &str,
-        width: f64,
-        font_size: f64,
-        style: &BTreeMap<String, String>,
-        viewport: ViewportState,
-        ranges: &[(
-            std::ops::Range<usize>,
-            &BTreeMap<String, String>,
-            Option<fontique::Language>,
-        )],
-        first_paragraph: bool,
-    ) -> TextLayout {
+    fn shape_paragraph(&mut self, params: ParagraphShapeInputs<'_>) -> TextLayout {
+        let ParagraphShapeInputs {
+            text,
+            width,
+            font_size,
+            style,
+            viewport,
+            ranges,
+            first_paragraph,
+        } = params;
+
         if !first_paragraph && style.contains_key("-oryn-first-line-end") {
             let mut plain = style.clone();
             for key in [
@@ -2494,7 +2575,15 @@ impl TextEngine {
             ] {
                 plain.remove(key);
             }
-            return self.shape_paragraph(text, width, font_size, &plain, viewport, ranges, false);
+            return self.shape_paragraph(ParagraphShapeInputs {
+                text,
+                width,
+                font_size,
+                style: &plain,
+                viewport,
+                ranges,
+                first_paragraph: false,
+            });
         }
         if text.is_empty() && self.active_inline_boxes.is_empty() {
             return TextLayout {
@@ -2535,20 +2624,17 @@ impl TextEngine {
                 .iter()
                 .any(|item| self.inline_floats.contains_key(&item.id))
         {
-            let mut context = self
-                .float_context
-                .take()
-                .unwrap_or_else(taffy::compute::FloatContext::new);
-            let placed = float_lines::break_layout(
-                &mut layout,
+            let mut context = self.float_context.take().unwrap_or_default();
+            let placed = float_lines::break_layout(crate::float_lines::FloatLineInputs {
+                layout: &mut layout,
                 width,
-                &self.inline_floats,
-                &mut context,
-                float_origin,
-                self.float_context_width,
-                self.float_inline_insets,
-                self.float_fragment,
-            );
+                specs: &self.inline_floats,
+                context: &mut context,
+                origin: float_origin,
+                context_width: self.float_context_width,
+                containing_insets: self.float_inline_insets,
+                fragment: self.float_fragment,
+            });
             self.float_context = Some(context);
             placed
         } else {
@@ -3155,15 +3241,15 @@ fn flatten_contents_boxes(input: &LayoutInput, styles: &ComputedStyles) -> Layou
         while let Some((owner, item)) = pending.pop() {
             match item {
                 LayoutContent::Element(child) if boxless.contains(&child) => {
-                    if expanded.insert(child) {
-                        if let Some(wrapper) = by_id.get(&child) {
-                            pending.extend(
-                                source_content(wrapper)
-                                    .into_iter()
-                                    .rev()
-                                    .map(|item| (child, item)),
-                            );
-                        }
+                    if expanded.insert(child)
+                        && let Some(wrapper) = by_id.get(&child)
+                    {
+                        pending.extend(
+                            source_content(wrapper)
+                                .into_iter()
+                                .rev()
+                                .map(|item| (child, item)),
+                        );
                     }
                 }
                 LayoutContent::Text { node_id, text } if owner != node.id => {
@@ -3363,11 +3449,29 @@ pub fn compute_print_viewport(
     input: &LayoutInput,
     limits: &LayoutLimits,
 ) -> Result<LayoutOutput, LayoutError> {
+    compute_print_viewport_with_capture_input(input, limits).map(|(output, _)| output)
+}
+
+/// Compute a print frame and retain its unprojected native capture context.
+pub fn compute_print_viewport_with_capture_input(
+    input: &LayoutInput,
+    limits: &LayoutLimits,
+) -> Result<(LayoutOutput, LayoutInput), LayoutError> {
+    compute_print_viewport_with_style_sample(input, limits, None)
+}
+
+pub fn compute_print_viewport_with_style_sample(
+    input: &LayoutInput,
+    limits: &LayoutLimits,
+    sample: Option<&svg_instances::StyleSample>,
+) -> Result<(LayoutOutput, LayoutInput), LayoutError> {
     let mut input = input.clone();
     input.scroll = ScrollState::default();
     input.element_scrolls.clear();
     input.scrollbar_width = 0.;
-    let (styles, whitespace, pseudos) = stylo_computed_values_for_media(&input, true)?;
+    let capture_input = input.clone();
+    let (styles, whitespace, pseudos) =
+        stylo_computed_values_for_media_with_sample(&input, true, sample)?;
     let (input, object_hidden) = object_images::project_styled(&input, &styles);
     let generated = generated::materialize_for_media(&input, styles, &pseudos, true)?;
     let mut output = compute_with_styles(&generated.input, limits, generated.styles.clone())?;
@@ -3377,7 +3481,7 @@ pub fn compute_print_viewport(
     backdrop::append(&generated.input, limits, &mut output)?;
     object_images::finish(&mut output, &object_hidden);
     output.viewport_scroll = None;
-    Ok(output)
+    Ok((output, capture_input))
 }
 
 fn compute_with_styles(
@@ -3907,18 +4011,18 @@ fn compute_with_scrollbar_gutters(
                             viewport_gutter,
                         )
                     });
-                project_layout_tree(
+                project_layout_tree(LayoutTreeProjectionInputs {
                     input,
-                    &by_id,
-                    &computed_styles,
-                    &mut projected_geometry,
-                    &mut projected_text,
-                    &mut projected_values,
-                    &mut projections,
+                    by_id: &by_id,
+                    styles: &computed_styles,
+                    geometry: &mut projected_geometry,
+                    text_fragments: &mut projected_text,
+                    resolved_values: &mut projected_values,
+                    paint_projections: &mut projections,
                     scrollbar_gutters,
                     viewport_scrollport,
-                    &mut diagnostics,
-                );
+                    diagnostics: &mut diagnostics,
+                });
             } else {
                 diagnostics.push(format!(
                     "node {id}: unavailable or cyclic anchor uses CSS fallback"
@@ -3999,16 +4103,16 @@ fn compute_with_scrollbar_gutters(
                         &mut trial,
                         None,
                     );
-                    positioning::resolve_one(
+                    positioning::resolve_one(positioning::PositionedNodeInputs {
                         id,
                         input,
-                        &by_id,
-                        &trial_styles,
-                        &mut trial_geometry,
-                        &mut trial_text,
-                        &mut trial.source_geometry,
+                        by_id: &by_id,
+                        styles: &trial_styles,
+                        geometry: &mut trial_geometry,
+                        text: &mut trial_text,
+                        clusters: &mut trial.source_geometry,
                         viewport_gutter,
-                    );
+                    });
                     if let Some(error) = trial.font_demand_error {
                         return Err(error);
                     }
@@ -4054,16 +4158,16 @@ fn compute_with_scrollbar_gutters(
             .get(&id)
             .and_then(|value| value.box_model.as_ref())
             .map(|model| model.border_box);
-        positioning::resolve_one(
+        positioning::resolve_one(positioning::PositionedNodeInputs {
             id,
             input,
-            &by_id,
-            &computed_styles,
-            &mut geometry,
-            &mut text_fragments,
-            &mut text_engine.source_geometry,
+            by_id: &by_id,
+            styles: &computed_styles,
+            geometry: &mut geometry,
+            text: &mut text_fragments,
+            clusters: &mut text_engine.source_geometry,
             viewport_gutter,
-        );
+        });
         if let (Some(before), Some(after)) = (
             before,
             geometry
@@ -4209,18 +4313,18 @@ fn compute_with_scrollbar_gutters(
                 viewport_gutter,
             )
         });
-    project_layout_tree(
+    project_layout_tree(LayoutTreeProjectionInputs {
         input,
-        &by_id,
-        &computed_styles,
-        &mut geometry,
-        &mut text_fragments,
-        &mut resolved_values,
-        &mut paint_projections,
+        by_id: &by_id,
+        styles: &computed_styles,
+        geometry: &mut geometry,
+        text_fragments: &mut text_fragments,
+        resolved_values: &mut resolved_values,
+        paint_projections: &mut paint_projections,
         scrollbar_gutters,
         viewport_scrollport,
-        &mut diagnostics,
-    );
+        diagnostics: &mut diagnostics,
+    });
     anchor_positioning::visibility(
         input,
         &anchor_styles,
@@ -4596,18 +4700,20 @@ fn empty_caret_stops(
 
 /// Compose ancestors before projecting bounds, so rotations do not repeatedly
 /// inflate axis-aligned boxes. Flow and offset dimensions remain untransformed.
-fn project_layout_tree(
-    input: &LayoutInput,
-    by_id: &BTreeMap<u64, &LayoutNode>,
-    styles: &ComputedStyles,
-    geometry: &mut BTreeMap<u64, NodeGeometry>,
-    text_fragments: &mut BTreeMap<u64, Vec<PaintTextFragment>>,
-    resolved_values: &mut BTreeMap<u64, BTreeMap<String, String>>,
-    paint_projections: &mut BTreeMap<u64, oryn_common::v4::PaintProjection>,
-    scrollbar_gutters: &BTreeMap<u64, EdgeSizes>,
-    viewport_scrollport: Option<CssRect>,
-    diagnostics: &mut Vec<String>,
-) {
+fn project_layout_tree(params: LayoutTreeProjectionInputs<'_>) {
+    let LayoutTreeProjectionInputs {
+        input,
+        by_id,
+        styles,
+        geometry,
+        text_fragments,
+        resolved_values,
+        paint_projections,
+        scrollbar_gutters,
+        viewport_scrollport,
+        diagnostics,
+    } = params;
+
     let flow_boxes = geometry
         .iter()
         .filter_map(|(id, g)| g.box_model.clone().map(|model| (*id, model)))
@@ -4715,249 +4821,248 @@ fn project_layout_tree(
         let applicable = styles
             .get(&id)
             .is_some_and(|style| transformable_box(node, style));
-        if let (Some(style), Some(value)) = (styles.get(&id), geometry.get_mut(&id)) {
-            if let Some(model) = value.box_model.as_mut() {
-                let reference = model.border_box;
-                let font = length(
-                    style_value(style, "font-size", "16px"),
-                    16.,
-                    16.,
+        if let (Some(style), Some(value)) = (styles.get(&id), geometry.get_mut(&id))
+            && let Some(model) = value.box_model.as_mut()
+        {
+            let reference = model.border_box;
+            let font = length(
+                style_value(style, "font-size", "16px"),
+                16.,
+                16.,
+                input.viewport,
+            );
+            let depth = style_value(style, "perspective", "none");
+            if applicable
+                && depth != "none"
+                && let Some(value) = transforms::prepare(
+                    reference,
+                    &format!("perspective({depth})"),
+                    style_value(style, "perspective-origin", "50% 50%"),
+                    font,
                     input.viewport,
-                );
-                let depth = style_value(style, "perspective", "none");
-                if applicable && depth != "none" {
-                    if let Some(value) = transforms::prepare(
+                )
+            {
+                perspective = value;
+            }
+            let source = transforms::compose_source(
+                style_value(style, "translate", "none"),
+                style_value(style, "rotate", "none"),
+                style_value(style, "scale", "none"),
+                style_value(style, "transform", "none"),
+            );
+            // For elements with CSS layout boxes, fill-box maps to the
+            // content box; stroke-box and view-box map to the border box.
+            let transform_reference = match style_value(style, "transform-box", "view-box") {
+                "content-box" | "fill-box" => model.content_box,
+                _ => reference,
+            };
+            if applicable {
+                for (property, reference) in [
+                    ("transform-origin", transform_reference),
+                    ("perspective-origin", reference),
+                ] {
+                    if let Some(value) = transforms::resolved_origin(
                         reference,
-                        &format!("perspective({depth})"),
-                        style_value(style, "perspective-origin", "50% 50%"),
+                        style_value(style, property, "50% 50%"),
                         font,
                         input.viewport,
                     ) {
-                        perspective = value;
-                    }
-                }
-                let source = transforms::compose_source(
-                    style_value(style, "translate", "none"),
-                    style_value(style, "rotate", "none"),
-                    style_value(style, "scale", "none"),
-                    style_value(style, "transform", "none"),
-                );
-                // For elements with CSS layout boxes, fill-box maps to the
-                // content box; stroke-box and view-box map to the border box.
-                let transform_reference = match style_value(style, "transform-box", "view-box") {
-                    "content-box" | "fill-box" => model.content_box,
-                    _ => reference,
-                };
-                if applicable {
-                    for (property, reference) in [
-                        ("transform-origin", transform_reference),
-                        ("perspective-origin", reference),
-                    ] {
-                        if let Some(value) = transforms::resolved_origin(
-                            reference,
-                            style_value(style, property, "50% 50%"),
-                            font,
-                            input.viewport,
-                        ) {
-                            resolved_values
-                                .entry(id)
-                                .or_default()
-                                .insert(property.into(), value);
-                        }
-                    }
-                }
-                if let Some(value) = transforms::resolved_value(
-                    transform_reference,
-                    style_value(style, "transform", "none"),
-                    font,
-                    input.viewport,
-                ) {
-                    if value != "none" {
                         resolved_values
                             .entry(id)
                             .or_default()
-                            .insert("transform".into(), value);
+                            .insert(property.into(), value);
                     }
                 }
-                if let Some(local) = source.filter(|_| applicable).and_then(|source| {
-                    transforms::prepare(
-                        transform_reference,
-                        &source,
-                        style_value(style, "transform-origin", "50% 50%"),
-                        font,
-                        input.viewport,
-                    )
-                }) {
-                    projection = parent.then(local);
-                }
-                let source = style_value(style, "clip-path", "none");
-                if source != "none" {
-                    let (shape_source, reference) = if let Some(close) = source.rfind(')') {
-                        let suffix = source[close + 1..].trim();
-                        let reference = match suffix {
+            }
+            if let Some(value) = transforms::resolved_value(
+                transform_reference,
+                style_value(style, "transform", "none"),
+                font,
+                input.viewport,
+            ) && value != "none"
+            {
+                resolved_values
+                    .entry(id)
+                    .or_default()
+                    .insert("transform".into(), value);
+            }
+            if let Some(local) = source.filter(|_| applicable).and_then(|source| {
+                transforms::prepare(
+                    transform_reference,
+                    &source,
+                    style_value(style, "transform-origin", "50% 50%"),
+                    font,
+                    input.viewport,
+                )
+            }) {
+                projection = parent.then(local);
+            }
+            let source = style_value(style, "clip-path", "none");
+            if source != "none" {
+                let (shape_source, reference) = if let Some(close) = source.rfind(')') {
+                    let suffix = source[close + 1..].trim();
+                    let reference = match suffix {
+                        "padding-box" => model.padding_box,
+                        "content-box" | "fill-box" => model.content_box,
+                        _ => model.border_box,
+                    };
+                    (&source[..=close], reference)
+                } else {
+                    (
+                        "inset(0px)",
+                        match source {
                             "padding-box" => model.padding_box,
                             "content-box" | "fill-box" => model.content_box,
                             _ => model.border_box,
-                        };
-                        (&source[..=close], reference)
-                    } else {
-                        (
-                            "inset(0px)",
-                            match source {
-                                "padding-box" => model.padding_box,
-                                "content-box" | "fill-box" => model.content_box,
-                                _ => model.border_box,
-                            },
-                        )
-                    };
-                    let shape_result = if shape_source.starts_with("url(") {
-                        svg_clip::resolve(input, node, shape_source, reference, styles).map(Some)
-                    } else {
-                        oryn_common::basic_shape::parse(
-                            shape_source,
-                            reference,
-                            font,
-                            (input.viewport.width, input.viewport.height),
-                        )
-                    };
-                    let shape = match shape_result {
-                        Ok(Some(shape)) => shape,
-                        Ok(None) => unreachable!(),
-                        Err(error) => {
-                            diagnostics.push(format!("node {id}: {error}"));
-                            oryn_common::basic_shape::Shape::RoundedRect {
-                                rect: oryn_common::v4::CssRect {
-                                    x: reference.x,
-                                    y: reference.y,
-                                    width: 0.,
-                                    height: 0.,
-                                },
-                                radii: [[0.; 2]; 4],
-                            }
-                        }
-                    };
-                    let clip = oryn_common::v4::PaintClip {
-                        shape: Some(shape.clone()),
-                        owner: Some(id),
-                        scroll_x: false,
-                        scroll_y: false,
-                        matrix: projection.matrix(),
-                        rect: shape.bounds(),
-                        clip_x: true,
-                        clip_y: true,
-                    };
-                    clips.push(clip.clone());
-                    child_clips.push(clip);
-                }
-                let clip_x = style_value(style, "overflow-x", "visible") != "visible";
-                let clip_y = style_value(style, "overflow-y", "visible") != "visible";
-                if clip_x || clip_y {
-                    child_clips.push(oryn_common::v4::PaintClip {
-                        shape: None,
-                        owner: Some(id),
-                        scroll_x: matches!(
-                            style_value(style, "overflow-x", "visible"),
-                            "auto" | "scroll" | "hidden"
-                        ),
-                        scroll_y: matches!(
-                            style_value(style, "overflow-y", "visible"),
-                            "auto" | "scroll" | "hidden"
-                        ),
-                        matrix: projection.matrix(),
-                        rect: scroll_metrics
-                            .get(&id)
-                            .map(|scroll| scroll.scrollport)
-                            .unwrap_or(model.padding_box),
-                        clip_x,
-                        clip_y,
-                    });
-                }
-                let (scroll_x, scroll_y) = scroll_metrics
-                    .get(&id)
-                    .map(|scroll| (scroll.offset_x, scroll.offset_y))
-                    .unwrap_or_default();
-                // Clip and visible boxes are not programmatically scrollable.
-                // Scroll offsets are expressed in the container's local axes.
-                let scrollable = |axis| {
-                    matches!(
-                        style_value(style, axis, "visible"),
-                        "auto" | "scroll" | "hidden"
+                        },
                     )
                 };
-                scroll_translation = transforms::Projection::translation(
-                    if scrollable("overflow-x") {
-                        -scroll_x
-                    } else {
-                        0.
-                    },
-                    if scrollable("overflow-y") {
-                        -scroll_y
-                    } else {
-                        0.
-                    },
-                );
-                let text_projection = projection.then(scroll_translation);
-                paint_projections.insert(
-                    id,
-                    oryn_common::v4::PaintProjection {
-                        scroll: scroll_metrics.get(&id).cloned(),
-                        fragment_boxes: if value.client_rects.len() > 1 {
-                            inline_formatting::fragment_models(&value.client_rects, model, style)
-                        } else {
-                            Vec::new()
-                        },
-                        border_segments: Vec::new(),
-                        border_edges: None,
-                        matrix: projection.matrix(),
-                        box_model: model.clone(),
-                        clips,
-                        text_matrix: Some(text_projection.matrix()),
-                        text_clips: child_clips.clone(),
-                        text: text_fragments.get(&id).cloned().unwrap_or_default(),
-                    },
-                );
-                if let Some(bounds) = oryn_common::layout_domain::projected_bounds(
-                    projection.matrix(),
-                    model.border_box,
-                ) {
-                    if bounds.saturated {
-                        diagnostics.push(format!(
-                            "node {id}: {} projected bounds saturated to native coordinate domain",
-                            if bounds.unbounded {
-                                "mathematically unbounded"
-                            } else {
-                                "out-of-domain"
-                            }
-                        ));
-                    }
+                let shape_result = if shape_source.starts_with("url(") {
+                    svg_clip::resolve(input, node, shape_source, reference, styles).map(Some)
                 } else {
-                    diagnostics.push(format!("node {id}: nonfinite native projection rejected"));
-                }
-                model.border_box = projection.project(model.border_box);
-                model.padding_box = projection.project(model.padding_box);
-                model.content_box = projection.project(model.content_box);
-                for fragment in &mut value.client_rects {
-                    *fragment = projection.project(*fragment);
-                }
-                if let Some(fragments) = text_fragments.get_mut(&id) {
-                    for fragment in fragments {
-                        fragment.rect = text_projection.project(fragment.rect);
-                        fragment.flow_rect =
-                            fragment.flow_rect.map(|flow| text_projection.project(flow));
-                        for cluster in &mut fragment.clusters {
-                            cluster.rect = text_projection.project(cluster.rect);
+                    oryn_common::basic_shape::parse(
+                        shape_source,
+                        reference,
+                        font,
+                        (input.viewport.width, input.viewport.height),
+                    )
+                };
+                let shape = match shape_result {
+                    Ok(Some(shape)) => shape,
+                    Ok(None) => unreachable!(),
+                    Err(error) => {
+                        diagnostics.push(format!("node {id}: {error}"));
+                        oryn_common::basic_shape::Shape::RoundedRect {
+                            rect: oryn_common::v4::CssRect {
+                                x: reference.x,
+                                y: reference.y,
+                                width: 0.,
+                                height: 0.,
+                            },
+                            radii: [[0.; 2]; 4],
                         }
                     }
-                }
-                value.in_viewport = value.availability == GeometryAvailability::Available
-                    && model.border_box.intersects(viewport);
-                value.interactable = value.in_viewport
-                    && style_value(style, "opacity", "1")
-                        .parse::<f64>()
-                        .unwrap_or(1.)
-                        > 0.
-                    && style_value(style, "pointer-events", "auto") != "none";
+                };
+                let clip = oryn_common::v4::PaintClip {
+                    shape: Some(shape.clone()),
+                    owner: Some(id),
+                    scroll_x: false,
+                    scroll_y: false,
+                    matrix: projection.matrix(),
+                    rect: shape.bounds(),
+                    clip_x: true,
+                    clip_y: true,
+                };
+                clips.push(clip.clone());
+                child_clips.push(clip);
             }
+            let clip_x = style_value(style, "overflow-x", "visible") != "visible";
+            let clip_y = style_value(style, "overflow-y", "visible") != "visible";
+            if clip_x || clip_y {
+                child_clips.push(oryn_common::v4::PaintClip {
+                    shape: None,
+                    owner: Some(id),
+                    scroll_x: matches!(
+                        style_value(style, "overflow-x", "visible"),
+                        "auto" | "scroll" | "hidden"
+                    ),
+                    scroll_y: matches!(
+                        style_value(style, "overflow-y", "visible"),
+                        "auto" | "scroll" | "hidden"
+                    ),
+                    matrix: projection.matrix(),
+                    rect: scroll_metrics
+                        .get(&id)
+                        .map(|scroll| scroll.scrollport)
+                        .unwrap_or(model.padding_box),
+                    clip_x,
+                    clip_y,
+                });
+            }
+            let (scroll_x, scroll_y) = scroll_metrics
+                .get(&id)
+                .map(|scroll| (scroll.offset_x, scroll.offset_y))
+                .unwrap_or_default();
+            // Clip and visible boxes are not programmatically scrollable.
+            // Scroll offsets are expressed in the container's local axes.
+            let scrollable = |axis| {
+                matches!(
+                    style_value(style, axis, "visible"),
+                    "auto" | "scroll" | "hidden"
+                )
+            };
+            scroll_translation = transforms::Projection::translation(
+                if scrollable("overflow-x") {
+                    -scroll_x
+                } else {
+                    0.
+                },
+                if scrollable("overflow-y") {
+                    -scroll_y
+                } else {
+                    0.
+                },
+            );
+            let text_projection = projection.then(scroll_translation);
+            paint_projections.insert(
+                id,
+                oryn_common::v4::PaintProjection {
+                    scroll: scroll_metrics.get(&id).cloned(),
+                    fragment_boxes: if value.client_rects.len() > 1 {
+                        inline_formatting::fragment_models(&value.client_rects, model, style)
+                    } else {
+                        Vec::new()
+                    },
+                    border_segments: Vec::new(),
+                    border_edges: None,
+                    matrix: projection.matrix(),
+                    box_model: model.clone(),
+                    clips,
+                    text_matrix: Some(text_projection.matrix()),
+                    text_clips: child_clips.clone(),
+                    text: text_fragments.get(&id).cloned().unwrap_or_default(),
+                },
+            );
+            if let Some(bounds) =
+                oryn_common::layout_domain::projected_bounds(projection.matrix(), model.border_box)
+            {
+                if bounds.saturated {
+                    diagnostics.push(format!(
+                        "node {id}: {} projected bounds saturated to native coordinate domain",
+                        if bounds.unbounded {
+                            "mathematically unbounded"
+                        } else {
+                            "out-of-domain"
+                        }
+                    ));
+                }
+            } else {
+                diagnostics.push(format!("node {id}: nonfinite native projection rejected"));
+            }
+            model.border_box = projection.project(model.border_box);
+            model.padding_box = projection.project(model.padding_box);
+            model.content_box = projection.project(model.content_box);
+            for fragment in &mut value.client_rects {
+                *fragment = projection.project(*fragment);
+            }
+            if let Some(fragments) = text_fragments.get_mut(&id) {
+                for fragment in fragments {
+                    fragment.rect = text_projection.project(fragment.rect);
+                    fragment.flow_rect =
+                        fragment.flow_rect.map(|flow| text_projection.project(flow));
+                    for cluster in &mut fragment.clusters {
+                        cluster.rect = text_projection.project(cluster.rect);
+                    }
+                }
+            }
+            value.in_viewport = value.availability == GeometryAvailability::Available
+                && model.border_box.intersects(viewport);
+            value.interactable = value.in_viewport
+                && style_value(style, "opacity", "1")
+                    .parse::<f64>()
+                    .unwrap_or(1.)
+                    > 0.
+                && style_value(style, "pointer-events", "auto") != "none";
         }
         let preserve = styles.get(&id).is_some_and(|style| preserves_3d(style));
         // Even a non-transformable inline intermediate flattens descendants:
@@ -5321,19 +5426,6 @@ const COMPUTED_PROPERTIES: &[&str] = &[
     "border-left-style",
 ];
 
-fn custom_state_attribute(state: &str) -> String {
-    state_attribute("data-oryn-custom-state-", state)
-}
-
-fn state_attribute(prefix: &str, state: &str) -> String {
-    let mut encoded = String::from(prefix);
-    for byte in state.as_bytes() {
-        use std::fmt::Write as _;
-        let _ = write!(encoded, "{byte:02x}");
-    }
-    encoded
-}
-
 /// Run Stylo's own DOM traversal and serialize the computed longhands consumed
 /// by Oryn's non-painting Taffy/Parley layout layer. The mirror is an immutable
 /// style snapshot: the live DOM remains Rust-owned by `oryn-dom`, while selector
@@ -5362,24 +5454,120 @@ fn intern_computed_style(
     shared
 }
 
+#[cfg(test)]
 fn stylo_computed_values_with_provenance(
     input: &LayoutInput,
 ) -> Result<StyloStyleProjection, LayoutError> {
     stylo_computed_values_for_media(input, false)
 }
+fn projected_pseudo_kinds<'a>(
+    input: &'a LayoutInput,
+    node: &'a LayoutNode,
+) -> impl Iterator<Item = (&'static str, PseudoElement)> + 'a {
+    [
+        ("before", PseudoElement::Before),
+        ("first-line", PseudoElement::FirstLine),
+        ("first-letter", PseudoElement::FirstLetter),
+        ("marker", PseudoElement::Marker),
+        ("after", PseudoElement::After),
+        ("backdrop", PseudoElement::Backdrop),
+        ("picker", PseudoElement::PickerSelect),
+        ("picker::before", PseudoElement::Before),
+        ("picker::after", PseudoElement::After),
+        ("picker-icon", PseudoElement::PickerIcon),
+        ("permission-icon", PseudoElement::PermissionIcon),
+        ("interest-button", PseudoElement::InterestButton),
+        ("checkmark", PseudoElement::Checkmark),
+    ]
+    .into_iter()
+    .filter(move |(name, _)| {
+        let name = *name;
+
+        if name == "backdrop" && !input.top_layer.iter().any(|entry| entry.node_id == node.id) {
+            return false;
+        }
+        if matches!(
+            name,
+            "picker" | "picker::before" | "picker::after" | "picker-icon"
+        ) && node.tag != "select"
+        {
+            return false;
+        }
+        if name == "checkmark" && node.tag != "option" {
+            return false;
+        }
+        if name == "interest-button"
+            && !input
+                .selector_states
+                .get(&node.id)
+                .is_some_and(|state| state.interest_invoker)
+        {
+            return false;
+        }
+        if name == "permission-icon"
+            && !matches!(
+                node.tag.as_str(),
+                "geolocation" | "usermedia" | "camera" | "microphone" | "install"
+            )
+        {
+            return false;
+        }
+        true
+    })
+}
+
+#[cfg(test)]
 fn stylo_computed_values_for_media(
     input: &LayoutInput,
     print_media: bool,
 ) -> Result<StyloStyleProjection, LayoutError> {
-    stylo_computed_values_timed(input, print_media, 0.0, None, &[], None)
+    stylo_computed_values_for_media_with_sample(input, print_media, None)
+}
+fn stylo_computed_values_for_media_with_sample(
+    input: &LayoutInput,
+    print_media: bool,
+    sample: Option<&svg_instances::StyleSample>,
+) -> Result<StyloStyleProjection, LayoutError> {
+    let mut continuity = sample.map(|sample| sample.continuity.clone());
+    stylo_computed_values_timed(
+        input,
+        print_media,
+        sample.map_or(0., |sample| sample.now),
+        continuity.as_mut(),
+        sample.map_or(&[][..], |sample| sample.effects.as_slice()),
+        None,
+    )
 }
 fn stylo_computed_values_timed(
     input: &LayoutInput,
     print_media: bool,
     now: f64,
-    mut continuity: Option<&mut blitz_dom::StyleContinuity>,
+    continuity: Option<&mut blitz_dom::StyleContinuity>,
     effects: &[blitz_dom::NativeAnimationEffect],
     samples: Option<&mut BTreeMap<u64, BTreeMap<String, String>>>,
+) -> Result<StyloStyleProjection, LayoutError> {
+    stylo_computed_values_with_instances(
+        input,
+        print_media,
+        now,
+        continuity,
+        effects,
+        samples,
+        None,
+    )
+}
+fn stylo_computed_values_with_instances(
+    input: &LayoutInput,
+    print_media: bool,
+    now: f64,
+    continuity: Option<&mut blitz_dom::StyleContinuity>,
+    effects: &[blitz_dom::NativeAnimationEffect],
+    samples: Option<&mut BTreeMap<u64, BTreeMap<String, String>>>,
+    instances: Option<(
+        &[svg_instances::StyleInstance],
+        &mut svg_instances::InstanceProjection,
+        &LayoutLimits,
+    )>,
 ) -> Result<StyloStyleProjection, LayoutError> {
     shadow_tree::validate(input)?;
     let viewport = BlitzViewport::new(
@@ -5421,6 +5609,10 @@ fn stylo_computed_values_timed(
     // Shell backing pixels are integral; CSS dimensions and media queries are not.
     document.set_css_viewport_size(input.viewport.width as f32, input.viewport.height as f32);
     document.set_prefers_reduced_motion(input.reduced_motion);
+    // SVG non-root transforms use the local origin. Outermost SVG viewports
+    // and direct SVG children of foreignObject retain the CSS initial center.
+    // This UA rule yields to presentation hints and every author declaration.
+    document.add_user_agent_stylesheet("@namespace url(http://www.w3.org/2000/svg); *:not(svg), *:not(foreignObject) > svg { transform-origin:0 0; }");
     document.add_user_agent_stylesheet("::interest-button{display:none;color:inherit;background-color:transparent;box-sizing:border-box;min-inline-size:24px;min-block-size:max(24px,1lh);margin-inline-start:.25em;margin-block:min(-24px,-1lh);align-content:center;text-align:center;user-select:none;cursor:help}");
     document.add_user_agent_stylesheet("geolocation::permission-icon,usermedia::permission-icon,camera::permission-icon,microphone::permission-icon,install::permission-icon{display:inline-block;content:\"◎\";fill:currentColor;height:1em;width:1em;margin-inline-end:0.5em;vertical-align:middle}");
     document.add_user_agent_stylesheet("geolocation,usermedia,camera,microphone,install{display:inline-block;box-sizing:border-box;min-width:120px;min-height:32px;padding:4px 12px;border:1px solid ButtonBorder;border-radius:4px;background-color:ButtonFace;color:ButtonText;font:13px sans-serif;vertical-align:middle;cursor:pointer} geolocation>* ,usermedia>* ,camera>* ,microphone>* ,install>* {display:none}");
@@ -5634,6 +5826,23 @@ fn stylo_computed_values_timed(
         let node = document.get_node_mut(host).expect("host mirror");
         node.shadow_root = Some(mirror);
         node.style_children = Some(children);
+    }
+    // Shadow roots are linked after detached mirror construction. The mutator
+    // cannot mark their descendants connected at append time; publish the
+    // final shadow-including connectivity before restoring animation state.
+    let mut connected = vec![document.root_node().id];
+    let mut visited = std::collections::HashSet::new();
+    while let Some(id) = connected.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        let node = document
+            .get_node_mut(id)
+            .expect("connected selector mirror");
+        node.flags
+            .set(blitz_dom::node::NodeFlags::IS_IN_DOCUMENT, true);
+        connected.extend(node.children.iter().copied());
+        connected.extend(node.shadow_root);
     }
     for (id, root) in &input.shadow_trees.node_scopes {
         let mirror = *mirror_ids
@@ -5903,7 +6112,7 @@ fn stylo_computed_values_timed(
             .stylesheet_base_urls
             .get(&sheet_index)
             .and_then(|url| url::Url::parse(url).ok());
-        let mut stylesheet = document.make_stylesheet_with_base(&stylesheet, Origin::Author, base);
+        let mut stylesheet = document.make_stylesheet_with_base(stylesheet, Origin::Author, base);
         use style::stylesheets::scope_rule::ImplicitScopeRoot;
         stylesheet.1 = match input.stylesheet_scope_roots.get(&sheet_index) {
             Some(StylesheetScopeRoot::Element(id)) => mirror_ids
@@ -6000,6 +6209,17 @@ fn stylo_computed_values_timed(
         } else if let Some(samples) = samples {
             samples.clear();
         }
+    }
+
+    if let Some((requests, output, limits)) = instances {
+        *output = svg_instances::resolve(
+            &mut document,
+            input,
+            &mirror_ids,
+            requests,
+            &shadow_mirrors,
+            limits,
+        )?;
     }
 
     let mut output = ComputedStyles::new();
@@ -6139,50 +6359,7 @@ fn stylo_computed_values_timed(
         let Some(mirror) = mirror_ids.get(&node.id).copied() else {
             continue;
         };
-        for (name, pseudo) in [
-            ("before", PseudoElement::Before),
-            ("first-line", PseudoElement::FirstLine),
-            ("first-letter", PseudoElement::FirstLetter),
-            ("marker", PseudoElement::Marker),
-            ("after", PseudoElement::After),
-            ("backdrop", PseudoElement::Backdrop),
-            ("picker", PseudoElement::PickerSelect),
-            ("picker::before", PseudoElement::Before),
-            ("picker::after", PseudoElement::After),
-            ("picker-icon", PseudoElement::PickerIcon),
-            ("permission-icon", PseudoElement::PermissionIcon),
-            ("interest-button", PseudoElement::InterestButton),
-            ("checkmark", PseudoElement::Checkmark),
-        ] {
-            if name == "backdrop" && !input.top_layer.iter().any(|entry| entry.node_id == node.id) {
-                continue;
-            }
-            if matches!(
-                name,
-                "picker" | "picker::before" | "picker::after" | "picker-icon"
-            ) && node.tag != "select"
-            {
-                continue;
-            }
-            if name == "checkmark" && node.tag != "option" {
-                continue;
-            }
-            if name == "interest-button"
-                && !input
-                    .selector_states
-                    .get(&node.id)
-                    .is_some_and(|state| state.interest_invoker)
-            {
-                continue;
-            }
-            if name == "permission-icon"
-                && !matches!(
-                    node.tag.as_str(),
-                    "geolocation" | "usermedia" | "camera" | "microphone" | "install"
-                )
-            {
-                continue;
-            }
+        for (name, pseudo) in projected_pseudo_kinds(input, node) {
             let Some(computed) = (if name.starts_with("picker::") {
                 document.resolved_nested_pseudo_style(mirror, &PseudoElement::PickerSelect, &pseudo)
             } else {
@@ -6214,45 +6391,46 @@ fn stylo_computed_values_timed(
                 .into(),
             );
             for property in COMPUTED_PROPERTIES {
-                if let Ok(parsed) = PropertyId::parse_enabled_for_all_content(property) {
-                    if let Err(longhand) = parsed.as_shorthand() {
-                        values.insert(
-                            (*property).into(),
-                            computed.computed_value_to_string(longhand),
-                        );
-                    }
+                if let Ok(parsed) = PropertyId::parse_enabled_for_all_content(property)
+                    && let Err(longhand) = parsed.as_shorthand()
+                {
+                    values.insert(
+                        (*property).into(),
+                        computed.computed_value_to_string(longhand),
+                    );
                 }
             }
             if let style::values::generics::counters::Content::Items(items) =
                 &computed.get_counters().content
+                && let Some(scope) = items.native_scope
             {
-                if let Some(scope) = items.native_scope {
-                    let native = shadow_mirrors.iter().find_map(|(root, mirror)| {
-                        (mirror.as_u64() as usize == scope).then_some(*root)
-                    });
-                    if scope != 0 && native.is_none() {
-                        return Err(LayoutError::StyleTraversal(
-                            "unknown native computed content scope".into(),
-                        ));
-                    }
-                    values.insert(
-                        "oryn-content-tree".into(),
-                        native
-                            .map(|root| root.to_string())
-                            .unwrap_or_else(|| "document".into()),
-                    );
+                let native = shadow_mirrors.iter().find_map(|(root, mirror)| {
+                    (mirror.as_u64() as usize == scope).then_some(*root)
+                });
+                if scope != 0 && native.is_none() {
+                    return Err(LayoutError::StyleTraversal(
+                        "unknown native computed content scope".into(),
+                    ));
                 }
+                values.insert(
+                    "oryn-content-tree".into(),
+                    native
+                        .map(|root| root.to_string())
+                        .unwrap_or_else(|| "document".into()),
+                );
             }
             if matches!(name, "picker" | "interest-button") {
                 anchor_positioning::picker_cascade(
-                    &document,
-                    input,
-                    &mirror_ids,
-                    &output,
-                    name == "picker",
-                    node.id,
-                    &computed,
-                    &mut values,
+                    crate::anchor_positioning::PickerCascadeInputs {
+                        document: &document,
+                        input,
+                        mirrors: &mirror_ids,
+                        styles: &output,
+                        top_layer: name == "picker",
+                        owner: node.id,
+                        computed: &computed,
+                        values: &mut values,
+                    },
                 )?;
             }
             pseudo_styles
@@ -6286,7 +6464,7 @@ fn stylo_computed_values_timed(
             shared_styles.insert(value.clone());
         }
     }
-    if let Some(previous) = continuity.as_deref_mut() {
+    if let Some(previous) = continuity {
         let next_id = previous.next_animation_id();
         *previous = document.style_continuity(&mirror_ids);
         previous.assign_animation_ids(next_id);
@@ -6368,6 +6546,22 @@ fn apply_ancestor_clipping(
                 visible = false;
                 break;
             };
+            let style = styles.get(&parent_id);
+            // Inline ancestors split around block descendants can have no
+            // principal box. Their absence is not a clip: continue through
+            // them so a real outer scroll/clip container still participates.
+            let boxless_inline = style.is_some_and(|style| {
+                matches!(
+                    style_value(style, "display", "block"),
+                    "inline" | "contents"
+                ) && style_value(style, "content-visibility", "visible") != "hidden"
+            }) && geometry.get(&parent_id).is_none_or(|value| {
+                value.availability == GeometryAvailability::Available && value.box_model.is_none()
+            });
+            if boxless_inline {
+                ancestor = parent_node.parent;
+                continue;
+            }
             let Some(parent_geometry) = geometry.get(&parent_id) else {
                 visible = false;
                 break;
@@ -6380,7 +6574,6 @@ fn apply_ancestor_clipping(
                 visible = false;
                 break;
             };
-            let style = styles.get(&parent_id);
             let (clip_x, clip_y) = style.map_or((false, false), |style| overflow_clip_axes(style));
             if clip_x || clip_y {
                 let clip = parent_box.padding_box;
@@ -7242,24 +7435,23 @@ fn layout_node(
                 .max(0.),
             );
         }
-        if style_value(style, "height", "auto") == "auto" {
-            if let Some((top, bottom)) = resolve_inset("top", height_basis.unwrap_or(0.))
+        if style_value(style, "height", "auto") == "auto"
+            && let Some((top, bottom)) = resolve_inset("top", height_basis.unwrap_or(0.))
                 .zip(resolve_inset("bottom", height_basis.unwrap_or(0.)))
-            {
-                specified_height = height_basis.map(|height| {
-                    (height
-                        - top
-                        - bottom
-                        - margin.top
-                        - margin.bottom
-                        - if border_box_sizing {
-                            0.
-                        } else {
-                            padding.top + padding.bottom + border.top + border.bottom
-                        })
-                    .max(0.)
-                });
-            }
+        {
+            specified_height = height_basis.map(|height| {
+                (height
+                    - top
+                    - bottom
+                    - margin.top
+                    - margin.bottom
+                    - if border_box_sizing {
+                        0.
+                    } else {
+                        padding.top + padding.bottom + border.top + border.bottom
+                    })
+                .max(0.)
+            });
         }
     }
     let descendant_source = (node.text.is_empty()
@@ -7395,28 +7587,27 @@ fn layout_node(
         .is_some()
         && width_value == "auto"
         && specified_height.is_none()
+        && let Some(ratio) = preferred_ratio(node, style)
     {
-        if let Some(ratio) = preferred_ratio(node, style) {
-            let vertical = padding.top + padding.bottom + border.top + border.bottom;
-            let tentative_height = ratio.content_height(content_width, horizontal_edges, vertical);
-            let constrained_height = clamp_content_height(
-                style,
-                tentative_height,
-                height_basis,
-                font_size,
-                input.viewport,
-                vertical,
-            );
-            // Transfer the height constraint back through the ratio, then
-            // reapply width constraints. Incompatible axis bounds necessarily
-            // break the ratio; final height clamping below honors those bounds.
-            content_width = ratio.content_width(constrained_height, horizontal_edges, vertical);
-            if let Some(maximum) = bound("max-width", "none") {
-                content_width = content_width.min(maximum);
-            }
-            if let Some(minimum) = bound("min-width", "auto") {
-                content_width = content_width.max(minimum);
-            }
+        let vertical = padding.top + padding.bottom + border.top + border.bottom;
+        let tentative_height = ratio.content_height(content_width, horizontal_edges, vertical);
+        let constrained_height = clamp_content_height(
+            style,
+            tentative_height,
+            height_basis,
+            font_size,
+            input.viewport,
+            vertical,
+        );
+        // Transfer the height constraint back through the ratio, then
+        // reapply width constraints. Incompatible axis bounds necessarily
+        // break the ratio; final height clamping below honors those bounds.
+        content_width = ratio.content_width(constrained_height, horizontal_edges, vertical);
+        if let Some(maximum) = bound("max-width", "none") {
+            content_width = content_width.min(maximum);
+        }
+        if let Some(minimum) = bound("min-width", "auto") {
+            content_width = content_width.max(minimum);
         }
     }
     if let Some(size) = allocated {
@@ -7530,19 +7721,21 @@ fn layout_node(
             text_engine.absorbed_margins.remove(child);
             text_engine.absorbed_vertical_margins.remove(child);
         }
-        if let Some((child, strut)) = margin_collapse::child_edge(
-            id,
-            false,
-            content_width,
-            by_id,
-            styles,
-            input.viewport,
-            margin_collapse::clear_obstacles(
-                text_engine.float_context.as_ref(),
-                text_engine.float_block_offset,
-            ),
-            margin.top,
-        ) {
+        if let Some((child, strut)) =
+            margin_collapse::child_edge(crate::margin_collapse::ChildMarginEdgeInputs {
+                id,
+                bottom: false,
+                width: content_width,
+                nodes: by_id,
+                styles,
+                viewport: input.viewport,
+                clear_obstacles: margin_collapse::clear_obstacles(
+                    text_engine.float_context.as_ref(),
+                    text_engine.float_block_offset,
+                ),
+                own_margin: margin.top,
+            })
+        {
             margin.top = strut.append(margin.top).value();
             text_engine.absorbed_margins.entry(child).or_insert([0.; 2])[0] = strut.value();
         }
@@ -7564,21 +7757,23 @@ fn layout_node(
                 .unwrap_or(input.viewport.height);
             for after in [false] {
                 if let Some((child, strut)) = margin_collapse::vertical_child_edge(
-                    id,
-                    after,
-                    axes.x_reverse,
-                    inline,
-                    by_id,
-                    styles,
-                    input.viewport,
-                    margin_collapse::clear_obstacles(
-                        text_engine.float_context.as_ref(),
-                        text_engine.float_block_offset,
-                    ),
-                    if after == axes.x_reverse {
-                        margin.left
-                    } else {
-                        margin.right
+                    crate::margin_collapse::VerticalChildMarginInputs {
+                        id,
+                        after,
+                        reverse: axes.x_reverse,
+                        basis: inline,
+                        nodes: by_id,
+                        styles,
+                        viewport: input.viewport,
+                        clear_obstacles: margin_collapse::clear_obstacles(
+                            text_engine.float_context.as_ref(),
+                            text_engine.float_block_offset,
+                        ),
+                        own_margin: if after == axes.x_reverse {
+                            margin.left
+                        } else {
+                            margin.right
+                        },
                     },
                 ) {
                     let left = after == axes.x_reverse;
@@ -7817,24 +8012,25 @@ fn layout_node(
                 text_engine.column_context = Some((id, inline_size));
                 text_engine.column_float_section_index.insert(id, 0);
             }
-            let (context, layout, has_blocks) = inline_formatting::layout_flow(
-                flow,
-                style,
-                text_inline,
-                inline_size,
-                content_width,
-                specified_height,
-                font_size,
-                by_id,
-                styles,
-                input,
-                geometry,
-                offset_dimensions,
-                resolved_values,
-                text_fragments,
-                diagnostics,
-                text_engine,
-            );
+            let (context, layout, has_blocks) =
+                inline_formatting::layout_flow(crate::inline_formatting::InlineFlowInputs {
+                    flow,
+                    style,
+                    inline: text_inline,
+                    full_inline: inline_size,
+                    block_available: content_width,
+                    block_limit: specified_height,
+                    font_size,
+                    nodes: by_id,
+                    styles,
+                    input,
+                    geometry,
+                    offsets: offset_dimensions,
+                    resolved: resolved_values,
+                    paint: text_fragments,
+                    diagnostics,
+                    engine: text_engine,
+                });
             text_engine.column_context = previous_columns;
             inline_context = Some(context);
             prepared_inline = Some(layout);
@@ -8000,41 +8196,45 @@ fn layout_node(
         );
     }
     if axes.vertical {
-        if allocated.is_none() && !out_of_flow && inline_context.is_some() {
-            if let Some((child, value)) = margin_collapse::used_child_vertical_end(
-                id,
-                axes.x_reverse,
-                inline_size,
-                by_id,
-                styles,
-                input.viewport,
-                geometry,
-                &text_engine.clearance_nodes,
-            ) {
-                text_layout.height = (text_layout.height - value).max(0.);
-                for item in &mut text_layout.inline_boxes {
-                    if item.node == child {
-                        item.rect.height = (item.rect.height - value).max(0.);
-                    }
+        if allocated.is_none()
+            && !out_of_flow
+            && inline_context.is_some()
+            && let Some((child, value)) = margin_collapse::used_child_vertical_end(
+                crate::margin_collapse::VerticalChildEndInputs {
+                    id,
+                    reverse: axes.x_reverse,
+                    basis: inline_size,
+                    nodes: by_id,
+                    styles,
+                    viewport: input.viewport,
+                    geometry,
+                    clearance: &text_engine.clearance_nodes,
+                },
+            )
+        {
+            text_layout.height = (text_layout.height - value).max(0.);
+            for item in &mut text_layout.inline_boxes {
+                if item.node == child {
+                    item.rect.height = (item.rect.height - value).max(0.);
                 }
-                if axes.x_reverse {
-                    let previous = margin.left;
-                    margin.left = inline_formatting::MarginStrut::default()
-                        .append(previous)
-                        .append(value)
-                        .value();
-                    x += margin.left - previous;
-                } else {
-                    margin.right = inline_formatting::MarginStrut::default()
-                        .append(margin.right)
-                        .append(value)
-                        .value();
-                }
-                text_engine
-                    .absorbed_vertical_margins
-                    .entry(child)
-                    .or_insert([0.; 2])[if axes.x_reverse { 0 } else { 1 }] = value;
             }
+            if axes.x_reverse {
+                let previous = margin.left;
+                margin.left = inline_formatting::MarginStrut::default()
+                    .append(previous)
+                    .append(value)
+                    .value();
+                x += margin.left - previous;
+            } else {
+                margin.right = inline_formatting::MarginStrut::default()
+                    .append(margin.right)
+                    .append(value)
+                    .value();
+            }
+            text_engine
+                .absorbed_vertical_margins
+                .entry(child)
+                .or_insert([0.; 2])[if axes.x_reverse { 0 } else { 1 }] = value;
         }
         if width_value == "auto"
             && allocated.is_none()
@@ -8252,16 +8452,16 @@ fn layout_node(
     ) || has_float_or_clear
     {
         let container_height = definite_content_height;
-        let Some(placements) = taffy_child_placements(
+        let Some(placements) = taffy_child_placements(ChildPlacementInputs {
             node,
-            style,
+            parent_style: style,
             styles,
-            content_width,
-            container_height,
-            input.viewport,
-            by_id,
+            width: content_width,
+            height: container_height,
+            viewport: input.viewport,
+            nodes: by_id,
             text_engine,
-        ) else {
+        }) else {
             let diagnostic = "layout computation failed for this flex/grid/float subtree; geometry is unavailable";
             diagnostics.push(format!("node {id}: {diagnostic}"));
             mark_unsupported_subtree(id, diagnostic, by_id, geometry);
@@ -8507,21 +8707,21 @@ fn layout_node(
                     input.scroll.y
                 },
         );
-        match columns::fragment_flow(
+        match columns::fragment_flow(crate::columns::ColumnFragmentFlow {
             columns,
-            id,
+            root: id,
             origin,
-            (input.scroll.x, input.scroll.y),
-            content_width,
-            style_value(style, "writing-mode", "horizontal-tb"),
-            by_id,
+            scroll: (input.scroll.x, input.scroll.y),
+            block_extent: content_width,
+            mode: style_value(style, "writing-mode", "horizontal-tb"),
+            nodes: by_id,
             styles,
             geometry,
-            offset_dimensions,
-            text_fragments,
-            &mut text_layout,
-            text_engine,
-        ) {
+            offsets: offset_dimensions,
+            text: text_fragments,
+            layout: &mut text_layout,
+            engine: text_engine,
+        }) {
             Ok(frame) => {
                 intrinsic_text_height = text_layout.height;
                 if axes.vertical
@@ -8587,13 +8787,15 @@ fn layout_node(
         content_height =
             (content_height - padding.top - padding.bottom - border.top - border.bottom).max(0.0);
     }
-    if column_float_height.is_none() && !axes.vertical && specified_height.is_none() {
-        if let Some(extent) = float_bfc_extent {
-            content_height = content_height.max(extent);
-        }
+    if column_float_height.is_none()
+        && !axes.vertical
+        && specified_height.is_none()
+        && let Some(extent) = float_bfc_extent
+    {
+        content_height = content_height.max(extent);
     }
     if specified_height.is_none()
-        && inline_context.is_some()
+        && let Some(context) = inline_context.as_ref()
         && !axes.vertical
         && (node.parent.is_none()
             || matches!(
@@ -8606,27 +8808,28 @@ fn layout_node(
                 .iter()
                 .any(|key| !matches!(style_value(style, key, "visible"), "visible" | "clip")))
     {
-        for child in &inline_context.as_ref().unwrap().atomic {
-            if style_value(&styles[child], "float", "none") != "none" {
-                if let Some(model) = geometry
+        for child in &context.atomic {
+            if style_value(&styles[child], "float", "none") != "none"
+                && let Some(model) = geometry
                     .get(child)
                     .and_then(|value| value.box_model.as_ref())
-                {
-                    content_height = content_height.max(
-                        model.border_box.bottom() + model.margin.bottom
-                            - (y + border.top + padding.top
-                                - if position == "fixed" {
-                                    0.
-                                } else {
-                                    input.scroll.y
-                                }),
-                    );
-                }
+            {
+                content_height = content_height.max(
+                    model.border_box.bottom() + model.margin.bottom
+                        - (y + border.top + padding.top
+                            - if position == "fixed" {
+                                0.
+                            } else {
+                                input.scroll.y
+                            }),
+                );
             }
         }
     }
-    if allocated.is_none() && !out_of_flow && !axes.vertical {
-        if let Some((child, value)) = margin_collapse::used_child_bottom(
+    if allocated.is_none()
+        && !out_of_flow
+        && !axes.vertical
+        && let Some((child, value)) = margin_collapse::used_child_bottom(
             id,
             content_width,
             by_id,
@@ -8634,14 +8837,14 @@ fn layout_node(
             input.viewport,
             geometry,
             &text_engine.clearance_nodes,
-        ) {
-            content_height = (content_height - value).max(0.);
-            margin.bottom = inline_formatting::MarginStrut::default()
-                .append(margin.bottom)
-                .append(value)
-                .value();
-            text_engine.absorbed_margins.entry(child).or_insert([0.; 2])[1] = value;
-        }
+        )
+    {
+        content_height = (content_height - value).max(0.);
+        margin.bottom = inline_formatting::MarginStrut::default()
+            .append(margin.bottom)
+            .append(value)
+            .value();
+        text_engine.absorbed_margins.entry(child).or_insert([0.; 2])[1] = value;
     }
     content_height = clamp_height(content_height);
     if let Some(size) = allocated {
@@ -8740,8 +8943,7 @@ fn layout_node(
             text_layout
                 .lines
                 .iter()
-                .enumerate()
-                .map(|(_, (_, width, height, top, left))| {
+                .map(|(_, width, height, top, left)| {
                     to_viewport(CssRect {
                         x: x + border.left + padding.left + left,
                         y: y + border.top + padding.top + top,
@@ -8754,46 +8956,46 @@ fn layout_node(
     if let Some(paragraph) = &inline_context {
         let text_x = rect.x + border.left + padding.left;
         let text_y = rect.y + border.top + padding.top;
-        inline_formatting::inline_geometry(
+        inline_formatting::inline_geometry(crate::inline_formatting::InlineGeometryInputs {
             paragraph,
-            &text_layout,
-            id,
-            text_x,
-            text_y,
-            by_id,
+            layout: &text_layout,
+            root: id,
+            x: text_x,
+            y: text_y,
+            nodes: by_id,
             styles,
-            input.viewport,
-            text_inline,
+            viewport: input.viewport,
+            inline_basis: text_inline,
             geometry,
-            offset_dimensions,
-        );
+            offsets: offset_dimensions,
+        });
         for (owner, fragments) in
             inline_formatting::paint_fragments(&text_layout, id, text_x, text_y, styles)
         {
             text_fragments.entry(owner).or_default().extend(fragments);
         }
         for child in &paragraph.inline_nodes {
-            if let Some(style) = styles.get(child) {
-                if style_value(style, "position", "static") == "relative" {
-                    let (dx, dy) = relative_position_offset(
-                        style,
-                        content_width,
-                        definite_content_height,
-                        style_value(style, "direction", "ltr") == "rtl",
-                        style_value(style, "writing-mode", "horizontal-tb"),
-                        font_size,
-                        input.viewport,
-                    );
-                    positioning::translate_subtree(
-                        *child,
-                        dx,
-                        dy,
-                        by_id,
-                        geometry,
-                        text_fragments,
-                        text_engine,
-                    );
-                }
+            if let Some(style) = styles.get(child)
+                && style_value(style, "position", "static") == "relative"
+            {
+                let (dx, dy) = relative_position_offset(
+                    style,
+                    content_width,
+                    definite_content_height,
+                    style_value(style, "direction", "ltr") == "rtl",
+                    style_value(style, "writing-mode", "horizontal-tb"),
+                    font_size,
+                    input.viewport,
+                );
+                positioning::translate_subtree(
+                    *child,
+                    dx,
+                    dy,
+                    by_id,
+                    geometry,
+                    text_fragments,
+                    text_engine,
+                );
             }
         }
     } else if !intrinsic_text.is_empty() && !invisible {
@@ -8886,16 +9088,18 @@ fn descendant_text(node: &LayoutNode, by_id: &BTreeMap<u64, &LayoutNode>) -> Str
 /// Ask Taffy to place direct block/flex/grid children. Oryn retains ownership of
 /// DOM identity and recursively measures text with Parley, while Taffy owns
 /// the container algorithm and therefore the relational x/y/width result.
-fn taffy_child_placements(
-    node: &LayoutNode,
-    parent_style: &BTreeMap<String, String>,
-    styles: &ComputedStyles,
-    width: f64,
-    height: Option<f64>,
-    viewport: ViewportState,
-    nodes: &BTreeMap<u64, &LayoutNode>,
-    text_engine: &mut TextEngine,
-) -> Option<Vec<ChildPlacement>> {
+fn taffy_child_placements(params: ChildPlacementInputs<'_>) -> Option<Vec<ChildPlacement>> {
+    let ChildPlacementInputs {
+        node,
+        parent_style,
+        styles,
+        width,
+        height,
+        viewport,
+        nodes,
+        text_engine,
+    } = params;
+
     if node.children.is_empty() {
         return Some(Vec::new());
     }
@@ -9138,13 +9342,14 @@ fn taffy_child_placements(
         font_size,
         viewport,
     );
-    if axes.vertical && matches!(parent_display, "grid" | "inline-grid") {
-        if let Some(areas) = &mut grid_style.grid_template_areas {
-            std::mem::swap(&mut areas.row_count, &mut areas.column_count);
-            for area in &mut areas.areas {
-                std::mem::swap(&mut area.row_start, &mut area.column_start);
-                std::mem::swap(&mut area.row_end, &mut area.column_end);
-            }
+    if axes.vertical
+        && matches!(parent_display, "grid" | "inline-grid")
+        && let Some(areas) = &mut grid_style.grid_template_areas
+    {
+        std::mem::swap(&mut areas.row_count, &mut areas.column_count);
+        for area in &mut areas.areas {
+            std::mem::swap(&mut area.row_start, &mut area.column_start);
+            std::mem::swap(&mut area.row_end, &mut area.column_end);
         }
     }
     // CSS order changes layout participation, not DOM identity. Stable sorting
@@ -9222,6 +9427,11 @@ fn taffy_child_placements(
             &ordered_children,
         )
         .ok()?;
+    // Taffy can request the same child height repeatedly while resolving flex
+    // bases, cross sizes, and grid tracks. Keep measurements local to this
+    // immutable tree calculation: a later layout may have different styles,
+    // fonts, inline boxes, or float context even at the same width.
+    let mut measured_heights = BTreeMap::new();
     tree.compute_layout_with_measure(
         root,
         TaffySize {
@@ -9290,13 +9500,19 @@ fn taffy_child_placements(
                                 }
                             });
                     let measured_height = known.height.map(f64::from).unwrap_or_else(|| {
-                        text_engine.measure_content_height(
-                            child,
-                            (measured_width - gx).max(0.),
-                            nodes,
-                            styles,
-                            viewport,
-                        ) + gy
+                        let content_width = (measured_width - gx).max(0.);
+                        *measured_heights
+                            .entry((*id, content_width.to_bits()))
+                            .or_insert_with(|| {
+                                text_engine.measure_content_height(
+                                    child,
+                                    content_width,
+                                    nodes,
+                                    styles,
+                                    viewport,
+                                )
+                            })
+                            + gy
                     });
                     TaffySize {
                         width: measured_width as f32,
@@ -9409,10 +9625,10 @@ fn layout_gap(
         .trim()
         .strip_suffix('%')
         .and_then(|value| value.parse::<f32>().ok())
+        && percent.is_finite()
+        && percent >= 0.
     {
-        if percent.is_finite() && percent >= 0. {
-            return LengthPercentage::percent(percent / 100.);
-        }
+        return LengthPercentage::percent(percent / 100.);
     }
     LengthPercentage::length(length(value, basis, font_size, viewport).max(0.) as f32)
 }
@@ -10614,7 +10830,7 @@ mod tests {
     }
     #[test]
     fn document_language_fallback_reaches_paint_and_preserves_explicit_empty() {
-        let mut root = node(1, None, "html", "");
+        let root = node(1, None, "html", "");
         let mut middle = node(2, Some(1), "span", "");
         middle.attributes.insert("lang".into(), "de".into());
         middle.namespaced_attributes.push(LayoutAttribute {
@@ -13363,7 +13579,7 @@ mod tests {
             LayoutContent::Element(2),
             LayoutContent::Text {
                 node_id: 10,
-                text: vec!["A"; 10].join("\n"),
+                text: ["A"; 10].join("\n"),
             },
         ]);
         let mut input = column_fixture(
@@ -13417,7 +13633,7 @@ mod tests {
             LayoutContent::Element(2),
             LayoutContent::Text {
                 node_id: 10,
-                text: vec!["A"; 10].join("\n"),
+                text: ["A"; 10].join("\n"),
             },
         ]);
         let mut input = column_fixture(
@@ -16532,6 +16748,39 @@ mod tests {
         assert!(!owner.scroll_x && !owner.scroll_y);
     }
     #[test]
+    fn boxless_inline_ancestor_preserves_descendant_hits_and_outer_clipping() {
+        let mut wrapper = node(2, Some(1), "shop-container", "");
+        wrapper.children = vec![3];
+        wrapper.content = Some(vec![LayoutContent::Element(3)]);
+        let mut block = node(3, Some(2), "section", "");
+        block.children = vec![4];
+        block.content = Some(vec![LayoutContent::Element(4)]);
+        let button = node(4, Some(3), "button", "Price");
+        let mut input = column_fixture(
+            "div{width:100px;height:100px;overflow:hidden}section{display:block}button{width:40px;height:20px}",
+            vec![wrapper, block, button],
+        );
+        input.nodes[0].children = vec![2];
+        input.nodes[0].content = Some(vec![LayoutContent::Element(2)]);
+        let output = compute(&input, &LayoutLimits::default()).unwrap();
+        assert!(!output.geometry.contains_key(&2));
+        assert!(output.geometry[&4].in_viewport);
+        assert!(output.geometry[&4].interactable);
+        input.nodes[2]
+            .attributes
+            .insert("style".into(), "margin-left:150px".into());
+        let clipped = compute(&input, &LayoutLimits::default()).unwrap();
+        assert!(!clipped.geometry[&4].in_viewport);
+        assert!(!clipped.geometry[&4].interactable);
+        input.nodes[2].attributes.remove("style");
+        input.nodes[1]
+            .attributes
+            .insert("style".into(), "display:none".into());
+        let hidden = compute(&input, &LayoutLimits::default()).unwrap();
+        assert!(!hidden.geometry[&4].interactable);
+    }
+
+    #[test]
     fn overflow_ancestors_clip_interactability_on_both_axes() {
         let mut root = node(1, None, "div", "");
         root.attributes.insert(
@@ -18083,16 +18332,16 @@ mod tests {
             let mut styles = BTreeMap::from([(1, Arc::new(parent.clone()))]);
             styles.extend((2..=6).map(|id| (id, Arc::new(BTreeMap::new()))));
             let mut engine = TextEngine::new(&[]);
-            let placements = taffy_child_placements(
-                &all_nodes[0],
-                &parent,
-                &styles,
-                400.,
-                None,
-                ViewportState::default(),
-                &nodes,
-                &mut engine,
-            )
+            let placements = taffy_child_placements(ChildPlacementInputs {
+                node: &all_nodes[0],
+                parent_style: &parent,
+                styles: &styles,
+                width: 400.,
+                height: None,
+                viewport: ViewportState::default(),
+                nodes: &nodes,
+                text_engine: &mut engine,
+            })
             .unwrap();
             for (index, (x, width)) in expected.iter().enumerate() {
                 assert!(
@@ -18180,16 +18429,16 @@ mod tests {
             let styles =
                 BTreeMap::from([(1, Arc::new(parent.clone())), (2, Arc::new(child_style))]);
             let mut engine = TextEngine::new(&[]);
-            let placements = taffy_child_placements(
-                &root,
-                &parent,
-                &styles,
-                180.,
-                None,
-                ViewportState::default(),
-                &nodes,
-                &mut engine,
-            )
+            let placements = taffy_child_placements(ChildPlacementInputs {
+                node: &root,
+                parent_style: &parent,
+                styles: &styles,
+                width: 180.,
+                height: None,
+                viewport: ViewportState::default(),
+                nodes: &nodes,
+                text_engine: &mut engine,
+            })
             .unwrap();
             let rect = &placements[0];
             assert!((rect.x - 40.).abs() < 0.02, "{start}");
@@ -18226,16 +18475,16 @@ mod tests {
             let styles =
                 BTreeMap::from([(1, Arc::new(parent.clone())), (2, Arc::new(child_style))]);
             let mut engine = TextEngine::new(&[]);
-            let placements = taffy_child_placements(
-                &root,
-                &parent,
-                &styles,
-                180.,
-                None,
-                ViewportState::default(),
-                &nodes,
-                &mut engine,
-            )
+            let placements = taffy_child_placements(ChildPlacementInputs {
+                node: &root,
+                parent_style: &parent,
+                styles: &styles,
+                width: 180.,
+                height: None,
+                viewport: ViewportState::default(),
+                nodes: &nodes,
+                text_engine: &mut engine,
+            })
             .unwrap();
             assert!((placements[0].x - x).abs() < 0.02, "{start} / {end}");
             assert!(
@@ -18704,16 +18953,16 @@ mod tests {
                 let mut styles = BTreeMap::from([(1, Arc::new(parent.clone()))]);
                 styles.extend((2..=5).map(|id| (id, child_style.clone())));
                 let mut engine = TextEngine::new(&[]);
-                let placements = taffy_child_placements(
-                    &root,
-                    &parent,
-                    &styles,
-                    200.,
-                    Some(100.),
-                    ViewportState::default(),
-                    &nodes,
-                    &mut engine,
-                )
+                let placements = taffy_child_placements(ChildPlacementInputs {
+                    node: &root,
+                    parent_style: &parent,
+                    styles: &styles,
+                    width: 200.,
+                    height: Some(100.),
+                    viewport: ViewportState::default(),
+                    nodes: &nodes,
+                    text_engine: &mut engine,
+                })
                 .unwrap();
                 for (placement, (x, y)) in
                     placements
@@ -18756,16 +19005,16 @@ mod tests {
                     let styles =
                         BTreeMap::from([(1, Arc::new(parent.clone())), (2, Arc::new(child_style))]);
                     let mut engine = TextEngine::new(&[]);
-                    let placements = taffy_child_placements(
-                        &root,
-                        &parent,
-                        &styles,
-                        60.,
-                        None,
-                        ViewportState::default(),
-                        &nodes,
-                        &mut engine,
-                    )
+                    let placements = taffy_child_placements(ChildPlacementInputs {
+                        node: &root,
+                        parent_style: &parent,
+                        styles: &styles,
+                        width: 60.,
+                        height: None,
+                        viewport: ViewportState::default(),
+                        nodes: &nodes,
+                        text_engine: &mut engine,
+                    })
                     .unwrap();
                     let actual = placements[0].width;
                     if minimum == "90px" {
@@ -18815,16 +19064,16 @@ mod tests {
                 let styles =
                     BTreeMap::from([(1, Arc::new(parent.clone())), (2, Arc::new(child_style))]);
                 let mut engine = TextEngine::new(&[]);
-                let placements = taffy_child_placements(
-                    &root,
-                    &parent,
-                    &styles,
-                    400.,
-                    Some(400.),
-                    ViewportState::default(),
-                    &nodes,
-                    &mut engine,
-                )
+                let placements = taffy_child_placements(ChildPlacementInputs {
+                    node: &root,
+                    parent_style: &parent,
+                    styles: &styles,
+                    width: 400.,
+                    height: Some(400.),
+                    viewport: ViewportState::default(),
+                    nodes: &nodes,
+                    text_engine: &mut engine,
+                })
                 .unwrap();
                 let actual = if column {
                     placements[0].height
@@ -18874,16 +19123,16 @@ mod tests {
             let styles =
                 BTreeMap::from([(1, Arc::new(parent.clone())), (2, Arc::new(child_style))]);
             let mut engine = TextEngine::new(&[]);
-            let placements = taffy_child_placements(
-                &root,
-                &parent,
-                &styles,
-                200.,
-                Some(400.),
-                ViewportState::default(),
-                &nodes,
-                &mut engine,
-            )
+            let placements = taffy_child_placements(ChildPlacementInputs {
+                node: &root,
+                parent_style: &parent,
+                styles: &styles,
+                width: 200.,
+                height: Some(400.),
+                viewport: ViewportState::default(),
+                nodes: &nodes,
+                text_engine: &mut engine,
+            })
             .unwrap();
             assert!(
                 (placements[0].height - 32.).abs() < 0.02,
@@ -18955,16 +19204,16 @@ mod tests {
                 let styles =
                     BTreeMap::from([(1, Arc::new(parent.clone())), (2, Arc::new(child_style))]);
                 let mut engine = TextEngine::new(&[]);
-                let placements = taffy_child_placements(
-                    &root,
-                    &parent,
-                    &styles,
-                    400.,
-                    Some(200.),
-                    ViewportState::default(),
-                    &nodes,
-                    &mut engine,
-                )
+                let placements = taffy_child_placements(ChildPlacementInputs {
+                    node: &root,
+                    parent_style: &parent,
+                    styles: &styles,
+                    width: 400.,
+                    height: Some(200.),
+                    viewport: ViewportState::default(),
+                    nodes: &nodes,
+                    text_engine: &mut engine,
+                })
                 .unwrap();
                 assert!(
                     (placements[0].width - expected_width).abs() < 0.02,
@@ -19005,16 +19254,16 @@ mod tests {
             let styles =
                 BTreeMap::from([(1, Arc::new(parent.clone())), (2, Arc::new(child_style))]);
             let mut engine = TextEngine::new(&[]);
-            let placements = taffy_child_placements(
-                &root,
-                &parent,
-                &styles,
-                400.,
-                None,
-                ViewportState::default(),
-                &nodes,
-                &mut engine,
-            )
+            let placements = taffy_child_placements(ChildPlacementInputs {
+                node: &root,
+                parent_style: &parent,
+                styles: &styles,
+                width: 400.,
+                height: None,
+                viewport: ViewportState::default(),
+                nodes: &nodes,
+                text_engine: &mut engine,
+            })
             .unwrap();
             assert!(
                 (placements[0].width - expected).abs() < 0.02,
@@ -19046,16 +19295,16 @@ mod tests {
                 let styles =
                     BTreeMap::from([(1, Arc::new(parent.clone())), (2, Arc::new(child_style))]);
                 let mut engine = TextEngine::new(&[]);
-                let placements = taffy_child_placements(
-                    &root,
-                    &parent,
-                    &styles,
-                    400.,
-                    Some(200.),
-                    ViewportState::default(),
-                    &nodes,
-                    &mut engine,
-                )
+                let placements = taffy_child_placements(ChildPlacementInputs {
+                    node: &root,
+                    parent_style: &parent,
+                    styles: &styles,
+                    width: 400.,
+                    height: Some(200.),
+                    viewport: ViewportState::default(),
+                    nodes: &nodes,
+                    text_engine: &mut engine,
+                })
                 .unwrap();
                 let actual = if column {
                     placements[0].height
@@ -19112,16 +19361,16 @@ mod tests {
                 let styles =
                     BTreeMap::from([(1, Arc::new(parent.clone())), (2, Arc::new(child_style))]);
                 let mut engine = TextEngine::new(&[]);
-                let placements = taffy_child_placements(
-                    &root,
-                    &parent,
-                    &styles,
-                    100.,
-                    Some(200.),
-                    ViewportState::default(),
-                    &nodes,
-                    &mut engine,
-                )
+                let placements = taffy_child_placements(ChildPlacementInputs {
+                    node: &root,
+                    parent_style: &parent,
+                    styles: &styles,
+                    width: 100.,
+                    height: Some(200.),
+                    viewport: ViewportState::default(),
+                    nodes: &nodes,
+                    text_engine: &mut engine,
+                })
                 .unwrap();
                 assert!(
                     (placements[0].height - expected).abs() < 0.02,
@@ -19148,16 +19397,16 @@ mod tests {
         ]);
         let styles = BTreeMap::from([(1, Arc::new(parent.clone())), (2, Arc::new(child_style))]);
         let mut engine = TextEngine::new(&[]);
-        let placements = taffy_child_placements(
-            &root,
-            &parent,
-            &styles,
-            100.,
-            None,
-            ViewportState::default(),
-            &nodes,
-            &mut engine,
-        )
+        let placements = taffy_child_placements(ChildPlacementInputs {
+            node: &root,
+            parent_style: &parent,
+            styles: &styles,
+            width: 100.,
+            height: None,
+            viewport: ViewportState::default(),
+            nodes: &nodes,
+            text_engine: &mut engine,
+        })
         .unwrap();
         assert!((placements[0].height - 12.).abs() < 0.02);
     }
@@ -19176,16 +19425,16 @@ mod tests {
             (3, Arc::new(BTreeMap::new())),
         ]);
         let mut engine = TextEngine::new(&[]);
-        let placements = taffy_child_placements(
-            &root,
-            &parent,
-            &styles,
-            400.,
-            None,
-            ViewportState::default(),
-            &nodes,
-            &mut engine,
-        )
+        let placements = taffy_child_placements(ChildPlacementInputs {
+            node: &root,
+            parent_style: &parent,
+            styles: &styles,
+            width: 400.,
+            height: None,
+            viewport: ViewportState::default(),
+            nodes: &nodes,
+            text_engine: &mut engine,
+        })
         .unwrap();
         assert!(placements[0].width > 0.);
         assert!(placements[1].width > placements[0].width);
@@ -19224,18 +19473,66 @@ mod tests {
             )
             .height;
         assert!(expected > 20.);
-        let placements = taffy_child_placements(
-            &root,
-            &parent,
-            &styles,
-            100.,
-            None,
-            ViewportState::default(),
-            &nodes,
-            &mut engine,
-        )
+        let placements = taffy_child_placements(ChildPlacementInputs {
+            node: &root,
+            parent_style: &parent,
+            styles: &styles,
+            width: 100.,
+            height: None,
+            viewport: ViewportState::default(),
+            nodes: &nodes,
+            text_engine: &mut engine,
+        })
         .unwrap();
         assert!((placements[1].y - expected).abs() < 0.02);
+    }
+
+    #[test]
+    fn nested_flex_measurement_reflows_after_width_and_style_changes() {
+        let mut tree = (1..=8)
+            .map(|id| {
+                let mut value = node(id, (id > 1).then_some(id - 1), "div", "");
+                value.children = vec![id + 1];
+                value
+            })
+            .collect::<Vec<_>>();
+        tree.push(node(9, Some(8), "div", "one two three four five six seven"));
+        let nodes = tree.iter().map(|node| (node.id, node)).collect();
+        let parent = BTreeMap::from([
+            ("display".into(), "flex".into()),
+            ("flex-direction".into(), "column".into()),
+        ]);
+        let mut styles = (1..=8)
+            .map(|id| (id, Arc::new(parent.clone())))
+            .collect::<ComputedStyles>();
+        let viewport = ViewportState::default();
+        let mut engine = TextEngine::new(&[]);
+        let mut heights = Vec::new();
+        for (width, line_height) in [(200., "20px"), (50., "20px"), (50., "40px")] {
+            let text_style = BTreeMap::from([("line-height".into(), line_height.into())]);
+            let expected = engine
+                .shape_styled(&tree[8].text, width, 16., &text_style, viewport)
+                .height;
+            styles.insert(9, Arc::new(text_style));
+            let placement = taffy_child_placements(ChildPlacementInputs {
+                node: &tree[0],
+                parent_style: &parent,
+                styles: &styles,
+                width,
+                height: None,
+                viewport,
+                nodes: &nodes,
+                text_engine: &mut engine,
+            })
+            .unwrap()[0];
+            assert!(
+                (placement.height - expected).abs() < 0.02,
+                "width={width}, line-height={line_height}: {placement:?}, expected {expected}"
+            );
+            heights.push(placement.height);
+        }
+        assert!(heights[1] > heights[0]);
+        assert!((heights[2] - 2. * heights[1]).abs() < 0.02);
     }
 
     #[test]
@@ -20939,6 +21236,25 @@ mod tests {
     }
 
     #[test]
+    fn print_frame_capture_returns_unscrolled_native_source_context() {
+        let mut input = column_fixture("p{height:20px}", vec![node(2, Some(1), "p", "frame")]);
+        input.scroll.x = 7.;
+        input.scroll.y = 17.;
+        input.element_scrolls.insert(2, (3., 5.));
+        input.scrollbar_width = 15.;
+        let original = input.clone();
+        let (layout, captured) =
+            compute_print_viewport_with_capture_input(&input, &LayoutLimits::default()).unwrap();
+        assert!(layout.geometry.contains_key(&2));
+        assert_eq!(input, original);
+        assert_eq!(captured.nodes, original.nodes);
+        assert_eq!(captured.viewport, original.viewport);
+        assert_eq!(captured.scroll, ScrollState::default());
+        assert!(captured.element_scrolls.is_empty());
+        assert_eq!(captured.scrollbar_width, 0.);
+    }
+
+    #[test]
     fn object_image_replacement_hides_fallback_in_screen_and_print_and_restores_on_failure() {
         let mut object = node(2, Some(1), "object", "");
         object.children = vec![3];
@@ -21059,7 +21375,7 @@ mod tests {
         );
         assert!(
             preferred_ratio(
-                &input.nodes.iter().find(|node| node.id == 2).unwrap(),
+                input.nodes.iter().find(|node| node.id == 2).unwrap(),
                 &BTreeMap::new()
             )
             .is_none()
@@ -21073,6 +21389,45 @@ mod tests {
         let fallback = compute(&input, &LayoutLimits::default()).unwrap();
         assert!(fallback.geometry[&3].box_model.is_some());
     }
+    #[test]
+    fn static_layout_reuse_preserves_input_limits_and_animation_changes() {
+        let mut input = column_fixture(
+            "div>div{width:30px;height:10px}",
+            vec![node(2, Some(1), "div", "")],
+        );
+        let limits = LayoutLimits::default();
+        let mut engine = StyleEngine::default();
+        let first = engine.compute_at(&input, &limits, 0.).unwrap();
+        assert!(engine.static_layout.is_some());
+        let repeated = engine.compute_at(&input, &limits, 5.).unwrap();
+        assert_eq!(first, repeated);
+        assert_eq!(engine.instance_style_sample().unwrap().now, 5.);
+        input.nodes[1]
+            .attributes
+            .insert("style".into(), "width:70px".into());
+        let changed = engine.compute_at(&input, &limits, 6.).unwrap();
+        assert_eq!(changed.computed_styles[&2]["width"], "70px");
+        assert!(
+            engine
+                .compute_at(
+                    &input,
+                    &LayoutLimits {
+                        max_nodes: 1,
+                        ..limits.clone()
+                    },
+                    6.
+                )
+                .is_err()
+        );
+        input.nodes[1].attributes.remove("style");
+        input.stylesheets = vec!["@keyframes grow{from{width:10px}to{width:110px}}div>div{animation:grow 10s linear both;height:10px}".into()];
+        engine.compute_at(&input, &limits, 10.).unwrap();
+        assert!(engine.static_layout.is_none());
+        let animated = engine.compute_at(&input, &limits, 15.).unwrap();
+        assert_eq!(animated.computed_styles[&2]["width"], "60px");
+        assert!(engine.static_layout.is_none());
+    }
+
     #[test]
     fn zero_duration_infinite_css_animation_has_finite_terminal_snapshot() {
         // column_fixture also has a div root; animate only its intended child.
@@ -21244,7 +21599,7 @@ mod tests {
             anchor_source: None,
             picker: None,
         };
-        input.top_layer.push(entry.clone());
+        input.top_layer.push(entry);
         engine.compute_at(&input, &limits, 1.).unwrap();
         let first = engine
             .css_animations(1.)

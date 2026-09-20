@@ -137,12 +137,14 @@ impl BrowserContext {
             ));
         };
         self.with_window_worker_creator_pages(
-            page,
-            &oryn_js::message_wire::WindowTarget::Root,
-            *document_generation,
-            *stream_epoch,
-            false,
-            false,
+            crate::runtime::WorkerCreatorPagesInputs {
+                page_id: page,
+                target: &oryn_js::message_wire::WindowTarget::Root,
+                generation: *document_generation,
+                epoch: *stream_epoch,
+                include_urls: false,
+                allow_prerender: false,
+            },
             |_, _, _, pages| {
                 let record = pages
                     .get_mut(&page)
@@ -254,12 +256,14 @@ impl BrowserContext {
             ));
         };
         self.with_window_worker_creator_pages(
-            page,
-            &oryn_js::message_wire::WindowTarget::Root,
-            *document_generation,
-            *stream_epoch,
-            false,
-            false,
+            crate::runtime::WorkerCreatorPagesInputs {
+                page_id: page,
+                target: &oryn_js::message_wire::WindowTarget::Root,
+                generation: *document_generation,
+                epoch: *stream_epoch,
+                include_urls: false,
+                allow_prerender: false,
+            },
             |_, _, _, pages| {
                 Ok(pages
                     .get(&page)

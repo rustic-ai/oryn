@@ -110,7 +110,7 @@ impl Report {
             (text, filename, line, column, exception)
         };
         let event =
-            create_event_object_with_interface(scope, &state, "ErrorEvent", "error", false, true)?;
+            create_event_object_with_interface(scope, state, "ErrorEvent", "error", false, true)?;
         let line = v8::Integer::new_from_unsigned(scope, line);
         let column = v8::Integer::new_from_unsigned(scope, column);
         let data = v8::Array::new_with_elements(

@@ -343,7 +343,7 @@ pub(super) fn pump(
     state: &Rc<V8BindingState>,
     id: u64,
 ) -> Result<(), V8BindingError> {
-    if !stream_graph::algorithms_available(&state) {
+    if !stream_graph::algorithms_available(state) {
         return Ok(());
     }
     stream_graph::refresh(scope, state)?;

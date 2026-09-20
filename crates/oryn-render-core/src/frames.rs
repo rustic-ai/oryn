@@ -289,6 +289,7 @@ mod tests {
                 .unwrap();
             oryn_common::v4::PaintImageResource {
                 svg_document_snapshot: false,
+                svg_instances: Vec::new(),
                 content_type: None,
                 url: "https://same.test/image".into(),
                 url_aliases: Vec::new(),

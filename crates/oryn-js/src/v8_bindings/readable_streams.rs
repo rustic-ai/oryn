@@ -116,14 +116,19 @@ pub(super) fn settle_closed(
         stream.reader_id
     };
     if let Some(reader_id) = reader_id {
-        let record = platform_object(state, reader_id)?;
-        if let PlatformObjectRecord::ReadableReader {
-            closed,
-            released: false,
-            ..
-        } = &*record
-        {
-            let resolver = stream_graph::local(scope, closed);
+        let closed = {
+            let record = platform_object(state, reader_id)?;
+            match &*record {
+                PlatformObjectRecord::ReadableReader {
+                    closed,
+                    released: false,
+                    ..
+                } => Some(closed.clone()),
+                _ => None,
+            }
+        };
+        if let Some(closed) = closed {
+            let resolver = stream_graph::local(scope, &closed);
             let undefined = v8::undefined(scope).into();
             resolver.resolve(scope, undefined);
         }
@@ -168,14 +173,19 @@ pub(super) fn error(
         stream_graph::local(scope, waiting).reject(scope, error);
     }
     if let Some(reader_id) = reader_id {
-        let record = platform_object(state, reader_id)?;
-        if let PlatformObjectRecord::ReadableReader {
-            closed,
-            released: false,
-            ..
-        } = &*record
-        {
-            let resolver = stream_graph::local(scope, closed);
+        let closed = {
+            let record = platform_object(state, reader_id)?;
+            match &*record {
+                PlatformObjectRecord::ReadableReader {
+                    closed,
+                    released: false,
+                    ..
+                } => Some(closed.clone()),
+                _ => None,
+            }
+        };
+        if let Some(closed) = closed {
+            let resolver = stream_graph::local(scope, &closed);
             resolver.reject(scope, error);
             resolver.get_promise(scope).mark_as_handled();
         }
@@ -190,14 +200,33 @@ pub(super) fn release(
     state: &V8BindingState,
     reader_id: u64,
 ) -> Result<(), V8BindingError> {
-    let error = type_error(scope, "Reader has released its stream")?;
-    let stream_id = {
-        let mut record = platform_object_mut(state, reader_id)?;
+    let (stream_id, closed) = {
+        let record = platform_object(state, reader_id)?;
         let PlatformObjectRecord::ReadableReader {
             stream_id,
             closed,
             released,
             ..
+        } = &*record
+        else {
+            return Err(V8BindingError::Allocation("ReadableStream reader"));
+        };
+        if *released {
+            return Ok(());
+        }
+        (*stream_id, closed.clone())
+    };
+    let error = type_error(scope, "Reader has released its stream")?;
+    let mut resolver = stream_graph::local(scope, &closed);
+    let replace_closed = resolver.get_promise(scope).state() != v8::PromiseState::Pending;
+    if replace_closed {
+        resolver = v8::PromiseResolver::new(scope)
+            .ok_or(V8BindingError::Allocation("released reader promise"))?;
+    }
+    {
+        let mut record = platform_object_mut(state, reader_id)?;
+        let PlatformObjectRecord::ReadableReader {
+            closed, released, ..
         } = &mut *record
         else {
             return Err(V8BindingError::Allocation("ReadableStream reader"));
@@ -206,16 +235,10 @@ pub(super) fn release(
             return Ok(());
         }
         *released = true;
-        let mut resolver = stream_graph::local(scope, &*closed);
-        if resolver.get_promise(scope).state() != v8::PromiseState::Pending {
-            resolver = v8::PromiseResolver::new(scope)
-                .ok_or(V8BindingError::Allocation("released reader promise"))?;
+        if replace_closed {
             *closed = stream_graph::Owned::new(scope, resolver);
         }
-        resolver.reject(scope, error);
-        resolver.get_promise(scope).mark_as_handled();
-        *stream_id
-    };
+    }
     let waiting = {
         let mut record = platform_object_mut(state, stream_id)?;
         let PlatformObjectRecord::ReadableStream(stream) = &mut *record else {
@@ -225,10 +248,16 @@ pub(super) fn release(
         stream.reader_id = None;
         std::mem::take(&mut stream.waiting)
     };
+    // Detach old byte-reader requests before any settlement can acquire a new
+    // reader and append requests to this stream.
+    byte_streams::release(scope, state, stream_id, error)?;
+    // Promise settlement may run queued callbacks. Publish both native reader
+    // and stream state, and release every record guard, before entering V8.
+    resolver.reject(scope, error);
+    resolver.get_promise(scope).mark_as_handled();
     for resolver in waiting {
         stream_graph::local(scope, resolver).reject(scope, error);
     }
-    byte_streams::release(scope, state, stream_id, error)?;
     Ok(())
 }
 
@@ -246,7 +275,7 @@ pub(super) fn cancel<'s>(
     callback: Option<stream_graph::Owned<v8::Function>>,
     reason: v8::Local<'s, v8::Value>,
 ) -> Result<v8::Local<'s, v8::Promise>, V8BindingError> {
-    if !stream_graph::algorithms_available(&state) {
+    if !stream_graph::algorithms_available(state) {
         let reason = dom_exception_value(scope, "AbortError")?;
         return reject(scope, reason);
     }
@@ -415,7 +444,7 @@ pub(super) fn pull(
     state: &Rc<V8BindingState>,
     id: u64,
 ) -> Result<(), V8BindingError> {
-    if !stream_graph::algorithms_available(&state) {
+    if !stream_graph::algorithms_available(state) {
         return Ok(());
     }
 
@@ -643,5 +672,117 @@ mod tests {
             try{new ReadableStream({start(){throw reason}})}catch(e){caught=e}
             if(caught!==reason)throw Error('start exception identity');return 'ok';
         })()"#);
+    }
+}
+
+#[cfg(test)]
+mod native_settlement_reentry_tests {
+    use super::*;
+    #[test]
+    fn released_byte_reader_rejection_can_reacquire_without_losing_new_read() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(
+            scope,
+            context,
+            Rc::new(RefCell::new(DomRuntime::new())),
+            RealmId(953),
+            1,
+        )
+        .unwrap();
+        let reader = super::super::test_eval::eval(scope, r#"(()=>{
+            globalThis.byteResult='pending';globalThis.byteFailure='';globalThis.reacquired=false;
+            globalThis.byteStream=new ReadableStream({type:'bytes',autoAllocateChunkSize:4,start(c){globalThis.byteController=c}});
+            const reader=byteStream.getReader();reader.read().catch(()=>{});
+            globalThis.heldRequest=byteController.byobRequest;
+            reader.closed.catch(error=>{
+                if(!(error instanceof TypeError))throw Error('old closed error');
+                globalThis.nextReader=byteStream.getReader();reacquired=true;
+                nextReader.read().then(value=>{
+                    if(value.done||value.value[0]!==11)throw Error('new reader lost byte');
+                    byteResult='ok';
+                }).catch(error=>byteFailure=String(error));
+                if(byteController.byobRequest!==heldRequest)throw Error('outstanding request identity');
+            }).catch(error=>byteFailure=String(error));
+            return reader;
+        })()"#).try_cast::<v8::Object>().unwrap();
+        let reader = stateful_id(scope, reader).unwrap();
+        release(scope, &state, reader).unwrap();
+        scope.perform_microtask_checkpoint();
+        assert!(
+            super::super::test_eval::eval(
+                scope,
+                "reacquired&&byteFailure===''&&byteResult==='pending'"
+            )
+            .is_true()
+        );
+        super::super::test_eval::eval(scope, "heldRequest.view[0]=11;heldRequest.respond(1)");
+        scope.perform_microtask_checkpoint();
+        assert!(
+            super::super::test_eval::eval(
+                scope,
+                "byteFailure===''&&byteResult==='ok'&&byteStream.locked"
+            )
+            .is_true()
+        );
+        super::super::test_eval::eval(scope, "nextReader.cancel()");
+    }
+
+    #[test]
+    fn native_close_error_and_release_settle_without_holding_record_guards() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(
+            scope,
+            context,
+            Rc::new(RefCell::new(DomRuntime::new())),
+            RealmId(949),
+            1,
+        )
+        .unwrap();
+        let value = super::super::test_eval::eval(
+            scope,
+            r#"(()=>{
+            globalThis.settled=[];globalThis.reason={native:true};
+            globalThis.streams=[new ReadableStream({start(c){globalThis.controllerZero=c}}),new ReadableStream(),new ReadableStream()];
+            globalThis.readers=streams.map(stream=>stream.getReader());
+            readers.forEach((reader,index)=>reader.closed.then(
+                ()=>{new ReadableStream().getReader().releaseLock();settled.push(index)},
+                error=>{new ReadableStream().getReader().releaseLock();
+                    if(index===1&&error!==reason)throw Error('native error identity');
+                    if(index===2&&streams[index].locked)throw Error('release was not committed');
+                    settled.push(index)}));
+            return [controllerZero,streams[1],readers[2]];
+        })()"#,
+        );
+        let values = value.try_cast::<v8::Array>().unwrap();
+        let ids = (0..3)
+            .map(|index| {
+                let value = values
+                    .get_index(scope, index)
+                    .unwrap()
+                    .try_cast::<v8::Object>()
+                    .unwrap();
+                stateful_id(scope, value).unwrap()
+            })
+            .collect::<Vec<_>>();
+        readable_close_default(scope, &state, ids[0]).unwrap();
+        let reason = super::super::test_eval::eval(scope, "reason");
+        error(scope, &state, ids[1], reason).unwrap();
+        release(scope, &state, ids[2]).unwrap();
+        scope.perform_microtask_checkpoint();
+        assert!(
+            super::super::test_eval::eval(
+                scope,
+                "settled.join(',')==='0,1,2'&&streams[2].locked===false"
+            )
+            .is_true()
+        );
     }
 }

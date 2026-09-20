@@ -121,10 +121,10 @@ fn flat_point(
             .map(|index| (*index, point.offset)));
     }
     let children = light_children(dom, point.container)?;
-    if point.offset == 0 {
-        if let Some(index) = positions.get(&point.container) {
-            return Ok(Some((*index, 0)));
-        }
+    if point.offset == 0
+        && let Some(index) = positions.get(&point.container)
+    {
+        return Ok(Some((*index, 0)));
     }
     if let Some(child) = children.get(point.offset as usize) {
         return Ok(positions.get(child).map(|index| (*index, 0)));
@@ -647,5 +647,41 @@ mod tests {
             scope,
             r#"(()=>{const s=getSelection(),a=document.getElementById('a'),b=document.getElementById('b'),t=document.getElementById('t'),check=(x,m)=>{if(!x)throw Error(m)};a.select();check(String(s)===a.value,'select focuses and exposes native value');document.getElementById('button').focus();check(String(s)===a.value,'button focus preserves control selection');b.focus();check(String(s)==='','other control selection replaces source');a.selectionStart=3;a.selectionEnd=7;check(String(s)==='','unfocused selection does not replace source');a.focus();check(String(s)==='s is','focus exposes current control endpoints');t.select();t.setSelectionRange(3,12);check(String(s)==='ine one\nL','textarea preserves whitespace');s.selectAllChildren(document.getElementById('p'));check(String(s)==='DOM','explicit DOM range replaces control source');a.select();s.empty();check(String(s)==='','explicit empty clears control selection source');a.select();check(String(s)===a.value,'select while focused restores source');a.remove();check(String(s)==='','detached control cannot leak stale selection');})()"#,
         );
+    }
+}
+
+#[cfg(test)]
+mod slot_reflection_tests {
+    use super::*;
+    #[test]
+    fn slot_reflection_reassigns_flat_content_and_preserves_dom_range_text() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(
+            scope,
+            context,
+            Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+            )),
+            RealmId(951),
+            1,
+        )
+        .unwrap();
+        assert!(super::super::test_eval::eval(scope, r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)},host=document.createElement('div'),child=document.createElement('span');
+            child.textContent='assigned';host.append(child);document.body.append(host);
+            const root=host.attachShadow({mode:'open'});root.innerHTML='<slot name=chosen><b>fallback</b></slot>';
+            const slot=root.firstChild,fallback=slot.firstChild,s=getSelection();
+            check(child.slot===''&&slot.assignedNodes().length===0,'initial assignment');
+            child.slot='chosen';check(child.getAttribute('slot')==='chosen'&&slot.assignedNodes()[0]===child,'reflected assignment');
+            s.selectAllChildren(fallback);check(String(s)===''&&s.getRangeAt(0).toString()==='fallback','hidden fallback DOM range');
+            child.slot='';check(slot.assignedNodes().length===0,'assignment removed');
+            s.selectAllChildren(fallback);check(String(s)==='fallback','fallback restored');
+            const svg=document.createElementNS('http://www.w3.org/2000/svg','g');svg.slot='chosen';
+            check(svg.getAttribute('slot')==='chosen','Element member includes SVG');return true;
+        })()"#).is_true());
     }
 }
