@@ -1,6 +1,7 @@
 """Offline runtime custody tests; no real Python staging, pip or network runs."""
 import copy
 import json
+import importlib.machinery
 import os
 from pathlib import Path
 import shutil
@@ -343,6 +344,62 @@ class Environments(unittest.TestCase):
             self.assertEqual(e._dylib_loads(dylib_command(own, kind)), [own])
 
 
+    def add_host_startup_hook(self):
+        path = self.stdlib / 'sitecustomize.py'
+        self.write(path, b"raise RuntimeError('external pth must never execute')\n")
+        self.enterContext(patch.object(e, 'HOMEBREW_SITE', _file(path)))
+        return path
+
+    def test_exact_host_hook_omitted_before_discovery_and_runner_hook_remains_available(self):
+        original = self.add_host_startup_hook()
+        original_bytes = original.read_bytes()
+        self.write(self.stdlib / 'site.py', b'# unchanged standard site processing\n')
+        self.prepare()
+        staged = self.store / 'environments/python/lib/python3.14'
+        self.assertEqual(self.identity['stdlib_omissions'], [e._site_omission()])
+        self.assertEqual(original.read_bytes(), original_bytes)
+        self.assertEqual((staged / 'site.py').read_bytes(), (self.stdlib / 'site.py').read_bytes())
+        self.assertIsNone(importlib.machinery.PathFinder.find_spec('sitecustomize', [str(staged)]))
+        # Normal site startup in -c, -m and multiprocessing children performs
+        # this same lookup; no post-execution sys.path filtering is involved.
+        bootstrap = self.root / 'runner/bootstrap'
+        self.write(bootstrap / 'sitecustomize.py', b'# separately pinned WPT hook\n')
+        selected = importlib.machinery.PathFinder.find_spec('sitecustomize', [str(bootstrap), str(staged)])
+        self.assertEqual(selected.origin, str(bootstrap / 'sitecustomize.py'))
+        self.assertTrue(e.verify_environment(self.identity, self.store)['valid'])
+
+    def test_unknown_host_hook_and_source_mutation_rejected(self):
+        source = self.add_host_startup_hook()
+        source.write_bytes(b'unreviewed startup code')
+        with self.assertRaisesRegex(ValueError, 'unreviewed stdlib sitecustomize'):
+            self.prepare()
+        self.launch.assert_not_called()
+
+    def test_hook_change_during_probe_and_reintroduction_rejected(self):
+        source = self.add_host_startup_hook()
+        def drift(*args, **kwargs):
+            result = self.probe(*args, **kwargs)
+            source.write_bytes(b'changed original hook')
+            return result
+        self.launch.side_effect = drift
+        with self.assertRaisesRegex(ValueError, 'unreviewed stdlib sitecustomize'):
+            self.prepare()
+        self.assertFalse((self.store / 'identities/python.json').exists())
+
+    def test_staged_hook_and_omission_claim_tampering_rejected(self):
+        self.add_host_startup_hook()
+        self.prepare()
+        identity = copy.deepcopy(self.identity)
+        identity['stdlib_omissions'][0]['source']['sha256'] = '0' * 64
+        with self.assertRaisesRegex(ValueError, 'normalization differs'):
+            e.verify_environment(identity, self.store)
+        staged = self.store / 'environments/python/lib/python3.14'
+        staged.chmod(0o755)
+        self.write(staged / 'sitecustomize.py', b'external code')
+        self.refresh_membership()
+        with self.assertRaisesRegex(ValueError, 'cannot enter staged runtime'):
+            e.verify_environment(self.identity, self.store)
+
 
 class SourceDependencyLock(unittest.TestCase):
     """Exercise real committed lock data, not only mocked fixture metadata."""
@@ -384,6 +441,7 @@ class SourceDependencyLock(unittest.TestCase):
             os.environ['ORYN_VALIDATION_SYSTEM_PYTHON'], os.environ['ORYN_VALIDATION_STDLIB'])
         self.assertEqual(result['dependency_files'], 1607)
         self.assertEqual({r['path'] for r in result['stdlib_materializations']}, set(e.STDLIB_LINKS))
+        self.assertEqual(result['stdlib_omissions'], [e._site_omission()])
         self.assertFalse(result['runtime_executed'])
         self.assertFalse(result['qualified'])
 

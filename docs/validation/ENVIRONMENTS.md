@@ -28,6 +28,24 @@ identities are recorded in `stdlib_materializations`, rechecked after copying,
 and joined to the final regular files. No runtime library is omitted and no
 symlink is retained in the staged tree.
 
+Homebrew's host-only `sitecustomize.py` is omitted **before the first startup**
+only when its complete bytes match the source-owned digest
+`cbf9d8d0f07943b63ed5e5983e2b33d91fadc54251e66df7eb7c31f1b816b5d6`
+(3,773 bytes, non-executable). Its recorded `stdlib_omissions` entry preserves the
+original identity and operation. Unknown contents fail preparation. This hook
+calls `site.addsitedir` on Homebrew's global package directory and appends split
+formula locations even for the copied interpreter. Omitting the hook prevents
+that code and its external `.pth` processing from running; it does not clean up
+paths after execution or permit extra packages. CPython `site.py` is unchanged.
+
+The omission applies to the shared staged stdlib used by ordinary scripts,
+`-c`, `-m`, and fresh multiprocessing interpreters. The independently pinned WPT
+`bootstrap/sitecustomize.py` remains discoverable through the exact runner
+`PYTHONPATH` and installs its fixture hooks normally. Required runtime environment
+variables must be inherited by children; modes that ignore them are not authorized
+run commands. The original failed environment/probe and source hook remain intact.
+
+
 ## Preparation
 
 The coordinator provides an exact regular system Python executable (resolve the

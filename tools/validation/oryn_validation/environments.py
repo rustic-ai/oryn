@@ -25,6 +25,12 @@ MACHO = {b'\xfe\xed\xfa\xce', b'\xce\xfa\xed\xfe', b'\xfe\xed\xfa\xcf',
          b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca', b'\xca\xfe\xba\xbf', b'\xbf\xba\xfe\xca'}
 SYSTEM_PREFIXES = ('/opt/homebrew/', '/usr/lib/', '/System/Library/')
 OS_PREFIXES = ('/usr/lib/', '/System/Library/')
+# Host integration injects global packages and optional split formulae. Omit only
+# these exact reviewed bytes before startup; keep CPython site.py unchanged.
+HOMEBREW_SITE = {
+    'sha256': 'cbf9d8d0f07943b63ed5e5983e2b33d91fadc54251e66df7eb7c31f1b816b5d6',
+    'size': 3773, 'executable': False,
+}
 STDLIB_LINKS = {
     'config-3.14-darwin/libpython3.14.a': '../../../Python',
     'config-3.14-darwin/libpython3.14.dylib': '../../../Python',
@@ -112,7 +118,19 @@ def _stdlib_link_source(root, name):
 def _stdlib_source(root):
     links = []
     rows = _payload(root, stdlib=True, materializations=links)
-    return rows, sorted(links, key=lambda row: row['path'])
+    omissions = []
+    selected = next((row for row in rows if row['path'] == 'sitecustomize.py'), None)
+    if selected is not None:
+        if {k: selected[k] for k in ('sha256', 'size', 'executable')} != HOMEBREW_SITE:
+            raise ValueError('unreviewed stdlib sitecustomize.py bytes')
+        omissions = [_site_omission()]
+        rows = [row for row in rows if row['path'] != 'sitecustomize.py']
+    return rows, sorted(links, key=lambda row: row['path']), omissions
+
+
+def _site_omission():
+    return {'path': 'sitecustomize.py', 'operation': 'omit-homebrew-host-startup-hook',
+            'source': dict(HOMEBREW_SITE)}
 
 
 def _dependencies(root, lock, *, allow_plugin=False):
@@ -275,18 +293,19 @@ def inspect_environment_sources(donor_site_packages, system_python, stdlib, *, l
     if not interpreter['executable']:
         raise ValueError('real Python interpreter must be executable')
     _dependencies(donor, lock, allow_plugin=True)
-    rows, links = _stdlib_source(stdlib)
+    rows, links, omissions = _stdlib_source(stdlib)
     if not {'os.py', 'json/__init__.py', 'sysconfig/__init__.py'} <= {r['path'] for r in rows}:
         raise ValueError('complete Python stdlib required')
     libraries = _source_libraries(python, stdlib, rows, links, donor, lock)
     # Recheck all bytes and original link spellings after native graph inspection.
     _dependencies(donor, lock, allow_plugin=True)
-    if _stdlib_source(stdlib) != (rows, links) or _file(python) != interpreter:
+    if _stdlib_source(stdlib) != (rows, links, omissions) or _file(python) != interpreter:
         raise ValueError('Python preparation sources drifted during inspection')
     return {'kind': 'python-environment-source-preflight', 'python': interpreter,
             'dependency_files': len(lock['files']), 'distributions': len(lock['distributions']),
             'stdlib_files': len(rows), 'stdlib_payload_sha256': manifest_digest(rows),
-            'stdlib_materializations': links, 'source_system_libraries': libraries,
+            'stdlib_materializations': links, 'stdlib_omissions': omissions,
+            'source_system_libraries': libraries,
             'runtime_executed': False, 'qualified': False}
 
 
@@ -338,7 +357,7 @@ def prepare_environment(donor_site_packages, system_python, stdlib, store_root, 
         if any(p == source or p in source.parents or source in p.parents for p in paths):
             raise ValueError('environment outputs overlap preparation sources')
     _dependencies(donor, lock, allow_plugin=True)
-    stdlib_rows, stdlib_links = _stdlib_source(stdlib)
+    stdlib_rows, stdlib_links, stdlib_omissions = _stdlib_source(stdlib)
     if not {'os.py', 'json/__init__.py', 'sysconfig/__init__.py'} <= {r['path'] for r in stdlib_rows}:
         raise ValueError('complete Python stdlib required')
     interpreter = _file(python)
@@ -365,7 +384,7 @@ def prepare_environment(donor_site_packages, system_python, stdlib, store_root, 
         _validate_probe(actual, destination, lock)
         verify_input(before_probe, store_root=store)
         _dependencies(donor, lock, allow_plugin=True)
-        if _stdlib_source(stdlib) != (stdlib_rows, stdlib_links) or _file(python) != interpreter:
+        if _stdlib_source(stdlib) != (stdlib_rows, stdlib_links, stdlib_omissions) or _file(python) != interpreter:
             raise ValueError('system Python source changed while staging')
         if system != _system_libraries(destination):
             raise ValueError('system Python libraries changed during probe')
@@ -379,7 +398,7 @@ def prepare_environment(donor_site_packages, system_python, stdlib, store_root, 
                  'python': snapshot_input(store, environment_path + '/bin/python'),
                  'dependency_lock': snapshot_input(store, environment_path + '/dependency-lock.json'),
                  'system': system, 'stdlib_payload_sha256': manifest_digest(stdlib_rows),
-                 'stdlib_materializations': stdlib_links,
+                 'stdlib_materializations': stdlib_links, 'stdlib_omissions': stdlib_omissions,
                  'probe': snapshot_input(store, diagnostics_path, kind='directory'),
                  'plugin_policy': 'runner-source-export'}
         identity.parent.mkdir(parents=True, exist_ok=True)
@@ -394,7 +413,7 @@ def prepare_environment(donor_site_packages, system_python, stdlib, store_root, 
 
 def verify_environment(identity, store_root):
     keys = {'schema_version', 'kind', 'python_version', 'environment', 'python', 'dependency_lock',
-            'system', 'stdlib_payload_sha256', 'stdlib_materializations', 'probe', 'plugin_policy'}
+            'system', 'stdlib_payload_sha256', 'stdlib_materializations', 'stdlib_omissions', 'probe', 'plugin_policy'}
     if (not isinstance(identity, dict) or set(identity) != keys or identity['schema_version'] != 1
             or identity['kind'] != 'staged-wpt-python-environment'
             or identity['plugin_policy'] != 'runner-source-export'):
@@ -413,6 +432,10 @@ def verify_environment(identity, store_root):
     if identity['python_version'] != lock['python_version']:
         raise ValueError('Python version differs from dependency lock')
     _dependencies(root / 'lib/python3.14/site-packages', lock)
+    if identity['stdlib_omissions'] not in ([], [_site_omission()]):
+        raise ValueError('stdlib startup normalization differs from reviewed policy')
+    if (root / 'lib/python3.14/sitecustomize.py').exists():
+        raise ValueError('host stdlib sitecustomize.py cannot enter staged runtime')
     links = identity['stdlib_materializations']
     if not isinstance(links, list) or [r['path'] for r in links] != sorted({r['path'] for r in links}):
         raise ValueError('stdlib materialization inventory differs')
