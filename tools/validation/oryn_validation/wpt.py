@@ -366,25 +366,32 @@ def execute(path, *, store_root, bundle_root, output, timeout_seconds=None):
     try:
         with lease:
             with ResourceLease(store_root, ['wpt-fixed-ports', 'native-focus'], objects=build_objects) as resource:
-                with fixture_services(bound, selected, output=output, environment=environment,
-                                      lease=lease, timeout_seconds=policy['relay_timeout_seconds']) as services:
-                    execution = run_owned(plan_command(bound, selected, output), cwd=bound['assets']['wpt_checkout'],
-                                          output=output / 'process', env=environment, timeout_seconds=timeout_seconds)
-                    for service in services:
-                        service.check()
-                    from .fixture_tls import verify_receipts
-                    tls_ports = [port for name, ports in selected['fixture']['ports'].items()
-                                 if name.startswith('https') for port in ports]
-                    verify_receipts(output / 'tls-activation', bound['assets']['fixture_tls_policy'],
-                                    _digest(bound['assets']['fixture_tls_policy']), tls_ports,
-                                    require_live=False, bound=bound)
-                fixture_cleanup = [service.result for service in services]
-                execution['fixture_services'] = fixture_cleanup
-                for service in fixture_cleanup:
-                    if service.get('cleanup_complete') is not True or service.get('cleanup_errors'):
-                        execution['cleanup_complete'] = False
-                        execution['cleanup_errors'].append('fixture service cleanup incomplete')
-                resource.mark_settled(execution)
+                from .fixture_startup import settlement, require_settlement
+                process_attempted = False
+                try:
+                    with fixture_services(bound, selected, output=output, environment=environment,
+                                          lease=lease, timeout_seconds=policy['relay_timeout_seconds'], services=services):
+                        process_attempted = True
+                        execution = run_owned(plan_command(bound, selected, output), cwd=bound['assets']['wpt_checkout'],
+                                              output=output / 'process', env=environment, timeout_seconds=timeout_seconds)
+                        for service in services:
+                            service.check()
+                        from .fixture_tls import verify_receipts
+                        tls_ports = [port for name, ports in selected['fixture']['ports'].items()
+                                     if name.startswith('https') for port in ports]
+                        verify_receipts(output / 'tls-activation', bound['assets']['fixture_tls_policy'],
+                                        _digest(bound['assets']['fixture_tls_policy']), tls_ports,
+                                        require_live=False, bound=bound)
+                finally:
+                    settled = settlement(execution, services, process_attempted=process_attempted)
+                    with (output / 'resource-settlement.json').open('x') as stream:
+                        json.dump(settled, stream, indent=2)
+                    resource.mark_settled(settled)
+                    if execution is not None:
+                        execution['fixture_services'] = settled['fixture_services']
+                        execution['cleanup_complete'] = settled['cleanup_complete']
+                        execution['cleanup_errors'] = settled['cleanup_errors']
+                    require_settlement(settled, sys.exc_info()[1])
     except BaseException as error:
         integrity_errors.append(type(error).__name__ + ': ' + str(error))
         raise
@@ -451,7 +458,7 @@ def write_canary_audit(bound, output, process):
 
 
 @contextmanager
-def fixture_services(bound, selected, *, output, environment, lease, timeout_seconds, upstream=False):
+def fixture_services(bound, selected, *, output, environment, lease, timeout_seconds, upstream=False, services=None):
     """Own relays inside the caller's single resource lease, including teardown.
 
     Each service has continuous canonical process supervision. This context is
@@ -459,13 +466,14 @@ def fixture_services(bound, selected, *, output, environment, lease, timeout_sec
     """
     from .processes import OwnedService
     relay_environment(bound)
-    services = []
+    services = [] if services is None else services
     with ExitStack() as stack:
         for name, argv, address in relay_commands(bound['assets']['fixture_relay'], selected['fixture']):
-            service = stack.enter_context(OwnedService(argv, cwd=bound['assets']['wpt_checkout'],
+            service = OwnedService(argv, cwd=bound['assets']['wpt_checkout'],
                 output=Path(output) / 'services' / name, env=environment,
-                timeout_seconds=timeout_seconds, grace_seconds=60))
+                timeout_seconds=timeout_seconds, grace_seconds=60)
             services.append(service)
+            stack.enter_context(service)
             deadline = time.monotonic() + 10
             while True:
                 lease.checkpoint()
@@ -481,23 +489,34 @@ def fixture_services(bound, selected, *, output, environment, lease, timeout_sec
             argv = [str(bound['assets']['python']), '-B', '-m', 'oryn_validation.wpt', 'serve',
                     '--run', str(bound['path']), '--store-root', str(bound['store_root']),
                     '--bundle-root', str(bound['bundle_root'])]
-            service = stack.enter_context(OwnedService(argv, cwd=bound['assets']['wpt_checkout'],
-                output=Path(output) / 'services/upstream', env=environment,
-                timeout_seconds=timeout_seconds, grace_seconds=60))
+            from .fixture_startup import NONCE, BIND_SECONDS, TOPOLOGY_LIFETIME_SECONDS, await_admission, publish_bound, verify_startup
+            nonce = secrets.token_hex(32)
+            if timeout_seconds != TOPOLOGY_LIFETIME_SECONDS:
+                raise ValueError('topology service lifetime differs from reviewed 600-second budget')
+            service = OwnedService(argv, cwd=bound['assets']['wpt_checkout'],
+                output=Path(output) / 'services/upstream', env=dict(environment, **{NONCE: nonce}),
+                timeout_seconds=timeout_seconds, grace_seconds=60)
             services.append(service)
-            deadline = time.monotonic() + 30
-            for ports in selected['fixture']['ports'].values():
-                for port in ports:
-                    while True:
-                        lease.checkpoint()
-                        service.check()
-                        try:
-                            with socket.create_connection(('127.0.0.1', port), timeout=.25):
-                                break
-                        except OSError:
-                            if time.monotonic() >= deadline:
-                                raise TimeoutError('upstream fixture did not bind: ' + str(port))
-                            time.sleep(.05)
+            started_ns = time.monotonic_ns()
+            stack.enter_context(service)
+            overall_deadline = await_admission(bound, service, lease, nonce,
+                started_ns=started_ns, timeout_seconds=timeout_seconds)
+            bind_started = time.monotonic_ns()
+            deadline = min(overall_deadline, bind_started + BIND_SECONDS * 1_000_000_000)
+            ports = [port for values in selected['fixture']['ports'].values() for port in values]
+            for port in ports:
+                while True:
+                    lease.checkpoint()
+                    service.check()
+                    if time.monotonic_ns() >= deadline:
+                        raise TimeoutError('upstream fixture did not bind: ' + str(port))
+                    try:
+                        with socket.create_connection(('127.0.0.1', port), timeout=.25):
+                            break
+                    except OSError:
+                        time.sleep(.05)
+            publish_bound(service, nonce=nonce, started_ns=bind_started, ports=ports)
+            verify_startup(bound, service.output, ports)
         yield services
         for service in services:
             service.check()
@@ -558,6 +577,10 @@ def verify_fixture_services(bound, selected, output, *, upstream=False, original
                 or process.get('error') != 'owned execution cancelled by signal 15'
                 or process.get('cancellation_signal') != 15):
             raise ValueError('fixture service original custody/cleanup differs: ' + name)
+        if upstream and name == 'upstream':
+            from .fixture_startup import verify_startup
+            ports = [port for values in selected['fixture']['ports'].values() for port in values]
+            verify_startup(bound, root / name, ports)
         result.append(service)
     return result
 
@@ -595,7 +618,9 @@ def serve_topology(args):
         def __enter__(self):
             self.update(config)
             return super().__enter__()
-    with InputLease(bound['records'], store_root=args.store_root, bundle_root=args.bundle_root):
+    with InputLease(bound['records'], store_root=args.store_root, bundle_root=args.bundle_root) as lease:
+        from .fixture_startup import publish_admission
+        publish_admission(bound, lease)
         return serve.run(config_cls=SelectedConfig)
 
 

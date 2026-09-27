@@ -257,6 +257,9 @@ def _stage_evidence(bound, prefix, stage):
              and Path(argv[8]) == original_store / run['assets'][names['run']]['path']
              and Path(argv[14]) == original_store / stage_run['outputs']['results'],
              'prerequisite collector input/output identities differ')
+    if stage == 'topology':
+        from .fixture_startup import verify_collector_budget
+        verify_collector_budget(output_root, preflight, process)
     if stage == 'native':
         verify_worker_binding(execution.get('worker_binding'), stage_run, original_bundle)
     custody = _read(assets[names['custody']])
@@ -645,30 +648,37 @@ def execute(path, *, store_root, bundle_root, stage, timeout_seconds=600):
         with InputLease(bound['records'], store_root=store_root, bundle_root=bundle_root) as lease:
             with ResourceLease(store_root, resource_keys, objects=build_objects) as resource:
                 services = []
+                process_attempted = False
                 try:
                     if stage == 'topology':
                         from .wpt import fixture_services
                         from .fixture_tls import verify_receipts
                         selected = {'fixture': fixture, 'fixture_path': fixture_path}
                         with fixture_services(bound, selected, output=output, environment=environment,
-                                              lease=lease, timeout_seconds=timeout_seconds, upstream=True) as services:
+                                              lease=lease, timeout_seconds=timeout_seconds, upstream=True, services=services):
+                            from .fixture_startup import collector_budget
+                            budget = collector_budget(services)
+                            _write(output / 'collector-budget.json', budget)
+                            process_attempted = True
                             process = run_owned(command, cwd=SOURCE_ROOT, output=output / 'process', env=environment,
-                                                timeout_seconds=timeout_seconds)
+                                                timeout_seconds=budget['timeout_seconds'])
                             _success(process)
+                            from .fixture_startup import verify_collector_budget
+                            verify_collector_budget(output, _read(output / 'process/preflight.json'), process)
                             ports = [p for name, values in fixture['ports'].items() if name.startswith('https') for p in values]
                             verify_receipts(output / 'tls-activation', bound['assets']['fixture_tls_policy'],
                                             _hash(bound['assets']['fixture_tls_policy']), ports, bound=bound)
                     else:
+                        process_attempted = True
                         process = run_owned(command, cwd=SOURCE_ROOT, output=output / 'process', env=environment,
                                             timeout_seconds=timeout_seconds)
                         _success(process)
                 finally:
-                    if process is not None:
-                        settled = dict(process)
-                        for service in services:
-                            if not service.result or service.result.get('cleanup_complete') is not True or service.result.get('cleanup_errors'):
-                                settled['cleanup_complete'] = False
-                        resource.mark_settled(settled)
+                    from .fixture_startup import settlement, require_settlement
+                    settled = settlement(process, services, process_attempted=process_attempted)
+                    _write(output / 'resource-settlement.json', settled)
+                    resource.mark_settled(settled)
+                    require_settlement(settled, sys.exc_info()[1])
     except BaseException as error:
         errors.append(type(error).__name__ + ': ' + str(error))
         raise

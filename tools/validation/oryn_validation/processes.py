@@ -209,7 +209,7 @@ def _launch(argv, cwd, output, env, timeout, grace, *, cancellation=None):
     output.mkdir(parents=True, exist_ok=False)
     started = time.monotonic_ns()
     preflight = {"argv": list(argv), "cwd": str(cwd), "timeout_seconds": timeout,
-                 "owner_pid": os.getpid(), "started_ns": time.time_ns()}
+                 "owner_pid": os.getpid(), "started_ns": time.time_ns(), "started_monotonic_ns": started}
     _write(output / "preflight.json", preflight, exclusive=True)
     result = dict(returncode=None, error=None, timed_out=False,
                   cleanup_complete=True, cleanup_errors=[], forced_cleanup=False,
