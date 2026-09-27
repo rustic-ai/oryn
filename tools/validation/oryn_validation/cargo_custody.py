@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import subprocess
+import stat
 import tarfile
 import tomllib
 
@@ -20,13 +21,36 @@ def _state(path):
     return _stat_state(path.stat())
 
 
+def _registry_population(root):
+    """No-follow complete metadata snapshot, including empty directories."""
+    files, directories, states = set(), set(), {}
+    def visit(directory):
+        before = directory.lstat()
+        _require(stat.S_ISDIR(before.st_mode), 'Cargo registry directory is nonregular')
+        name = directory.relative_to(root).as_posix()
+        states['directory:' + name] = _stat_state(before)
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                path = Path(entry.path); relative = path.relative_to(root).as_posix()
+                observed = entry.stat(follow_symlinks=False)
+                if stat.S_ISDIR(observed.st_mode):
+                    directories.add(relative); visit(path)
+                else:
+                    _require(stat.S_ISREG(observed.st_mode), 'Cargo registry contains nonregular source')
+                    files.add(relative); states['file:' + relative] = _stat_state(observed)
+        _require(_stat_state(before) == _stat_state(directory.lstat()), 'Cargo registry directory changed')
+    visit(root)
+    return files, directories, states
+
+
 def _registry(package, locked, cargo_home):
     root = Path(package['manifest_path']).resolve(strict=True).parent
+    initial = _registry_population(root)
     label = package['name'] + '-' + package['version']
     archives = [path for path in (cargo_home / 'registry/cache').glob('*/' + label + '.crate')
                 if _hash(path) == locked['checksum']]
     _require(bool(archives), 'locked Cargo archive unavailable or checksum differs: ' + label)
-    files, states = {}, {}
+    files, modes, directories, members = {}, {}, set(), set()
     archive_path = archives[0]
     archive_state = _state(archive_path)
     descriptor = os.open(archive_path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
@@ -36,29 +60,55 @@ def _registry(package, locked, cargo_home):
         stream.seek(0)
         with tarfile.open(fileobj=stream, mode='r:gz') as archive:
             for member in archive.getmembers():
-                parts = PurePosixPath(member.name).parts
-                _require(parts and parts[0] == label and all(part not in {'..', '.'} for part in parts),
-                         'Cargo archive member escapes package')
-                if member.isdir():
-                    continue
-                _require(member.isfile() and len(parts) > 1, 'Cargo archive contains nonregular source')
+                name = member.name.rstrip('/') if member.isdir() else member.name
+                parts = name.split('/')
+                _require(parts and parts[0] == label and all(part not in {'', '..', '.'} for part in parts)
+                         and '\\' not in name, 'Cargo archive member escapes package')
                 path = '/'.join(parts[1:])
-                _require(path not in files, 'Cargo archive duplicates package file')
+                _require(path not in members, 'Cargo archive duplicates package member')
+                members.add(path)
+                for parent in PurePosixPath(path).parents:
+                    if str(parent) != '.': directories.add(str(parent))
+                if member.isdir():
+                    if path: directories.add(path)
+                    continue
+                _require(member.isfile() and path, 'Cargo archive contains nonregular source')
+                _require(path not in {'.cargo-ok', '.cargo-checksum.json'}, 'Cargo archive shadows cache metadata')
+                _require(not (member.mode & 0o7000) and stat.S_IFMT(member.mode) in {0, stat.S_IFREG},
+                         'Cargo archive has unsupported source mode')
                 data = archive.extractfile(member).read()
                 files[path] = hashlib.sha256(data).hexdigest()
                 selected = resolve_input(root, path); before = _state(selected)
-                _require(_hash(selected) == files[path] and before == _state(selected), 'Cargo registry source differs from locked archive: ' + path)
-                states[path] = before
+                # Cargo's standard extraction masks group/other write permission.
+                # Old archives can carry the regular-file type bits in mode.
+                modes[path] = stat.S_IMODE(member.mode) & ~0o022
+                _require(stat.S_IMODE(selected.lstat().st_mode) == modes[path],
+                         'Cargo registry source mode differs from locked archive: ' + path)
+                _require(_hash(selected) == files[path] and before == _state(selected),
+                         'Cargo registry source differs from locked archive: ' + path)
         _require(_stat_state(os.fstat(stream.fileno())) == archive_state and _state(archive_path) == archive_state,
                  'Cargo archive changed during verification')
-    states['archive'] = archive_state
-    actual = {str(path.relative_to(root)) for path in root.rglob('*') if path.is_file() or path.is_symlink()}
-    _require(actual - {'.cargo-ok', '.cargo-checksum.json'} == set(files), 'Cargo registry source population differs')
-    checksum = json.loads((root / '.cargo-checksum.json').read_text())
-    _require(checksum.get('package') == locked['checksum'] and checksum.get('files') == files,
-             'Cargo checksum metadata differs from actual locked archive')
-    states['.cargo-checksum.json'] = _state(root / '.cargo-checksum.json')
-    return {'kind': 'registry', 'package_checksum': locked['checksum'], 'files_sha256': manifest_digest(files),
+    actual, actual_directories, states = initial
+    _require(actual - {'.cargo-ok', '.cargo-checksum.json'} == set(files)
+             and actual_directories == directories, 'Cargo registry source population differs')
+    states = dict(states, archive=archive_state)
+    for name in ('.cargo-ok', '.cargo-checksum.json'):
+        # These Cargo metadata files are not package sources. Pin both their
+        # absence and their actual bytes, including between separate probes.
+        states['metadata:' + name] = _hash(root / name) if name in actual else None
+    if '.cargo-checksum.json' in actual:
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                _require(key not in result, 'Cargo checksum metadata repeats a key')
+                result[key] = value
+            return result
+        checksum = json.loads((root / '.cargo-checksum.json').read_text(), object_pairs_hook=unique)
+        _require(isinstance(checksum, dict) and checksum.get('package') == locked['checksum']
+                 and checksum.get('files') == files, 'Cargo checksum metadata differs from actual locked archive')
+    _require(_registry_population(root) == initial, 'Cargo registry changed during verification')
+    return {'kind': 'registry', 'package_checksum': locked['checksum'],
+            'files_sha256': manifest_digest({'files': files, 'modes': modes, 'directories': sorted(directories)}),
             'observed_state_sha256': manifest_digest(states)}
 
 
