@@ -89,6 +89,8 @@ def verify_control(bound, collection):
     origin = dict(control_bound, assets=origin_assets,
                   path=original_store / paths['run'].relative_to(bound['store_root']),
                   store_root=original_store, bundle_root=original_bundle)
+    from .worker_environment import verify_worker_binding
+    verify_worker_binding(execution.get('worker_binding'), run, original_bundle)
     expected_argv = plan_command(origin, {'collection': collection, 'fixture_path': origin_assets[fixture_name],
                                          'fixture': read_object(fixture_path)}, original_store / run['outputs']['results'])
     birth = preflight.get('child_identity')

@@ -162,6 +162,12 @@ class OrynBrowser(WebDriverBrowser):
     def make_command(self):
         with span(getattr(self, "logger", None), "browser.make_command") as measured:
             contract = load_contract(self._contract_path, self.binary, self.webdriver_binary)
+            if 'typed_run' in contract:
+                binding = contract.get('worker_binding')
+                if (not isinstance(binding, dict) or binding.get('variable') != 'ORYN_PAGE_WORKER'
+                        or not isinstance(binding.get('path'), str)
+                        or self.env.get('ORYN_PAGE_WORKER') != binding.get('path')):
+                    raise ValueError('driver environment differs from typed sealed worker')
             self._timing_identity = contract_identity(contract)
             measured.bind_contract(contract)
             previous = getattr(self, "_native_timing", None)

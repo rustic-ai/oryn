@@ -21,6 +21,8 @@ from .inputs import InputLease, resolve_input, snapshot_input, verify_inputs
 from .manifests import load_manifest, manifest_digest
 from .production import _hash, _read, _require, _object, validate_production, validate_source_export
 from .processes import run_owned, ResourceLease
+from .worker_environment import (worker_environment, assert_worker_environment,
+                                 selected_worker, verify_worker_binding)
 
 STAGES = {'native': 'native-prerequisites', 'topology': 'fixture-topology', 'runtime': 'native-runtime-readiness'}
 RESOURCE_KEYS = ['native-focus', 'wpt-fixed-ports']
@@ -255,6 +257,8 @@ def _stage_evidence(bound, prefix, stage):
              and Path(argv[8]) == original_store / run['assets'][names['run']]['path']
              and Path(argv[14]) == original_store / stage_run['outputs']['results'],
              'prerequisite collector input/output identities differ')
+    if stage == 'native':
+        verify_worker_binding(execution.get('worker_binding'), stage_run, original_bundle)
     custody = _read(assets[names['custody']])
     expected_digest = manifest_digest([*stage_run['immutable_inputs'], run['assets'][names['run']]])
     _require(custody.get('run_manifest_sha256') == execution['run_manifest_sha256']
@@ -262,6 +266,8 @@ def _stage_evidence(bound, prefix, stage):
              and custody.get('finalization', {}).get('inputs_sha256') == expected_digest,
              'prerequisite immutable-input finalization missing')
     if stage == 'native':
+        verify_worker_binding(custody.get('worker_binding'), stage_run, original_bundle)
+        verify_worker_binding(_read(assets[names['result']]).get('worker_binding'), stage_run, original_bundle)
         validate_reference_evidence(bound, custody, execution)
     return _read(assets[names['result']])
 
@@ -377,6 +383,7 @@ def _upstream(bound):
 
 
 def _protocol_faults(bound, lease, output):
+    assert_worker_environment(bound)
     _upstream(bound)
     suite = unittest.defaultTestLoader.discover(str(SOURCE_ROOT / 'tools/wptrunner-oryn/tests'),
                                                pattern='test_protocol_faults.py')
@@ -400,7 +407,11 @@ def _collect_native(bound, lease, output):
         focus_lease, reference_capabilities, new_controls)
     contract, fixture_path, fixture = native_contract(bound)
     assets = bound['assets']; ca = fixture_path.parent / fixture['tls']['ca']['path']
-    record = {'schema_version': 2, 'errors': [], 'native': {'errors': [], 'controls': new_controls(True)},
+    binding = assert_worker_environment(bound)
+    def check_inputs():
+        lease.checkpoint()
+        assert_worker_environment(bound)
+    record = {'schema_version': 2, 'errors': [], 'worker_binding': binding, 'native': {'errors': [], 'controls': new_controls(True)},
               'reference': {'errors': [], 'controls': new_controls(False)}}
     token = secrets.token_hex(32); token_path = output / 'native.token'
     fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -414,18 +425,18 @@ def _collect_native(bound, lease, output):
              ('reference', assets['reference_driver'], ['--port={port}'], None,
               reference_capabilities(assets['reference_browser']), (0, -signal.SIGTERM))]
     try:
-        with focus_lease(), Fixture(contract, check_inputs=lease.checkpoint):
+        with focus_lease(), Fixture(contract, check_inputs=check_inputs):
             record['focus_isolation'] = 'host_serialized'
             record['tls_probes'] = {kind: tls_probe(entry, ca) for kind, entry in contract['tls'].items()}
             for name, binary, arguments, credential, capabilities, allowed in specs:
-                driver = Driver(binary, arguments, output / name, credential, allowed, check_inputs=lease.checkpoint)
+                driver = Driver(binary, arguments, output / name, credential, allowed, check_inputs=check_inputs)
                 data = record[name]
                 try:
                     with driver:
-                        lease.checkpoint()
+                        check_inputs()
                         data['controls'] = browser_controls(driver.wire, contract, capabilities,
                                                             name == 'native', results=data['controls'])
-                        lease.checkpoint()
+                        check_inputs()
                 except Exception as error:
                     data['errors'].append(type(error).__name__ + ': ' + str(error))
                 data['cleanup'] = driver.cleanup
@@ -436,7 +447,7 @@ def _collect_native(bound, lease, output):
         command = [str(assets['python']), '-B', '-m', 'oryn_validation.prerequisites', 'protocol-faults',
                    '--stage', 'native', '--run', str(bound['path']), '--store-root', str(bound['store_root']),
                    '--bundle-root', str(bound['bundle_root']), '--output', str(fault_directory / 'result.json')]
-        lease.checkpoint()
+        check_inputs()
         execution = run_owned(command, cwd=SOURCE_ROOT, output=fault_directory / 'process',
                               env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1',
                                        PYTHONPATH=str(SOURCE_ROOT / 'tools/validation')), timeout_seconds=120)
@@ -490,7 +501,8 @@ def _collect_runtime(bound, lease, output):
     _require(records['engine_worker']['executable'], 'unsigned worker runtime-info needs executable input')
     environment = {key: value for key, value in os.environ.items()
                    if key in {'PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL'}}
-    environment.update(ORYN_PAGE_WORKER=str(assets['worker']), CARGO_NET_OFFLINE='true', GIT_OPTIONAL_LOCKS='0')
+    environment.update(worker_environment(bound))
+    environment.update(CARGO_NET_OFFLINE='true', GIT_OPTIONAL_LOCKS='0')
     result = {'errors': [], 'descriptors': {}, 'trees': {}, 'processes': {}, 'metadata': {}, 'packages_before': {}, 'packages_after': {}}
     try:
         _reject_implicit_cargo_configuration(assets['source_export'], environment['HOME'])
@@ -541,6 +553,7 @@ def collect(bound, stage, output):
     _require(output == bound['store_root'] / bound['run']['outputs']['results'], 'collector output differs')
     errors, lease = [], InputLease(bound['records'], store_root=bound['store_root'], bundle_root=bound['bundle_root'])
     reference = None
+    binding = None
     try:
         with ExitStack() as stack:
             stack.enter_context(lease)
@@ -552,6 +565,7 @@ def collect(bound, stage, output):
                 stack.enter_context(reference)
                 boundary = _NativeInputBoundary(lease, reference)
             validate_production(bound)
+            binding = assert_worker_environment(bound)
             _selected(bound)
             if stage == 'native':
                 validate_runtime_readiness(bound)
@@ -566,11 +580,14 @@ def collect(bound, stage, output):
         final_error = None
         try:
             _require(_hash(bound['path']) == bound['sha256'], 'prerequisite run manifest changed')
+            if binding is not None:
+                assert_worker_environment(bound)
         except BaseException as error:
             final_error = error
             errors.append(type(error).__name__ + ': ' + str(error))
         receipt = {'run_manifest_sha256': bound['sha256'], 'errors': errors,
-                   'admission': lease.admission, 'finalization': lease.finalization}
+                   'admission': lease.admission, 'finalization': lease.finalization,
+                   'worker_binding': binding}
         if stage == 'native':
             reference_errors = ([str(reference.final_error)] if reference is not None and reference.final_error else [])
             receipt['reference_environment'] = {
@@ -592,6 +609,7 @@ def execute(path, *, store_root, bundle_root, stage, timeout_seconds=600):
     from .wpt import python_environment, relay_environment
     build_objects = [registered_bundle_owner(bound)]
     staged_environment = python_environment(bound)
+    binding = selected_worker(bound)
     reference_before = reference_environment(bound)[1] if stage == 'native' else None
     if stage == 'topology':
         relay_environment(bound)
@@ -613,6 +631,8 @@ def execute(path, *, store_root, bundle_root, stage, timeout_seconds=600):
                               ('tools/validation/bootstrap', 'tools/validation', 'tools/wptrunner-oryn')))
         (output / 'tls-activation').mkdir()
     environment.update(staged_environment)
+    environment.update(worker_environment(bound))
+    assert_worker_environment(bound, environment)
     command = [str(bound['assets']['python']), '-B', '-m', 'oryn_validation.prerequisites', 'collect',
                '--stage', stage, '--run', str(bound['path']), '--store-root', str(bound['store_root']),
                '--bundle-root', str(bound['bundle_root']), '--output', str(output)]
@@ -681,7 +701,7 @@ def execute(path, *, store_root, bundle_root, stage, timeout_seconds=600):
                 errors.append('Reference environment finalization: ' + reference_errors[-1])
         record = {'schema_version': 1, 'kind': 'typed-prerequisite-execution',
               'stage': stage, 'run_id': bound['run']['run_id'], 'run_manifest_sha256': bound['sha256'],
-              'build': bound['run']['build'], 'errors': errors,
+              'build': bound['run']['build'], 'errors': errors, 'worker_binding': binding,
               'artifacts': {str(p.relative_to(output)): _hash(p) for p in output.rglob('*') if p.is_file()}}
         if stage == 'native':
             record['reference_environment'] = {'admission': reference_before,
@@ -712,6 +732,7 @@ def main(argv=None):
                  'protocol control output differs')
         with InputLease(bound['records'], store_root=args.store_root, bundle_root=args.bundle_root) as lease:
             result = _protocol_faults(bound, lease, args.output)
+            assert_worker_environment(bound)
             _require(result['successful'] and not result['skipped'], 'protocol controls failed')
     return 0
 

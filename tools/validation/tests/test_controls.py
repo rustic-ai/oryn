@@ -8,6 +8,7 @@ from unittest.mock import patch
 from oryn_validation.admission import legacy_algorithms, object_digest
 from oryn_validation.controls import verify_control
 from oryn_validation.inputs import snapshot_input
+from oryn_validation.worker_environment import worker_binding
 from oryn_validation.wpt import _digest, plan_command, EXECUTION_POLICY, relay_commands
 
 legacy_algorithms()
@@ -40,6 +41,8 @@ class TypedControlEvidenceTests(unittest.TestCase):
         self.write_asset('core_profile_registry', {'profiles': {'standard-block': {'fixture': 'fixture'}}})
         self.write_asset('worker_manifest', {'render_contract_version': 1, 'local_effects_contract_version': 1})
         records = {name: snapshot_input(self.root, str(path.relative_to(self.root))) for name, path in self.assets.items()}
+        self.assets['worker'].chmod(0o755)
+        records['worker'] = dict(snapshot_input(self.root, 'worker'), scope='bundle')
         self.run = {'schema_version': 1, 'kind': 'run', 'run_id': 'canaries',
                     'build': {'build_id': 'build', 'manifest_sha256': 'a' * 64},
                     'runner': {'commit': 'b' * 40, 'tree_sha256': 'c' * 64},
@@ -63,12 +66,17 @@ class TypedControlEvidenceTests(unittest.TestCase):
                                     'subtests': [{'name': subtest, 'status': substatus}] if subtest else []}
                                    for name, (status, subtest, substatus) in EXPECTED.items()]}
 
+    def test_worker_substitution_rejected_even_with_fresh_independent_review_hashes(self):
+        bound = self.evidence(substitute_worker=True)
+        with self.assertRaisesRegex(ValueError, 'recorded worker environment'):
+            verify_control(bound, 'canaries')
+
     def write_asset(self, name, value):
         path = self.root / (name + '.json')
         path.write_text(json.dumps(value))
         self.assets[name] = path
 
-    def evidence(self, *, raw_404=True, cleanup=True, reviewer='reviewer'):
+    def evidence(self, *, raw_404=True, cleanup=True, reviewer='reviewer', substitute_worker=False):
         paths = {'run': self.run_path, 'report': self.output / 'wptreport.json',
                  'raw': self.output / 'mozlog.jsonl', 'custody': self.output / 'protocol-custody.jsonl',
                  'process': self.output / 'process/process-result.json', 'execution': self.output / 'execution.json',
@@ -108,9 +116,12 @@ class TypedControlEvidenceTests(unittest.TestCase):
                          run_manifest_sha256=_digest(self.run_path), candidate_sha256='a' * 64,
                          profile='standard-block', collection='canaries', returncode=1, timed_out=False,
                          execution_policy=dict(EXECUTION_POLICY, timeout_seconds=43200),
+                         worker_binding=worker_binding(self.run, self.root),
                          cleanup_complete=cleanup, launch_error=None, custody_complete=True, errors=[],
                          artifacts={str(paths[name].relative_to(self.output)): _digest(paths[name])
                                     for name in ('report', 'raw', 'custody', 'process', 'preflight')})
+        if substitute_worker:
+            execution['worker_binding']['path'] = '/substituted/worker'
         paths['execution'].write_text(json.dumps(execution))
         paths['audit'].write_text(json.dumps(dict(candidate_sha256='a' * 64, report_sha256=_digest(paths['report']),
             cleanup_complete=True, all_workers_reaped=True, native_reference_rendering=True,

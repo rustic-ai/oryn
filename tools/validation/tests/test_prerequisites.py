@@ -9,6 +9,7 @@ from unittest.mock import patch, MagicMock
 from oryn_validation import prerequisites as subject
 from oryn_validation.production import _module
 from oryn_validation.inputs import snapshot_input
+from oryn_validation.worker_environment import worker_binding
 
 
 class NativePrerequisiteContracts(unittest.TestCase):
@@ -18,7 +19,7 @@ class NativePrerequisiteContracts(unittest.TestCase):
         self.reference_gate = patch.object(subject, 'validate_reference_evidence').start()
         self.addCleanup(patch.stopall)
 
-    def stage_fixture(self, root, *, mutate_preflight=None, omit_artifact=False):
+    def stage_fixture(self, root, *, mutate_preflight=None, omit_artifact=False, substitute_worker=None):
         """Synthetic process receipts test the joins, never attest a real run."""
         from test_manifests import run
         def write(relative, value):
@@ -31,6 +32,8 @@ class NativePrerequisiteContracts(unittest.TestCase):
         python = root / 'python'; python.write_text('not executed')
         stage = run(); stage['suite']['name'] = 'native-prerequisites'
         stage['assets'] = {'python': pin(python), 'fixture': pin(fixture), 'core_profile_registry': pin(registry)}
+        worker = root / 'worker'; worker.write_text('sealed worker'); worker.chmod(0o755)
+        stage['assets']['worker'] = dict(pin(worker), scope='bundle')
         stage['immutable_inputs'] = list(stage['assets'].values())
         stage['outputs'] = {'events': 'runs/native/events.jsonl', 'results': 'runs/native/output', 'status': 'status/native.json'}
         run_path = write('manifests/native.json', stage)
@@ -44,15 +47,20 @@ class NativePrerequisiteContracts(unittest.TestCase):
         process = {'argv': preflight['argv'], 'returncode': 0, 'timed_out': False, 'error': None,
                    'cleanup_complete': True, 'cleanup_errors': [], 'forced_cleanup': False, 'cancellation_signal': None}
         digest = subject.manifest_digest([*stage['immutable_inputs'], stage_record])
-        fixed = {'result': ('result.json', {'observed': 'synthetic'}),
+        fixed = {'result': ('result.json', {'observed': 'synthetic', 'worker_binding': worker_binding(stage, root)}),
                  'process': ('process/process-result.json', process), 'preflight': ('process/preflight.json', preflight),
                  'custody': ('custody.json', {'run_manifest_sha256': subject._hash(run_path), 'errors': [],
-                    'admission': {'inputs_sha256': digest}, 'finalization': {'inputs_sha256': digest}})}
+                    'admission': {'inputs_sha256': digest}, 'finalization': {'inputs_sha256': digest},
+                    'worker_binding': worker_binding(stage, root)})}
+        if substitute_worker in ('result', 'custody'):
+            fixed[substitute_worker][1]['worker_binding']['path'] = '/substituted/worker'
         paths = {name: write(str(out.relative_to(root) / relative), value) for name, (relative, value) in fixed.items()}
         execution = {'schema_version': 1, 'kind': 'typed-prerequisite-execution', 'stage': 'native',
                      'run_id': stage['run_id'], 'run_manifest_sha256': subject._hash(run_path),
-                     'build': stage['build'], 'errors': [],
+                     'build': stage['build'], 'errors': [], 'worker_binding': worker_binding(stage, root),
                      'artifacts': {relative: subject._hash(paths[name]) for name, (relative, _) in fixed.items()}}
+        if substitute_worker == 'execution':
+            execution['worker_binding']['path'] = '/substituted/worker'
         if omit_artifact:
             write(str(out.relative_to(root) / 'omitted.json'), {'retained': True})
         paths['execution'] = write(str(out.relative_to(root) / 'execution.json'), execution)
@@ -68,7 +76,14 @@ class NativePrerequisiteContracts(unittest.TestCase):
     def test_stage_evidence_joins_complete_original_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             bound = self.stage_fixture(Path(temporary).resolve())
-            self.assertEqual(subject._stage_evidence(bound, 'native_prerequisites', 'native'), {'observed': 'synthetic'})
+            self.assertEqual(subject._stage_evidence(bound, 'native_prerequisites', 'native')['observed'], 'synthetic')
+
+    def test_native_worker_substitution_rejected_even_with_consistent_artifact_hashes(self):
+        for field in ('result', 'custody', 'execution'):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
+                bound = self.stage_fixture(Path(temporary).resolve(), substitute_worker=field)
+                with self.assertRaisesRegex(ValueError, 'recorded worker environment'):
+                    subject._stage_evidence(bound, 'native_prerequisites', 'native')
 
     def test_stage_evidence_rejects_substituted_launch_and_birth(self):
         changes = [lambda value: value['argv'].__setitem__(8, '/unrelated/run.json'),
@@ -212,6 +227,7 @@ class NativePrerequisiteContracts(unittest.TestCase):
                  patch.object(subject, 'validate_runtime_readiness'), \
                  patch.object(subject, 'reference_environment', return_value=({}, None)), \
                  patch('oryn_validation.reference_environment.ReferenceLease', return_value=MagicMock(admission=None, finalization=None, final_error=None)), \
+                 patch.object(subject, 'assert_worker_environment', return_value={}), \
                  patch.object(subject, '_collect_native', side_effect=mutate):
                 with self.assertRaisesRegex(ValueError, 'changed'):
                     subject.collect(bound, 'native', output)
@@ -230,8 +246,15 @@ class PrerequisiteLaunchEnvironment(unittest.TestCase):
                          'run_id': 'test', 'build': {'build_id': 'test'}},
                  'path': runfile, 'sha256': subject._hash(runfile), 'store_root': root, 'bundle_root': root,
                  'records': [], 'assets': {'python': root / 'python'}}
+        worker = root / 'sealed.app/Contents/MacOS/worker'; worker.parent.mkdir(parents=True)
+        worker.write_text('sealed worker'); worker.chmod(0o755)
+        worker_record = dict(snapshot_input(root, str(worker.relative_to(root))), scope='bundle')
+        bound['assets']['worker'] = worker
+        bound['run']['assets'] = {'worker': worker_record}
+        bound['run']['immutable_inputs'] = [worker_record]
         overlay = {'PYTHONHOME': '/verified/python', 'PYTHONNOUSERSITE': '1'}
         def child(*args, **kwargs):
+            self.assertEqual(kwargs['env']['ORYN_PAGE_WORKER'], str(worker))
             self.assertEqual(kwargs['env']['PYTHONHOME'], '/verified/python')
             self.assertEqual(kwargs['env']['PYTHONNOUSERSITE'], '1')
             self.assertNotIn('PYTHONSTARTUP', kwargs['env'])
@@ -256,7 +279,7 @@ class PrerequisiteLaunchEnvironment(unittest.TestCase):
             stack.enter_context(patch.object(subject, 'run_owned', side_effect=child))
             stack.enter_context(patch.dict(subject.os.environ, {'PYTHONHOME': '/hostile',
                 'PYTHONPATH': '/hostile', 'PYTHONSTARTUP': '/hostile',
-                'DYLD_INSERT_LIBRARIES': '/hostile.dylib', 'ORYN_WPT_INHERITED': '1'}))
+                'DYLD_INSERT_LIBRARIES': '/hostile.dylib', 'ORYN_WPT_INHERITED': '1', 'ORYN_PAGE_WORKER': '/hostile/worker'}))
             if child_failure:
                 with self.assertRaisesRegex(RuntimeError, 'primary child failure'):
                     subject.execute(runfile, store_root=root, bundle_root=root, stage='native')

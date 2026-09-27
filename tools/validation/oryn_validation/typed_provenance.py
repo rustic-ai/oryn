@@ -5,6 +5,7 @@ from pathlib import Path
 from .admission import SOURCE_ROOT, read_object
 from .inputs import InputLease
 from .wpt import _digest, load_inputs, official_admission
+from .worker_environment import assert_worker_environment
 
 
 def _bound(path):
@@ -15,6 +16,7 @@ def _bound(path):
     result = load_inputs(path, store_root=store, bundle_root=bundle)
     if result['assets']['runner_source'] != SOURCE_ROOT:
         raise ValueError('loaded WPT adapter differs from declared runner source')
+    assert_worker_environment(result)
     return result
 
 
@@ -62,6 +64,7 @@ def load_contract(path, binary=None, webdriver_binary=None):
         features, cookies = feature_profile.from_fixture(fixture), cookie_profile.from_fixture(fixture)
         result = dict(
             path=str(bound['path']), sha256=bound['sha256'], typed_run=bound['run'],
+            worker_binding=assert_worker_environment(bound),
             candidate_sha256=bound['run']['build']['manifest_sha256'],
             # This projection preserves the adapter's artifact access ABI. It
             # is explicitly not a legacy candidate admission/qualification.

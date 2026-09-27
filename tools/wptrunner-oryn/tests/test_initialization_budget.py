@@ -96,6 +96,7 @@ class InitializationBudgetTests(unittest.TestCase):
         class Process:
             def __init__(self, command, **kwargs):
                 self.command = command
+                self.environment = kwargs.get("env")
                 self.pid = 100 + len(outer.processes)
                 self.proc = object()
                 self.returncode = None
@@ -140,6 +141,31 @@ class InitializationBudgetTests(unittest.TestCase):
         stack.enter_context(patch.object(product, 'Collector', Collector))
         self.validate = stack.enter_context(patch.object(product, 'load_contract', side_effect=validate))
         self.addCleanup(self.browser.stop)
+
+    def test_typed_worker_uses_actual_driver_environment_snapshot(self):
+        worker = '/sealed/OrynPageWorker.app/Contents/MacOS/oryn-page-worker'
+        contract = {'fixture_path': '/synthetic/fixture.json', 'fixture_sha256': 'b' * 64,
+                    'typed_run': {}, 'worker_binding': {'variable': 'ORYN_PAGE_WORKER', 'path': worker}}
+        self.validate.side_effect = None
+        self.validate.return_value = contract
+        self.browser.env['ORYN_PAGE_WORKER'] = worker
+        with patch.dict(product.os.environ, {'ORYN_PAGE_WORKER': '/unrelated/ambient'}):
+            self.browser.start({})
+        self.assertEqual(self.processes[0].environment['ORYN_PAGE_WORKER'], worker)
+        self.browser.stop()
+        self.browser.env['ORYN_PAGE_WORKER'] = '/injected/copied-driver-env'
+        with patch.dict(product.os.environ, {'ORYN_PAGE_WORKER': worker}):
+            with self.assertRaisesRegex(ValueError, 'driver environment differs'):
+                self.browser.start({})
+        self.assertEqual(len(self.processes), 1)
+
+    def test_typed_missing_worker_binding_never_spawns(self):
+        self.validate.side_effect = None
+        self.validate.return_value = {'fixture_path': '/synthetic/fixture.json',
+                                     'fixture_sha256': 'b' * 64, 'typed_run': {}}
+        with self.assertRaisesRegex(ValueError, 'driver environment differs'):
+            self.browser.start({})
+        self.assertEqual(self.processes, [])
 
     def test_delayed_validation_precedes_spawn_under_both_real_upstream_timers(self):
         self.ready_delay = 2

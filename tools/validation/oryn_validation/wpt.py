@@ -342,7 +342,10 @@ def execute(path, *, store_root, bundle_root, output, timeout_seconds=None):
                        PYTHONPATH=os.pathsep.join((str(SOURCE_ROOT / 'tools/validation/bootstrap'),
                                                  str(SOURCE_ROOT / 'tools/validation'),
                                                  str(SOURCE_ROOT / 'tools/wptrunner-oryn'))))
+    from .worker_environment import worker_environment, assert_worker_environment
     environment.update(selected['python_environment'])
+    environment.update(worker_environment(bound))
+    worker_binding = assert_worker_environment(bound, environment)
     (output / 'tls-activation').mkdir()
     with (output / 'protocol-custody.jsonl').open('x'):
         pass
@@ -399,7 +402,7 @@ def execute(path, *, store_root, bundle_root, output, timeout_seconds=None):
                       'run_id': bound['run']['run_id'], 'run_manifest_sha256': bound['sha256'],
                       'candidate_sha256': bound['run']['build']['manifest_sha256'],
                       'profile': bound['run']['profile'], 'collection': selected['collection'],
-                      'execution_policy': policy,
+                      'execution_policy': policy, 'worker_binding': worker_binding,
                       'returncode': execution['returncode'], 'timed_out': execution['timed_out'],
                       'cleanup_complete': execution['cleanup_complete'], 'launch_error': execution['error'],
                       'errors': integrity_errors, 'custody_complete': not integrity_errors,
@@ -609,6 +612,8 @@ def upstream(argv=None):
     remaining = remaining[1:] if remaining and remaining[0] == '--' else remaining
     bound = load_inputs(args.run, store_root=args.store_root, bundle_root=args.bundle_root)
     selected = official_admission(bound)
+    from .worker_environment import assert_worker_environment
+    assert_worker_environment(bound)
     output = args.store_root.absolute() / bound['run']['outputs']['results']
     command = plan_command(bound, selected, output)
     if remaining != command[command.index('--') + 1:]:

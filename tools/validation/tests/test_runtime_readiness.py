@@ -148,11 +148,18 @@ class RuntimeReadinessTests(unittest.TestCase):
         from oryn_validation import prerequisites
         bound, parent, worker = self.descriptors()
         bound['assets']['runtime'] = self.fixture.root / 'runtime'
-        bound['run'] = {'assets': {'engine_worker': {'executable': True}}}
+        from oryn_validation.inputs import snapshot_input
+        bound['assets']['worker'].chmod(0o755)
+        selected_worker = snapshot_input(self.fixture.root, 'signed-worker', scope='bundle')
+        bound['bundle_root'] = self.fixture.root
+        bound['run'] = {'assets': {'engine_worker': {'executable': True}, 'worker': selected_worker},
+                        'immutable_inputs': [selected_worker],
+                        'build': {'build_id': 'fixture', 'manifest_sha256': 'a' * 64}}
         output = self.fixture.root / 'runtime-output'; output.mkdir()
         observed = {name: {'path': '/observed/bin/' + name, 'sha256': 'a' * 64, 'size': 10, 'executable': True}
                     for name in ('cargo', 'rustc')}
         def owned(command, *, output, **kwargs):
+            self.assertEqual(kwargs['env']['ORYN_PAGE_WORKER'], str(bound['assets']['worker']))
             output.mkdir()
             name = output.name
             if name in {'parent', 'worker'}:
