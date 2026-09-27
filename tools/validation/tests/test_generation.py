@@ -110,6 +110,74 @@ class GenerationContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'incomplete generation'):
             generation.prepare_generation_gate(self.source, predecessor, self.store / 'gate.json')
 
+    def mapping_fixture(self):
+        predecessor = self.predecessor()
+        previous = json.loads(predecessor.read_text())
+        previous['requirements']['Q-01']['caller_evidence'] = 'preserved mechanism and original receipts'
+        previous['requirements']['Q-01']['package_review'] = 'review.md'
+        old = {'path': 'artifacts/obsolete-helper.py', 'sha256': 'c' * 64}
+        previous['requirements']['Q-01']['implementation_sources'].append(old)
+        predecessor.write_text(json.dumps(previous))
+        mapping = {'schema_version': 1, 'kind': 'generation-source-migration',
+            'predecessor_sha256': builds._identity(predecessor)['sha256'], 'entries': [{
+                'requirement': 'Q-01', 'field': 'implementation_sources', 'previous': old,
+                'replacement_paths': ['native.rs'], 'reason': 'Current committed semantic successor'}]}
+        return predecessor, previous, mapping
+
+    def commit_mapping(self, mapping):
+        path = self.source / 'mapping.json'
+        path.write_text(json.dumps(mapping))
+        subprocess.run(['git', '-C', str(self.source), 'add', 'mapping.json'], check=True)
+        subprocess.run(['git', '-C', str(self.source), '-c', 'user.name=Test', '-c',
+                        'user.email=test@example.invalid', '-c', 'core.hooksPath=/dev/null',
+                        'commit', '--no-gpg-sign', '-qm', 'mapping'], check=True)
+        return path
+
+    def test_explicit_committed_mapping_preserves_all_requirements_roles_and_metadata(self):
+        predecessor, previous, mapping = self.mapping_fixture()
+        path = self.commit_mapping(mapping)
+        output = self.store / 'mapped-gate.json'
+        receipt = generation.prepare_generation_gate(self.source, predecessor, output, mapping_path='mapping.json')
+        gate = json.loads(output.read_text())
+        self.assertEqual(set(gate['requirements']), generation.REQUIREMENTS)
+        self.assertEqual(gate['history']['mapping_sha256'], builds._identity(path)['sha256'])
+        self.assertEqual(gate['history']['predecessor_sha256'], mapping['predecessor_sha256'])
+        self.assertTrue(receipt['independent_review_required'])
+        self.assertEqual(gate['requirements']['Q-01']['caller_evidence'], previous['requirements']['Q-01']['caller_evidence'])
+        self.assertEqual(gate['requirements']['Q-01']['package_review'], 'review.md')
+        for name in generation.REQUIREMENTS:
+            for field in ('implementation_sources', 'test_sources'):
+                self.assertEqual([row['path'] for row in gate['requirements'][name][field]], ['native.rs'])
+            self.assertTrue(gate['requirements'][name]['implementation_generated'])
+            self.assertTrue(gate['requirements'][name]['tests_generated'])
+        self.assertFalse((self.source / 'artifacts').exists())
+        self.assertEqual(json.loads(predecessor.read_text()), previous)
+
+    def test_mapping_cannot_drop_or_reassign_roles_or_bypass_exact_predecessor(self):
+        predecessor, _, mapping = self.mapping_fixture()
+        mutations = [lambda value: value.update(predecessor_sha256='f' * 64),
+                     lambda value: value.update(entries=[]),
+                     lambda value: value['entries'][0].update(replacement_paths=[]),
+                     lambda value: value['entries'][0].update(replacement_paths=['not-committed.py']),
+                     lambda value: value['entries'][0]['previous'].update(sha256='f' * 64),
+                     lambda value: value['entries'][0]['previous'].update(path='native.rs', sha256='a' * 64)]
+        for index, mutation in enumerate(mutations):
+            invalid = copy.deepcopy(mapping)
+            mutation(invalid)
+            path = self.commit_mapping(invalid)
+            with self.assertRaises(ValueError):
+                generation.prepare_generation_gate(self.source, predecessor, self.store / ('bad-' + str(index)),
+                                                   mapping_path=path)
+
+    def test_mapping_requires_explicit_selection_and_a_clean_committed_file(self):
+        predecessor, _, mapping = self.mapping_fixture()
+        with self.assertRaisesRegex(ValueError, 'not committed'):
+            generation.prepare_generation_gate(self.source, predecessor, self.store / 'absent.json')
+        path = self.source / 'mapping.json'
+        path.write_text(json.dumps(mapping))
+        with self.assertRaisesRegex(ValueError, 'committed'):
+            generation.prepare_generation_gate(self.source, predecessor, self.store / 'untracked.json', mapping_path=path)
+
 
 if __name__ == '__main__':
     unittest.main()

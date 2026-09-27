@@ -1,0 +1,279 @@
+{
+  "schema_version": 1,
+  "kind": "generation-source-migration",
+  "predecessor_sha256": "a4e4e56fd52e4293e4670a9e4d0367f6f05d04ac14adb4bc3e01fc557287f002",
+  "entries": [
+    {
+      "requirement": "Q-01",
+      "field": "implementation_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/repair48-admission-proposal-01/assemble.py",
+        "sha256": "031b20023604d1c125f82dc1a556d1a010f7182b42e55fd0a68637eea03a8fa5"
+      },
+      "replacement_paths": [
+        "tools/validation/oryn_validation/generation.py",
+        "tools/validation/oryn_validation/assembly.py",
+        "tools/validation/oryn_validation/build_evidence.py",
+        "tools/validation/oryn_validation/inputs.py",
+        "tools/validation/oryn_validation/manifests.py",
+        "tools/validation/oryn_validation/production.py"
+      ],
+      "reason": "Replaces candidate-specific graph assembly, reviewed generation projection, immutable source/input binding and original execution admission with committed typed producers. All other requirement source roles remain; the new gate still needs independent exact-digest review."
+    },
+    {
+      "requirement": "Q-01",
+      "field": "implementation_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/repair49-admission-proposal-02/assemble.py",
+        "sha256": "8d887d1688cd30564eb860ef2a75ab3c4cf26aa7c3d9255e66a9fed485291bca"
+      },
+      "replacement_paths": [
+        "tools/validation/oryn_validation/generation.py",
+        "tools/validation/oryn_validation/assembly.py",
+        "tools/validation/oryn_validation/build_evidence.py",
+        "tools/validation/oryn_validation/inputs.py",
+        "tools/validation/oryn_validation/manifests.py",
+        "tools/validation/oryn_validation/production.py"
+      ],
+      "reason": "Replaces candidate-specific graph assembly, reviewed generation projection, immutable source/input binding and original execution admission with committed typed producers. All other requirement source roles remain; the new gate still needs independent exact-digest review."
+    },
+    {
+      "requirement": "Q-01",
+      "field": "implementation_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/repair50-admission-preparation-01/assemble-02.py",
+        "sha256": "7714ae7310c9ddafe981bce1dc7924adea26c921bf05f7b1bca29e3d98454b38"
+      },
+      "replacement_paths": [
+        "tools/validation/oryn_validation/generation.py",
+        "tools/validation/oryn_validation/assembly.py",
+        "tools/validation/oryn_validation/build_evidence.py",
+        "tools/validation/oryn_validation/inputs.py",
+        "tools/validation/oryn_validation/manifests.py",
+        "tools/validation/oryn_validation/production.py"
+      ],
+      "reason": "Replaces candidate-specific graph assembly, reviewed generation projection, immutable source/input binding and original execution admission with committed typed producers. All other requirement source roles remain; the new gate still needs independent exact-digest review."
+    },
+    {
+      "requirement": "Q-01",
+      "field": "implementation_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/repair51-admission-preparation-01/assemble.py",
+        "sha256": "0ca17e4cd1870c4b43a3f4ac7ad998e79fae99fca2b03c3bf7aad51836c6865a"
+      },
+      "replacement_paths": [
+        "tools/validation/oryn_validation/generation.py",
+        "tools/validation/oryn_validation/assembly.py",
+        "tools/validation/oryn_validation/build_evidence.py",
+        "tools/validation/oryn_validation/inputs.py",
+        "tools/validation/oryn_validation/manifests.py",
+        "tools/validation/oryn_validation/production.py"
+      ],
+      "reason": "Replaces candidate-specific graph assembly, reviewed generation projection, immutable source/input binding and original execution admission with committed typed producers. All other requirement source roles remain; the new gate still needs independent exact-digest review."
+    },
+    {
+      "requirement": "Q-01",
+      "field": "implementation_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/repair52-admission-preparation-01/assemble.py",
+        "sha256": "8366acea5aea5807db61725a87985a4ba430a66c1707f3fc78b8b138df2a9f8f"
+      },
+      "replacement_paths": [
+        "tools/validation/oryn_validation/generation.py",
+        "tools/validation/oryn_validation/assembly.py",
+        "tools/validation/oryn_validation/build_evidence.py",
+        "tools/validation/oryn_validation/inputs.py",
+        "tools/validation/oryn_validation/manifests.py",
+        "tools/validation/oryn_validation/production.py"
+      ],
+      "reason": "Replaces candidate-specific graph assembly, reviewed generation projection, immutable source/input binding and original execution admission with committed typed producers. All other requirement source roles remain; the new gate still needs independent exact-digest review."
+    },
+    {
+      "requirement": "Q-01",
+      "field": "implementation_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/repair53-admission-preparation-01/assemble.py",
+        "sha256": "f5f27b0422e9573162a9a231e1868243fd1670fbd5a16afe39131c2e69148d75"
+      },
+      "replacement_paths": [
+        "tools/validation/oryn_validation/generation.py",
+        "tools/validation/oryn_validation/assembly.py",
+        "tools/validation/oryn_validation/build_evidence.py",
+        "tools/validation/oryn_validation/inputs.py",
+        "tools/validation/oryn_validation/manifests.py",
+        "tools/validation/oryn_validation/production.py"
+      ],
+      "reason": "Replaces candidate-specific graph assembly, reviewed generation projection, immutable source/input binding and original execution admission with committed typed producers. All other requirement source roles remain; the new gate still needs independent exact-digest review."
+    },
+    {
+      "requirement": "Q-01",
+      "field": "implementation_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/repair54-admission-preparation-01/assemble.py",
+        "sha256": "33e57fef70d9e77a67030856b89f573ef885a84d74ee2a9cf81281e33bc858b4"
+      },
+      "replacement_paths": [
+        "tools/validation/oryn_validation/generation.py",
+        "tools/validation/oryn_validation/assembly.py",
+        "tools/validation/oryn_validation/build_evidence.py",
+        "tools/validation/oryn_validation/inputs.py",
+        "tools/validation/oryn_validation/manifests.py",
+        "tools/validation/oryn_validation/production.py"
+      ],
+      "reason": "Replaces candidate-specific graph assembly, reviewed generation projection, immutable source/input binding and original execution admission with committed typed producers. All other requirement source roles remain; the new gate still needs independent exact-digest review."
+    },
+    {
+      "requirement": "Q-01",
+      "field": "test_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/run-native-js-tests-35.py",
+        "sha256": "290812850c89ce2e5b88ea7173efe4ef249c65f3b3cee146e75292055be7f20d"
+      },
+      "replacement_paths": [
+        "scripts/qualification/native.py",
+        "scripts/test_python_regression_harness.py",
+        "tools/validation/tests/test_build_evidence.py",
+        "tools/validation/tests/test_generation.py"
+      ],
+      "reason": "Canonical native launcher retains the locked no-fail-fast native package/features command and separate WebIDL registry check, with exact generation/runtime input checks and original failure receipts; current tests cover admission and receipt binding."
+    },
+    {
+      "requirement": "Q-05",
+      "field": "implementation_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/repair48-root-execution-custody.py",
+        "sha256": "2c2220332801b9e7ed7b0be1ca0ed983161a70bba1f80fe9a4d9c050b0bc4093"
+      },
+      "replacement_paths": [
+        "scripts/qualification/custody.py",
+        "tools/validation/oryn_validation/processes.py",
+        "tools/validation/oryn_validation/inputs.py",
+        "tools/validation/oryn_validation/build_evidence.py",
+        "tools/validation/oryn_validation/production.py",
+        "tools/validation/oryn_validation/prerequisites.py"
+      ],
+      "reason": "Preserves exact declaration/source leases, runtime profile and transitive compiler-input checks, owned descendant cleanup and failure evidence through canonical custody and typed process/admission modules."
+    },
+    {
+      "requirement": "Q-05",
+      "field": "implementation_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/repair49-root-execution-custody.py",
+        "sha256": "2c8162babd7e37360862a65749b909ae57ed4e7b3b0b82952ad7ef7569a30119"
+      },
+      "replacement_paths": [
+        "scripts/qualification/custody.py",
+        "tools/validation/oryn_validation/processes.py",
+        "tools/validation/oryn_validation/inputs.py",
+        "tools/validation/oryn_validation/build_evidence.py",
+        "tools/validation/oryn_validation/production.py",
+        "tools/validation/oryn_validation/prerequisites.py"
+      ],
+      "reason": "Preserves exact declaration/source leases, runtime profile and transitive compiler-input checks, owned descendant cleanup and failure evidence through canonical custody and typed process/admission modules."
+    },
+    {
+      "requirement": "Q-05",
+      "field": "implementation_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/repair49-signed-python-inputs.py",
+        "sha256": "4ba87995316e58627035782a592522f7a78b333b75a78ff225daedb34bceb0b7"
+      },
+      "replacement_paths": [
+        "scripts/qualification/signed_inputs.py",
+        "tools/validation/oryn_validation/builds.py",
+        "tools/validation/oryn_validation/runtime_metadata.py",
+        "tools/validation/oryn_validation/production.py",
+        "tools/validation/oryn_validation/assembly.py"
+      ],
+      "reason": "Preserves explicit signed-worker preparation, source/profile/unsigned-worker linkage, fresh production signature verification, and rejection of environment substitution; typed assembly separates build inputs from produced evidence."
+    },
+    {
+      "requirement": "Q-05",
+      "field": "test_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/fq-python-regressions-13/launch.py",
+        "sha256": "cd843fba44b837c4ee0d16e6ff4427cb04def7617d249b3a69433d76a512caa9"
+      },
+      "replacement_paths": [
+        "scripts/qualification/launch.py",
+        "scripts/test_python_regression_harness.py",
+        "tools/validation/tests/test_processes.py",
+        "tools/validation/tests/test_environments.py"
+      ],
+      "reason": "Canonical launcher retains complete per-source Python collection and terminal outcome accounting, validated native/signed inputs, frozen generation inheritance and supervised cleanup; focused tests cover launch/process/environment refusals."
+    },
+    {
+      "requirement": "Q-05",
+      "field": "test_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/fq-python-regressions-13/runner.py",
+        "sha256": "86d7a20307a6b93ad1b0bdad0ffbc132f5c93f4facef571ef6abf5cca534c0c5"
+      },
+      "replacement_paths": [
+        "scripts/qualification/runner.py",
+        "scripts/test_python_regression_harness.py"
+      ],
+      "reason": "Canonical runner preserves isolated per-source imports, source suites, terminal test ledger accounting, startup errors and complete source population checks; existing harness regressions exercise those mechanisms."
+    },
+    {
+      "requirement": "Q-05",
+      "field": "test_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/fq-python-regressions-14/launch.py",
+        "sha256": "ca4a02452e29d44655816cdf1c0d377985e70b4f44f4e501d393ab9f4156c0f4"
+      },
+      "replacement_paths": [
+        "scripts/qualification/launch.py",
+        "scripts/test_python_regression_harness.py",
+        "tools/validation/tests/test_processes.py",
+        "tools/validation/tests/test_environments.py"
+      ],
+      "reason": "Canonical launcher retains complete per-source Python collection and terminal outcome accounting, validated native/signed inputs, frozen generation inheritance and supervised cleanup; focused tests cover launch/process/environment refusals."
+    },
+    {
+      "requirement": "Q-05",
+      "field": "test_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/fq-python-regressions-14/runner.py",
+        "sha256": "f627f7d13decba14a1e99bbda2fd6c4ebfcb94cb6b0bca9ad0c1b1f11795af33"
+      },
+      "replacement_paths": [
+        "scripts/qualification/runner.py",
+        "scripts/test_python_regression_harness.py"
+      ],
+      "reason": "Canonical runner preserves isolated per-source imports, source suites, terminal test ledger accounting, startup errors and complete source population checks; existing harness regressions exercise those mechanisms."
+    },
+    {
+      "requirement": "Q-05",
+      "field": "test_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/repair48-dispatch-proposal-02/test_repair48_runtime_admission.py",
+        "sha256": "36f243c7457c092a8ce31b81789ccc7d7bcf631c192754c86c6148ceacebe97c"
+      },
+      "replacement_paths": [
+        "tools/validation/tests/test_production.py",
+        "tools/validation/tests/test_inputs.py",
+        "tools/validation/tests/test_build_evidence.py",
+        "tools/validation/tests/test_runtime_metadata.py",
+        "tools/validation/tests/test_generation.py",
+        "scripts/test_python_regression_harness.py"
+      ],
+      "reason": "Joint negative coverage retains wrong profile/artifact digest and patch rejection, transitive compiler/header closure, symlink aliases/conflicting paths, stale environment and exact generation/source binding refusals."
+    },
+    {
+      "requirement": "Q-05",
+      "field": "test_sources",
+      "previous": {
+        "path": "artifacts/completion-validation-2026-09-18/run-native-js-tests-34.py",
+        "sha256": "c29b05be44e214de18970d6dd6bf96c90faa55cd338f55d06800a1784cac12ae"
+      },
+      "replacement_paths": [
+        "scripts/qualification/native.py",
+        "scripts/test_python_regression_harness.py",
+        "tools/validation/tests/test_build_evidence.py",
+        "tools/validation/tests/test_generation.py"
+      ],
+      "reason": "Canonical native launcher retains the locked no-fail-fast native package/features command and separate WebIDL registry check, with exact generation/runtime input checks and original failure receipts; current tests cover admission and receipt binding."
+    }
+  ]
+}

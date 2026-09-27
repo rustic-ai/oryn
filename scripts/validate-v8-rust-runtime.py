@@ -6,9 +6,16 @@ from pathlib import Path
 from rusty_v8_source_provenance import FIELDS, digest, validate
 
 
-def validate_runtime(selected, runtime, binding, archive, root):
+def validate_runtime(selected, runtime, binding, archive, root, *, allow_relocated_source_manifest=False):
     current = validate(root)
     for field, expected in current.items():
+        if field == 'rusty_v8_source_manifest_path' and allow_relocated_source_manifest:
+            path = Path(selected.get(field, ''))
+            if (not path.is_absolute() or not path.is_file()
+                    or path.stat().st_size != current['rusty_v8_source_manifest_size_bytes']
+                    or digest(path) != current['rusty_v8_source_manifest_sha256']):
+                raise ValueError('retained Rust V8 source manifest differs from selected source')
+            continue
         if selected.get(field) != expected:
             raise ValueError('selected Rust V8 source differs: ' + field)
     for field in FIELDS:
@@ -26,9 +33,11 @@ def main():
     parser.add_argument('runtime', type=Path)
     parser.add_argument('--binding', type=Path, required=True)
     parser.add_argument('--archive', type=Path, required=True)
+    parser.add_argument("--allow-relocated-source-manifest", action="store_true")
     args = parser.parse_args()
     validate_runtime(json.loads(args.selected.read_text()), json.loads(args.runtime.read_text()),
-                     args.binding, args.archive, Path(__file__).resolve().parents[1])
+                     args.binding, args.archive, Path(__file__).resolve().parents[1],
+                     allow_relocated_source_manifest=args.allow_relocated_source_manifest)
 
 
 if __name__ == '__main__':

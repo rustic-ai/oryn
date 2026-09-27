@@ -51,6 +51,7 @@ def parser():
     gate.add_argument("--predecessor", type=Path, required=True)
     gate.add_argument("--output", type=Path, required=True)
     gate.add_argument("--commit")
+    gate.add_argument("--mapping", help="Committed source-relative migration mapping")
     info = command("source-info", "Verify committed checkout against exported source identity")
     info.add_argument("--source-root", type=Path, required=True)
     info.add_argument("--source-identity", type=Path, required=True)
@@ -193,7 +194,7 @@ def dispatch(args):
     if args.command == "generation-prepare":
         from .generation import prepare_generation_gate
         return prepare_generation_gate(args.source_root, args.predecessor, args.output,
-                                       expected_commit=args.commit)
+                                       expected_commit=args.commit, mapping_path=args.mapping)
     if args.command == "source-info":
         from .generation import source_info
         return source_info(args.source_root, args.source_identity)

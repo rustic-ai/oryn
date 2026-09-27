@@ -191,7 +191,8 @@ class RuntimeMetadataContracts(unittest.TestCase):
         scripts = self.source / 'scripts'
         scripts.mkdir()
         (scripts / 'validate-v8-rust-runtime.py').write_text(
-            "def validate_runtime(selected, runtime, binding, archive, root):\n"
+            "def validate_runtime(selected, runtime, binding, archive, root, *, allow_relocated_source_manifest=False):\n"
+            "    assert allow_relocated_source_manifest\n"
             "    if runtime.get('reject'): raise ValueError('compiled source mismatch')\n")
         worker = self.file('fresh-worker', b'fresh compiled bytes')
         runtime = self.file('runtime.json', json.dumps({'v8_bridge_abi_sha256':

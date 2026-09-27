@@ -92,3 +92,10 @@ PYTHONPATH=tools/validation PYTHONDONTWRITEBYTECODE=1 \
 These tests stage tiny inert fixtures and mock process/system observation. They
 exercise drift, membership, plugin exclusion, relocation, library classification,
 and failed ownership evidence without running an interpreter installation or WPT.
+
+The real source lock is always validated by the test suite. To also verify a
+selected migration donor's actual bytes and membership, set
+`ORYN_VALIDATION_DEPENDENCY_DONOR` to its `site-packages` directory for the same
+command. That optional test performs read-only payload validation; it does not
+stage or launch the donor interpreter. Without an explicit donor, that one test
+is reported as skipped, while the source-lock and fixture regressions still run.

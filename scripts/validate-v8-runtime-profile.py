@@ -22,7 +22,7 @@ def digest(path):
     with Path(path).open("rb") as source:
         return hashlib.file_digest(source, "sha256").hexdigest()
 
-def validate(manifest, root, profile=None, target=None):
+def validate(manifest, root, profile=None, target=None, *, allow_relocated_source_manifest=False):
     def require(condition, message):
         if not condition:
             raise ValueError(message)
@@ -79,6 +79,11 @@ def validate(manifest, root, profile=None, target=None):
     spec.loader.exec_module(sources)
     selected = sources.validate(root)
     for field, expected in selected.items():
+        # The artifact loop above pins the retained manifest bytes. Every
+        # non-path field still joins to sources.validate(root), including that
+        # manifest's size/hash and the current Cargo selection, tree and patch.
+        if field == "rusty_v8_source_manifest_path" and allow_relocated_source_manifest:
+            continue
         require(manifest.get(field) == expected, "Rust V8 selected source mismatch: " + field)
     compatibility = manifest.get("rusty_v8_archive_compatibility")
     require(compatibility == dict(cpp_changes=False, crate_version="150.4.0",
@@ -111,9 +116,12 @@ def main():
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--profile", choices=("core-full", "core-lite"))
     parser.add_argument("--target")
+    parser.add_argument("--allow-relocated-source-manifest", action="store_true",
+                        help="allow only byte-identical retained Rust source manifests at a different path")
     args = parser.parse_args()
     try:
-        validate(json.loads(args.manifest.read_text()), Path(__file__).resolve().parents[1], args.profile, args.target)
+        validate(json.loads(args.manifest.read_text()), Path(__file__).resolve().parents[1], args.profile, args.target,
+                 allow_relocated_source_manifest=args.allow_relocated_source_manifest)
     except (ValueError, KeyError, OSError, TypeError) as error:
         parser.error(str(error))
     print("Current engine patches and runtime artifact inputs verified; qualification remains required.")

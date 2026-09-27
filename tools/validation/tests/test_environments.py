@@ -1,6 +1,7 @@
 """Offline runtime custody tests; no real Python staging, pip or network runs."""
 import copy
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -269,6 +270,39 @@ class Environments(unittest.TestCase):
             observed = self.system_observer(native)
         self.assertEqual(observed, {'libraries': [], 'os_shared_cache_names': ['/usr/lib/libSystem.B.dylib'],
                                     'macos_build': 'os-build'})
+
+
+class SourceDependencyLock(unittest.TestCase):
+    """Exercise real committed lock data, not only mocked fixture metadata."""
+
+    def test_real_source_lock_is_accepted_by_production_loader(self):
+        lock = e._lock()
+        self.assertEqual(len(lock['files']), 1607)
+        self.assertEqual(len(lock['distributions']), 40)
+        paths = [row['path'] for row in lock['files']]
+        self.assertEqual(paths, sorted(set(paths)))
+        identities = {row['path'] for row in lock['files']}
+        for distribution in lock['distributions']:
+            self.assertIn(distribution['metadata'], identities)
+            self.assertIn(distribution['wheel_metadata'], identities)
+
+    def test_out_of_order_real_lock_records_are_rejected(self):
+        value = json.loads(e.DEFAULT_LOCK.read_text())
+        value['files'][0], value['files'][1] = value['files'][1], value['files'][0]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'lock.json'
+            path.write_text(json.dumps(value))
+            with patch.object(e, 'DEFAULT_LOCK', path):
+                with self.assertRaisesRegex(ValueError, 'sorted and unique'):
+                    e._lock()
+
+    @unittest.skipUnless(os.environ.get('ORYN_VALIDATION_DEPENDENCY_DONOR'),
+                         'set explicit migration donor for read-only payload verification')
+    def test_selected_actual_donor_matches_real_source_lock(self):
+        donor = Path(os.environ['ORYN_VALIDATION_DEPENDENCY_DONOR']).absolute()
+        # No subprocess, staging, installation or writes to the donor occur here.
+        # The migration donor may contain the old plugin, which is never copied.
+        e._dependencies(donor, e._lock(), allow_plugin=True)
 
 
 if __name__ == '__main__':

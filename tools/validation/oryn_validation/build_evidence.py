@@ -92,7 +92,7 @@ def _engine_files(profile_path, source, store, declarations):
     from .runtime_metadata import _legacy_validator
     validator = _legacy_validator(source)
     profile = _read(profile_path)
-    validator.validate(profile, source, profile="core-full")
+    validator.validate(profile, source, profile="core-full", allow_relocated_source_manifest=True)
     bridge = _read(profile["bridge_abi_path"])
     paths = [profile[name + "_path"] for name in validator.ARTIFACTS]
     paths += [row["path"] for row in bridge["inputs"]]

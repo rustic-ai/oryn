@@ -15,10 +15,12 @@ schema-6 validator must pass against the newly committed source before reuse:
 
 ```sh
 python3 scripts/validate-v8-runtime-profile.py "$ORYN_RETAINED_PROFILE" \
-  --profile core-full --target aarch64-apple-darwin
+  --profile core-full --target aarch64-apple-darwin --allow-relocated-source-manifest
 ```
 
-The validator checks current V8 patches, Rust vendor source/lock selection,
+The explicit relocation flag accepts only a retained Rust source manifest whose
+size and hash equal the manifest validated from the current selected source.
+Legacy calls remain path-strict. The validator checks current V8 patches, Rust vendor source/lock selection,
 regression inputs, compiler/header ABI custody and archive/binding/ICU hashes.
 Reusing these archived C++ build inputs avoids another V8 build. It does **not**
 permit reusing the R25 parent, page worker, snapshot or driver as a new Git build.
@@ -65,10 +67,17 @@ values at admission; this document is not a toolchain receipt.
    and raw Git commit/tree objects, not `.git`, target caches or historical runs.
    Independently validate its exact file/mode membership against the Git objects.
 3. Call `generation.prepare_generation_gate(source_root, predecessor_path,
-   output_path, expected_commit=...)`, starting with the exact reviewed R25 gate
-   retained by R27. The schema-2 declaration preserves all 51 requirements and
-   their implementation/test path mapping, binds the unchanged full completion
-   plan and refreshes source hashes against the new clean commit. It does not
+   output_path, expected_commit=...,
+   mapping_path="tools/validation/generation-migrations/r25-consolidation.json")`,
+   starting with the exact reviewed R25 gate retained by R27. Select the same
+   committed mapping explicitly with CLI `generation-prepare --mapping`. It
+   replaces exactly the 17 untracked Q-01/Q-05 legacy helper roles with listed
+   committed semantic successors, binding each old path/hash and the entire R25
+   predecessor digest. No old helper is imported or copied into Git. The schema-2
+   declaration preserves all 51 requirements, generated flags, remaining path
+   roles and requirement metadata, binds the unchanged full completion plan and
+   refreshes source hashes against the new clean commit. History records the
+   predecessor and mapping digests as opaque citations. It does not
    create independent approval. Review the new declaration and pin its SHA256
    before production execution.
 4. Set `ORYN_GENERATION_GATE` and `ORYN_GENERATION_GATE_SHA256` through

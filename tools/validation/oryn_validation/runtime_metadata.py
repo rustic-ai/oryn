@@ -85,7 +85,7 @@ def stage_engine_inputs(source_root, store_root, *, legacy_profile, output_direc
         raise ValueError('engine profile changed before staging')
     profile = json.loads(profile_bytes)
     validator = _legacy_validator(root)
-    validator.validate(profile, root, profile='core-full')
+    validator.validate(profile, root, profile='core-full', allow_relocated_source_manifest=True)
     descriptor_path = Path(profile['bridge_abi_path'])
     descriptor_bytes = descriptor_path.read_bytes()
     if hashlib.sha256(descriptor_bytes).hexdigest() != profile['bridge_abi_sha256']:
@@ -237,7 +237,7 @@ def stage_engine_inputs(source_root, store_root, *, legacy_profile, output_direc
         'remapped_include_directories': sorted(directories),
         'vendor_headers_source': 'vendor/v8-api/include',
         'historical_worker_is_build_output': False})
-    validator.validate(updated, root, profile='core-full')
+    validator.validate(updated, root, profile='core-full', allow_relocated_source_manifest=True)
     if observe_sdk(descriptor['sdkroot']) != sdk_before or builds._identity(profile_path) != profile_before:
         raise ValueError('engine source or SDK identity changed during staging')
     # Independent files and directories are sealed before forming the lease.
@@ -270,7 +270,7 @@ def prepare_typed_runtime(source_root, store_root, *, legacy_profile, output_dir
     current_source = source_info(source, source_identity)
     profile_path = Path(legacy_profile).resolve(strict=True)
     profile = json.loads(profile_path.read_text())
-    _legacy_validator(source).validate(profile, source, profile='core-full')
+    _legacy_validator(source).validate(profile, source, profile='core-full', allow_relocated_source_manifest=True)
     descriptor_path = Path(profile['bridge_abi_path'])
     descriptor = json.loads(descriptor_path.read_text())
     if descriptor.get('schema_version') != 1:
@@ -341,7 +341,7 @@ def validate_profile_replacement(source_root, legacy_profile, typed_profile, sou
     source = source_info(source_root, source_identity)
     original = json.loads(Path(legacy_profile).read_text())
     replacement = json.loads(Path(typed_profile).read_text())
-    _legacy_validator(source_root).validate(original, Path(source_root).resolve(), profile='core-full')
+    _legacy_validator(source_root).validate(original, Path(source_root).resolve(), profile='core-full', allow_relocated_source_manifest=True)
     expected = {key: original[key] for key in PROFILE_FIELDS}
     expected.update(schema_version=7, kind='v8-runtime-profile', assets=ENGINE_ASSETS)
     if replacement != expected:
@@ -360,7 +360,7 @@ def refresh_engine_profile(source_root, legacy_profile, output_path, *, worker=N
     root = Path(source_root).resolve(strict=True)
     old = json.loads(Path(legacy_profile).read_text())
     validator = _legacy_validator(root)
-    validator.validate(old, root, profile='core-full')
+    validator.validate(old, root, profile='core-full', allow_relocated_source_manifest=True)
     if worker is None and startup_snapshot is None:
         raise ValueError('profile refresh requires a newly produced native artifact')
     if (worker is None) != (runtime_info is None):
@@ -383,12 +383,12 @@ def refresh_engine_profile(source_root, legacy_profile, output_path, *, worker=N
             spec.loader.exec_module(module)
             runtime = json.loads(Path(runtime_info).read_text())
             module.validate_runtime(updated, runtime, Path(updated['binding_path']),
-                                    Path(updated['archive_path']), root)
+                                    Path(updated['archive_path']), root, allow_relocated_source_manifest=True)
             if runtime.get('v8_bridge_abi_sha256') != updated['bridge_abi_sha256']:
                 raise ValueError('compiled worker bridge descriptor differs from selected build inputs')
         finally:
             sys.path[:] = old_path
-    validator.validate(updated, root, profile='core-full')
+    validator.validate(updated, root, profile='core-full', allow_relocated_source_manifest=True)
     _write_new(output_path, updated)
     return {'schema_version': 1, 'profile_sha256': builds._identity(Path(output_path))['sha256'],
             'updated_native_artifacts': [role for role, value in

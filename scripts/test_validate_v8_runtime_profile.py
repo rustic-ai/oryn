@@ -72,6 +72,30 @@ class ProfileValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "target mismatch"):
             MODULE.validate(self.profile, ROOT, "core-full", "x86_64-unknown-linux-gnu")
 
+    def test_relocated_source_manifest_requires_explicit_opt_in_and_identical_selected_bytes(self):
+        candidate = copy.deepcopy(self.profile)
+        retained = Path(self.temp.name) / 'retained-source-manifest.json'
+        retained.write_bytes(Path(candidate['rusty_v8_source_manifest_path']).read_bytes())
+        candidate['rusty_v8_source_manifest_path'] = str(retained)
+        with self.assertRaisesRegex(ValueError, 'Rust V8 selected source mismatch'):
+            MODULE.validate(candidate, ROOT)
+        MODULE.validate(candidate, ROOT, allow_relocated_source_manifest=True)
+        # Even internally consistent hashes on a different retained manifest
+        # cannot replace the current selected source manifest.
+        retained.write_bytes(retained.read_bytes() + b' ')
+        candidate['rusty_v8_source_manifest_size_bytes'] = retained.stat().st_size
+        candidate['rusty_v8_source_manifest_sha256'] = MODULE.digest(retained)
+        with self.assertRaisesRegex(ValueError, 'Rust V8 selected source mismatch'):
+            MODULE.validate(candidate, ROOT, allow_relocated_source_manifest=True)
+
+    def test_relocation_does_not_relax_selected_source_tree_or_patch_checks(self):
+        for field in ('rusty_v8_source_tree_sha256', 'rusty_v8_weak_teardown_patch_sha256',
+                      'rusty_v8_patch_metadata_sha256'):
+            candidate = copy.deepcopy(self.profile)
+            candidate[field] = '0' * 64
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'Rust V8 selected source mismatch'):
+                MODULE.validate(candidate, ROOT, allow_relocated_source_manifest=True)
+
     def test_each_missing_or_stale_patch_is_rejected(self):
         for field in MODULE.PATCHES:
             with self.subTest(field=field):
@@ -114,6 +138,33 @@ class ProfileValidationTests(unittest.TestCase):
         candidate["gn_args"] += " v8_drumbrake_bounds_checks=false"
         with self.assertRaisesRegex(ValueError, "conflicting engine option"):
             MODULE.validate(candidate, ROOT)
+
+
+class TypedWorkerValidatorShellTests(unittest.TestCase):
+    def test_legacy_and_typed_validator_arguments_under_system_bash_nounset(self):
+        import re
+        import subprocess
+        source = (ROOT / 'scripts/build-sandboxed-worker.sh').read_text()
+        for variable in ('profile_validation', 'runtime_validation'):
+            block = re.search(r'^' + variable + r'=\(.*?^"\$\{' + variable + r'\[@\]\}"$',
+                              source, re.M | re.S).group(0)
+            setup = """set -euo pipefail
+repo_root='/source with spaces'
+v8_profile_manifest='/profile with spaces'
+runtime_file='/runtime with spaces'
+RUSTY_V8_SRC_BINDING_PATH='/binding with spaces'
+RUSTY_V8_ARCHIVE='/archive with spaces'
+typed_source_identity="${1:-}"
+function rustc() { printf 'host: aarch64-apple-darwin\n'; }
+function python3() { printf '%s\n' "$@"; }
+"""
+            for typed in ('', '/identity'):
+                with self.subTest(variable=variable, typed=bool(typed)):
+                    result = subprocess.run(['/bin/bash', '-c', setup + block, '--', typed],
+                                            check=True, capture_output=True, text=True)
+                    arguments = result.stdout.splitlines()
+                    self.assertIn('/profile with spaces', arguments)
+                    self.assertEqual('--allow-relocated-source-manifest' in arguments, bool(typed))
 
 
 class RuntimeProvenanceTests(unittest.TestCase):

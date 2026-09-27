@@ -57,8 +57,12 @@ if [[ -z "$v8_profile_manifest" ]]; then
   echo "Set ORYN_V8_PROFILE_MANIFEST to the current core-full manifest from build-v8-runtime-profile.sh." >&2
   exit 2
 fi
-python3 "$repo_root/scripts/validate-v8-runtime-profile.py" "$v8_profile_manifest" \
-  --profile core-full --target "$(rustc -vV | awk '/host:/ {print $2}')"
+profile_validation=(python3 "$repo_root/scripts/validate-v8-runtime-profile.py" "$v8_profile_manifest"
+  --profile core-full --target "$(rustc -vV | awk '/host:/ {print $2}')")
+if [[ -n "$typed_source_identity" ]]; then
+  profile_validation+=(--allow-relocated-source-manifest)
+fi
+"${profile_validation[@]}"
 export RUSTY_V8_ARCHIVE="$(jq -r '.archive_path' "$v8_profile_manifest")"
 export RUSTY_V8_SRC_BINDING_PATH="$(jq -r '.binding_path' "$v8_profile_manifest")"
 export ORYN_STARTUP_SNAPSHOT="$(jq -r '.startup_snapshot_path' "$v8_profile_manifest")"
@@ -134,7 +138,12 @@ if [[ -n "$prebuilt_candidate" ]]; then
   trap 'rm -f "$runtime_file"' EXIT
 fi
 printf '%s\n' "$runtime" > "$runtime_file"
-python3 "$repo_root/scripts/validate-v8-rust-runtime.py" "$v8_profile_manifest" "$runtime_file" --binding "$RUSTY_V8_SRC_BINDING_PATH" --archive "$RUSTY_V8_ARCHIVE"
+runtime_validation=(python3 "$repo_root/scripts/validate-v8-rust-runtime.py" "$v8_profile_manifest" "$runtime_file"
+  --binding "$RUSTY_V8_SRC_BINDING_PATH" --archive "$RUSTY_V8_ARCHIVE")
+if [[ -n "$typed_source_identity" ]]; then
+  runtime_validation+=(--allow-relocated-source-manifest)
+fi
+"${runtime_validation[@]}"
 if [[ -n "$prebuilt_candidate" ]]; then rm -f "$runtime_file"; fi
 # Verify compiled metadata before creating a manifest or invoking codesign.
 jq -e --argjson expected_context_protocol "$expected_context_protocol" --argjson expected_agent_protocol "$expected_agent_protocol" '

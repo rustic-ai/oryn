@@ -11,6 +11,48 @@ from oryn_validation.inputs import snapshot_input
 from oryn_validation.manifests import manifest_digest
 
 
+class StagedEngineAdmissionTests(unittest.TestCase):
+    def test_relocated_selected_manifest_admitted_only_with_exact_bytes_and_closure(self):
+        import importlib.util
+        import sys
+        from unittest.mock import patch
+        from oryn_validation import build_evidence
+        source = Path(__file__).resolve().parents[3]
+        spec = importlib.util.spec_from_file_location('build_engine_profile_fixture',
+            source / 'scripts/test_validate_v8_runtime_profile.py')
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        fixture = module.ProfileValidationTests()
+        with patch.object(sys, 'path', [str(source / 'scripts'), *sys.path]):
+            fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        store = Path(fixture.temp.name).resolve()
+        profile = fixture.profile
+        for name in module.MODULE.ARTIFACTS:
+            profile[name + '_path'] = str(Path(profile[name + '_path']).resolve())
+        fixture.bridge['compiler'] = str(Path(fixture.bridge['compiler']).resolve())
+        for row in fixture.bridge['inputs']:
+            row['path'] = str(Path(row['path']).resolve())
+        fixture.write_bridge()
+        retained = store / 'selected-source-manifest.json'
+        retained.write_bytes(Path(profile['rusty_v8_source_manifest_path']).read_bytes())
+        profile['rusty_v8_source_manifest_path'] = str(retained)
+        profile_path = store / 'profile.json'
+        profile_path.write_text(json.dumps(profile))
+        paths = [Path(profile[name + '_path']) for name in module.MODULE.ARTIFACTS]
+        paths += [Path(row['path']) for row in fixture.bridge['inputs']]
+        declarations = [snapshot_input(store, path.relative_to(store).as_posix()) for path in paths]
+        result = build_evidence._engine_files(profile_path, source, store, declarations)
+        self.assertEqual({row['path'] for row in result}, {row['path'] for row in declarations})
+        with self.assertRaisesRegex(ValueError, 'absent from prelaunch input closure'):
+            build_evidence._engine_files(profile_path, source, store, declarations[:-1])
+        retained.write_bytes(retained.read_bytes() + b' ')
+        profile['rusty_v8_source_manifest_size_bytes'] = retained.stat().st_size
+        profile['rusty_v8_source_manifest_sha256'] = hashlib.sha256(retained.read_bytes()).hexdigest()
+        profile_path.write_text(json.dumps(profile))
+        with self.assertRaisesRegex(ValueError, 'Rust V8 selected source mismatch'):
+            build_evidence._engine_files(profile_path, source, store, declarations)
+
+
 class BuildEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

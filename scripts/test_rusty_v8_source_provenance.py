@@ -166,6 +166,17 @@ class RustV8SourceTests(unittest.TestCase):
         runtime['v8_binding_sha256'] = source.digest(binding)
         runtime['v8_archive_sha256'] = source.digest(archive)
         module.validate_runtime(selected, runtime, binding, archive, self.root)
+        retained = self.root / 'retained-source-manifest.json'
+        retained.write_bytes(Path(selected['rusty_v8_source_manifest_path']).read_bytes())
+        relocated = dict(selected, rusty_v8_source_manifest_path=str(retained))
+        with self.assertRaisesRegex(ValueError, 'selected Rust V8 source differs'):
+            module.validate_runtime(relocated, runtime, binding, archive, self.root)
+        module.validate_runtime(relocated, runtime, binding, archive, self.root,
+                                allow_relocated_source_manifest=True)
+        retained.write_bytes(retained.read_bytes() + b' ')
+        with self.assertRaisesRegex(ValueError, 'retained Rust V8 source manifest differs'):
+            module.validate_runtime(relocated, runtime, binding, archive, self.root,
+                                    allow_relocated_source_manifest=True)
         for field in (*source.FIELDS, 'v8_binding_sha256', 'v8_archive_sha256'):
             changed = dict(runtime)
             changed[field] = '0' * 64

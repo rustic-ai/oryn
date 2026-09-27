@@ -6,6 +6,7 @@ No historical candidate paths become dependencies of a new declaration.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -125,8 +126,65 @@ def source_info(source_root, source_identity_path):
     return {key: admission[key] for key in ('commit', 'tree_sha256', 'dirty')}
 
 
-def prepare_generation_gate(source_root, predecessor_path, output_path, *, expected_commit=None):
-    """Refresh only source hashes; preserve requirement mapping and generated flags."""
+def _source_mapping(root, mapping_path, predecessor_sha256, requirements, admission):
+    """Explicit committed replacements for every, and only, missing source role."""
+    path = Path(mapping_path)
+    if not path.is_absolute():
+        path = root / builds._relative(str(path))
+    path = path.absolute()
+    if not path.is_relative_to(root):
+        raise ValueError('generation source mapping must be committed in source')
+    relative = path.relative_to(root).as_posix()
+    if relative not in admission['tracked']:
+        raise ValueError('generation source mapping must be committed in source')
+    payload = builds._file(root, relative).read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    if digest != admission['tracked'][relative]['sha256']:
+        raise ValueError('committed generation source mapping changed')
+    from .manifests import _unique_object
+    def invalid_number(value):
+        raise ValueError('invalid mapping JSON constant: ' + value)
+    mapping = json.loads(payload, object_pairs_hook=_unique_object, parse_constant=invalid_number)
+    if (set(mapping) != {'schema_version', 'kind', 'predecessor_sha256', 'entries'}
+            or type(mapping['schema_version']) is not int or mapping['schema_version'] != 1
+            or mapping['kind'] != 'generation-source-migration'
+            or mapping['predecessor_sha256'] != predecessor_sha256
+            or not isinstance(mapping['entries'], list)):
+        raise ValueError('source mapping must bind the exact predecessor declaration')
+    missing = {}
+    for name, row in requirements.items():
+        for field in ('implementation_sources', 'test_sources'):
+            for record in row[field]:
+                if record['path'] not in admission['tracked']:
+                    key = name, field, record['path']
+                    if key in missing:
+                        raise ValueError('duplicate missing predecessor source role')
+                    missing[key] = record
+    replacements = {}
+    for entry in mapping['entries']:
+        if (not isinstance(entry, dict) or set(entry) != {'requirement', 'field', 'previous', 'replacement_paths', 'reason'}
+                or not isinstance(entry['previous'], dict) or set(entry['previous']) != {'path', 'sha256'}
+                or not isinstance(entry['reason'], str) or not entry['reason'].strip()):
+            raise ValueError('source mapping entry schema differs')
+        key = entry['requirement'], entry['field'], entry['previous']['path']
+        if key in replacements or key not in missing or missing[key] != entry['previous']:
+            raise ValueError('source mapping changes an existing or mismatched predecessor role')
+        targets = entry['replacement_paths']
+        if not isinstance(targets, list) or not targets or any(not isinstance(value, str) for value in targets):
+            raise ValueError('source mapping must retain nonempty replacement sources')
+        if len(targets) != len(set(targets)) or any(value not in admission['tracked'] for value in targets):
+            raise ValueError('replacement sources must be unique committed files')
+        replacements[key] = targets
+    if set(replacements) != set(missing):
+        raise ValueError('source mapping must account for every missing predecessor source role')
+    if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+        raise ValueError('generation source mapping changed during preparation')
+    return replacements, digest
+
+
+def prepare_generation_gate(source_root, predecessor_path, output_path, *, expected_commit=None,
+                            mapping_path=None):
+    """Refresh hashes; missing historical roles require an explicit committed mapping."""
     root = Path(source_root).resolve(strict=True)
     output_path = Path(output_path).absolute()
     if output_path == root or root in output_path.parents:
@@ -141,20 +199,27 @@ def prepare_generation_gate(source_root, predecessor_path, output_path, *, expec
     if not isinstance(requirements, dict) or set(requirements) != REQUIREMENTS:
         raise ValueError('predecessor must account for all 51 requirements')
     admission = _clean(root, expected_commit)
+    replacements, mapping_digest = {}, None
+    predecessor_digest = hashlib.sha256(previous_bytes).hexdigest()
+    if mapping_path is not None:
+        replacements, mapping_digest = _source_mapping(root, mapping_path, predecessor_digest, requirements, admission)
     refreshed = {}
     for name, item in requirements.items():
         if item.get('implementation_generated') is not True or item.get('tests_generated') is not True:
             raise ValueError('cannot promote incomplete generation: ' + name)
-        row = {'implementation_generated': True, 'tests_generated': True}
+        row = dict(item)  # Preserve requirement metadata as well as generated flags.
         for field in ('implementation_sources', 'test_sources'):
             if not isinstance(item.get(field), list) or not item[field]:
                 raise ValueError('requirement source mapping missing')
             records = []
             for record in item[field]:
-                path = record['path']
-                if path not in admission['tracked']:
-                    raise ValueError('generation source is not committed: ' + path)
-                records.append({'path': path, 'sha256': admission['tracked'][path]['sha256']})
+                paths = replacements.get((name, field, record['path']), [record['path']])
+                for path in paths:
+                    if path not in admission['tracked']:
+                        raise ValueError('generation source is not committed: ' + path)
+                    current = {'path': path, 'sha256': admission['tracked'][path]['sha256']}
+                    if current not in records:
+                        records.append(current)
             row[field] = records
         refreshed[name] = row
     gate = {'schema_version': 2, 'kind': 'committed-source-generation',
@@ -162,7 +227,8 @@ def prepare_generation_gate(source_root, predecessor_path, output_path, *, expec
             'source': {key: admission[key] for key in ('commit', 'tree_sha256', 'dirty')},
             'requirements': refreshed,
             'history': {'predecessor_sha256': builds._identity(predecessor)['sha256']}}
-    import hashlib
+    if mapping_digest is not None:
+        gate['history']['mapping_sha256'] = mapping_digest
     if hashlib.sha256(previous_bytes).hexdigest() != gate['history']['predecessor_sha256']:
         raise ValueError('predecessor generation declaration changed during preparation')
     validate_committed_gate(gate, root)
@@ -180,10 +246,11 @@ def validate_committed_gate(gate, source_root):
     source = gate['source']
     if set(source) != {'commit', 'tree_sha256', 'dirty'} or source['dirty'] is not False:
         raise ValueError('generation requires clean committed source')
-    if set(gate['history']) != {'predecessor_sha256'}:
+    if set(gate['history']) not in ({'predecessor_sha256'}, {'predecessor_sha256', 'mapping_sha256'}):
         raise ValueError('generation history must be an opaque digest')
     import re
-    if not re.fullmatch('[0-9a-f]{64}', gate['history']['predecessor_sha256']):
+    if any(not isinstance(value, str) or not re.fullmatch('[0-9a-f]{64}', value)
+           for value in gate['history'].values()):
         raise ValueError('invalid historical generation digest')
     admission = _clean(Path(source_root).resolve(strict=True), source['commit'])
     if admission['tree_sha256'] != source['tree_sha256']:
