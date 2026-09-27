@@ -206,7 +206,9 @@ class OwnerFailureIntegration(unittest.TestCase):
             if failure=='launch':raise RuntimeError('primary unknown launch')
             (output/'result.json').write_text('{"errors": []}')
             write(output/'process/preflight.json',{'started_monotonic_ns':subject.time.monotonic_ns(), 'timeout_seconds':kwargs['timeout_seconds']})
-            return {'returncode':0,'error':None,'elapsed_ns':0,'cleanup_complete':True,'cleanup_errors':[],
+            if failure=='parser':
+                (output/'process/stderr.log').write_text("argument --product: invalid choice: 'oryn'\n")
+            return {'returncode':2 if failure=='parser' else 0,'error':None,'elapsed_ns':0,'cleanup_complete':True,'cleanup_errors':[],
                     'forced_cleanup':False,'timed_out':False,'cancellation_signal':None}
         with ExitStack() as stack:
             target=wpt if owner=='wpt' else prerequisites
@@ -220,7 +222,8 @@ class OwnerFailureIntegration(unittest.TestCase):
                 stack.enter_context(patch.object(processes,'OwnedService',PartialService))
                 stack.enter_context(patch.object(wpt,'relay_commands',return_value=[('first',['relay'],('127.0.0.1',8000)),('second',['relay'],('127.0.0.1',8001))]))
                 stack.enter_context(patch.object(wpt.socket,'create_connection',return_value=nullcontext()))
-            stack.enter_context(patch('oryn_validation.fixture_tls.verify_receipts'))
+            stack.enter_context(patch('oryn_validation.fixture_tls.verify_receipts',
+                side_effect=ValueError('missing TLS activation') if failure=='parser' else None))
             if owner=='wpt':
                 resources=stack.enter_context(patch.object(processes,'ResourceLease'))
                 spawn=stack.enter_context(patch.object(processes,'run_owned',side_effect=launch))
@@ -235,17 +238,28 @@ class OwnerFailureIntegration(unittest.TestCase):
                 stack.enter_context(patch.object(prerequisites,'_selected',return_value=(None,policy,selected['fixture'])))
                 call=lambda:prerequisites.execute(path,store_root=root,bundle_root=bound['bundle_root'],stage='topology')
             with self.assertRaisesRegex((ValueError,RuntimeError),
-                {'entry':'primary fixture entry failure','launch':'primary unknown launch','receipt':'settlement failed','second_entry':'primary second entry failure'}[failure]):call()
+                {'entry':'primary fixture entry failure','launch':'primary unknown launch','receipt':'settlement failed','second_entry':'primary second entry failure','parser':'upstream WPT failed with exit status 2.*missing TLS activation'}[failure]):call()
             if failure in ('entry','second_entry'):spawn.assert_not_called()
             settled=resources.return_value.__enter__.return_value.mark_settled.call_args.args[0]
-        self.assertEqual(settled['cleanup_complete'],failure=='entry')
+        self.assertEqual(settled['cleanup_complete'],failure in ('entry','parser'))
         self.assertEqual(settled['process_attempted'],failure not in ('entry','second_entry'))
         self.assertEqual(len(settled['fixture_services']),2 if failure=='second_entry' else 1)
         self.assertEqual(subject._read(output/'resource-settlement.json'),settled)
         if failure=='receipt':
             execution=subject._read(output/'execution.json')
             self.assertTrue(execution['errors'])
+        if failure=='parser':
+            execution=subject._read(output/'execution.json')
+            self.assertEqual(execution['returncode'],2)
+            self.assertFalse(execution['custody_complete'])
+            self.assertIn('exit status 2',execution['errors'][0])
+            self.assertIn('missing TLS activation',execution['errors'][0])
+            self.assertIn('process/stderr.log',execution['artifacts'])
         return settled
+
+    def test_parser_exit_and_secondary_missing_tls_are_retained_with_clean_settlement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            self.exercise(Path(temporary).resolve(),owner='wpt',failure='parser')
 
     def test_entry_failure_preserves_services_and_releases_only_verified_clean_resources(self):
         for owner in ('wpt','prerequisite'):

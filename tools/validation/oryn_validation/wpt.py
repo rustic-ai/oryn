@@ -21,7 +21,7 @@ from .inputs import InputLease, resolve_input, snapshot_input, verify_inputs
 from .manifests import load_manifest
 
 REQUIRED_ASSETS = frozenset({'runtime', 'driver', 'worker_manifest', 'fixture_repairs',
-                           'core_profile_registry', 'coverage', 'inventory_plan', 'core_manifest',
+                           'core_profile_registry', 'coverage', 'inventory_plan', 'core_manifest', 'core_metadata',
                            'policy', 'include', 'runner_config', 'wpt_checkout', 'python',
                            'runner_source', 'runner_identity', 'core_include', 'fixture_relay',
                            'fixture_tls_policy', 'fixture_tls_module', 'fixture_tls_bootstrap',
@@ -221,6 +221,8 @@ def plan_command(bound, selected, output):
                '--product', 'oryn', '--oryn-run-contract', str(bound['path']),
                '--binary', str(assets['runtime']), '--webdriver-binary', str(assets['driver']),
                '--config', str(assets['runner_config']), '--no-manifest-update', '--no-manifest-download',
+               '--tests', str(assets['wpt_checkout']), '--metadata', str(assets['core_metadata']),
+               '--manifest', str(assets['core_manifest']),
                '--ssl-type', 'pregenerated']
     for option, name in (('ca-cert-path', 'ca'), ('host-cert-path', 'certificate'), ('host-key-path', 'key')):
         command += ['--' + option, str(root / fixture['tls'][name]['path'])]
@@ -307,6 +309,35 @@ def prepare_controls(records, *, store_root, runner_source, wpt_checkout, upstre
         return generated
 
 
+def verify_upstream_completion(execution, output, verify_tls):
+    """Retain the actual upstream failure when fixture evidence is also absent.
+
+Exit 1 is an ordinary WPT outcome (including intentional canaries) if report
+and raw logs exist. Their completeness and outcomes remain separately checked.
+"""
+    output = Path(output)
+    code = execution.get('returncode')
+    early_failure = (type(code) is not int or code not in (0, 1)
+                     or execution.get('error') is not None or execution.get('timed_out') is True
+                     or (code != 0 and any(not (output / name).is_file()
+                                          for name in ('mozlog.jsonl', 'wptreport.json'))))
+    primary = None
+    if early_failure:
+        primary = RuntimeError('upstream WPT failed with exit status ' + str(code)
+            + '; launch_error=' + repr(execution.get('error'))
+            + '; timed_out=' + str(execution.get('timed_out'))
+            + '; original diagnostics: ' + str(output / 'process/stderr.log'))
+    try:
+        verify_tls()
+    except BaseException as error:
+        if primary is None:
+            raise
+        raise RuntimeError(str(primary) + '; TLS verification also failed: '
+                           + type(error).__name__ + ': ' + str(error)) from error
+    if primary is not None:
+        raise primary
+
+
 def execute(path, *, store_root, bundle_root, output, timeout_seconds=None):
     """Owned upstream invocation after all typed admission gates have passed."""
     from .processes import run_owned, ResourceLease
@@ -379,9 +410,10 @@ def execute(path, *, store_root, bundle_root, output, timeout_seconds=None):
                         from .fixture_tls import verify_receipts
                         tls_ports = [port for name, ports in selected['fixture']['ports'].items()
                                      if name.startswith('https') for port in ports]
-                        verify_receipts(output / 'tls-activation', bound['assets']['fixture_tls_policy'],
+                        verify_upstream_completion(execution, output, lambda: verify_receipts(
+                                        output / 'tls-activation', bound['assets']['fixture_tls_policy'],
                                         _digest(bound['assets']['fixture_tls_policy']), tls_ports,
-                                        require_live=False, bound=bound)
+                                        require_live=False, bound=bound))
                 finally:
                     settled = settlement(execution, services, process_attempted=process_attempted)
                     with (output / 'resource-settlement.json').open('x') as stream:
@@ -658,6 +690,8 @@ def upstream(argv=None):
     sys.path.insert(0, str(bound['assets']['wpt_checkout'] / 'tools'))
     import localpaths  # noqa: F401 -- pinned upstream path registration
     from wptrunner import wptrunner
+    from oryn_wptrunner.registration import verify_registration
+    verify_registration(SOURCE_ROOT)
     from oryn_wptrunner.provenance import run_admission
     sys.argv = [sys.argv[0], *remaining]
     with run_admission(args.run, None, bound['assets']['runtime'], bound['assets']['driver']):

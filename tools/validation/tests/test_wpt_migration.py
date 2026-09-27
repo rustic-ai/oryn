@@ -39,7 +39,7 @@ class TypedWptTests(unittest.TestCase):
 
     def test_command_keeps_original_upstream_execution_and_normal_tls(self):
         assets = {name: Path('/store') / name for name in
-                  ('python', 'runtime', 'driver', 'runner_config', 'include')}
+                  ('python', 'runtime', 'driver', 'runner_config', 'include', 'wpt_checkout', 'core_metadata', 'core_manifest')}
         bound = dict(assets=assets, run={'workers': 6}, path=Path('/store/run.json'),
                      store_root=Path('/store'), bundle_root=Path('/store/build'))
         fixture = {'tls': {name: {'path': name + '.pem'} for name in ('ca', 'certificate', 'key')}}
@@ -50,6 +50,8 @@ class TypedWptTests(unittest.TestCase):
             self.assertEqual(command[command.index(flag) + 1], value)
         self.assertIn('--no-manifest-update', command)
         self.assertIn('--no-manifest-download', command)
+        for flag, role in (('--tests', 'wpt_checkout'), ('--metadata', 'core_metadata'), ('--manifest', 'core_manifest')):
+            self.assertEqual(command[command.index(flag) + 1], str(assets[role]))
         self.assertEqual(command[command.index('--ca-cert-path') + 1], '/store/config/ca.pem')
 
     def test_original_deadline_is_immutable_and_controls_remain_serial_budget(self):
@@ -120,3 +122,40 @@ class RelayEnvironmentBindings(unittest.TestCase):
                 bound['run']['assets']['fixture_relay'] = {'path': 'other/socat'}
                 with self.assertRaisesRegex(ValueError, 'substitutes input'):
                     wpt.relay_environment(bound)
+
+
+class UpstreamFailurePreservation(unittest.TestCase):
+    def test_parser_failure_keeps_returncode_and_original_log_when_tls_is_absent(self):
+        from oryn_validation.wpt import verify_upstream_completion
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            for code in (2, 1, 64):
+                failure = ValueError('missing TLS activation')
+                with self.subTest(code=code), self.assertRaisesRegex(RuntimeError, 'exit status ' + str(code)) as caught:
+                    verify_upstream_completion({'returncode': code, 'error': None, 'timed_out': False}, output,
+                                               lambda: (_ for _ in ()).throw(failure))
+                self.assertIn(str(output / 'process/stderr.log'), str(caught.exception))
+                self.assertIn('missing TLS activation', str(caught.exception))
+                self.assertIs(caught.exception.__cause__, failure)
+
+    def test_expected_canary_exit_one_keeps_tls_and_later_outcome_validation(self):
+        from oryn_validation.wpt import verify_upstream_completion
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            for name in ('mozlog.jsonl', 'wptreport.json'):
+                (output / name).write_text('{}')
+            process = {'returncode': 1, 'error': None, 'timed_out': False}
+            verify_upstream_completion(process, output, lambda: None)
+            failure = ValueError('bad TLS receipt')
+            with self.assertRaises(ValueError) as caught:
+                verify_upstream_completion(process, output, lambda: (_ for _ in ()).throw(failure))
+            self.assertIs(caught.exception, failure)
+
+    def test_abnormal_exit_is_not_accepted_even_with_logs_and_valid_tls(self):
+        from oryn_validation.wpt import verify_upstream_completion
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            for name in ('mozlog.jsonl', 'wptreport.json'):
+                (output / name).write_text('{}')
+            with self.assertRaisesRegex(RuntimeError, 'exit status 2'):
+                verify_upstream_completion({'returncode': 2, 'error': None, 'timed_out': False}, output, lambda: None)

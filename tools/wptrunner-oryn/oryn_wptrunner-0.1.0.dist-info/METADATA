@@ -1,0 +1,5 @@
+Metadata-Version: 2.1
+Name: oryn-wptrunner
+Version: 0.1.0
+Summary: Native Oryn product integration for pinned upstream wptrunner
+Requires-Python: >=3.10

@@ -1,0 +1,2 @@
+[wptrunner.products]
+oryn = oryn_wptrunner:load_product

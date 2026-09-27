@@ -28,7 +28,7 @@ class TypedControlEvidenceTests(unittest.TestCase):
         self.output = self.root / 'runs/canaries'
         (self.output / 'process').mkdir(parents=True)
         self.assets = {}
-        for name in ('runtime', 'driver', 'worker', 'fixture_repairs', 'core_manifest', 'policy',
+        for name in ('runtime', 'driver', 'worker', 'fixture_repairs', 'core_manifest', 'core_metadata', 'policy',
                      'coverage', 'python', 'include', 'runner_config', 'fixture_relay', 'wpt_checkout', 'fixture_tls_policy'):
             path = self.root / name
             path.write_text(name)
