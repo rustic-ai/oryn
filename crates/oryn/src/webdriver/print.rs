@@ -163,6 +163,42 @@ pub async fn capture(
 mod tests {
     use super::*;
     use serde_json::json;
+    #[cfg(feature = "webdriver-server")]
+    #[tokio::test]
+    async fn print_returns_pdf_with_requested_page_size_and_rejects_retired_page() {
+        use base64::Engine as _;
+        let browser = oryn_native::Browser::new();
+        let context = browser.new_audited_context_with_isolated_auxiliaries(
+            oryn_native::ContextOptions::loopback_test(),
+        );
+        let page = context.new_page();
+        page.load_html(
+            "https://print.test/",
+            "<style>html,body{margin:0;padding:0}div{width:24px;height:16px;background:red}</style><div></div>",
+        )
+        .await
+        .unwrap();
+        let parameters = json!({
+            "page": {"width": 2.54, "height": 3.81},
+            "margin": {"top": 0, "right": 0, "bottom": 0, "left": 0},
+            "background": true,
+            "shrinkToFit": false
+        });
+        let encoded = capture(&page, &parameters).await.unwrap();
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .unwrap();
+        assert!(bytes.starts_with(b"%PDF-"));
+        let pdf = String::from_utf8_lossy(&bytes);
+        assert!(pdf.trim_end().ends_with("%%EOF"));
+        assert!(pdf.contains("/Count 1"));
+        // One inch by one-and-a-half inches must remain 72 by 108 PDF points.
+        assert_eq!(pdf.matches("/MediaBox [0 0 72 108]").count(), 1);
+        context.close_page(page.page_id()).await.unwrap();
+        context.retire_workers().await.unwrap();
+        assert!(capture(&page, &parameters).await.is_err());
+    }
+
     #[test]
     fn upstream_print_reftest_options_preserve_physical_units() {
         let options=parse(&json!({"page":{"width":10,"height":20},"margin":{"top":1.27,"right":1.27,"bottom":1.27,"left":1.27},"background":true,"shrinkToFit":false})).unwrap();

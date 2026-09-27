@@ -11,6 +11,9 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT / 'scripts') not in sys.path:
+    sys.path.insert(0, str(ROOT / 'scripts'))
+from completion_process_supervisor import Cancellation, supervise
 BASE = ROOT / 'artifacts/completion-validation-2026-09-18'
 GATE = ROOT / 'docs/oryn2/GENERATION-COMPLETE-REPAIR-49-2026-09-18.json'
 PREVIOUS_LEASE = BASE / 'repair48-whole-source-lease-inputs-01.json'
@@ -124,13 +127,18 @@ def included(path):
 
 
 def retained_review_identities(data, previous, declaration_reviews):
-    """Keep prior evidence exact; permit only reviewed, byte-preserved status updates."""
+    """Keep prior evidence exact; permit only allowlisted, reviewed archive transitions."""
     prior = {(row['path'], row['sha256']) for row in previous['review_sources']}
     current = {(row['path'], row['sha256']) for row in data['review_sources']}
     sources = {(row['path'], row['sha256']) for row in data['sources']}
     allowed = {
         'docs/oryn2/BUILD-AND-QUALIFICATION-PROGRESS-2026-09-18.md',
         'docs/oryn2/CORE-AND-OIL-GENERATION-CHECKLIST-2026-09-15.md',
+        # This gate is both live admission code and retained review evidence.
+        # A reviewed update still binds its current source digest, while its
+        # predecessor bytes remain exact in the canonical artifact archive.
+        # Do not generalize this to implementation paths or a directory prefix.
+        'scripts/generation_gate.py',
     }
     replaced, seen = set(), set()
     for row in data.get('review_identity_transitions', []):
@@ -173,6 +181,54 @@ def retained_review_identities(data, previous, declaration_reviews):
         raise ValueError('whole custody dropped historical review inputs')
 
 
+def retained_floor_review_identities(data, previous, historical, declaration_reviews):
+    """A floor identity may move only through an exact approved archive transition.
+
+    Later successors need not repeat a transition: its hash-bound predecessor
+    lease records it. Both original archive and approval remain current inputs.
+    """
+    missing = {(row['path'], row['sha256']) for row in historical['review_sources']} - declaration_reviews
+    cursor, parent = data, previous
+    visited = set()
+    while missing:
+        local_reviews = {(row['path'], row['sha256']) for row in cursor['review_sources']}
+        retained_review_identities(cursor, parent, local_reviews)
+        for row in cursor.get('review_identity_transitions', []):
+            identity = (row['path'], row['before_sha256'])
+            if identity not in missing:
+                continue
+            evidence = {(row[key]['path'], row[key]['sha256']) for key in ('archived_before', 'review')}
+            if not evidence.issubset(declaration_reviews):
+                raise ValueError('historical floor archive and approval are not retained')
+            missing.remove(identity)
+        if not missing:
+            return
+        cursor = parent
+        if cursor.get('kind') == historical.get('kind'):
+            if cursor != historical:
+                raise ValueError('historical floor ancestry differs from pinned floor')
+            break
+        ref = cursor.get('baseline')
+        if not isinstance(ref, dict) or set(ref) != {'path', 'sha256'}:
+            raise ValueError('historical floor transition ancestry is incomplete')
+        relative = Path(ref['path'])
+        target = ROOT / relative
+        if (relative.is_absolute() or '..' in relative.parts or target != target.resolve(strict=True)
+                or not target.resolve(strict=True).is_relative_to(BASE.resolve())
+                or (ref['path'], ref['sha256']) in visited
+                or (ref['path'], ref['sha256']) not in {(r['path'], r['sha256']) for r in cursor['review_sources']}):
+            raise ValueError('historical floor transition ancestry is not bound and canonical')
+        visited.add((ref['path'], ref['sha256']))
+        parent = read_bound_json(target, ref['sha256'])
+        current_number = re.fullmatch(r'repair([1-9][0-9]*)_whole_source_and_review_lease_inputs', cursor.get('kind', ''))
+        parent_number = re.fullmatch(r'repair([1-9][0-9]*)_whole_source_and_review_lease_inputs', parent.get('kind', ''))
+        if (current_number is None or parent_number is None
+                or int(current_number.group(1)) != int(parent_number.group(1)) + 1):
+            raise ValueError('historical floor transition ancestry skips a predecessor')
+    if missing:
+        raise ValueError('whole custody dropped historical floor review inputs')
+
+
 def check(lease_path, lease_sha, gate_sha):
     errors, count = [], None
     try:
@@ -195,9 +251,8 @@ def check(lease_path, lease_sha, gate_sha):
             raise ValueError('actual declaration does not bind this whole lease')
         if not {(row['path'], row['sha256']) for row in data['review_sources']}.issubset(declaration_reviews):
             raise ValueError('whole lease review inventory is not fully declaration-bound')
-        if not {(row['path'], row['sha256']) for row in historical['review_sources']}.issubset(declaration_reviews):
-            raise ValueError('whole custody dropped historical floor review inputs')
         retained_review_identities(data, previous, declaration_reviews)
+        retained_floor_review_identities(data, previous, historical, declaration_reviews)
         rows = data['sources']
         count = len(rows)
         paths = [row['path'] for row in rows]
@@ -424,65 +479,49 @@ def group_exists(group_id):
 
 
 def run_owned_dispatch(command, env, start_receipt=None, log_path=None):
-    """One new session covers launcher and children; settle it before source checks."""
-    process, code, execution_error = None, None, None
-    cleanup_errors, events = [], []
-    group_settled = False
-    log = None
-    def terminate(signum, frame):
-        raise InterruptedError('owned dispatch received signal ' + str(signum))
-    previous_terminate = signal.signal(signal.SIGTERM, terminate)
-    try:
-        if log_path is not None:
-            log = Path(log_path).open('x')
-        process = subprocess.Popen(command, cwd=ROOT, env=env, start_new_session=True,
-                                   stdout=log, stderr=subprocess.STDOUT if log is not None else None)
-        events.append(dict(event='started', pid=process.pid, group_id=process.pid))
-        if start_receipt is not None:
-            save(start_receipt, dict(pid=process.pid, group_id=process.pid, command=command,
-                 generation_gate=env.get('ORYN_GENERATION_GATE'),
-                 generation_gate_sha256=env.get('ORYN_GENERATION_GATE_SHA256'),
-                 supervision=env.get(SUPERVISOR_KEY)))
-        code = process.wait()
-    except BaseException as error:
-        execution_error = repr(error)
-    finally:
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        if process is not None:
-            previous_interrupt = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    """Allow nested completion wrappers to settle before forced cleanup."""
+    process, log = None, None
+    result = dict(returncode=None, error=None, cleanup_complete=True,
+                  cleanup_errors=[], events=[], cancellation_signal=None, forced_cleanup=False)
+    with Cancellation() as cancellation:
+        try:
+            if log_path is not None:
+                log = Path(log_path).open('x')
+            if cancellation.signum is not None:
+                raise InterruptedError('cancelled before dispatch launch')
+            process = subprocess.Popen(command, cwd=ROOT, env=env, start_new_session=True,
+                stdout=log, stderr=subprocess.STDOUT if log is not None else None)
+            primary = None
             try:
-                if process.poll() is None:
-                    events.append(dict(event='terminate_running_group', group_id=process.pid))
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                code = process.wait(timeout=15)
-                if group_exists(process.pid):
-                    cleanup_errors.append('descendant group survived direct-child exit')
-                    events.append(dict(event='terminate_leftover_group', group_id=process.pid))
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    deadline = time.monotonic() + 5
-                    while group_exists(process.pid) and time.monotonic() < deadline:
-                        time.sleep(0.05)
-                group_settled = not group_exists(process.pid)
-                if not group_settled:
-                    cleanup_errors.append('owned process group did not settle')
-            except BaseException as error:
-                cleanup_errors.append(repr(error))
-            finally:
-                signal.signal(signal.SIGINT, previous_interrupt)
-        else:
-            group_settled = True
-        if log is not None:
-            log.close()
-        signal.signal(signal.SIGTERM, previous_terminate)
-    return dict(returncode=code, execution_error=execution_error, cleanup_errors=cleanup_errors,
-                group_settled=group_settled, pid=process.pid if process is not None else None,
-                events=events, cleanup_completed_at=time.time())
+                if start_receipt is not None:
+                    save(start_receipt, dict(pid=process.pid, group_id=process.pid, command=command,
+                        generation_gate=env.get('ORYN_GENERATION_GATE'),
+                        generation_gate_sha256=env.get('ORYN_GENERATION_GATE_SHA256'),
+                        supervision=env.get(SUPERVISOR_KEY)))
+            except BaseException as failure:
+                primary = repr(failure)
+            result = supervise(process, cancellation, grace=90, primary_error=primary)
+            result['events'].insert(0, dict(event='started', pid=process.pid, group_id=process.pid))
+        except BaseException as failure:
+            result['error'] = result['error'] or repr(failure)
+            if process is not None:
+                result['cleanup_complete'] = False
+                result['cleanup_errors'].append('launched process supervision escaped')
+        finally:
+            if log is not None:
+                try:
+                    log.close()
+                except BaseException as failure:
+                    result['cleanup_errors'].append('log close failed: ' + repr(failure))
+                    result['cleanup_complete'] = False
+        result['cancellation_signal'] = cancellation.signum
+        if cancellation.signum is not None:
+            result['error'] = result['error'] or 'owned execution cancelled by signal ' + str(cancellation.signum)
+    return dict(returncode=result['returncode'], execution_error=result['error'],
+                cleanup_errors=result['cleanup_errors'], group_settled=result['cleanup_complete'],
+                pid=process.pid if process is not None else None, events=result['events'],
+                cancellation_signal=result['cancellation_signal'],
+                forced_cleanup=result['forced_cleanup'], cleanup_completed_at=time.time())
 
 
 def environment_check(env, phase, before_sha=None, output_directory=None):

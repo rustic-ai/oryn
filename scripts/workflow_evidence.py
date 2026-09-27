@@ -10,14 +10,14 @@ import os
 from pathlib import Path
 import stat
 
-from workflow_contract import DIMENSIONS, planned_attempts
+from workflow_contract import DIMENSIONS, planned_attempts, select_attempts
 from workflow_frontend_evidence import validate as validate_frontend
 
 CANDIDATE_FIELDS = ('parent_sha256', 'worker_sha256', 'source_tree_sha256')
 MAX_ARTIFACT_BYTES = 16 * 1024 * 1024
 
 
-def artifact(root, reference):
+def artifact(root, reference, *, confined_to=None):
     """Read a bounded, repository-produced artifact with a pinned digest."""
     if not isinstance(reference, dict):
         raise ValueError('missing artifact reference')
@@ -27,6 +27,8 @@ def artifact(root, reference):
     path = (Path(root) / name).resolve()
     if not path.is_relative_to(Path(root).resolve()):
         raise ValueError('artifact escapes evidence root')
+    if confined_to is not None and not path.is_relative_to(Path(root).resolve()/confined_to):
+        raise ValueError('terminal receipt resolves outside exact attempt')
     # Validate the opened descriptor, then bound the actual read. A separate
     # path.stat()/read_bytes() pair can read an arbitrarily grown/replaced file.
     flags = os.O_RDONLY | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_NOFOLLOW', 0)
@@ -46,7 +48,93 @@ def artifact(root, reference):
     return data
 
 
-def reconcile(contract, candidate, records, root, oracles):
+def exception_cleanup_diagnostic(root, row):
+    """Classify terminal cleanup independently from success qualification."""
+    if row.get('disposition') == 'not_executed':
+        return dict(cleanup_status='not_applicable', errors=[])
+    errors=list(row.get('terminal_evidence_errors') or [])
+    uncertain=row.get('cleanup_uncertain') is True
+    failed=bool(row.get('cleanup_errors'))
+    waves={}
+    references=row.get('terminal_evidence')
+    prefix=Path('artifacts')/hashlib.sha256(row['attempt_id'].encode()).hexdigest()
+    if not isinstance(references,list) or not references:
+        return dict(cleanup_status='uncertain' if uncertain else 'failed' if failed else 'unverified',
+                    errors=errors+['terminal cleanup evidence unavailable'])
+    if len(references)>768:return dict(cleanup_status='unverified',errors=['terminal receipt bound exceeded'])
+    for ref in references:
+        try:
+            path=Path(ref['path'])
+            if not path.is_relative_to(prefix) or path.name not in ('native-process-cleanup.json','native-execution-terminal.json','fixture-cleanup.json'):
+                raise ValueError('terminal receipt outside attempt or wrong kind')
+            wave=waves.setdefault(str(path.parent),{})
+            if path.name in wave:raise ValueError('duplicate terminal receipt')
+            value=json.loads(artifact(root,ref,confined_to=prefix))
+            if not isinstance(value,dict):raise ValueError('malformed terminal receipt')
+            wave[path.name]=value
+        except (OSError,ValueError,TypeError,KeyError,AttributeError) as error:
+            errors.append(str(error))
+    initiating_terminal = False
+    for wave in waves.values():
+        cleanup=wave.get('native-process-cleanup.json');terminal=wave.get('native-execution-terminal.json');fixture=wave.get('fixture-cleanup.json')
+        if cleanup is None or terminal is None or fixture is None:
+            errors.append('terminal cleanup evidence incomplete');continue
+        exact_initiator=(terminal.get('primary_error') == row.get('primary_error')
+                and isinstance(row.get('primary_error'),str)
+                and terminal.get('timed_out') is (row.get('disposition')=='timed_out')
+                and terminal.get('interrupted') is (row.get('disposition')=='interrupted'))
+        cleanup_matches_initiator=(exact_initiator
+                and all(type(cleanup.get(key)) is type(terminal.get(key))
+                        and cleanup.get(key)==terminal.get(key)
+                        for key in ('parent_pid','primary_error','timed_out','interrupted')))
+        # TimeoutExpired writes its initiating terminal before killing/waiting.
+        # A null returncode is not settlement evidence; only the independently
+        # pinned final cleanup can establish the final owned process result.
+        pending_initiator=('returncode' in terminal and terminal['returncode'] is None and cleanup_matches_initiator
+                and cleanup.get('discovery_sealed') is True
+                and cleanup.get('group_settled') is True and cleanup.get('errors')==[]
+                and cleanup.get('unresolved_candidates')==[])
+        final_result_matches=(type(terminal.get('returncode')) is int
+                and terminal.get('returncode')==cleanup.get('returncode'))
+        if (type(cleanup.get('parent_pid')) is not int or cleanup['parent_pid']<=0
+            or type(cleanup.get('process_group')) is not int
+            or cleanup.get('process_group')!=cleanup['parent_pid']
+            or type(cleanup.get('returncode')) is not int
+            or type(terminal.get('parent_pid')) is not int
+            or terminal.get('parent_pid')!=cleanup['parent_pid']
+            or not (pending_initiator or final_result_matches)):
+            errors.append('terminal process identity/result mismatch')
+        # Adapter projection can fail after native execution has settled. Its
+        # initiating error belongs to the pinned fixture-finally receipt, not
+        # the earlier successful native terminal. This only diagnoses custody;
+        # it never supplies functional, raw-evidence or oracle qualification.
+        adapter_initiator=(row.get('disposition') == 'failed'
+                and isinstance(row.get('primary_error'),str) and bool(row['primary_error'])
+                and fixture.get('primary_error') == row['primary_error']
+                and terminal.get('primary_error') is None
+                and terminal.get('timed_out') is False
+                and terminal.get('interrupted') is False
+                and final_result_matches)
+        if exact_initiator or adapter_initiator:
+            initiating_terminal=True
+        if cleanup.get('discovery_sealed') is not True:
+            errors.append('terminal ownership discovery not sealed')
+        if cleanup.get('group_settled') is not True or cleanup.get('unresolved_candidates'):
+            uncertain=True
+        if cleanup.get('discovery_sealed') is False:uncertain=True
+        if cleanup.get('errors')!=[]:failed=True
+        if fixture.get('custody_lost') is not False:uncertain=True
+        if fixture.get('errors')!=[]:failed=True
+        receipts=fixture.get('receipts')
+        if not isinstance(receipts,list):errors.append('malformed terminal fixture receipts')
+        elif any(not isinstance(receipt,dict) or type(receipt.get('returncode')) is not int
+                 or type(receipt.get('forced')) is not bool
+                 or receipt!={'returncode':0,'forced':False} for receipt in receipts):failed=True
+    if not initiating_terminal:errors.append('initiating execution terminal unavailable')
+    return dict(cleanup_status='uncertain' if uncertain else 'failed' if failed else 'unverified' if errors else 'settled',errors=errors)
+
+
+def reconcile(contract, candidate, records, root, oracles, *, attempt_ids=None):
     """Oracles are frozen caller inputs, never runner-provided expected values.
 
     Every required attempt remains present, including failed initial attempts.
@@ -54,7 +142,8 @@ def reconcile(contract, candidate, records, root, oracles):
     A mixed-family attempt must include measured simultaneous context activity;
     configured worker counts and sequential context creation are insufficient.
     """
-    planned = {item['attempt_id']: item for item in planned_attempts(contract)}
+    planned = {item['attempt_id']: item for item in
+               select_attempts(planned_attempts(contract), attempt_ids)}
     errors = []
     for field in CANDIDATE_FIELDS:
         value = candidate.get(field)
@@ -67,6 +156,7 @@ def reconcile(contract, candidate, records, root, oracles):
         if not isinstance(value, str) or len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
             errors.append('invalid combined candidate identity')
     validated = []
+    terminal_diagnostics = {}
     dimensions = set()
     if not isinstance(records, list) or any(not isinstance(row, dict) for row in records):
         return dict(structurally_valid=False, errors=['malformed records'], planned=len(planned), validated=[])
@@ -97,6 +187,26 @@ def reconcile(contract, candidate, records, root, oracles):
         if (row.get('passed') is not True or row.get('errors') != []
                 or row.get('timed_out') is not False):
             problems.append('failed attempt retained')
+        disposition=row.get('disposition')
+        failed_exception=(disposition == 'failed' and 'terminal_evidence' in row)
+        if disposition in ('not_executed','interrupted','timed_out') or failed_exception:
+            flags=(row.get('passed'),row.get('timed_out'),row.get('interrupted'))
+            expected_flags=(False,disposition=='timed_out',disposition=='interrupted')
+            if any(type(value) is not bool for value in flags) or flags!=expected_flags:
+                problems.append('execution disposition contradicts flags')
+            if disposition=='not_executed' and (any(key in row for key in
+                ('actions','oracle','cleanup','terminal_evidence'))
+                or row.get('functional_passed') is True or row.get('cleanup_uncertain') is True):
+                problems.append('unexecuted original claims execution evidence')
+            diagnostic=exception_cleanup_diagnostic(root,row)
+            terminal_diagnostics[identity]=dict(disposition=disposition,**diagnostic)
+            # Nonpassing originals retain the denominator and fail qualification;
+            # absence of a success payload is not a runtime/cleanup failure.
+            if diagnostic['cleanup_status'] in ('uncertain','failed','unverified'):
+                problems.append('terminal cleanup '+diagnostic['cleanup_status'])
+            problems.extend(diagnostic['errors'])
+            errors.extend(identity + ': ' + problem for problem in problems)
+            continue
         cleanup = row.get('cleanup')
         if (not isinstance(cleanup, dict) or type(cleanup.get('returncode')) is not int
                 or cleanup != {'returncode': 0, 'forced': False}
@@ -146,7 +256,9 @@ def reconcile(contract, candidate, records, root, oracles):
                         problems.append('native resource accounting failed')
                     if samples.get('errors')!=[] or samples.get('overflow') is not False or not samples.get('samples'):
                         problems.append('native resource samples incomplete')
-                    if (type(cleanup.get('returncode')) is not int or cleanup['returncode']!=0
+                    if (cleanup.get('group_settled') is not True or type(cleanup.get('process_group')) is not int
+                            or cleanup.get('process_group') != cleanup.get('parent_pid')
+                            or type(cleanup.get('returncode')) is not int or cleanup['returncode']!=0
                             or cleanup.get('errors')!=[] or type(cleanup.get('parent_pid')) is not int
                             or cleanup['parent_pid']<=0 or cleanup['parent_pid']!=samples.get('parent_pid')):
                         problems.append('native process cleanup failed or belongs to another parent')
@@ -198,6 +310,7 @@ def reconcile(contract, candidate, records, root, oracles):
     if dimensions != DIMENSIONS:
         errors.append('frontend covering matrix incomplete')
     return dict(structurally_valid=not errors, errors=errors, planned=len(planned), validated=validated,
+                terminal_diagnostics=terminal_diagnostics,
                 retries=sum(row.get('retry_of') is not None for row in records),
                 missing_attempts=sorted(set(planned)-set(originals)),
                 missing_frontend_dimensions=sorted(DIMENSIONS-dimensions))

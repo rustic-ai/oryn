@@ -14,12 +14,14 @@ case "$(uname -s)" in
   Linux)
     python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
     cargo build --release --locked -p oryn --bin oryn \
-      --no-default-features --features "native native-v8 core-full"
+      --no-default-features --features "native native-v8 core-full webdriver-server"
     binary="$repo_root/target/release/oryn"
     if [[ ! -x "$binary" ]]; then
       echo "Linux production binary was not created" >&2
       exit 1
     fi
+    # Validate the same WebDriver role used by the exec-only driver.
+    "$binary" webdriver --help >/dev/null
     jq -n \
       --arg binary "$binary" \
       --arg sha256 "$(sha256sum "$binary" | awk '{print $1}')" \

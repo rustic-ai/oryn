@@ -130,12 +130,13 @@ class PythonRegressionHarnessTests(unittest.TestCase):
             previous = Path(directory) / 'previous.json'
             previous.write_text(json.dumps(dict(test_sources=historical)))
             complete = [dict(path=path, sha256='a' * 64)
-                        for path in sorted(historical + [LAUNCH.ADMISSION_REGRESSION])]
+                        for path in sorted(historical + [LAUNCH.ADMISSION_REGRESSION, LAUNCH.CLEANUP_REGRESSION])]
             with mock.patch.object(LAUNCH, 'PREVIOUS_PREFLIGHT_SHA256', LAUNCH.digest(previous)):
                 LAUNCH.validate_population(complete, previous)
                 variants = {
                     'missing prior': [row for row in complete if row['path'] != historical[0]],
                     'missing admission': [row for row in complete if row['path'] != LAUNCH.ADMISSION_REGRESSION],
+                    'missing cleanup': [row for row in complete if row['path'] != LAUNCH.CLEANUP_REGRESSION],
                     'extra source': complete + [dict(path='scripts/test_unexpected.py', sha256='b' * 64)],
                     'duplicate instead of prior': [row for row in complete if row['path'] != historical[0]] + [complete[0]],
                 }
@@ -797,11 +798,11 @@ class CandidateExecutionIdentityTests(unittest.TestCase):
         old['review_sources']=[row for row in old['review_sources'] if row['path']!=ref['path']]+[ref]
         case.write(case.gate,old)
 
-    def status_transition(self):
+    def status_transition(self, name='docs/oryn2/BUILD-AND-QUALIFICATION-PROGRESS-2026-09-18.md'):
         case = self.candidate(50)
         c = case.custody
-        name = 'docs/oryn2/BUILD-AND-QUALIFICATION-PROGRESS-2026-09-18.md'
         target = case.root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text('new status\n')
         archive = case.base / 'retained-status.md'
         archive.write_text('old status\n')
@@ -857,6 +858,120 @@ class CandidateExecutionIdentityTests(unittest.TestCase):
         row['path'] = 'docs/oryn2/CORE-AND-OIL-COMPLETION-PLAN-2026-09-15.md'
         with self.assertRaisesRegex(ValueError, 'explicit current source'):
             case.custody.retained_review_identities(data, previous, bound)
+
+    def test_generation_gate_review_transition_preserves_old_bytes_and_current_source(self):
+        case, data, previous, bound, archive, review = self.status_transition('scripts/generation_gate.py')
+        case.custody.retained_review_identities(data, previous, bound)
+        row = data['review_identity_transitions'][0]
+        self.assertEqual(row['before_sha256'], case.custody.sha(archive))
+        self.assertEqual(row['after_sha256'], case.custody.sha(case.root / row['path']))
+        self.assertNotEqual(row['before_sha256'], row['after_sha256'])
+        self.assertIn((row['path'], row['after_sha256']), bound)
+        self.assertIn((row['archived_before']['path'], row['before_sha256']), bound)
+
+    def test_generation_gate_transition_does_not_authorize_arbitrary_implementation_paths(self):
+        for name in ('scripts/qualification/custody.py', 'scripts/workflow_execution.py',
+                     'scripts/generation_gate_other.py'):
+            with self.subTest(path=name):
+                case, data, previous, bound, archive, review = self.status_transition(name)
+                with self.assertRaisesRegex(ValueError, 'explicit current source'):
+                    case.custody.retained_review_identities(data, previous, bound)
+
+    def test_generation_gate_transition_rejects_unbound_or_inexact_evidence(self):
+        import copy
+        for mutation in ('missing', 'duplicate', 'source', 'current_declaration', 'current_review',
+                         'prior', 'archive_binding', 'wrong_bytes', 'wrong_before', 'outside',
+                         'unapproved', 'wrong_review', 'unrelated_prior'):
+            with self.subTest(mutation=mutation):
+                case, data, previous, bound, archive, review = self.status_transition('scripts/generation_gate.py')
+                row = data['review_identity_transitions'][0]
+                if mutation == 'missing': data['review_identity_transitions'] = []
+                elif mutation == 'duplicate': data['review_identity_transitions'].append(copy.deepcopy(row))
+                elif mutation == 'source': data['sources'] = []
+                elif mutation == 'current_declaration': bound.remove((row['path'], row['after_sha256']))
+                elif mutation == 'current_review': data['review_sources'] = [r for r in data['review_sources'] if r['path'] != row['path']]
+                elif mutation == 'prior': previous['review_sources'] = []
+                elif mutation == 'archive_binding': bound.remove((row['archived_before']['path'], row['archived_before']['sha256']))
+                elif mutation == 'wrong_bytes': archive.write_text('different historical gate bytes\n')
+                elif mutation == 'wrong_before': row['before_sha256'] = '0' * 64
+                elif mutation == 'outside': row['archived_before']['path'] = '../outside.py'
+                elif mutation == 'unrelated_prior': previous['review_sources'].append(dict(path='scripts/qualification/custody.py', sha256='a' * 64))
+                else:
+                    value = dict(approved=mutation != 'unapproved', review_identity_transitions=[])
+                    if mutation == 'unapproved': value['review_identity_transitions'] = [{k: v for k, v in row.items() if k != 'review'}]
+                    ref = case.write(review, value)
+                    data['review_sources'][-1] = ref
+                    row['review'] = ref
+                    bound = {(r['path'], r['sha256']) for r in data['review_sources']}
+                with self.assertRaises(ValueError):
+                    case.custody.retained_review_identities(data, previous, bound)
+
+    def floor_transition_candidate(self, number):
+        case = self.candidate(number)
+        c = case.custody
+        name = 'scripts/generation_gate.py'
+        target = case.root / name
+        target.write_text('NEW_GATE=True\n')
+        archive = case.base / 'generation-gate-before.py'
+        archive.write_text('OLD_GATE=True\n')
+        old = dict(path=name, sha256=c.sha(archive))
+        new = dict(path=name, sha256=c.sha(target))
+        archive_ref = dict(path=str(archive.relative_to(case.root)), sha256=c.sha(archive))
+        core = dict(path=name, before_sha256=old['sha256'], after_sha256=new['sha256'], archived_before=archive_ref)
+        review_ref = case.write(case.base / 'generation-gate-transition-review.json',
+            dict(approved=True, review_identity_transitions=[core]))
+        transition = dict(core, review=review_ref)
+        ordinary_review = case.base / 'review.json'
+        reviews = [dict(path=str(ordinary_review.relative_to(case.root)), sha256=c.sha(ordinary_review)), old]
+        source_rows = []
+        prior_gate = prior_lease = None
+        for current in range(48, number + 1):
+            path = case.root / 'scripts' / ('test_source_' + str(current) + '.py')
+            source_rows.append(dict(path=str(path.relative_to(case.root)), sha256=c.sha(path)))
+            if prior_gate is not None:
+                reviews = reviews + [prior_lease, prior_gate]
+            if current == 50:
+                reviews = [row for row in reviews if row != old] + [new, archive_ref, review_ref]
+            value = dict(schema_version=1, kind=f'repair{current}_whole_source_and_review_lease_inputs',
+                baseline=prior_lease, expected_declaration_path=str(case.gates[current].relative_to(case.root)),
+                authored_discovery_roots=['scripts'], sources=source_rows + [new if current >= 50 else old],
+                source_count=len(source_rows)+1, review_sources=list(reviews),
+                review_identity_transitions=[transition] if current == 50 else [])
+            prior_lease = case.write(case.leases[current], value)
+            prior_gate = case.write(case.gates[current], dict(requirements={}, review_sources=reviews + [prior_lease],
+                previous_declaration=prior_gate, parent_declaration=prior_gate))
+        c.HISTORICAL_LEASE_SHA = c.sha(case.leases[48])
+        return case, archive
+
+    def test_full_custody_check_preserves_floor_archive_on_transition_and_next_successor(self):
+        for number in (50, 51):
+            with self.subTest(candidate=number):
+                case, archive = self.floor_transition_candidate(number)
+                if number == 51:
+                    self.assertEqual(json.loads(case.lease.read_bytes())['review_identity_transitions'], [])
+                self.configure(case)
+                c = case.custody
+                result = c.check(case.lease, c.sha(case.lease), c.sha(case.gate))
+                self.assertEqual(result['errors'], [])
+                archive.write_text('tampered historical bytes\n')
+                result = c.check(case.lease, c.sha(case.lease), c.sha(case.gate))
+                self.assertTrue(result['errors'])
+
+    def test_full_custody_floor_archive_does_not_waive_unrelated_or_unbound_evidence(self):
+        for mutation in ('archive', 'review', 'unrelated'):
+            with self.subTest(mutation=mutation):
+                case, archive = self.floor_transition_candidate(51)
+                value = json.loads(case.lease.read_bytes())
+                suffix = {'archive':'generation-gate-before.py', 'review':'generation-gate-transition-review.json', 'unrelated':'/review.json'}[mutation]
+                value['review_sources'] = [row for row in value['review_sources'] if not row['path'].endswith(suffix)]
+                ref = case.write(case.lease, value)
+                gate = json.loads(case.gate.read_bytes())
+                gate['review_sources'] = value['review_sources'] + [ref]
+                case.write(case.gate, gate)
+                self.configure(case)
+                c = case.custody
+                result = c.check(case.lease, c.sha(case.lease), c.sha(case.gate))
+                self.assertTrue(result['errors'])
 
     def test_candidates49_and50_use_exact_metadata_and_immediate_predecessor_with_floor(self):
         for number in (49,50):
@@ -1066,7 +1181,7 @@ class CanonicalQualificationPathTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory).resolve()
             previous=['scripts/test_preserved_'+str(index)+'.py' for index in range(103)]
-            required=previous+[LAUNCH.ADMISSION_REGRESSION]
+            required=previous+[LAUNCH.ADMISSION_REGRESSION,LAUNCH.CLEANUP_REGRESSION]
             helpers=['scripts/qualification/'+name for name in ('custody.py','signed_inputs.py','native.py','launch.py','runner.py')]
             bound={}
             for source in required+helpers:
@@ -1078,7 +1193,7 @@ class CanonicalQualificationPathTests(unittest.TestCase):
                  mock.patch.object(LAUNCH,'PREVIOUS_PREFLIGHT_SHA256',LAUNCH.digest(recent)):
                 identities=LAUNCH.regression_sources(root,historical,bound)
                 self.assertEqual({row['path'] for row in identities},set(required))
-                self.assertEqual(len(identities),104)
+                self.assertEqual(len(identities),105)
                 LAUNCH.validate_population(identities,recent)
                 unexpected=root/'scripts/qualification/test_unexpected.py';unexpected.write_text('VALUE=2\n')
                 with self.assertRaisesRegex(ValueError,'not bound'):

@@ -1477,6 +1477,14 @@ static void resize_mv_buffer(VP9_COMMON *cm) {
 }
 
 static void resize_context_buffers(VP9_COMMON *cm, int width, int height) {
+  // Oryn: this guard executes for EACH frame the decoder actually consumes,
+  // including unindexed concatenated frames, before context/MV/frame allocation.
+  if ((cm->oryn_admitted_width || cm->oryn_admitted_height) &&
+      (width <= 0 || height <= 0 ||
+       (unsigned int)width != cm->oryn_admitted_width ||
+       (unsigned int)height != cm->oryn_admitted_height))
+    vpx_internal_error(&cm->error, VPX_CODEC_CORRUPT_FRAME,
+                       "Oryn admitted frame dimensions differ");
 #if CONFIG_SIZE_LIMIT
   if (width > DECODE_WIDTH_LIMIT || height > DECODE_HEIGHT_LIMIT)
     vpx_internal_error(&cm->error, VPX_CODEC_CORRUPT_FRAME,
@@ -2651,6 +2659,10 @@ static size_t read_uncompressed_header(VP9Decoder *pbi,
                        "Invalid frame marker");
 
   cm->profile = vp9_read_profile(rb);
+  if ((cm->oryn_admitted_width || cm->oryn_admitted_height) &&
+      cm->profile != PROFILE_0)
+    vpx_internal_error(&cm->error, VPX_CODEC_UNSUP_BITSTREAM,
+                       "Oryn admitted profile must be zero");
 #if CONFIG_VP9_HIGHBITDEPTH
   if (cm->profile >= MAX_PROFILES)
     vpx_internal_error(&cm->error, VPX_CODEC_UNSUP_BITSTREAM,

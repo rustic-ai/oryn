@@ -7,6 +7,11 @@ python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 parent="$repo_root/target/release/oryn"
 signed_app="$repo_root/target/release/OrynPageWorker.app"
+if [[ -n "${ORYN_SECURITY_PREBUILT_CANDIDATE:-}" ]]; then
+  parent="$(python3 "$repo_root/scripts/security_prebuilt.py" path runtime)"
+  selected_worker="$(python3 "$repo_root/scripts/security_prebuilt.py" path worker)"
+  signed_app="$(dirname "$(dirname "$(dirname "$selected_worker")")")"
+fi
 identity="${ORYN_CODESIGN_IDENTITY:-}"
 entitlements="$repo_root/sandbox/oryn-page-worker.entitlements"
 

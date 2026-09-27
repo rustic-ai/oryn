@@ -77,3 +77,6 @@ pub mod v8_initialization;
 
 #[cfg(feature = "v8-host")]
 pub mod v8_termination;
+
+#[cfg(feature = "v8-host")]
+pub mod xslt_engine;

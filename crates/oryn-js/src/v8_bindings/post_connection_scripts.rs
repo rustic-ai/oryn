@@ -665,6 +665,11 @@ pub(super) fn delay(state: &V8BindingState) -> Option<std::time::Duration> {
         .map(|batch| batch.retry.saturating_duration_since(now))
         .min()
 }
+// Exact empty-queue check; future retries and other owners remain active.
+pub(super) fn queue_empty(state: &V8BindingState) -> bool {
+    state.post_connection_scripts.borrow().queue.is_empty()
+}
+
 pub(super) fn poll(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,

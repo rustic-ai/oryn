@@ -44,7 +44,9 @@ fn native_error(error: oryn_native::RuntimeError) -> CommandError {
     CommandError {
         code: if matches!(
             &error,
-            oryn_native::RuntimeError::Closed | oryn_native::RuntimeError::PageNotFound(_)
+            oryn_native::RuntimeError::Closed
+                | oryn_native::RuntimeError::PageTaskYield
+                | oryn_native::RuntimeError::PageNotFound(_)
         ) {
             "no such window"
         } else {
@@ -116,6 +118,53 @@ mod tests {
         assert_eq!(value.height, None);
         assert_eq!(value.x, Some(-5.));
     }
+    #[tokio::test]
+    async fn window_outer_dimensions_follow_webdriver_resize_in_css_pixels() {
+        let browser = oryn_native::Browser::new();
+        let context = browser.new_audited_context_with_isolated_auxiliaries(
+            oryn_native::ContextOptions::loopback_test(),
+        );
+        let page = context.new_page();
+        page.goto("about:blank").await.unwrap();
+        page.set_viewport(ViewportState {
+            width: 800.,
+            height: 600.,
+            device_pixel_ratio: 2.,
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                "[outerWidth,outerHeight,outerWidth-innerWidth,outerHeight-innerHeight].join('|')"
+            )
+            .await
+            .unwrap(),
+            "800|600|0|0"
+        );
+        assert_eq!(
+            set(&page, &context, &json!({"width":640,"height":480}))
+                .await
+                .unwrap(),
+            json!({"x":0,"y":0,"width":640.,"height":480.})
+        );
+        assert_eq!(
+            page.evaluate("[outerWidth,outerHeight,innerWidth,innerHeight].join('|')")
+                .await
+                .unwrap(),
+            "640|480|640|480"
+        );
+        assert_eq!(
+            page.paint_snapshot()
+                .await
+                .unwrap()
+                .viewport
+                .device_pixel_ratio,
+            2.
+        );
+        context.close_page(page.page_id()).await.unwrap();
+        context.retire_workers().await.unwrap();
+    }
+
     #[tokio::test]
     async fn size_changes_preserve_device_scale_and_partial_size_is_unchanged() {
         let browser = oryn_native::Browser::new();

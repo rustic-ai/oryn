@@ -358,6 +358,43 @@ impl Scope {
         }
         found
     }
+    /// Close acknowledges already-requested cancellations, without canceling
+    /// or waiting for unrelated active keepalive operations in the same scope.
+    /// False means the supplied budget expired; ownership remains in the pool.
+    pub(crate) fn drain_cancelled(&self, budget: Duration) -> Result<bool, RuntimeError> {
+        let pool = match POOL.get() {
+            None => return Ok(true),
+            Some(Ok(pool)) => pool,
+            Some(Err(error)) => return Err(RuntimeError::ContextService(error.clone())),
+        };
+        let deadline = Instant::now() + budget;
+        let mut queue = pool.queue.lock().map_err(|_| {
+            RuntimeError::ContextService("HTTP cancellation custody poisoned".into())
+        })?;
+        loop {
+            let pending = queue.jobs.iter().any(|job| {
+                Arc::ptr_eq(&self.0, &job.scope.0)
+                    && job
+                        .state
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .cancel
+            });
+            if !pending {
+                return Ok(true);
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Ok(false);
+            };
+            queue = pool
+                .changed
+                .wait_timeout(queue, remaining)
+                .map_err(|_| {
+                    RuntimeError::ContextService("HTTP cancellation custody poisoned".into())
+                })?
+                .0;
+        }
+    }
     pub(crate) fn drain(&self, budget: Duration) -> Result<(), RuntimeError> {
         let Some(Ok(pool)) = POOL.get() else {
             return Ok(());
@@ -474,8 +511,11 @@ mod tests {
         assert!(!scope.is_drained().unwrap());
         assert!(!other.is_drained().unwrap());
         assert!(scope.drain(Duration::ZERO).is_err());
+        assert!(!scope.drain_cancelled(Duration::ZERO).unwrap());
+        assert!(other.drain_cancelled(Duration::ZERO).unwrap());
         assert!(other.drain(Duration::ZERO).is_err());
         release.send(()).unwrap();
+        assert!(scope.drain_cancelled(Duration::from_secs(2)).unwrap());
         scope.drain(Duration::from_secs(2)).unwrap();
         assert!(
             budget.reserve(owner, 64 * 1024).is_ok(),
@@ -489,6 +529,25 @@ mod tests {
         other.drain(Duration::from_secs(1)).unwrap();
         assert!(other.is_drained().unwrap());
         drop(operation);
+    }
+    #[test]
+    fn cancellation_barrier_does_not_wait_for_active_keepalive_admission() {
+        let scope = Scope::default();
+        let (started, _) = std::sync::mpsc::channel();
+        let (_, wait) = std::sync::mpsc::channel();
+        let network = SharedNetworkBroker::new(BlockingCancel {
+            attempts: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            started,
+            release: Mutex::new(wait),
+            senders: Mutex::new(Vec::new()),
+        });
+        let ticket = Ticket::reserve_keepalive(&scope, 42, network).unwrap();
+        scope.retire_preserving_keepalive();
+        assert!(!scope.is_drained().unwrap());
+        assert!(scope.drain_cancelled(Duration::ZERO).unwrap());
+        drop(ticket);
+        assert!(scope.drain_cancelled(Duration::ZERO).unwrap());
+        assert!(scope.is_drained().unwrap());
     }
     #[test]
     fn document_retirement_preserves_only_prepared_keepalive_and_explicit_abort_still_cancels() {

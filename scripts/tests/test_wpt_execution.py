@@ -77,3 +77,26 @@ class ExecutionTests(unittest.TestCase):
                                 'tests': [{'name': 'one', 'status': 0}]}, stderr='diagnostic')
         self.assertEqual(row['status'], 'passed')
         self.assertEqual(row['execution']['stderr'], 'diagnostic')
+
+
+class SessionDiagnosticRetentionTests(unittest.TestCase):
+    def test_async_failure_evidence_is_retained_with_primary_and_cleanup_errors(self):
+        events = [{'page_id': '42', 'sequence': 9, 'event': {'kind': 'console',
+            'level': 'error', 'message': 'navigation: original child failure'}}]
+        audit = {'complete': True, 'overflow': False}
+        for primary, cleanup in [(None, []), ('outer_execution_timeout', ['close failed'])]:
+            session = Mock()
+            session.run.return_value = {'completion': {'complete': True, 'completion_count': 1,
+                'harness': 0, 'tests': [{'name': 'original assertion', 'status': 0}]},
+                'error': primary, 'cleanup_errors': cleanup,
+                'diagnostic_events': events, 'diagnostic_audit': audit,
+                'policy_events': [{'event': {'kind': 'request_started'}}]}
+            with patch.object(runner.Handler, 'session_client', session), \
+                 patch.object(runner, 'fs_path_assets', return_value=[]):
+                row = runner.run_session_case(Path('binary'), Path('.'), Path('a.html'),
+                    'a.html|window|', 'core', 'window', '', 'http://localhost/a.html', 30)
+            self.assertEqual(row['diagnostic_events'], events)
+            self.assertEqual(row['diagnostic_audit'], audit)
+            self.assertEqual(row['execution']['cleanup_errors'], cleanup)
+            self.assertEqual(row['status'], 'failed' if primary else 'passed')
+            self.assertEqual(row['policy_events'], [{'event': {'kind': 'request_started'}}])

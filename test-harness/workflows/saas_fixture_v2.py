@@ -183,6 +183,9 @@ class Fixture(legacy.Fixture):
         return status, body, headers
 
     def get(self, case, path, query, cookie):
+        if path == 'resume':
+            # Do not hydrate or begin OAuth on the public origin landing page.
+            return super().get(case, path, query, cookie)
         if path == 'saas-client.mjs':
             with self.lock:
                 if not self.db.execute('SELECT 1 FROM cases WHERE case_id=?', (case,)).fetchone():
@@ -248,7 +251,7 @@ def serve(database, fixture_type=Fixture, extra_routes=()):
             if len(self.path) > 16384:
                 raise ValueError('request too large')
             parsed = urlsplit(self.path)
-            match = re.fullmatch(r'/saas/([0-9a-f]{32})/(' + '|'.join(re.escape(route) for route in ('login','sso','callback','records','create','update','logout','saas-client.mjs',*extra_routes)) + r')', parsed.path)
+            match = re.fullmatch(r'/saas/([0-9a-f]{32})/(' + '|'.join(re.escape(route) for route in ('login','sso','callback','records','create','update','logout','saas-client.mjs','resume',*extra_routes)) + r')', parsed.path)
             cookies = SimpleCookie()
             cookies.load(self.headers.get('Cookie', ''))
             name = 'saas_pending' if match and match[2] == 'callback' else 'saas_session'
@@ -286,7 +289,7 @@ def serve(database, fixture_type=Fixture, extra_routes=()):
     app.daemon_threads = False
     fixture.origin = f'http://127.0.0.1:{app.server_port}'
     servers = [app, idp]
-    threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in servers]
+    threads = [threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.05}, daemon=True) for server in servers]
     for thread in threads:
         thread.start()
     print(json.dumps({'event': 'ready', 'port': app.server_port, 'issuer_port': idp.server_port}), flush=True)

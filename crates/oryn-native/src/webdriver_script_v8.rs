@@ -1971,6 +1971,39 @@ impl RawV8Host {
             .map_err(|error| ScriptError::javascript(error.to_string()))
     }
 
+    pub(crate) fn semantic_scroll_into_view(
+        &self,
+        realm: RealmId,
+        generation: u64,
+        epoch: u64,
+        target: NodeId,
+    ) -> Result<(), ScriptError> {
+        let state = self
+            .binding_states
+            .get(&realm)
+            .ok_or_else(ScriptError::retired)?;
+        if state.execution_retired()
+            || state.document_generation() != generation
+            || state.document_stream_epoch() != epoch
+            || state
+                .dom()
+                .borrow()
+                .node_document(target)
+                .map_err(|error| ScriptError::javascript(error.to_string()))?
+                != Some(state.document_root())
+            || !state
+                .dom()
+                .borrow()
+                .is_connected(target)
+                .map_err(|error| ScriptError::javascript(error.to_string()))?
+        {
+            return Err(ScriptError::retired());
+        }
+        state
+            .scroll_node_into_view(target)
+            .map_err(|error| ScriptError::javascript(error.to_string()))
+    }
+
     pub(crate) fn semantic_pointer_point(
         &self,
         realm: RealmId,
@@ -3418,5 +3451,147 @@ impl RawV8Host {
             .get(&realm)?
             .native_page_paint_revision(&environments)
             .ok()
+    }
+}
+
+/// The native binding portion of frame input admission is shared with callers
+/// already inside the owning isolate. Host enumeration additionally verifies
+/// these exact Rcs against its current bindings and live context membership.
+struct NativePointerFrameBinding {
+    parent: Rc<V8BindingState>,
+    child: Rc<V8BindingState>,
+    identity: oryn_js::v8_bindings::NativeFrameInputIdentity,
+}
+
+fn native_pointer_frame_binding(
+    entry: &FrameLifetime,
+    root: RealmId,
+    environments: &AgentEnvironments,
+) -> Option<NativePointerFrameBinding> {
+    let environment = entry.environment.get();
+    if entry.root_realm != root
+        || entry.closed.get()
+        || !environments.is_live(&entry.parent_environment)
+        || !environments.is_live(&environment)
+        || entry.connection_generation == u64::MAX
+    {
+        return None;
+    }
+    let parent = entry.parent.upgrade()?;
+    let child = entry.child.borrow().upgrade()?;
+    if parent.execution_retired()
+        || child.execution_retired()
+        || parent.document_generation() != entry.parent_environment.document_generation
+        || child.document_generation() != environment.document_generation
+    {
+        return None;
+    }
+    {
+        let dom = parent.dom();
+        let dom = dom.borrow();
+        if !dom.is_connected(entry.frame).unwrap_or(false)
+            || !dom.embedded_content_allowed(entry.frame)
+            || dom.node_document(entry.frame).ok().flatten() != Some(parent.document_root())
+            || dom.frame_context_generation(entry.frame) != Some(entry.connection_generation)
+        {
+            return None;
+        }
+    }
+    let identity = parent.native_input_frame_identity(entry.frame)?;
+    if identity.realm != environment.realm
+        || identity.document != child.document_root()
+        || identity.generation != child.document_generation()
+        || identity.stream_epoch != child.document_stream_epoch()
+        || identity.authority_epoch != child.document_authority_epoch()
+    {
+        return None;
+    }
+    Some(NativePointerFrameBinding {
+        parent,
+        child,
+        identity,
+    })
+}
+
+impl RawV8Host {
+    /// Native input membership includes insertion-created initial Documents,
+    /// without consuming their independent driver/parser handoff.
+    pub(crate) fn native_pointer_frame_snapshots(
+        &self,
+        root: RealmId,
+    ) -> Vec<(super::webdriver_script::AutomationRealmSnapshot, bool)> {
+        use super::webdriver_script::AutomationRealmSnapshot;
+        let Some(registry) = self.isolate.get_slot::<FrameLifetimes>() else {
+            return Vec::new();
+        };
+        let Some(environments) = self.isolate.get_slot::<AgentEnvironments>() else {
+            return Vec::new();
+        };
+        registry
+            .live
+            .values()
+            .filter_map(|entry| {
+                let binding = native_pointer_frame_binding(entry, root, environments)?;
+                let environment = entry.environment.get();
+                let parent = self.binding_states.get(&entry.parent_environment.realm)?;
+                let child = self.binding_states.get(&environment.realm)?;
+                if !Rc::ptr_eq(&binding.parent, parent)
+                    || !Rc::ptr_eq(&binding.child, child)
+                    || !self.contexts.contains_key(&entry.parent_environment.realm)
+                    || !self.contexts.contains_key(&environment.realm)
+                {
+                    return None;
+                }
+                let identity = binding.identity;
+                Some((
+                    AutomationRealmSnapshot {
+                        realm: identity.realm,
+                        parent_realm: Some(entry.parent_environment.realm),
+                        frame: Some(entry.frame),
+                        frame_token: Some(entry.message_token.clone()),
+                        frame_generation: Some(entry.connection_generation),
+                        document_root: identity.document,
+                        document_generation: identity.generation,
+                        stream_epoch: identity.stream_epoch,
+                        document_authority_epoch: identity.authority_epoch,
+                        url: self
+                            .automation_document_url(identity.realm)
+                            .unwrap_or_default(),
+                        live: true,
+                    },
+                    entry.initial_input_document.get()
+                        == Some((identity.document, identity.generation)),
+                ))
+            })
+            .collect()
+    }
+
+    /// A bounded, numeric failure explanation; no author text or capability
+    /// tokens are copied into a failed input response.
+    pub(crate) fn native_pointer_frame_diagnostic(&self, parent: RealmId, frame: NodeId) -> String {
+        let connection = self.automation_frame_generation(parent, frame);
+        let Some(registry) = self.isolate.get_slot::<FrameLifetimes>() else {
+            return format!("registry=absent connection={connection:?}");
+        };
+        let mut entries = registry
+            .live
+            .values()
+            .filter(|entry| entry.parent_environment.realm == parent && entry.frame == frame);
+        let Some(entry) = entries.next() else {
+            return format!("lifetime=absent connection={connection:?}");
+        };
+        format!(
+            "closed={} connection={connection:?} expected={} child={} child_live={} initial={} additional={}",
+            entry.closed.get(),
+            entry.connection_generation,
+            entry.environment.get().realm.0,
+            entry
+                .child
+                .borrow()
+                .upgrade()
+                .is_some_and(|child| !child.execution_retired()),
+            entry.initial_input_document.get().is_some(),
+            entries.next().is_some(),
+        )
     }
 }

@@ -213,6 +213,7 @@ pub enum Request {
     },
     Geolocation,
     WindowState,
+    DocumentFocus,
     RegisterProtocol {
         scheme: String,
         url: String,
@@ -275,6 +276,9 @@ pub enum Response {
     WindowState {
         hidden: bool,
         revision: u64,
+    },
+    DocumentFocus {
+        focused: bool,
     },
     WindowSuspended,
     WindowRetired,

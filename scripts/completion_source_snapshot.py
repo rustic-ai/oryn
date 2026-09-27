@@ -58,7 +58,7 @@ def validate(path, expected):
             name = PurePosixPath(member.name)
             if not member.isfile() or name.is_absolute() or '..' in name.parts:
                 raise ValueError('source archive contains an unsafe entry')
-        index_member = archive.getmember(INDEX)
+        index_member = members[names.index(INDEX)]
         if index_member.size > 32 * 1024 * 1024: raise ValueError('source archive index oversized')
         index = json.load(archive.extractfile(index_member))
         records = index.get('files', [])
@@ -66,8 +66,9 @@ def validate(path, expected):
                 or source_digest(records) != expected or names != [record['path'] for record in records] + [INDEX]
                 or [record['path'] for record in records] != sorted({record['path'] for record in records}, key=lambda name: name.encode())):
             raise ValueError('source archive does not bind the exact source-tree identity')
-        for record in records:
-            member = archive.getmember(record['path'])
+        # Exact ordered names were checked above. Reuse their TarInfo objects:
+        # TarFile.getmember performs a linear name scan for each call.
+        for member, record in zip(members[:-1], records):
             if member.size != record['size'] or member.mode != record['mode']:
                 raise ValueError('source archive file metadata changed')
             with archive.extractfile(member) as stream:

@@ -12,7 +12,7 @@ RECIPES = {
     "forms.submitters": [("forms",4,"native_submitter"),("forms",4,"native_cancel")],
     "forms.reentrancy": [("forms",4,"native_reentrant")],
     "forms.confinement": [("forms",4,"native_confinement")],
-    "forms.controls": [("forms",3,"multistep_custom_role"),("forms",3,"multistep_authorized_upload")],
+    "forms.controls": [("forms",3,"multistep_custom_role"),("forms",3,"multistep_authorized_upload"),("forms",4,"native_face_authorized_multipart")],
     "forms.validation": [("forms",3,"async_email_recovery"),("forms",3,"multistep_cancel"),("forms",3,"multistep_cancel_recovery")],
     'shopping.discovery': [('shopping',2,'framed_persisted_checkout')],
     'shopping.cart': [('shopping',2,'framed_persisted_checkout')],

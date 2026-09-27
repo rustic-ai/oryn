@@ -140,6 +140,7 @@ impl Registry {
             if !self.closing.load(Ordering::Acquire) && !entries.contains_key(&id) {
                 // Keep ownership local until publication succeeds; no native work
                 // runs while holding the registry mutex.
+                let timing_identity = session.timing_identity(&id);
                 entries.insert(
                     id.clone(),
                     Arc::new(Entry {
@@ -148,6 +149,11 @@ impl Registry {
                         cancellation: Arc::new(SessionCancellation::default()),
                         _permit: permit,
                     }),
+                );
+                drop(entries);
+                oryn_native::native_timing::point(
+                    "native_webdriver_session_created",
+                    timing_identity,
                 );
                 return Ok(id);
             }

@@ -295,9 +295,11 @@ pub(super) fn create_state(
         layout_cache_key: RefCell::new(None),
         layout_provider: RefCell::new(None),
         frame_viewport_parent: RefCell::new(None),
+        document_focus_admission: Cell::new(None),
         paint_environment: RefCell::new((Vec::new(), 0)),
         page_paint_environment: RefCell::new((Vec::new(), 0)),
         frame_roots: RefCell::new(BTreeMap::new()),
+        native_input_frames: RefCell::new(BTreeMap::new()),
         frame_windows: RefCell::new(BTreeMap::new()),
         window_target_name: RefCell::new(Rc::new(
             RefCell::new(window_named::TargetName::default()),
@@ -433,6 +435,12 @@ pub(super) fn create_state(
         scroll_offsets: RefCell::new(BTreeMap::new()),
     });
     context.set_slot(state.clone());
+    if matches!(
+        state.binding_global,
+        BindingGlobal::Window | BindingGlobal::Worker
+    ) {
+        secure_context::install(scope, context)?;
+    }
     #[cfg(unix)]
     native_shared_factory::install(scope);
     #[cfg(unix)]

@@ -7,6 +7,43 @@ sys.path.insert(0, str(ROOT / 'tools/wptrunner-oryn'))
 from oryn_wptrunner import feature_profile, cookie_profile
 
 
+def execution_metadata(collection, core_processes=1, core_timeout_seconds=43200):
+    """Frozen Core execution policy; qualification controls retain serial defaults."""
+    if type(core_processes) is not int or core_processes not in (1, 2, 4, 6, 8):
+        raise ValueError('Core processes must be an integer in 1, 2, 4, 6, 8')
+    if type(core_timeout_seconds) is not int or not 1 <= core_timeout_seconds <= 604800:
+        raise ValueError('Core timeout must be an integer from 1 to 604800 seconds')
+    if collection not in ('core', 'canaries', 'placement'):
+        raise ValueError('unknown execution collection')
+    return {'core_processes': core_processes,
+            'processes': core_processes if collection == 'core' else 1,
+            'core_timeout_seconds': core_timeout_seconds,
+            'timeout_seconds': core_timeout_seconds if collection == 'core' else 43200,
+            'outer_timeout_floor_seconds': (core_timeout_seconds if collection == 'core' else 43200) + 90}
+
+
+def verify_execution_policy(lock, collection, *records):
+    # Older locks used one manager and the supervisor's 43200-second default.
+    expected = execution_metadata(collection, lock.get('core_processes', 1),
+                                  lock.get('core_timeout_seconds', 43200))
+    for record in records:
+        for key, value in expected.items():
+            policy_key = 'core_timeout_seconds' if 'timeout' in key else 'core_processes'
+            if (policy_key in lock or key in record) and (
+                    type(record.get(key)) is not int or record[key] != value):
+                raise ValueError('official execution process policy mismatch')
+        argv = record.get('argv')
+        if not isinstance(argv, list) or not all(isinstance(arg, str) for arg in argv):
+            raise ValueError('official execution process argv missing')
+        positions = [i for i, arg in enumerate(argv)
+                     if arg.startswith('--') and '--processes'.startswith(arg.split('=', 1)[0])]
+        if (len(positions) != 1 or argv[positions[0]] != '--processes'
+                or positions[0] + 1 == len(argv)
+                or argv[positions[0] + 1] != str(expected['processes'])):
+            raise ValueError('official execution process argv differs from frozen policy')
+    return expected
+
+
 def verify(report_path, execution_path, candidate, collection, *, profile_id=None):
     report_path = Path(report_path).resolve()
     execution_path = Path(execution_path).resolve()
@@ -43,6 +80,7 @@ def verify(report_path, execution_path, candidate, collection, *, profile_id=Non
     if preflight['workflow_lock']['sha256'] != execution.get('workflow_lock_sha256'):
         raise ValueError('official execution workflow lock mismatch')
     lock = json.loads(read_record(preflight['workflow_lock']).read_text())
+    verify_execution_policy(lock, collection, preflight, execution)
     contract = json.loads(read_record(preflight['run_contract']).read_text())
     if (lock.get('candidate_sha256') != candidate or lock.get('run_contract_sha256') != preflight['run_contract']['sha256']
             or contract.get('candidate', {}).get('sha256') != candidate):

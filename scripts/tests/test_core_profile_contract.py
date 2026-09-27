@@ -167,4 +167,50 @@ class CoreProfileContractTests(unittest.TestCase):
             with self.assertRaises(ValueError): profiles.validate_profile_ledger(summary,broken,ids,context)
 
 
+class CoreProfilePlatformTests(unittest.TestCase):
+    def test_actual_pinned_mozinfo_apple_silicon_maps_to_registry_without_changing_raw_info(self):
+        import importlib.util
+        import runpy
+        # Execute the installed upstream dependency with the actual host's
+        # reported Darwin tuple, not a replacement metadata implementation.
+        source = importlib.util.find_spec('mozinfo.mozinfo').origin
+        with patch('platform.uname', return_value=('Darwin', 'test-host', '26.0.0',
+                                                   'Darwin Kernel Version', 'arm64', 'arm')), \
+             patch('platform.architecture', return_value=('64bit', '')), \
+             patch('platform.mac_ver', return_value=('27.0', ('', '', ''), 'arm64')):
+            raw = runpy.run_path(source, run_name='mozinfo._oryn_platform_control')['info']
+        self.assertEqual(raw['processor'], 'arm')
+        self.assertEqual(raw['bits'], 64)
+        self.assertIs(raw['apple_silicon'], True)
+        before = copy.deepcopy(raw)
+        profiles.verify_platform(raw, {'platform': 'macOS', 'processor': 'aarch64'})
+        self.assertEqual(raw, before)
+
+    def test_generic_arm_requires_strict_64bit_apple_silicon_and_matching_platform(self):
+        actual = {'os': 'mac', 'processor': 'arm', 'bits': 64, 'apple_silicon': True}
+        cases = [dict(actual, bits=value) for value in (32, None, '64', 64.0, True)]
+        cases += [dict(actual, apple_silicon=value) for value in (False, None, 1, 'true')]
+        cases += [dict(actual, os='linux'), dict(actual, os='win'),
+                  {key: value for key, value in actual.items() if key != 'bits'},
+                  {key: value for key, value in actual.items() if key != 'apple_silicon'}]
+        for raw in cases:
+            with self.subTest(raw=raw), self.assertRaisesRegex(ValueError, 'platform differs'):
+                profiles.verify_platform(raw, {'platform': 'macOS', 'processor': 'aarch64'})
+        for selected in ({'platform': 'Linux', 'processor': 'aarch64'},
+                         {'platform': 'macOS', 'processor': 'x86_64'}):
+            with self.subTest(selected=selected), self.assertRaises(ValueError):
+                profiles.verify_platform(actual, selected)
+
+    def test_existing_explicit_processor_aliases_preserve_exact_platform_checks(self):
+        for raw, selected in [({'os': 'mac', 'processor': 'arm64'},
+                               {'platform': 'macOS', 'processor': 'aarch64'}),
+                              ({'os': 'mac', 'processor': 'aarch64'},
+                               {'platform': 'macOS', 'processor': 'aarch64'}),
+                              ({'os': 'win', 'processor': 'AMD64'},
+                               {'platform': 'Windows', 'processor': 'x86_64'})]:
+            profiles.verify_platform(raw, selected)
+            with self.assertRaisesRegex(ValueError, 'platform differs'):
+                profiles.verify_platform(dict(raw, os='unknown'), selected)
+
+
 if __name__ == '__main__': unittest.main()

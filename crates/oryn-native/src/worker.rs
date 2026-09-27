@@ -20,7 +20,7 @@ use crate::{
     runtime::{NativeAction, RuntimeError},
 };
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 19;
+pub const WORKER_PROTOCOL_VERSION: u32 = 20;
 use crate::worker_route::WorkerRoute;
 pub const MAX_IPC_FRAME_BYTES: usize = 24 * 1024 * 1024;
 static WORKER_BINARY_SHA256: OnceLock<String> = OnceLock::new();
@@ -565,6 +565,23 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
         }
 
         if let Ok(envelope) = serde_json::from_slice::<HostEnvelope>(&line) {
+            // Diagnostic identities do not authorize requests; normal validation follows.
+            let progress_scope = envelope.route.as_ref().map(|route| {
+                crate::ipc_progress::request(route, envelope.message_id, &envelope.command)
+            });
+            let progress = progress_scope
+                .as_ref()
+                .and_then(crate::ipc_progress::RequestScope::identity);
+            crate::ipc_progress::record(
+                progress,
+                crate::ipc_progress::Phase::RequestReceived,
+                None,
+                None,
+            );
+            let mut timing = crate::native_timing::Scope::start(
+                "native_worker_dispatch",
+                serde_json::to_value(progress).unwrap_or(serde_json::Value::Null),
+            );
             let response = if envelope.protocol_version != WORKER_PROTOCOL_VERSION {
                 WorkerResponse::Error {
                     error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
@@ -648,9 +665,24 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
                         client.for_route(envelope.route.clone().expect("validated route"))
                     }),
                     envelope.command,
+                    progress,
                 )
                 .await
             };
+            timing.finish(!matches!(
+                &response,
+                WorkerResponse::Error { .. } | WorkerResponse::LimitExceeded { .. }
+            ));
+            crate::ipc_progress::result(
+                progress,
+                crate::ipc_progress::Phase::RequestReturned,
+                None,
+                None,
+                Some(!matches!(
+                    response,
+                    WorkerResponse::Error { .. } | WorkerResponse::LimitExceeded { .. }
+                )),
+            );
             if matches!(response, WorkerResponse::Ready { .. }) {
                 active_session_id = Some(envelope.session_id);
                 let route = envelope
@@ -678,6 +710,12 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             serde_json::to_writer(&mut writer, &response)?;
             writer.write_all(b"\n")?;
             writer.flush()?;
+            crate::ipc_progress::record(
+                progress,
+                crate::ipc_progress::Phase::ResponseWritten,
+                None,
+                None,
+            );
             if reset {
                 active_session_id = None;
                 active_routes.clear();
@@ -750,6 +788,7 @@ async fn dispatch(
     broker: Option<SharedNetworkBroker>,
     #[cfg(unix)] context_client: Option<SharedContextClient>,
     request: WorkerRequest,
+    progress: Option<crate::ipc_progress::Identity>,
 ) -> WorkerResponse {
     if let WorkerRequest::Initialize {
         related_actor,
@@ -1196,7 +1235,7 @@ async fn dispatch(
             Ok(events) => WorkerResponse::Trace { events },
             Err(value) => error(value),
         },
-        WorkerRequest::Close => match session.page.close().await {
+        WorkerRequest::Close => match session.page.close_with_observation(progress).await {
             Ok(()) => WorkerResponse::Closed,
             Err(value) => error(value),
         },
@@ -1639,6 +1678,7 @@ mod tests {
             WorkerRequest::Reset {
                 nonce: "first".into(),
             },
+            None,
         )
         .await;
         assert!(matches!(response, WorkerResponse::Error { .. }));
@@ -1661,6 +1701,7 @@ mod tests {
             WorkerRequest::Reset {
                 nonce: "retry".into(),
             },
+            None,
         )
         .await;
         assert!(matches!(response, WorkerResponse::ResetReady { nonce, .. } if nonce == "retry"));

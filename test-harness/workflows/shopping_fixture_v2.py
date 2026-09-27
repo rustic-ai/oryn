@@ -134,7 +134,10 @@ def configure_server(fixture, shop_server):
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.send_header('Content-Length', str(len(data)))
             self.send_header('Cache-Control', 'no-store')
-            self.send_header('Referrer-Policy', 'no-referrer')
+            # Payment POST validates its own Origin. Fetch serializes that
+            # header as null under no-referrer; strict-origin preserves the
+            # same-origin authority without leaking the tokenized URL path.
+            self.send_header('Referrer-Policy', 'strict-origin')
             self.end_headers()
             self.wfile.write(data)
         def do_GET(self):
@@ -148,7 +151,7 @@ def configure_server(fixture, shop_server):
     server = ThreadingHTTPServer(('127.0.0.1',0), PaymentHandler)
     server.daemon_threads = False
     fixture.payment_origin = f'http://127.0.0.1:{server.server_port}'
-    thread = threading.Thread(target=server.serve_forever)
+    thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.05})
     thread.start()
     def close():
         server.shutdown()

@@ -322,6 +322,7 @@ pub struct XmlDocumentParser {
     input_failure: Option<String>,
     end_started: bool,
     input_started: bool,
+    root_element_seen: bool,
 }
 
 pub enum XmlParseStep {
@@ -363,6 +364,7 @@ impl XmlDocumentParser {
             input_failure: None,
             end_started: false,
             input_started: true,
+            root_element_seen: false,
         }
     }
 
@@ -470,6 +472,7 @@ impl XmlDocumentParser {
                 XmlEvent::StartElement {
                     name, attributes, ..
                 } => {
+                    self.root_element_seen = true;
                     let attrs = attributes
                         .into_iter()
                         .map(|attr| Attribute {
@@ -504,6 +507,13 @@ impl XmlDocumentParser {
                     self.sink.append(&parent, NodeOrText::AppendNode(node));
                 }
                 XmlEvent::ProcessingInstruction { name, data } => {
+                    if !self.root_element_seen
+                        && name == "xml-stylesheet"
+                        && crate::parse_xslt_stylesheet(data.as_deref().unwrap_or_default())
+                            .is_some_and(|sheet| !sheet.alternate)
+                    {
+                        self.sink.suppress_xslt_source_execution();
+                    }
                     let node = self
                         .sink
                         .xml_character_node(data.unwrap_or_default(), Some(name));

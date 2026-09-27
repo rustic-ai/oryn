@@ -332,11 +332,18 @@ pub struct IdbHostResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum PlatformHostRequest {
+    XsltTransform {
+        request: XsltRequest,
+    },
     /// Native service FetchEvent task; rejected by window and non-service routes.
     NavigationPreload {
         task: u64,
     },
     HttpStart {
+        request: PlatformHttpRequest,
+    },
+    /// Window-owned, same-origin XSLT stylesheet request.
+    XsltStart {
         request: PlatformHttpRequest,
     },
     ImageStart {
@@ -496,6 +503,9 @@ pub struct InternalResponseMetadata {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case")]
 pub enum PlatformHostResult {
+    XsltTransformed {
+        transform: XsltResult,
+    },
     HttpStarted {
         #[serde(default)]
         timing: Option<Box<ResourceTimingMetadata>>,
@@ -590,4 +600,22 @@ pub struct NavigationRequestFlags {
     pub reload: bool,
     #[serde(default)]
     pub history: bool,
+}
+
+/// Immutable input to a single owned native XSLT helper. Resources are already
+/// authorized browser responses; the helper has no network or file authority.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct XsltRequest {
+    pub style: String,
+    pub source: Option<String>,
+    pub parameters: Vec<(String, String, String)>,
+    pub url: String,
+    pub resources: Vec<(String, String, String)>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct XsltResult {
+    pub valid: bool,
+    pub output: Option<(String, i32)>,
 }

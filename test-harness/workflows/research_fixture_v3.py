@@ -88,7 +88,7 @@ def configure_server(fixture, server):
     foreign = ThreadingHTTPServer(('127.0.0.1',0),Handler)
     foreign.daemon_threads = False
     fixture.foreign_origin = f'http://127.0.0.1:{foreign.server_port}'
-    thread = threading.Thread(target=foreign.serve_forever);thread.start()
+    thread = threading.Thread(target=foreign.serve_forever, kwargs={'poll_interval': 0.05});thread.start()
     def close():
         foreign.shutdown();foreign.server_close();thread.join(timeout=10)
         if thread.is_alive(): raise ValueError('foreign research server did not retire')

@@ -2,6 +2,10 @@
 
 ## Core and OIL delivery work
 
+The user resumed implementation on September 20 after the gap review. Follow [the active gap-repair workflow](docs/oryn2/GAP-REPAIR-WORKFLOW-2026-09-20.md); earlier pause text in stocktake documents is historical. Complete all batch code and regression generation before builds/tests.
+
+Current progress lives in [CURRENT_STATUS.md](docs/oryn2/CURRENT_STATUS.md), generated from the single [candidate/gate index](docs/oryn2/current-status.json). Refresh with `python3 scripts/render-current-status.py` and verify with `--check`; do not append new status snapshots to archived reports or count historical checkboxes. Pin new evidence and keep source, review, execution and qualification states separate.
+
 For continuation of the Core and OIL completion effort, read [the governing post-stocktake directive](docs/oryn2/POST-STOCKTAKE-DELIVERY-DIRECTIVE-2026-09-20.md) before assigning work or running builds/tests. It supersedes older immediate-work lists while preserving the full completion plan. Implementation is paused until the user explicitly resumes it; a request to update planning documents is not a resumption. On resumption, follow its complete repair-batch, parallel ownership, immutable validation, compatibility measurement and evidence requirements.
 
 ## Project Structure & Module Organization

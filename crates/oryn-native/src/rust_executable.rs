@@ -22,6 +22,7 @@ struct ParserResourceFinishInput<'a> {
 }
 /// Inputs retained together for load with options and host.
 struct DocumentConstructionInput<'a> {
+    terminal_control: Option<Arc<crate::page_terminal_control::PageTerminalControl>>,
     input: DocumentLoad,
     resources: &'a BTreeMap<String, String>,
     broker: Option<SharedNetworkBroker>,
@@ -35,6 +36,27 @@ struct DocumentConstructionInput<'a> {
     )>,
     recovery: Option<&'a mut Option<RawV8Host>>,
     inherited_origin: Option<oryn_js::origin::Origin>,
+}
+/// Page actor construction owns this slot before any parser/lifecycle execution.
+/// It stays with this executable root when the unique isolate host is lent elsewhere.
+pub(crate) struct PageDocumentLoadInput<'a> {
+    pub(crate) parsed: Option<ParsedDocument>,
+    pub(crate) source: Option<DocumentStream>,
+    pub(crate) html: &'a str,
+    pub(crate) resources: &'a BTreeMap<String, String>,
+    pub(crate) broker: Option<SharedNetworkBroker>,
+    pub(crate) base_url: Option<Url>,
+    pub(crate) max_heap_bytes: usize,
+    pub(crate) scheduled: bool,
+    #[cfg(unix)]
+    pub(crate) context: Option<(
+        crate::context_service::SharedContextClient,
+        oryn_common::v3::PageId,
+        Option<oryn_common::v3::PageId>,
+    )>,
+    pub(crate) recovery: Option<&'a mut Option<RawV8Host>>,
+    pub(crate) inherited_origin: Option<oryn_js::origin::Origin>,
+    pub(crate) terminal_control: Arc<crate::page_terminal_control::PageTerminalControl>,
 }
 /// Inputs retained together for load in agent.
 pub(crate) struct AgentDocumentLoadInput<'a> {
@@ -6786,21 +6808,9 @@ if(typeof globalThis.__oryn_fetch_async==='function')globalThis.fetch=(input,ini
     const response=new OrynResponse(responseBytes,{status:result.status,url:result.url,headers:result.headers,bodyChunks:chunks,streamId:result.stream_id,type:result.cors_filtered?'cors':'basic',redirected:result.redirected});if(signal)signal.addEventListener('abort',()=>response.body.cancel(signal.reason));return response;
   });
 };
-class OrynXMLHttpRequest {
-  constructor(){this.readyState=0;this.status=0;this.responseType='';this.response=null;this.responseText='';this.responseURL='';this.timeout=0;this.withCredentials=false;this.__headers=new OrynHeaders();this.__responseHeaders=new OrynHeaders();this.__listeners=new Map();this.__aborted=false;this.__timedOut=false}
-  addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}
-  removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}
-  __event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}
-  __state(value){this.readyState=value;this.__event('readystatechange')}
-  open(method,url,async=true){if(async===false){__oryn_context_trace.push({kind:'capability_failure',detail:{capability:'xhr.synchronous_main_thread',detail:'synchronous main-thread XHR is unsupported'}});throw new Error('synchronous main-thread XHR is unsupported')}this.__method=String(method).toUpperCase();this.__url=new OrynURL(url,location.href).href;this.__state(1)}
-  setRequestHeader(name,value){this.__headers.append(name,value)}
-  getResponseHeader(name){return this.__responseHeaders.get(name)}
-  getAllResponseHeaders(){return [...this.__responseHeaders].map(([name,value])=>`${name}: ${value}\r\n`).join('')}
-  send(body=null){if(this.readyState!==1)throw new Error('InvalidStateError');this.__event('loadstart');const controller=new AbortController();this.__controller=controller;const started=Date.now();const timeout=()=>{if(this.__aborted||this.__timedOut)return;this.__timedOut=true;controller.abort(new Error('TimeoutError'));this.status=0;this.__event('timeout');this.__event('loadend')};if(this.timeout>0)this.__timer=setTimeout(timeout,this.timeout);Promise.resolve().then(()=>{if(this.__aborted)return null;return fetch(this.__url,{method:this.__method,headers:this.__headers,body,credentials:this.withCredentials?'include':'same-origin',signal:controller.signal})}).then(async result=>{if(!result||this.__aborted||this.__timedOut)return;if(this.timeout>0&&Date.now()-started>=this.timeout){timeout();return}this.status=result.status;this.responseURL=result.url;this.__responseHeaders=result.headers;this.__state(2);const reader=result.body.getReader(),chunks=[],decoder=new TextDecoder();let loaded=0,sawChunk=false;while(true){const part=await reader.read();if(part.done)break;if(this.__aborted||this.__timedOut){await reader.cancel();return}const chunk=bodyBytes(part.value);chunks.push(chunk);loaded+=chunk.length;if(!sawChunk){sawChunk=true;this.__state(3)}this.responseText+=decoder.decode(chunk,{stream:true});this.__event('progress',{lengthComputable:false,loaded,total:0})}this.responseText+=decoder.decode();if(this.__timer)clearTimeout(this.__timer);const bytes=new Uint8Array(loaded);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length}if(!sawChunk)this.__state(3);this.response=this.responseType==='arraybuffer'?bytes.buffer.slice(0):this.responseType==='blob'?new Blob([bytes],{type:this.__responseHeaders.get('content-type')||''}):this.responseType==='json'?JSON.parse(this.responseText||'null'):this.responseText;this.__state(4);this.__event('load');this.__event('loadend')}).catch(error=>{if(this.__aborted||this.__timedOut)return;this.status=0;this.__event('error',{error});this.__event('loadend')})}
-  abort(){if(this.__aborted)return;this.__aborted=true;if(this.__controller)this.__controller.abort(new Error('AbortError'));this.status=0;this.readyState=0;this.__event('abort');this.__event('loadend')}
-}
-Object.assign(OrynXMLHttpRequest,{UNSENT:0,OPENED:1,HEADERS_RECEIVED:2,LOADING:3,DONE:4});Object.assign(OrynXMLHttpRequest.prototype,{UNSENT:0,OPENED:1,HEADERS_RECEIVED:2,LOADING:3,DONE:4});globalThis.XMLHttpRequest=OrynXMLHttpRequest;
-for(const [name,value] of Object.entries(__oryn_generated_platform))if(value!==undefined&&(typeof globalThis.__oryn_context_call==='function'||['Blob','File','FormData'].includes(name)))globalThis[name]=value;
+// XMLHttpRequest uses the generated binding on both standalone and parent-backed
+// routes. Native adapters supply the same policy boundary for sync and async IO.
+for(const [name,value] of Object.entries(__oryn_generated_platform))if(value!==undefined&&(typeof globalThis.__oryn_context_call==='function'||['Blob','File','FormData','XMLHttpRequest'].includes(name)))globalThis[name]=value;
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6848,10 +6858,41 @@ impl Drop for ParserTurnGuard {
     }
 }
 
+#[path = "action_frame_navigation.rs"]
+mod action_frame_navigation;
+pub(crate) use action_frame_navigation::{
+    CommittedSelection as ActionFrameCommittedSelection, Receipt as ActionFrameNavigationReceipt,
+};
+
+#[cfg(test)]
+struct ParserLifecycleTestGuard {
+    probe: Rc<std::cell::Cell<bool>>,
+    previous: bool,
+}
+#[cfg(test)]
+impl ParserLifecycleTestGuard {
+    fn enter(probe: Rc<std::cell::Cell<bool>>) -> Self {
+        let previous = probe.replace(true);
+        Self { probe, previous }
+    }
+}
+#[cfg(test)]
+impl Drop for ParserLifecycleTestGuard {
+    fn drop(&mut self) {
+        self.probe.set(self.previous);
+    }
+}
+
 pub struct RustExecutableDocument {
+    page_terminal_control: Option<Arc<crate::page_terminal_control::PageTerminalControl>>,
+    // Test-only observation belongs to this exact executable, not its shared
+    // host or the thread; it never supplies execution or retirement authority.
+    #[cfg(test)]
+    parser_lifecycle_test_active: Rc<std::cell::Cell<bool>>,
     pub document: ParsedDocument,
     pub diagnostics: Vec<oryn_common::v3::CapabilityDiagnostic>,
     published_diagnostics: usize,
+    pending_console_entries: Vec<ConsoleEntry>,
     agent: crate::agent::AgentRuntime,
     top_realm: RealmId,
     standalone_roots: std::rc::Weak<RefCell<crate::runtime::standalone_root_driver::Roots>>,
@@ -6904,6 +6945,7 @@ pub struct RustExecutableDocument {
     document_publications: BTreeMap<RealmId, Rc<PendingDocumentPublication>>,
     document_load_stopped: bool,
     pending_frame_navigations: BTreeMap<(RealmId, NodeId), FrameNavigationContext>,
+    action_frame_navigation: Option<action_frame_navigation::Capture>,
     base_url: Option<Url>,
     resources: BTreeMap<String, String>,
     broker: Option<SharedNetworkBroker>,
@@ -7110,6 +7152,9 @@ impl RustExecutableDocument {
             dynamic_scripts.graph_fetches.clone(),
         )?;
         Ok(Self {
+            page_terminal_control: None,
+            #[cfg(test)]
+            parser_lifecycle_test_active: Default::default(),
             document: ParsedDocument {
                 dom,
                 document,
@@ -7119,6 +7164,7 @@ impl RustExecutableDocument {
             },
             diagnostics: Vec::new(),
             published_diagnostics: 0,
+            pending_console_entries: Vec::new(),
             agent: crate::agent::AgentRuntime::detached(root.dom, host.agent_host_identity()),
             top_realm: root.realm,
             standalone_roots: Rc::downgrade(&host.standalone_root_drivers()),
@@ -7157,6 +7203,7 @@ impl RustExecutableDocument {
             retained_default_actions: std::collections::VecDeque::new(),
             default_action_retry: None,
             pending_frame_navigations: BTreeMap::new(),
+            action_frame_navigation: None,
             base_url: Some(root.url),
             resources: BTreeMap::new(),
             broker: root.broker,
@@ -7193,6 +7240,9 @@ impl RustExecutableDocument {
             dynamic_scripts.graph_fetches.clone(),
         )?;
         Ok(Self {
+            page_terminal_control: None,
+            #[cfg(test)]
+            parser_lifecycle_test_active: Default::default(),
             document: ParsedDocument {
                 dom,
                 document,
@@ -7202,6 +7252,7 @@ impl RustExecutableDocument {
             },
             diagnostics: Vec::new(),
             published_diagnostics: 0,
+            pending_console_entries: Vec::new(),
             agent: crate::agent::AgentRuntime::detached(root.dom, host.agent_host_identity()),
             top_realm: root.realm,
             standalone_roots: Rc::downgrade(&host.standalone_root_drivers()),
@@ -7241,6 +7292,7 @@ impl RustExecutableDocument {
             retained_default_actions: std::collections::VecDeque::new(),
             default_action_retry: None,
             pending_frame_navigations: BTreeMap::new(),
+            action_frame_navigation: None,
             base_url: Some(root.url),
             resources: BTreeMap::new(),
             broker: root.broker,
@@ -7433,6 +7485,88 @@ impl RustExecutableDocument {
             .iter()
             .map(|(node, realm)| (*node, u64::from(realm.0)))
             .collect()
+    }
+
+    pub(crate) fn load_for_page(params: PageDocumentLoadInput<'_>) -> Result<Self, HostError> {
+        let PageDocumentLoadInput {
+            parsed,
+            source,
+            html,
+            resources,
+            broker,
+            base_url,
+            max_heap_bytes,
+            scheduled,
+            #[cfg(unix)]
+            context,
+            recovery,
+            inherited_origin,
+            terminal_control,
+        } = params;
+        #[cfg(unix)]
+        if let Some((client, page, _)) = &context {
+            if !terminal_control.owns_page(*page) {
+                return Err(HostError::Execution(
+                    "page terminal control owner mismatch".into(),
+                ));
+            }
+            match client.direct_page_prompt_controller(*page) {
+                Ok(Some(controller)) => {
+                    terminal_control.bind(controller);
+                }
+                Ok(None) => {} // Routed roots bind at local actor registration.
+                Err(_) => terminal_control.lookup_failed(),
+            }
+        }
+        let input = match (parsed, source, scheduled) {
+            (Some(parsed), _, true) => DocumentLoad::ScheduledSnapshot(Box::new(parsed)),
+            (Some(parsed), _, false) => DocumentLoad::Snapshot(Box::new(parsed)),
+            (None, source, scheduled) => {
+                let source = source.unwrap_or_else(|| {
+                    DocumentStream::html(Box::new(std::iter::once(Ok(html.to_owned()))))
+                });
+                if scheduled {
+                    DocumentLoad::Scheduled(source)
+                } else {
+                    DocumentLoad::Live(source)
+                }
+            }
+        };
+        Self::load_with_options_and_host(DocumentConstructionInput {
+            input,
+            resources,
+            broker,
+            base_url,
+            max_heap_bytes,
+            #[cfg(unix)]
+            context,
+            recovery,
+            inherited_origin,
+            terminal_control: Some(terminal_control),
+        })
+    }
+
+    /// Explicit root-ownership adoption, before the receiving PageState executes
+    /// this driver. Taking/returning a host never copies this association.
+    pub(crate) fn adopt_page_terminal_control(
+        &mut self,
+        control: Arc<crate::page_terminal_control::PageTerminalControl>,
+    ) {
+        self.page_terminal_control = Some(control);
+    }
+
+    pub(crate) fn terminal_owner_for_page(
+        &self,
+        page: oryn_common::v3::PageId,
+    ) -> Option<Arc<crate::page_terminal_control::PageTerminalControl>> {
+        self.page_terminal_control
+            .as_ref()
+            .filter(|owner| owner.owns_page(page))
+            .cloned()
+    }
+
+    pub(crate) fn terminal_retired(&self) -> bool {
+        crate::page_terminal_control::retired(self.page_terminal_control.as_deref())
     }
 
     pub fn load(html_source: &str) -> Result<Self, HostError> {
@@ -7937,6 +8071,15 @@ impl RustExecutableDocument {
             #[cfg(unix)]
             if let (Some(token), Some(url)) = (&response_worker_policy_token, &frame_url) {
                 host.bind_frame_worker_policy(url.as_str(), token)?;
+                crate::ipc_progress::record(
+                    loaded_frames
+                        .get(&frame)
+                        .and_then(|loaded| loaded.body.as_ref())
+                        .and_then(|body| body.progress),
+                    crate::ipc_progress::Phase::FramePolicyBound,
+                    None,
+                    None,
+                );
             }
             #[cfg(unix)]
             if context_handle.is_some()
@@ -8120,6 +8263,16 @@ impl RustExecutableDocument {
             ensure_live_parser_identity(host, live_dom, &parent_identity)?;
             if let Some(prepared_load) = prepared_load {
                 initial_frame_realms.push(prepared_load);
+                #[cfg(unix)]
+                crate::ipc_progress::record(
+                    loaded_frames
+                        .get(&frame)
+                        .and_then(|loaded| loaded.body.as_ref())
+                        .and_then(|body| body.progress),
+                    crate::ipc_progress::Phase::DocumentCommitted,
+                    Some(prepared_load.identity.2),
+                    Some(prepared_load.identity.1),
+                );
             }
         }
         host.set_current_script(None)?;
@@ -8131,10 +8284,21 @@ impl RustExecutableDocument {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn parser_lifecycle_probe_for_test(&self) -> Rc<std::cell::Cell<bool>> {
+        self.parser_lifecycle_test_active.clone()
+    }
+
     fn finish_parser_lifecycle(
         &mut self,
         initial_frame_realms: Vec<PreparedDocumentLoad>,
     ) -> Result<(), HostError> {
+        #[cfg(test)]
+        let _lifecycle_probe =
+            ParserLifecycleTestGuard::enter(self.parser_lifecycle_test_active.clone());
+        if self.terminal_retired() {
+            return Ok(());
+        }
         if self.agent.host.realm_document_load_stopped(self.top_realm) {
             self.observe_native_root_stop();
             return self.checkpoint();
@@ -8170,8 +8334,17 @@ impl RustExecutableDocument {
                 continue;
             }
             self.agent.host.activate_realm(realm)?;
+            if self.terminal_retired() {
+                return Ok(());
+            }
             self.agent.host.prepare_document_images()?;
+            if self.terminal_retired() {
+                return Ok(());
+            }
             self.agent.host.drain_async_fetches(false)?;
+            if self.terminal_retired() {
+                return Ok(());
+            }
             if self.agent.host.automation_realm_identity(self.top_realm) != root_identity {
                 return Ok(());
             }
@@ -8179,43 +8352,91 @@ impl RustExecutableDocument {
                 continue;
             }
             self.queue_document_load(realm)?;
+            if self.terminal_retired() {
+                return Ok(());
+            }
             // A frame's load task may schedule the zero-delay completion task
             // used by testharness and by application bootstraps. Run timers
             // that are due now while the child realm is active; otherwise the
             // top realm can reach its own load barrier with the child remote
             // context permanently awaiting completion.
             self.agent.host.drain_scheduled_timers(false)?;
+            if self.terminal_retired() {
+                return Ok(());
+            }
             self.checkpoint()?;
+            if self.terminal_retired() {
+                return Ok(());
+            }
         }
         if self.agent.host.automation_realm_identity(self.top_realm) != root_identity {
             return Ok(());
         }
         self.agent.host.activate_realm(self.top_realm)?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         // Dynamic external/module scripts inserted by parser-time JavaScript
         // are force-async but still participate in the document load barrier.
         // A parser-time submission may replace a just-inserted frame's initial
         // blank navigation. Resolve those planned actions before firing frame
         // load handlers, matching the ordering used by ordinary checkpoints.
         self.drain_default_actions()?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         self.drain_frame_location_navigations()?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         self.drain_dynamic_frames()?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         self.drain_dynamic_stylesheets()?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         self.drain_dynamic_scripts()?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         self.agent.host.prepare_document_images()?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         self.agent.host.drain_async_fetches(false)?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         // Zero-delay framework commits queued before load run at this
         // checkpoint. Future timers retain their deadlines and must not be
         // pulled forward merely because navigation reached the load barrier.
         self.agent.host.drain_scheduled_timers(false)?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         self.checkpoint()?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         // Timers, completions and child handlers may have opened a new stream.
         // Only that stream's own close/navigation may schedule its lifecycle.
         if self.agent.host.automation_realm_identity(self.top_realm) != root_identity {
             return Ok(());
         }
         self.queue_document_load(self.top_realm)?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         self.agent.host.drain_scheduled_timers(false)?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         self.checkpoint()?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         Ok(())
     }
 
@@ -8232,6 +8453,7 @@ impl RustExecutableDocument {
         )>,
     ) -> Result<Self, HostError> {
         Self::load_with_options_and_host(DocumentConstructionInput {
+            terminal_control: None,
             input,
             resources,
             broker,
@@ -8268,6 +8490,7 @@ impl RustExecutableDocument {
             ))),
         };
         Self::load_with_options_and_host(DocumentConstructionInput {
+            terminal_control: None,
             input,
             resources,
             broker,
@@ -8310,6 +8533,7 @@ impl RustExecutableDocument {
             }
         };
         Self::load_with_options_and_host(DocumentConstructionInput {
+            terminal_control: None,
             input,
             resources,
             broker,
@@ -8326,6 +8550,7 @@ impl RustExecutableDocument {
         params: DocumentConstructionInput<'_>,
     ) -> Result<Self, HostError> {
         let DocumentConstructionInput {
+            terminal_control,
             input,
             resources,
             broker,
@@ -8901,6 +9126,9 @@ impl RustExecutableDocument {
                 let (dom, document) = live_dom.borrow().snapshot();
                 host.validate_active_arena(&live_dom)?;
                 let mut page = Self {
+                    page_terminal_control: terminal_control,
+                    #[cfg(test)]
+                    parser_lifecycle_test_active: Default::default(),
                     document: ParsedDocument {
                         dom,
                         document,
@@ -8910,6 +9138,7 @@ impl RustExecutableDocument {
                     },
                     diagnostics,
                     published_diagnostics: 0,
+                    pending_console_entries: Vec::new(),
                     agent: crate::agent::AgentRuntime::detached(
                         live_dom,
                         host.agent_host_identity(),
@@ -8950,6 +9179,7 @@ impl RustExecutableDocument {
                     document_publications: BTreeMap::new(),
                     document_load_stopped: false,
                     pending_frame_navigations: BTreeMap::new(),
+                    action_frame_navigation: None,
                     archived_frame_sources: BTreeMap::new(),
                     archived_frame_controls: BTreeMap::new(),
                     base_url,
@@ -9018,6 +9248,9 @@ impl RustExecutableDocument {
                     parser_wait_started.saturating_duration_since(construction_started);
                 let mut construction_polls = 0usize;
                 while page.construction_pending() {
+                    if page.terminal_retired() {
+                        break;
+                    }
                     if std::time::Instant::now() >= construction_deadline {
                         let progress = page
                             .frame_script_preparations
@@ -9043,6 +9276,9 @@ impl RustExecutableDocument {
                     // Timers and parent completions can unblock parsing. Servicing
                     // only parser input here strands those independent task sources.
                     page.poll_context_events()?;
+                    if page.terminal_retired() {
+                        break;
+                    }
                     if page.construction_pending() && !page.has_runnable_page_work() {
                         std::thread::park_timeout(
                             Duration::from_millis(1).min(
@@ -9077,6 +9313,10 @@ impl RustExecutableDocument {
     /// true means progress or completion. Input polling yields; completion still
     /// has synchronous module/frame consumers tracked by the generation checklist.
     fn resume_pending_parser(&mut self) -> Result<bool, HostError> {
+        if self.terminal_retired() {
+            return Ok(false);
+        }
+        let _close_phase = crate::ipc_progress::close_admission::phase("parser_resume");
         let _parser_turn = self.parser_turn.enter();
         let original = self
             .pending_parser
@@ -9160,6 +9400,9 @@ impl RustExecutableDocument {
         }
         if result.is_err() {
             self.observe_native_root_stop();
+        }
+        if result.is_ok() && self.terminal_retired() {
+            return result;
         }
         if result.is_ok() {
             let (dom, document) = self.agent.dom.borrow().snapshot();
@@ -9442,6 +9685,7 @@ impl RustExecutableDocument {
     }
 
     fn resume_parser_completion(&mut self) -> Result<bool, HostError> {
+        let _close_phase = crate::ipc_progress::close_admission::phase("parser_completion");
         #[cfg(unix)]
         self.poll_parser_async_modules()?;
         self.poll_dynamic_stylesheets()?;
@@ -9508,6 +9752,11 @@ impl RustExecutableDocument {
         self.activate_selected_script_realm()?;
         if source.contains("__oryn_drain(true)") {
             self.drain_tasks()?;
+            if self.terminal_retired() {
+                return Err(HostError::ScriptLoad(
+                    crate::script_load_failure::ScriptLoadFailure::Cancelled,
+                ));
+            }
             self.activate_selected_script_realm()?;
         }
         let value = self.agent.host.evaluate_string(source)?;
@@ -9581,6 +9830,37 @@ impl RustExecutableDocument {
         self.agent.host.activate_realm(self.top_realm)?;
         self.agent.host.run_history_task(task, destination)
     }
+    pub(crate) fn run_history_task_with_receipt(
+        &mut self,
+        task: oryn_js::v8_bindings::HistoryTraversalTask,
+    ) -> Result<Option<oryn_js::joint_history::NativeJointTraversalReceipt>, HostError> {
+        self.agent.host.activate_realm(self.top_realm)?;
+        self.agent.host.run_history_task_with_receipt(task, None)
+    }
+    /// The selected automation realm is not the owner of the top-level queues.
+    /// Claim each queue once, then restore the selected scope before returning.
+    pub(crate) fn take_root_action_navigation(
+        &mut self,
+    ) -> Result<
+        (
+            Option<oryn_js::v8_bindings::LocationNavigation>,
+            Option<oryn_js::v8_bindings::HistoryTraversalTask>,
+        ),
+        HostError,
+    > {
+        let selected = self.automation_realm();
+        self.agent.host.activate_realm(self.top_realm)?;
+        let result = self
+            .agent
+            .host
+            .take_history_traversal()
+            .map(|history| (self.agent.host.take_location_navigation(), history));
+        let restoration = self.agent.host.activate_realm(selected);
+        match result {
+            Err(error) => Err(error),
+            Ok(value) => restoration.map(|()| value),
+        }
+    }
     pub fn joint_history_snapshot(&self) -> Result<oryn_js::joint_history::Timeline, HostError> {
         self.agent
             .host
@@ -9618,6 +9898,10 @@ impl RustExecutableDocument {
                 .host
                 .admit_native_navigation(url, replace, reload, Default::default())?;
         self.checkpoint()?;
+        // Keep the already-produced admission; do not enter another host operation.
+        if self.terminal_retired() {
+            return Ok(admission);
+        }
         if let oryn_js::navigation_api::NativeNavigationAdmission::Proceed {
             operation: Some(operation),
             ..
@@ -9666,6 +9950,10 @@ impl RustExecutableDocument {
             .host
             .admit_native_history_traversal(destination)?;
         self.checkpoint()?;
+        // Keep the already-produced admission; do not enter another host operation.
+        if self.terminal_retired() {
+            return Ok(admission);
+        }
         if let oryn_js::navigation_api::NativeNavigationAdmission::Proceed {
             operation: Some(operation),
             ..
@@ -9858,7 +10146,13 @@ impl RustExecutableDocument {
             // full executable checkpoint. Pair the mutation journal and live
             // control projection with the current arena, not the last cached
             // checkpoint (whose nodes may already have been removed).
-            let (dom, document) = self.selected_dom()?.borrow().snapshot();
+            let selected_dom = self.selected_dom()?;
+            let selected_dom = selected_dom.borrow();
+            let document = selected_dom.document();
+            let dom = selected_dom
+                .arena()
+                .snapshot_live_document_tree(document)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
             return Ok(ParsedDocument {
                 dom,
                 document,
@@ -10515,9 +10809,22 @@ impl RustExecutableDocument {
             .host
             .automation_keyboard_focus_document(selected.realm)?
             .unwrap_or(selected.document_root);
+        let focus_dom = self
+            .agent
+            .host
+            .automation_dom(selected.realm)
+            .ok_or_else(failure)?;
         let target = inventory
             .iter()
-            .find(|entry| entry.live && entry.document_root == document)
+            .find(|entry| {
+                entry.live
+                    && entry.document_root == document
+                    && self
+                        .agent
+                        .host
+                        .automation_dom(entry.realm)
+                        .is_some_and(|realm_dom| Rc::ptr_eq(&focus_dom, &realm_dom))
+            })
             .ok_or_else(failure)?;
         let mut current = target;
         let mut seen = std::collections::BTreeSet::new();
@@ -10586,6 +10893,117 @@ impl RustExecutableDocument {
         )
     }
 
+    /// Input has its own native membership: a live initial Document may be
+    /// interactive before its resource has an executable loader owner. Keep
+    /// generic automation selection and its exact committed-document fence.
+    fn pointer_realms(&self) -> Vec<AutomationRealmSnapshot> {
+        let installed = self
+            .automation_realms()
+            .into_iter()
+            .filter(|entry| entry.live)
+            .map(|entry| (entry.realm, entry))
+            .collect::<BTreeMap<_, _>>();
+        let Some(root) = installed
+            .get(&self.top_realm)
+            .filter(|entry| entry.parent_realm.is_none())
+        else {
+            return Vec::new();
+        };
+        let candidates = self
+            .agent
+            .host
+            .native_pointer_frame_snapshots(self.top_realm)
+            .into_iter()
+            .filter(|(entry, initial)| {
+                *initial
+                    || installed
+                        .get(&entry.realm)
+                        .is_some_and(|owner| owner.same_document_as(entry))
+            })
+            .map(|(entry, _)| (entry.realm, entry))
+            .collect::<BTreeMap<_, _>>();
+        let mut result = vec![root.clone()];
+        for entry in candidates.values() {
+            let mut current = entry;
+            let mut seen = BTreeSet::new();
+            while seen.len() < 32 && seen.insert(current.realm) {
+                match current.parent_realm {
+                    Some(parent) if parent == root.realm => {
+                        result.push(entry.clone());
+                        break;
+                    }
+                    Some(parent) => match candidates.get(&parent) {
+                        Some(ancestor) => current = ancestor,
+                        None => break,
+                    },
+                    None => break,
+                }
+            }
+        }
+        result
+    }
+
+    fn validate_pointer_context(
+        &self,
+        selected: &AutomationRealmSnapshot,
+    ) -> Result<(), crate::host::webdriver_script::ScriptError> {
+        if self
+            .pointer_realms()
+            .iter()
+            .any(|entry| entry.same_document_as(selected))
+        {
+            Ok(())
+        } else {
+            Err(crate::host::webdriver_script::ScriptError {
+                code: "no such frame".into(),
+                message: "selected input document changed".into(),
+            })
+        }
+    }
+
+    fn pointer_hit_matches(
+        entry: &AutomationRealmSnapshot,
+        hit: &oryn_js::v8_bindings::NativeFramePointerTarget,
+    ) -> bool {
+        entry.frame == Some(hit.frame)
+            && entry.realm == hit.identity.realm
+            && entry.document_root == hit.identity.document
+            && entry.document_generation == hit.identity.generation
+            && entry.stream_epoch == hit.identity.stream_epoch
+            && entry.document_authority_epoch == hit.identity.authority_epoch
+    }
+
+    fn pointer_frame_mismatch(
+        &self,
+        parent: &AutomationRealmSnapshot,
+        hit: &oryn_js::v8_bindings::NativeFramePointerTarget,
+    ) -> crate::host::webdriver_script::ScriptError {
+        let installed = self
+            .automation_realms()
+            .iter()
+            .filter(|entry| {
+                entry.parent_realm == Some(parent.realm) && entry.frame == Some(hit.frame)
+            })
+            .count();
+        let initial = self
+            .agent
+            .host
+            .native_pointer_frame_diagnostic(parent.realm, hit.frame);
+        crate::host::webdriver_script::ScriptError {
+            code: "no such frame".into(),
+            message: format!(
+                "pointer frame document changed: parent={} frame={:?} hit={:?} installed={} resources={} ready={} {initial}",
+                parent.realm.0,
+                hit.frame,
+                hit.identity,
+                installed,
+                self.frame_resource_preparations
+                    .contains_key(&(parent.realm, hit.frame)),
+                self.ready_frame_jobs.len(),
+            ),
+        }
+    }
+
     fn webdriver_pointer_context(
         &self,
         selected: &AutomationRealmSnapshot,
@@ -10598,9 +11016,9 @@ impl RustExecutableDocument {
         (AutomationRealmSnapshot, f64, f64, f64, f64),
         crate::host::webdriver_script::ScriptError,
     > {
-        self.validate_action_context(selected)?;
+        self.validate_pointer_context(selected)?;
         if let Some(id) = id {
-            let inventory = self.automation_realms();
+            let inventory = self.pointer_realms();
             let mut best: Option<Vec<AutomationRealmSnapshot>> = None;
             for target in inventory.iter().filter(|entry| {
                 entry.live
@@ -10661,7 +11079,7 @@ impl RustExecutableDocument {
                             movement_x,
                             movement_y,
                         )?
-                        .filter(|mapped| mapped.document == child.document_root)
+                        .filter(|mapped| Self::pointer_hit_matches(&child, mapped))
                         .ok_or_else(crate::host::webdriver_script::ScriptError::retired)?;
                     current = child;
                     x = mapped.x;
@@ -10692,18 +11110,15 @@ impl RustExecutableDocument {
                 break;
             };
             let child = self
-                .automation_realms()
+                .pointer_realms()
                 .into_iter()
                 .find(|entry| {
                     entry.live
                         && entry.parent_realm == Some(current.realm)
                         && entry.frame == Some(hit.frame)
-                        && entry.document_root == hit.document
+                        && Self::pointer_hit_matches(entry, &hit)
                 })
-                .ok_or_else(|| crate::host::webdriver_script::ScriptError {
-                    code: "no such frame".into(),
-                    message: "pointer frame document changed".into(),
-                })?;
+                .ok_or_else(|| self.pointer_frame_mismatch(&current, &hit))?;
             if !self
                 .agent
                 .host
@@ -10731,9 +11146,9 @@ impl RustExecutableDocument {
     ) -> Result<oryn_js::v8_bindings::NativePointerInput, crate::host::webdriver_script::ScriptError>
     {
         use crate::host::webdriver_script::ScriptError;
-        self.validate_action_context(selected)?;
-        self.validate_action_context(target)?;
-        let inventory = self.automation_realms();
+        self.validate_pointer_context(selected)?;
+        self.validate_pointer_context(target)?;
+        let inventory = self.pointer_realms();
         let mut coordinates = BTreeMap::from([(selected.realm, input.clone())]);
         let mut current = selected;
         let mut seen = BTreeSet::new();
@@ -10765,7 +11180,7 @@ impl RustExecutableDocument {
                     local.movement_x,
                     local.movement_y,
                 )?
-                .filter(|mapped| mapped.document == current.document_root)
+                .filter(|mapped| Self::pointer_hit_matches(current, mapped))
                 .ok_or_else(ScriptError::retired)?;
             coordinates.insert(
                 parent.realm,
@@ -10815,7 +11230,7 @@ impl RustExecutableDocument {
                     local.movement_x,
                     local.movement_y,
                 )?
-                .filter(|mapped| mapped.document == child.document_root)
+                .filter(|mapped| Self::pointer_hit_matches(&child, mapped))
                 .ok_or_else(ScriptError::retired)?;
             local.x = mapped.x;
             local.y = mapped.y;
@@ -10838,12 +11253,12 @@ impl RustExecutableDocument {
         )>,
         crate::host::webdriver_script::ScriptError,
     > {
-        self.validate_action_context(selected)?;
+        self.validate_pointer_context(selected)?;
         if action != oryn_js::v8_bindings::NativePointerAction::Move {
             return Ok(None);
         }
         let sources = self
-            .automation_realms()
+            .pointer_realms()
             .into_iter()
             .filter(|entry| {
                 entry.live
@@ -10876,7 +11291,7 @@ impl RustExecutableDocument {
         source: &AutomationRealmSnapshot,
         receipt: &mut oryn_js::v8_bindings::NativePointerDragAdmission,
     ) -> Result<Option<bool>, crate::host::webdriver_script::ScriptError> {
-        if let Err(error) = self.validate_action_context(source) {
+        if let Err(error) = self.validate_pointer_context(source) {
             receipt.cancel();
             return Err(error);
         }
@@ -10899,9 +11314,9 @@ impl RustExecutableDocument {
     > {
         use crate::host::webdriver_script::ScriptError;
         use oryn_js::v8_bindings::{NativeCrossFrameDragAction, NativePointerAction};
-        self.validate_action_context(selected)?;
+        self.validate_pointer_context(selected)?;
         let sources = self
-            .automation_realms()
+            .pointer_realms()
             .into_iter()
             .filter(|entry| {
                 entry.live
@@ -10923,7 +11338,7 @@ impl RustExecutableDocument {
         let previous_input = if let Some((realm, document, generation, epoch)) =
             self.agent.host.pointer_drag_target_identity(source.realm)
         {
-            self.automation_realms()
+            self.pointer_realms()
                 .into_iter()
                 .find(|entry| {
                     entry.live
@@ -11006,7 +11421,7 @@ impl RustExecutableDocument {
         terminal: bool,
         receipt: &mut oryn_js::v8_bindings::NativeCrossFrameDrag,
     ) -> Result<bool, crate::host::webdriver_script::ScriptError> {
-        if let Err(error) = self.validate_action_context(source) {
+        if let Err(error) = self.validate_pointer_context(source) {
             receipt.cancel();
             return Err(error);
         }
@@ -11024,7 +11439,7 @@ impl RustExecutableDocument {
         use crate::host::webdriver_script::ScriptError;
         use oryn_js::v8_bindings::{NativeCrossFrameDragAction, NativePointerAction};
         let sources = self
-            .automation_realms()
+            .pointer_realms()
             .into_iter()
             .filter(|entry| {
                 entry.live
@@ -11051,7 +11466,7 @@ impl RustExecutableDocument {
                 source.stream_epoch,
                 &source_input,
             )?;
-            if let Err(error) = self.validate_action_context(source) {
+            if let Err(error) = self.validate_pointer_context(source) {
                 self.agent.host.abandon_pointer_drag(source.realm, input.id);
                 return Err(error);
             }
@@ -11066,7 +11481,7 @@ impl RustExecutableDocument {
         let previous_input = if let Some((realm, document, generation, epoch)) =
             self.agent.host.pointer_drag_target_identity(source.realm)
         {
-            self.automation_realms()
+            self.pointer_realms()
                 .into_iter()
                 .find(|entry| {
                     entry.live
@@ -11160,7 +11575,7 @@ impl RustExecutableDocument {
             .agent
             .host
             .automation_pointer_owns_routing(target.realm, input.id);
-        let inventory = self.automation_realms();
+        let inventory = self.pointer_realms();
         let mut coordinates = BTreeMap::from([(target.realm, input.clone())]);
         let mut ancestors = Vec::new();
         let mut current = target.clone();
@@ -11194,7 +11609,7 @@ impl RustExecutableDocument {
                     child_input.movement_x,
                     child_input.movement_y,
                 )?
-                .filter(|mapped| mapped.document == current.document_root)
+                .filter(|mapped| Self::pointer_hit_matches(&current, mapped))
                 .ok_or_else(ScriptError::retired)?;
             coordinates.insert(
                 parent.realm,
@@ -11261,7 +11676,7 @@ impl RustExecutableDocument {
                         local.movement_x,
                         local.movement_y,
                     )?
-                    .filter(|mapped| mapped.document == child.document_root)
+                    .filter(|mapped| Self::pointer_hit_matches(&child, mapped))
                     .ok_or_else(ScriptError::retired)?;
                 local.x = mapped.x;
                 local.y = mapped.y;
@@ -11275,7 +11690,7 @@ impl RustExecutableDocument {
         exits.sort_by_key(|entry| std::cmp::Reverse(entry.0));
         let mut route = Vec::with_capacity(exits.len() + ancestors.len());
         for (_, old, local) in exits {
-            self.validate_action_context(&old)?;
+            self.validate_pointer_context(&old)?;
             route.push(PointerBoundaryStep {
                 context: old,
                 input: local,
@@ -11286,7 +11701,7 @@ impl RustExecutableDocument {
         // consume the physical sample so released buttons cannot remain down.
         // Unchanged ancestor targets publish no additional boundary events.
         for (parent, frame) in ancestors.into_iter().rev() {
-            self.validate_action_context(&parent)?;
+            self.validate_pointer_context(&parent)?;
             let local = coordinates[&parent.realm].clone();
             route.push(PointerBoundaryStep {
                 context: parent,
@@ -11294,7 +11709,7 @@ impl RustExecutableDocument {
                 target: Some(frame),
             });
         }
-        self.validate_action_context(target)?;
+        self.validate_pointer_context(target)?;
         Ok(route)
     }
 
@@ -11303,7 +11718,7 @@ impl RustExecutableDocument {
     ) -> Result<Vec<PointerBoundaryStep>, crate::host::webdriver_script::ScriptError> {
         let mut steps = Vec::new();
         if let Some(root) = self
-            .automation_realms()
+            .pointer_realms()
             .into_iter()
             .find(|entry| entry.live && entry.realm == self.top_realm)
         {
@@ -11363,7 +11778,7 @@ impl RustExecutableDocument {
             }
         };
         while let Some((context, receipt)) = route.boundaries.get_mut(route.next) {
-            self.validate_action_context(context)?;
+            self.validate_pointer_context(context)?;
             match self.agent.host.poll_pointer_boundary(receipt) {
                 Ok(true) => {
                     if receipt.canceled() {
@@ -11401,7 +11816,7 @@ impl RustExecutableDocument {
         steps
             .into_iter()
             .map(|step| {
-                self.validate_action_context(&step.context)?;
+                self.validate_pointer_context(&step.context)?;
                 let receipt = self.agent.host.begin_pointer_boundary(
                     step.context.realm,
                     step.context.document_generation,
@@ -11420,7 +11835,7 @@ impl RustExecutableDocument {
         input: &oryn_js::v8_bindings::NativePointerInput,
         action: oryn_js::v8_bindings::NativePointerAction,
     ) -> Result<PointerDispatchRoute, crate::host::webdriver_script::ScriptError> {
-        self.validate_action_context(selected)?;
+        self.validate_pointer_context(selected)?;
         // Existing idle publications transfer their cursor into this sample;
         // they cannot be reconstructed from a newly sampled hover inventory.
         let steps = self.prepare_stationary_pointer_boundaries()?;
@@ -11456,19 +11871,19 @@ impl RustExecutableDocument {
         if route.result.is_some() {
             return Ok(route.result);
         }
-        if let Err(error) = self.validate_action_context(&route.selected) {
+        if let Err(error) = self.validate_pointer_context(&route.selected) {
             route.cancel();
             return Err(error);
         }
         loop {
             if let Some(target) = &route.boundary_target
-                && let Err(error) = self.validate_action_context(target)
+                && let Err(error) = self.validate_pointer_context(target)
             {
                 route.cancel();
                 return Err(error);
             }
             while let Some((context, receipt)) = route.boundaries.get_mut(route.next) {
-                if let Err(error) = self.validate_action_context(context) {
+                if let Err(error) = self.validate_pointer_context(context) {
                     route.cancel();
                     return Err(error);
                 }
@@ -11480,7 +11895,7 @@ impl RustExecutableDocument {
                     return Err(ScriptError::retired());
                 }
                 if let Some(target) = &route.boundary_target
-                    && let Err(error) = self.validate_action_context(target)
+                    && let Err(error) = self.validate_pointer_context(target)
                 {
                     route.cancel();
                     return Err(error);
@@ -11556,7 +11971,7 @@ impl RustExecutableDocument {
                 route.dispatch = Some((target, receipt));
             }
             let (target, receipt) = route.dispatch.as_mut().unwrap();
-            if let Err(error) = self.validate_action_context(target) {
+            if let Err(error) = self.validate_pointer_context(target) {
                 route.cancel();
                 return Err(error);
             }
@@ -11574,7 +11989,7 @@ impl RustExecutableDocument {
         input: &oryn_js::v8_bindings::NativePointerInput,
         action: oryn_js::v8_bindings::NativePointerAction,
     ) -> Result<(NodeId, bool), crate::host::webdriver_script::ScriptError> {
-        self.validate_action_context(selected)?;
+        self.validate_pointer_context(selected)?;
         if let Some(result) = self.dispatch_pointer_drag(selected, input, action)? {
             return Ok(result);
         }
@@ -11599,10 +12014,10 @@ impl RustExecutableDocument {
         input: &oryn_js::v8_bindings::NativeWheelInput,
         route: &mut Option<AutomationRealmSnapshot>,
     ) -> Result<bool, crate::host::webdriver_script::ScriptError> {
-        self.validate_action_context(selected)?;
+        self.validate_pointer_context(selected)?;
         let cached = route
             .as_ref()
-            .filter(|target| self.validate_action_context(target).is_ok())
+            .filter(|target| self.validate_pointer_context(target).is_ok())
             .and_then(|target| {
                 self.pointer_input_in_realm(
                     selected,
@@ -11647,12 +12062,12 @@ impl RustExecutableDocument {
             if !seen.insert(current.realm) || seen.len() > 32 {
                 return Err(crate::host::webdriver_script::ScriptError::retired());
             }
-            self.validate_action_context(&current)?;
+            self.validate_pointer_context(&current)?;
             let (Some(parent_realm), Some(frame)) = (current.parent_realm, current.frame) else {
                 return Err(crate::host::webdriver_script::ScriptError::retired());
             };
             let parent = self
-                .automation_realms()
+                .pointer_realms()
                 .into_iter()
                 .find(|entry| entry.live && entry.realm == parent_realm)
                 .ok_or_else(crate::host::webdriver_script::ScriptError::retired)?;
@@ -12507,11 +12922,65 @@ impl RustExecutableDocument {
     }
 
     pub fn take_console_entries(&mut self) -> Result<Vec<ConsoleEntry>, HostError> {
-        let value = self
-            .agent
-            .host
-            .evaluate_string("JSON.stringify(__oryn_take_console())")?;
-        serde_json::from_str(&value).map_err(|error| HostError::Execution(error.to_string()))
+        self.take_console_entries_with_restore(|host, realm| host.activate_realm(realm))
+    }
+
+    fn take_console_entries_with_restore(
+        &mut self,
+        restore: impl FnOnce(&mut RawV8Host, RealmId) -> Result<(), HostError>,
+    ) -> Result<Vec<ConsoleEntry>, HostError> {
+        let previous = self.agent.host.active_realm();
+        // The agent may also own auxiliary roots. Select this document's tree
+        // explicitly, snapshot it once, and never enter parked/retired realms.
+        let result = (|| {
+            self.agent.host.activate_realm(self.top_realm)?;
+            let realms = self.agent.host.active_root_realm_ids();
+            for realm in realms {
+                if !self.agent.host.realm_execution_live(realm)
+                    || self.agent.host.realm_is_parked(realm)
+                {
+                    continue;
+                }
+                let collected = (|| {
+                    self.agent.host.activate_realm(realm)?;
+                    let value = self
+                        .agent
+                        .host
+                        .evaluate_string("JSON.stringify(__oryn_take_console())")?;
+                    serde_json::from_str::<Vec<ConsoleEntry>>(&value)
+                        .map_err(|error| HostError::Execution(error.to_string()))
+                })();
+                match collected {
+                    Ok(entries) => self.pending_console_entries.extend(entries),
+                    Err(error) => {
+                        let mut diagnostic = script_diagnostic_at(
+                            error,
+                            &format!("console collection in realm {}", realm.0),
+                        );
+                        diagnostic.capability = "diagnostics.collection".into();
+                        self.diagnostics.push(diagnostic);
+                    }
+                }
+            }
+            Ok(())
+        })();
+        let restored = restore(&mut self.agent.host, previous);
+        for error in [result.as_ref().err(), restored.as_ref().err()]
+            .into_iter()
+            .flatten()
+        {
+            let mut diagnostic = script_diagnostic_at(
+                HostError::Execution(error.to_string()),
+                "console collection realm selection/restoration",
+            );
+            diagnostic.capability = "diagnostics.collection".into();
+            self.diagnostics.push(diagnostic);
+        }
+        // Successful drains retain native custody even when restoration fails.
+        // Existing callers may ignore an error, but cannot erase these records
+        // or publish the capture as complete after its diagnostic is exported.
+        result.and(restored)?;
+        Ok(std::mem::take(&mut self.pending_console_entries))
     }
 
     pub fn take_context_trace_entries(&mut self) -> Result<Vec<ContextTraceEntry>, HostError> {
@@ -12537,9 +13006,28 @@ impl RustExecutableDocument {
     }
 
     pub fn drain_tasks(&mut self) -> Result<(), HostError> {
+        let owner = self.page_terminal_control.clone();
+        self.drain_page_tasks(owner.as_deref())
+    }
+
+    // All page-owned callers inherit the persistent root association. Truly
+    // standalone executable constructors leave it absent.
+    pub(crate) fn drain_page_tasks(
+        &mut self,
+        terminal_control: Option<&crate::page_terminal_control::PageTerminalControl>,
+    ) -> Result<(), HostError> {
+        let _close_phase = crate::ipc_progress::close_admission::phase("executable_drain");
+        if Self::page_task_retired(terminal_control) {
+            return Ok(());
+        }
         let _parser_turn = self.parser_turn.enter();
-        self.poll_standalone_roots()?;
-        if self.agent.host.standalone_root_discarded(self.top_realm) {
+        {
+            let _close_phase = crate::ipc_progress::close_admission::phase("standalone_roots");
+            self.poll_standalone_roots()?;
+        }
+        if Self::page_task_retired(terminal_control)
+            || self.agent.host.standalone_root_discarded(self.top_realm)
+        {
             return Ok(());
         }
         // A page task must never sleep until a future timer deadline. The page
@@ -12547,29 +13035,78 @@ impl RustExecutableDocument {
         // events while timers remain scheduled. Blocking here can strand a
         // popup `postMessage` behind the test/application timeout which is
         // supposed to guard that very workflow.
-        self.agent.host.drain_scheduled_timers(false)?;
-        if self.agent.host.standalone_root_discarded(self.top_realm) {
+        {
+            let _close_phase =
+                crate::ipc_progress::close_admission::phase("timers_and_control_tasks");
+            self.agent.host.drain_scheduled_timers(false)?;
+        }
+        if Self::page_task_retired(terminal_control)
+            || self.agent.host.standalone_root_discarded(self.top_realm)
+        {
             return Ok(());
         }
-        self.agent.host.poll_runtime_context()?;
+        {
+            let _close_phase = crate::ipc_progress::close_admission::phase("runtime_context_poll");
+            self.agent.host.poll_runtime_context()?;
+        }
+        if Self::page_task_retired(terminal_control) {
+            return Ok(());
+        }
         // Animation-frame callbacks are page tasks in their own right. They
         // must advance even when the preceding task changed only platform
         // state (for example scroll offsets) and therefore produced no
         // semantic/layout revision that would otherwise trigger a frame.
-        self.run_animation_frame_phase()?;
+        {
+            let _close_phase = crate::ipc_progress::close_admission::phase("animation_frame");
+            self.run_animation_frame_phase_with_terminal_control(terminal_control)?;
+        }
+        if Self::page_task_retired(terminal_control) {
+            return Ok(());
+        }
         self.resume_pending_parser()?;
         Ok(())
     }
 
     pub fn poll_context_events(&mut self) -> Result<(), HostError> {
+        if self.terminal_retired() {
+            return Ok(());
+        }
+        let _close_phase = crate::ipc_progress::close_admission::phase("executable_context_poll");
         let _parser_turn = self.parser_turn.enter();
         // Native document events have independent custody and must be pumped
         // before invoking the remaining author-visible compatibility hook.
         self.agent.host.drain_scheduled_timers(false)?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         self.agent.host.poll_runtime_context()?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         self.checkpoint()?;
+        if self.terminal_retired() {
+            return Ok(());
+        }
         self.resume_pending_parser()?;
         Ok(())
+    }
+
+    pub(crate) fn begin_action_frame_navigation(
+        &mut self,
+    ) -> Result<ActionFrameNavigationReceipt, HostError> {
+        if self
+            .action_frame_navigation
+            .as_ref()
+            .is_some_and(|capture| capture.open())
+        {
+            return Err(HostError::Execution(
+                "reentrant action navigation capture".into(),
+            ));
+        }
+        let capture = action_frame_navigation::Capture::for_selected(self.automation_scope.clone());
+        let receipt = capture.receipt();
+        self.action_frame_navigation = Some(capture);
+        Ok(receipt)
     }
 
     pub fn apply_action(
@@ -12669,7 +13206,15 @@ impl RustExecutableDocument {
         let inventory = self.automation_realms();
         let selected = inventory
             .iter()
-            .find(|entry| entry.live && entry.document_root == document)
+            .find(|entry| {
+                entry.live
+                    && entry.document_root == document
+                    && self
+                        .agent
+                        .host
+                        .automation_dom(entry.realm)
+                        .is_some_and(|realm_dom| Rc::ptr_eq(&dom, &realm_dom))
+            })
             .ok_or_else(|| HostError::Execution("semantic pointer document retired".into()))?;
         // A target in the selected document or one of its live descendants is
         // eligible; shared origins and shared arena storage are not authority.
@@ -12729,6 +13274,15 @@ impl RustExecutableDocument {
             {
                 return Err(ScriptError::retired());
             }
+            // A target can be visible in its child viewport while the iframe
+            // itself is below an ancestor's viewport. Scroll that embedding
+            // using its own realm before testing the existing clipped hit.
+            self.agent.host.semantic_scroll_into_view(
+                parent.realm,
+                parent.document_generation,
+                parent.stream_epoch,
+                frame,
+            )?;
             let mapped = self
                 .agent
                 .host
@@ -12740,7 +13294,7 @@ impl RustExecutableDocument {
                     0.,
                     0.,
                 )?
-                .filter(|mapped| mapped.document == current.document_root)
+                .filter(|mapped| Self::pointer_hit_matches(&current, mapped))
                 .ok_or_else(|| {
                     ScriptError::javascript("semantic target embedding frame has no projection")
                 })?;
@@ -12751,7 +13305,7 @@ impl RustExecutableDocument {
             self.agent
                 .host
                 .automation_pointer_frame_target(parent.realm, None, mapped.x, mapped.y, 0., 0.)?
-                .filter(|hit| hit.frame == frame && hit.document == current.document_root)
+                .filter(|hit| Self::pointer_hit_matches(&current, hit))
                 .ok_or_else(|| {
                     ScriptError::javascript("semantic target embedding frame is obscured")
                 })?;
@@ -13156,6 +13710,11 @@ impl RustExecutableDocument {
 
     pub fn layout_snapshot(&mut self) -> Result<ParsedDocument, HostError> {
         self.checkpoint()?;
+        if self.terminal_retired() {
+            return Err(HostError::ScriptLoad(
+                crate::script_load_failure::ScriptLoadFailure::Cancelled,
+            ));
+        }
         self.semantic_snapshot()
     }
 
@@ -13316,12 +13875,34 @@ impl RustExecutableDocument {
     }
 
     pub fn run_animation_frame_phase(&mut self) -> Result<(), HostError> {
+        let owner = self.page_terminal_control.clone();
+        self.run_animation_frame_phase_with_terminal_control(owner.as_deref())
+    }
+
+    fn run_animation_frame_phase_with_terminal_control(
+        &mut self,
+        terminal_control: Option<&crate::page_terminal_control::PageTerminalControl>,
+    ) -> Result<(), HostError> {
+        if Self::page_task_retired(terminal_control) {
+            return Ok(());
+        }
         let rendering_time = std::time::Instant::now();
         let identity = self.agent.host.automation_realm_identity(self.top_realm);
-        self.agent
-            .host
-            .run_native_animation_frame_tree(self.top_realm, rendering_time)?;
-        self.checkpoint()?;
+        {
+            let _close_phase = crate::ipc_progress::close_admission::phase("animation_tree");
+            self.agent
+                .host
+                .run_native_animation_frame_tree(self.top_realm, rendering_time)?;
+        }
+        // Finish the admitted callback tree and its microtasks before yielding.
+        // Retirement suppresses later work, never an in-progress callback.
+        if Self::page_task_retired(terminal_control) {
+            return Ok(());
+        }
+        self.checkpoint_with_terminal_control(terminal_control)?;
+        if Self::page_task_retired(terminal_control) {
+            return Ok(());
+        }
         if self.agent.host.automation_realm_identity(self.top_realm) == identity {
             self.agent
                 .host
@@ -13476,13 +14057,45 @@ impl RustExecutableDocument {
         Ok(())
     }
 
+    fn page_task_retired(
+        terminal_control: Option<&crate::page_terminal_control::PageTerminalControl>,
+    ) -> bool {
+        crate::page_terminal_control::retired(terminal_control)
+    }
+
     fn checkpoint(&mut self) -> Result<(), HostError> {
+        let owner = self.page_terminal_control.clone();
+        self.checkpoint_with_terminal_control(owner.as_deref())
+    }
+
+    fn checkpoint_with_terminal_control(
+        &mut self,
+        terminal_control: Option<&crate::page_terminal_control::PageTerminalControl>,
+    ) -> Result<(), HostError> {
+        if Self::page_task_retired(terminal_control) {
+            return Ok(());
+        }
+        let _close_phase = crate::ipc_progress::close_admission::phase("executable_checkpoint");
         let _parser_turn = self.parser_turn.enter();
-        self.poll_standalone_roots()?;
+        {
+            let _close_phase =
+                crate::ipc_progress::close_admission::phase("checkpoint_standalone_roots");
+            self.poll_standalone_roots()?;
+        }
+        if Self::page_task_retired(terminal_control) {
+            return Ok(());
+        }
         if self.agent.host.standalone_root_discarded(self.top_realm) {
             return Ok(());
         }
-        self.sync_frame_viewports()?;
+        {
+            let _close_phase =
+                crate::ipc_progress::close_admission::phase("checkpoint_frame_viewports");
+            self.sync_frame_viewports()?;
+        }
+        if Self::page_task_retired(terminal_control) {
+            return Ok(());
+        }
         self.archived_frame_sources
             .retain(|(parent, frame, _), _| self.agent.host.automation_frame_live(*parent, *frame));
         self.archived_frame_controls
@@ -13492,70 +14105,223 @@ impl RustExecutableDocument {
         // Run a bounded page-wide fixed point instead of relying on an
         // unrelated future command to tick that realm.
         for _ in 0..8 {
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
             if !self.document_load_stopped
                 && self.agent.host.realm_document_load_stopped(self.top_realm)
             {
                 self.observe_native_root_stop();
             }
-            self.agent.host.adopt_created_realms();
-            for realm in self.agent.host.take_discarded_frame_realms() {
-                self.frame_realms.remove(&realm);
-                self.frame_script_preparations
-                    .retain(|pending| pending.load.realm != realm);
-                {
-                    self.frame_departures.retain(|(owner, _), pending| {
-                        if *owner == realm {
-                            pending.cancel(&self.agent.host);
-                            false
-                        } else {
-                            true
-                        }
-                    });
-                    self.completed_frame_departures
+            {
+                let _close_phase =
+                    crate::ipc_progress::close_admission::phase("checkpoint_realm_retirement");
+                self.agent.host.adopt_created_realms();
+                for realm in self.agent.host.take_discarded_frame_realms() {
+                    self.frame_realms.remove(&realm);
+                    self.frame_script_preparations
+                        .retain(|pending| pending.load.realm != realm);
+                    {
+                        self.frame_departures.retain(|(owner, _), pending| {
+                            if *owner == realm {
+                                pending.cancel(&self.agent.host);
+                                false
+                            } else {
+                                true
+                            }
+                        });
+                        self.completed_frame_departures
+                            .retain(|(owner, _), _| *owner != realm);
+                        self.ready_frame_jobs
+                            .retain(|(owner, _, _)| *owner != realm);
+                        self.frame_resource_preparations
+                            .retain(|(owner, _), _| *owner != realm);
+                    }
+                    self.node_realms.retain(|_, owner| *owner != realm);
+                    self.pending_document_loads.remove(&realm);
+                    self.pending_frame_navigations
                         .retain(|(owner, _), _| *owner != realm);
-                    self.ready_frame_jobs
-                        .retain(|(owner, _, _)| *owner != realm);
-                    self.frame_resource_preparations
-                        .retain(|(owner, _), _| *owner != realm);
-                }
-                self.node_realms.retain(|_, owner| *owner != realm);
-                self.pending_document_loads.remove(&realm);
-                self.pending_frame_navigations
-                    .retain(|(owner, _), _| *owner != realm);
-                if self.agent.host.realm_descriptor(realm).is_some() {
-                    self.agent.host.remove_realm(realm)?;
+                    if self.agent.host.realm_descriptor(realm).is_some() {
+                        self.agent.host.remove_realm(realm)?;
+                    }
                 }
             }
-            self.agent.host.drain_async_fetches(false)?;
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase =
+                    crate::ipc_progress::close_admission::phase("checkpoint_async_fetches_before");
+                self.agent.host.drain_async_fetches(false)?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
             if self.agent.host.standalone_root_discarded(self.top_realm) {
                 return Ok(());
             }
-            self.drain_dynamic_referrer_policies()?;
-            self.drain_default_actions()?;
-            self.drain_frame_location_navigations()?;
-            self.drain_dynamic_frames()?;
-            self.drain_dynamic_stylesheets()?;
-            self.drain_dynamic_scripts()?;
-            self.poll_frame_script_preparations()?;
-            #[cfg(unix)]
-            self.poll_parser_async_modules()?;
-            self.drain_closed_document_streams()?;
-            self.agent.host.drain_async_fetches(false)?;
-            self.refresh_embedded_intrinsics()?;
-            self.flush_document_loads()?;
-            self.settle_frame_navigation_executions();
-            self.deliver_pending_frame_form_history()?;
+            {
+                let _close_phase = crate::ipc_progress::close_admission::phase(
+                    "checkpoint_dynamic_referrer_policies",
+                );
+                self.drain_dynamic_referrer_policies()?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase =
+                    crate::ipc_progress::close_admission::phase("checkpoint_default_actions");
+                self.drain_default_actions()?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase = crate::ipc_progress::close_admission::phase(
+                    "checkpoint_frame_location_navigations",
+                );
+                self.drain_frame_location_navigations()?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase =
+                    crate::ipc_progress::close_admission::phase("checkpoint_dynamic_frames");
+                self.drain_dynamic_frames()?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase =
+                    crate::ipc_progress::close_admission::phase("checkpoint_dynamic_stylesheets");
+                self.drain_dynamic_stylesheets()?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase =
+                    crate::ipc_progress::close_admission::phase("checkpoint_dynamic_scripts");
+                self.drain_dynamic_scripts()?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase = crate::ipc_progress::close_admission::phase(
+                    "checkpoint_frame_script_preparations",
+                );
+                self.poll_frame_script_preparations()?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase =
+                    crate::ipc_progress::close_admission::phase("checkpoint_parser_async_modules");
+                #[cfg(unix)]
+                self.poll_parser_async_modules()?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase = crate::ipc_progress::close_admission::phase(
+                    "checkpoint_closed_document_streams",
+                );
+                self.drain_closed_document_streams()?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase =
+                    crate::ipc_progress::close_admission::phase("checkpoint_async_fetches_after");
+                self.agent.host.drain_async_fetches(false)?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase =
+                    crate::ipc_progress::close_admission::phase("checkpoint_embedded_intrinsics");
+                self.refresh_embedded_intrinsics()?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase =
+                    crate::ipc_progress::close_admission::phase("checkpoint_document_loads");
+                self.flush_document_loads()?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase = crate::ipc_progress::close_admission::phase(
+                    "checkpoint_frame_navigation_settlement",
+                );
+                self.settle_frame_navigation_executions();
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            {
+                let _close_phase = crate::ipc_progress::close_admission::phase(
+                    "checkpoint_pending_frame_form_history",
+                );
+                self.deliver_pending_frame_form_history()?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
             for realm in self.agent.host.active_root_realm_ids() {
+                if Self::page_task_retired(terminal_control) {
+                    return Ok(());
+                }
                 if !self.agent.host.realm_execution_live(realm) {
                     continue;
                 }
-                self.agent.host.activate_realm(realm)?;
-                self.agent.host.poll_runtime_context()?;
+                {
+                    let _close_phase =
+                        crate::ipc_progress::close_admission::phase("checkpoint_realm_activation");
+                    self.agent.host.activate_realm(realm)?;
+                }
+                if Self::page_task_retired(terminal_control) {
+                    return Ok(());
+                }
+                {
+                    let _close_phase =
+                        crate::ipc_progress::close_admission::phase("checkpoint_runtime_context");
+                    self.agent.host.poll_runtime_context()?;
+                }
+                if Self::page_task_retired(terminal_control) {
+                    return Ok(());
+                }
                 if !self.agent.host.realm_execution_live(realm) {
                     continue;
                 }
-                self.agent.host.run_custom_element_reactions()?;
-                self.agent.host.run_dom_observer_checkpoint()?;
+                {
+                    let _close_phase = crate::ipc_progress::close_admission::phase(
+                        "checkpoint_custom_element_reactions",
+                    );
+                    self.agent.host.run_custom_element_reactions()?;
+                }
+                if Self::page_task_retired(terminal_control) {
+                    return Ok(());
+                }
+                {
+                    let _close_phase =
+                        crate::ipc_progress::close_admission::phase("checkpoint_dom_observers");
+                    self.agent.host.run_dom_observer_checkpoint()?;
+                }
+                if Self::page_task_retired(terminal_control) {
+                    return Ok(());
+                }
                 for report in self.agent.host.take_module_error_reports() {
                     self.diagnostics
                         .push(script_diagnostic(HostError::Execution(report)));
@@ -13566,10 +14332,24 @@ impl RustExecutableDocument {
                             "unhandled promise rejection: {rejection}"
                         ))));
                 }
-                self.agent.host.process_binding_releases()?;
+                {
+                    let _close_phase =
+                        crate::ipc_progress::close_admission::phase("checkpoint_binding_releases");
+                    self.agent.host.process_binding_releases()?;
+                }
+                if Self::page_task_retired(terminal_control) {
+                    return Ok(());
+                }
             }
-            self.poll_stationary_pointer_boundaries()
-                .map_err(|error| HostError::Execution(error.message))?;
+            {
+                let _close_phase =
+                    crate::ipc_progress::close_admission::phase("checkpoint_pointer_boundaries");
+                self.poll_stationary_pointer_boundaries()
+                    .map_err(|error| HostError::Execution(error.message))?;
+            }
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
         }
         self.agent.host.activate_realm(self.top_realm)?;
         for report in self.agent.host.take_module_error_reports() {
@@ -13582,7 +14362,11 @@ impl RustExecutableDocument {
                     "unhandled promise rejection: {rejection}"
                 ))));
         }
-        let (dom, document) = self.agent.dom.borrow().snapshot();
+        let (dom, document) = {
+            let _close_phase =
+                crate::ipc_progress::close_admission::phase("checkpoint_document_snapshot");
+            self.agent.dom.borrow().snapshot()
+        };
         self.document.dom = dom;
         self.document.document = document;
         if let Some(scope) = &self.automation_scope {
@@ -13660,11 +14444,29 @@ impl RustExecutableDocument {
             if !self.agent.host.has_location_navigation()
                 && let Some(task) = self.agent.host.take_history_traversal()?
             {
-                self.agent.host.run_history_task(task, None)?;
+                if self
+                    .action_frame_navigation
+                    .as_ref()
+                    .is_some_and(|capture| capture.open())
+                {
+                    if let Some(receipt) =
+                        self.agent.host.run_history_task_with_receipt(task, None)?
+                    {
+                        self.action_frame_navigation
+                            .as_ref()
+                            .expect("open action capture")
+                            .observe_joint(receipt)?;
+                    }
+                } else {
+                    self.agent.host.run_history_task(task, None)?;
+                }
             }
-            let Some(request) = self.agent.host.take_location_navigation() else {
+            let Some(mut request) = self.agent.host.take_location_navigation() else {
                 continue;
             };
+            if let Some(capture) = &self.action_frame_navigation {
+                request.execution_observer = capture.observe(request.execution_observer.take())?;
+            }
             let href = request.url.clone();
             let archived_source = request
                 .navigation_destination
@@ -13733,6 +14535,15 @@ impl RustExecutableDocument {
                 let referrer_policy = request.referrer_policy.or(referrer_policy);
                 let history = Some(self.agent.host.navigation_history_snapshot()?);
                 let session = owner.session.clone();
+                if let Some(selected) = self.automation_scope.as_ref()
+                    && selected.realm == realm
+                    && self.validate_automation_scope(selected).is_ok()
+                    && let Some(capture) = &self.action_frame_navigation
+                {
+                    if let Some(observer) = &request.execution_observer {
+                        capture.note_selected_handoff(selected, &href, observer);
+                    }
+                }
                 navigations.push((
                     owner,
                     href,
@@ -14726,6 +15537,22 @@ impl RustExecutableDocument {
             false
         }
     }
+    fn defers_selected_action_frame_job(&self, parent: RealmId, frame: NodeId) -> bool {
+        let Some(selected) = self.automation_scope.as_ref() else {
+            return false;
+        };
+        selected.parent_realm == Some(parent)
+            && selected.frame == Some(frame)
+            && self
+                .action_frame_navigation
+                .as_ref()
+                .is_some_and(|capture| capture.defers_selected_handoff(selected))
+            && self
+                .pending_frame_navigations
+                .get(&(parent, frame))
+                .is_some_and(|navigation| navigation.execution_observer.is_some())
+    }
+
     fn drain_dynamic_frames(&mut self) -> Result<(), HostError> {
         // A frame load handler can append another frame (the WPT opaque-origin
         // sequence does exactly this from a Promise continuation). Drain to a
@@ -14779,11 +15606,24 @@ impl RustExecutableDocument {
                     })?;
                 self.ready_frame_jobs.extend(pending);
             }
-            loop {
+            let ready = self.ready_frame_jobs.len();
+            let mut progressed = false;
+            for _ in 0..ready {
                 let next = self.ready_frame_jobs.pop_front();
                 let Some((scheduled_realm, frame, mut resource_completion)) = next else {
                     break;
                 };
+                if self.defers_selected_action_frame_job(scheduled_realm, frame) {
+                    // The input already dispatched and owns this exact loader
+                    // observer. Keep its source alive until the ActionResult is
+                    // formed and the borrowed executable returns to its owner.
+                    // Sealing the capture releases this same bounded queue job;
+                    // no request, default action, or input is reconstructed.
+                    self.ready_frame_jobs
+                        .push_back((scheduled_realm, frame, resource_completion));
+                    continue;
+                }
+                progressed = true;
                 #[cfg(test)]
                 if frame_departure::fail_ready_preparation() {
                     self.ready_frame_jobs
@@ -15978,6 +16818,12 @@ impl RustExecutableDocument {
                 #[cfg(unix)]
                 if let Some(token) = &response_worker_policy_token {
                     self.agent.host.bind_frame_worker_policy(&url, token)?;
+                    crate::ipc_progress::record(
+                        response_body.as_ref().and_then(|body| body.progress),
+                        crate::ipc_progress::Phase::FramePolicyBound,
+                        None,
+                        None,
+                    );
                 }
                 #[cfg(unix)]
                 if self.context.is_some()
@@ -16393,6 +17239,18 @@ impl RustExecutableDocument {
                     },
                 );
                 self.bind_pending_frame_history_owners()?;
+                #[cfg(unix)]
+                crate::ipc_progress::record(
+                    response_body.as_ref().and_then(|body| body.progress),
+                    crate::ipc_progress::Phase::DocumentCommitted,
+                    prepared_load_identity.map(|identity| identity.2),
+                    prepared_load_identity.map(|identity| identity.1),
+                );
+            }
+            if !progressed {
+                // All remaining jobs belong to the open selected action.
+                // Other queues still get this checkpoint's bounded turns.
+                return Ok(());
             }
         }
         Err(HostError::LimitExceeded {
@@ -16877,6 +17735,9 @@ impl RustExecutableDocument {
                 {
                     self.agent.host.reserve_blank_prerender_activation_slot()?;
                 }
+                let rollback = client
+                    .reserve_auxiliary_rollback(*page_id)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
                 let response = client
                     .request(crate::context_service::ContextServiceRequest::OpenPage {
                         hyperlink_audit: None,
@@ -16931,10 +17792,11 @@ impl RustExecutableDocument {
                                         .into(),
                                 ));
                             }
-                            self.agent.host.admit_navigation_auxiliary_root(
+                            self.agent.host.admit_navigation_auxiliary_root_reserved(
                                 opened_page_id,
                                 opener_page_id,
                                 admission,
+                                rollback,
                             )?;
                         }
                         if !created {
@@ -17274,6 +18136,46 @@ fn binding_rule_view(rule: oryn_layout::cssom::RuleView) -> oryn_js::v8_bindings
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parser_lifecycle_probe_restores_nested_error_and_unwind_scopes() {
+        let probe = Rc::new(std::cell::Cell::new(false));
+        let sibling = Rc::new(std::cell::Cell::new(false));
+        {
+            let _outer = ParserLifecycleTestGuard::enter(probe.clone());
+            assert!(probe.get());
+            assert!(!sibling.get());
+            let result = (|| -> Result<(), HostError> {
+                let _inner = ParserLifecycleTestGuard::enter(probe.clone());
+                assert!(probe.get());
+                Err(HostError::Execution("lifecycle operation failed".into()))
+            })();
+            assert!(
+                matches!(result, Err(HostError::Execution(message)) if message == "lifecycle operation failed")
+            );
+            assert!(
+                probe.get(),
+                "nested error restores the still-active outer scope"
+            );
+            let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _inner = ParserLifecycleTestGuard::enter(probe.clone());
+                panic!("injected lifecycle unwind");
+            }));
+            assert!(panicked.is_err());
+            assert!(probe.get(), "nested unwind restores the outer scope");
+        }
+        assert!(!probe.get());
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _outer = ParserLifecycleTestGuard::enter(probe.clone());
+            panic!("injected outer lifecycle unwind");
+        }));
+        assert!(panicked.is_err());
+        assert!(
+            !probe.get(),
+            "outer unwind restores the original inactive state"
+        );
+        assert!(!sibling.get());
+    }
 
     #[test]
     fn native_csp_trace_survives_legacy_reader_failure_and_rejects_forged_entries() {
@@ -19790,6 +20692,43 @@ mod tests {
         );
         page.run_animation_frame_phase().unwrap();
         assert_eq!(page.evaluate("errors.length").unwrap(), "1");
+    }
+
+    #[test]
+    fn animation_frame_diagnostics_cover_real_callback_checkpoint_and_publication() {
+        let mut page = RustExecutableDocument::load(
+            r#"<script>
+                globalThis.frameOrder=[];
+                requestAnimationFrame(()=>{
+                    frameOrder.push('callback');
+                    Promise.resolve().then(()=>frameOrder.push('microtask'));
+                });
+            </script>"#,
+        )
+        .unwrap();
+        let (result, labels) =
+            crate::ipc_progress::close_admission::capture_test_phase_labels(|| {
+                page.run_animation_frame_phase()
+            });
+        result.unwrap();
+        assert_eq!(
+            page.evaluate("frameOrder.join(',')").unwrap(),
+            "callback,microtask"
+        );
+        let position = |name| labels.iter().position(|label| *label == name).unwrap();
+        assert!(position("animation_tree") < position("animation_tree_callbacks"));
+        assert!(position("animation_tree_callbacks") < position("animation_document_callbacks"));
+        assert!(position("animation_document_callbacks") < position("executable_checkpoint"));
+        assert!(position("executable_checkpoint") < position("checkpoint_dynamic_frames"));
+        assert!(position("checkpoint_dynamic_frames") < position("checkpoint_document_snapshot"));
+        assert_eq!(labels.last(), Some(&"animation_publication"));
+        assert!(
+            labels
+                .iter()
+                .filter(|label| **label == "animation_publication")
+                .count()
+                >= 2
+        );
     }
 
     #[test]
@@ -25020,9 +25959,15 @@ mod tests {
         let html = format!(
             r#"<script type=importmap>{imports}</script>
             <script type=module>import {{value}} from 'good';globalThis.staticValue=value;
-            import('good').then(m=>globalThis.dynamicValue=m.value);
-            import('cross').then(m=>globalThis.crossValue=m.value);
-            import('bad').then(()=>globalThis.badExecuted=true,e=>globalThis.badRejected=e instanceof TypeError);</script>"#
+            Promise.allSettled([
+                import('good').then(m=>globalThis.dynamicValue=m.value),
+                import('cross').then(m=>globalThis.crossValue=m.value),
+                import('bad').then(()=>globalThis.badExecuted=true,e=>{{globalThis.badRejected=e instanceof TypeError;throw e;}})
+            ]).then(results=>{{
+                globalThis.integrityImportOutcomes=results.map(result=>result.status);
+                globalThis.integrityImportErrors=results.map(result=>result.status==='rejected'?String(result.reason):null);
+                globalThis.integrityImportsDone=true;
+            }});</script>"#
         );
         let resources = BTreeMap::from([(
             "https://example.test/good.js".into(),
@@ -25036,6 +25981,32 @@ mod tests {
         )
         .unwrap();
         assert!(page.diagnostics.is_empty(), "{:?}", page.diagnostics);
+        // Loading services ready work; broker-backed dynamic imports can still
+        // be pending. Await all three outcomes through native page turns before
+        // reading their values, without making document loading block on them.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while page
+            .evaluate("String(globalThis.integrityImportsDone===true)")
+            .unwrap()
+            != "true"
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "integrity imports did not settle; diagnostics: {:?}",
+                page.diagnostics
+            );
+            page.poll_context_events().unwrap();
+            std::thread::yield_now();
+        }
+        assert!(page.diagnostics.is_empty(), "{:?}", page.diagnostics);
+        let outcomes = page.evaluate("integrityImportOutcomes.join('|')").unwrap();
+        let errors = page
+            .evaluate("JSON.stringify(integrityImportErrors)")
+            .unwrap();
+        assert_eq!(
+            outcomes, "fulfilled|fulfilled|rejected",
+            "unexpected import outcomes; rejection details: {errors}"
+        );
         assert_eq!(page.evaluate("[staticValue,dynamicValue,crossValue,badRejected,typeof badExecuted,typeof poisonedCache,integrityInitializations].join('|')").unwrap(),"42|42|42|true|undefined|undefined|2");
     }
 
@@ -32953,6 +33924,17 @@ mod tests {
         let root =
             std::path::PathBuf::from(std::env::var("ORYN_WPT_ROOT").expect("pinned WPT root"));
         let source = std::fs::read_to_string(root.join("resources/testdriver.js")).unwrap();
+        assert_srcdoc_external_script_is_ready_at_load(source);
+    }
+
+    #[test]
+    fn srcdoc_replacement_external_script_is_ready_at_child_load() {
+        assert_srcdoc_external_script_is_ready_at_load(
+            "window.test_driver = { send_keys() {} };".into(),
+        );
+    }
+
+    fn assert_srcdoc_external_script_is_ready_at_load(source: String) {
         let resources = BTreeMap::from([(
             "https://frame.example.test/resources/testdriver.js".into(),
             source,
@@ -32970,7 +33952,41 @@ mod tests {
             "{:?}",
             page.diagnostics
         );
-        page.evaluate(r#"document.querySelector('#frame').srcdoc = '<head><script src="/resources/testdriver.js"></script></head><body>new</body>'"#).unwrap();
+        // Initial compatibility construction waits for descendant load. A later
+        // srcdoc replacement advances through bounded native parser tasks.
+        // Observe readiness inside the replacement's load callback, rather than
+        // assuming assignment or one evaluate checkpoint completes navigation.
+        page.evaluate(r#"
+            globalThis.srcdocReplacementLoads = [];
+            const frame = document.querySelector('#frame');
+            const previousDocument = frame.contentDocument;
+            frame.addEventListener('load', () => {
+                srcdocReplacementLoads.push([
+                    typeof frame.contentWindow.test_driver?.send_keys,
+                    frame.contentDocument !== previousDocument,
+                    frame.contentDocument.URL,
+                    frame.contentDocument.body.textContent
+                ]);
+            });
+            frame.srcdoc = '<head><script src="/resources/testdriver.js"></script></head><body>new</body>';
+        "#).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while page.evaluate("srcdocReplacementLoads.length").unwrap() == "0" {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "replacement srcdoc did not dispatch load: {:?}",
+                page.diagnostics
+            );
+            page.poll_context_events().unwrap();
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            page.evaluate("JSON.stringify(srcdocReplacementLoads)")
+                .unwrap(),
+            r#"[["function",true,"about:srcdoc","new"]]"#,
+            "replacement script must be ready in its own document's load callback: {:?}",
+            page.diagnostics
+        );
         assert_eq!(
             page.evaluate(
                 "typeof document.querySelector('#frame').contentWindow.test_driver?.send_keys"
@@ -37819,5 +38835,1129 @@ mod native_bootstrap_checkpoint_regressions {
             let invalid=false;try{window.getSelection.call({})}catch(error){invalid=error instanceof TypeError}
             return document.title+':'+invalid+':'+(window.getSelection()===document.getSelection());
         })()"#).unwrap(),"native title:true:true");
+    }
+}
+
+#[cfg(all(test, unix))]
+#[path = "xslt_tests.rs"]
+mod xslt_tests;
+
+#[cfg(test)]
+mod rescue_semantic_scope_tests {
+    use super::*;
+
+    fn projected_names(page: &RustExecutableDocument) -> Vec<String> {
+        let snapshot = page.semantic_snapshot().unwrap();
+        let mut graph = crate::semantic::SemanticGraph::new(oryn_common::v3::PageId(1), 1);
+        graph.reset(&snapshot.dom, 1);
+        page.populate_semantic_control_state(&mut graph).unwrap();
+        graph
+            .nodes(oryn_common::v3::ProjectionProfile::Full)
+            .into_iter()
+            .map(|node| node.name)
+            .collect()
+    }
+
+    #[test]
+    fn semantic_snapshot_excludes_parser_original_but_keeps_imported_live_clone() {
+        let mut page = RustExecutableDocument::load("<body><main id=mount></main></body>").unwrap();
+        page.execute(
+            r#"
+            globalThis.parsed = new DOMParser().parseFromString(
+                '<button id="browse">Browse catalog</button>', 'text/html');
+            document.getElementById('mount').appendChild(
+                document.importNode(parsed.getElementById('browse'), true));
+        "#,
+        )
+        .unwrap();
+        assert_eq!(
+            projected_names(&page)
+                .iter()
+                .filter(|name| *name == "Browse catalog")
+                .count(),
+            1
+        );
+        page.execute("document.getElementById('browse').remove()")
+            .unwrap();
+        assert!(
+            !projected_names(&page)
+                .iter()
+                .any(|name| name == "Browse catalog")
+        );
+        assert_eq!(
+            page.evaluate("parsed.getElementById('browse').textContent")
+                .unwrap(),
+            "Browse catalog"
+        );
+    }
+
+    #[test]
+    fn semantic_snapshot_keeps_live_hosted_child_and_excludes_retained_detached_tree() {
+        let mut page = RustExecutableDocument::load(
+            "<body><button>Root action</button><iframe id=f srcdoc='<button id=child>Child action</button>'></iframe></body>"
+        ).unwrap();
+        assert!(
+            projected_names(&page)
+                .iter()
+                .any(|name| name == "Child action")
+        );
+        page.execute("globalThis.retained = document.getElementById('f').contentDocument; document.getElementById('f').remove()").unwrap();
+        let names = projected_names(&page);
+        assert!(names.iter().any(|name| name == "Root action"));
+        assert!(!names.iter().any(|name| name == "Child action"));
+    }
+
+    #[test]
+    fn semantic_pointer_matches_dom_instance_when_foreign_document_ids_collide() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<body><button id=root>Root</button><iframe src='https://foreign.test/child'></iframe></body>",
+            &BTreeMap::from([("https://foreign.test/child".into(), "<body><button id=child>Child</button></body>".into())]),
+            None, Some(Url::parse("https://parent.test/root").unwrap()),
+        ).unwrap();
+        let inventory = page.automation_realms();
+        let root = inventory
+            .iter()
+            .find(|entry| entry.realm == page.top_realm)
+            .unwrap();
+        let child = inventory
+            .iter()
+            .find(|entry| entry.parent_realm == Some(root.realm))
+            .unwrap()
+            .clone();
+        let root_dom = page.agent.host.automation_dom(root.realm).unwrap();
+        let child_dom = page.agent.host.automation_dom(child.realm).unwrap();
+        assert!(!Rc::ptr_eq(&root_dom, &child_dom));
+        assert_eq!(
+            root.document_root, child.document_root,
+            "fixture must exercise arena-local ID collision"
+        );
+        let target = child_dom
+            .borrow()
+            .get_element_by_id(child.document_root, "child")
+            .unwrap()
+            .unwrap();
+        page.set_automation_scope(Some(child.clone())).unwrap();
+        assert_eq!(
+            page.semantic_pointer_context(target).unwrap().realm,
+            child.realm
+        );
+        assert_eq!(
+            page.webdriver_keyboard_context(&child).unwrap().realm,
+            child.realm
+        );
+        // The fix selects the child's arena without granting author DOM access.
+        page.set_automation_scope(None).unwrap();
+        assert_eq!(
+            page.evaluate("document.querySelector('iframe').contentDocument === null")
+                .unwrap(),
+            "true"
+        );
+    }
+
+    #[test]
+    fn semantic_pointer_allows_descendants_but_rejects_sibling_and_retired_scope() {
+        let mut page = RustExecutableDocument::load(
+            r#"<body><iframe id=one srcdoc="<button id=inside>Inside</button><iframe srcdoc='<button id=nested>Nested</button>'></iframe>"></iframe><iframe id=two srcdoc='<button id=sibling>Sibling</button>'></iframe></body>"#
+        ).unwrap();
+        let one = page.node_by_id("one").unwrap();
+        let inventory = page.automation_realms();
+        let child = inventory
+            .iter()
+            .find(|entry| entry.frame == Some(one))
+            .unwrap()
+            .clone();
+        let nested_context = inventory
+            .iter()
+            .find(|entry| entry.parent_realm == Some(child.realm))
+            .unwrap();
+        let two = page.node_by_id("two").unwrap();
+        let sibling_context = inventory
+            .iter()
+            .find(|entry| entry.frame == Some(two))
+            .unwrap();
+        let shared_dom = page.agent.host.automation_dom(child.realm).unwrap();
+        let nested = shared_dom
+            .borrow()
+            .get_element_by_id(nested_context.document_root, "nested")
+            .unwrap()
+            .unwrap();
+        let sibling = shared_dom
+            .borrow()
+            .get_element_by_id(sibling_context.document_root, "sibling")
+            .unwrap()
+            .unwrap();
+        page.set_automation_scope(Some(child.clone())).unwrap();
+        let resolved = page.semantic_pointer_context(nested).unwrap();
+        assert_eq!(resolved.parent_realm, Some(child.realm));
+        assert!(
+            page.semantic_pointer_context(sibling)
+                .unwrap_err()
+                .to_string()
+                .contains("outside selected document")
+        );
+        page.set_automation_scope(None).unwrap();
+        page.execute("document.getElementById('one').remove()")
+            .unwrap();
+        page.automation_scope = Some(child);
+        assert!(page.semantic_pointer_context(nested).is_err());
+        assert!(page.semantic_snapshot().is_err());
+    }
+}
+
+#[cfg(test)]
+mod rescue_cross_origin_input_geometry_tests {
+    use super::*;
+
+    fn fixture() -> RustExecutableDocument {
+        RustExecutableDocument::load_with_environment(
+            "<!doctype html><body style='margin:0'><iframe id=f style='position:absolute;left:20px;top:20px;width:300px;height:160px;border:0' src='https://foreign.test/payment'></iframe><div id=cover style='position:absolute;left:0;top:0;width:500px;height:300px;z-index:100;background:white'></div></body>",
+            &BTreeMap::from([
+                ("https://foreign.test/payment".into(), "<!doctype html><body style='margin:0'><button id=authorize style='width:180px;height:40px' onclick='globalThis.clicks=(globalThis.clicks||0)+1'>Authorize test payment</button></body>".into()),
+                ("https://foreign.test/replacement".into(), "<!doctype html><body style='margin:0'><button id=authorize style='width:180px;height:40px' onclick='globalThis.clicks=(globalThis.clicks||0)+1'>Replacement payment</button></body>".into()),
+            ]), None, Some(Url::parse("https://merchant.test/").unwrap()),
+        ).unwrap()
+    }
+
+    fn child_target(page: &RustExecutableDocument) -> (AutomationRealmSnapshot, NodeId) {
+        let frame = page.node_by_id("f").unwrap();
+        let child = page
+            .automation_realms()
+            .into_iter()
+            .find(|entry| entry.frame == Some(frame) && entry.live)
+            .unwrap();
+        let dom = page.agent.host.automation_dom(child.realm).unwrap();
+        let target = dom
+            .borrow()
+            .get_element_by_id(child.document_root, "authorize")
+            .unwrap()
+            .unwrap();
+        (child, target)
+    }
+
+    #[test]
+    fn cross_origin_semantic_click_requires_unobscured_live_embedding_without_author_dom_access() {
+        let mut page = fixture();
+        let (child, target) = child_target(&page);
+        assert_eq!(
+            page.evaluate("document.getElementById('f').contentDocument===null")
+                .unwrap(),
+            "true"
+        );
+        page.set_automation_scope(Some(child.clone())).unwrap();
+        assert!(
+            page.apply_semantic_pointer(target, true).is_err(),
+            "parent overlay must block foreign-frame activation"
+        );
+        assert_eq!(page.evaluate("String(globalThis.clicks||0)").unwrap(), "0");
+        page.set_automation_scope(None).unwrap();
+        page.execute("document.getElementById('cover').remove()")
+            .unwrap();
+        page.set_automation_scope(Some(child.clone())).unwrap();
+        page.apply_semantic_pointer(target, true).unwrap();
+        assert_eq!(page.evaluate("String(globalThis.clicks)").unwrap(), "1");
+        page.set_automation_scope(None).unwrap();
+        assert_eq!(
+            page.evaluate("document.getElementById('f').contentDocument===null")
+                .unwrap(),
+            "true"
+        );
+        page.execute("document.getElementById('f').remove()")
+            .unwrap();
+        page.automation_scope = Some(child);
+        assert!(page.apply_semantic_pointer(target, true).is_err());
+    }
+
+    #[test]
+    fn nested_same_origin_embedding_maps_foreign_child_without_exposing_its_document() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<!doctype html><body style='margin:0'><iframe id=outer style='width:500px;height:300px;border:0' srcdoc="<body style='margin:0'><iframe id=f src='https://foreign.test/payment' style='width:300px;height:160px;border:0'></iframe></body>"></iframe></body>"#,
+            &BTreeMap::from([("https://foreign.test/payment".into(), "<!doctype html><body style='margin:0'><button id=authorize style='width:180px;height:40px' onclick='globalThis.clicks=(globalThis.clicks||0)+1'>Authorize</button></body>".into())]),
+            None, Some(Url::parse("https://merchant.test/").unwrap()),
+        ).unwrap();
+        assert_eq!(page.evaluate("document.getElementById('outer').contentDocument.getElementById('f').contentDocument===null").unwrap(), "true");
+        let child = page
+            .automation_realms()
+            .into_iter()
+            .find(|entry| entry.url == "https://foreign.test/payment" && entry.live)
+            .unwrap();
+        let dom = page.agent.host.automation_dom(child.realm).unwrap();
+        let target = dom
+            .borrow()
+            .get_element_by_id(child.document_root, "authorize")
+            .unwrap()
+            .unwrap();
+        page.set_automation_scope(Some(child)).unwrap();
+        page.apply_semantic_pointer(target, true).unwrap();
+        assert_eq!(page.evaluate("String(globalThis.clicks)").unwrap(), "1");
+    }
+
+    #[test]
+    fn reopened_foreign_document_retains_embedding_but_requires_fresh_action_scope() {
+        let mut page = fixture();
+        page.execute("document.getElementById('cover').remove()")
+            .unwrap();
+        let (old, _) = child_target(&page);
+        page.set_automation_scope(Some(old.clone())).unwrap();
+        let error = page.execute("document.open();document.write(\"<!doctype html><body style='margin:0'><button id=authorize style='width:180px;height:40px' onclick='globalThis.clicks=(globalThis.clicks||0)+1'>Reopened payment</button></body>\");document.close()").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "JavaScript execution failed: selected frame document retired"
+        );
+        // The author operation completed, but document.open invalidated the
+        // captured parser epoch. A new action must acquire a fresh scope.
+        assert!(page.semantic_snapshot().is_err());
+        page.set_automation_scope(None).unwrap();
+        let (fresh, target) = child_target(&page);
+        assert_eq!(fresh.document_root, old.document_root);
+        assert_ne!(fresh.stream_epoch, old.stream_epoch);
+        page.set_automation_scope(Some(fresh)).unwrap();
+        page.apply_semantic_pointer(target, true).unwrap();
+        assert_eq!(page.evaluate("String(globalThis.clicks)").unwrap(), "1");
+    }
+
+    #[test]
+    fn cross_origin_replacement_invalidates_old_input_identity_and_maps_new_document() {
+        let mut page = fixture();
+        page.execute("document.getElementById('cover').remove()")
+            .unwrap();
+        let (old, old_target) = child_target(&page);
+        page.execute("document.getElementById('f').src='https://foreign.test/replacement'")
+            .unwrap();
+        let (replacement, target) = child_target(&page);
+        assert!(!replacement.same_document_as(&old));
+        page.automation_scope = Some(old);
+        assert!(page.apply_semantic_pointer(old_target, true).is_err());
+        page.set_automation_scope(Some(replacement)).unwrap();
+        page.apply_semantic_pointer(target, true).unwrap();
+        assert_eq!(page.evaluate("String(globalThis.clicks)").unwrap(), "1");
+        page.set_automation_scope(None).unwrap();
+        assert_eq!(
+            page.evaluate("document.getElementById('f').contentDocument===null")
+                .unwrap(),
+            "true"
+        );
+    }
+}
+
+#[cfg(test)]
+mod selected_action_handoff_tests {
+    use super::*;
+
+    const SIBLING_URL: &str = "https://selected-handoff.test/sibling";
+
+    fn fixture(script: &str) -> RustExecutableDocument {
+        let child = format!(
+            "<!doctype html><body><form id=form method=post action=/done><input name=x value=owned><button id=submit onclick=\"{script}\">Continue</button></form></body>"
+        );
+        RustExecutableDocument::load_with_environment(
+            "<!doctype html><body><iframe id=selected src='https://selected-handoff.test/child'></iframe></body>",
+            &BTreeMap::from([
+                ("https://selected-handoff.test/child".into(), child),
+                ("https://selected-handoff.test/done".into(), "<!doctype html><title>Destination</title><body>Done</body>".into()),
+                (SIBLING_URL.into(), "<!doctype html><title>Sibling</title><body>Independent</body>".into()),
+            ]),
+            None,
+            Some(Url::parse("https://selected-handoff.test/root").unwrap()),
+        ).unwrap()
+    }
+
+    fn select(page: &mut RustExecutableDocument) -> (AutomationRealmSnapshot, NodeId) {
+        let frame = page.node_by_id("selected").unwrap();
+        let selected = page
+            .automation_realms()
+            .into_iter()
+            .find(|entry| entry.frame == Some(frame) && entry.live)
+            .unwrap();
+        let dom = page.agent.host.automation_dom(selected.realm).unwrap();
+        let target = dom
+            .borrow()
+            .get_element_by_id(selected.document_root, "submit")
+            .unwrap()
+            .unwrap();
+        page.set_automation_scope(Some(selected.clone())).unwrap();
+        (selected, target)
+    }
+
+    #[test]
+    fn selected_action_handoff_defers_only_owned_frame_and_keeps_original_input_once() {
+        // This resource-only fixture supplies bodies by literal src key. Keep
+        // the requested source identical to its registered resource.
+        let mut page = fixture(&format!(
+            "parent.clicks=(parent.clicks||0)+1;let f=parent.document.createElement('iframe');f.id='sibling';f.src='{SIBLING_URL}';parent.document.body.append(f)"
+        ));
+        let (selected, target) = select(&mut page);
+        let receipt = page.begin_action_frame_navigation().unwrap();
+        page.apply_action(target, SemanticAction::Click, None)
+            .unwrap();
+        assert!(
+            page.validate_automation_scope(&selected).is_ok(),
+            "source stays live until receipt construction completes"
+        );
+        assert!(
+            page.pending_frame_navigations
+                .contains_key(&(selected.parent_realm.unwrap(), selected.frame.unwrap()))
+        );
+        let sibling = page
+            .node_by_id("sibling")
+            .expect("action inserted its unrelated frame");
+        let sibling_source = page
+            .agent
+            .dom
+            .borrow()
+            .attribute(sibling, "src")
+            .unwrap()
+            .unwrap()
+            .to_owned();
+        assert!(
+            page.resources.contains_key(&sibling_source),
+            "unrelated-frame fixture must supply its literal source"
+        );
+        assert_ne!(selected.frame, Some(sibling));
+        assert!(
+            page.automation_realms().iter().any(|entry| {
+                entry.frame == Some(sibling)
+                    && entry.parent_realm == selected.parent_realm
+                    && entry.url == SIBLING_URL
+                    && entry.live
+            }),
+            "an unrelated frame still receives this checkpoint's work"
+        );
+        let receipt = receipt.finish().unwrap();
+        assert!(receipt.poll().is_none());
+        page.set_automation_scope(None).unwrap();
+        // One normal parser turn consumes the body chunk; EOF and lifecycle
+        // publication remain separately owned turns. Preserve the sibling's
+        // immediate progress assertion above, then await the original receipt.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while receipt.poll().is_none() {
+            page.poll_context_events().unwrap();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "handoff did not settle: resources={} ready={} departures={} parsers={}",
+                page.frame_resource_preparations.len(),
+                page.ready_frame_jobs.len(),
+                page.frame_departures.len(),
+                page.frame_script_preparations.len()
+            );
+            if receipt.poll().is_none() && !page.has_runnable_page_work() {
+                std::thread::park_timeout(
+                    page.next_timer_delay()
+                        .unwrap_or(Duration::from_millis(1))
+                        .min(Duration::from_millis(1)),
+                );
+            }
+        }
+        assert_eq!(
+            receipt.poll(),
+            Some(oryn_js::navigation::NavigationExecutionOutcome::Completed)
+        );
+        assert!(page.validate_automation_scope(&selected).is_err());
+        assert!(
+            page.automation_realms()
+                .iter()
+                .any(|entry| entry.url == "https://selected-handoff.test/done" && entry.live)
+        );
+        assert_eq!(page.evaluate("String(globalThis.clicks)").unwrap(), "1");
+        page.automation_scope = Some(selected);
+        assert!(
+            page.apply_action(target, SemanticAction::Click, None)
+                .is_err()
+        );
+        page.set_automation_scope(None).unwrap();
+        assert_eq!(page.evaluate("String(globalThis.clicks)").unwrap(), "1");
+    }
+
+    #[test]
+    fn selected_action_handoff_does_not_accept_unowned_document_reopen() {
+        let mut page = fixture(
+            "parent.clicks=(parent.clicks||0)+1;document.open();document.write('<title>Unowned replacement</title>');document.close()",
+        );
+        let (selected, target) = select(&mut page);
+        let receipt = page.begin_action_frame_navigation().unwrap();
+        assert!(
+            page.apply_action(target, SemanticAction::Click, None)
+                .is_err()
+        );
+        assert!(
+            receipt.finish().is_none(),
+            "document.open has no owned loader handoff"
+        );
+        assert!(page.validate_automation_scope(&selected).is_err());
+        page.set_automation_scope(None).unwrap();
+        assert_eq!(page.evaluate("String(globalThis.clicks)").unwrap(), "1");
+    }
+
+    #[test]
+    fn selected_action_handoff_leaves_canceled_form_in_original_document() {
+        let mut page = fixture("parent.clicks=(parent.clicks||0)+1;event.preventDefault()");
+        let (selected, target) = select(&mut page);
+        let receipt = page.begin_action_frame_navigation().unwrap();
+        page.apply_action(target, SemanticAction::Click, None)
+            .unwrap();
+        assert!(receipt.finish().is_none());
+        assert!(page.validate_automation_scope(&selected).is_ok());
+        assert!(page.pending_frame_navigations.is_empty());
+        page.set_automation_scope(None).unwrap();
+        assert_eq!(page.evaluate("String(globalThis.clicks)").unwrap(), "1");
+    }
+}
+
+#[cfg(test)]
+mod rescue_ancestor_scroll_tests {
+    use super::*;
+
+    #[test]
+    fn semantic_click_scrolls_clipped_ancestor_frame_and_keeps_cross_origin_isolation() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<!doctype html><body style='margin:0'><iframe id=outer style='width:320px;height:150px;border:0' src='https://parent.test/same'></iframe></body>",
+            &BTreeMap::from([
+                ("https://parent.test/same".into(), "<!doctype html><body style='margin:0'><div style='height:110px'>Same-origin facts</div><iframe id=foreign style='width:300px;height:150px;border:0' src='https://foreign.test/child'></iframe></body>".into()),
+                ("https://foreign.test/child".into(), "<!doctype html><body style='margin:0'><div style='height:60px'>Cross-origin facts</div><button id=load style='height:30px' onclick='globalThis.clicked=(globalThis.clicked||0)+1'>Load nested source</button></body>".into()),
+            ]), None, Some(Url::parse("https://parent.test/").unwrap()),
+        ).unwrap();
+        let inventory = page.automation_realms();
+        let parent = inventory
+            .iter()
+            .find(|entry| entry.url == "https://parent.test/same")
+            .unwrap()
+            .clone();
+        let child = inventory
+            .iter()
+            .find(|entry| entry.url == "https://foreign.test/child")
+            .unwrap()
+            .clone();
+        page.set_automation_scope(Some(parent.clone())).unwrap();
+        assert_eq!(page.evaluate("String(scrollY)").unwrap(), "0");
+        assert_eq!(
+            page.evaluate("document.getElementById('foreign').contentDocument===null")
+                .unwrap(),
+            "true"
+        );
+        let dom = page.agent.host.automation_dom(child.realm).unwrap();
+        let target = dom
+            .borrow()
+            .get_element_by_id(child.document_root, "load")
+            .unwrap()
+            .unwrap();
+        let point = page
+            .agent
+            .host
+            .semantic_pointer_point(
+                child.realm,
+                child.document_generation,
+                child.stream_epoch,
+                target,
+            )
+            .unwrap();
+        let mapped = page
+            .agent
+            .host
+            .automation_pointer_parent_coordinates(
+                parent.realm,
+                child.frame.unwrap(),
+                point.0,
+                point.1,
+                0.,
+                0.,
+            )
+            .unwrap()
+            .unwrap();
+        assert!(
+            mapped.y > 150.,
+            "fixture must place the child target below its ancestor viewport"
+        );
+        assert!(
+            page.agent
+                .host
+                .automation_pointer_frame_target(parent.realm, None, mapped.x, mapped.y, 0., 0.)
+                .unwrap()
+                .is_none()
+        );
+        page.set_automation_scope(Some(child)).unwrap();
+        page.apply_semantic_pointer(target, true).unwrap();
+        assert_eq!(page.evaluate("String(globalThis.clicked)").unwrap(), "1");
+        page.set_automation_scope(Some(parent)).unwrap();
+        assert_eq!(page.evaluate("String(scrollY > 0)").unwrap(), "true");
+        assert_eq!(
+            page.evaluate("document.getElementById('foreign').contentDocument===null")
+                .unwrap(),
+            "true"
+        );
+    }
+}
+
+#[cfg(all(test, unix))]
+mod native_frame_input_membership_tests {
+    use super::*;
+    use crate::network::{
+        NetworkBroker, NetworkError, NetworkEvent, NetworkOperation, NetworkRequest,
+        NetworkResponse,
+    };
+    use oryn_js::v8_bindings::{NativePointerAction, NativePointerInput};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct HeldState {
+        requests: Vec<NetworkRequest>,
+        senders: BTreeMap<u64, tokio::sync::mpsc::Sender<NetworkEvent>>,
+    }
+    #[derive(Clone, Default)]
+    struct Held(Arc<Mutex<HeldState>>);
+    impl NetworkBroker for Held {
+        fn send(&self, _: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+            Err(NetworkError::Unavailable)
+        }
+        fn start_operation(
+            &self,
+            request: NetworkRequest,
+        ) -> Result<NetworkOperation, NetworkError> {
+            let (sender, events) = tokio::sync::mpsc::channel(8);
+            let request_id = request.request_id;
+            let mut state = self.0.lock().unwrap();
+            state.requests.push(request);
+            assert!(state.senders.insert(request_id, sender).is_none());
+            Ok(NetworkOperation {
+                body_demand_pending: Default::default(),
+                prefetched: Default::default(),
+                request_id,
+                events,
+                demand: None,
+            })
+        }
+        fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+            self.0.lock().unwrap().senders.remove(&request_id);
+            Ok(())
+        }
+    }
+    impl Held {
+        fn release(&self, source: &str) {
+            let senders = std::mem::take(&mut self.0.lock().unwrap().senders);
+            assert_eq!(
+                senders.len(),
+                1,
+                "one actual document request owns this response"
+            );
+            for (request_id, sender) in senders {
+                sender
+                    .try_send(NetworkEvent::Headers {
+                        response_policy: None,
+                        timing: None,
+                        request_id,
+                        status: 200,
+                        headers: vec![("content-type".into(), "text/html".into())],
+                        content_length: Some(source.len()),
+                        upload: None,
+                    })
+                    .unwrap();
+                sender
+                    .try_send(NetworkEvent::Chunk {
+                        request_id,
+                        bytes: source.as_bytes().to_vec().into(),
+                    })
+                    .unwrap();
+                sender
+                    .try_send(NetworkEvent::Complete {
+                        request_id,
+                        encoded_body_size: None,
+                    })
+                    .unwrap();
+            }
+        }
+    }
+    fn pump_until(
+        page: &mut RustExecutableDocument,
+        mut done: impl FnMut(&mut RustExecutableDocument) -> bool,
+    ) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !done(page) {
+            page.poll_context_events().unwrap();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "frame input fixture did not settle: resources={} ready={} departures={} parsers={} loads={}",
+                page.frame_resource_preparations.len(),
+                page.ready_frame_jobs.len(),
+                page.frame_departures.len(),
+                page.frame_script_preparations.len(),
+                page.pending_document_loads.len()
+            );
+            if !page.has_runnable_page_work() {
+                std::thread::park_timeout(
+                    page.next_timer_delay()
+                        .unwrap_or(Duration::from_millis(1))
+                        .min(Duration::from_millis(1)),
+                );
+            }
+        }
+    }
+    fn read(page: &mut RustExecutableDocument, realm: RealmId, code: &str) -> String {
+        page.agent.host.activate_realm(realm).unwrap();
+        let result = page.agent.host.evaluate_string(code);
+        page.agent.host.activate_realm(page.top_realm).unwrap();
+        result.unwrap()
+    }
+    fn fixture(url: &str) -> (RustExecutableDocument, Held, AutomationRealmSnapshot) {
+        let held = Held::default();
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<!doctype html><style>body{margin:0}iframe{position:absolute;left:0;top:0;width:120px;height:120px;border:0}</style><body>",
+            &BTreeMap::new(), Some(SharedNetworkBroker::new(held.clone())),
+            Some(Url::parse("https://frame-input.test/root").unwrap()),
+        ).unwrap();
+        // Establish the physical root sample before the author inserts a fresh
+        // network frame under it, as in the original replacement regression.
+        let root = page
+            .pointer_realms()
+            .into_iter()
+            .find(|entry| entry.parent_realm.is_none())
+            .unwrap();
+        page.dispatch_webdriver_pointer_in_context(&root, &input(), NativePointerAction::Move)
+            .unwrap();
+        page.execute(&format!(r#"
+            globalThis.initialClicks=0;globalThis.loads=0;
+            globalThis.frame=document.createElement('iframe');frame.id='frame';frame.src='{url}';
+            frame.onload=()=>loads++;document.body.append(frame);
+            frame.contentDocument.body.innerHTML='<style>body{{margin:0}}button{{width:100px;height:100px}}</style><button id=t>Initial</button>';
+            frame.contentWindow.trace=[];
+            frame.contentDocument.getElementById('t').onpointerover=e=>frame.contentWindow.trace.push('over:'+e.isTrusted);
+            frame.contentDocument.getElementById('t').onpointerdown=e=>frame.contentWindow.trace.push('down:'+e.isTrusted);
+            frame.contentDocument.getElementById('t').onclick=()=>initialClicks++;
+        "#)).unwrap();
+        pump_until(&mut page, |_| !held.0.lock().unwrap().requests.is_empty());
+        let child = page
+            .pointer_realms()
+            .into_iter()
+            .find(|entry| entry.parent_realm == Some(root.realm))
+            .unwrap();
+        assert!(
+            page.agent
+                .host
+                .native_pointer_frame_snapshots(root.realm)
+                .iter()
+                .any(|(entry, initial)| *initial && entry.same_document_as(&child))
+        );
+        assert!(
+            !page
+                .automation_realms()
+                .iter()
+                .any(|entry| entry.realm == child.realm),
+            "input must not claim a loader or generic automation selection"
+        );
+        assert!(!page.frame_resource_preparations.is_empty());
+        assert_eq!(held.0.lock().unwrap().requests.len(), 1);
+        (page, held, child)
+    }
+    fn input() -> NativePointerInput {
+        NativePointerInput {
+            id: 73,
+            x: 20.,
+            y: 20.,
+            ..Default::default()
+        }
+    }
+    fn click(page: &mut RustExecutableDocument) {
+        let root = page
+            .pointer_realms()
+            .into_iter()
+            .find(|entry| entry.parent_realm.is_none())
+            .unwrap();
+        page.dispatch_webdriver_pointer_in_context(&root, &input(), NativePointerAction::Move)
+            .unwrap();
+        page.dispatch_webdriver_pointer_in_context(
+            &root,
+            &NativePointerInput {
+                button: 0,
+                buttons: 1,
+                ..input()
+            },
+            NativePointerAction::Down,
+        )
+        .unwrap();
+        page.dispatch_webdriver_pointer_in_context(
+            &root,
+            &NativePointerInput {
+                button: 0,
+                buttons: 0,
+                ..input()
+            },
+            NativePointerAction::Up,
+        )
+        .unwrap();
+    }
+    const COMMITTED: &str = "<!doctype html><style>body{margin:0}button{width:100px;height:100px}</style><body><button id=committed onclick='globalThis.clicks=(globalThis.clicks||0)+1'>Committed</button>";
+
+    #[test]
+    fn native_frame_input_initial_network_frame_is_interactive_before_response() {
+        let (mut page, held, initial) = fixture("https://frame-input.test/held");
+        click(&mut page);
+        assert_eq!(
+            read(&mut page, initial.realm, "trace.join()"),
+            "over:true,down:true"
+        );
+        assert_eq!(page.evaluate("String(initialClicks)").unwrap(), "1");
+        assert_eq!(page.evaluate("String(loads)").unwrap(), "0");
+        assert!(page.validate_pointer_context(&initial).is_ok());
+        assert!(!page.frame_resource_preparations.is_empty());
+        assert_eq!(
+            held.0.lock().unwrap().senders.len(),
+            1,
+            "input does not await or release headers"
+        );
+        held.release(COMMITTED);
+        pump_until(&mut page, |page| {
+            page.frame_resource_preparations.is_empty()
+                && page.ready_frame_jobs.is_empty()
+                && page.frame_departures.is_empty()
+                && page.frame_script_preparations.is_empty()
+                && page.pending_document_loads.is_empty()
+        });
+        assert_eq!(page.evaluate("String(initialClicks)").unwrap(), "1");
+    }
+
+    fn commit_identity(url: &str, reuse: bool) {
+        let (mut page, held, initial) = fixture(url);
+        let initial_dom = page.agent.host.automation_dom(initial.realm).unwrap();
+        click(&mut page);
+        held.release(COMMITTED);
+        pump_until(&mut page, |page| {
+            page.frame_resource_preparations.is_empty()
+                && page.ready_frame_jobs.is_empty()
+                && page.frame_departures.is_empty()
+                && page.frame_script_preparations.is_empty()
+                && page.pending_document_loads.is_empty()
+        });
+        let committed = page
+            .pointer_realms()
+            .into_iter()
+            .find(|entry| {
+                entry.frame == initial.frame && entry.parent_realm == initial.parent_realm
+            })
+            .unwrap();
+        assert_eq!(
+            committed.realm == initial.realm,
+            reuse,
+            "same-origin initial Window reuse and cross-origin replacement have distinct native paths"
+        );
+        assert!(committed.same_navigable_as(&initial));
+        assert!(!committed.same_document_as(&initial));
+        assert!(page.validate_pointer_context(&initial).is_err());
+        assert!(page.validate_pointer_context(&committed).is_ok());
+        assert!(
+            page.automation_realms()
+                .iter()
+                .any(|entry| entry.same_document_as(&committed))
+        );
+        if !reuse {
+            let committed_dom = page.agent.host.automation_dom(committed.realm).unwrap();
+            assert!(
+                !Rc::ptr_eq(&initial_dom, &committed_dom),
+                "cross-origin documents use separate arenas even after old execution retires"
+            );
+        }
+        click(&mut page);
+        assert_eq!(
+            read(&mut page, committed.realm, "String(globalThis.clicks)"),
+            "1"
+        );
+        page.poll_context_events().unwrap();
+        assert_eq!(
+            read(&mut page, committed.realm, "String(globalThis.clicks)"),
+            "1"
+        );
+        assert_eq!(page.evaluate("String(initialClicks)").unwrap(), "1");
+        assert_eq!(
+            held.0.lock().unwrap().requests.len(),
+            1,
+            "no input or navigation replay"
+        );
+    }
+    #[test]
+    fn native_frame_input_same_origin_initial_commit_keeps_exact_identity() {
+        commit_identity("https://frame-input.test/committed", true);
+    }
+    #[test]
+    fn native_frame_input_cross_origin_commit_keeps_exact_identity() {
+        commit_identity("https://foreign-input.test/committed", false);
+    }
+
+    #[test]
+    fn native_frame_input_document_open_rejects_previous_stream() {
+        let (mut page, held, initial) = fixture("https://frame-input.test/committed");
+        held.release(COMMITTED);
+        pump_until(&mut page, |page| {
+            page.frame_resource_preparations.is_empty()
+                && page.ready_frame_jobs.is_empty()
+                && page.frame_departures.is_empty()
+                && page.frame_script_preparations.is_empty()
+                && page.pending_document_loads.is_empty()
+        });
+        let before = page
+            .pointer_realms()
+            .into_iter()
+            .find(|entry| entry.frame == initial.frame)
+            .unwrap();
+        read(
+            &mut page,
+            before.realm,
+            "document.open();document.write('<body><button id=new>New</button>');document.close();'done'",
+        );
+        page.agent.host.adopt_created_realms();
+        let after = page
+            .pointer_realms()
+            .into_iter()
+            .find(|entry| entry.frame == initial.frame)
+            .unwrap();
+        assert_eq!(before.realm, after.realm);
+        assert_ne!(before.stream_epoch, after.stream_epoch);
+        assert!(page.validate_pointer_context(&before).is_err());
+        assert!(page.validate_pointer_context(&after).is_ok());
+    }
+
+    #[test]
+    fn native_frame_input_retains_boundary_cursor_without_replaying_initial_events() {
+        let (mut page, held, initial) = fixture("https://frame-input.test/held");
+        // Admit a second actual pointer on the initial Document and park its
+        // publication. A later press transfers this same owned cursor.
+        let target = page
+            .agent
+            .host
+            .automation_dom(initial.realm)
+            .unwrap()
+            .borrow()
+            .get_element_by_id(initial.document_root, "t")
+            .unwrap()
+            .unwrap();
+        let input = NativePointerInput { id: 74, ..input() };
+        let boundaries = page
+            .admit_pointer_boundaries(vec![PointerBoundaryStep {
+                context: initial.clone(),
+                input: input.clone(),
+                target: Some(target),
+            }])
+            .unwrap();
+        let owner = boundaries[0].1.owner();
+        owner.set_execution_suspended(true);
+        page.stationary_pointer_route = Some(StationaryPointerRoute {
+            boundaries,
+            next: 0,
+            retry_at: None,
+        });
+        page.poll_stationary_pointer_boundaries().unwrap();
+        let mut route = page
+            .begin_pointer_dispatch_in_context(
+                &initial,
+                &NativePointerInput {
+                    button: 0,
+                    buttons: 1,
+                    ..input
+                },
+                NativePointerAction::Down,
+            )
+            .unwrap();
+        assert!(page.stationary_pointer_route.is_none());
+        assert!(Rc::ptr_eq(&route.boundaries[0].1.owner(), &owner));
+        assert!(route.boundaries[0].0.same_document_as(&initial));
+        assert!(
+            page.poll_pointer_dispatch_in_context(&mut route)
+                .unwrap()
+                .is_none()
+        );
+        owner.set_execution_suspended(false);
+        assert!(
+            page.poll_pointer_dispatch_in_context(&mut route)
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            read(&mut page, initial.realm, "trace.join()"),
+            "over:true,over:true,down:true"
+        );
+        page.poll_stationary_pointer_boundaries().unwrap();
+        assert_eq!(
+            read(&mut page, initial.realm, "trace.join()"),
+            "over:true,over:true,down:true"
+        );
+        assert_eq!(
+            page.evaluate("String(initialClicks)").unwrap(),
+            "0",
+            "a retained press cannot fabricate a click"
+        );
+        held.release(COMMITTED);
+        pump_until(&mut page, |page| {
+            page.frame_resource_preparations.is_empty()
+                && page.ready_frame_jobs.is_empty()
+                && page.frame_departures.is_empty()
+                && page.frame_script_preparations.is_empty()
+                && page.pending_document_loads.is_empty()
+        });
+        assert_eq!(page.evaluate("String(initialClicks)").unwrap(), "0");
+    }
+
+    #[test]
+    fn native_frame_input_replacement_retires_boundary_cursor_without_retarget() {
+        let (mut page, held, initial) = fixture("https://frame-input.test/held");
+        let root = page
+            .pointer_realms()
+            .into_iter()
+            .find(|entry| entry.parent_realm.is_none())
+            .unwrap();
+        page.agent.host.execute("globalThis.rootEntries=0;globalThis.childEntries=0;frame.addEventListener('pointerover',()=>rootEntries++);frame.contentDocument.getElementById('t').onpointerover=()=>childEntries++").unwrap();
+        let target = page
+            .agent
+            .host
+            .automation_dom(initial.realm)
+            .unwrap()
+            .borrow()
+            .get_element_by_id(initial.document_root, "t")
+            .unwrap()
+            .unwrap();
+        let input = NativePointerInput { id: 75, ..input() };
+        let boundaries = page
+            .admit_pointer_boundaries(vec![
+                PointerBoundaryStep {
+                    context: root.clone(),
+                    input: input.clone(),
+                    target: initial.frame,
+                },
+                PointerBoundaryStep {
+                    context: initial.clone(),
+                    input: input.clone(),
+                    target: Some(target),
+                },
+            ])
+            .unwrap();
+        let child_owner = boundaries[1].1.owner();
+        child_owner.set_execution_suspended(true);
+        page.stationary_pointer_route = Some(StationaryPointerRoute {
+            boundaries,
+            next: 0,
+            retry_at: None,
+        });
+        page.poll_stationary_pointer_boundaries().unwrap();
+        assert_eq!(
+            page.stationary_pointer_route.as_ref().unwrap().next,
+            1,
+            "the first real boundary callback published before the child continuation parked"
+        );
+        assert_eq!(
+            page.agent
+                .host
+                .evaluate_string("rootEntries+':'+childEntries")
+                .unwrap(),
+            "1:0"
+        );
+        page.agent.host.execute("frame.remove();globalThis.outside=document.createElement('button');outside.textContent='outside';outside.style.cssText='position:absolute;left:0;top:0;width:100px;height:100px';globalThis.outsideClicks=0;outside.onclick=()=>outsideClicks++;document.body.append(outside)").unwrap();
+        page.agent.host.poll_runtime_context().unwrap();
+        child_owner.set_execution_suspended(false);
+        assert!(page.validate_pointer_context(&initial).is_err());
+        assert!(page.poll_stationary_pointer_boundaries().is_err());
+        assert!(page.stationary_pointer_route.is_none());
+        assert_eq!(
+            page.agent
+                .host
+                .evaluate_string("rootEntries+':'+childEntries+':'+outsideClicks")
+                .unwrap(),
+            "1:0:0",
+            "retired cursor neither replays its prefix nor retargets its suffix"
+        );
+        pump_until(&mut page, |page| {
+            page.frame_resource_preparations.is_empty()
+        });
+        assert!(held.0.lock().unwrap().senders.is_empty());
+        click(&mut page);
+        assert_eq!(
+            page.evaluate("rootEntries+':'+childEntries+':'+outsideClicks")
+                .unwrap(),
+            "1:0:1",
+            "a subsequent explicit live sample still works"
+        );
+    }
+
+    #[test]
+    fn native_frame_input_initial_receipt_cannot_admit_uninstalled_commit() {
+        let (mut page, held, initial) = fixture("https://frame-input.test/held");
+        let dom = page.agent.host.automation_dom(initial.realm).unwrap();
+        let parsed = oryn_dom::html::parse("<body><button>uninstalled</button>");
+        let document = dom
+            .borrow_mut()
+            .import_subtree(&parsed.dom, parsed.document)
+            .unwrap();
+        let origin = page
+            .agent
+            .host
+            .realm_descriptor(page.top_realm)
+            .unwrap()
+            .origin
+            .clone();
+        let committed = page
+            .agent
+            .host
+            .commit_frame_document(initial.frame.unwrap(), origin, dom, document)
+            .unwrap();
+        assert_eq!(committed, initial.realm);
+        let (native, initial_receipt) = page
+            .agent
+            .host
+            .native_pointer_frame_snapshots(page.top_realm)
+            .into_iter()
+            .find(|(entry, _)| entry.realm == committed)
+            .unwrap();
+        assert!(
+            !initial_receipt,
+            "native commit clears initial membership before driver installation"
+        );
+        assert!(!native.same_document_as(&initial));
+        assert!(
+            !page
+                .pointer_realms()
+                .iter()
+                .any(|entry| entry.realm == committed),
+            "a missing committed loader is not an initial Document fallback"
+        );
+        assert!(page.validate_pointer_context(&initial).is_err());
+        page.agent.host.execute("frame.remove()").unwrap();
+        pump_until(&mut page, |page| {
+            page.frame_resource_preparations.is_empty()
+        });
+        assert!(held.0.lock().unwrap().senders.is_empty());
+    }
+
+    #[test]
+    fn native_frame_input_failed_hit_diagnostic_is_bounded_and_exact() {
+        let (mut page, held, initial) = fixture("https://frame-input.test/held");
+        let root = page
+            .pointer_realms()
+            .into_iter()
+            .find(|entry| entry.parent_realm.is_none())
+            .unwrap();
+        let hit = page
+            .agent
+            .host
+            .automation_pointer_frame_target(root.realm, None, 20., 20., 0., 0.)
+            .unwrap()
+            .unwrap();
+        assert!(RustExecutableDocument::pointer_hit_matches(&initial, &hit));
+        let mut collided = initial.clone();
+        collided.realm = RealmId(initial.realm.0 + 100);
+        assert!(
+            !RustExecutableDocument::pointer_hit_matches(&collided, &hit),
+            "equal NodeIds do not authorize a different realm"
+        );
+        let error = page.pointer_frame_mismatch(&root, &hit);
+        assert!(error.message.len() < 768);
+        assert!(error.message.contains("closed=false"));
+        assert!(error.message.contains("resources=true"));
+        assert!(error.message.contains("installed=0"));
+        assert!(
+            !error
+                .message
+                .contains(initial.frame_token.as_ref().unwrap())
+        );
+        held.release(COMMITTED);
+        pump_until(&mut page, |page| {
+            page.frame_resource_preparations.is_empty()
+                && page.ready_frame_jobs.is_empty()
+                && page.frame_departures.is_empty()
+                && page.frame_script_preparations.is_empty()
+                && page.pending_document_loads.is_empty()
+        });
     }
 }

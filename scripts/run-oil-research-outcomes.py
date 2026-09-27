@@ -14,6 +14,8 @@ from generation_gate import check_execution_generation
 import subprocess
 import sys
 import time
+import threading
+from workflow_outcome_evidence import command_frames, extraction_values, terminal_verdict
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "test-harness/workflows"
@@ -64,10 +66,11 @@ def validate(case, lines, base, frames, data):
     expected = json.loads(
         json.dumps(case["expected"]).replace("{base}", urlsplit(base).path)
     )
-    if [
-        frame.get("value") for frame in frames if frame.get("kind") == "structured"
-    ] != expected:
-        errors.append("extracted facts/tables/source links mismatch")
+    try:
+        if extraction_values(frames, lines) != expected:
+            errors.append("extracted facts/tables/source links mismatch")
+    except ValueError as error:
+        errors.append(str(error))
     observations = [
         frame.get("observation", {})
         for frame in frames
@@ -102,7 +105,7 @@ def validate(case, lines, base, frames, data):
     return errors
 
 
-def run_case(oracle, contract, case, sample, binary, worker, output):
+def run_case(oracle, contract, case, sample, binary, worker, output, executor, worker_sha256):
     case_id = secrets.token_hex(16)
     directory = output / f"{case['id']}-{sample:02d}"
     directory.mkdir()
@@ -123,40 +126,40 @@ def run_case(oracle, contract, case, sample, binary, worker, output):
     started = time.monotonic()
     try:
         oracle.request("create", case_id, scenario=case["scenario"])
-        check_execution_generation()
-        process = subprocess.Popen(
-            [str(binary), "--file", str(task), "native", "--allow-loopback"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=dict(os.environ, ORYN_PAGE_WORKER=str(worker)),
-            start_new_session=True,
-        )
-        try:
-            stdout, stderr = process.communicate(timeout=60)
-        except subprocess.TimeoutExpired:
-            record["timed_out"] = True
-            os.killpg(process.pid, signal.SIGKILL)
-            stdout, stderr = process.communicate(timeout=10)
-        (directory / "stdout.jsonl").write_bytes(stdout)
-        (directory / "stderr.txt").write_bytes(stderr)
-        if stderr.strip():
-            record["errors"].append("nonempty OIL stderr")
-        record["returncode"] = process.returncode
-        if process.returncode != 0 or record["timed_out"]:
-            record["errors"].append("OIL process failed or timed out")
+        from workflow_native_adapter import execute_native
+        from workflow_cleanup import failure_details
+        plan=dict(schema_version=1,attempt_id=f"research:{case_id}:{sample}",sessions=[dict(id='research',steps=[dict(oil=line,**case.get('step_options',{}).get(str(index),{})) for index,line in enumerate(lines)],uploads=[],fault=None)])
+        evidence=execute_native(executor,worker,plan,directory,threading.Event(),worker_sha256=worker_sha256,timeout_seconds=60)
+        sessions=evidence.get('sessions',[])
+        if len(sessions)!=1 or sessions[0].get('id')!='research':
+            raise ValueError('standalone research session identity mismatch')
+        session=sessions[0]
+        record['errors'].extend(session.get('errors',[]))
+        frames=command_frames(session['steps'],lines)
+        (directory/'stdout.jsonl').write_text(''.join(json.dumps(frame)+'\n' for frame in frames))
+        cleanup=json.loads((directory/'native-process-cleanup.json').read_text())
+        if session.get('cleanup_errors') or session.get('workers_retired') is not True:
+            cleanup=dict(cleanup,group_settled=False,errors=[*cleanup.get('errors',[]),*session.get('cleanup_errors',[]),'session workers not retired'])
+        record['resource_accounting']=evidence['resource_accounting']
+        record['process_cleanup']=cleanup
         data = oracle.request("snapshot", case_id)
         (directory / "oracle.json").write_text(json.dumps(data, indent=2) + "\n")
-        frames = [json.loads(line) for line in stdout.splitlines() if line.strip()]
         record["errors"] += validate(case, lines, base, frames, data)
-        record["passed"] = not record["errors"]
+        record.update(terminal_verdict(record["errors"],[record["resource_accounting"]],[record["process_cleanup"]]))
     except (
         OSError,
         ValueError,
         KeyError,
         TypeError,
         subprocess.SubprocessError,
+        RuntimeError,
     ) as error:
         record["errors"].append(str(error))
+        from workflow_cleanup import failure_details
+        detail=failure_details(error)
+        record.update(terminal_verdict(record["errors"],[],[]))
+        record.update(detail)
+        record["cleanup_failure_details"]=detail["cleanup_errors"]
     record["elapsed_seconds"] = round(time.monotonic() - started, 3)
     (directory / "preliminary-result.json").write_text(
         json.dumps(record, indent=2) + "\n"
@@ -174,6 +177,7 @@ def main():
         default=ROOT
         / "target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker",
     )
+    parser.add_argument("--executor", type=Path, help="oryn-workflow-qualification executable; defaults beside --binary")
     parser.add_argument("--output", type=Path, required=True)
     frontend=parser.add_mutually_exclusive_group()
     frontend.add_argument("--frontend-v2", action="store_true")
@@ -188,6 +192,9 @@ def main():
         args.binary.resolve(),
         args.worker.resolve(),
     )
+    args.executor=(args.executor or args.binary.with_name("oryn-workflow-qualification")).resolve()
+    if not args.executor.is_file() or not os.access(args.executor,os.X_OK):
+        raise ValueError("missing executable native workflow executor: "+str(args.executor))
     admission.check()
     args.output.mkdir(parents=True, exist_ok=False)
     database = args.output / "research.sqlite3"
@@ -206,6 +213,8 @@ def main():
     )
     oracle = None
     try:
+        report["executor_sha256"]=support.digest(args.executor)
+        report["executor_path"]=str(args.executor)
         report["parent_sha256"], report["worker_sha256"] = (
             support.digest(args.binary),
             support.digest(args.worker),
@@ -223,6 +232,8 @@ def main():
             str(path.relative_to(ROOT)): support.digest(path)
             for path in [
                 Path(__file__),
+                ROOT / "scripts/workflow_native_adapter.py",
+                ROOT / "scripts/workflow_outcome_evidence.py",
                 ROOT / "scripts/run-oil-forms-outcomes.py",
                 FIXTURES / "research_fixture.py",
                 contract_path,
@@ -266,6 +277,8 @@ def main():
                     args.binary,
                     args.worker,
                     args.output,
+                    args.executor,
+                    report["worker_sha256"],
                 )
                 for sample in range(1, args.samples + 1)
                 for case in contract["cases"]
@@ -283,11 +296,17 @@ def main():
             (directory / "final-database.json").write_text(
                 json.dumps(data, indent=2) + "\n"
             )
-            frames = [
-                json.loads(line)
-                for line in (directory / "stdout.jsonl").read_text().splitlines()
-                if line.strip()
-            ]
+            lines=task_lines(contract,cases[record['case']],record['base'])
+            frames=[]
+            try:
+                native=json.loads((directory/'native-evidence.json').read_text())
+                plan=json.loads((directory/'native-plan.json').read_text())
+                if (native.get('attempt_id')!=plan.get('attempt_id') or len(native.get('sessions',[]))!=1
+                        or [row.get('oil') for row in plan['sessions'][0]['steps']]!=lines):
+                    raise ValueError('standalone preserved command provenance mismatch')
+                frames=command_frames(native['sessions'][0]['steps'],lines)
+            except (OSError,ValueError,KeyError,TypeError) as error:
+                record['operation_errors']=record.get('operation_errors',[])+[str(error)]
             errors = validate(
                 cases[record["case"]],
                 task_lines(contract, cases[record["case"]], record["base"]),
@@ -296,12 +315,15 @@ def main():
                 data,
             )
             record["errors"] = list(dict.fromkeys(record["errors"] + errors))
-            record["passed"] = not record["errors"]
+            operation_errors=list(dict.fromkeys(record.get("operation_errors",record["errors"])+errors))
+            fixture_settled=report.get("fixture_cleanup")==dict(returncode=0,forced=False)
+            record.update(terminal_verdict(operation_errors,[record.get("resource_accounting")],[record.get("process_cleanup"),dict(group_settled=fixture_settled,errors=[] if fixture_settled else ["fixture cleanup failed"])]))
             record["final_database_verified"] = True
             (directory / "result.json").write_text(json.dumps(record, indent=2) + "\n")
         report["database_sha256"] = support.digest(database)
         report["artifact_identities_unchanged"] = (
             report["parent_sha256"] == support.digest(args.binary)
+            and report["executor_sha256"] == support.digest(args.executor)
             and report["worker_sha256"] == support.digest(args.worker)
             and all(
                 support.digest(ROOT / path) == value

@@ -107,8 +107,11 @@ pub use module_types::ModuleType;
 #[cfg(any(feature = "v8-host", test))]
 mod html_encoding_replay;
 pub mod intent;
+mod ipc_progress;
 #[cfg(target_os = "linux")]
 pub mod linux_sandbox;
+pub mod native_timing;
+mod page_terminal_control;
 pub mod network;
 mod observable;
 pub mod oil;
@@ -128,6 +131,8 @@ pub mod worker_lifecycle_audit;
 #[cfg(feature = "v8-host")]
 pub mod worker_process;
 pub mod worker_route;
+#[cfg(feature = "v8-host")]
+mod xslt_process;
 
 pub use challenge::{
     CHALLENGE_DETECTOR_VERSION, ChallengeAssessment, ChallengeDisposition, ChallengeSignal,

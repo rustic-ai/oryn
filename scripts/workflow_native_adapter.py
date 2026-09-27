@@ -3,6 +3,7 @@
 Native activity is read from the native executor. Python wall times, worker
 counts, and fixture-request times are never substituted for native operation spans.
 """
+import copy
 import hashlib
 import importlib.util
 import json
@@ -14,7 +15,10 @@ import sqlite3
 from generation_gate import check_execution_generation
 import subprocess
 import threading
+import sys
+from workflow_cleanup import NativeCustody, NativeExecutionFailure, failure_details, CleanupFailure, DescriptorOwner, close_owner, cleanup_cases, settle_group, write_owned_stream
 
+from workflow_outcome_evidence import command_frames, extraction_values, terminal_verdict
 from workflow_failures import attribute_native_failure
 from workflow_frontend_evidence import WITNESSES, source_records
 from workflow_resources import ProcessSampler, reconcile_resources
@@ -83,20 +87,31 @@ def native_activity(evidence, expected_contexts):
     raise ValueError('required contexts had no measured simultaneous native operation')
 
 
-def execute_native(binary, worker, plan, directory, stop):
+def verify_worker_attestation(runtime, worker, admitted_sha256=None):
+    # Suite admission already hashed this worker; standalone callers still verify it.
+    expected = admitted_sha256 if admitted_sha256 is not None else support.digest(worker)
+    if runtime.get('sandboxed') is not True or runtime.get('worker_binary_sha256') != expected:
+        raise ValueError('native worker attestation does not match pinned candidate')
+
+
+def execute_native(binary, worker, plan, directory, stop, worker_sha256=None, timeout_seconds=180):
     check_execution_generation()
     if stop.is_set():
-        raise RuntimeError('cancelled before native execution')
+        raise NativeExecutionFailure('cancelled before native execution', interrupted=True)
     task = directory/'native-plan.json'
     task.write_text(json.dumps(plan, indent=2)+'\n')
     stdout_path, stderr_path = directory/'native.stdout', directory/'native.stderr'
     with stdout_path.open('xb') as stdout, stderr_path.open('xb') as stderr:
         check_execution_generation()
+        if stop.is_set():raise NativeExecutionFailure('cancelled before process admission', interrupted=True)
         process = subprocess.Popen([str(binary),'--input',str(task),'--output',str(directory/'native-evidence.json')],
                                    stdout=stdout,stderr=stderr,start_new_session=True,
                                    env=dict(os.environ,ORYN_PAGE_WORKER=str(worker)))
-        sampler=None;watcher=None
+        sampler=None;watcher=None;custody=None
         cleanup_errors=[]
+        cancellation_observations=[]
+        cancellation_events=[]
+        retained_owners=[]
         resource_samples=dict(schema_version=1,parent_pid=process.pid,samples=[],errors=['sampler did not start'])
         cancelled = threading.Event()
         monitor_done = threading.Event()
@@ -104,58 +119,118 @@ def execute_native(binary, worker, plan, directory, stop):
             while not monitor_done.is_set() and process.poll() is None:
                 if stop.wait(.1):
                     cancelled.set()
-                    try: os.killpg(process.pid,signal.SIGKILL)
+                    try:
+                        if custody is not None:
+                            custody.signal(signal.SIGKILL, cancellation_events)
+                        elif process.poll() is None:
+                            process.kill()
                     except ProcessLookupError: pass
+                    except Exception as error:
+                        cancellation_observations.append('native cancellation signal: '+str(error))
+                        stop.set()
                     return
         try:
-            sampler=ProcessSampler(process.pid);sampler.start()
+            (directory/'native-process-start.json').write_text(json.dumps(dict(parent_pid=process.pid,process_group=process.pid,command=[str(binary),'--input',str(task),'--output',str(directory/'native-evidence.json')]),indent=2)+'\n')
+            custody=NativeCustody(process)
+            sampler=ProcessSampler(process.pid, custody=custody);sampler.start()
             watcher=threading.Thread(target=monitor,daemon=True);watcher.start()
-            returncode=process.wait(timeout=180)
+            returncode=process.wait(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
-            raise RuntimeError('native executor timed out; forced cleanup retained')
+            raise NativeExecutionFailure('native executor timed out; forced cleanup retained', timed_out=True)
         finally:
             monitor_done.set()
+            primary = sys.exc_info()[1]
+            if primary is None and cancelled.is_set():
+                primary = NativeExecutionFailure('native executor interrupted', interrupted=True)
+            elif primary is None and type(process.returncode) is int and process.returncode != 0:
+                primary = NativeExecutionFailure('native executor exited '+str(process.returncode))
             try:
-                if process.poll() is None:
-                    try:os.killpg(process.pid,signal.SIGKILL)
-                    except ProcessLookupError:pass
-                    process.wait(timeout=15)
-                try:os.killpg(process.pid,0)
-                except ProcessLookupError:pass
-                else:
-                    cleanup_errors.append('native executor left process-group survivors')
-                    try:os.killpg(process.pid,signal.SIGKILL)
-                    except ProcessLookupError:pass
+                terminal = (failure_details(primary) if primary is not None else
+                            dict(primary_error=None, timed_out=False, interrupted=False))
+                terminal.update(parent_pid=process.pid, returncode=process.returncode)
+                (directory/'native-execution-terminal.json').write_text(json.dumps(terminal, indent=2)+'\n')
             except Exception as error:
-                cleanup_errors.append('native process cleanup: '+str(error))
+                cleanup_errors.append('execution terminal persistence: '+str(error))
             if watcher is not None:
                 try:
                     watcher.join(timeout=1)
-                    if watcher.is_alive():cleanup_errors.append('native cancellation monitor did not stop')
-                except RuntimeError as error:
+                    if watcher.is_alive():
+                        cleanup_errors.append('native cancellation monitor did not stop')
+                        stop.set()
+                        retained_owners.append(watcher)
+                except BaseException as error:
                     cleanup_errors.append('native cancellation monitor cleanup: '+str(error))
+                    stop.set()
+                    retained_owners.append(watcher)
             if sampler is not None:
-                try:resource_samples=sampler.finish()
-                except Exception as error:
+                try:
+                    resource_samples=sampler.finish()
+                    if 'sampler did not stop' in resource_samples.get('errors',[]):
+                        cleanup_errors.append('native sampler did not stop')
+                        stop.set()
+                        retained_owners.append(sampler)
+                except BaseException as error:
                     cleanup_errors.append('native sampler cleanup: '+str(error))
-            (directory/'native-resource-samples.json').write_text(json.dumps(resource_samples,separators=(',',':'))+'\n')
-            (directory/'native-process-cleanup.json').write_text(json.dumps(dict(
-                parent_pid=process.pid,returncode=process.returncode,errors=cleanup_errors),indent=2)+'\n')
+                    stop.set()
+                    retained_owners.append(sampler)
+            if custody is not None:
+                if sampler is None or (not any(owner is sampler for owner in retained_owners)):
+                    custody.seal()
+                else:
+                    custody.mark_uncertain('sampler did not terminate before settlement')
+            try:
+                process_cleanup = settle_group(process, custody=custody)
+            except BaseException as error:
+                process_cleanup = dict(parent_pid=process.pid,process_group=process.pid,returncode=process.returncode,group_settled=False,errors=['group settlement: '+repr(error)])
+            cleanup_errors.extend(process_cleanup['errors'])
+            if not process_cleanup['group_settled'] or type(process_cleanup['returncode']) is not int:
+                stop.set()
+                retained_owners.append(custody if custody is not None else process)
+            process_cleanup.setdefault('observations', []).extend(cancellation_observations)
+            process_cleanup.setdefault('events', []).extend(cancellation_events)
+            process_cleanup['errors'] = cleanup_errors
+            if primary is not None:
+                process_cleanup.update(failure_details(primary))
+                process_cleanup['cleanup_errors'] = list(cleanup_errors)
+            else:
+                process_cleanup.update(primary_error=None, timed_out=False, interrupted=False)
+            try:
+                (directory/'native-resource-samples.json').write_text(json.dumps(resource_samples,separators=(',',':'))+'\n')
+                (directory/'native-process-cleanup.json').write_text(json.dumps(process_cleanup,indent=2)+'\n')
+            except Exception as error:
+                cleanup_errors.append('cleanup receipt persistence: '+str(error))
+            if cleanup_errors:
+                if primary is None and type(process.returncode) is int and process.returncode != 0:
+                    primary = RuntimeError('native executor exited '+str(process.returncode))
+                raise CleanupFailure(primary, cleanup_errors, stop.is_set(),
+                                     retained_owners) from primary
     if cleanup_errors:
         raise RuntimeError('; '.join(cleanup_errors))
-    if cancelled.is_set() or returncode != 0:
-        raise RuntimeError('native executor cancelled or failed')
+    if cancelled.is_set():
+        raise NativeExecutionFailure('native executor interrupted', interrupted=True)
+    if returncode != 0:
+        raise NativeExecutionFailure('native executor exited '+str(returncode))
     evidence=json.loads((directory/'native-evidence.json').read_text())
     (directory/'native-failure-attribution.json').write_text(json.dumps(attribute_native_failure(evidence),indent=2)+'\n')
     resource_result=reconcile_resources(resource_samples,evidence)
     (directory/'native-resource-accounting.json').write_text(json.dumps(resource_result,indent=2)+'\n')
     evidence['resource_accounting']=resource_result
+    evidence['process_cleanup']=process_cleanup
     runtime=evidence.get('runtime',{})
-    if runtime.get('sandboxed') is not True or runtime.get('worker_binary_sha256')!=support.digest(worker):
-        raise ValueError('native worker attestation does not match pinned candidate')
+    verify_worker_attestation(runtime, worker, worker_sha256)
     if evidence.get('attempt_id') != plan['attempt_id'] or evidence.get('infrastructure_errors'):
         raise ValueError('native executor attempt identity or infrastructure failure')
     return evidence
+
+
+def session_cleanup(evidence):
+    result=dict(evidence.get('process_cleanup',{}))
+    problems=list(result.get('errors',[]))
+    for session in evidence.get('sessions',[]):
+        problems.extend('session cleanup: '+str(error) for error in session.get('cleanup_errors',[]))
+        if session.get('workers_retired') is not True:problems.append('session workers not retired')
+    result['errors']=problems
+    return result
 
 
 def read_case_contract(family,version,name):
@@ -215,10 +290,12 @@ def family_lines(family,runner,contract,case,base):
 
 class DatabaseCellAdapter:
     """Real OIL behavior recipes over the existing sealed/reopened SQLite fixtures."""
-    def __init__(self, cell, binary, worker):
+    def __init__(self, cell, binary, worker, *, worker_sha256=None, expected_cache=None):
         if cell not in RESEARCH_RECIPES and cell not in RECIPES:
             raise ValueError('no concrete behavior recipe for '+cell)
         self.cell,self.binary,self.worker=cell,Path(binary),Path(worker)
+        self.worker_sha256 = worker_sha256
+        self.expected_cache = expected_cache
 
     def recipes(self):
         return [("research",version,name) for version,name in RESEARCH_RECIPES[self.cell]] if self.cell in RESEARCH_RECIPES else RECIPES[self.cell]
@@ -232,6 +309,7 @@ class DatabaseCellAdapter:
             raise ValueError('behavior-cell interruption/fault recovery recipe not implemented')
         root=directory.parents[1]
         errors,actions,outcomes,activity=[],[],[],None
+        accountings=[];cleanups=[]
         cleanup=dict(returncode=0,forced=False)
         if attempt["mode"]=="mixed_family":
             errors.append("heterogeneous mixed-family session recipes pending; same-cell concurrency is diagnostic only")
@@ -259,21 +337,25 @@ class DatabaseCellAdapter:
                     contexts.append(dict(id=f'context-{index}',case_id=identity,base=base,lines=lines))
                 plan=dict(schema_version=1,attempt_id=attempt['attempt_id'],sessions=[dict(
                     id=item['id'],steps=[dict(oil=line,**case.get('step_options',{}).get(str(index),{})) for index,line in enumerate(item['lines'])],uploads=authorized_uploads(family,case),fault=None) for item in contexts])
-                evidence=execute_native(self.binary,self.worker,plan,wave,stop)
+                evidence=execute_native(self.binary,self.worker,plan,wave,stop,worker_sha256=self.worker_sha256)
+                accountings.append(evidence['resource_accounting']);cleanups.append(session_cleanup(evidence))
                 measured=native_activity(evidence,attempt['context_count'])
                 if activity is None: activity=measured
                 oracle.request('seal','0'*32)
                 cleanup_result=oracle.close();oracle=None
                 if cleanup_result != cleanup:
-                    cleanup=cleanup_result;errors.append('fixture did not cleanly retire')
+                    cleanup=cleanup_result;cleanups.append(dict(group_settled=False,errors=['fixture did not cleanly retire']))
                 sessions={session['id']:session for session in evidence['sessions']}
                 observed=[]
                 for item in contexts:
                     session=sessions[item['id']]
-                    if session['errors'] or session['cleanup_errors'] or not session['workers_retired']:
-                        errors.append('native operation/worker cleanup failed')
+                    if session['errors']:
+                        errors.append('native operation failed: '+repr(session['errors']))
                     if len(session['steps']) != len(item['lines']): errors.append('native task truncated')
-                    frames=[frame for step in session['steps'] for frame in step['outputs']]
+                    try:
+                        frames=command_frames(session['steps'],item['lines'])
+                    except ValueError as error:
+                        errors.append(str(error));frames=[]
                     data=(research.receiver if family=='research' else receiver).snapshot(database,item['case_id'])
                     (wave/(item['id']+'-sealed-oracle.json')).write_text(json.dumps(data,indent=2)+'\n')
                     if family=='forms':
@@ -287,7 +369,10 @@ class DatabaseCellAdapter:
                     # Actual extracted values and independent durable request facts,
                     # normalized only for the per-run origin/case namespace.
                     if family=='research':
-                        facts=[frame['value'] for frame in frames if frame.get('kind')=='structured']
+                        try:
+                            facts=extraction_values(frames,item['lines'])
+                        except ValueError as error:
+                            errors.append('research projection: '+str(error));facts=[]
                         facts=json.loads(json.dumps(facts).replace('/research/'+item['case_id'],'{base}'))
                         visits=[dict(path=row['path'],query=json.loads(row['query']),status=row['status']) for row in data['visits']]
                         observed.append(dict(facts=facts,visits=visits))
@@ -299,8 +384,8 @@ class DatabaseCellAdapter:
             finally:
                 if oracle is not None:
                     result=oracle.close()
-                    if result != dict(returncode=0,forced=False): cleanup=result
-        return dict(passed=not errors,errors=errors,timed_out=False,cleanup=cleanup,
+                    if result != dict(returncode=0,forced=False): cleanup=result;cleanups.append(dict(group_settled=False,errors=['fixture did not cleanly retire']))
+        return dict(**terminal_verdict(errors,accountings,cleanups),timed_out=False,cleanup=cleanup,
                     actions=artifact(root,directory/'actions.json',actions),
                     oracle=artifact(root,directory/'oracle.json',outcomes),
                     context_activity=artifact(root,directory/'context-activity.json',activity or []),
@@ -352,29 +437,45 @@ class PreparedCase:
         self.receiver=research.receiver if self.family=='research' else load('mixed_receiver_'+self.family,fixture)
         self.database=directory/'oracle.sqlite3'
         self.oracle=support.Oracle(directory,FIXTURES/'workflow_fixture.py',['--family',self.family,'--version',self.version,'--database',self.database])
-        self.identity=secrets.token_hex(16);self.origin=self.oracle.origin
         try:
+            self.identity=secrets.token_hex(16);self.origin=self.oracle.origin
             self.oracle.request('create',self.identity,**({'upload':self.case['upload']} if self.family=='forms' and not self.case.get('extended') else {'scenario':self.case.get('scenario','normal')}))
-        except BaseException:
-            self.oracle.close();self.oracle=None;raise
-        prefix='advanced' if self.family=='forms' and self.case.get('extended') else {'research':'research','forms':'form','shopping':'shop','saas':'saas','booking':'booking'}[self.family]
-        self.base=f'{self.origin}/{prefix}/{self.identity}'
-        self.lines=family_lines(self.family,self.runner,self.contract,self.case,self.base)
-        self.fault=None;self.recovery_steps=[]
+            prefix='advanced' if self.family=='forms' and self.case.get('extended') else {'research':'research','forms':'form','shopping':'shop','saas':'saas','booking':'booking'}[self.family]
+            self.base=f'{self.origin}/{prefix}/{self.identity}'
+            self.lines=family_lines(self.family,self.runner,self.contract,self.case,self.base)
+            self.fault=None;self.recovery_steps=[];self.response_gate=None
+        except BaseException as primary:
+            receipt, errors, settled = close_owner(self.oracle)
+            if settled:
+                self.oracle=None
+            if errors:
+                raise CleanupFailure(primary, errors, not settled,
+                                     (self.oracle,) if not settled else ()) from primary
+            raise
 
     def session(self,identity):
         return dict(id=identity,steps=[dict(oil=line,**self.case.get("step_options",{}).get(str(index),{})) for index,line in enumerate(self.lines)],
-                    uploads=authorized_uploads(self.family,self.case),fault=self.fault,recovery_steps=self.recovery_steps)
+                    uploads=authorized_uploads(self.family,self.case),fault=self.fault,recovery_steps=self.recovery_steps,
+                    response_gate=getattr(self,'response_gate',None))
 
     def configure_fault(self,kind):
         description=decorate_fault(self.family,self.case,self.lines,kind,self.base)
         self.case=description['case'];self.lines=description['lines'];self.fault=description['fault'];self.recovery_steps=description['recovery_steps']
         if description['arm']:
-            self.oracle.request('arm_response_fault',self.identity,token=secrets.token_hex(16),**description['arm'])
+            token=secrets.token_hex(16)
+            self.response_gate=(dict(token=token,route=description['arm']['route'],
+                marker=str((self.directory/'response-entered.json').resolve())) if kind=='cancellation' else None)
+            self.oracle.request('arm_response_fault',self.identity,token=token,
+                                response_gate=self.response_gate,**description['arm'])
 
     def seal(self):
         self.oracle.request('seal','0'*32)
-        result=self.oracle.close();self.oracle=None
+        result, errors, settled = close_owner(self.oracle)
+        if settled:
+            self.oracle=None
+        if errors:
+            raise CleanupFailure(None, errors, not settled,
+                                 (self.oracle,) if not settled else ())
         return result
 
     def outcome(self,session):
@@ -383,18 +484,33 @@ class PreparedCase:
         return replay_case_outcome(self,session,data)
 
 
+def preserved_case_databases(case, preserved):
+    """Capture the closed application's complete database set, never infer at replay."""
+    refs=dict(database=preserved(case.database))
+    if case.family=='saas' and case.version in (2,4):
+        refs['oauth_database']=preserved(Path(str(case.database)+'.oauth'))
+    return refs
+
+
 def replay_case_outcome(self,session,data):
     errors=[]
-    if session['errors'] or session['cleanup_errors'] or not session['workers_retired']:
-        errors.append('native operation/worker cleanup failed')
+    if session['errors']:
+        errors.append('native operation failed: '+repr(session['errors']))
     if len(session['steps'])!=len(self.lines):errors.append('native task truncated')
-    frames=[frame for step in [*session['steps'],*session.get('recovery',[])] for frame in step['outputs']]
+    try:
+        frames=command_frames(session['steps'],self.lines)
+        frames+=command_frames(session.get('recovery',[]),[row['oil'] for row in self.recovery_steps],'recovery')
+    except ValueError as error:
+        errors.append(str(error));frames=[]
     if self.family=='forms':
         errors.extend(validate_forms(self.case,self.contract,self.identity,self.origin,frames,data))
     else:
         errors.extend(self.runner.validate(self.case,self.lines,self.base,frames,data))
     if self.family=='research':
-        facts=[frame['value'] for frame in frames if frame.get('kind')=='structured']
+        try:
+            facts=extraction_values(frames,self.lines)
+        except ValueError as error:
+            errors.append('research projection: '+str(error));facts=[]
         facts=json.loads(json.dumps(facts).replace('/research/'+self.identity,'{base}'))
         projection=dict(facts=facts,visits=[dict(path=row['path'],query=json.loads(row['query']),status=row['status']) for row in data['visits']])
     else:
@@ -422,29 +538,46 @@ def expected_recipe(recipe,fault=None):
 
 class MixedCellAdapter(DatabaseCellAdapter):
     def expected(self,count,mode=None,fault=None):
-        return [dict(case=primary[2],contexts=[expected_recipe(recipe,fault if recipe[2]==PREFERRED.get(self.cell) else None) for recipe in (mixed_recipes(primary,count) if mode=='mixed_family' else [primary]*count)]) for primary in self.recipes()]
+        def expected_context(recipe):
+            selected_fault = fault if recipe[2] == PREFERRED.get(self.cell) else None
+            if self.expected_cache is None:
+                return expected_recipe(recipe, selected_fault)
+            key = (tuple(recipe), selected_fault)
+            if key not in self.expected_cache:
+                self.expected_cache[key] = expected_recipe(recipe, selected_fault)
+            # Each context owns its projection; mutations cannot leak across tests.
+            return copy.deepcopy(self.expected_cache[key])
+        return [dict(case=primary[2], contexts=[expected_context(recipe) for recipe in
+                    (mixed_recipes(primary,count) if mode=='mixed_family' else [primary]*count)])
+                for primary in self.recipes()]
 
     def __call__(self,attempt,directory,stop):
         if attempt['cell']!=self.cell:raise ValueError('attempt cell mismatch')
         if attempt['fault'] and self.cell not in PREFERRED:raise ValueError('missing explicit fault boundary')
         root=directory.parents[1];errors=[];actions=[];outcomes=[];activity=None;dimensions=set();topologies=[];probe_results=[];fault_records=[];resource_records=[]
-        cleanup=dict(returncode=0,forced=False);frontend_witnesses=[];raw_waves=[]
+        accountings=[];cleanups=[]
+        cleanup=dict(returncode=0,forced=False);frontend_witnesses=[];raw_waves=[];followup_observations=[]
         for ordinal,primary in enumerate(self.recipes()):
+            if stop.is_set():raise RuntimeError('cancelled before fixture admission')
             wave=directory/f'mixed-{ordinal}';wave.mkdir();prepared=[];probes=[]
             try:
                 for index,recipe in enumerate(mixed_recipes(primary,attempt['context_count']) if attempt['mode']=='mixed_family' else [primary]*attempt['context_count']):
+                    if stop.is_set():raise RuntimeError('cancelled before fixture admission')
                     prepared.append(PreparedCase(recipe,wave/f'context-{index}'))
                     if attempt['fault'] and recipe[2]==PREFERRED.get(self.cell):prepared[-1].configure_fault(attempt['fault'])
                 plan=dict(schema_version=1,attempt_id=attempt['attempt_id'],sessions=[case.session(f'context-{index}') for index,case in enumerate(prepared)])
                 probes=[]
                 for index,case in enumerate(prepared):
                     if case.family=='forms' and case.case.get('scenario')=='confinement':
-                        probes.append(prepare_form_probe(case,plan,index,wave))
+                        prepare_form_probe(case,plan,index,wave,probes)
                     elif case.family=='saas' and case.case.get('isolation_probe'):
                         probes.append(prepare_saas_probe(case,plan,index))
-                evidence=execute_native(self.binary,self.worker,plan,wave,stop)
+                evidence=execute_native(self.binary,self.worker,plan,wave,stop,worker_sha256=self.worker_sha256)
+                followup_observations.extend(dict(row, wave=ordinal) for row in
+                    attribute_native_failure(evidence)['first_followup_observation_per_session'])
                 resource_records.append(dict(wave=ordinal,accounting=artifact(root,wave/'native-resource-accounting.json',evidence['resource_accounting']),samples=dict(path=str((wave/'native-resource-samples.json').relative_to(root)),sha256=support.digest(wave/'native-resource-samples.json')),process_cleanup=dict(path=str((wave/'native-process-cleanup.json').relative_to(root)),sha256=support.digest(wave/'native-process-cleanup.json'))))
                 resource_records[-1]['native_evidence']=dict(path=str((wave/'native-evidence.json').relative_to(root)),sha256=support.digest(wave/'native-evidence.json'))
+                accountings.append(evidence['resource_accounting']);cleanups.append(session_cleanup(evidence))
                 measured=native_activity(evidence,attempt['context_count'])
                 if activity is None:activity=measured
                 sessions={session['id']:session for session in evidence['sessions']}
@@ -457,7 +590,7 @@ class MixedCellAdapter(DatabaseCellAdapter):
                     result=case.seal()
                     if case.fault:
                         fault_records.append(read_fault_evidence(case,sessions[f'context-{index}']))
-                    if result!=dict(returncode=0,forced=False):cleanup=result;errors.append('mixed fixture cleanup failed')
+                    if result!=dict(returncode=0,forced=False):cleanup=result;cleanups.append(dict(group_settled=False,errors=['mixed fixture cleanup failed']))
                     outcome,case_actions,case_errors=case.outcome(sessions[f'context-{index}'])
                     for action in case_actions:action['recipe']=f'{ordinal}:{index}:'+action['recipe']
                     wave_outcomes.append(outcome);actions.extend(case_actions);errors.extend(case_errors)
@@ -465,7 +598,10 @@ class MixedCellAdapter(DatabaseCellAdapter):
                     def preserved(path):
                         return dict(path=str(path.relative_to(root)),sha256=support.digest(path))
                     raw_cases.append(dict(recipe=list(recipe),session=f'context-{index}',base=case.base,
-                        database=preserved(case.database),sealed_oracle=preserved(case.directory/'sealed-oracle.json'),fixture_cleanup=result))
+                        **preserved_case_databases(case,preserved),sealed_oracle=preserved(case.directory/'sealed-oracle.json'),fixture_cleanup=result))
+                    if case.response_gate is not None:
+                        marker=Path(case.response_gate['marker'])
+                        raw_cases[-1]['response_marker']=preserved(marker) if marker.is_file() else None
                     matching_probes=[probe for probe in probes if probe['owner']==f'context-{index}']
                     if matching_probes:
                         probe=matching_probes[0]
@@ -481,20 +617,21 @@ class MixedCellAdapter(DatabaseCellAdapter):
                             sealed_oracle=preserved(case.directory/'sealed-oracle.json')))
                         dimensions.update(WITNESSES[recipe])
                 raw_waves.append(dict(primary=list(primary),native_plan=preserved(wave/'native-plan.json'),
-                    native_evidence=preserved(wave/'native-evidence.json'),cases=raw_cases,
+                    native_evidence=preserved(wave/'native-evidence.json'),
+                    failure_attribution=preserved(wave/'native-failure-attribution.json'),cases=raw_cases,
                     samples=preserved(wave/'native-resource-samples.json'),accounting=preserved(wave/'native-resource-accounting.json'),process_cleanup=preserved(wave/'native-process-cleanup.json')))
                 outcomes.append(dict(case=primary[2],contexts=wave_outcomes))
             finally:
-                for probe in probes:
-                    if probe.get("secret_path"):probe["secret_path"].unlink(missing_ok=True)
-                for case in prepared:
-                    if case.oracle is not None:
-                        result=case.oracle.close();case.oracle=None
-                        if result!=dict(returncode=0,forced=False):cleanup=result
+                cleanup_cases(prepared, probes, stop, wave, sys.exc_info()[1])
         supplements=run_commit_supplement(self,attempt,directory,stop)
         fault_records.extend(supplements)
+        for record in supplements:
+            if not record['recovery_passed']:
+                errors.extend('commit recovery '+record['phase']+': '+problem for problem in record['errors'])
+        accountings.extend(row.pop('resource_accounting') for row in supplements)
+        cleanups.extend(row.pop('process_cleanup') for row in supplements)
         if attempt['fault'] and (not fault_records or any(record.get('injected') is not True for record in fault_records)):errors.append('required actual fault injection missing')
-        return dict(passed=not errors,errors=errors,timed_out=False,cleanup=cleanup,
+        return dict(**terminal_verdict(errors,accountings,cleanups),timed_out=False,cleanup=cleanup,
                     actions=artifact(root,directory/'actions.json',actions),
                     oracle=artifact(root,directory/'oracle.json',outcomes),
                     context_activity=artifact(root,directory/'context-activity.json',activity or []),
@@ -504,6 +641,7 @@ class MixedCellAdapter(DatabaseCellAdapter):
                     context_topology=artifact(root,directory/'context-topology.json',topologies),
                     adversarial_evidence=artifact(root,directory/'adversarial-evidence.json',probe_results),
                     resource_evidence=artifact(root,directory/'resource-evidence.json',resource_records),
+                    followup_observation_diagnostics=followup_observations,
                     raw_evidence=artifact(root,directory/'raw-evidence.json',dict(schema_version=1,attempt_id=attempt['attempt_id'],waves=raw_waves,supplements=[record['raw_wave'] for record in supplements])))
 
 
@@ -514,13 +652,21 @@ def context_topology(evidence,cohort_count):
                 total_live_contexts=len(sessions),contexts=[dict(context_id=str(row['context_id']),id=row['id'],adversarial_for=row.get('adversarial_for')) for row in sessions])
 
 
-def prepare_form_probe(case,plan,index,wave):
+def prepare_form_probe(case,plan,index,wave,probes):
     owner=f'context-{index}';identity=secrets.token_hex(16)
     case.oracle.request('create',identity,scenario='confinement')
     secret_value=secrets.token_hex(32).encode()
     path=wave/f'synthetic-secret-{index}'
+    probe=dict(secret_path=path)
     descriptor=os.open(path,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
-    with os.fdopen(descriptor,'wb') as stream:stream.write(secret_value)
+    probes.append(probe)
+    try:
+        stream=os.fdopen(descriptor,'wb')
+    except BaseException as primary:
+        try:os.close(descriptor)
+        except OSError as error:raise CleanupFailure(primary,['secret descriptor close: '+str(error)],True,(DescriptorOwner(descriptor),)) from primary
+        raise
+    write_owned_stream(stream, secret_value)
     plan['sessions'][index]['secrets']=[dict(label='confined',path=str(path),origin=case.origin)]
     probe_id=f'adversary-{index}'
     plan['sessions'].append(dict(id=probe_id,adversarial_for=owner,uploads=[],fault=None,steps=[
@@ -528,12 +674,13 @@ def prepare_form_probe(case,plan,index,wave):
         dict(oil=f'goto "{case.origin}/advanced/{identity}/start"'),
         dict(oil='upload "Authorized document" $file:authorized',expected_error='upload label is unknown'),
         dict(oil='type "Full name" $secret:confined',expected_error='secret label is unknown'),dict(oil='observe')]))
-    return dict(kind='forms',owner=owner,id=probe_id,case_id=identity,case=case,secret_path=path,secret_value=secret_value)
+    probe.update(kind='forms',owner=owner,id=probe_id,case_id=identity,case=case,secret_value=secret_value)
+    return probe
 
 
 def validate_form_probe(probe,sessions):
     session=sessions[probe['id']];errors=[]
-    if session['errors'] or session['cleanup_errors'] or not session['workers_retired']:errors.append('adversarial context did not finish native denials/cleanup')
+    if session['errors']:errors.append('adversarial context native operation failed: '+repr(session['errors']))
     if len(session['steps'])!=6 or any(not row['expected_error_matched'] for row in session['steps']):errors.append('native confinement denial steps missing')
     frames=[frame for row in session['steps'] for frame in row['outputs']]
     if [frame['value'] for frame in frames if frame.get('kind')=='structured']!=['Context access denied']:errors.append('foreign-context receipt became visible')
@@ -558,7 +705,7 @@ def prepare_saas_probe(case,plan,index):
 
 def validate_saas_probe(probe,sessions):
     session=sessions[probe['id']];errors=[]
-    if session['errors'] or session['cleanup_errors'] or not session['workers_retired']:errors.append('SaaS adversarial context failed or leaked worker')
+    if session['errors']:errors.append('SaaS adversarial context native operation failed: '+repr(session['errors']))
     frames=[frame for row in session['steps'] for frame in row['outputs']]
     if [frame['value'] for frame in frames if frame.get('kind')=='structured']!=['Session required','Session expired']:
         errors.append('unauthenticated context read/write was not denied')
@@ -566,7 +713,21 @@ def validate_saas_probe(probe,sessions):
 
 
 
-def read_fault_evidence(case,session):
+_UNREAD_RESPONSE_MARKER = object()
+
+
+def valid_response_marker(gate, marker, response):
+    return (isinstance(gate,dict) and set(gate)=={'token','marker','route'}
+            and isinstance(marker,dict) and set(marker)=={'schema_version','token','route','phase','started_ns'}
+            and type(marker.get('schema_version')) is int and marker['schema_version']==1
+            and marker.get('token')==gate['token']==response.get('token')
+            and marker.get('route')==gate['route']==response.get('route')
+            and marker.get('phase')=='response_entered'
+            and type(marker.get('started_ns')) is int and marker['started_ns']>0
+            and marker['started_ns']==response.get('started_ns'))
+
+
+def read_fault_evidence(case,session,response_marker=_UNREAD_RESPONSE_MARKER):
     result=dict(session['fault_evidence'])
     with sqlite3.connect(f'file:{case.database}?mode=ro',uri=True) as database:
         database.row_factory=sqlite3.Row
@@ -575,7 +736,19 @@ def read_fault_evidence(case,session):
     if case.fault['kind']=='delayed_response':
         result['injected']=len(responses)==1 and responses[0]['terminal']=='released' and responses[0]['released_ns']-responses[0]['started_ns']>=responses[0]['delay_ms']*1_000_000
     if case.fault['kind']=='cancellation':
-        result['injected']=result.get('injected') is True and result.get('native',{}).get('interrupted_inflight') is True and bool(session.get('recovery')) and len(responses)==1 and responses[0]['terminal']=='released'
+        gate=getattr(case,'response_gate',None)
+        if response_marker is _UNREAD_RESPONSE_MARKER:
+            try: response_marker=json.loads(Path(gate['marker']).read_text()) if gate else None
+            except (OSError,ValueError): response_marker=None
+        valid=(len(responses)==1 and valid_response_marker(gate,response_marker,responses[0]))
+        native_marker_matches=(json.dumps(result.get('response_marker'),sort_keys=True)==json.dumps(response_marker,sort_keys=True))
+        result['fixture_response_marker']=response_marker
+        result['response_marker_valid']=valid
+        result['injected']=(result.get('injected') is True
+            and result.get('native',{}).get('interrupted_inflight') is True
+            and result.get('native',{}).get('reaped') is True
+            and result.get('response_entered') is True and result.get('response_gate')==gate and native_marker_matches
+            and bool(session.get('recovery')) and valid and responses[0]['terminal']=='released')
     return result
 
 
@@ -610,6 +783,7 @@ def run_commit_supplement(adapter,attempt,directory,stop):
         try:
             sessions=[]
             for index in range(attempt['context_count']):
+                if stop.is_set():raise RuntimeError('cancelled before fixture admission')
                 case=PreparedCase(recipe,wave/f'context-{index}');prepared.append(case)
                 boundary=commit_recipe(case);token=secrets.token_hex(16)
                 gate=dict(token=token,phase=phase,marker=str((case.directory/'gate.json').resolve()),release=str((case.directory/'release.json').resolve()))
@@ -617,15 +791,17 @@ def run_commit_supplement(adapter,attempt,directory,stop):
                 session=case.session(f'context-{index}')
                 session['fault']=dict(kind=attempt['fault'],before_step=boundary['before_step'],delay_ms=300,commit_gate=gate)
                 session['commit_recovery']=dict(outcome_url=case.base+'/workflow-outcome?token='+token,resume_after=boundary['resume_after'])
+                if case.family=='saas':session['commit_recovery']['bootstrap_url']=case.base+'/resume'
                 sessions.append(session)
             plan=dict(schema_version=1,attempt_id=attempt['attempt_id']+':'+phase,sessions=sessions)
-            native=execute_native(adapter.binary,adapter.worker,plan,wave,stop)
+            native=execute_native(adapter.binary,adapter.worker,plan,wave,stop,worker_sha256=adapter.worker_sha256)
             measured=native_activity(native,attempt['context_count'])
             by_id={session['id']:session for session in native['sessions']};outcomes=[];raw_cases=[]
+            supplement_cleanup=session_cleanup(native)
             for index,case in enumerate(prepared):
                 session=by_id[f'context-{index}'];closed=case.seal()
-                if closed!=dict(returncode=0,forced=False):problems.append('commit fixture cleanup failed')
-                if session['errors'] or session['cleanup_errors'] or not session['workers_retired']:problems.append('commit native session failed')
+                if closed!=dict(returncode=0,forced=False):supplement_cleanup['errors'].append('commit fixture cleanup failed')
+                if session['errors']:problems.append('commit native operation failed: '+repr(session['errors']))
                 fault=session['fault_evidence']
                 if fault.get('injected') is not True or fault.get('native',{}).get('interrupted_inflight') is not True or fault.get('native',{}).get('reaped') is not True:problems.append('commit gate lacks actual inflight worker exit')
                 data=case.receiver.snapshot(case.database,case.identity)
@@ -639,12 +815,17 @@ def run_commit_supplement(adapter,attempt,directory,stop):
                 root=directory.parents[1]
                 def preserved(path):
                     return dict(path=str(path.relative_to(root)),sha256=support.digest(path))
-                raw_cases.append(dict(recipe=list(recipe),session=f'context-{index}',base=case.base,database=preserved(case.database),fixture_cleanup=closed))
-            records.append(dict(phase=phase,fault=attempt['fault'],injected=not problems,errors=problems,context_topology=context_topology(native,attempt['context_count']),native_activity=measured,outcomes=outcomes,raw_wave=dict(phase=phase,cases=raw_cases,native_plan=preserved(wave/'native-plan.json'),native_evidence=preserved(wave/'native-evidence.json'),samples=preserved(wave/'native-resource-samples.json'),accounting=preserved(wave/'native-resource-accounting.json'),process_cleanup=preserved(wave/'native-process-cleanup.json'))))
+                raw_cases.append(dict(recipe=list(recipe),session=f'context-{index}',base=case.base,**preserved_case_databases(case,preserved),fixture_cleanup=closed))
+            records.append(dict(phase=phase,fault=attempt['fault'],injected=(len(outcomes)==attempt['context_count'] and all(actual_commit_injection(outcome['native_fault']) for outcome in outcomes)),recovery_passed=not problems,errors=problems,resource_accounting=native['resource_accounting'],process_cleanup=supplement_cleanup,context_topology=context_topology(native,attempt['context_count']),native_activity=measured,outcomes=outcomes,raw_wave=dict(phase=phase,cases=raw_cases,native_plan=preserved(wave/'native-plan.json'),native_evidence=preserved(wave/'native-evidence.json'),failure_attribution=preserved(wave/'native-failure-attribution.json'),samples=preserved(wave/'native-resource-samples.json'),accounting=preserved(wave/'native-resource-accounting.json'),process_cleanup=preserved(wave/'native-process-cleanup.json'))))
         finally:
-            for case in prepared:
-                if case.oracle is not None:case.oracle.close();case.oracle=None
+            cleanup_cases(prepared, [], stop, wave, sys.exc_info()[1])
     return records
+
+
+def actual_commit_injection(fault):
+    return (fault.get('injected') is True
+            and fault.get('native',{}).get('interrupted_inflight') is True
+            and fault.get('native',{}).get('reaped') is True)
 
 
 def replay_commit_outcome(case,session,data,ledger,reads,retries,phase):

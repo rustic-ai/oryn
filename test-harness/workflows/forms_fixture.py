@@ -241,7 +241,7 @@ def serve(fixture_type=Fixture, render_page=None, extra_get=None):
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = False
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.05}, daemon=True).start()
     print(json.dumps({"event": "ready", "port": server.server_port}), flush=True)
     sealed = False
     try:

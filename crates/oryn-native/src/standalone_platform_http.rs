@@ -198,11 +198,12 @@ impl PlatformHost for Host {
         }
         let frozen = match &request {
             PlatformHostRequest::HttpStart { request }
+            | PlatformHostRequest::XsltStart { request }
             | PlatformHostRequest::ImageStart { request, .. }
             | PlatformHostRequest::ImagePreloadStart { request, .. }
             | PlatformHostRequest::PrefetchStart { request }
             | PlatformHostRequest::MediaStart { request, .. } => Some((self.capture)(request)?),
-            PlatformHostRequest::HttpRead { .. } | PlatformHostRequest::HttpAbort { .. } => None,
+            PlatformHostRequest::HttpRead { .. } | PlatformHostRequest::HttpAbort { .. } | PlatformHostRequest::XsltTransform { .. } => None,
             _ => return Err("standalone HTTP adapter request category unavailable".into()),
         };
         let keepalive = frozen.as_ref().is_some_and(|frozen| frozen.lease.is_some());
@@ -227,9 +228,11 @@ impl PlatformHost for Host {
         let sender = self.sender.clone();
         let accepted = crate::resource_io_executor::submit(move || {
             let result = match request {
+                PlatformHostRequest::XsltTransform {request} => crate::xslt_process::run(request,||cancel.load(Ordering::Acquire)||engine.retired.load(Ordering::Acquire)).map(|result|PlatformHostResult::XsltTransformed{transform:result}),
                 PlatformHostRequest::HttpStart { request } => {
                     engine.start(id, request, "", true, frozen.unwrap(), &cancel)
                 }
+                PlatformHostRequest::XsltStart { request } => { engine.start(id,request,"xslt",true,frozen.unwrap(),&cancel) },
                 PlatformHostRequest::PrefetchStart { request } => {
                     engine.start(id, request, "prefetch", false, frozen.unwrap(), &cancel)
                 }
@@ -453,6 +456,10 @@ impl Engine {
         if let Some(fetch) = &request.fetch {
             fetch.validate()?;
         }
+        if destination == "xslt" && (request.method != "GET" || !request.body.is_empty()
+            || request.fetch.as_ref().is_none_or(|fetch| fetch.mode != "same-origin" || fetch.redirect != "follow" || fetch.keepalive)) {
+            return Err("invalid native XSLT request".into());
+        }
         if destination == "prefetch"
             && (request.method != "GET"
                 || !request.body.is_empty()
@@ -571,6 +578,7 @@ impl Engine {
             }
             let csp_destination = match destination {
                 "prefetch" => crate::csp::CspDestination::Prefetch,
+                "xslt" => crate::csp::CspDestination::Script,
                 "image" => crate::csp::CspDestination::Image,
                 "audio" | "video" | "track" => crate::csp::CspDestination::Media,
                 _ => crate::csp::CspDestination::Connect,
@@ -1051,7 +1059,7 @@ impl Engine {
                     NetworkEvent::Failed { request_id, error }
                         if request_id == body.operation.request_id =>
                     {
-                        return Err(error);
+                        return Err(error.to_string());
                     }
                     _ => return Err("Fetch body identity/order mismatch".into()),
                 }
@@ -1830,5 +1838,82 @@ mod tests {
             )
             .is_err()
         );
+    }
+}
+
+
+// A detached native Window can execute pure transforms without possessing a
+// network endpoint. This backend adds no fetch/cookie/file capability: every
+// non-transform request is rejected and execution is still helper-only.
+struct TransformOnlyInstalled(std::rc::Weak<V8BindingState>);
+struct TransformOnlyHost {
+    retired: Arc<AtomicBool>,
+    pending: RefCell<BTreeMap<HostOperationId, Arc<AtomicBool>>>,
+    sender: mpsc::Sender<PlatformHostCompletion>,
+    receiver: RefCell<mpsc::Receiver<PlatformHostCompletion>>,
+}
+impl TransformOnlyHost {
+    fn new() -> Self {
+        let (sender,receiver)=mpsc::channel();
+        Self {retired:Arc::new(AtomicBool::new(false)),pending:RefCell::new(BTreeMap::new()),sender,receiver:RefCell::new(receiver)}
+    }
+}
+pub(super) fn install_transform_only(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) {
+    let context=scope.get_current_context();
+    if context.get_slot::<Rc<TransformOnlyInstalled>>().is_some_and(|installed|installed.0.upgrade().is_some_and(|previous|Rc::ptr_eq(&previous,state))) { return; }
+    context.set_slot(Rc::new(TransformOnlyInstalled(Rc::downgrade(state))));
+    state.set_platform_host(Rc::new(TransformOnlyHost::new()));
+}
+impl PlatformHost for TransformOnlyHost {
+    fn submit(&self,id:HostOperationId,request:PlatformHostRequest)->Result<(),String> {
+        if self.retired.load(Ordering::Acquire) {return Err("standalone XSLT endpoint retired".into());}
+        let PlatformHostRequest::XsltTransform{request}=request else {return Err("standalone XSLT endpoint has no resource authority".into());};
+        if self.pending.borrow().len()>=4 || self.pending.borrow().contains_key(&id) {return Err("standalone XSLT operation capacity or identity".into());}
+        let cancelled=Arc::new(AtomicBool::new(false));
+        self.pending.borrow_mut().insert(id,cancelled.clone());
+        let retired=self.retired.clone();let sender=self.sender.clone();
+        let admitted=crate::resource_io_executor::submit(move|| {
+            let result=crate::xslt_process::run(request,||cancelled.load(Ordering::Acquire)||retired.load(Ordering::Acquire)).map(|transform|PlatformHostResult::XsltTransformed{transform});
+            // run retains the child and all pipe handles through actual reap,
+            // including cancellation. A late result owns no external resource.
+            if !retired.load(Ordering::Acquire) {let _=sender.send(PlatformHostCompletion{operation_id:id,result});}
+        });
+        if let Err(error)=admitted {self.pending.borrow_mut().remove(&id);return Err(error);}
+        Ok(())
+    }
+    fn cancel(&self,id:HostOperationId) {
+        if let Some(cancelled)=self.pending.borrow().get(&id) {cancelled.store(true,Ordering::Release);}
+    }
+    fn retire(&self) {
+        self.retired.store(true,Ordering::Release);
+        for cancelled in self.pending.borrow_mut().values() {cancelled.store(true,Ordering::Release);}
+        self.pending.borrow_mut().clear();
+    }
+    fn drain_completions(&self,limit:usize)->Vec<PlatformHostCompletion> {
+        let mut result=Vec::new();
+        for _ in 0..limit.min(4) {
+            let Ok(completion)=self.receiver.borrow_mut().try_recv() else {break};
+            if self.pending.borrow_mut().remove(&completion.operation_id).is_some() {result.push(completion);}
+        }
+        result
+    }
+}
+impl Drop for TransformOnlyHost {fn drop(&mut self){self.retire();}}
+
+#[cfg(test)]
+mod transform_only_tests {
+    use super::*;
+    #[test]
+    fn transform_only_endpoint_rejects_network_and_cancels_owned_pending_work() {
+        let host=TransformOnlyHost::new();
+        assert!(host.submit(HostOperationId(1),PlatformHostRequest::HttpRead{stream_id:99,max_bytes:1}).is_err());
+        assert!(host.pending.borrow().is_empty());
+        let cancelled=Arc::new(AtomicBool::new(false));
+        host.pending.borrow_mut().insert(HostOperationId(2),cancelled.clone());
+        host.cancel(HostOperationId(2));assert!(cancelled.load(Ordering::Acquire));
+        let retired=Arc::new(AtomicBool::new(false));
+        host.pending.borrow_mut().insert(HostOperationId(3),retired.clone());
+        host.retire();assert!(retired.load(Ordering::Acquire));assert!(host.pending.borrow().is_empty());
+        assert!(host.submit(HostOperationId(4),PlatformHostRequest::HttpAbort{stream_id:99}).is_err());
     }
 }

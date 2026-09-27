@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
@@ -48,7 +49,9 @@ class ResearchTests(unittest.TestCase):
         expected = json.loads(
             json.dumps(case["expected"]).replace("{base}", "/research/" + CASE)
         )
-        frames += [dict(kind="structured", value=value) for value in expected]
+        extraction_steps=[(i,line) for i,line in enumerate(lines) if line.startswith("extract ")]
+        self.assertEqual(len(expected),len(extraction_steps))
+        frames += [dict(kind="structured", value=value,command_provenance=dict(phase="steps",step=i,oil=line,output=0)) for value,(i,line) in zip(expected,extraction_steps)]
         frames += [
             dict(kind="observation", observation=dict(page=dict(url=BASE + "/" + path)))
             for path in case["sources"]
@@ -125,6 +128,18 @@ class ResearchTests(unittest.TestCase):
                 changed["cases"][0]["case_id"] = "b" * 32
             self.assertTrue(runner.validate(case, lines, BASE, frames, changed))
 
+    def test_extraction_missing_extra_duplicate_and_selection_snapshot_controls(self):
+        case=self.contract['cases'][0];data=self.records(case);lines=runner.task_lines(self.contract,case,BASE);frames=self.frames(case)
+        extract_indexes=[i for i,row in enumerate(frames) if row['kind']=='structured']
+        for changed in [frames[:extract_indexes[0]]+frames[extract_indexes[0]+1:],frames+[copy.deepcopy(frames[extract_indexes[0]])]]:
+            self.assertTrue(runner.validate(case,lines,BASE,changed,data))
+        changed=copy.deepcopy(frames);extra=copy.deepcopy(changed[extract_indexes[-1]])
+        extra['command_provenance']['output']=1;changed.insert(extract_indexes[-1]+1,extra)
+        self.assertTrue(runner.validate(case,lines,BASE,changed,data))
+        unattributed=copy.deepcopy(frames);del unattributed[extract_indexes[0]]['command_provenance']
+        self.assertTrue(runner.validate(case,lines,BASE,unattributed,data))
+
+
     def test_requests_persist_after_writer_closes_and_cases_are_isolated(self):
         self.fixture.get(CASE, "search", {"q": ["absent"]})
         self.fixture.command(dict(command="create", case_id="b" * 32))
@@ -149,6 +164,40 @@ class ResearchTests(unittest.TestCase):
         self.assertIn("Beta report", fragment)
         self.assertNotIn("Alpha report", fragment)
 
+
+
+class StandaloneProvenanceTests(unittest.TestCase):
+    def test_standalone_uses_native_step_evidence_and_admitted_worker_hash(self):
+        import workflow_native_adapter as adapter
+        case=dict(id='probe',scenario='normal',steps=['frame css(#child)','extract table'],expected=[{'rows':[[1]]}])
+        session=dict(id='research',errors=[],cleanup_errors=[],workers_retired=True,steps=[dict(index=0,outputs=[dict(kind='structured',value={'selected':1})]),dict(index=1,outputs=[dict(kind='structured',value={'rows':[[1]]})])])
+        evidence=dict(sessions=[session],resource_accounting=dict(complete=True,errors=[]))
+        def execute(binary,worker,plan,directory,stop,worker_sha256=None,timeout_seconds=180):
+            self.assertEqual(binary,Path('/executor'));self.assertEqual(worker_sha256,'a'*64);self.assertEqual(timeout_seconds,60)
+            self.assertEqual([step['oil'] for step in plan['sessions'][0]['steps']],case['steps'])
+            (directory/'native-process-cleanup.json').write_text(json.dumps(dict(group_settled=True,errors=[])))
+            return evidence
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(adapter,'execute_native',side_effect=execute),mock.patch.object(runner,'validate',return_value=[]) as validate:
+            oracle=mock.Mock(origin='http://127.0.0.1:1');oracle.request.return_value={}
+            record=runner.run_case(oracle,{},case,1,Path('/oryn'),Path('/worker'),Path(tmp),Path('/executor'),'a'*64)
+            self.assertTrue(record['functional_passed']);self.assertTrue(record['resource_complete']);self.assertTrue(record['passed'])
+            frames=validate.call_args.args[3]
+            self.assertEqual(runner.extraction_values(frames,case['steps']),case['expected'])
+            saved=[json.loads(row) for row in (Path(tmp)/'probe-01/stdout.jsonl').read_text().splitlines()]
+            self.assertEqual(saved,frames)
+
+    def test_standalone_preserves_timeout_as_primary_when_cleanup_fails(self):
+        import workflow_native_adapter as adapter
+        from workflow_cleanup import CleanupFailure,NativeExecutionFailure
+        case=dict(id='probe',scenario='normal',steps=['observe'])
+        failure=CleanupFailure(NativeExecutionFailure('initiating deadline',timed_out=True),['permission denied'],True)
+        with tempfile.TemporaryDirectory() as tmp,mock.patch.object(adapter,'execute_native',side_effect=failure):
+            oracle=mock.Mock(origin='http://127.0.0.1:1')
+            record=runner.run_case(oracle,{},case,1,Path('/oryn'),Path('/worker'),Path(tmp),Path('/executor'),'a'*64)
+            self.assertFalse(record['passed']);self.assertTrue(record['timed_out'])
+            self.assertEqual(record['primary_error'],'initiating deadline')
+            self.assertEqual(record['cleanup_failure_details'],['permission denied'])
+            self.assertFalse(record['cleanup_complete'])
 
 if __name__ == "__main__":
     unittest.main()

@@ -31,7 +31,8 @@ pub(super) struct Sink {
     parser: RefCell<Option<StreamingParser>>,
     continuation: RefCell<Option<WriteContinuation>>,
     run_scripts: bool,
-    sink_name: &'static str,
+    target_document: NodeId,
+    discard_input: bool,
     cancelled: Cell<bool>,
     bytes: Cell<usize>,
 }
@@ -52,7 +53,7 @@ impl Sink {
                 state.document_authority_epoch(),
             ) != self.lifetime
             || !Rc::ptr_eq(&dom, &state.dom)
-            || dom.borrow().node_document(node)? != Some(state.document_root())
+            || dom.borrow().node_document(node)? != Some(self.target_document)
         {
             return Err(V8BindingError::Allocation(
                 "HTML stream target authority changed",
@@ -206,10 +207,17 @@ impl Sink {
         // remain native while its promise waits for blocking script completion.
         if self.continuation.borrow().is_none() {
             let input = if let Some(chunk) = chunk {
-                let html = sanitizer::html_argument(scope, chunk, false)?;
-                let markup =
-                    trusted_string(scope, &state, html, TrustedKind::Html, self.sink_name)?;
-                let input = ParserInput::dom_string(&markup);
+                // Parser options, not individual chunks, carry Trusted Types
+                // authority. Conversion still runs once and may reenter/throw.
+                let html = chunk
+                    .to_string(scope)
+                    .ok_or(V8BindingError::JavaScriptException)?;
+                let markup = rust_string_preserving_utf16(scope, html)?;
+                let input = if self.discard_input {
+                    ParserInput::unicode("")
+                } else {
+                    ParserInput::dom_string(&markup)
+                };
                 self.reserve(input.len())?;
                 input
             } else {
@@ -342,19 +350,37 @@ pub(super) fn create<'s>(
     state: &Rc<V8BindingState>,
     node: NodeId,
     value: v8::Local<'s, v8::Value>,
+    member: &str,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
-    let target = oryn_dom::TrackedNodeLease::new(&state.dom, node)?;
+    let receiver = oryn_dom::TrackedNodeLease::new(&state.dom, node)?;
+    let original_document = state.dom.borrow().node_document(node)?;
     let lifetime = (
         state.document_root(),
         state.document_generation(),
         state.document_stream_epoch(),
         state.document_authority_epoch(),
     );
-    let options = sanitizer::options(scope, value, false, true)?;
-    let (dom, node) = target.current();
+    let safe = !member.ends_with("Unsafe");
+    let operation = member.trim_end_matches("Unsafe").trim_end_matches("HTML");
+    let interface = if matches!(
+        state.dom.borrow().arena().get(node)?.kind,
+        NodeKind::ShadowRoot { .. }
+    ) {
+        "ShadowRoot"
+    } else {
+        "Element"
+    };
+    let options = trusted_parser_options::acquire(
+        scope,
+        state,
+        value,
+        safe,
+        &format!("{interface} {member}"),
+    )?;
+    let (dom, node) = receiver.current();
     if !Rc::ptr_eq(&dom, &state.dom)
         || state.execution_retired()
-        || dom.borrow().node_document(node)? != Some(state.document_root())
+        || dom.borrow().node_document(node)? != original_document
         || lifetime
             != (
                 state.document_root(),
@@ -367,32 +393,112 @@ pub(super) fn create<'s>(
             "HTML stream target moved during options",
         ));
     }
-    let (context_node, sink_name) = {
-        let dom = dom.borrow();
-        match &dom.arena().get(node)?.kind {
-            NodeKind::ShadowRoot { .. } => (
-                dom.parent(node)?.ok_or(DomError::StaleNode(node))?,
-                "ShadowRoot streamAppendHTMLUnsafe",
-            ),
-            _ => (node, "Element streamAppendHTMLUnsafe"),
-        }
+    let sibling = matches!(
+        operation,
+        "streamBefore" | "streamAfter" | "streamReplaceWith"
+    );
+    let parent = if sibling {
+        dom.borrow()
+            .parent(node)?
+            .ok_or_else(hierarchy_request_error)?
+    } else {
+        node
     };
-    let context = oryn_dom::sanitizer::FragmentContext::capture(&dom.borrow(), context_node)?;
-    let parser = StreamingParser::with_fragment(
-        dom.clone(),
-        node,
+    let (parent_kind, context_parent, template_host) = {
+        let native = dom.borrow();
+        let record = native.arena().get(parent)?;
+        (
+            record.kind.clone(),
+            native.parent(parent)?,
+            record.template_host,
+        )
+    };
+    let context_node = match parent_kind {
+        NodeKind::Element { .. } => Some(parent),
+        NodeKind::ShadowRoot { .. } => context_parent,
+        NodeKind::DocumentFragment
+            if template_host.is_some() || template_links::host(scope, state, parent)?.is_some() =>
+        {
+            None
+        }
+        _ => return Err(hierarchy_request_error()),
+    };
+    let context = if let Some(context) = context_node {
+        oryn_dom::sanitizer::FragmentContext::capture(&dom.borrow(), context)?
+    } else {
+        let mut context = oryn_dom::sanitizer::FragmentContext::html_body();
+        context.disable_context_shadow = true;
+        context
+    };
+    let discard_input = safe && context.safe_sink_is_noop();
+    let (target_owner, target_node) = if !sibling
+        && dom
+            .borrow()
+            .is_element(parent, "http://www.w3.org/1999/xhtml", "template")
+    {
+        if let Some(content) = template_links::content(scope, state, parent)? {
+            node_identity::argument(scope, content)?.ok_or_else(hierarchy_request_error)?
+        } else {
+            (state.clone(), dom.borrow_mut().template_content(parent)?)
+        }
+    } else {
+        (state.clone(), parent)
+    };
+    let target = oryn_dom::TrackedNodeLease::new(&target_owner.dom, target_node)?;
+    let target_document = target_owner
+        .dom
+        .borrow()
+        .node_document(target_node)?
+        .ok_or(DomError::StaleNode(target_node))?;
+    let children = light_children(&target_owner.dom.borrow(), target_node)?;
+    let before = match operation {
+        "stream" | "streamAppend" => None,
+        "streamPrepend" => children.first().copied(),
+        "streamBefore" => Some(node),
+        "streamAfter" | "streamReplaceWith" => children
+            .iter()
+            .position(|child| *child == node)
+            .and_then(|index| children.get(index + 1).copied()),
+        _ => return Err(hierarchy_request_error()),
+    };
+    let configuration = options.stream_configuration(safe)?;
+    let mut parser = StreamingParser::with_fragment(
+        target_owner.dom.clone(),
+        target_node,
         context,
-        Some((options.configuration(false)?, false)),
+        Some((configuration, safe)),
         options.run_scripts,
     )?;
+    parser.set_fragment_insertion_before(before)?;
+    // Build/validate the parser before destructive changes. Native lifecycle
+    // callbacks run only after the stream and its queue have acquired custody.
+    if !discard_input {
+        if operation == "stream" {
+            let mut native = target_owner.dom.borrow_mut();
+            let empty = native.create(NodeKind::DocumentFragment);
+            native.set_node_document(empty, target_document)?;
+            native.replace_dom_children(target_node, empty)?;
+        } else if operation == "streamReplaceWith" {
+            target_owner
+                .dom
+                .borrow_mut()
+                .remove_child(target_node, node)?;
+        }
+    }
     let sink = Rc::new(Sink {
-        owner: Rc::downgrade(state),
+        owner: Rc::downgrade(&target_owner),
         target,
-        lifetime,
+        lifetime: (
+            target_owner.document_root(),
+            target_owner.document_generation(),
+            target_owner.document_stream_epoch(),
+            target_owner.document_authority_epoch(),
+        ),
+        target_document,
+        discard_input,
         parser: RefCell::new(Some(parser)),
         continuation: RefCell::new(None),
         run_scripts: options.run_scripts,
-        sink_name,
         cancelled: Cell::new(false),
         bytes: Cell::new(0),
     });
@@ -789,6 +895,135 @@ mod custody_tests {
           const root=document.createElement('div'),writer=root.streamAppendHTMLUnsafe().getWriter(),chunk='x'.repeat(1024*1024);
           for(let i=0;i<40;i++){await writer.write(chunk);if(root.textContent.length!==chunk.length)throw Error('chunk');root.textContent='';}
           await writer.close();return true;
+        })()"#,
+        );
+    }
+}
+
+#[cfg(test)]
+mod family_tests {
+    #[test]
+    fn complete_streaming_position_matrix_keeps_open_nodes_and_existing_identity() {
+        super::tests::run(
+            r#"(async()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            for(const unsafe of [false,true])for(const position of ['', 'Append','Prepend','Before','After','ReplaceWith']){
+                const parent=document.createElement('div');parent.innerHTML='<i>L</i><b>A</b><i>R</i>';document.body.append(parent);
+                const [left,anchor,right]=parent.children;
+                const sibling=['Before','After','ReplaceWith'].includes(position),target=sibling?anchor:parent;
+                const method='stream'+position+'HTML'+(unsafe?'Unsafe':'');
+                const stream=target[method]();check(stream instanceof WritableStream,method+' result');
+                if(position==='')check(parent.textContent==='',method+' synchronous replacement');
+                if(position==='ReplaceWith')check(anchor.parentNode===null,method+' synchronous removal');
+                const writer=stream.getWriter();await writer.write('<span>X');
+                const opened=parent.querySelector('span');check(opened&&opened.textContent==='X',method+' incremental');
+                await writer.write('Y</span><u>Z</u>');await writer.close();
+                check(parent.querySelector('span')===opened,method+' parser identity');
+                check(parent.textContent===({'':'XYZ',Append:'LARXYZ',Prepend:'XYZLAR',Before:'LXYZAR',After:'LAXYZR',ReplaceWith:'LXYZR'})[position],method+' position');
+                if(position!=='')check(left.parentNode===parent&&right.parentNode===parent,method+' retained siblings');
+                parent.remove();
+            } return true;
+        })()"#,
+        );
+    }
+    #[test]
+    fn stream_shadow_template_and_template_child_contexts() {
+        super::tests::run(
+            r#"(async()=>{
+            for(const unsafe of [false,true])for(const position of ['', 'Append','Prepend']){
+                for(const template of [false,true]){
+                    const host=document.createElement(template?'template':'div');document.body.append(host);
+                    const target=template?host:host.attachShadow({mode:'open'});target.innerHTML='<i>A</i>';
+                    const root=template?host.content:target,old=root.firstChild;
+                    const writer=target['stream'+position+'HTML'+(unsafe?'Unsafe':'')]().getWriter();
+                    await writer.write('<b>B');await writer.write('C</b>');await writer.close();
+                    if(root.textContent!==({'':'BC',Append:'ABC',Prepend:'BCA'})[position])throw Error('context order');
+                    if(position!==''&&old.parentNode!==root)throw Error('context identity');host.remove();
+                }
+            }
+            for(const position of ['Before','After','ReplaceWith']){
+                const host=document.createElement('template');host.innerHTML='<i>L</i><b>A</b><i>R</i>';document.body.append(host);
+                const target=host.content.children[1],writer=target['stream'+position+'HTMLUnsafe']().getWriter();
+                await writer.write('<span>X</span>');await writer.close();
+                if(host.content.textContent!==({Before:'LXAR',After:'LAXR',ReplaceWith:'LXR'})[position])throw Error('template sibling');host.remove();
+            }return true;
+        })()"#,
+        );
+    }
+    #[test]
+    fn positioned_stream_removed_anchor_falls_back_without_moving_existing_nodes() {
+        super::tests::run(
+            r#"(async()=>{
+            const host=document.createElement('div');host.innerHTML='<i>A</i><b>B</b>';document.body.append(host);
+            const anchor=host.firstChild,writer=host.streamPrependHTMLUnsafe().getWriter();
+            await writer.write('<span>X</span>');anchor.remove();
+            await writer.write('<em>Y</em>');await writer.close();
+            if(host.textContent!=='XBY')throw Error('removed anchor fallback');
+            const other=document.createElement('div');const next=host.streamPrependHTMLUnsafe().getWriter();
+            other.append(host.firstChild);await next.write('<u>Z</u>');await next.close();
+            if(host.textContent!=='BYZ'||other.textContent!=='X')throw Error('foreign anchor');return true;
+        })()"#,
+        );
+    }
+    #[test]
+    fn safe_streams_filter_before_scripts_handlers_and_customized_constructors() {
+        super::tests::run(
+            r#"(async()=>{
+            globalThis.streamRuns=0;customElements.define('stream-built',class extends HTMLDivElement{constructor(){super();streamRuns++}},{extends:'div'});
+            for(const position of ['', 'Append','Prepend','Before','After','ReplaceWith']){
+                const host=document.createElement('div'),target=document.createElement('section');host.append(target);document.body.append(host);
+                const writer=target['stream'+position+'HTML']({runScripts:true,sanitizer:{removeAttributes:['is']}}).getWriter();
+                await writer.write('<div is=stream-built onclick="streamRuns++"><script>streamRuns++</scr');
+                await writer.write('ipt><b>ok</b></div>');await writer.close();
+                if(streamRuns!==0||host.querySelector('script')||host.querySelector('[onclick]')||host.querySelector('[is]'))throw Error('safe filtering');host.remove();
+            }
+            const script=document.createElement('script');script.textContent='untouched';const writer=script.streamHTML({runScripts:true}).getWriter();
+            await writer.write('replaced');await writer.close();if(script.textContent!=='untouched')throw Error('safe script context');return true;
+        })()"#,
+        );
+    }
+    #[test]
+    fn unsafe_stream_family_script_order_and_abort_preserve_published_prefix() {
+        super::tests::run(
+            r#"(async()=>{
+            for(const position of ['', 'Append','Prepend','Before','After','ReplaceWith']){
+                globalThis.streamOrder=[];const host=document.createElement('div'),target=document.createElement('section');host.append(target);document.body.append(host);
+                const writer=target['stream'+position+'HTMLUnsafe']({runScripts:true}).getWriter();
+                await writer.write('<b>X</b><script>streamOrder.push(1)</scr');
+                if(streamOrder.length)throw Error('early script');await writer.write('ipt><script>streamOrder.push(2)</script><u>Y</u>');
+                if(streamOrder.join(',')!=='1,2')throw Error('script order');await writer.abort();
+                if(!host.querySelector('b')||!host.querySelector('u'))throw Error('abort erased prefix');host.remove();
+            }return true;
+        })()"#,
+        );
+    }
+    #[test]
+    fn stream_options_reentrancy_and_invalid_parent_fail_before_mutation() {
+        super::tests::run(
+            r#"(async()=>{
+            const host=document.createElement('div');host.textContent='old';document.body.append(host);
+            const foreign=document.implementation.createHTMLDocument('');let threw=false;
+            try{host.streamHTMLUnsafe({get sanitizer(){foreign.adoptNode(host);return {}}})}catch(e){threw=true}
+            if(!threw||host.textContent!=='old')throw Error('reentrant adoption');
+            const fragment=document.createDocumentFragment(),child=document.createElement('i');fragment.append(child);
+            for(const method of ['streamBeforeHTML','streamAfterHTMLUnsafe','streamReplaceWithHTML']){
+                threw=false;try{child[method]()}catch(e){threw=e.name==='HierarchyRequestError'}if(!threw)throw Error('invalid fragment parent');
+            }
+            const doc=document.implementation.createHTMLDocument(''),comment=doc.appendChild(doc.createComment('x'));
+            threw=false;try{comment.streamBeforeHTMLUnsafe()}catch(e){threw=e.name==='HierarchyRequestError'}if(!threw)throw Error('document parent');return true;
+        })()"#,
+        );
+    }
+    #[test]
+    fn positioned_stream_uses_table_and_foreign_parent_context() {
+        super::tests::run(
+            r#"(async()=>{
+            const table=document.createElement('table');document.body.append(table);const writer=table.streamPrependHTMLUnsafe().getWriter();
+            await writer.write('<tr><td>A');await writer.write('</td></tr>');await writer.close();
+            if(table.firstChild.tagName!=='TBODY'||table.rows.length!==1)throw Error('table context');
+            const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),rect=document.createElementNS(svg.namespaceURI,'rect');svg.append(rect);document.body.append(svg);
+            const next=rect.streamBeforeHTMLUnsafe().getWriter();await next.write('<circle/>');await next.close();
+            if(svg.firstChild.localName!=='circle'||svg.firstChild.namespaceURI!==svg.namespaceURI)throw Error('foreign parent context');return true;
         })()"#,
         );
     }

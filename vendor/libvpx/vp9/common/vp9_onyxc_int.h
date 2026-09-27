@@ -96,6 +96,10 @@ typedef struct BufferPool {
 } BufferPool;
 
 typedef struct VP9Common {
+  // Oryn: nonzero config dimensions bind this decoder to the admitted track.
+  // Enforced per decoded frame before any dimension-dependent allocation.
+  unsigned int oryn_admitted_width;
+  unsigned int oryn_admitted_height;
   struct vpx_internal_error_info error;
   vpx_color_space_t color_space;
   vpx_color_range_t color_range;

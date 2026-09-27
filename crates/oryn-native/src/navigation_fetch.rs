@@ -14,6 +14,20 @@ pub(super) struct PendingPolicy {
 
 #[cfg(unix)]
 impl PendingPolicy {
+    // Deterministic unit fixture for the existing asynchronous policy receiver.
+    // Production admission still uses start()/start_inner() and parent authority.
+    #[cfg(test)]
+    pub(super) fn from_receiver_for_test(
+        receiver: oneshot::Receiver<
+            Result<crate::context_service::ContextServiceResponse, RuntimeError>,
+        >,
+        deadline: Option<Instant>,
+    ) -> Self {
+        Self {
+            receiver: Some(receiver),
+            deadline,
+        }
+    }
     pub fn start(
         client: SharedContextClient,
         request: crate::context_service::ContextServiceRequest,
@@ -309,7 +323,7 @@ impl PendingDownloadBody {
                     return Poll::Ready(Ok(std::mem::take(&mut self.bytes)));
                 }
                 NetworkEvent::Failed { request_id, error } if request_id == expected => {
-                    return self.fail(RuntimeError::Network(error));
+                    return self.fail(RuntimeError::from(error));
                 }
                 _ => {
                     return self.fail(RuntimeError::ProtocolViolation(
@@ -322,12 +336,136 @@ impl PendingDownloadBody {
     }
 }
 
+/// A page-owned observer of the actual admission path. It carries no network
+/// authority, request body, credentials or policy bypass.
+#[derive(Clone)]
+pub(super) struct HeaderDiagnostics {
+    sink: crate::trace::DiagnosticSink,
+    ipc_identity: Option<crate::ipc_progress::Identity>,
+    navigation_id: u64,
+    source_generation: u64,
+    request_id: u64,
+    queued: Instant,
+    deadline: Option<Instant>,
+}
+impl HeaderDiagnostics {
+    pub fn new(
+        sink: crate::trace::DiagnosticSink,
+        ipc_identity: Option<crate::ipc_progress::Identity>,
+        navigation_id: u64,
+        source_generation: u64,
+        deadline: Option<Instant>,
+    ) -> Self {
+        Self {
+            sink,
+            ipc_identity,
+            navigation_id,
+            source_generation,
+            request_id: 0,
+            queued: Instant::now(),
+            deadline,
+        }
+    }
+    pub fn for_request(&self, request_id: u64) -> Self {
+        Self {
+            request_id,
+            queued: Instant::now(),
+            ..self.clone()
+        }
+    }
+    pub fn record(&self, phase: &'static str, error: Option<String>) {
+        let now = Instant::now();
+        crate::ipc_progress::navigation::record(crate::ipc_progress::navigation::Observation {
+            identity: self.ipc_identity,
+            navigation_id: self.navigation_id,
+            navigation_request_id: (self.request_id != 0).then_some(self.request_id),
+            source_generation: self.source_generation,
+            phase,
+            error_present: error.is_some(),
+            elapsed_ns: now.saturating_duration_since(self.queued).as_nanos(),
+            deadline_remaining_ns: self
+                .deadline
+                .map(|deadline| deadline.saturating_duration_since(now).as_nanos()),
+        });
+        self.sink.record(
+            "navigation.io",
+            serde_json::json!({
+                "navigation_id": self.navigation_id, "source_generation": self.source_generation,
+                "request_id": self.request_id, "phase": phase, "error": error,
+                "elapsed_us": now.saturating_duration_since(self.queued).as_micros(),
+                "deadline_remaining_us": self.deadline.map(|deadline|
+                    deadline.saturating_duration_since(now).as_micros()),
+            })
+            .to_string(),
+        );
+    }
+}
+
+fn record_header_diagnostic(
+    diagnostics: &Option<HeaderDiagnostics>,
+    phase: &'static str,
+    error: Option<String>,
+) {
+    if let Some(diagnostics) = diagnostics {
+        diagnostics.record(phase, error);
+    }
+}
+
+fn run_header_admission(
+    broker: SharedNetworkBroker,
+    request: NetworkRequest,
+    deadline: Option<Instant>,
+    sender: oneshot::Sender<Result<(NetworkOperation, Instant), RuntimeError>>,
+    diagnostics: Option<HeaderDiagnostics>,
+) {
+    record_header_diagnostic(&diagnostics, "io_job_entered", None);
+    if sender.is_closed() {
+        record_header_diagnostic(&diagnostics, "consumer_closed_before_broker", None);
+        return;
+    }
+    let started = Instant::now();
+    let result = if deadline.is_some_and(|limit| started >= limit) {
+        record_header_diagnostic(&diagnostics, "deadline_before_broker", None);
+        Err(RuntimeError::WorkerLimitExceeded {
+            resource: "navigation wall time".into(),
+        })
+    } else {
+        record_header_diagnostic(&diagnostics, "broker_entered", None);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            broker.start_operation(request)
+        }))
+        .map_err(|_| RuntimeError::Network("navigation transport admission panicked".into()))
+        .and_then(|result| result.map_err(RuntimeError::from));
+        record_header_diagnostic(
+            &diagnostics,
+            if result.is_ok() {
+                "broker_returned"
+            } else {
+                "broker_failed"
+            },
+            result.as_ref().err().map(ToString::to_string),
+        );
+        result
+    };
+    // A rejected late success is dropped with its native broker lease intact.
+    // Diagnostics never assume this handoff means headers or a server GET arrived.
+    if sender
+        .send(result.map(|operation| (operation, started)))
+        .is_ok()
+    {
+        record_header_diagnostic(&diagnostics, "result_delivered", None);
+    } else {
+        record_header_diagnostic(&diagnostics, "consumer_closed_after_broker", None);
+    }
+}
+
 pub(super) struct PendingHeaders {
     started: Option<Instant>,
     starting: Option<oneshot::Receiver<Result<(NetworkOperation, Instant), RuntimeError>>>,
     operation: Option<NetworkOperation>,
     deadline: Option<Instant>,
     terminal: bool,
+    diagnostics: Option<HeaderDiagnostics>,
 }
 
 impl PendingHeaders {
@@ -336,8 +474,10 @@ impl PendingHeaders {
         request: NetworkRequest,
         deadline: Option<Instant>,
         #[cfg(unix)] client: Option<&SharedContextClient>,
+        diagnostics: Option<HeaderDiagnostics>,
     ) -> Result<Self, RuntimeError> {
         if deadline.is_some_and(|limit| Instant::now() >= limit) {
+            record_header_diagnostic(&diagnostics, "deadline_before_submit", None);
             return Err(RuntimeError::WorkerLimitExceeded {
                 resource: "navigation wall time".into(),
             });
@@ -346,44 +486,43 @@ impl PendingHeaders {
         #[cfg(unix)]
         let resource_job = client
             .map(|client| client.track_resource_job())
-            .transpose()?;
+            .transpose()
+            .inspect_err(|error| {
+                record_header_diagnostic(
+                    &diagnostics,
+                    "resource_job_rejected",
+                    Some(error.to_string()),
+                )
+            })?;
         let (sender, receiver) = oneshot::channel();
+        let observed = diagnostics.clone();
+        record_header_diagnostic(&diagnostics, "io_submit_started", None);
         crate::executable::resource_io_executor::submit(move || {
             #[cfg(unix)]
             let _resource_job = resource_job;
-            // Closed/cancelled queued work must not start a transport later.
-            if sender.is_closed() {
-                return;
-            }
-            let started = Instant::now();
-            let result = if deadline.is_some_and(|limit| Instant::now() >= limit) {
-                Err(RuntimeError::WorkerLimitExceeded {
-                    resource: "navigation wall time".into(),
-                })
-            } else {
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    broker.start_operation(request)
-                }))
-                .map_err(|_| {
-                    RuntimeError::Network("navigation transport admission panicked".into())
-                })
-                .and_then(|result| result.map_err(|error| RuntimeError::Network(error.to_string())))
-            };
-            // A late success is dropped here if its consumer retired. The
-            // native broker lease then owns acknowledged cancellation/retry.
-            let _ = sender.send(result.map(|operation| (operation, started)));
+            run_header_admission(broker, request, deadline, sender, observed);
         })
-        .map_err(|error| RuntimeError::Network(format!("navigation IO admission: {error}")))?;
+        .map_err(|error| {
+            record_header_diagnostic(&diagnostics, "io_submit_failed", Some(error.clone()));
+            RuntimeError::Network(format!("navigation IO admission: {error}"))
+        })?;
+        record_header_diagnostic(&diagnostics, "io_submit_accepted", None);
         Ok(Self {
             started: None,
             starting: Some(receiver),
             operation: None,
             deadline,
             terminal: false,
+            diagnostics,
         })
     }
 
     fn fail(&mut self, error: RuntimeError) -> Poll<Result<Headers, RuntimeError>> {
+        record_header_diagnostic(
+            &self.diagnostics,
+            "consumer_failed",
+            Some(error.to_string()),
+        );
         self.starting.take();
         self.operation.take();
         self.terminal = true;
@@ -402,6 +541,7 @@ impl PendingHeaders {
         if let Some(starting) = self.starting.as_mut() {
             match starting.try_recv() {
                 Ok(Ok((operation, started))) => {
+                    record_header_diagnostic(&self.diagnostics, "admission_received", None);
                     self.started = Some(started);
                     self.operation = Some(operation);
                     self.starting = None;
@@ -435,6 +575,7 @@ impl PendingHeaders {
                         "navigation lost measured request admission".into(),
                     ));
                 };
+                record_header_diagnostic(&self.diagnostics, "headers_received", None);
                 self.terminal = true;
                 Poll::Ready(Ok(Headers {
                     response_policy,
@@ -447,7 +588,7 @@ impl PendingHeaders {
                 }))
             }
             Ok(NetworkEvent::Failed { request_id, error }) if request_id == expected => {
-                self.fail(RuntimeError::Network(error))
+                self.fail(RuntimeError::from(error))
             }
             Ok(NetworkEvent::Chunk { .. } | NetworkEvent::Complete { .. }) => {
                 self.fail(RuntimeError::ProtocolViolation(
@@ -461,6 +602,14 @@ impl PendingHeaders {
             Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => self.fail(
                 RuntimeError::Network("network operation ended before response headers".into()),
             ),
+        }
+    }
+}
+
+impl Drop for PendingHeaders {
+    fn drop(&mut self) {
+        if !self.terminal {
+            record_header_diagnostic(&self.diagnostics, "consumer_retired", None);
         }
     }
 }
@@ -749,6 +898,7 @@ mod tests {
                 }),
                 deadline: None,
                 terminal: false,
+                diagnostics: None,
             };
             assert!(matches!(
                 pending.poll(),
@@ -782,6 +932,7 @@ mod tests {
                 request(),
                 None,
                 #[cfg(unix)]
+                None,
                 None,
             )
             .unwrap();
@@ -823,6 +974,7 @@ mod tests {
             None,
             #[cfg(unix)]
             None,
+            None,
         )
         .unwrap();
         started.recv_timeout(Duration::from_secs(2)).unwrap();
@@ -857,5 +1009,297 @@ mod tests {
         broker
             .drain_owned_operations(Duration::from_secs(2))
             .unwrap();
+    }
+    struct RejectedStart {
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+        panic: bool,
+    }
+    impl NetworkBroker for RejectedStart {
+        fn send(&self, _: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+            unreachable!()
+        }
+        fn start_operation(&self, _: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            assert!(!self.panic, "injected broker admission panic");
+            Err(NetworkError::Transport(
+                "original broker source rejection".into(),
+            ))
+        }
+    }
+
+    fn diagnostic_records(trace: &mut crate::trace::TraceLog) -> Vec<serde_json::Value> {
+        trace
+            .snapshot()
+            .into_iter()
+            .filter_map(|event| match event.kind {
+                TraceEventKind::ScriptDiagnostic { capability, detail }
+                    if capability == "navigation.io" =>
+                {
+                    assert_eq!(event.page_id, PageId(29));
+                    let value: serde_json::Value = serde_json::from_str(&detail).unwrap();
+                    assert_eq!(value["navigation_id"], 71);
+                    assert_eq!(value["source_generation"], 13);
+                    assert_eq!(value["request_id"], 7);
+                    Some(value)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+    fn diagnostic(trace: &crate::trace::TraceLog) -> HeaderDiagnostics {
+        HeaderDiagnostics::new(trace.diagnostic_sink(Revision(5)), None, 71, 13, None)
+            .for_request(7)
+    }
+
+    #[test]
+    fn repeated_navigation_breadcrumbs_never_replay_broker_admission() {
+        let mut trace = crate::trace::TraceLog::new(PageId(29));
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let broker = SharedNetworkBroker::new(RejectedStart {
+            calls: calls.clone(),
+            panic: false,
+        });
+        let observed = diagnostic(&trace);
+        let (sender, mut receiver) = oneshot::channel();
+        for _ in 0..4 {
+            observed.record("navigation_policy_consumed", None);
+            observed.record("request_start", None);
+        }
+        run_header_admission(broker, request(), None, sender, Some(observed.clone()));
+        for _ in 0..4 {
+            observed.record("consumer_failed", Some("private error URL".into()));
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        match receiver.try_recv().unwrap() {
+            Err(RuntimeError::Network(error)) => {
+                assert!(error.contains("original broker source rejection"))
+            }
+            _ => panic!("diagnostics replaced the original admission error"),
+        }
+        let rows = diagnostic_records(&mut trace);
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row["phase"] == "broker_entered")
+                .count(),
+            1
+        );
+        assert!(!rows.iter().any(|row| row["phase"] == "headers_received"));
+    }
+
+    #[test]
+    fn header_diagnostics_distinguish_closed_consumer_and_expired_queued_job() {
+        for closed in [false, true] {
+            let mut trace = crate::trace::TraceLog::new(PageId(29));
+            let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let broker = SharedNetworkBroker::new(RejectedStart {
+                calls: calls.clone(),
+                panic: false,
+            });
+            let (sender, receiver) = oneshot::channel();
+            let mut receiver = Some(receiver);
+            if closed {
+                receiver.take();
+            }
+            run_header_admission(
+                broker,
+                request(),
+                Some(Instant::now()),
+                sender,
+                Some(diagnostic(&trace)),
+            );
+            assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+            if let Some(mut receiver) = receiver {
+                assert!(matches!(
+                    receiver.try_recv().unwrap(),
+                    Err(RuntimeError::WorkerLimitExceeded { .. })
+                ));
+            }
+            let observed = diagnostic_records(&mut trace);
+            assert_eq!(observed[0]["phase"], "io_job_entered");
+            assert!(observed.iter().any(|row| row["phase"]
+                == if closed {
+                    "consumer_closed_before_broker"
+                } else {
+                    "deadline_before_broker"
+                }));
+            assert!(!observed.iter().any(|row| row["phase"] == "broker_entered"));
+        }
+    }
+
+    #[test]
+    fn header_diagnostics_retain_broker_error_and_panic_without_promoting_submission() {
+        for panic in [false, true] {
+            let mut trace = crate::trace::TraceLog::new(PageId(29));
+            let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let broker = SharedNetworkBroker::new(RejectedStart {
+                calls: calls.clone(),
+                panic,
+            });
+            let (sender, mut receiver) = oneshot::channel();
+            run_header_admission(broker, request(), None, sender, Some(diagnostic(&trace)));
+            assert!(matches!(
+                receiver.try_recv().unwrap(),
+                Err(RuntimeError::Network(_))
+            ));
+            assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+            let observed = diagnostic_records(&mut trace);
+            let failed = observed
+                .iter()
+                .find(|row| row["phase"] == "broker_failed")
+                .unwrap();
+            assert!(failed["error"].as_str().unwrap().contains(if panic {
+                "navigation transport admission panicked"
+            } else {
+                "original broker source rejection"
+            }));
+            assert!(
+                !observed
+                    .iter()
+                    .any(|row| row["phase"] == "headers_received")
+            );
+        }
+    }
+
+    #[test]
+    fn header_diagnostics_keep_late_handoff_rejection_and_native_cancellation() {
+        let mut trace = crate::trace::TraceLog::new(PageId(29));
+        let (entered, started) = mpsc::channel();
+        let (release, wait) = mpsc::channel();
+        let (cancelled, cancel) = mpsc::channel();
+        let broker = SharedNetworkBroker::new(HeldStart {
+            entered,
+            release: Mutex::new(wait),
+            cancelled,
+            sender: Mutex::new(None),
+            demand: Arc::new(Mutex::new(None)),
+        });
+        let retained = broker.clone();
+        let (sender, receiver) = oneshot::channel();
+        let observed = diagnostic(&trace);
+        let worker = std::thread::spawn(move || {
+            run_header_admission(broker, request(), None, sender, Some(observed))
+        });
+        started.recv_timeout(Duration::from_secs(2)).unwrap();
+        drop(receiver);
+        release.send(()).unwrap();
+        worker.join().unwrap();
+        cancel.recv_timeout(Duration::from_secs(2)).unwrap();
+        retained
+            .drain_owned_operations(Duration::from_secs(2))
+            .unwrap();
+        let observed = diagnostic_records(&mut trace);
+        assert!(observed.iter().any(|row| row["phase"] == "broker_returned"));
+        assert!(
+            observed
+                .iter()
+                .any(|row| row["phase"] == "consumer_closed_after_broker")
+        );
+        assert!(
+            !observed
+                .iter()
+                .any(|row| row["phase"] == "headers_received")
+        );
+    }
+
+    #[test]
+    fn header_diagnostics_cover_real_io_submission_and_owner_failure() {
+        let mut trace = crate::trace::TraceLog::new(PageId(29));
+        let broker = SharedNetworkBroker::new(RejectedStart {
+            calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            panic: false,
+        });
+        let mut pending = PendingHeaders::start(
+            broker,
+            request(),
+            None,
+            #[cfg(unix)]
+            None,
+            Some(diagnostic(&trace)),
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            match pending.poll() {
+                Poll::Ready(Err(RuntimeError::Network(error))) => {
+                    assert!(error.contains("original broker source rejection"));
+                    break;
+                }
+                Poll::Ready(_) => panic!("unexpected admission outcome"),
+                Poll::Pending => {
+                    assert!(Instant::now() < deadline);
+                    std::thread::park_timeout(Duration::from_millis(1));
+                }
+            }
+        }
+        let observed = diagnostic_records(&mut trace);
+        for phase in [
+            "io_submit_started",
+            "io_submit_accepted",
+            "io_job_entered",
+            "broker_entered",
+            "broker_failed",
+            "consumer_failed",
+        ] {
+            assert!(
+                observed.iter().any(|row| row["phase"] == phase),
+                "missing {phase}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod certificate_navigation_tests {
+    use super::*;
+    #[test]
+    fn certificate_headers_preserve_cause_and_require_matching_operation() {
+        for (id, certificate) in [(7, true), (7, false), (8, true)] {
+            let (sender, events) = tokio::sync::mpsc::channel(1);
+            let error = if certificate {
+                crate::network::NetworkFailure::Certificate {
+                    certificate_rejected: "UnknownIssuer".into(),
+                }
+            } else {
+                "invalid certificate: UnknownIssuer".into()
+            };
+            sender
+                .try_send(NetworkEvent::Failed {
+                    request_id: id,
+                    error,
+                })
+                .unwrap();
+            let mut pending = PendingHeaders {
+                started: Some(Instant::now()),
+                starting: None,
+                operation: Some(NetworkOperation {
+                    body_demand_pending: Default::default(),
+                    prefetched: Default::default(),
+                    request_id: 7,
+                    events,
+                    demand: None,
+                }),
+                deadline: None,
+                terminal: false,
+                diagnostics: None,
+            };
+            let Poll::Ready(Err(error)) = pending.poll() else {
+                panic!("failure did not settle");
+            };
+            if id != 7 {
+                assert!(matches!(error, RuntimeError::ProtocolViolation(_)));
+            } else if certificate {
+                assert!(matches!(
+                    error.navigation_stop(),
+                    crate::navigation_control::NavigationStop::CertificateRejected(_)
+                ));
+            } else {
+                assert!(matches!(
+                    error.navigation_stop(),
+                    crate::navigation_control::NavigationStop::Failed(_)
+                ));
+            }
+            assert!(pending.operation.is_none());
+            assert!(sender.is_closed());
+        }
     }
 }

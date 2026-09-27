@@ -70,6 +70,7 @@ impl ScriptLoadFailure {
     pub(crate) fn decoded(error: crate::RuntimeError) -> Self {
         match error {
             crate::RuntimeError::Network(message) => Self::Fetch(message),
+            error @ crate::RuntimeError::CertificateRejected(_) => Self::Fetch(error.to_string()),
             crate::RuntimeError::WorkerLimitExceeded { resource } => Self::Capacity(resource),
             error => error.into(),
         }
@@ -139,5 +140,22 @@ mod tests {
                 failure
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod certificate_script_load_tests {
+    use super::*;
+    #[test]
+    fn certificate_script_load_rejection_remains_fetch_failure() {
+        let failure = ScriptLoadFailure::decoded(crate::RuntimeError::CertificateRejected(
+            "UnknownIssuer".into(),
+        ));
+        assert!(failure.is_fetch_failure());
+        assert!(matches!(failure, ScriptLoadFailure::Fetch(_)));
+        let other = ScriptLoadFailure::decoded(crate::RuntimeError::ContextService(
+            "certificate rejected".into(),
+        ));
+        assert!(!other.is_fetch_failure());
     }
 }

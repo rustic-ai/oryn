@@ -21,6 +21,20 @@ class NativeCliErrorTests(unittest.TestCase):
             check=False,
         )
 
+    def test_release_cli_exposes_webdriver_command_without_starting_service(self):
+        result = subprocess.run(
+            [str(Path(os.environ["ORYN_TEST_NATIVE_BIN"]).resolve()), "webdriver", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for option in ("--port", "--auth-token-file", "--configuration", "--configuration-sha256"):
+            with self.subTest(option=option):
+                self.assertIn(option, result.stdout)
+        self.assertEqual(result.stderr, "")
+
     def test_piped_error_is_nonzero_and_stops_before_next_command(self):
         result = self.run_cli()
         self.assertNotEqual(result.returncode, 0)

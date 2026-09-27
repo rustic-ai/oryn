@@ -1,0 +1,150 @@
+{
+  "coverage_sha256": "685884081872242895990657052f3e412faaec207f16854cd303350792c999ed",
+  "rows": [
+    {
+      "environment_requirements": [],
+      "id": "testharness:editing/other/delete-in-child-of-head.tentative.html?designMode=off&method=backspace",
+      "metadata": {
+        "testdriver": true,
+        "timeout": "long"
+      },
+      "needs_classification": false,
+      "path": "editing/other/delete-in-child-of-head.tentative.html",
+      "reason": null,
+      "root": "editing",
+      "runner_id": "editing/other/delete-in-child-of-head.tentative.html|window|?designMode=off&method=backspace",
+      "sha256": "ce295c88867b4a687d228ff242d37f885bef86f1b79a0f85b53d44c9744bfb2a",
+      "status": "not_run",
+      "test_type": "testharness",
+      "tier": "necessary",
+      "url": "editing/other/delete-in-child-of-head.tentative.html?designMode=off&method=backspace"
+    },
+    {
+      "environment_requirements": [],
+      "id": "testharness:editing/other/delete-in-child-of-head.tentative.html?designMode=off&method=forwarddelete",
+      "metadata": {
+        "testdriver": true,
+        "timeout": "long"
+      },
+      "needs_classification": false,
+      "path": "editing/other/delete-in-child-of-head.tentative.html",
+      "reason": null,
+      "root": "editing",
+      "runner_id": "editing/other/delete-in-child-of-head.tentative.html|window|?designMode=off&method=forwarddelete",
+      "sha256": "ce295c88867b4a687d228ff242d37f885bef86f1b79a0f85b53d44c9744bfb2a",
+      "status": "not_run",
+      "test_type": "testharness",
+      "tier": "necessary",
+      "url": "editing/other/delete-in-child-of-head.tentative.html?designMode=off&method=forwarddelete"
+    },
+    {
+      "environment_requirements": [],
+      "id": "testharness:editing/other/delete-in-child-of-head.tentative.html?designMode=on&method=backspace",
+      "metadata": {
+        "testdriver": true,
+        "timeout": "long"
+      },
+      "needs_classification": false,
+      "path": "editing/other/delete-in-child-of-head.tentative.html",
+      "reason": null,
+      "root": "editing",
+      "runner_id": "editing/other/delete-in-child-of-head.tentative.html|window|?designMode=on&method=backspace",
+      "sha256": "ce295c88867b4a687d228ff242d37f885bef86f1b79a0f85b53d44c9744bfb2a",
+      "status": "not_run",
+      "test_type": "testharness",
+      "tier": "necessary",
+      "url": "editing/other/delete-in-child-of-head.tentative.html?designMode=on&method=backspace"
+    },
+    {
+      "environment_requirements": [],
+      "id": "testharness:editing/other/delete-in-child-of-head.tentative.html?designMode=on&method=forwarddelete",
+      "metadata": {
+        "testdriver": true,
+        "timeout": "long"
+      },
+      "needs_classification": false,
+      "path": "editing/other/delete-in-child-of-head.tentative.html",
+      "reason": null,
+      "root": "editing",
+      "runner_id": "editing/other/delete-in-child-of-head.tentative.html|window|?designMode=on&method=forwarddelete",
+      "sha256": "ce295c88867b4a687d228ff242d37f885bef86f1b79a0f85b53d44c9744bfb2a",
+      "status": "not_run",
+      "test_type": "testharness",
+      "tier": "necessary",
+      "url": "editing/other/delete-in-child-of-head.tentative.html?designMode=on&method=forwarddelete"
+    },
+    {
+      "environment_requirements": [],
+      "id": "testharness:editing/other/delete-in-child-of-html.tentative.html?designMode=off&method=backspace",
+      "metadata": {
+        "testdriver": true,
+        "timeout": "long"
+      },
+      "needs_classification": false,
+      "path": "editing/other/delete-in-child-of-html.tentative.html",
+      "reason": null,
+      "root": "editing",
+      "runner_id": "editing/other/delete-in-child-of-html.tentative.html|window|?designMode=off&method=backspace",
+      "sha256": "3b7d6774177fef303486781ab7baa1a5ca209c76578f615c06aaf1cba8bb196b",
+      "status": "not_run",
+      "test_type": "testharness",
+      "tier": "necessary",
+      "url": "editing/other/delete-in-child-of-html.tentative.html?designMode=off&method=backspace"
+    },
+    {
+      "environment_requirements": [],
+      "id": "testharness:editing/other/delete-in-child-of-html.tentative.html?designMode=off&method=forwarddelete",
+      "metadata": {
+        "testdriver": true,
+        "timeout": "long"
+      },
+      "needs_classification": false,
+      "path": "editing/other/delete-in-child-of-html.tentative.html",
+      "reason": null,
+      "root": "editing",
+      "runner_id": "editing/other/delete-in-child-of-html.tentative.html|window|?designMode=off&method=forwarddelete",
+      "sha256": "3b7d6774177fef303486781ab7baa1a5ca209c76578f615c06aaf1cba8bb196b",
+      "status": "not_run",
+      "test_type": "testharness",
+      "tier": "necessary",
+      "url": "editing/other/delete-in-child-of-html.tentative.html?designMode=off&method=forwarddelete"
+    },
+    {
+      "environment_requirements": [],
+      "id": "testharness:editing/other/delete-in-child-of-html.tentative.html?designMode=on&method=backspace",
+      "metadata": {
+        "testdriver": true,
+        "timeout": "long"
+      },
+      "needs_classification": false,
+      "path": "editing/other/delete-in-child-of-html.tentative.html",
+      "reason": null,
+      "root": "editing",
+      "runner_id": "editing/other/delete-in-child-of-html.tentative.html|window|?designMode=on&method=backspace",
+      "sha256": "3b7d6774177fef303486781ab7baa1a5ca209c76578f615c06aaf1cba8bb196b",
+      "status": "not_run",
+      "test_type": "testharness",
+      "tier": "necessary",
+      "url": "editing/other/delete-in-child-of-html.tentative.html?designMode=on&method=backspace"
+    },
+    {
+      "environment_requirements": [],
+      "id": "testharness:editing/other/delete-in-child-of-html.tentative.html?designMode=on&method=forwarddelete",
+      "metadata": {
+        "testdriver": true,
+        "timeout": "long"
+      },
+      "needs_classification": false,
+      "path": "editing/other/delete-in-child-of-html.tentative.html",
+      "reason": null,
+      "root": "editing",
+      "runner_id": "editing/other/delete-in-child-of-html.tentative.html|window|?designMode=on&method=forwarddelete",
+      "sha256": "3b7d6774177fef303486781ab7baa1a5ca209c76578f615c06aaf1cba8bb196b",
+      "status": "not_run",
+      "test_type": "testharness",
+      "tier": "necessary",
+      "url": "editing/other/delete-in-child-of-html.tentative.html?designMode=on&method=forwarddelete"
+    }
+  ],
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

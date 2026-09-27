@@ -17,12 +17,25 @@ fn test_owner(generation: u64) -> AgentOwner {
 }
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
-    fn oryn_webm_open(
+    fn oryn_webm_open_diagnostic(
         bytes: *const u8,
         length: usize,
         manifest: *const u8,
         manifest_length: usize,
+        diagnostic: *mut *mut c_char,
     ) -> *mut c_void;
+    #[cfg(test)]
+    fn oryn_webm_open_for_test(
+        bytes: *const u8,
+        length: usize,
+        manifest: *const u8,
+        manifest_length: usize,
+        mode: u32,
+    ) -> *mut c_void;
+    #[cfg(test)]
+    fn oryn_webm_decoder_unit_checks() -> i32;
+    #[cfg(test)]
+    fn oryn_webm_unindexed_bounds_check(asset: *mut c_void) -> i32;
     fn oryn_webm_metadata(asset: *mut c_void) -> *mut c_char;
     fn oryn_webm_sample(
         asset: *mut c_void,
@@ -94,6 +107,11 @@ fn result(raw: *mut c_char) -> Result<Value, String> {
 }
 impl Registry {
     pub(super) fn open(&mut self, owner: &AgentOwner, bytes: &[u8]) -> Result<Value, String> {
+        self.open_mode(owner, bytes, 0)
+    }
+    fn open_mode(&mut self, owner: &AgentOwner, bytes: &[u8], mode: u32) -> Result<Value, String> {
+        #[cfg(any(not(test), not(target_os = "macos")))]
+        let _ = mode;
         if bytes.is_empty()
             || bytes.len() > 16 * 1024 * 1024
             || self.assets.len() >= 64
@@ -152,14 +170,48 @@ impl Registry {
                 if manifest.len() > 32 * 1024 * 1024 {
                     return Err("QuotaExceededError: WebM packet inventory".into());
                 }
-                unsafe {
-                    oryn_webm_open(
-                        bytes.as_ptr(),
-                        bytes.len(),
-                        manifest.as_ptr(),
-                        manifest.len(),
-                    )
+                let mut diagnostic = std::ptr::null_mut();
+                let raw = unsafe {
+                    #[cfg(test)]
+                    {
+                        if mode != 0 {
+                            oryn_webm_open_for_test(
+                                bytes.as_ptr(),
+                                bytes.len(),
+                                manifest.as_ptr(),
+                                manifest.len(),
+                                mode,
+                            )
+                        } else {
+                            oryn_webm_open_diagnostic(
+                                bytes.as_ptr(),
+                                bytes.len(),
+                                manifest.as_ptr(),
+                                manifest.len(),
+                                &mut diagnostic,
+                            )
+                        }
+                    }
+                    #[cfg(not(test))]
+                    {
+                        oryn_webm_open_diagnostic(
+                            bytes.as_ptr(),
+                            bytes.len(),
+                            manifest.as_ptr(),
+                            manifest.len(),
+                            &mut diagnostic,
+                        )
+                    }
+                };
+                if !diagnostic.is_null() {
+                    let details = result(diagnostic)?;
+                    if raw.is_null() {
+                        return Err(format!(
+                            "NotSupportedError: WebM decoder initialization: {details}"
+                        ));
+                    }
                 }
+                raw
             } else {
                 unsafe { oryn_url_media_open(bytes.as_ptr(), bytes.len()) }
             };
@@ -284,7 +336,15 @@ impl Registry {
                 } else {
                     oryn_url_media_sample(asset.raw, time, start, until.max(start))
                 })
-            }?;
+            }
+            .map_err(|error| {
+                if asset.webm {
+                    let details = unsafe { result(oryn_webm_metadata(asset.raw)) };
+                    format!("{error}; decoder state: {details:?}")
+                } else {
+                    error
+                }
+            })?;
             if !paused && let Some(encoded) = sample["audio"].as_str() {
                 use base64::Engine;
                 let bytes = base64::engine::general_purpose::STANDARD
@@ -571,6 +631,11 @@ mod decoder_tests {
         assert!(!can_play("video/webm; codecs=vp09.02.10.10"));
         assert!(!can_play("video/webm; codecs=\"vp9, unknown\""));
     }
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn native_software_decoder_buffer_and_color_contracts() {
+        assert_eq!(unsafe { oryn_webm_decoder_unit_checks() }, 1);
+    }
     // External conformance assets are deliberately not copied into the source
     // tree. The qualification runner supplies the exact pinned checkout.
     #[test]
@@ -580,6 +645,11 @@ mod decoder_tests {
             "\nORYN_MEDIA_BUILD {}",
             serde_json::json!({"media_source_sha256":env!("ORYN_NATIVE_MEDIA_SOURCE_SHA256"),"runtime":crate::runtime_build_info(),"compiled_protocols":{"worker_protocol_version":crate::worker::WORKER_PROTOCOL_VERSION,"context_service_protocol_version":crate::context_service::CONTEXT_SERVICE_PROTOCOL_VERSION,"agent_ipc_protocol_version":crate::agent_ipc::VERSION}})
         );
+        for mode in [0, 1, 2, 4] {
+            pinned_decoder_assertions(mode);
+        }
+    }
+    fn pinned_decoder_assertions(mode: u32) {
         use base64::Engine;
         let root = std::env::var_os("ORYN_WPT_ROOT").expect("ORYN_WPT_ROOT is required");
         let bytes =
@@ -593,13 +663,20 @@ mod decoder_tests {
         );
         assert!(
             can_play("video/webm; codecs=vp9"),
-            "native VP9 session unavailable after supplemental decoder registration"
+            "native/software VP9 decoder initialization unavailable"
         );
         assert!(can_play("video/webm; codecs=\"vp9, opus\""));
         let owner = test_owner(1);
         let foreign = test_owner(2);
         let mut registry = Registry::default();
-        let metadata = registry.open(&owner, &bytes).unwrap();
+        let metadata = registry.open_mode(&owner, &bytes, mode).unwrap();
+        if mode == 1 || mode == 2 {
+            assert_eq!(metadata["decoder"], "libvpx");
+        }
+        if mode == 2 {
+            assert_eq!(metadata["injectedFailure"], true);
+            assert_ne!(metadata["nativeStatus"], 0);
+        }
         let id = metadata["id"].as_str().unwrap();
         assert!(metadata["width"].as_u64().unwrap() > 0);
         assert_eq!(metadata["audio"], true);
@@ -618,8 +695,17 @@ mod decoder_tests {
         let backward = registry.sample(&owner, id, 0., true, 0., true).unwrap();
         assert_eq!(backward["data"], first["data"]);
         assert!(forward["data"].is_string());
+        if mode == 4 {
+            let detail =
+                unsafe { result(oryn_webm_metadata(registry.assets.get(id).unwrap().raw)) }
+                    .unwrap();
+            assert_eq!(detail["packetFailureInjected"], true);
+            assert_eq!(detail["decoder"], "libvpx");
+            assert_ne!(detail["nativeStatus"], 0);
+        }
         let asset = registry.assets.get(id).unwrap();
         assert!(asset.webm);
+        assert_eq!(unsafe { oryn_webm_unindexed_bounds_check(asset.raw) }, 1);
         let decoded = unsafe { result(oryn_webm_sample(asset.raw, 0., 0., 0.05)) }.unwrap();
         let pcm = base64::engine::general_purpose::STANDARD
             .decode(decoded["audio"].as_str().unwrap())
@@ -644,6 +730,29 @@ mod decoder_tests {
         registry.retire_owner(&owner);
         assert!(registry.sample(&owner, id, 0., true, 0., true).is_err());
         assert!(registry.open(&owner, &bytes[..4096]).is_err());
+        let constrained = registry.open_mode(&owner, &bytes, 3).unwrap();
+        let constrained_id = constrained["id"].as_str().unwrap();
+        assert!(
+            registry
+                .sample(&owner, constrained_id, 0., true, 0., true)
+                .is_err()
+        );
+        registry.retire_owner(&owner);
+        assert!(registry.assets.is_empty());
+        let recovered = registry.open_mode(&owner, &bytes, 1).unwrap();
+        assert!(
+            registry
+                .sample(
+                    &owner,
+                    recovered["id"].as_str().unwrap(),
+                    0.,
+                    true,
+                    0.,
+                    true
+                )
+                .is_ok()
+        );
+        registry.retire_owner(&owner);
         let vp8 = std::fs::read(std::path::Path::new(&root).join("media/rgb100.webm")).unwrap();
         let parsed = super::super::webm::parse(&vp8).unwrap();
         let track = parsed

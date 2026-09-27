@@ -133,6 +133,7 @@ mod tests {
         for inventory in [BTreeMap::new(), entries()] {
             for request in requests(inventory) {
                 let envelope = RequestEnvelope {
+                    diagnostic: None,
                     protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
                     route: None,
                     message_id: 17,

@@ -62,14 +62,36 @@ def equal(left, right):
 
 
 @contextmanager
-def database_bytes(encoded):
+def database_bytes(encoded, oauth_encoded=None):
     with tempfile.TemporaryDirectory(prefix='oryn-oracle-replay-') as directory:
         path = Path(directory) / 'sealed.sqlite3'
         path.write_bytes(encoded)
+        if oauth_encoded is not None:
+            Path(str(path)+'.oauth').write_bytes(oauth_encoded)
         try:
             yield path
         except sqlite3.Error as error:
             raise ValueError("raw SQLite evidence is invalid") from error
+
+
+@contextmanager
+def case_database_bytes(root, claim, case, artifact):
+    main=object_value(claim.get('database'),'raw application database')
+    required=case.family=='saas' and case.version in (2,4)
+    oauth=claim.get('oauth_database')
+    if required:
+        oauth=object_value(oauth,'raw OAuth database')
+        # Bind the sidecar to this exact application's saved namespace. Never
+        # discover unpinned adjacent files or accept a sibling case's reference.
+        if not isinstance(main.get('path'),str) or oauth.get('path')!=main['path']+'.oauth':
+            raise ValueError('raw OAuth database owner/path differs')
+        oauth_bytes=artifact(root,oauth)
+    elif oauth is not None:
+        raise ValueError('unexpected raw OAuth database for recipe')
+    else:
+        oauth_bytes=None
+    with database_bytes(artifact(root,main),oauth_bytes) as path:
+        yield path
 
 
 def snapshot_bytes(receiver, encoded, identity):
@@ -105,14 +127,38 @@ def prepared_recipe(recipe, base, fault):
     suffix = '' if version == 1 else f'_v{version}'
     receiver = adapter.research.receiver if family == 'research' else adapter.load('raw_receiver_' + family + str(version), adapter.FIXTURES / f'{family}_fixture{suffix}.py')
     lines = adapter.family_lines(family, runner, contract, case, base)
-    recovery = []; native_fault = None
+    recovery = []; native_fault = None; response_route = None
     if fault:
         decoration = adapter.decorate_fault(family, case, lines, fault, base)
         case, lines = decoration['case'], decoration['lines']
         recovery, native_fault = decoration['recovery_steps'], decoration['fault']
+        if fault=='cancellation': response_route=decoration['arm']['route']
     return SimpleNamespace(family=family, version=version, name=name, case=case,
         contract=contract, runner=runner, receiver=receiver, base=base, identity=identity,
-        origin=url.scheme + '://' + url.netloc, lines=lines, recovery_steps=recovery, fault=native_fault)
+        origin=url.scheme + '://' + url.netloc, lines=lines, recovery_steps=recovery, fault=native_fault,
+        response_route=response_route, response_gate=None)
+
+
+@malformed_input
+def response_marker_bytes(root, claim, planned, case, artifact):
+    gate = planned.get('response_gate')
+    if case.fault is None or case.fault.get('kind') != 'cancellation':
+        if gate is not None or claim.get('response_marker') is not None:
+            raise ValueError('unexpected response gate for source recipe')
+        return None
+    gate = object_value(gate, 'response gate')
+    token = gate.get('token')
+    expected = str(Path(claim['database']['path']).parent / 'response-entered.json')
+    marker = object_value(claim.get('response_marker'), 'response marker receipt')
+    if (set(gate) != {'token','marker','route'} or not isinstance(token,str)
+            or re.fullmatch('[0-9a-f]{32}',token) is None
+            or gate.get('route') != case.response_route
+            or gate.get('marker') != str((Path(root)/expected).resolve())
+            or marker.get('path') != expected):
+        raise ValueError('response gate/marker belongs to another source case')
+    value = decode(artifact(root,marker))
+    case.response_gate = gate
+    return value
 
 
 @malformed_input
@@ -213,20 +259,21 @@ def validate(root, reference, attempt, candidate, artifact, observed, actions):
                     or not equal(planned.get('recovery_steps', []), case.recovery_steps)
                     or planned.get('commit_recovery') is not None or planned.get('adversarial_for') is not None):
                 raise ValueError('raw native input differs from frozen family recipe')
+            response_marker=response_marker_bytes(root,claim,planned,case,artifact)
             check_steps(expected_steps, session)
             recovery = object_rows(session.get('recovery'), 'native recovery')
             if (len(recovery) != len(case.recovery_steps) or any(row.get('index') != i
                     or 'error' not in row or row.get('error') is not None or not isinstance(row.get('outputs'), list)
                     for i, row in enumerate(recovery))):
                 raise ValueError('raw native recovery task differs')
-            with database_bytes(artifact(root, claim.get('database'))) as path:
+            with case_database_bytes(root, claim, case, artifact) as path:
                 data = case.receiver.snapshot(path, case.identity)
                 probe = replay_probe(case, claim.get('probe'), index, inputs, sessions, path)
                 if probe is not None:
                     probes.append(probe)
                 if case.fault:
                     case.database = path
-                    fault_records.append(adapter.read_fault_evidence(case, session))
+                    fault_records.append(adapter.read_fault_evidence(case, session, response_marker=response_marker))
             if not equal(data, decode(artifact(root, claim.get('sealed_oracle')))):
                 raise ValueError('raw SQLite and sealed projection differ')
             outcome, case_actions, errors = adapter.replay_case_outcome(case, session, data)
@@ -307,11 +354,14 @@ def validate_supplements(root, waves, attempt, candidate, artifact):
                     or Path(gate['marker']).parent != Path(gate['release']).parent):
                 raise ValueError('raw commit gate identity differs')
             expected_steps = [dict(oil=line, **case.case.get('step_options', {}).get(str(i), {})) for i, line in enumerate(case.lines)]
+            expected_recovery=dict(outcome_url=case.base + '/workflow-outcome?token=' + token, resume_after=boundary['resume_after'])
+            if case.family=='saas':expected_recovery['bootstrap_url']=case.base+'/resume'
             if (not equal(planned.get('steps'), expected_steps)
                     or not equal(planned.get('uploads'), adapter.authorized_uploads(case.family, case.case))
                     or not equal(fault, dict(kind=attempt['fault'], before_step=boundary['before_step'], delay_ms=300, commit_gate=gate))
-                    or not equal(planned.get('commit_recovery'), dict(outcome_url=case.base + '/workflow-outcome?token=' + token, resume_after=boundary['resume_after']))
-                    or planned.get('recovery_steps') != [] or planned.get('adversarial_for') is not None):
+                    or not equal(planned.get('commit_recovery'), expected_recovery)
+                    or planned.get('recovery_steps') != [] or planned.get('adversarial_for') is not None
+                    or planned.get('response_gate') is not None):
                 raise ValueError('raw commit input differs from frozen boundary')
             native_fault = object_value(session.get('fault_evidence'), 'native commit fault')
             object_value(native_fault.get('native'), 'native commit retirement')
@@ -343,11 +393,13 @@ def validate_supplements(root, waves, attempt, candidate, artifact):
                 raise ValueError('raw commit requires exactly one retained interruption')
             recovery = object_rows(session.get('recovery'), 'native recovery')
             state = 'not_committed' if phase == 'before_commit' else 'committed'
-            if ([step.get('stage') for step in recovery] != ['inspect_commit', 'inspect_commit', 'resolve_commit']
+            expected_stages=(['bootstrap_commit'] if case.family=='saas' else [])+['inspect_commit','inspect_commit','resolve_commit']
+            inspection_index=2 if case.family=='saas' else 1
+            if ([step.get('stage') for step in recovery] != expected_stages
                     or any('error' not in step or step.get('error') is not None or not isinstance(step.get('outputs'), list) for step in recovery)
-                    or [frame.get('value') for frame in recovery[1]['outputs'] if frame.get('kind') == 'structured'] != [state]):
+                    or [frame.get('value') for frame in recovery[inspection_index]['outputs'] if frame.get('kind') == 'structured'] != [state]):
                 raise ValueError('raw commit inspection/recovery sequence differs')
-            with database_bytes(artifact(root, claim.get('database'))) as path:
+            with case_database_bytes(root, claim, case, artifact) as path:
                 data = case.receiver.snapshot(path, case.identity)
                 with sqlite3.connect(f'file:{path}?mode=ro', uri=True) as db:
                     db.row_factory = sqlite3.Row
@@ -360,7 +412,7 @@ def validate_supplements(root, waves, attempt, candidate, artifact):
             if problems:
                 raise ValueError('raw commit durable replay rejected: ' + '; '.join(problems))
             outcomes.append(outcome)
-        records.append(dict(phase=phase, fault=attempt['fault'], injected=True, errors=[],
+        records.append(dict(phase=phase, fault=attempt['fault'], injected=True, recovery_passed=True, errors=[],
             context_topology=adapter.context_topology(native, attempt['context_count']),
             native_activity=adapter.native_activity(native, attempt['context_count']), outcomes=outcomes, raw_wave=wave))
     return records
@@ -438,7 +490,9 @@ def check_resources(root, wave, native, artifact):
     samples = object_value(decode(artifact(root, wave.get('samples'))), 'resource samples')
     cleanup = object_value(decode(artifact(root, wave.get('process_cleanup'))), 'resource cleanup')
     accounting = object_value(decode(artifact(root, wave.get('accounting'))), 'resource accounting')
-    if (type(cleanup.get('returncode')) is not int or cleanup['returncode'] != 0
+    if (cleanup.get('group_settled') is not True or type(cleanup.get('process_group')) is not int
+                            or cleanup.get('process_group') != cleanup.get('parent_pid')
+                            or type(cleanup.get('returncode')) is not int or cleanup['returncode'] != 0
             or cleanup.get('errors') != [] or type(cleanup.get('parent_pid')) is not int
             or cleanup['parent_pid'] <= 0 or cleanup['parent_pid'] != samples.get('parent_pid')):
         raise ValueError('raw native process cleanup incomplete or foreign')

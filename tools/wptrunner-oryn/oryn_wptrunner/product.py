@@ -2,21 +2,28 @@
 import os
 import secrets
 import tempfile
+import time
 
-from wptrunner.browsers.base import WebDriverBrowser, get_timeout_multiplier, require_arg
+from wptrunner.browsers.base import WebDriverBrowser, OutputHandler, get_timeout_multiplier, require_arg
 from wptrunner.executors import executor_kwargs as upstream_executor_kwargs
 from .protocol import (
     OrynCrashtestExecutor, OrynPrintRefTestExecutor,
     OrynRefTestExecutor, OrynTestharnessExecutor,
 )
 from wptrunner.products import Product
-from .provenance import load_contract, run_info_extras, FixtureEnvironment
+from .provenance import load_run_contract as load_contract, run_info_extras, FixtureEnvironment
+from .timing import span, contract_identity
+from .native_timing import Collector
 
 
 def check_args(**kwargs):
     require_arg(kwargs, "binary")
     require_arg(kwargs, "webdriver_binary")
     contract = load_contract(kwargs.get("oryn_run_contract"), kwargs["binary"], kwargs["webdriver_binary"])
+    _check_bound_args(contract, kwargs)
+
+
+def _check_bound_args(contract, kwargs):
     from pathlib import Path
     if kwargs.get("ssl_type") != "pregenerated":
         raise ValueError("Official fixtures require candidate-bound pregenerated certificates")
@@ -31,8 +38,10 @@ def check_args(**kwargs):
 
 
 def browser_kwargs(logger, test_type, run_info_data, config, subsuite, **kwargs):
-    check_args(**kwargs)
+    require_arg(kwargs, "binary")
+    require_arg(kwargs, "webdriver_binary")
     contract = load_contract(kwargs.get("oryn_run_contract"), kwargs["binary"], kwargs["webdriver_binary"])
+    _check_bound_args(contract, kwargs)
     if (run_info_data.get("oryn_candidate_sha256") != contract["candidate_sha256"]
             or run_info_data.get("oryn_run_contract_sha256") != contract["sha256"]):
         raise ValueError("Run contract changed after run_info was established")
@@ -69,6 +78,9 @@ def executor_kwargs(logger, test_type, test_environment, run_info_data, **kwargs
 class OrynBrowser(WebDriverBrowser):
     """Command-server lifecycle belongs to upstream's process supervisor."""
 
+    # Both upstream initialization timers include contract validation and setup.
+    init_timeout: float = 120
+
     def __init__(self, *args, oryn_run_contract=None, **kwargs):
         self._contract_path = oryn_run_contract
         super().__init__(*args, **kwargs)
@@ -77,16 +89,100 @@ class OrynBrowser(WebDriverBrowser):
         with os.fdopen(descriptor, "w") as token_file:
             token_file.write(self._driver_token)
 
+    def start(self, group_metadata, **kwargs):
+        self._timing_identity = None
+        self._spawn_span = self._ready_span = None
+        with span(getattr(self, "logger", None), "browser.start") as measured:
+            try:
+                return super().start(group_metadata, **kwargs)
+            finally:
+                import sys
+                error = sys.exc_info()
+                collector = getattr(self, "_native_timing", None)
+                if collector is not None:
+                    try:
+                        collector.private()
+                    except OSError as cleanup_error:
+                        if error[1] is None:
+                            raise
+                        error[1].add_note('native diagnostic descriptor reset failed: ' + type(cleanup_error).__name__)
+                    measured.service = collector.service
+                for name in ("_ready_span", "_spawn_span"):
+                    active = getattr(self, name, None)
+                    if active is not None:
+                        active.__exit__(*error)
+                        setattr(self, name, None)
+                measured.identity = getattr(self, "_timing_identity", None)
+                if collector is not None and not WebDriverBrowser.is_alive(self):
+                    collector.finish(process_stopped=True)
+
+    def create_output_handler(self, command):
+        browser = self
+        collector = self._native_timing
+
+        class ServiceOutputHandler(OutputHandler):
+            def after_process_start(self, pid):
+                # Keep the exact upstream hook and reset descriptor inheritance
+                # even when its logger/state transition raises.
+                collector.private()
+                collector.service["pid"] = pid
+                active = browser._spawn_span
+                if active is not None:
+                    active.__exit__(None, None, None)
+                    browser._spawn_span = None
+                with span(browser.logger, "driver.identity_observation",
+                          identity=browser._timing_identity, service=collector.service):
+                    collector.published(pid)
+                browser._ready_span = span(browser.logger, "driver.tcp_ready_wait",
+                    identity=browser._timing_identity, service=collector.service)
+                browser._ready_span.__enter__()
+                return super().after_process_start(pid)
+
+        with span(self.logger, "driver.spawn_slot_wait",
+                  identity=self._timing_identity, service=collector.service):
+            collector.inherit_for_spawn()
+        # Use the existing upstream deadline; descriptor admission consumes it too.
+        deadline = getattr(self, "init_deadline", None)
+        if deadline is not None and time.time() >= deadline:
+            raise TimeoutError("Oryn initialization deadline expired before driver spawn")
+        self._spawn_span = span(self.logger, "driver.construct_and_spawn",
+                                identity=self._timing_identity, service=collector.service)
+        self._spawn_span.__enter__()
+        return ServiceOutputHandler(self.logger, command)
+
+    def stop(self, force=False):
+        # Upstream owns every kill/wait and the actual return value.
+        try:
+            return super().stop(force=force)
+        finally:
+            collector = getattr(self, "_native_timing", None)
+            if collector is not None:
+                collector.finish(process_stopped=not WebDriverBrowser.is_alive(self))
+
     def make_command(self):
-        contract = load_contract(self._contract_path, self.binary, self.webdriver_binary)
-        return [self.webdriver_binary, "--host", self.host, "--port", str(self.port),
-                "--browser-binary", self.binary, "--auth-token-file", self._token_path,
-                "--configuration", contract["fixture_path"],
-                "--configuration-sha256", contract["fixture_sha256"]]
+        with span(getattr(self, "logger", None), "browser.make_command") as measured:
+            contract = load_contract(self._contract_path, self.binary, self.webdriver_binary)
+            self._timing_identity = contract_identity(contract)
+            measured.bind_contract(contract)
+            previous = getattr(self, "_native_timing", None)
+            if previous is not None and not previous.closed:
+                # Never replace a collector still held by a live old service.
+                raise RuntimeError("previous native diagnostic service is not settled")
+            with span(getattr(self, "logger", None), "browser.diagnostic_setup",
+                      identity=self._timing_identity):
+                self._native_timing = Collector(getattr(self, "logger", None), self._timing_identity)
+            measured.service = self._native_timing.service
+            return [self.webdriver_binary, "--host", self.host, "--port", str(self.port),
+                    "--browser-binary", self.binary, "--auth-token-file", self._token_path,
+                    "--configuration", contract["fixture_path"],
+                    "--configuration-sha256", contract["fixture_sha256"],
+                    "--diagnostic-fd", str(self._native_timing.fd)]
 
     def executor_browser(self):
         browser_class, kwargs = super().executor_browser()
-        return browser_class, {**kwargs, "oryn_driver_token": self._driver_token}
+        return browser_class, {**kwargs, "oryn_driver_token": self._driver_token,
+                               "oryn_timing_identity": getattr(self, "_timing_identity", None),
+                               "oryn_timing_service": dict(self._native_timing.service)}
 
     def cleanup(self):
         try:

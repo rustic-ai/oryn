@@ -29,7 +29,7 @@ def input_paths(root):
     for path in (root / 'scripts').iterdir():
         if path.is_file() and (path.name.startswith(('workflow', 'wpt', 'completion', 'run-oil-', 'qualify-workflow', 'run-workflow', 'run-wpt-', 'create-wpt-', 'freeze-completion-', 'generation_gate'))
                                or path.suffix == '.sh'
-                               or path.name in {'framework_fixture_lock.py', 'build_app_compatibility_framework_corpus.py', 'native_media_qualification.py', 'run-native-media-qualification.py', 'run-full-wpt-baseline.py', 'run-upstream-wpt.py', 'run-official-wpt.py', 'reconcile-full-wpt-qualification.py', 'merge-wpt-qualification-ledger.py'}):
+                               or path.name in {'suite_input_lease.py', 'framework_fixture_lock.py', 'build_app_compatibility_framework_corpus.py', 'native_media_qualification.py', 'run-native-media-qualification.py', 'run-full-wpt-baseline.py', 'run-upstream-wpt.py', 'run-official-wpt.py', 'reconcile-full-wpt-qualification.py', 'merge-wpt-qualification-ledger.py'}):
             paths.add(path.relative_to(root).as_posix())
     return sorted(paths)
 

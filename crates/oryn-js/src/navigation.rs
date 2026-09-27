@@ -164,6 +164,14 @@ pub enum NavigationExecutionOutcome {
 /// The sink must retain its publication until the parent acknowledges it.
 #[derive(Clone)]
 pub struct NavigationExecutionObserver(std::sync::Arc<NavigationExecutionObserverInner>);
+/// Native-only weak correlation: it neither grants authority nor retains a loader.
+#[derive(Clone)]
+pub struct NavigationExecutionObserverIdentity(std::sync::Weak<NavigationExecutionObserverInner>);
+impl NavigationExecutionObserverIdentity {
+    pub fn matches(&self, observer: &NavigationExecutionObserver) -> bool {
+        std::sync::Weak::ptr_eq(&self.0, &std::sync::Arc::downgrade(&observer.0))
+    }
+}
 struct NavigationExecutionObserverInner {
     publication: std::sync::Mutex<()>,
     settled: std::sync::atomic::AtomicBool,
@@ -178,6 +186,9 @@ impl std::fmt::Debug for NavigationExecutionObserver {
     }
 }
 impl NavigationExecutionObserver {
+    pub fn identity(&self) -> NavigationExecutionObserverIdentity {
+        NavigationExecutionObserverIdentity(std::sync::Arc::downgrade(&self.0))
+    }
     pub fn new(sink: impl Fn(NavigationExecutionOutcome) + Send + Sync + 'static) -> Self {
         Self::with_admission(|| {}, sink)
     }
@@ -254,6 +265,28 @@ impl Drop for NavigationExecutionObserverInner {
 #[cfg(test)]
 mod execution_observer_tests {
     use super::*;
+    #[test]
+    fn oil_selected_navigation_observer_identity_is_exact_and_does_not_retain_owner() {
+        let outcomes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = outcomes.clone();
+        let observer =
+            NavigationExecutionObserver::new(move |outcome| sink.lock().unwrap().push(outcome));
+        let identity = observer.identity();
+        let clone = observer.clone();
+        let other = NavigationExecutionObserver::new(|_| {});
+        assert!(identity.matches(&observer));
+        assert!(identity.matches(&clone));
+        assert!(!identity.matches(&other));
+        drop(observer);
+        assert!(outcomes.lock().unwrap().is_empty());
+        drop(clone);
+        assert!(matches!(
+            outcomes.lock().unwrap().as_slice(),
+            [NavigationExecutionOutcome::Failed { .. }]
+        ));
+        assert!(!identity.matches(&other));
+    }
+
     #[test]
     fn loader_transfer_ignores_source_retirement_and_publishes_once() {
         let values = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));

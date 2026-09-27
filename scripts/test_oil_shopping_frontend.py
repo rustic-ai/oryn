@@ -3,8 +3,11 @@ import importlib.util
 import copy
 from pathlib import Path
 import tempfile
+from contextlib import closing
+from http.client import HTTPConnection
+from types import SimpleNamespace
 import unittest
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('shopping_frontend', ROOT/'test-harness/workflows/shopping_fixture_v2.py')
@@ -49,11 +52,40 @@ class FramedCheckoutTests(unittest.TestCase):
 
     def test_foreign_origin_replay_and_unknown_token_reject(self):
         token = self.payment['token']
-        self.assertEqual(self.fixture.payment(token, True, self.fixture.shop_origin)[0], 403)
+        for origin in (None, 'null', self.fixture.shop_origin):
+            with self.subTest(origin=origin):
+                self.assertEqual(self.fixture.payment(token, True, origin)[0], 403)
         self.assertEqual(self.fixture.payment('b'*64, True, self.fixture.payment_origin)[0], 404)
         self.assertEqual(self.fixture.payment(token, True, self.fixture.payment_origin)[0], 200)
         self.assertEqual(self.fixture.payment(token, True, self.fixture.payment_origin)[0], 409)
         self.assertEqual(frontend.snapshot(self.database, self.case)['orders'], [])
+
+    def test_payment_document_policy_preserves_origin_without_disclosing_token_path(self):
+        close = frontend.configure_server(self.fixture, SimpleNamespace(server_port=4100))
+        try:
+            address = urlsplit(self.fixture.payment_origin)
+            path = '/payment/' + self.payment['token']
+            with closing(HTTPConnection(address.hostname, address.port, timeout=5)) as conn:
+                conn.request('GET', path)
+                response = conn.getresponse()
+                body = response.read()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.getheader('Referrer-Policy'), 'strict-origin')
+                self.assertIn(b'Authorize test payment', body)
+            # The browser's same-origin form POST retains this Origin under
+            # strict-origin. Keep the receiver's exact authority check intact.
+            with closing(HTTPConnection(address.hostname, address.port, timeout=5)) as conn:
+                conn.request('POST', path, body=b'', headers={'Origin': self.fixture.payment_origin})
+                response = conn.getresponse()
+                body = response.read()
+                self.assertEqual(response.status, 200)
+                self.assertIn(b'payment-authorized', body)
+            snapshot = frontend.snapshot(self.database, self.case)
+            self.assertEqual(snapshot['payments'][0]['authorized'], 1)
+            self.assertEqual([event['action'] for event in snapshot['payment_events']],
+                             ['frame_view', 'authorized'])
+        finally:
+            close()
 
     def test_quote_authority_does_not_transfer_to_another_case(self):
         foreign = 'b'*32

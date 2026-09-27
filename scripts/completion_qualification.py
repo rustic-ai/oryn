@@ -326,7 +326,7 @@ def profile_controls(profile, context, candidate):
             if placement_context.get('run_contract_sha256') != context['envelope_sha256']:
                 raise ValueError('profile placement belongs to another envelope')
             result = qualify_placement(read(root/'placement.json'), read(root/'wptreport.json'),
-                                       placement_context, candidate['record']['artifacts']['runtime']['sha256'])
+                                       placement_context, candidate['record']['artifacts']['worker']['sha256'])
             if result.get('qualification_accepted') is not True:
                 raise ValueError('profile native shared placement incomplete')
         results[kind] = result

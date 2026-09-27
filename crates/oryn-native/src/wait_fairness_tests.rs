@@ -85,10 +85,9 @@ async fn entered(gate: &Gate) {
     .expect("native wait predicate entered");
 }
 fn fixture() -> (Browser, BrowserContext, Arc<Gate>) {
-    let browser = Browser::native_test_with_config(BrowserConfig {
-        command_timeout: Duration::from_secs(20),
-        ..Default::default()
-    });
+    // Keep launch limits within the signed worker's supported command bound.
+    // Individual waits and broker/cleanup guards retain their explicit deadlines.
+    let browser = Browser::native_test_with_config(Default::default());
     let gate = Arc::new(Gate::default());
     let context = browser.new_native_test_context_with_broker(
         Default::default(),

@@ -68,7 +68,9 @@ mod style_sets;
 mod xml_stylesheets;
 pub use numeric_controls::NumericValidity;
 pub use pattern_controls::PatternMatcher;
-pub use xml_stylesheets::{XmlStyleSheet, parse_xml_stylesheet};
+pub use xml_stylesheets::{
+    XmlStyleSheet, document_xslt_stylesheet, parse_xml_stylesheet, parse_xslt_stylesheet,
+};
 pub mod html;
 mod identity;
 mod node_migration;

@@ -289,6 +289,8 @@ pub(super) struct FrameScriptPreparation {
     xml_parser: Option<oryn_dom::xml::XmlDocumentParser>,
     parser_events: VecDeque<PendingParserEvent>,
     xml_completion: Option<XmlCompletion>,
+    xslt_processed: bool,
+    xslt_result: Option<ParsedDocument>,
     pub(super) parser_retry: Option<std::time::Instant>,
     xml_input: Option<crate::host::DocumentStream>,
     xml_input_limit: usize,
@@ -455,6 +457,8 @@ impl FrameScriptPreparation {
             xml_parser: None,
             parser_events: VecDeque::new(),
             xml_completion: None,
+            xslt_processed: false,
+            xslt_result: None,
             parser_retry: None,
             xml_input: None,
             xml_input_limit: MAX_QUEUED_SCRIPT_SOURCE_BYTES,
@@ -1240,6 +1244,11 @@ impl FrameScriptPreparation {
         page: &mut RustExecutableDocument,
         events: Vec<html::ParserEvent>,
     ) -> Result<(), HostError> {
+        if !self.xslt_processed && self.has_xslt_source()? {
+            // No resource, inline script, metadata, or author checkpoint from
+            // the source XML is published before its selected transformation.
+            return Ok(());
+        }
         self.parser_events
             .extend(events.into_iter().map(|event| PendingParserEvent {
                 event,
@@ -1552,6 +1561,68 @@ impl FrameScriptPreparation {
         }
         Ok(())
     }
+    fn has_xslt_source(&self) -> Result<bool, HostError> {
+        oryn_dom::document_xslt_stylesheet(self.dom.borrow().arena(), self.load.identity.0)
+            .map(|sheet| sheet.is_some())
+            .map_err(|error| HostError::Execution(error.to_string()))
+    }
+    fn publish_xslt_result(
+        &mut self,
+        page: &mut RustExecutableDocument,
+        completion: &mut XmlCompletion,
+    ) -> Result<(), HostError> {
+        if completion.kind == ParserCompletionKind::Html {
+            return Ok(());
+        }
+        if !self.xslt_processed {
+            self.xslt_processed = true;
+            if !self.has_xslt_source()?
+                || completion
+                    .errors
+                    .as_ref()
+                    .is_some_and(|errors| !errors.is_empty())
+            {
+                return Ok(());
+            }
+            let result = page.agent.host.transform_document_xslt();
+            if !self.live(&page.agent.host) {
+                return Ok(());
+            }
+            let Some((output, kind)) = result? else {
+                return Ok(());
+            };
+            let mut parsed = match kind {
+                1 => html::parse(&output),
+                2 => html::parse_text_document(&output, "text/plain"),
+                _ => oryn_dom::xml::parse(&output, "application/xml"),
+            };
+            set_parsed_encoding(&mut parsed, "UTF-8")?;
+            self.xslt_result = Some(parsed);
+        }
+        let Some(parsed) = self.xslt_result.as_ref() else {
+            return Ok(());
+        };
+        let mut published =
+            publish_buffered_navigation_document_ref(&self.dom, self.load.identity.0, parsed)?;
+        self.xslt_result = None;
+        // Removed source jobs keep no source/graph reservations and cannot
+        // execute against the transformed document identity.
+        self.ordered.clear();
+        self.asynchronous.clear();
+        self.xml_deferred.clear();
+        self.parser_events.clear();
+        if Rc::ptr_eq(&self.dom, &page.agent.dom) {
+            for node in subtree_nodes(&self.dom.borrow(), self.load.identity.0)? {
+                page.node_realms.insert(node, self.load.realm);
+            }
+        }
+        let events = std::mem::take(&mut published.events);
+        completion.errors = Some(published.errors.clone());
+        completion.document = Some(published);
+        // Queue before author entry; a failed callback resumes the retained
+        // event instead of replaying the transform or losing later scripts.
+        self.accept_xml_events(page, events)
+    }
     fn finish_xml_completion(
         &mut self,
         page: &mut RustExecutableDocument,
@@ -1589,6 +1660,10 @@ impl FrameScriptPreparation {
                 return Ok(true);
             }
             if completion.stage == 2 {
+                self.publish_xslt_result(page, &mut completion)?;
+                if !self.live(&page.agent.host) {
+                    return Ok(true);
+                }
                 // Fatal XML completion replaces the parsed tree with parsererror.
                 // Jobs retained for end-of-parsing must not execute from that
                 // discarded tree; dropping them also releases source/graph custody.
@@ -1899,6 +1974,9 @@ impl FrameScriptPreparation {
             return Ok(());
         }
         if self.ordered.is_empty() && self.snapshot_events.is_some() {
+            if !self.xslt_processed && self.has_xslt_source()? {
+                self.snapshot_events.as_mut().unwrap().clear();
+            }
             if let Some((node, event)) = self
                 .snapshot_events
                 .as_ref()
@@ -3461,6 +3539,107 @@ mod tests {
         page.agent.host.execute("globalThis.order=[]").unwrap();
         (page, realm, dom, a, b)
     }
+    #[test]
+    fn console_collection_drains_child_and_root_once_and_restores_selection() {
+        let (mut page, realm, _, _, _) = frame_fixture();
+        page.agent
+            .host
+            .execute("console.error('child original')")
+            .unwrap();
+        page.agent.host.activate_realm(page.top_realm).unwrap();
+        page.agent
+            .host
+            .execute("console.error('root original')")
+            .unwrap();
+        page.agent.host.activate_realm(realm).unwrap();
+        let entries = page.take_console_entries().unwrap();
+        assert_eq!(page.agent.host.active_realm(), realm);
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| entry.message == "child original")
+                .count(),
+            1
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| entry.message == "root original")
+                .count(),
+            1
+        );
+        assert!(page.take_console_entries().unwrap().is_empty());
+        assert_eq!(page.agent.host.active_realm(), realm);
+    }
+
+    #[test]
+    fn console_collection_failure_preserves_other_realms_and_marks_incomplete() {
+        let (mut page, realm, _, _, _) = frame_fixture();
+        page.agent
+            .host
+            .execute("__oryn_take_console=()=>{throw Error('child drain failure')}")
+            .unwrap();
+        page.agent.host.activate_realm(page.top_realm).unwrap();
+        page.agent
+            .host
+            .execute("console.error('root retained')")
+            .unwrap();
+        let entries = page.take_console_entries().unwrap();
+        assert_eq!(page.agent.host.active_realm(), page.top_realm);
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| entry.message == "root retained")
+                .count(),
+            1
+        );
+        assert!(page.diagnostics.iter().any(|entry| {
+            entry.capability == "diagnostics.collection"
+                && entry
+                    .detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("child drain failure"))
+        }));
+        page.agent.host.activate_realm(realm).unwrap();
+        page.agent
+            .host
+            .execute("__oryn_take_console=()=>[]")
+            .unwrap();
+        assert!(page.take_console_entries().unwrap().is_empty());
+        assert_eq!(page.agent.host.active_realm(), realm);
+    }
+
+    #[test]
+    fn console_collection_restore_failure_retains_drained_records_for_retry() {
+        let (mut page, realm, _, _, _) = frame_fixture();
+        page.agent
+            .host
+            .execute("console.error('retained across restore failure')")
+            .unwrap();
+        let failed = page.take_console_entries_with_restore(|_, _| {
+            Err(HostError::Execution("injected restore failure".into()))
+        });
+        assert!(failed.is_err());
+        assert!(page.diagnostics.iter().any(|entry| {
+            entry.capability == "diagnostics.collection"
+                && entry
+                    .detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("injected restore failure"))
+        }));
+        page.agent.host.activate_realm(realm).unwrap();
+        let entries = page.take_console_entries().unwrap();
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| entry.message == "retained across restore failure")
+                .count(),
+            1
+        );
+        assert!(page.take_console_entries().unwrap().is_empty());
+        assert_eq!(page.agent.host.active_realm(), realm);
+    }
+
     fn record(
         page: &RustExecutableDocument,
         dom: &SharedDomRuntime,
@@ -4446,6 +4625,7 @@ mod tests {
             .unwrap();
         lease.attach(7, "native-frame-policy");
         let body = frame_response_stream::FrameResponseBody {
+            progress: None,
             client,
             page_id: oryn_common::v3::PageId(1),
             id: 7,
@@ -5726,6 +5906,42 @@ mod tests {
             page.agent.host.evaluate_string("order.join(',')").unwrap(),
             "start,dom,load,settled"
         );
+    }
+
+    #[test]
+    fn frame_outer_dimensions_follow_native_top_window_not_frame_content_box() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<body><iframe id=f style='width:240px;height:120px' srcdoc='<script>parent.childOuterAtParse=[outerWidth,outerHeight].join(String.fromCharCode(124))</script>'></iframe>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://example.test/root").unwrap()),
+        ).unwrap();
+        for _ in 0..16 {
+            page.drain_tasks().unwrap();
+            if !page.frame_scripts_pending(None) {
+                break;
+            }
+        }
+        page.agent.host.activate_realm(page.top_realm).unwrap();
+        assert_eq!(page.agent.host.evaluate_string(
+            "String(childOuterAtParse === [outerWidth,outerHeight].join('|') && f.contentWindow.innerWidth === 240 && f.contentWindow.outerWidth === outerWidth && f.contentWindow.outerHeight === outerHeight)"
+        ).unwrap(), "true");
+        page.agent.host.execute(
+            "globalThis.childOuterGetter=Object.getOwnPropertyDescriptor(f.contentWindow,'outerWidth').get;globalThis.topOuterGetter=Object.getOwnPropertyDescriptor(window,'outerWidth').get;outerWidth=1;outerHeight=2;f.style.width='360px'"
+        ).unwrap();
+        assert_eq!(page.agent.host.evaluate_string(
+            "String(f.contentWindow.innerWidth === 360 && f.contentWindow.outerWidth === topOuterGetter.call(window) && childOuterGetter.call(window) === topOuterGetter.call(f.contentWindow))"
+        ).unwrap(), "true");
+        page.agent
+            .host
+            .install_layout(oryn_js::v8_bindings::BindingLayout {
+                viewport: Some((900., 650.)),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(page.agent.host.evaluate_string(
+            "[f.contentWindow.outerWidth,f.contentWindow.outerHeight,outerWidth,outerHeight].join('|')"
+        ).unwrap(), "900|650|1|2");
     }
 
     #[test]

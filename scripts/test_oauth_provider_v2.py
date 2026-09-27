@@ -1,11 +1,15 @@
 """Real OAuthlib grant controls; generated for the final test phase."""
 import base64
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from http.client import HTTPConnection
+from http.cookies import SimpleCookie
 import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from urllib.parse import urlencode, urlsplit, parse_qs
 
@@ -13,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('oauth_provider', ROOT / 'test-harness/workflows/oauth_provider_v2.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+http_spec = importlib.util.spec_from_file_location('oauth_http', ROOT / 'test-harness/workflows/oauth_http_v2.py')
+transport = importlib.util.module_from_spec(http_spec)
+http_spec.loader.exec_module(transport)
 
 
 class ProviderTests(unittest.TestCase):
@@ -115,3 +122,86 @@ class ProviderTests(unittest.TestCase):
         code = self.issue()
         self.assertEqual(self.exchange(code, code_verifier='')[0], 400)
         self.assertEqual(self.provider.snapshot(self.case)['tokens'], [])
+
+
+    @contextmanager
+    def http_provider(self):
+        server = transport.create_server(self.provider, set())
+        thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .05})
+        thread.start()
+        try:
+            yield server.server_port
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+            self.assertFalse(thread.is_alive(), 'owned provider thread did not settle')
+
+    def http_request(self, port, method, path, body=None, headers=None):
+        connection = HTTPConnection('127.0.0.1', port, timeout=5)
+        try:
+            connection.request(method, path, body=body, headers=headers or {})
+            response = connection.getresponse()
+            return response.status, response.read().decode(), dict(response.getheaders())
+        finally:
+            connection.close()
+
+    def test_authorization_document_csp_allows_only_its_registered_callback_origin(self):
+        other_case = 'b' * 32
+        self.provider.register(other_case, f'http://127.0.0.1:3204/saas/{other_case}/callback')
+        with self.http_provider() as port:
+            path = '/authorize?' + urlsplit(self.uri()).query
+            status, body, headers = self.http_request(
+                port, 'GET', path, headers={'Host': 'untrusted.example:9000'})
+            self.assertEqual(status, 200)
+            self.assertIn('Authorize test application', body)
+            self.assertEqual(headers['Content-Security-Policy'],
+                "default-src 'none'; form-action 'self' http://127.0.0.1:3104; frame-ancestors 'none'")
+            self.assertNotIn('3204', headers['Content-Security-Policy'])
+            self.assertNotIn('untrusted.example', headers['Content-Security-Policy'])
+            cookie = SimpleCookie(headers['Set-Cookie'])['idp_pending'].value
+            status, _body, redirect = self.http_request(port, 'POST', '/authorize',
+                urlencode(dict(csrf=cookie, username='agent@example.test',
+                               password='fixture-only-password')),
+                {'Content-Type': 'application/x-www-form-urlencoded',
+                 'Cookie': f'idp_pending={cookie}'})
+            self.assertEqual(status, 302)
+            destination = urlsplit(redirect['Location'])
+            self.assertEqual(destination.scheme + '://' + destination.netloc + destination.path,
+                             self.redirect)
+            self.assertEqual(parse_qs(destination.query)['state'], ['s' * 43])
+            self.assertTrue(parse_qs(destination.query)['code'][0])
+        self.assertEqual(self.provider.snapshot(self.case)['codes'], [dict(consumed=0)])
+        self.assertEqual(self.provider.snapshot(self.case)['tokens'], [])
+
+    def test_invalid_http_authorization_never_expands_csp_or_redirects(self):
+        with self.http_provider() as port:
+            for override in (
+                    dict(redirect_uri='https://foreign.example/callback'),
+                    dict(redirect_uri=self.redirect + '/unregistered'),
+                    dict(redirect_uri=self.redirect.replace(':3104/', ':3204/')),
+                    dict(client_id='b' * 32)):
+                with self.subTest(override=override):
+                    status, _body, headers = self.http_request(
+                        port, 'GET', '/authorize?' + urlsplit(self.uri(**override)).query)
+                    self.assertEqual(status, 400)
+                    self.assertNotIn('Location', headers)
+                    self.assertNotIn('Set-Cookie', headers)
+                    self.assertEqual(headers['Content-Security-Policy'],
+                        "default-src 'none'; form-action 'self'; frame-ancestors 'none'")
+        self.assertEqual(self.provider.snapshot(self.case)['codes'], [])
+        self.assertEqual(self.provider.snapshot(self.case)['tokens'], [])
+
+    def test_callback_origin_requires_issued_live_pending_authorization(self):
+        with self.assertRaises(ValueError):
+            self.provider.authorization_callback_origin('unissued')
+        handle = self.provider.begin(self.uri())
+        self.assertEqual(self.provider.authorization_callback_origin(handle),
+                         'http://127.0.0.1:3104')
+        self.provider.authorize(handle, 'agent@example.test', 'fixture-only-password')
+        with self.assertRaises(ValueError):
+            self.provider.authorization_callback_origin(handle)
+        expired = self.provider.begin(self.uri())
+        self.now += 120
+        with self.assertRaises(ValueError):
+            self.provider.authorization_callback_origin(expired)

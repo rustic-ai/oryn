@@ -130,3 +130,66 @@ class LifecycleResourceTests(unittest.TestCase):
     def test_backwards_wall_clock_is_not_repaired_by_guessing(self):
         raw,native=self.evidence();raw['samples'][0]['unix_ended_ns']=1
         self.assertFalse(reconcile_resources(raw,native)['complete'])
+
+
+class LaunchEventAccountingTests(unittest.TestCase):
+    def evidence(self):
+        # Actual kernel birth precedes audit registration, within launch bounds.
+        process=dict(launch_id=1,worker_pid=2,parent_pid=1,role='page',binary_sha256='a'*64,
+            launch_started_unix_ns=1000000000,spawned_unix_ns=1000009000,reaped_unix_ns=1000020000,
+            resource_identity_version=1,kernel_birth=[1,1],exit_code=0,signal=None,
+            resource_sample_errors=[],event_samples=[dict(phase='launch',unix_started_ns=1000003000,
+                unix_ended_ns=1000004000,kernel_birth=[1,1],rss_bytes=150)],
+            leases=[dict(context_id=1,page_id=1,started_unix_ns=1000009000,ended_unix_ns=1000020000)])
+        native=dict(parent_pid=1,runtime=dict(worker_binary_sha256='a'*64),sessions=[dict(context_id=1)],
+            worker_lifecycle=dict(schema_version=1,complete=True,overflow=False,gaps=[],processes=[process]))
+        raw=dict(schema_version=1,parent_pid=1,errors=[],overflow=False,samples=[dict(monotonic_ns=1,
+            unix_started_ns=1000002000,unix_ended_ns=1000002500,
+            processes=[dict(pid=1,rss_bytes=10),dict(pid=2,rss_bytes=100,kernel_birth=[1,1])])])
+        return raw,native,process
+
+    def test_pre_registration_sample_matches_kernel_launch_not_pid_slack(self):
+        raw,native,p=self.evidence();result=reconcile_resources(raw,native)
+        self.assertTrue(result['complete'],result['errors'])
+        self.assertEqual(result['workers'][0]['sampled_peak_rss_bytes'],150)
+        self.assertEqual(result['aggregate_sampled_peak_bytes'],110)
+        raw['samples'][0]['processes'][1]['kernel_birth']=[1,2]
+        result=reconcile_resources(raw,native)
+        self.assertFalse(result['complete'])
+        self.assertEqual(result['instantaneous_groups'][0]['unknown_descendants'],[2])
+
+    def test_short_launch_event_peak_does_not_inflate_instantaneous_aggregate(self):
+        raw,native,p=self.evidence();raw['samples'][0]['processes'].pop()
+        result=reconcile_resources(raw,native)
+        self.assertTrue(result['complete'],result['errors'])
+        self.assertEqual(result['workers'][0]['sampled_peak_rss_bytes'],150)
+        self.assertEqual(result['aggregate_sampled_peak_bytes'],10)
+        p['event_samples']=[]
+        self.assertFalse(reconcile_resources(raw,native)['complete'])
+
+    def test_identity_and_event_boundaries_are_independently_validated(self):
+        for mutation in ('birth','interval','phase','missing_identity','missing_snapshot_birth'):
+            with self.subTest(mutation=mutation):
+                raw,native,p=self.evidence()
+                if mutation=='birth':p['event_samples'][0]['kernel_birth']=[1,2]
+                elif mutation=='interval':p['event_samples'][0]['unix_ended_ns']=1000020001
+                elif mutation=='phase':p['event_samples'].append(dict(p['event_samples'][0]))
+                elif mutation=='missing_identity':p['kernel_birth']=None
+                else:raw['samples'][0]['processes'][1].pop('kernel_birth')
+                self.assertFalse(reconcile_resources(raw,native)['complete'])
+
+    def test_optional_retirement_query_failure_never_fabricates_zero(self):
+        raw,native,p=self.evidence();p['resource_sample_errors']=['retirement resource query: gone']
+        result=reconcile_resources(raw,native)
+        self.assertTrue(result['complete'],result['errors'])
+        self.assertEqual(result['workers'][0]['sampled_peak_rss_bytes'],150)
+        p['resource_sample_errors']=['retirement resource identity mismatch']
+        self.assertFalse(reconcile_resources(raw,native)['complete'])
+
+
+    def test_sample_birth_requires_integer_identity_not_python_numeric_equality(self):
+        for birth in ([True,1],[1.0,1],[1,False],[1,1.0],[1,1000000],[1],None):
+            with self.subTest(birth=birth):
+                raw,native,p=self.evidence()
+                raw['samples'][0]['processes'][1]['kernel_birth']=birth
+                self.assertFalse(reconcile_resources(raw,native)['complete'])

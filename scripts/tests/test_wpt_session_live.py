@@ -37,6 +37,8 @@ class SignedSessionTests(unittest.TestCase):
                     mime = 'text/javascript'
                 elif path == '/trace-child.html':
                     body = b"<script>__oryn_record_automation_event(1,'click','started');__oryn_record_automation_event(1,'click','completed');parent.postMessage('traced','*')</script>"
+                elif path == '/diagnostic-child.html':
+                    body = b"<script>setTimeout(()=>{console.error('G14 child timer original');parent.postMessage('diagnostic-child-finished','*')},0)</script>"
                 elif path == '/resources/testharnessreport.js':
                     body = (ROOT / 'scripts/wpt-report.js').read_bytes()
                     mime = 'text/javascript'
@@ -57,6 +59,7 @@ class SignedSessionTests(unittest.TestCase):
                         '/write.html': "test(()=>{globalThis.previousLease=123;localStorage.setItem('lease','old');document.cookie='lease=old;path=/';document.body.appendChild(document.createElement('aside'));},'write state');",
                         '/read.html': "test(()=>{assert_equals(globalThis.previousLease,undefined);assert_equals(localStorage.getItem('lease'),null);assert_equals(document.cookie,'');assert_equals(document.querySelector('aside'),null);},'fresh state');",
                         '/dynamic.html': "promise_test(async()=>{await new Promise((resolve,reject)=>{let s=document.createElement('script');s.src='/helper.js';s.onload=resolve;s.onerror=reject;document.head.appendChild(s)});assert_true(helperLoaded);let r=await fetch('/missing');assert_equals(r.status,404);},'dynamic and intentional error');",
+                        '/diagnostic.html': "promise_test(()=>new Promise(resolve=>{let frame=document.createElement('iframe');addEventListener('message',event=>{if(event.data==='diagnostic-child-finished')resolve()});setTimeout(()=>{console.error('G14 parent timer original');frame.src='/diagnostic-child.html';document.body.appendChild(frame)},0)}),'asynchronous diagnostic retention');",
                         '/pending.html': "async_test('never completes');",
                         '/popup.html': "promise_test(async()=>{let child=window.open('/ready.html');assert_not_equals(child,null);await new Promise(resolve=>setTimeout(resolve,500));child.close();},'isolated auxiliary page');",
                         '/related-popup-v2.html': "promise_test(async()=>{let child=window.open('/ready.html');assert_not_equals(child,null);assert_equals(child.opener,window);assert_not_equals(child.document,document);let initial=child.document;child.__oryn_related_identity_v2=123;assert_equals(globalThis.__oryn_related_identity_v2,undefined);assert_equals(child.document,initial);await new Promise(resolve=>{child.addEventListener('load',resolve,{once:true});});assert_equals(child.location.href,new URL('/ready.html',location.href).href);assert_not_equals(child.document,initial);assert_false(child.closed);child.close();assert_true(child.closed);},'related auxiliary native identity v2');",
@@ -313,3 +316,36 @@ class SignedSessionTests(unittest.TestCase):
         finally:
             shutdown = session.close()
         self.assertEqual(shutdown['returncode'], 0, shutdown)
+
+    def test_async_error_diagnostics_survive_signed_session_teardown(self):
+        session = WptSession(Path(os.environ['ORYN_WPT_BINARY']))
+        try:
+            result = session.run('diagnostic-retention', self.base + '/diagnostic.html', 15)
+            self.assertIsNone(result['error'], result)
+            self.assertFalse(result['cleanup_errors'], result)
+            self.assertEqual(result['completion']['harness'], 0, result)
+            self.assertTrue(result['completion']['tests'], result)
+            self.assertTrue(all(test['status'] == 0 for test in result['completion']['tests']), result)
+            audit = result['diagnostic_audit']
+            self.assertEqual(audit['scope'], 'pre_cleanup_live_pages', result)
+            self.assertTrue(audit['complete'], result)
+            self.assertFalse(audit['overflow'], result)
+            events = result['diagnostic_events']
+            errors = [row['event']['message'] for row in events
+                      if row['event']['kind'] == 'console' and row['event']['level'] == 'error']
+            self.assertIn('G14 parent timer original', errors, result)
+            self.assertIn('G14 child timer original', errors, result)
+            phases = [json.loads(row['event']['detail'])['phase'] for row in events
+                      if row['event']['kind'] == 'script_diagnostic'
+                      and row['event']['capability'] == 'navigation.io']
+            self.assertIn('io_job_entered', phases, result)
+            self.assertIn('broker_entered', phases, result)
+            self.assertIn('headers_received', phases, result)
+            # run() returns after context closure and worker retirement. These
+            # original error records therefore crossed the actual signed IPC,
+            # native export, JSONL reader and teardown path intact.
+            self.assertTrue(result['resource_evidence_complete'], result)
+        finally:
+            shutdown = session.close()
+        self.assertEqual(shutdown['returncode'], 0, shutdown)
+        self.assertTrue(shutdown['shutdown_acknowledged'], shutdown)

@@ -1045,12 +1045,31 @@ fn publish_capture_failure(
         if failure.canceled { "cancel" } else { "error" },
     )
 }
-pub(super) fn poll(
+pub(super) fn poll_with_locality(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    revision: u64,
+    hidden: bool,
+) -> Result<(usize, bool), V8BindingError> {
+    let mut local_only = false;
+    let count = poll_inner(scope, state, revision, hidden, &mut local_only)?;
+    Ok((count, local_only))
+}
+
+fn poll_inner(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     _revision: u64,
     _hidden: bool,
+    local_only: &mut bool,
 ) -> Result<usize, V8BindingError> {
+    let local_candidate = {
+        let registry = state.permission_elements.borrow();
+        registry.elements.is_empty()
+            && registry.prompt.is_none()
+            && !registry.publishing
+            && registry.retry_at.is_none()
+    };
     let res = {
         let registry = state.permission_elements.borrow();
         registry.publishing
@@ -1129,6 +1148,9 @@ pub(super) fn poll(
             .collect::<Vec<_>>()
     };
     state.permission_elements.borrow_mut().cursor = Some(cursor);
+    // Discovery is never skipped. Only the empty entry registry + absent
+    // prompt + actual empty DOM scan proves no callback/RPC occurred above.
+    *local_only = local_candidate && nodes.is_empty();
     let mut count = 0;
     for node in nodes {
         let Some(observed) = native_platform::task_snapshot(scope, state, generation, stream)
@@ -1704,6 +1726,7 @@ mod tests {
                     Response::PermissionsPolicySnapshot(Default::default())
                 }
                 Request::WindowPosition => Response::WindowPosition { x: 0, y: 0 },
+                Request::DocumentFocus => Response::DocumentFocus { focused: true },
                 Request::WindowState => Response::WindowState {
                     hidden: false,
                     revision,
@@ -2325,5 +2348,48 @@ mod tests {
         assert!(eval(scope, "cancel").is_true());
         state.retire_execution();
         assert!(state.permission_elements.borrow().elements.is_empty());
+    }
+    #[test]
+    fn permission_locality_preserves_retry_and_publishing_fences_and_cursor_scan() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        assert_eq!(
+            poll_with_locality(scope, &state, 0, false).unwrap(),
+            (0, true)
+        );
+        assert!(state.permission_elements.borrow().cursor.is_some());
+        state.permission_elements.borrow_mut().publishing = true;
+        assert_eq!(
+            poll_with_locality(scope, &state, 0, false).unwrap(),
+            (0, false)
+        );
+        assert!(state.permission_elements.borrow().publishing);
+        state.permission_elements.borrow_mut().publishing = false;
+        let later = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        state.permission_elements.borrow_mut().retry_at = Some(later);
+        assert_eq!(
+            poll_with_locality(scope, &state, 0, false).unwrap(),
+            (0, false)
+        );
+        assert_eq!(state.permission_elements.borrow().retry_at, Some(later));
+        state.permission_elements.borrow_mut().retry_at = Some(std::time::Instant::now());
+        assert_eq!(
+            poll_with_locality(scope, &state, 0, false).unwrap(),
+            (0, false)
+        );
+        assert!(state.permission_elements.borrow().retry_at.is_none());
+        assert_eq!(
+            poll_with_locality(scope, &state, 0, false).unwrap(),
+            (0, true)
+        );
     }
 }

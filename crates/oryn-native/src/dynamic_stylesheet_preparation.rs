@@ -1343,6 +1343,28 @@ fn css_resource_failure_diagnostic(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn large_inline_declaration_sheet_keeps_native_publication_resource_free() {
+        let mut page = RustExecutableDocument::load(
+            r#"<!doctype html><style id=rules></style><script>
+            document.querySelector('style').innerText =
+                `input { border: 1px solid }`.repeat(2 << 16);
+            </script><input>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("String(document.querySelector('style').textContent.length)")
+                .unwrap(),
+            ("input { border: 1px solid }".len() * (2 << 16)).to_string()
+        );
+        assert_eq!(
+            page.evaluate("getComputedStyle(document.querySelector('input')).borderTopWidth")
+                .unwrap(),
+            "1px"
+        );
+    }
+
     #[test]
     fn font_failure_diagnostic_preserves_resource_and_nonfont_classification() {
         let font = css_resource_failure_diagnostic(

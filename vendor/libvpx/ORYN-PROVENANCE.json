@@ -4,5 +4,22 @@
   "commit": "6df3ec34557879fff673706f4a1d9fbd0f3a6f0e",
   "archive_sha256": "a91f7c403f66e7046ea7b9b4a41700398c78eb61024eb8ce398f60a8ebba4d7f",
   "license": "BSD-3-Clause; see LICENSE, PATENTS and AUTHORS",
-  "local_changes": "Only this provenance file; decoder-only generic-C configure occurs during Cargo build, not source generation."
+  "local_changes": "Oryn admitted VP9 dimensions/profile are enforced per actual decoded frame before dimension-dependent allocation; nonzero decoder cfg w/h are exact bounds in this fork. Zero/zero retains upstream behavior. Decoder-only generic-C build remains source-bound.",
+  "oryn_source_changes": [
+    {
+      "path": "vp9/common/vp9_onyxc_int.h",
+      "before_sha256": "2c44a00c9c9f22e83be4835395a6692d30be18b049701bce49e2581289e0b060",
+      "after_sha256": "2f68af295697250c3f1de90dca8f1072e5f04d8c5cf9071a2da597662fa171e5"
+    },
+    {
+      "path": "vp9/vp9_dx_iface.c",
+      "before_sha256": "0a32980632a37588a85cf026b8246e06927c796a80347c8aa9adb22f8c33eecf",
+      "after_sha256": "3fadeb128efe283b4a9d36d3b23f57e827af45d8ecc5458bf0bcf1b297aacdf2"
+    },
+    {
+      "path": "vp9/decoder/vp9_decodeframe.c",
+      "before_sha256": "796aac2d4515aa4647dbd5aa59f370d5c6d7a7295eda26803ae74a0475333fd2",
+      "after_sha256": "c680740b6c7ed7cf13f76159650697b8c537ba352cc29fe5f74223fdde957b94"
+    }
+  ]
 }

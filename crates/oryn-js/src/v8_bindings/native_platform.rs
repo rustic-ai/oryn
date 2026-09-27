@@ -51,8 +51,16 @@ struct PositionTask {
         u64,
     )>,
 }
+// A completed publication receipt, never a cached parent authorization/result.
+// Weak identities do not prolong backend or transport cleanup ownership.
+struct RootRegistrationReceipt {
+    creator: crate::worker_wire::Creator,
+    transport: std::sync::Weak<dyn crate::message_wire::MessageTransport>,
+    backend: std::sync::Weak<dyn Backend>,
+}
 #[derive(Default)]
 pub(super) struct State {
+    root_registration: Option<RootRegistrationReceipt>,
     task_retry_at: Option<std::time::Instant>,
     task_retry_attempt: u8,
     unavailable_control_locales: BTreeSet<String>,
@@ -155,6 +163,20 @@ pub(super) fn initialize_prerender_hidden(state: &V8BindingState) {
 }
 pub(super) fn effective_hidden(state: &V8BindingState, backend: bool) -> bool {
     backend || state.native_platform.borrow().lifecycle_hidden || state.document_prerendering()
+}
+pub(super) fn document_window_focused(state: &V8BindingState) -> Result<bool, V8BindingError> {
+    if state.execution_retired() || effective_hidden(state, false) {
+        return Ok(false);
+    }
+    if !has_backend(state) {
+        // A standalone JS realm has one implicit window, not a native page group.
+        return Ok(!state.native_platform.borrow().backend_hidden);
+    }
+    match request(state, Request::DocumentFocus)? {
+        Response::DocumentFocus { focused } => Ok(focused),
+        Response::WindowSuspended | Response::WindowRetired => Ok(false),
+        _ => Err(failure("document focus response mismatch")),
+    }
 }
 pub(super) fn visibility_snapshot(
     state: &V8BindingState,
@@ -326,9 +348,67 @@ pub(super) fn request(
         .backend
         .clone()
         .ok_or_else(|| failure("native platform backend unavailable"))?;
-    backend
-        .request(state.native_worker_creator()?, request)
-        .map_err(failure)
+    let creator = platform_creator(state, &backend)?;
+    backend.request(creator, request).map_err(failure)
+}
+
+fn platform_creator(
+    state: &V8BindingState,
+    backend: &std::sync::Arc<dyn Backend>,
+) -> Result<crate::worker_wire::Creator, V8BindingError> {
+    let local = state.native_local_creator_identity()?;
+    if state.document_prerendering()
+        || !matches!(
+            &local,
+            crate::worker_wire::Creator::Window {
+                target: crate::message_wire::WindowTarget::Root,
+                ..
+            }
+        )
+    {
+        state.native_platform.borrow_mut().root_registration = None;
+        return state.native_worker_creator();
+    }
+    let transport = state.message_transport.borrow().clone();
+    if let Some(transport) = &transport {
+        let platform = state.native_platform.borrow();
+        if platform.root_registration.as_ref().is_some_and(|receipt| {
+            receipt.creator == local
+                && receipt
+                    .transport
+                    .ptr_eq(&std::sync::Arc::downgrade(transport))
+                && receipt.backend.ptr_eq(&std::sync::Arc::downgrade(backend))
+        }) {
+            // The next backend request still validates this exact lifetime.
+            // No WindowState, permission, event cursor or result is reused.
+            return Ok(local);
+        }
+    }
+    state.native_platform.borrow_mut().root_registration = None;
+    let registered = state.native_worker_creator()?;
+    if let Some(transport) = transport
+        && registered == local
+        && matches!(state.native_local_creator_identity(), Ok(current) if current == local)
+        && !state.document_prerendering()
+        && state
+            .message_transport
+            .borrow()
+            .as_ref()
+            .is_some_and(|current| std::sync::Arc::ptr_eq(current, &transport))
+        && state
+            .native_platform
+            .borrow()
+            .backend
+            .as_ref()
+            .is_some_and(|current| std::sync::Arc::ptr_eq(current, backend))
+    {
+        state.native_platform.borrow_mut().root_registration = Some(RootRegistrationReceipt {
+            creator: registered.clone(),
+            transport: std::sync::Arc::downgrade(&transport),
+            backend: std::sync::Arc::downgrade(backend),
+        });
+    }
+    Ok(registered)
 }
 fn publish_security(
     scope: &mut v8::PinScope,
@@ -1487,6 +1567,317 @@ fn task_current(
     task_snapshot(scope, state, generation, epoch).is_some()
 }
 
+// All five polls perform only empty local bookkeeping when these exact
+// queues are empty. The entry/abort guard remains immediately before this
+// group. A retry, retained suffix or another editing owner keeps the full path.
+fn poll_retained_script_tasks(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    generation: u64,
+    epoch: u64,
+    count: &mut usize,
+) -> Result<bool, V8BindingError> {
+    if !global_events::has_pending_reports(state)
+        && post_connection_scripts::queue_empty(state)
+        && editing_commands::queue_empty(state)
+        && state.range_clone_completions.borrow().is_empty()
+        && form_activation::queue_empty(state)
+    {
+        return Ok(true);
+    }
+    *count += global_events::poll_reports(scope, state)?;
+    *count += post_connection_scripts::poll(scope, state)?;
+    *count += editing_commands::poll(scope, state)?;
+    *count += range_contents_observable::poll_completions(scope, state)?;
+    *count += form_activation::poll(scope, state)?;
+    Ok(task_current(scope, state, generation, epoch))
+}
+
+fn poll_picture_in_picture_tasks(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    generation: u64,
+    epoch: u64,
+    count: &mut usize,
+) -> Result<bool, V8BindingError> {
+    let requires_live_check = picture_in_picture::poll_requires_live_check(state);
+    // Preserve even the empty poll's retry-clock bookkeeping.
+    *count += picture_in_picture::poll(scope, state)?;
+    Ok(!requires_live_check || task_current(scope, state, generation, epoch))
+}
+
+fn poll_joint_projection_tasks(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    generation: u64,
+    epoch: u64,
+    count: &mut usize,
+) -> Result<bool, V8BindingError> {
+    match navigation_api::poll_joint_projection(scope, state)? {
+        navigation_api::JointProjectionPoll::LocalOnly => Ok(true),
+        navigation_api::JointProjectionPoll::CheckAuthority { completed } => {
+            *count += completed;
+            Ok(task_current(scope, state, generation, epoch))
+        }
+    }
+}
+
+// These four consecutive pollers have pure, local early returns. When all
+// are guaranteed idle, there is no callback, mutation or publication between
+// their intermediate authority checks. The caller retains the entry live guard; the active path retains its final
+// guard. Never reuse authority across a potentially active stage or actor turn.
+fn poll_document_task_group(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    generation: u64,
+    epoch: u64,
+    count: &mut usize,
+) -> Result<bool, V8BindingError> {
+    if !document_refresh::ready(state)
+        && submissions::queue_delay(state).is_none()
+        && dialog::delay(state).is_none()
+        && fullscreen::delay(state).is_none()
+    {
+        return Ok(true);
+    }
+    *count += document_refresh::poll(scope, state)?;
+    if !task_current(scope, state, generation, epoch) {
+        return Ok(false);
+    }
+    *count += submissions::poll_queues(scope, state)?;
+    if !task_current(scope, state, generation, epoch) {
+        return Ok(false);
+    }
+    *count += dialog::poll(scope, state)?;
+    if !task_current(scope, state, generation, epoch) {
+        return Ok(false);
+    }
+    *count += fullscreen::poll(scope, state)?;
+    Ok(task_current(scope, state, generation, epoch))
+}
+
+// None means all native navigation queues are empty, not merely waiting for
+// retry. The caller already checked current authority. An empty poll cannot run
+// script or mutate state, so it does not need a second identical admission check.
+fn poll_navigation_publications(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    generation: u64,
+    epoch: u64,
+    count: &mut usize,
+) -> Result<bool, V8BindingError> {
+    if navigation_api::publication_delay(state).is_none() {
+        return Ok(true);
+    }
+    *count += navigation_api::poll_publications(scope, state)?;
+    Ok(task_current(scope, state, generation, epoch))
+}
+fn poll_navigation_history_tasks(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    generation: u64,
+    epoch: u64,
+    count: &mut usize,
+) -> Result<bool, V8BindingError> {
+    // Re-read after joint projection: reconciliation can enqueue publications.
+    if navigation_api::publication_delay(state).is_none() {
+        return Ok(true);
+    }
+    *count += navigation_api::poll_joint_tasks(scope, state)?;
+    if !task_current(scope, state, generation, epoch) {
+        return Ok(false);
+    }
+    *count += navigation_api::poll_hash_tasks(scope, state)?;
+    Ok(task_current(scope, state, generation, epoch))
+}
+
+// The caller has just checked live authority. An empty abort queue with no
+// retry makes abort::poll assign None to an already-None retry and return. Keep
+// the publishing barrier even on this exact empty path.
+fn poll_abort_publications(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    generation: u64,
+    epoch: u64,
+) -> Result<bool, V8BindingError> {
+    let idle = {
+        let platform = state.native_platform.borrow();
+        platform.aborts.is_empty() && platform.abort_retry.is_none()
+    };
+    if !idle {
+        abort_publication::poll(scope, state)?;
+    }
+    let publishing = state.native_platform.borrow().publishing;
+    Ok(!publishing && (idle || task_current(scope, state, generation, epoch)))
+}
+fn poll_top_layer_tasks(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    generation: u64,
+    epoch: u64,
+    count: &mut usize,
+) -> Result<bool, V8BindingError> {
+    // delay(None) implies poll's own immediate return; a future retry is Some
+    // and retains the original poll and live check. No count-based inference.
+    if top_layer::delay(state).is_none() {
+        return Ok(true);
+    }
+    *count += top_layer::poll(scope, state)?;
+    Ok(task_current(scope, state, generation, epoch))
+}
+
+// The preceding history-stage guard remains live. Coalesce only a segment
+// whose queues are exactly empty and whose retry state is already canonical.
+// No callback, RPC, V8 allocation, or publication occurs on this branch. An
+// active/retrying segment retains both original authority checks and ordering.
+fn poll_publication_report_tasks(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    generation: u64,
+    epoch: u64,
+    count: &mut usize,
+) -> Result<bool, V8BindingError> {
+    let publication_idle = {
+        let platform = state.native_platform.borrow();
+        platform.publications.is_empty()
+            && !platform.publishing
+            && platform.publication_retry_at.is_none()
+            && platform.publication_retry_attempt == 0
+    };
+    if publication_idle && reporting::queues_empty(state) && fetch_later::records_empty(state) {
+        return Ok(true);
+    }
+    *count += publication::drain(scope, state)?;
+    if !state.native_platform.borrow().publications.is_empty()
+        || !task_current(scope, state, generation, epoch)
+    {
+        return Ok(false);
+    }
+    *count += reporting::poll(scope, state)?;
+    fetch_later::poll(scope, state)?;
+    Ok(task_current(scope, state, generation, epoch))
+}
+
+// The caller just obtained hidden from a live task_snapshot. An unchanged
+// visibility value performs only local reads; keep all pending-publication
+// barriers and revalidate after every actual visibility publication/callback.
+fn poll_visibility_publication(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    generation: u64,
+    epoch: u64,
+    creator: &crate::worker_wire::Creator,
+    hidden: bool,
+    count: &mut usize,
+) -> Result<bool, V8BindingError> {
+    let changed = state.native_platform.borrow().hidden != effective_hidden(state, hidden);
+    if changed {
+        publication::enqueue(
+            state,
+            creator.clone(),
+            publication::Payload::Visibility(hidden),
+        )?;
+        *count += publication::drain(scope, state)?;
+    }
+    if state.execution_retired()
+        || scope.is_execution_terminating()
+        || !state.native_platform.borrow().publications.is_empty()
+    {
+        return Ok(false);
+    }
+    Ok(!changed || task_current(scope, state, generation, epoch))
+}
+
+// An empty collection cannot issue a Permission RPC or dispatch a callback.
+// The caller still obtains its unconditional fresh task_snapshot immediately
+// after this group, before revision/geolocation work. Active status work keeps
+// its original entry guard and every post-publication guard.
+fn poll_permission_status_tasks(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    generation: u64,
+    epoch: u64,
+    creator: &crate::worker_wire::Creator,
+    count: &mut usize,
+) -> Result<bool, V8BindingError> {
+    if state.native_platform.borrow().permissions.is_empty() {
+        return Ok(true);
+    }
+    if !task_current(scope, state, generation, epoch) {
+        return Ok(false);
+    }
+    // Each PermissionStatus retains its published value. Do not suppress a
+    // failed or partially published batch using a shared window revision.
+    let statuses = state
+        .native_platform
+        .borrow()
+        .permissions
+        .iter()
+        .map(|(id, value)| (*id, value.descriptor.clone(), value.state))
+        .collect::<Vec<_>>();
+    for (id, descriptor, old) in statuses {
+        let Response::Permission { state: current, .. } =
+            request(state, Request::Permission { descriptor })?
+        else {
+            return Err(failure("permission response mismatch"));
+        };
+        if old != current {
+            publication::enqueue(
+                state,
+                creator.clone(),
+                publication::Payload::Permission(id, current),
+            )?;
+            *count += publication::drain(scope, state)?;
+            if state.execution_retired()
+                || scope.is_execution_terminating()
+                || !state.native_platform.borrow().publications.is_empty()
+            {
+                return Ok(false);
+            }
+            if !task_current(scope, state, generation, epoch) {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}
+
+// The caller supplies its immediately preceding post-StorageEvents snapshot.
+// Reuse it only across an observed local-only permission/media segment; active
+// work retains the original fresh check at each boundary, even if count is 0.
+fn poll_permission_media_tasks(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    generation: u64,
+    epoch: u64,
+    current: (bool, u64),
+    count: &mut usize,
+) -> Result<Option<(bool, u64)>, V8BindingError> {
+    let (hidden, revision) = current;
+    let (completed, permission_local) = permission_elements::poll_with_locality(
+        scope,
+        state,
+        revision,
+        effective_hidden(state, hidden),
+    )?;
+    *count += completed;
+    let current = if permission_local {
+        current
+    } else {
+        let Some(current) = task_snapshot(scope, state, generation, epoch) else {
+            return Ok(None);
+        };
+        current
+    };
+    let media_local = native_media::poll_is_local(state);
+    *count += native_media::poll(scope, state)?;
+    if media_local {
+        Ok(Some(current))
+    } else {
+        Ok(task_snapshot(scope, state, generation, epoch))
+    }
+}
+
 pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usize, V8BindingError> {
     let generation = state.document_generation();
     let epoch = state.document_stream_epoch();
@@ -1498,73 +1889,36 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
     if retry_pending || !task_current(scope, state, generation, epoch) {
         return Ok(0);
     }
-    abort_publication::poll(scope, state)?;
-    let publishing = state.native_platform.borrow().publishing;
-    if publishing || !task_current(scope, state, generation, epoch) {
+    if !poll_abort_publications(scope, state, generation, epoch)? {
         return Ok(0);
     }
-    let mut count = global_events::poll_reports(scope, state)?;
-    count += post_connection_scripts::poll(scope, state)?;
-    count += editing_commands::poll(scope, state)?;
-    count += range_contents_observable::poll_completions(scope, state)?;
-    count += form_activation::poll(scope, state)?;
-    if !task_current(scope, state, generation, epoch) {
+    let mut count = 0;
+    if !poll_retained_script_tasks(scope, state, generation, epoch, &mut count)? {
         return Ok(count);
     }
-    count += document_refresh::poll(scope, state)?;
-    if !task_current(scope, state, generation, epoch) {
+    if !poll_document_task_group(scope, state, generation, epoch, &mut count)? {
         return Ok(count);
     }
-    count += submissions::poll_queues(scope, state)?;
-    if !task_current(scope, state, generation, epoch) {
+    if !poll_picture_in_picture_tasks(scope, state, generation, epoch, &mut count)? {
         return Ok(count);
     }
-    count += dialog::poll(scope, state)?;
-    if !task_current(scope, state, generation, epoch) {
-        return Ok(count);
-    }
-    count += fullscreen::poll(scope, state)?;
-    if !task_current(scope, state, generation, epoch) {
-        return Ok(count);
-    }
-    count += picture_in_picture::poll(scope, state)?;
-    if !task_current(scope, state, generation, epoch) {
-        return Ok(count);
-    }
-    count += top_layer::poll(scope, state)?;
-    if !task_current(scope, state, generation, epoch) {
+    if !poll_top_layer_tasks(scope, state, generation, epoch, &mut count)? {
         return Ok(count);
     }
     count += interest::poll(scope, state)?;
     if !task_current(scope, state, generation, epoch) {
         return Ok(count);
     }
-    count += navigation_api::poll_publications(scope, state)?;
-    if !task_current(scope, state, generation, epoch) {
+    if !poll_navigation_publications(scope, state, generation, epoch, &mut count)? {
         return Ok(count);
     }
-    count += navigation_api::poll_joint_projection(scope, state)?;
-    if !task_current(scope, state, generation, epoch) {
+    if !poll_joint_projection_tasks(scope, state, generation, epoch, &mut count)? {
         return Ok(count);
     }
-    count += navigation_api::poll_joint_tasks(scope, state)?;
-    if !task_current(scope, state, generation, epoch) {
+    if !poll_navigation_history_tasks(scope, state, generation, epoch, &mut count)? {
         return Ok(count);
     }
-    count += navigation_api::poll_hash_tasks(scope, state)?;
-    if !task_current(scope, state, generation, epoch) {
-        return Ok(count);
-    }
-    count += publication::drain(scope, state)?;
-    if !state.native_platform.borrow().publications.is_empty() {
-        return Ok(count);
-    }
-    if !task_current(scope, state, generation, epoch) {
-        return Ok(count);
-    }
-    count += reporting::poll(scope, state)?;
-    fetch_later::poll(scope, state)?;
-    if !task_current(scope, state, generation, epoch) {
+    if !poll_publication_report_tasks(scope, state, generation, epoch, &mut count)? {
         return Ok(count);
     }
     while let Some((callback, value)) = { state.native_platform.borrow_mut().errors.pop_front() } {
@@ -1644,31 +1998,14 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
     let Some(current) = task_snapshot(scope, state, generation, epoch) else {
         return Ok(count);
     };
-    let (hidden, revision) = current;
-    count += permission_elements::poll(scope, state, revision, effective_hidden(state, hidden))?;
-    if !task_current(scope, state, generation, epoch) {
-        return Ok(count);
-    }
-    count += native_media::poll(scope, state)?;
-    let Some(current) = task_snapshot(scope, state, generation, epoch) else {
+    let Some((hidden, _)) =
+        poll_permission_media_tasks(scope, state, generation, epoch, current, &mut count)?
+    else {
         return Ok(count);
     };
-    let (hidden, _) = current;
-    if state.native_platform.borrow().hidden != effective_hidden(state, hidden) {
-        publication::enqueue(
-            state,
-            creator.clone(),
-            publication::Payload::Visibility(hidden),
-        )?;
-        count += publication::drain(scope, state)?;
-    }
-    if state.execution_retired()
-        || scope.is_execution_terminating()
-        || !state.native_platform.borrow().publications.is_empty()
-    {
-        return Ok(count);
-    }
-    if !task_current(scope, state, generation, epoch) {
+    if !poll_visibility_publication(
+        scope, state, generation, epoch, &creator, hidden, &mut count,
+    )? {
         return Ok(count);
     }
     if (!state.native_platform.borrow().permissions.is_empty()
@@ -1703,41 +2040,8 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
             state.native_platform.borrow_mut().window_position = Some((x, y));
         }
     }
-    if !task_current(scope, state, generation, epoch) {
+    if !poll_permission_status_tasks(scope, state, generation, epoch, &creator, &mut count)? {
         return Ok(count);
-    }
-    // Each PermissionStatus retains its published value. Do not suppress a
-    // failed or partially published batch using a shared window revision.
-    let statuses = state
-        .native_platform
-        .borrow()
-        .permissions
-        .iter()
-        .map(|(id, value)| (*id, value.descriptor.clone(), value.state))
-        .collect::<Vec<_>>();
-    for (id, descriptor, old) in statuses {
-        let Response::Permission { state: current, .. } =
-            request(state, Request::Permission { descriptor })?
-        else {
-            return Err(failure("permission response mismatch"));
-        };
-        if old != current {
-            publication::enqueue(
-                state,
-                creator.clone(),
-                publication::Payload::Permission(id, current),
-            )?;
-            count += publication::drain(scope, state)?;
-            if state.execution_retired()
-                || scope.is_execution_terminating()
-                || !state.native_platform.borrow().publications.is_empty()
-            {
-                return Ok(count);
-            }
-            if !task_current(scope, state, generation, epoch) {
-                return Ok(count);
-            }
-        }
     }
     let Some(current) = task_snapshot(scope, state, generation, epoch) else {
         return Ok(count);
@@ -1943,6 +2247,7 @@ impl V8BindingState {
 impl V8BindingState {
     pub fn set_native_platform_backend(&self, backend: std::sync::Arc<dyn Backend>) {
         let mut platform = self.native_platform.borrow_mut();
+        platform.root_registration = None;
         platform.backend = Some(backend);
         platform.task_retry_at = None;
         platform.task_retry_attempt = 0;
@@ -2138,6 +2443,7 @@ mod tests {
                     Response::PermissionsPolicySnapshot(Default::default())
                 }
                 Request::WindowPosition => Response::WindowPosition { x: 0, y: 0 },
+                Request::DocumentFocus => Response::DocumentFocus { focused: !hidden },
                 Request::WindowState => Response::WindowState { hidden, revision },
                 Request::Geolocation => Response::Geolocation {
                     position: if permission == PermissionState::Granted {
@@ -2302,6 +2608,1319 @@ mod tests {
         ));
         assert!(eval(scope,"(()=>{const r=policyObserver.takeRecords();return r.length===4&&r[0].body.featureId==='geolocation'&&r[0].body.disposition==='enforce'&&r[1].body.disposition==='report'&&r[2].body.featureId==='camera'})()").is_true());
     }
+    struct GroupBackend {
+        inner: TestBackend,
+        calls: Mutex<Vec<&'static str>>,
+        retired: std::sync::atomic::AtomicBool,
+    }
+    impl Backend for GroupBackend {
+        fn request(
+            &self,
+            creator: crate::worker_wire::Creator,
+            request: Request,
+        ) -> Result<Response, String> {
+            self.calls.lock().unwrap().push(match &request {
+                Request::WindowState => "window",
+                Request::CspEvents { .. } => "csp",
+                Request::StorageEvents { .. } => "storage",
+                _ => "other",
+            });
+            if matches!(&request, Request::WindowState) {
+                if self.retired.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Ok(Response::WindowRetired);
+                }
+                if PARKED.with(Cell::get) {
+                    return Ok(Response::WindowSuspended);
+                }
+            }
+            self.inner.request(creator, request)
+        }
+    }
+    thread_local! {
+        static GROUP_TIMERS: RefCell<Vec<(u64, v8::Global<v8::Function>)>> = const { RefCell::new(Vec::new()) };
+        static GROUP_PARK: Cell<bool> = const { Cell::new(false) };
+        static GROUP_FAIL: Cell<bool> = const { Cell::new(false) };
+    }
+    fn group_schedule(
+        scope: &mut v8::PinScope,
+        _state: &V8BindingState,
+        callback: v8::Local<v8::Function>,
+        delay: u64,
+    ) -> Result<(), V8BindingError> {
+        if GROUP_FAIL.with(|value| value.replace(false)) {
+            return Err(V8BindingError::Allocation(
+                "group injected scheduler failure",
+            ));
+        }
+        GROUP_TIMERS.with(|timers| {
+            timers
+                .borrow_mut()
+                .push((delay, v8::Global::new(scope, callback)))
+        });
+        if GROUP_PARK.with(Cell::get) {
+            PARKED.with(|value| value.set(true));
+        }
+        Ok(())
+    }
+    fn group_fixture(run: impl FnOnce(&mut v8::PinScope, &Rc<V8BindingState>, &Arc<GroupBackend>)) {
+        super::super::tests::initialize_v8();
+        PARKED.with(|value| value.set(false));
+        GROUP_PARK.with(|value| value.set(false));
+        GROUP_FAIL.with(|value| value.set(false));
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://group.test/start").unwrap();
+        state.set_message_transport(Arc::new(Messages));
+        state.set_worker_transport(Arc::new(Messages), None, None);
+        let backend = Arc::new(GroupBackend {
+            inner: TestBackend(Mutex::new((PermissionState::Granted, false, 1))),
+            calls: Mutex::new(Vec::new()),
+            retired: std::sync::atomic::AtomicBool::new(false),
+        });
+        state.set_native_platform_backend(backend.clone());
+        state.set_native_timeout_scheduler(group_schedule);
+        run(scope, &state, &backend);
+        GROUP_TIMERS.with(|timers| timers.borrow_mut().clear());
+        PARKED.with(|value| value.set(false));
+    }
+    #[test]
+    fn document_has_focus_uses_fresh_native_focus_and_rejects_inert_receivers() {
+        struct FocusBackend(std::sync::atomic::AtomicUsize);
+        impl Backend for FocusBackend {
+            fn request(
+                &self,
+                _: crate::worker_wire::Creator,
+                request: Request,
+            ) -> Result<Response, String> {
+                assert!(matches!(request, Request::DocumentFocus));
+                Ok(match self.0.load(std::sync::atomic::Ordering::SeqCst) {
+                    0 => Response::DocumentFocus { focused: true },
+                    1 => Response::DocumentFocus { focused: false },
+                    2 => Response::WindowSuspended,
+                    _ => Response::WindowRetired,
+                })
+            }
+        }
+        group_fixture(|scope, state, _| {
+            let backend = Arc::new(FocusBackend(std::sync::atomic::AtomicUsize::new(0)));
+            state.set_native_platform_backend(backend.clone());
+            assert!(eval(scope, "document.hasFocus()").is_true());
+            for value in [1, 2, 3] {
+                backend.0.store(value, std::sync::atomic::Ordering::SeqCst);
+                assert!(eval(scope, "document.hasFocus()").is_false());
+            }
+            backend.0.store(0, std::sync::atomic::Ordering::SeqCst);
+            assert!(eval(scope, "document.hasFocus()").is_true());
+            assert!(eval(scope, "Document.prototype.hasFocus.call(document.implementation.createHTMLDocument('inert'))").is_false());
+            state.retire_execution();
+            assert!(eval(scope, "document.hasFocus()").is_false());
+        });
+    }
+    #[test]
+    fn idle_permission_media_remove_two_checks_and_refresh_on_next_turn() {
+        group_fixture(|scope, state, backend| {
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            let current = task_snapshot(scope, state, generation, epoch).unwrap();
+            backend.calls.lock().unwrap().clear();
+            permission_elements::poll_with_locality(scope, state, current.1, current.0).unwrap();
+            assert!(task_current(scope, state, generation, epoch));
+            native_media::poll(scope, state).unwrap();
+            assert!(task_snapshot(scope, state, generation, epoch).is_some());
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"; 2]);
+            backend.calls.lock().unwrap().clear();
+            let before = std::time::Instant::now();
+            let mut count = 0;
+            assert_eq!(
+                poll_permission_media_tasks(scope, state, generation, epoch, current, &mut count)
+                    .unwrap(),
+                Some(current)
+            );
+            assert_eq!(count, 0);
+            assert!(backend.calls.lock().unwrap().is_empty());
+            assert!(
+                state
+                    .native_media
+                    .borrow()
+                    .retried
+                    .is_some_and(|time| time >= before)
+            );
+            assert!(!state.native_media.borrow().event_polling);
+            poll(scope, state).unwrap();
+            let calls = backend.calls.lock().unwrap().clone();
+            assert!(
+                calls.contains(&"window") && calls.contains(&"csp") && calls.contains(&"storage")
+            );
+            backend.calls.lock().unwrap().clear();
+            backend
+                .retired
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(poll(scope, state).unwrap(), 0);
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"]);
+        });
+    }
+    #[test]
+    fn idle_permission_media_still_discovers_new_connected_controls() {
+        group_fixture(|scope, state, backend| {
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            let current = task_snapshot(scope, state, generation, epoch).unwrap();
+            let mut count = 0;
+            assert!(
+                poll_permission_media_tasks(scope, state, generation, epoch, current, &mut count)
+                    .unwrap()
+                    .is_some()
+            );
+            eval(
+                scope,
+                "globalThis.camera=document.createElement('camera');document.body.append(camera)",
+            );
+            backend.calls.lock().unwrap().clear();
+            let (_, local) =
+                permission_elements::poll_with_locality(scope, state, current.1, current.0)
+                    .unwrap();
+            assert!(
+                !local,
+                "a DOM mutation must be discovered even after an empty poll"
+            );
+            assert!(backend.calls.lock().unwrap().contains(&"window"));
+            backend.calls.lock().unwrap().clear();
+            assert!(
+                poll_permission_media_tasks(scope, state, generation, epoch, current, &mut count)
+                    .unwrap()
+                    .is_some()
+            );
+            assert!(
+                backend.calls.lock().unwrap().contains(&"window"),
+                "retained permission elements remain conservatively active"
+            );
+        });
+    }
+    struct PermissionMediaBackend {
+        base: Arc<GroupBackend>,
+        retire: bool,
+    }
+    impl Backend for PermissionMediaBackend {
+        fn request(
+            &self,
+            creator: crate::worker_wire::Creator,
+            request: Request,
+        ) -> Result<Response, String> {
+            let response = match request {
+                Request::PromptCancel { .. } => {
+                    self.base.calls.lock().unwrap().push("cancel");
+                    Response::PromptCanceled
+                }
+                Request::Media {
+                    request: crate::media_capture::Request::AudioRender { .. },
+                } => {
+                    self.base.calls.lock().unwrap().push("media");
+                    Response::Media {
+                        response: crate::media_capture::Response::Stopped,
+                    }
+                }
+                request => return self.base.request(creator, request),
+            };
+            *self.base.inner.0.lock().unwrap() = (PermissionState::Granted, true, 9);
+            if self.retire {
+                self.base
+                    .retired
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            Ok(response)
+        }
+    }
+    #[test]
+    fn idle_permission_media_prompt_cancel_refreshes_before_media_even_with_zero_count() {
+        for retire in [false, true] {
+            group_fixture(|scope, state, backend| {
+                let generation = state.document_generation();
+                let epoch = state.document_stream_epoch();
+                let current = task_snapshot(scope, state, generation, epoch).unwrap();
+                state.set_native_platform_backend(Arc::new(PermissionMediaBackend {
+                    base: backend.clone(),
+                    retire,
+                }));
+                // A retained prompt whose native presentation is gone must still
+                // cancel through the ordinary fixup path before returning.
+                state.permission_elements.borrow_mut().prompt =
+                    Some((state.document_root(), "held-prompt".into()));
+                state.native_media.borrow_mut().retried = None;
+                backend.calls.lock().unwrap().clear();
+                let mut count = 0;
+                let next = poll_permission_media_tasks(
+                    scope, state, generation, epoch, current, &mut count,
+                )
+                .unwrap();
+                assert_eq!(count, 0);
+                assert!(state.permission_elements.borrow().prompt.is_none());
+                assert_eq!(*backend.calls.lock().unwrap(), vec!["cancel", "window"]);
+                if retire {
+                    assert!(next.is_none());
+                    assert!(state.native_media.borrow().retried.is_none());
+                } else {
+                    assert_eq!(next, Some((true, 9)));
+                    assert!(state.native_media.borrow().retried.is_some());
+                }
+            });
+        }
+    }
+    #[test]
+    fn idle_permission_media_cleanup_rpc_refreshes_even_when_no_event_is_dispatched() {
+        for retire in [false, true] {
+            group_fixture(|scope, state, backend| {
+                let generation = state.document_generation();
+                let epoch = state.document_stream_epoch();
+                let current = task_snapshot(scope, state, generation, epoch).unwrap();
+                state.set_native_platform_backend(Arc::new(PermissionMediaBackend {
+                    base: backend.clone(),
+                    retire,
+                }));
+                state
+                    .native_media
+                    .borrow_mut()
+                    .audio_cleanup
+                    .insert(("owned-audio".into(), 71));
+                assert!(!native_media::poll_is_local(state));
+                backend.calls.lock().unwrap().clear();
+                let mut count = 0;
+                let next = poll_permission_media_tasks(
+                    scope, state, generation, epoch, current, &mut count,
+                )
+                .unwrap();
+                assert_eq!(count, 0);
+                assert!(state.native_media.borrow().audio_cleanup.is_empty());
+                assert_eq!(*backend.calls.lock().unwrap(), vec!["media", "window"]);
+                assert_eq!(next, if retire { None } else { Some((true, 9)) });
+            });
+        }
+    }
+    #[test]
+    fn idle_permission_media_reentrant_media_keeps_its_guard_and_fresh_snapshot() {
+        group_fixture(|scope, state, backend| {
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            let current = task_snapshot(scope, state, generation, epoch).unwrap();
+            state.native_media.borrow_mut().event_polling = true;
+            assert!(!native_media::poll_is_local(state));
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert_eq!(
+                poll_permission_media_tasks(scope, state, generation, epoch, current, &mut count)
+                    .unwrap(),
+                Some(current)
+            );
+            assert_eq!(count, 0);
+            assert!(state.native_media.borrow().event_polling);
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"]);
+            state.native_media.borrow_mut().event_polling = false;
+        });
+    }
+
+    fn major_idle_history_entry(id: &str) -> crate::navigation_history::NavigationHistorySnapshot {
+        crate::navigation_history::NavigationHistorySnapshot {
+            scroll: Default::default(),
+            key: format!("major-key-{id}"),
+            id: id.into(),
+            url: format!("https://group.test/{id}"),
+            document_id: "major-document".into(),
+            state: None,
+            history_state: None,
+        }
+    }
+
+    #[test]
+    fn major_idle_prefix_and_pip_keep_fresh_next_poll_authority() {
+        group_fixture(|scope, state, backend| {
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            assert!(task_current(scope, state, generation, epoch));
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert!(
+                poll_retained_script_tasks(scope, state, generation, epoch, &mut count).unwrap()
+            );
+            assert!(
+                poll_picture_in_picture_tasks(scope, state, generation, epoch, &mut count).unwrap()
+            );
+            assert_eq!(count, 0);
+            assert!(backend.calls.lock().unwrap().is_empty());
+            poll(scope, state).unwrap();
+            let calls = backend.calls.lock().unwrap().clone();
+            assert!(
+                calls.contains(&"window") && calls.contains(&"csp") && calls.contains(&"storage")
+            );
+            backend.calls.lock().unwrap().clear();
+            backend
+                .retired
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(poll(scope, state).unwrap(), 0);
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"]);
+        });
+    }
+
+    #[test]
+    fn major_idle_report_suffix_retains_retry_callback_guard_and_no_replay() {
+        group_fixture(|scope, state, backend| {
+            fn park(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+                PARKED.with(|flag| flag.set(true));
+            }
+            let callback = v8::Function::new(scope, park).unwrap();
+            let key = v8::String::new(scope, "parkMajorReport").unwrap();
+            scope
+                .get_current_context()
+                .global(scope)
+                .create_data_property(scope, key.into(), callback.into());
+            eval(
+                scope,
+                "globalThis.majorReport=[];addEventListener('error',()=>majorReport.push('first'),{once:true});addEventListener('error',()=>{majorReport.push('tail');parkMajorReport()},{once:true});onerror=()=>{majorReport.push('handler');return true}",
+            );
+            let message = v8::String::new(scope, "retained major report").unwrap();
+            let error = v8::Exception::type_error(scope, message);
+            publication::fail_after_next_callback();
+            assert!(global_events::report_exception(scope, error, None).is_err());
+            assert!(global_events::has_pending_reports(state));
+            assert!(eval(scope, "majorReport.join()==='first'").is_true());
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            let mut count = 0;
+            backend.calls.lock().unwrap().clear();
+            // The exact unfinished error report remains queued, independently
+            // of whether its retry deadline becomes due during this test.
+            assert!(global_events::report_delay(state).is_some());
+            global_events::retry_reports_now(state);
+            backend.calls.lock().unwrap().clear();
+            assert!(
+                !poll_retained_script_tasks(scope, state, generation, epoch, &mut count).unwrap()
+            );
+            assert!(eval(scope, "majorReport.filter(x=>x==='first').length===1&&majorReport.filter(x=>x==='tail').length===1").is_true());
+            assert!(backend.calls.lock().unwrap().contains(&"window"));
+            PARKED.with(|flag| flag.set(false));
+            global_events::retry_reports_now(state);
+            assert!(
+                poll_retained_script_tasks(scope, state, generation, epoch, &mut count).unwrap()
+            );
+            assert!(!global_events::has_pending_reports(state));
+            assert!(eval(scope, "majorReport.join()==='first,tail,handler'").is_true());
+            backend.calls.lock().unwrap().clear();
+            assert!(
+                poll_retained_script_tasks(scope, state, generation, epoch, &mut count).unwrap()
+            );
+            assert!(backend.calls.lock().unwrap().is_empty());
+            assert!(eval(scope, "majorReport.join()==='first,tail,handler'").is_true());
+        });
+    }
+
+    #[test]
+    fn major_idle_projection_reconciles_canceled_receipt_without_query() {
+        group_fixture(|scope, state, backend| {
+            navigation_api::sync_history(
+                scope,
+                vec![major_idle_history_entry("a"), major_idle_history_entry("b")],
+                1,
+                "push",
+            )
+            .unwrap();
+            let route = state.joint_history_route();
+            let group = state.joint_history.borrow().clone();
+            let plan = group.borrow().plan(-1).unwrap().unwrap();
+            let receipt = group.borrow_mut().begin_execution(&plan).unwrap();
+            assert!(group.borrow_mut().commit(&plan).unwrap());
+            assert_eq!(group.borrow().selected(&route).unwrap().id, "a");
+            receipt.cancel();
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert!(
+                poll_joint_projection_tasks(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    &mut count
+                )
+                .unwrap()
+            );
+            assert_eq!(group.borrow().selected(&route).unwrap().id, "b");
+            assert_eq!(
+                receipt.poll(),
+                Some(Err(crate::joint_history::JointTraversalFailure::Canceled))
+            );
+            group.borrow().validate().unwrap();
+            assert_eq!(count, 0);
+            assert!(backend.calls.lock().unwrap().is_empty());
+        });
+    }
+
+    #[test]
+    fn major_idle_projection_dispose_keeps_callback_guard_and_no_replay() {
+        group_fixture(|scope, state, backend| {
+            fn park(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+                PARKED.with(|flag| flag.set(true));
+            }
+            let callback = v8::Function::new(scope, park).unwrap();
+            let key = v8::String::new(scope, "parkMajorDispose").unwrap();
+            scope
+                .get_current_context()
+                .global(scope)
+                .create_data_property(scope, key.into(), callback.into());
+            navigation_api::sync_history(
+                scope,
+                vec![major_idle_history_entry("a"), major_idle_history_entry("b")],
+                0,
+                "push",
+            )
+            .unwrap();
+            eval(
+                scope,
+                "globalThis.majorDisposes=0;globalThis.majorDisposed=navigation.entries()[1];majorDisposed.addEventListener('dispose',()=>{majorDisposes++;parkMajorDispose()},{once:true})",
+            );
+            let route = state.joint_history_route();
+            let group = state.joint_history.borrow().clone();
+            group
+                .borrow_mut()
+                .attach("major-child".into(), major_idle_history_entry("child-a"))
+                .unwrap();
+            group
+                .borrow_mut()
+                .push("major-child", major_idle_history_entry("child-b"))
+                .unwrap();
+            assert!(!group.borrow().knows(&route, "b"));
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert!(
+                !poll_joint_projection_tasks(scope, state, generation, epoch, &mut count).unwrap()
+            );
+            assert_eq!(count, 1);
+            assert!(backend.calls.lock().unwrap().contains(&"window"));
+            assert!(eval(scope, "majorDisposes===1&&majorDisposed.index===-1").is_true());
+            PARKED.with(|flag| flag.set(false));
+            navigation_api::hold_publications_for_test(state, false);
+            assert!(
+                poll_navigation_publications(scope, state, generation, epoch, &mut count).unwrap()
+            );
+            backend.calls.lock().unwrap().clear();
+            assert!(
+                poll_joint_projection_tasks(scope, state, generation, epoch, &mut count).unwrap()
+            );
+            assert!(backend.calls.lock().unwrap().is_empty());
+            assert!(eval(scope, "majorDisposes===1").is_true());
+        });
+    }
+
+    #[test]
+    fn major_idle_projection_pending_publication_keeps_authority_check() {
+        group_fixture(|scope, state, backend| {
+            navigation_api::hold_publications_for_test(state, true);
+            let _receipt =
+                navigation_api::start_native_document_lifecycle_publication(scope, false).unwrap();
+            assert!(navigation_api::document_lifecycle_publication_pending(
+                state
+            ));
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert!(
+                poll_joint_projection_tasks(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    &mut count
+                )
+                .unwrap()
+            );
+            assert_eq!(count, 0);
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"]);
+            assert!(navigation_api::document_lifecycle_publication_pending(
+                state
+            ));
+        });
+    }
+
+    #[test]
+    fn remaining_idle_guards_elide_only_local_noops_and_query_again_next_poll() {
+        group_fixture(|scope, state, backend| {
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            let creator = state.native_worker_creator().unwrap();
+            let (hidden, _) = task_snapshot(scope, state, generation, epoch).unwrap();
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert!(
+                poll_visibility_publication(
+                    scope, state, generation, epoch, &creator, hidden, &mut count
+                )
+                .unwrap()
+            );
+            assert!(
+                poll_permission_status_tasks(scope, state, generation, epoch, &creator, &mut count)
+                    .unwrap()
+            );
+            assert_eq!(count, 0);
+            assert!(backend.calls.lock().unwrap().is_empty());
+            // Neither the entry check nor independently polled remote queues
+            // are removed, and no authorization survives the next poll.
+            poll(scope, state).unwrap();
+            let calls = backend.calls.lock().unwrap().clone();
+            assert!(
+                calls.contains(&"window") && calls.contains(&"csp") && calls.contains(&"storage")
+            );
+            backend.calls.lock().unwrap().clear();
+            backend
+                .retired
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(poll(scope, state).unwrap(), 0);
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"]);
+        });
+    }
+
+    #[test]
+    fn remaining_idle_visibility_preserves_pending_publication_barrier() {
+        group_fixture(|scope, state, backend| {
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            let creator = state.native_worker_creator().unwrap();
+            let (hidden, _) = task_snapshot(scope, state, generation, epoch).unwrap();
+            publication::enqueue(
+                state,
+                creator.clone(),
+                publication::Payload::Visibility(!hidden),
+            )
+            .unwrap();
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert!(
+                !poll_visibility_publication(
+                    scope, state, generation, epoch, &creator, hidden, &mut count
+                )
+                .unwrap()
+            );
+            assert_eq!(count, 0);
+            assert!(!state.native_platform.borrow().publications.is_empty());
+            assert!(backend.calls.lock().unwrap().is_empty());
+        });
+    }
+
+    #[test]
+    fn remaining_idle_visibility_callback_parking_keeps_guard_and_no_replay() {
+        group_fixture(|scope, state, backend| {
+            fn park(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+                PARKED.with(|flag| flag.set(true));
+            }
+            let callback = v8::Function::new(scope, park).unwrap();
+            let key = v8::String::new(scope, "parkRemainingVisibility").unwrap();
+            scope
+                .get_current_context()
+                .global(scope)
+                .create_data_property(scope, key.into(), callback.into());
+            eval(
+                scope,
+                "globalThis.remainingVisibilityCalls=0;document.addEventListener('visibilitychange',()=>{remainingVisibilityCalls++;parkRemainingVisibility()})",
+            );
+            *backend.inner.0.lock().unwrap() = (PermissionState::Granted, true, 2);
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            let creator = state.native_worker_creator().unwrap();
+            let (hidden, _) = task_snapshot(scope, state, generation, epoch).unwrap();
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert!(
+                !poll_visibility_publication(
+                    scope, state, generation, epoch, &creator, hidden, &mut count
+                )
+                .unwrap()
+            );
+            assert!(eval(scope, "remainingVisibilityCalls===1").is_true());
+            assert!(backend.calls.lock().unwrap().contains(&"window"));
+            // Resume the already-owned publication suffix after unpark; do not
+            // start another visibility transition or replay its callback.
+            PARKED.with(|flag| flag.set(false));
+            state.native_platform.borrow_mut().publication_retry_at = None;
+            state.native_platform.borrow_mut().task_retry_at = None;
+            count += publication::drain(scope, state).unwrap();
+            assert!(state.native_platform.borrow().publications.is_empty());
+            let (hidden, _) = task_snapshot(scope, state, generation, epoch).unwrap();
+            backend.calls.lock().unwrap().clear();
+            assert!(
+                poll_visibility_publication(
+                    scope, state, generation, epoch, &creator, hidden, &mut count
+                )
+                .unwrap()
+            );
+            assert!(backend.calls.lock().unwrap().is_empty());
+            assert!(eval(scope, "remainingVisibilityCalls===1").is_true());
+        });
+    }
+
+    #[test]
+    fn remaining_idle_permission_status_keeps_entry_and_callback_guards() {
+        group_fixture(|scope, state, backend| {
+            fn park(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+                PARKED.with(|flag| flag.set(true));
+            }
+            let callback = v8::Function::new(scope, park).unwrap();
+            let key = v8::String::new(scope, "parkRemainingPermission").unwrap();
+            scope
+                .get_current_context()
+                .global(scope)
+                .create_data_property(scope, key.into(), callback.into());
+            eval(
+                scope,
+                "globalThis.remainingPermissionCalls=0;navigator.permissions.query({name:'geolocation'}).then(status=>{globalThis.remainingStatus=status;status.onchange=()=>{remainingPermissionCalls++;parkRemainingPermission()}})",
+            );
+            scope.perform_microtask_checkpoint();
+            assert_eq!(state.native_platform.borrow().permissions.len(), 1);
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            let creator = state.native_worker_creator().unwrap();
+            let mut count = 0;
+            PARKED.with(|flag| flag.set(true));
+            backend.calls.lock().unwrap().clear();
+            assert!(
+                !poll_permission_status_tasks(
+                    scope, state, generation, epoch, &creator, &mut count
+                )
+                .unwrap()
+            );
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"]);
+            assert!(eval(scope, "remainingPermissionCalls===0").is_true());
+            PARKED.with(|flag| flag.set(false));
+            *backend.inner.0.lock().unwrap() = (PermissionState::Denied, false, 2);
+            backend.calls.lock().unwrap().clear();
+            assert!(
+                !poll_permission_status_tasks(
+                    scope, state, generation, epoch, &creator, &mut count
+                )
+                .unwrap()
+            );
+            let calls = backend.calls.lock().unwrap().clone();
+            assert_eq!(calls.first(), Some(&"window"));
+            assert!(calls.iter().filter(|call| **call == "window").count() >= 2);
+            assert!(
+                eval(
+                    scope,
+                    "remainingPermissionCalls===1 && remainingStatus.state==='denied'"
+                )
+                .is_true()
+            );
+            PARKED.with(|flag| flag.set(false));
+            state.native_platform.borrow_mut().publication_retry_at = None;
+            state.native_platform.borrow_mut().task_retry_at = None;
+            count += publication::drain(scope, state).unwrap();
+            assert!(state.native_platform.borrow().publications.is_empty());
+            assert!(
+                poll_permission_status_tasks(scope, state, generation, epoch, &creator, &mut count)
+                    .unwrap()
+            );
+            assert!(eval(scope, "remainingPermissionCalls===1").is_true());
+        });
+    }
+
+    #[test]
+    fn remaining_idle_status_group_keeps_fresh_query_after_position_rpc() {
+        struct RetireAfterPosition {
+            inner: Arc<GroupBackend>,
+            position_seen: std::sync::atomic::AtomicBool,
+        }
+        impl Backend for RetireAfterPosition {
+            fn request(
+                &self,
+                creator: crate::worker_wire::Creator,
+                request: Request,
+            ) -> Result<Response, String> {
+                let position = matches!(&request, Request::WindowPosition);
+                let response = self.inner.request(creator, request)?;
+                if position {
+                    self.position_seen
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    self.inner
+                        .retired
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                Ok(response)
+            }
+        }
+        group_fixture(|scope, state, backend| {
+            let replacement = Arc::new(RetireAfterPosition {
+                inner: backend.clone(),
+                position_seen: std::sync::atomic::AtomicBool::new(false),
+            });
+            state.set_native_platform_backend(replacement.clone());
+            assert!(state.native_platform.borrow().permissions.is_empty());
+            assert!(state.native_platform.borrow().revision.is_none());
+            backend.calls.lock().unwrap().clear();
+            poll(scope, state).unwrap();
+            assert!(
+                replacement
+                    .position_seen
+                    .load(std::sync::atomic::Ordering::SeqCst)
+            );
+            assert_eq!(backend.calls.lock().unwrap().last(), Some(&"window"));
+            assert!(
+                state.native_platform.borrow().revision.is_none(),
+                "the post-RPC retirement must stop revision/geolocation publication"
+            );
+        });
+    }
+
+    #[test]
+    fn adjacent_idle_segments_remove_three_window_queries_without_caching_next_poll() {
+        group_fixture(|scope, state, backend| {
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            let mut count = 0;
+            // Previous idle boundaries: one post-document and two post-publication/report.
+            assert!(poll_document_task_group(scope, state, generation, epoch, &mut count).unwrap());
+            assert!(task_current(scope, state, generation, epoch));
+            count += publication::drain(scope, state).unwrap();
+            assert!(task_current(scope, state, generation, epoch));
+            count += reporting::poll(scope, state).unwrap();
+            fetch_later::poll(scope, state).unwrap();
+            assert!(task_current(scope, state, generation, epoch));
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"; 3]);
+            backend.calls.lock().unwrap().clear();
+            assert!(poll_document_task_group(scope, state, generation, epoch, &mut count).unwrap());
+            assert!(
+                poll_publication_report_tasks(scope, state, generation, epoch, &mut count).unwrap()
+            );
+            assert_eq!(count, 0);
+            assert!(backend.calls.lock().unwrap().is_empty());
+            poll(scope, state).unwrap();
+            let calls = backend.calls.lock().unwrap().clone();
+            assert!(
+                calls.contains(&"window") && calls.contains(&"csp") && calls.contains(&"storage")
+            );
+            backend.calls.lock().unwrap().clear();
+            backend
+                .retired
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(poll(scope, state).unwrap(), 0);
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"]);
+        });
+    }
+    #[test]
+    fn adjacent_publication_retry_keeps_original_clear_and_both_live_checks() {
+        group_fixture(|scope, state, backend| {
+            {
+                let mut platform = state.native_platform.borrow_mut();
+                platform.publication_retry_at =
+                    Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
+                platform.publication_retry_attempt = 2;
+            }
+            let mut count = 0;
+            assert!(
+                poll_publication_report_tasks(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    &mut count
+                )
+                .unwrap()
+            );
+            let platform = state.native_platform.borrow();
+            assert!(platform.publication_retry_at.is_none());
+            assert_eq!(platform.publication_retry_attempt, 0);
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"; 2]);
+            assert_eq!(count, 0);
+        });
+    }
+    #[test]
+    fn adjacent_reporting_callback_parking_stops_before_next_platform_stage() {
+        group_fixture(|scope, state, backend| {
+            fn park(
+                _scope: &mut v8::PinScope,
+                _args: v8::FunctionCallbackArguments,
+                _rv: v8::ReturnValue,
+            ) {
+                PARKED.with(|value| value.set(true));
+            }
+            let callback = v8::Function::new(scope, park).unwrap();
+            let key = v8::String::new(scope, "parkReportDocument").unwrap();
+            scope
+                .get_current_context()
+                .global(scope)
+                .create_data_property(scope, key.into(), callback.into());
+            eval(
+                scope,
+                "globalThis.reportCalls=0;globalThis.idleGuardObserver=new ReportingObserver(()=>{reportCalls++;parkReportDocument()});idleGuardObserver.observe()",
+            );
+            reporting::permission_native(state, "camera", "enforce");
+            assert!(!reporting::queues_empty(state));
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert!(
+                !poll_publication_report_tasks(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    &mut count
+                )
+                .unwrap()
+            );
+            assert_eq!(count, 1);
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"; 2]);
+            assert!(eval(scope, "reportCalls===1").is_true());
+            assert!(state.native_platform.borrow().task_retry_at.is_some());
+            PARKED.with(|value| value.set(false));
+        });
+    }
+
+    #[test]
+    fn adjacent_active_publication_keeps_guard_before_reporting_callback() {
+        group_fixture(|scope, state, backend| {
+            fn park(
+                _scope: &mut v8::PinScope,
+                _args: v8::FunctionCallbackArguments,
+                _rv: v8::ReturnValue,
+            ) {
+                PARKED.with(|value| value.set(true));
+            }
+            let callback = v8::Function::new(scope, park).unwrap();
+            let key = v8::String::new(scope, "parkVisibilityDocument").unwrap();
+            scope
+                .get_current_context()
+                .global(scope)
+                .create_data_property(scope, key.into(), callback.into());
+            eval(
+                scope,
+                "globalThis.visibilityCalls=0;globalThis.reportCalls=0;document.addEventListener('visibilitychange',()=>{visibilityCalls++;parkVisibilityDocument()});globalThis.pendingObserver=new ReportingObserver(()=>reportCalls++);pendingObserver.observe()",
+            );
+            reporting::permission_native(state, "camera", "enforce");
+            let creator = state.native_worker_creator().unwrap();
+            publication::enqueue(state, creator, publication::Payload::Visibility(true)).unwrap();
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert!(
+                !poll_publication_report_tasks(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    &mut count
+                )
+                .unwrap()
+            );
+            assert!(eval(scope, "visibilityCalls===1 && reportCalls===0").is_true());
+            assert!(!reporting::queues_empty(state));
+            assert!(state.native_platform.borrow().task_retry_at.is_some());
+            assert!(backend.calls.lock().unwrap().contains(&"window"));
+            PARKED.with(|value| value.set(false));
+        });
+    }
+    #[test]
+    fn idle_document_group_elides_three_queries_but_full_poll_keeps_live_observations() {
+        group_fixture(|scope, state, backend| {
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            // Execute the previous four-stage idle path as a counting reference.
+            assert_eq!(document_refresh::poll(scope, state).unwrap(), 0);
+            assert!(task_current(scope, state, generation, epoch));
+            assert_eq!(submissions::poll_queues(scope, state).unwrap(), 0);
+            assert!(task_current(scope, state, generation, epoch));
+            assert_eq!(dialog::poll(scope, state).unwrap(), 0);
+            assert!(task_current(scope, state, generation, epoch));
+            assert_eq!(fullscreen::poll(scope, state).unwrap(), 0);
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"; 3]);
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert!(poll_document_task_group(scope, state, generation, epoch, &mut count).unwrap());
+            assert_eq!(count, 0);
+            assert!(backend.calls.lock().unwrap().is_empty());
+            poll(scope, state).unwrap();
+            let calls = backend.calls.lock().unwrap().clone();
+            assert!(
+                calls.contains(&"window") && calls.contains(&"csp") && calls.contains(&"storage")
+            );
+            *backend.inner.0.lock().unwrap() = (PermissionState::Granted, true, 2);
+            poll(scope, state).unwrap();
+            assert!(state.native_platform.borrow().hidden);
+            backend.calls.lock().unwrap().clear();
+            backend
+                .retired
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(poll(scope, state).unwrap(), 0);
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"]);
+        });
+    }
+    #[test]
+    fn active_document_group_revalidates_after_refresh_and_preserves_parked_retry() {
+        group_fixture(|scope, state, backend| {
+            state.document_completely_loaded.set(true);
+            document_refresh::schedule(scope, state, "2;url=/next").unwrap();
+            GROUP_PARK.with(|value| value.set(true));
+            let mut count = 0;
+            assert!(
+                !poll_document_task_group(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    &mut count
+                )
+                .unwrap()
+            );
+            assert_eq!(count, 1);
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"]);
+            assert!(state.native_platform.borrow().task_retry_at.is_some());
+            GROUP_TIMERS.with(|timers| assert_eq!(timers.borrow()[0].0, 2000));
+            assert_eq!(poll(scope, state).unwrap(), 0);
+            GROUP_TIMERS.with(|timers| assert_eq!(timers.borrow().len(), 1));
+            PARKED.with(|value| value.set(false));
+            GROUP_PARK.with(|value| value.set(false));
+            state.set_native_platform_backend(backend.clone());
+            poll(scope, state).unwrap();
+            GROUP_TIMERS.with(|timers| assert_eq!(timers.borrow().len(), 1));
+        });
+    }
+    #[test]
+    fn active_document_group_preserves_scheduler_error_and_retry_without_replay() {
+        group_fixture(|scope, state, backend| {
+            state.document_completely_loaded.set(true);
+            document_refresh::schedule(scope, state, "2;url=/next").unwrap();
+            GROUP_FAIL.with(|value| value.set(true));
+            let mut count = 0;
+            assert!(matches!(
+                poll_document_task_group(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    &mut count
+                ),
+                Err(V8BindingError::Allocation(
+                    "group injected scheduler failure"
+                ))
+            ));
+            assert_eq!(count, 0);
+            assert!(document_refresh::ready(state));
+            assert!(backend.calls.lock().unwrap().is_empty());
+            assert!(
+                poll_document_task_group(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    &mut count
+                )
+                .unwrap()
+            );
+            assert_eq!(count, 1);
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"; 4]);
+            assert!(!document_refresh::ready(state));
+            assert!(
+                poll_document_task_group(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    &mut count
+                )
+                .unwrap()
+            );
+            GROUP_TIMERS.with(|timers| assert_eq!(timers.borrow().len(), 1));
+        });
+    }
+
+    #[test]
+    fn empty_navigation_queues_elide_three_checks_without_skipping_projection_or_native_drain() {
+        group_fixture(|scope, state, backend| {
+            assert!(navigation_api::publication_delay(state).is_none());
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            assert_eq!(navigation_api::poll_publications(scope, state).unwrap(), 0);
+            assert!(task_current(scope, state, generation, epoch));
+            assert_eq!(navigation_api::poll_joint_tasks(scope, state).unwrap(), 0);
+            assert!(task_current(scope, state, generation, epoch));
+            assert_eq!(navigation_api::poll_hash_tasks(scope, state).unwrap(), 0);
+            assert!(task_current(scope, state, generation, epoch));
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"; 3]);
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert!(
+                poll_navigation_publications(scope, state, generation, epoch, &mut count).unwrap()
+            );
+            assert!(
+                poll_navigation_history_tasks(scope, state, generation, epoch, &mut count).unwrap()
+            );
+            assert_eq!(count, 0);
+            assert!(backend.calls.lock().unwrap().is_empty());
+            // Native publication cleanup remains unconditional even if its queue is empty.
+            state.native_platform.borrow_mut().publication_retry_at =
+                Some(std::time::Instant::now());
+            state.native_platform.borrow_mut().publication_retry_attempt = 3;
+            poll(scope, state).unwrap();
+            assert!(
+                state
+                    .native_platform
+                    .borrow()
+                    .publication_retry_at
+                    .is_none()
+            );
+            assert_eq!(state.native_platform.borrow().publication_retry_attempt, 0);
+            let calls = backend.calls.lock().unwrap();
+            assert!(
+                calls.contains(&"window") && calls.contains(&"csp") && calls.contains(&"storage")
+            );
+        });
+    }
+    #[test]
+    fn queued_hash_tasks_keep_order_and_are_not_replayed_by_empty_fast_path() {
+        group_fixture(|scope, state, backend| {
+            state.commit_location("about:blank").unwrap();
+            state.set_security_origin("null".into());
+            navigation_api::sync_history(
+                scope,
+                vec![crate::navigation_history::NavigationHistorySnapshot {
+                    scroll: Default::default(),
+                    key: "key-opaque".into(),
+                    id: "opaque".into(),
+                    url: "about:blank".into(),
+                    document_id: "retained-document".into(),
+                    state: None,
+                    history_state: None,
+                }],
+                0,
+                "push",
+            )
+            .unwrap();
+            let receipt =
+                navigation_api::start_native_document_lifecycle_publication(scope, false).unwrap();
+            assert!(navigation_api::resume_native_history_publication(scope, receipt).unwrap());
+            assert!(eval(scope, "globalThis.hashes=[];onhashchange=e=>hashes.push(e.newURL);location.hash='#one';location.hash='#two';hashes.length===0").is_true());
+            assert!(navigation_api::publication_delay(state).is_some());
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert!(
+                poll_navigation_history_tasks(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    &mut count
+                )
+                .unwrap()
+            );
+            assert_eq!(count, 2);
+            assert!(eval(scope, "hashes.join() === 'about:blank#one,about:blank#two'").is_true());
+            assert!(backend.calls.lock().unwrap().contains(&"window"));
+            assert!(navigation_api::publication_delay(state).is_none());
+            backend.calls.lock().unwrap().clear();
+            assert!(
+                poll_navigation_history_tasks(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    &mut count
+                )
+                .unwrap()
+            );
+            assert_eq!(count, 2);
+            assert!(backend.calls.lock().unwrap().is_empty());
+        });
+    }
+    #[test]
+    fn active_navigation_publication_still_stops_after_callback_retires_document() {
+        group_fixture(|scope, state, _backend| {
+            fn retire(
+                scope: &mut v8::PinScope,
+                _args: v8::FunctionCallbackArguments,
+                _rv: v8::ReturnValue,
+            ) {
+                scope
+                    .get_current_context()
+                    .get_slot::<V8BindingState>()
+                    .expect("native publication callback binding state")
+                    .retire_execution();
+            }
+            let function = v8::Function::new(scope, retire).unwrap();
+            let key = v8::String::new(scope, "retireGroupDocument").unwrap();
+            scope
+                .get_current_context()
+                .global(scope)
+                .create_data_property(scope, key.into(), function.into());
+            eval(
+                scope,
+                "globalThis.lifecycle=[];onload=()=>{lifecycle.push('load');retireGroupDocument()};onpageshow=()=>lifecycle.push('pageshow')",
+            );
+            navigation_api::hold_publications_for_test(state, true);
+            let _receipt =
+                navigation_api::start_native_document_lifecycle_publication(scope, false).unwrap();
+            assert!(navigation_api::document_lifecycle_publication_pending(
+                state
+            ));
+            assert!(navigation_api::publication_delay(state).is_some());
+            assert!(!state.execution_retired());
+            assert!(eval(scope, "lifecycle.length===0").is_true());
+            navigation_api::hold_publications_for_test(state, false);
+            assert!(navigation_api::publications_ready(state));
+            let mut count = 0;
+            let result = poll_navigation_publications(
+                scope,
+                state,
+                state.document_generation(),
+                state.document_stream_epoch(),
+                &mut count,
+            );
+            assert!(
+                !matches!(result, Ok(true)),
+                "retirement must stop the enclosing poll"
+            );
+            assert!(state.execution_retired());
+            assert!(eval(scope, "lifecycle.join()==='load'").is_true());
+        });
+    }
+
+    #[test]
+    fn empty_abort_and_top_layer_elide_two_checks_but_keep_publishing_barrier() {
+        group_fixture(|scope, state, backend| {
+            let generation = state.document_generation();
+            let epoch = state.document_stream_epoch();
+            assert_eq!(abort_publication::poll(scope, state).unwrap(), 0);
+            assert!(task_current(scope, state, generation, epoch));
+            assert_eq!(top_layer::poll(scope, state).unwrap(), 0);
+            assert!(task_current(scope, state, generation, epoch));
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"; 2]);
+            backend.calls.lock().unwrap().clear();
+            let mut count = 0;
+            assert!(poll_abort_publications(scope, state, generation, epoch).unwrap());
+            assert!(poll_top_layer_tasks(scope, state, generation, epoch, &mut count).unwrap());
+            assert_eq!(count, 0);
+            assert!(backend.calls.lock().unwrap().is_empty());
+            state.native_platform.borrow_mut().publishing = true;
+            assert!(!poll_abort_publications(scope, state, generation, epoch).unwrap());
+            state.native_platform.borrow_mut().publishing = false;
+        });
+    }
+    #[test]
+    fn pending_abort_keeps_retry_error_and_listener_cursor_without_replay() {
+        group_fixture(|scope, state, backend| {
+            eval(
+                scope,
+                "globalThis.aborter=new AbortController();globalThis.abortCalls=[];globalThis.abortEvent=null;aborter.signal.addEventListener('abort',e=>{abortEvent=e;abortCalls.push('first')},{once:true});aborter.signal.addEventListener('abort',e=>abortCalls.push(e===abortEvent?'second':'wrong'))",
+            );
+            let signal = v8::Local::<v8::Object>::try_from(eval(scope, "aborter.signal")).unwrap();
+            let id = stateful_id(scope, signal).unwrap();
+            let reason = v8::String::new(scope, "original").unwrap();
+            publication::fail_after_next_callback();
+            assert!(abort_publication::start(scope, state, id, reason.into()).is_err());
+            assert!(abort_publication::pending(state));
+            assert!(eval(scope, "abortCalls.join()==='first'").is_true());
+            state.native_platform.borrow_mut().abort_retry =
+                Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
+            backend.calls.lock().unwrap().clear();
+            assert!(
+                poll_abort_publications(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch()
+                )
+                .unwrap()
+            );
+            assert_eq!(*backend.calls.lock().unwrap(), vec!["window"]);
+            assert!(abort_publication::pending(state));
+            assert!(eval(scope, "abortCalls.join()==='first'").is_true());
+            state.native_platform.borrow_mut().abort_retry = None;
+            assert!(
+                poll_abort_publications(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch()
+                )
+                .unwrap()
+            );
+            assert!(!abort_publication::pending(state));
+            assert!(
+                eval(
+                    scope,
+                    "abortCalls.join()==='first,second'&&aborter.signal.reason==='original'"
+                )
+                .is_true()
+            );
+            backend.calls.lock().unwrap().clear();
+            assert!(
+                poll_abort_publications(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch()
+                )
+                .unwrap()
+            );
+            assert!(backend.calls.lock().unwrap().is_empty());
+            assert!(eval(scope, "abortCalls.length===2").is_true());
+        });
+    }
+    #[test]
+    fn queued_top_layer_toggle_revalidates_after_callback_parks_document() {
+        group_fixture(|scope, state, backend| {
+            fn park(
+                _scope: &mut v8::PinScope,
+                _args: v8::FunctionCallbackArguments,
+                _rv: v8::ReturnValue,
+            ) {
+                PARKED.with(|value| value.set(true));
+            }
+            let function = v8::Function::new(scope, park).unwrap();
+            let key = v8::String::new(scope, "parkTopLayerDocument").unwrap();
+            scope
+                .get_current_context()
+                .global(scope)
+                .create_data_property(scope, key.into(), function.into());
+            eval(
+                scope,
+                "globalThis.pop=document.createElement('div');pop.id='group-popover';pop.setAttribute('popover','manual');document.body.append(pop);globalThis.toggleCalls=0;pop.addEventListener('toggle',()=>{toggleCalls++;parkTopLayerDocument()})",
+            );
+            let target = state
+                .dom
+                .borrow()
+                .get_element_by_id(state.document_root(), "group-popover")
+                .unwrap()
+                .unwrap();
+            top_layer::toggle(scope, state, target, Some(true), None).unwrap();
+            assert!(top_layer::delay(state).is_some());
+            let mut count = 0;
+            assert!(
+                !poll_top_layer_tasks(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    &mut count
+                )
+                .unwrap()
+            );
+            assert!(eval(scope, "toggleCalls===1").is_true());
+            assert!(state.native_platform.borrow().task_retry_at.is_some());
+            PARKED.with(|value| value.set(false));
+            state.set_native_platform_backend(backend.clone());
+            assert!(
+                poll_top_layer_tasks(
+                    scope,
+                    state,
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    &mut count
+                )
+                .unwrap()
+            );
+            assert!(eval(scope, "toggleCalls===1").is_true());
+        });
+    }
+
     thread_local! {static PARKED:Cell<bool>=const{Cell::new(false)};static MINIMIZED:Cell<bool>=const{Cell::new(false)};}
     struct ParkBackend(TestBackend);
     impl Backend for ParkBackend {
@@ -2924,5 +4543,200 @@ mod prototype_retention_tests {
                 .values()
                 .all(|value| value.to_local(handles).is_none())
         );
+    }
+}
+
+#[cfg(test)]
+mod root_registration_receipt_tests {
+    use super::*;
+    use crate::message_wire::{
+        MessageHub, MessageRequest, MessageResponse, MessageTransport, WindowTarget,
+    };
+    use crate::worker_wire::Creator;
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+    #[derive(Default)]
+    struct Authority {
+        hub: Mutex<MessageHub>,
+        registrations: AtomicUsize,
+        queries: AtomicUsize,
+        fail_registration: AtomicBool,
+        hidden: AtomicBool,
+    }
+    impl MessageTransport for Authority {
+        fn request(&self, request: MessageRequest) -> Result<MessageResponse, String> {
+            if matches!(&request, MessageRequest::RegisterRootDocument { .. }) {
+                self.registrations.fetch_add(1, Ordering::SeqCst);
+                if self.fail_registration.swap(false, Ordering::SeqCst) {
+                    return Err("injected registration failure".into());
+                }
+            }
+            self.hub.lock().unwrap().handle(
+                1,
+                request,
+                &BTreeMap::from([(1, "https://receipt.test".into())]),
+            )
+        }
+    }
+    impl Backend for Authority {
+        fn request(&self, creator: Creator, request: Request) -> Result<Response, String> {
+            self.queries.fetch_add(1, Ordering::SeqCst);
+            assert!(matches!(request, Request::WindowState));
+            let Creator::Window {
+                target,
+                document_generation,
+                stream_epoch,
+            } = creator
+            else {
+                return Err("Window required".into());
+            };
+            let hub = self.hub.lock().unwrap();
+            if hub
+                .root_document_authority(1, document_generation, stream_epoch)
+                .is_err()
+            {
+                return Ok(
+                    if hub
+                        .retained_document_authority(1, &target, document_generation, stream_epoch)
+                        .is_ok()
+                    {
+                        Response::WindowSuspended
+                    } else {
+                        Response::WindowRetired
+                    },
+                );
+            }
+            Ok(Response::WindowState {
+                hidden: self.hidden.load(Ordering::SeqCst),
+                revision: 1,
+            })
+        }
+    }
+    fn fixture(run: impl FnOnce(&Rc<V8BindingState>, &Arc<Authority>)) {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let authority = Arc::new(Authority::default());
+        state.set_message_transport(authority.clone());
+        state.set_native_platform_backend(authority.clone());
+        run(&state, &authority);
+    }
+    #[test]
+    fn repeated_platform_queries_reuse_registration_but_revalidate_parent_state() {
+        fixture(|state, authority| {
+            for _ in 0..32 {
+                assert!(matches!(
+                    request(state, Request::WindowState),
+                    Ok(Response::WindowState { hidden: false, .. })
+                ));
+            }
+            assert_eq!(authority.registrations.load(Ordering::SeqCst), 1);
+            assert_eq!(authority.queries.load(Ordering::SeqCst), 32);
+            authority.hidden.store(true, Ordering::SeqCst);
+            assert!(matches!(
+                request(state, Request::WindowState),
+                Ok(Response::WindowState { hidden: true, .. })
+            ));
+            MessageTransport::request(
+                &**authority,
+                MessageRequest::RetireRootDocument {
+                    document_generation: state.document_generation(),
+                    stream_epoch: state.document_authority_epoch(),
+                },
+            )
+            .unwrap();
+            assert!(matches!(
+                request(state, Request::WindowState),
+                Ok(Response::WindowRetired)
+            ));
+            assert_eq!(authority.registrations.load(Ordering::SeqCst), 1);
+            assert_eq!(authority.queries.load(Ordering::SeqCst), 34);
+        });
+    }
+    #[test]
+    fn failed_registration_retries_and_replaced_backend_transport_invalidate_receipt() {
+        fixture(|state, authority| {
+            authority.fail_registration.store(true, Ordering::SeqCst);
+            assert!(request(state, Request::WindowState).is_err());
+            assert_eq!(authority.queries.load(Ordering::SeqCst), 0);
+            request(state, Request::WindowState).unwrap();
+            assert_eq!(authority.registrations.load(Ordering::SeqCst), 2);
+            state.set_native_platform_backend(authority.clone());
+            request(state, Request::WindowState).unwrap();
+            assert_eq!(authority.registrations.load(Ordering::SeqCst), 3);
+            let replacement = Arc::new(Authority::default());
+            state.set_message_transport(replacement.clone());
+            request(state, Request::WindowState).unwrap();
+            assert_eq!(replacement.registrations.load(Ordering::SeqCst), 1);
+            // A successful receipt retains neither old transport nor backend.
+            state.set_message_transport(authority.clone());
+            let weak = Arc::downgrade(&replacement);
+            drop(replacement);
+            assert!(weak.upgrade().is_none());
+            request(state, Request::WindowState).unwrap();
+            assert_eq!(authority.registrations.load(Ordering::SeqCst), 4);
+        });
+    }
+    #[test]
+    fn lifetime_prerender_and_park_transitions_do_not_reuse_wrong_registration() {
+        fixture(|state, authority| {
+            request(state, Request::WindowState).unwrap();
+            state
+                .document_generation
+                .set(state.document_generation() + 1);
+            request(state, Request::WindowState).unwrap();
+            state
+                .document_authority_epoch
+                .set(state.document_authority_epoch() + 1);
+            request(state, Request::WindowState).unwrap();
+            assert_eq!(authority.registrations.load(Ordering::SeqCst), 3);
+            state
+                .document_stream_epoch
+                .set(state.document_stream_epoch() + 1);
+            request(state, Request::WindowState).unwrap();
+            assert_eq!(authority.registrations.load(Ordering::SeqCst), 3);
+            state.document_prerendering.set(true);
+            request(state, Request::WindowState).unwrap();
+            state.document_prerendering.set(false);
+            request(state, Request::WindowState).unwrap();
+            assert_eq!(authority.registrations.load(Ordering::SeqCst), 4);
+            MessageTransport::request(
+                &**authority,
+                MessageRequest::ParkDocument {
+                    document_generation: state.document_generation(),
+                    stream_epoch: state.document_authority_epoch(),
+                },
+            )
+            .unwrap();
+            assert!(matches!(
+                request(state, Request::WindowState),
+                Ok(Response::WindowSuspended)
+            ));
+            assert_eq!(authority.registrations.load(Ordering::SeqCst), 4);
+            assert!(
+                state
+                    .native_platform
+                    .borrow()
+                    .root_registration
+                    .as_ref()
+                    .is_some_and(|receipt| matches!(
+                        receipt.creator,
+                        Creator::Window {
+                            target: WindowTarget::Root,
+                            ..
+                        }
+                    ))
+            );
+        });
     }
 }

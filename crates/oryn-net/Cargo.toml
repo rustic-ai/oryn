@@ -6,6 +6,7 @@ license = "MIT OR Apache-2.0"
 description = "Asynchronous browser network primitives for Oryn"
 
 [dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 oryn-common = { path = "../oryn-common" }
 async-trait = "0.1"
 bytes = "1"

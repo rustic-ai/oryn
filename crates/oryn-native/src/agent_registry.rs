@@ -1129,7 +1129,12 @@ impl AgentRegistry {
         max: usize,
     ) -> Result<Vec<AgentEvent>, WorkerError> {
         let agent = self.authorized(owner, connection)?;
-        agent.pump(hub)?;
+        // Deliver this client's already admitted events before requesting a
+        // further process batch. Small polls must not fill the same queue again
+        // or let a later process failure replace its accepted ordered events.
+        if agent.clients[&connection.client.id].events.is_empty() {
+            agent.pump(hub)?;
+        }
         let client = agent.clients.get_mut(&connection.client.id).unwrap();
         let mut result = Vec::new();
         for _ in 0..max.min(32) {
@@ -3551,5 +3556,121 @@ mod tests {
         registry.release(&mut hub, &owner(8), &sibling).unwrap();
         finish_pending(&mut registry, &mut hub);
         assert_eq!(state.lock().unwrap().stops, 1);
+    }
+    fn numbered_client_event(line: u32) -> AgentEvent {
+        AgentEvent::Error {
+            message: "original worker event".encode_utf16().collect(),
+            filename: "worker.js".into(),
+            line,
+            column: 1,
+        }
+    }
+
+    #[test]
+    fn client_poll_drains_admitted_events_before_fetching_another_bounded_batch() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let mut registry = AgentRegistry::new(8);
+        let mut hub = oryn_js::message_wire::MessageHub::default();
+        let mut boot = bootstrap();
+        boot.kind = AgentKind::Dedicated;
+        boot.limits.queue_messages = 2;
+        boot.limits.queue_bytes = 2 * event_bytes(&numbered_client_event(1));
+        let connection = connect(&mut registry, owner(1), boot, &state).unwrap();
+        state.lock().unwrap().events = vec![numbered_client_event(1), numbered_client_event(2)];
+        assert!(
+            registry
+                .poll(&mut hub, &owner(1), &connection, 0)
+                .unwrap()
+                .is_empty()
+        );
+        state.lock().unwrap().events = vec![numbered_client_event(3), numbered_client_event(4)];
+        // Authorization still precedes access to accepted queued events.
+        assert_eq!(
+            registry
+                .poll(&mut hub, &owner(2), &connection, 1)
+                .unwrap_err()
+                .name,
+            "SecurityError"
+        );
+        for expected in [1, 2] {
+            assert!(
+                matches!(registry.poll(&mut hub, &owner(1), &connection, 1).unwrap().as_slice(),
+                [AgentEvent::Error { line, .. }] if *line == expected)
+            );
+            assert_eq!(
+                state.lock().unwrap().polls,
+                1,
+                "queued delivery must not consume another process batch"
+            );
+        }
+        assert_eq!(
+            registry.agents[&connection.agent].clients[&connection.client.id].bytes,
+            0
+        );
+        assert!(matches!(
+            registry
+                .poll(&mut hub, &owner(1), &connection, 32)
+                .unwrap()
+                .as_slice(),
+            [
+                AgentEvent::Error { line: 3, .. },
+                AgentEvent::Error { line: 4, .. }
+            ]
+        ));
+        assert_eq!(state.lock().unwrap().polls, 2);
+        assert_eq!(
+            registry.agents[&connection.agent].clients[&connection.client.id].bytes,
+            0
+        );
+        assert!(registry.principal(connection.agent).is_ok());
+        registry.release(&mut hub, &owner(1), &connection).unwrap();
+        finish_pending(&mut registry, &mut hub);
+        assert_eq!(state.lock().unwrap().stops, 1);
+    }
+
+    #[test]
+    fn client_poll_preserves_admitted_events_before_original_later_process_failure() {
+        struct ReportsThenFailure(bool);
+        impl AgentProcess for ReportsThenFailure {
+            fn send(&mut self, _: AgentCommand) -> Result<(), WorkerError> {
+                Ok(())
+            }
+            fn poll(&mut self, _: usize) -> Result<Vec<AgentEvent>, WorkerError> {
+                if std::mem::replace(&mut self.0, true) {
+                    return Err(WorkerError::new(
+                        "TypeError",
+                        "original later process failure",
+                    ));
+                }
+                Ok(vec![numbered_client_event(1), numbered_client_event(2)])
+            }
+            fn terminate(&mut self) -> Result<(), WorkerError> {
+                Ok(())
+            }
+        }
+        let mut registry = AgentRegistry::new(8);
+        let mut hub = oryn_js::message_wire::MessageHub::default();
+        let mut boot = bootstrap();
+        boot.kind = AgentKind::Dedicated;
+        let connection = registry
+            .connect(owner(1), boot, |_| Ok(Box::new(ReportsThenFailure(false))))
+            .unwrap();
+        for expected in [1, 2] {
+            assert!(
+                matches!(registry.poll(&mut hub, &owner(1), &connection, 1).unwrap().as_slice(),
+                [AgentEvent::Error { line, .. }] if *line == expected)
+            );
+        }
+        assert_eq!(
+            registry.agents[&connection.agent].clients[&connection.client.id].bytes,
+            0
+        );
+        let original = registry
+            .poll(&mut hub, &owner(1), &connection, 1)
+            .unwrap_err();
+        assert_eq!(original.name, "TypeError");
+        assert_eq!(original.message, "original later process failure");
+        assert!(registry.principal(connection.agent).is_err());
+        finish_pending(&mut registry, &mut hub);
     }
 }

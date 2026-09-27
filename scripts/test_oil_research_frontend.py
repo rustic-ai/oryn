@@ -61,7 +61,9 @@ class ResearchFrontendTests(unittest.TestCase):
                 count = sum(line.split()[0] in ('click', 'type', 'select') for line in lines)
                 frames = [dict(kind='action', result=dict(action_id=i+1, execution_domain='native')) for i in range(count)]
                 values = json.loads(json.dumps(case['expected']).replace('{base}', '/research/' + self.case_id))
-                frames += [dict(kind='structured', value=value) for value in values]
+                extraction_steps=[(i,line) for i,line in enumerate(lines) if line.startswith('extract ')]
+                self.assertEqual(len(values),len(extraction_steps))
+                frames += [dict(kind='structured', value=value,command_provenance=dict(phase='steps',step=i,oil=line,output=0)) for value,(i,line) in zip(values,extraction_steps)]
                 frames += [dict(kind='observation', observation=dict(page=dict(url=self.base+'/'+case['final'])))]
                 self.assertEqual(runner.validate(case, lines, self.base, frames, data), [])
                 changed = copy.deepcopy(data)

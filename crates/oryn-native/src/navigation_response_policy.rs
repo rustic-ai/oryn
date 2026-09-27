@@ -2,12 +2,57 @@
 //! every operation, including commit and revocation, with RouteAuthority's lock.
 //! Receiving headers does not publish policy or advance a document lifetime.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
+
+use sha2::{Digest, Sha256};
 
 use crate::{agent_registry::AgentOwner, runtime::RuntimeError};
 use oryn_common::v3::PageId;
 
 const CAPACITY: usize = 64;
+const REMOVAL_HISTORY_CAPACITY: usize = 64;
+
+#[derive(Clone, Copy)]
+enum RemovalReason {
+    Consumed,
+    Discarded,
+    NetworkTokenDiscarded,
+    ReservationAbandoned,
+    Cancelled,
+    NonDocument,
+    RouteRevoked,
+}
+
+impl RemovalReason {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Consumed => "consumed",
+            Self::Discarded => "context_token_discarded",
+            Self::NetworkTokenDiscarded => "network_token_discarded",
+            Self::ReservationAbandoned => "reservation_abandoned",
+            Self::Cancelled => "request_cancelled",
+            Self::NonDocument => "non_document",
+            Self::RouteRevoked => "route_revoked",
+        }
+    }
+}
+
+// Diagnostic history never retains authority, response data, or frame tokens.
+// It does not participate in admission, validation, cancellation, or replay.
+struct Removal {
+    fingerprint: [u8; 32],
+    request_id: u64,
+    page: PageId,
+    frame: bool,
+    generation: u64,
+    epoch: u64,
+    headers_admitted: bool,
+    reason: RemovalReason,
+}
+
+fn fingerprint(token: &str) -> [u8; 32] {
+    Sha256::digest(token.as_bytes()).into()
+}
 
 struct Response {
     url: String,
@@ -24,6 +69,7 @@ struct Grant {
 pub(super) struct Registry {
     retired: bool,
     grants: BTreeMap<String, Grant>,
+    removals: VecDeque<Removal>,
 }
 
 fn invalid(message: &str) -> RuntimeError {
@@ -31,6 +77,63 @@ fn invalid(message: &str) -> RuntimeError {
 }
 
 impl Registry {
+    fn remove(&mut self, token: &str, reason: RemovalReason) -> Option<Grant> {
+        let grant = self.grants.remove(token)?;
+        if let AgentOwner::Window {
+            page,
+            target,
+            generation,
+            epoch,
+        } = &grant.source
+        {
+            if self.removals.len() == REMOVAL_HISTORY_CAPACITY {
+                self.removals.pop_front();
+            }
+            self.removals.push_back(Removal {
+                fingerprint: fingerprint(token),
+                request_id: grant.request_id,
+                page: *page,
+                frame: matches!(target, oryn_js::message_wire::WindowTarget::Frame(_)),
+                generation: *generation,
+                epoch: *epoch,
+                headers_admitted: grant.response.is_some(),
+                reason,
+            });
+        }
+        Some(grant)
+    }
+
+    fn unknown(&self, token: &str, phase: &str) -> RuntimeError {
+        let digest = fingerprint(token);
+        let hex = digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let history = match self
+            .removals
+            .iter()
+            .rev()
+            .find(|item| item.fingerprint == digest)
+        {
+            Some(item) => format!(
+                "reason={} request_id={} source_page={} source_target={} source_generation={} source_epoch={} headers_admitted={}",
+                item.reason.label(),
+                item.request_id,
+                item.page.0,
+                if item.frame { "frame" } else { "root" },
+                item.generation,
+                item.epoch,
+                item.headers_admitted,
+            ),
+            // A different live route and an evicted record are both possible.
+            // Absence of local history does not prove the token was never issued.
+            None => "reason=unknown_or_unretained".into(),
+        };
+        invalid(&format!(
+            "unknown navigation response grant: phase={phase} token_sha256={hex} {history}"
+        ))
+    }
+
     /// Reserve before dispatch with a source captured by the native parent.
     /// Request IDs identify cancellation only; they are never commit authority.
     pub(super) fn begin(
@@ -93,14 +196,14 @@ impl Registry {
             return Err(invalid("response policy route retired"));
         }
         if !crate::frame_embedding::creates_document(status, &headers) {
-            self.grants.remove(token);
+            self.remove(token, RemovalReason::NonDocument);
             return Err(invalid("response does not create a document"));
         }
         url::Url::parse(&url).map_err(|_| invalid("invalid response policy URL"))?;
-        let grant = self
-            .grants
-            .get_mut(token)
-            .ok_or_else(|| invalid("unknown navigation response grant"))?;
+        if !self.grants.contains_key(token) {
+            return Err(self.unknown(token, "headers"));
+        }
+        let grant = self.grants.get_mut(token).unwrap();
         if grant.response.is_some() {
             return Err(invalid("navigation response headers already admitted"));
         }
@@ -127,7 +230,7 @@ impl Registry {
         let grant = self
             .grants
             .get(token)
-            .ok_or_else(|| invalid("unknown navigation response grant"))?;
+            .ok_or_else(|| self.unknown(token, "commit"))?;
         if !matches!(&grant.source, AgentOwner::Window { page: owner, .. } if *owner == page) {
             return Err(invalid("foreign navigation response page"));
         }
@@ -140,24 +243,42 @@ impl Registry {
         {
             return Err(invalid("navigation response payload mismatch"));
         }
-        let grant = self.grants.remove(token).unwrap();
+        let grant = self.remove(token, RemovalReason::Consumed).unwrap();
         let response = grant.response.unwrap();
         install(&grant.source, response.url, &response.headers)
     }
 
     /// Token-based cleanup remains safe after the numeric ID has been reused.
     pub(super) fn discard(&mut self, token: &str) {
-        self.grants.remove(token);
+        self.remove(token, RemovalReason::Discarded);
+    }
+
+    pub(super) fn discard_network_token(&mut self, token: &str) {
+        self.remove(token, RemovalReason::NetworkTokenDiscarded);
+    }
+
+    pub(super) fn abandon_reservation(&mut self, token: &str) {
+        self.remove(token, RemovalReason::ReservationAbandoned);
     }
 
     pub(super) fn cancel_request(&mut self, request_id: u64) {
-        self.grants
-            .retain(|_, grant| grant.request_id != request_id);
+        let tokens = self
+            .grants
+            .iter()
+            .filter(|(_, grant)| grant.request_id == request_id)
+            .map(|(token, _)| token.clone())
+            .collect::<Vec<_>>();
+        for token in tokens {
+            self.remove(&token, RemovalReason::Cancelled);
+        }
     }
 
     pub(super) fn revoke(&mut self) {
         self.retired = true;
-        self.grants.clear();
+        while let Some((token, _)) = self.grants.first_key_value() {
+            let token = token.clone();
+            self.remove(&token, RemovalReason::RouteRevoked);
+        }
     }
 }
 
@@ -193,6 +314,125 @@ mod tests {
             .headers(&token, 200, URL.into(), headers())
             .unwrap();
         token
+    }
+
+    fn rejected_commit(registry: &mut Registry, token: &str) -> String {
+        registry
+            .commit(PageId(1), token, URL, &headers(), |_, _, _| {
+                panic!("removed grant reached policy installation")
+            })
+            .unwrap_err()
+            .to_string()
+    }
+
+    #[test]
+    fn missing_grant_diagnostics_preserve_first_removal_and_source_without_authority() {
+        let mut registry = Registry::default();
+        for (id, reason) in [
+            (1, "context_token_discarded"),
+            (2, "reservation_abandoned"),
+            (3, "request_cancelled"),
+            (4, "non_document"),
+        ] {
+            let token = registry
+                .begin(
+                    id,
+                    AgentOwner::Window {
+                        page: PageId(1),
+                        target: WindowTarget::Frame("private-frame-authority".into()),
+                        generation: 17,
+                        epoch: 23,
+                    },
+                )
+                .unwrap();
+            registry
+                .headers(&token, 200, URL.into(), headers())
+                .unwrap();
+            match id {
+                1 => registry.discard(&token),
+                2 => registry.abandon_reservation(&token),
+                3 => registry.cancel_request(id),
+                4 => assert!(
+                    registry
+                        .headers(&token, 204, URL.into(), headers())
+                        .is_err()
+                ),
+                _ => unreachable!(),
+            }
+            // Late cleanup must not overwrite the actual removal cause.
+            registry.discard(&token);
+            registry.abandon_reservation(&token);
+            registry.cancel_request(id);
+            let error = rejected_commit(&mut registry, &token);
+            assert!(
+                error.contains("unknown navigation response grant: phase=commit token_sha256=")
+            );
+            assert!(error.contains(&format!("reason={reason} request_id={id} source_page=1 source_target=frame source_generation=17 source_epoch=23 headers_admitted=true")), "{error}");
+            assert!(!error.contains(&token));
+            assert!(!error.contains("private-frame-authority"));
+            assert!(!error.contains(URL));
+            assert!(!error.contains("script-src"));
+            let header_error = registry
+                .headers(&token, 200, URL.into(), headers())
+                .unwrap_err()
+                .to_string();
+            assert!(header_error.contains("phase=headers"));
+            assert!(header_error.contains(&format!("reason={reason}")));
+        }
+    }
+
+    #[test]
+    fn diagnostic_history_is_bounded_and_does_not_authorize_evicted_or_foreign_grants() {
+        let mut registry = Registry::default();
+        let first = ready(&mut registry, 1);
+        registry.discard(&first);
+        for id in 2..=(REMOVAL_HISTORY_CAPACITY as u64 + 1) {
+            let token = ready(&mut registry, id);
+            registry.cancel_request(id);
+        }
+        assert_eq!(registry.removals.len(), REMOVAL_HISTORY_CAPACITY);
+        assert!(rejected_commit(&mut registry, &first).contains("reason=unknown_or_unretained"));
+        let live = ready(&mut registry, 1);
+        let mut other_route = Registry::default();
+        assert!(rejected_commit(&mut other_route, &live).contains("reason=unknown_or_unretained"));
+        assert!(registry.grants.contains_key(&live));
+        registry.revoke();
+        assert_eq!(registry.removals.len(), REMOVAL_HISTORY_CAPACITY);
+        assert_eq!(
+            registry.removals.back().unwrap().reason.label(),
+            "route_revoked"
+        );
+        assert!(registry.grants.is_empty());
+        assert!(rejected_commit(&mut registry, &live).contains("response policy route retired"));
+        assert!(registry.begin(1, source(1, 7)).is_err());
+    }
+
+    #[test]
+    fn consumed_grant_diagnostics_preserve_single_use_after_success_and_failed_install() {
+        let mut registry = Registry::default();
+        for fail in [false, true] {
+            let token = ready(&mut registry, 41);
+            let result = registry.commit(PageId(1), &token, URL, &headers(), |_, _, _| {
+                if fail {
+                    Err(invalid("native lifetime rejected"))
+                } else {
+                    Ok(())
+                }
+            });
+            assert_eq!(result.is_err(), fail);
+            registry.discard(&token);
+            registry.cancel_request(41);
+            let successor = ready(&mut registry, 41);
+            let error = rejected_commit(&mut registry, &token);
+            assert!(error.contains("reason=consumed request_id=41"), "{error}");
+            assert!(!error.contains(&token));
+            registry
+                .commit(PageId(1), &successor, URL, &headers(), |owner, _, _| {
+                    assert_eq!(owner, &source(1, 7));
+                    Ok(())
+                })
+                .unwrap();
+        }
     }
 
     #[test]

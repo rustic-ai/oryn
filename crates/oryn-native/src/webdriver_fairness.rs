@@ -45,6 +45,7 @@ enum Completion {
 pub(super) struct PaintCleanup {
     worker: Option<std::thread::JoinHandle<Result<PaintSnapshot, RuntimeError>>>,
     completion: Option<(Reply, Completion)>,
+    diagnostic: Option<String>,
 }
 impl PaintCleanup {
     pub(super) fn poll(&mut self) -> bool {
@@ -56,12 +57,35 @@ impl PaintCleanup {
             return false;
         }
         if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+            self.diagnostic = match worker.join() {
+                Ok(Ok(_)) => None,
+                Ok(Err(error)) => Some(
+                    format!("native paint cleanup worker failed: {error}")
+                        .chars()
+                        .take(2048)
+                        .collect(),
+                ),
+                Err(_) => Some("native paint cleanup worker panicked".into()),
+            };
         }
         if let Some((reply, completion)) = self.completion.take() {
             reply.complete(completion);
         }
         true
+    }
+    pub(super) fn poll_with_trace(&mut self, state: &mut PageState) -> bool {
+        let settled = self.poll();
+        if let Some(detail) = self.diagnostic.take() {
+            state.trace.push(
+                Revision(state.revision),
+                None,
+                TraceEventKind::ScriptDiagnostic {
+                    capability: "paint.cleanup".into(),
+                    detail,
+                },
+            );
+        }
+        settled
     }
 }
 impl Drop for PaintCleanup {
@@ -69,7 +93,19 @@ impl Drop for PaintCleanup {
         // Backstop for abnormal ownership loss only. Shared actors retain this
         // object and poll it before removing the root or acknowledging close.
         if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+            self.diagnostic = match worker.join() {
+                Ok(Ok(_)) => None,
+                Ok(Err(error)) => Some(
+                    format!("native paint cleanup worker failed: {error}")
+                        .chars()
+                        .take(2048)
+                        .collect(),
+                ),
+                Err(_) => Some("native paint cleanup worker panicked".into()),
+            };
+        }
+        if let Some(detail) = self.diagnostic.take() {
+            eprintln!("{detail}");
         }
         if let Some((reply, completion)) = self.completion.take() {
             reply.complete(completion);
@@ -86,7 +122,7 @@ impl Reply {
                     let _ = reply.send(Err(error));
                     return;
                 }
-                let error = if matches!(error, RuntimeError::Closed) {
+                let error = if matches!(error, RuntimeError::Closed | RuntimeError::PageTaskYield) {
                     closed_error()
                 } else {
                     ScriptError::retired()
@@ -231,7 +267,7 @@ impl Pending {
     }
     pub(super) fn poll(mut self, state: &mut PageState) -> Option<Self> {
         if self.completion.is_some() {
-            return self.finish_completion();
+            return self.finish_completion(state);
         }
         let interrupted = self.closed()
             || self
@@ -257,7 +293,7 @@ impl Pending {
                 feedback,
                 Vec::new(),
             ));
-            return self.finish_completion();
+            return self.finish_completion(state);
         }
         if self.root_generation != state.document_generation {
             return self.fail(state, RuntimeError::StaleSemanticRef);
@@ -301,13 +337,17 @@ impl Pending {
             Ok(Some((result, mut feedback, receipts))) => {
                 feedback.page_generation = state.document_generation;
                 self.completion = Some(Completion::Finished(result, feedback, receipts));
-                self.finish_completion()
+                self.finish_completion(state)
             }
             Err(error) => self.fail(state, error),
         }
     }
-    fn finish_completion(mut self) -> Option<Self> {
-        if self.cleanup.as_mut().is_some_and(|cleanup| !cleanup.poll()) {
+    fn finish_completion(mut self, state: &mut PageState) -> Option<Self> {
+        if self
+            .cleanup
+            .as_mut()
+            .is_some_and(|cleanup| !cleanup.poll_with_trace(state))
+        {
             return Some(self);
         }
         self.cleanup = None;
@@ -332,7 +372,7 @@ impl Pending {
             Default::default()
         };
         self.completion = Some(Completion::Failed(error, feedback));
-        self.finish_completion()
+        self.finish_completion(state)
     }
     /// Transfer native cleanup custody without entering a retired frame. The
     /// recipient must retain this cleanup before acknowledging terminal close.
@@ -359,7 +399,11 @@ impl Pending {
         let completion = Completion::Failed(error, feedback);
         if let Some(mut cleanup) = self.cleanup.take() {
             cleanup.completion = Some((self.reply, completion));
-            if cleanup.poll() { None } else { Some(cleanup) }
+            if cleanup.poll_with_trace(state) {
+                None
+            } else {
+                Some(cleanup)
+            }
         } else {
             self.reply.complete(completion);
             None
@@ -1112,6 +1156,7 @@ impl Paint {
         self.worker.take().map(|worker| PaintCleanup {
             worker: Some(worker),
             completion: None,
+            diagnostic: None,
         })
     }
     fn install_frames(
@@ -1193,39 +1238,67 @@ mod tests {
             timeout_ms: None,
         }
     }
-    #[test]
-    fn pending_script_yields_root_turn_and_finishes_after_sibling_progress() {
-        let mut waiting = state(840);
-        let mut sibling = state(841);
-        let (reply, mut response) = oneshot::channel();
-        let pending = Pending::from_command(
-            &mut Some(PageCommand::WebdriverScript {
-                request: pending_script(),
-                context: Default::default(),
-                cancellation: None,
-                reply,
-            }),
-            &waiting,
-        )
-        .unwrap()
-        .poll(&mut waiting)
-        .expect("callback remains pending");
-        assert!(matches!(
-            response.try_recv(),
-            Err(oneshot::error::TryRecvError::Empty)
-        ));
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pending_script_yields_root_turn_and_finishes_after_sibling_progress() {
+        let browser = Browser::in_process_with_config(Default::default());
+        let context = browser.new_context();
+        let waiting = context.new_page();
+        waiting
+            .load_html("https://webdriver-fairness.test/", "<body>waiting</body>")
+            .await
+            .unwrap();
+        waiting
+            .evaluate("globalThis.sibling=window.open('about:blank')")
+            .await
+            .unwrap();
+        let sibling = context
+            .wait_for_page(
+                PagePredicate::Opener {
+                    page_id: waiting.page_id(),
+                },
+                Duration::from_secs(10),
+            )
+            .await
+            .unwrap();
+        let source = waiting.clone();
+        let command =
+            tokio::spawn(async move { source.execute_webdriver_script(pending_script()).await });
+        // Real related pages share one actor/host. Observing the installed
+        // callback proves the command is pending before the sibling completes it.
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if sibling
+                    .evaluate("String(typeof opener.finishCommand==='function')")
+                    .await
+                    .unwrap()
+                    == "true"
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("sibling commands must run while the source script is pending");
+        assert!(!command.is_finished(), "callback remains pending");
+        assert_eq!(sibling.evaluate(
+            "globalThis.siblingAdvanced=true;opener.finishCommand('after sibling');'advanced'"
+        ).await.unwrap(), "advanced");
         assert_eq!(
-            sibling
-                .evaluate("globalThis.siblingAdvanced=true; 'advanced'")
+            tokio::time::timeout(Duration::from_secs(10), command)
+                .await
+                .unwrap()
+                .unwrap()
                 .unwrap(),
-            "advanced"
-        );
-        waiting.evaluate("finishCommand('after sibling')").unwrap();
-        assert!(pending.poll(&mut waiting).is_none());
-        assert_eq!(
-            response.try_recv().unwrap().unwrap(),
             ScriptValue::String("after sibling".encode_utf16().collect())
         );
+        assert_eq!(
+            sibling.evaluate("String(siblingAdvanced)").await.unwrap(),
+            "true"
+        );
+        sibling.close().await.unwrap();
+        waiting.close().await.unwrap();
     }
     #[test]
     fn script_deadline_remains_host_owned_across_turns() {
@@ -1423,6 +1496,45 @@ mod tests {
         assert!(!settled.load(Ordering::Acquire));
         sender.send(()).unwrap();
         await_cleanup(&mut cleanup);
+    }
+    #[test]
+    fn panicking_cleanup_retains_primary_rejection_until_settlement() {
+        let mut state = state(854);
+        let (release, wait) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || -> Result<PaintSnapshot, RuntimeError> {
+            wait.recv().unwrap();
+            panic!("injected cleanup panic");
+        });
+        let (reply, mut response) = oneshot::channel();
+        let mut cleanup = PaintCleanup {
+            worker: Some(worker),
+            diagnostic: None,
+            completion: Some((
+                Reply::Actions(reply),
+                Completion::Failed(RuntimeError::Closed, Default::default()),
+            )),
+        };
+        assert!(!cleanup.poll_with_trace(&mut state));
+        assert!(matches!(
+            response.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        release.send(()).unwrap();
+        await_cleanup(&mut cleanup);
+        assert_eq!(
+            cleanup.diagnostic.as_deref(),
+            Some("native paint cleanup worker panicked")
+        );
+        assert_eq!(
+            response.try_recv().unwrap().0.unwrap_err().code,
+            "no such window"
+        );
+        assert!(cleanup.poll_with_trace(&mut state));
+        assert!(cleanup.diagnostic.is_none());
+        assert!(state.trace.events().iter().any(|event| matches!(
+            &event.kind, TraceEventKind::ScriptDiagnostic { capability, detail }
+                if capability == "paint.cleanup" && detail == "native paint cleanup worker panicked"
+        )));
     }
     #[test]
     fn terminal_rejection_defers_command_reply_until_worker_cleanup_settles() {

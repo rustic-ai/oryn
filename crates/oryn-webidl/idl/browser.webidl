@@ -49,6 +49,7 @@ dictionary TextEncoderEncodeIntoResult {
 
 [Exposed=Window]
 interface Window : EventTarget {
+  readonly attribute boolean isSecureContext;
   Selection? getSelection();
   [SameObject] readonly attribute CustomElementRegistry customElements;
   unsigned long requestAnimationFrame(FrameRequestCallback callback);
@@ -59,11 +60,18 @@ interface Window : EventTarget {
   [Replaceable] readonly attribute long screenTop;
   [Replaceable] readonly attribute long innerWidth;
   [Replaceable] readonly attribute long innerHeight;
+  [Replaceable] readonly attribute long outerWidth;
+  [Replaceable] readonly attribute long outerHeight;
   [SameObject] readonly attribute Navigation navigation;
   [SameObject] readonly attribute VisualViewport? visualViewport;
   attribute DOMString name;
   readonly attribute unsigned long length;
   [LegacyUnforgeable, PutForwards=href] readonly attribute Location location;
+};
+
+[Exposed=Worker]
+interface WorkerGlobalScope : EventTarget {
+  readonly attribute boolean isSecureContext;
 };
 
 callback FrameRequestCallback = undefined (double time);
@@ -172,6 +180,8 @@ interface Location {
 [Exposed=(Window,Worker)]
 interface URL {
   constructor(USVString url, optional USVString base);
+  static URL? parse(USVString url, optional USVString base);
+  static boolean canParse(USVString url, optional USVString base);
   attribute USVString href;
   readonly attribute USVString origin;
   attribute USVString protocol;
@@ -903,7 +913,18 @@ dictionary ShadowRootInit {
 
 [Exposed=Window]
 interface Element : Node {
-  WritableStream streamAppendHTMLUnsafe(optional SetHTMLUnsafeOptions options = {});
+  WritableStream streamBeforeHTML(optional SetHTMLOptions options = {});
+  WritableStream streamBeforeHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
+  WritableStream streamAfterHTML(optional SetHTMLOptions options = {});
+  WritableStream streamAfterHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
+  WritableStream streamReplaceWithHTML(optional SetHTMLOptions options = {});
+  WritableStream streamReplaceWithHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
+  WritableStream streamHTML(optional SetHTMLOptions options = {});
+  WritableStream streamHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
+  WritableStream streamAppendHTML(optional SetHTMLOptions options = {});
+  WritableStream streamAppendHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
+  WritableStream streamPrependHTML(optional SetHTMLOptions options = {});
+  WritableStream streamPrependHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
   [CEReactions] undefined appendHTML(DOMString html, optional SetHTMLOptions options = {});
   [CEReactions] undefined appendHTMLUnsafe((TrustedHTML or DOMString) html, optional SetHTMLUnsafeOptions options = {});
   [CEReactions] undefined prependHTML(DOMString html, optional SetHTMLOptions options = {});
@@ -1033,6 +1054,12 @@ interface NamedNodeMap {
 
 [Exposed=Window]
 interface DocumentType : Node {
+  WritableStream streamBeforeHTML(optional SetHTMLOptions options = {});
+  WritableStream streamBeforeHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
+  WritableStream streamAfterHTML(optional SetHTMLOptions options = {});
+  WritableStream streamAfterHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
+  WritableStream streamReplaceWithHTML(optional SetHTMLOptions options = {});
+  WritableStream streamReplaceWithHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
   [CEReactions, Unscopable] undefined before((Node or DOMString)... nodes);
   [CEReactions, Unscopable] undefined after((Node or DOMString)... nodes);
   [CEReactions, Unscopable] undefined replaceWith((Node or DOMString)... nodes);
@@ -2113,6 +2140,19 @@ interface Document : Node {
 };
 
 [Exposed=Window]
+interface XSLTProcessor {
+  constructor();
+  undefined importStylesheet(Node style);
+  DocumentFragment? transformToFragment(Node source, Document output);
+  Document? transformToDocument(Node source);
+  undefined setParameter(DOMString? namespaceURI, DOMString localName, DOMString value);
+  DOMString? getParameter(DOMString? namespaceURI, DOMString localName);
+  undefined removeParameter(DOMString? namespaceURI, DOMString localName);
+  undefined clearParameters();
+  undefined reset();
+};
+
+[Exposed=Window]
 interface XMLSerializer {
   constructor();
   DOMString serializeToString(Node root);
@@ -2647,7 +2687,12 @@ interface DocumentFragment : Node {
 
 [Exposed=Window]
 interface ShadowRoot : DocumentFragment {
-  WritableStream streamAppendHTMLUnsafe(optional SetHTMLUnsafeOptions options = {});
+  WritableStream streamHTML(optional SetHTMLOptions options = {});
+  WritableStream streamHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
+  WritableStream streamAppendHTML(optional SetHTMLOptions options = {});
+  WritableStream streamAppendHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
+  WritableStream streamPrependHTML(optional SetHTMLOptions options = {});
+  WritableStream streamPrependHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
   [CEReactions] undefined appendHTML(DOMString html, optional SetHTMLOptions options = {});
   [CEReactions] undefined appendHTMLUnsafe((TrustedHTML or DOMString) html, optional SetHTMLUnsafeOptions options = {});
   [CEReactions] undefined prependHTML(DOMString html, optional SetHTMLOptions options = {});
@@ -2670,6 +2715,12 @@ interface ShadowRoot : DocumentFragment {
 
 [Exposed=Window]
 interface CharacterData : Node {
+  WritableStream streamBeforeHTML(optional SetHTMLOptions options = {});
+  WritableStream streamBeforeHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
+  WritableStream streamAfterHTML(optional SetHTMLOptions options = {});
+  WritableStream streamAfterHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
+  WritableStream streamReplaceWithHTML(optional SetHTMLOptions options = {});
+  WritableStream streamReplaceWithHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
   [CEReactions, Unscopable] undefined before((Node or DOMString)... nodes);
   [CEReactions, Unscopable] undefined after((Node or DOMString)... nodes);
   [CEReactions, Unscopable] undefined replaceWith((Node or DOMString)... nodes);
@@ -3085,18 +3136,26 @@ interface TrustedScriptURL {
   USVString toJSON();
 };
 
+[Exposed=(Window,Worker)]
+interface TrustedParserOptions {
+  readonly attribute boolean runScripts;
+};
+
 dictionary TrustedTypePolicyOptions {
+  CreateParserOptionsCallback createParserOptions;
   CreateHTMLCallback createHTML;
   CreateScriptCallback createScript;
   CreateScriptURLCallback createScriptURL;
 };
 
+callback CreateParserOptionsCallback = SetHTMLUnsafeOptions? (SetHTMLUnsafeOptions input, any... arguments);
 callback CreateHTMLCallback = DOMString? (DOMString input, any... arguments);
 callback CreateScriptCallback = DOMString? (DOMString input, any... arguments);
 callback CreateScriptURLCallback = USVString? (DOMString input, any... arguments);
 
 [Exposed=(Window,Worker)]
 interface TrustedTypePolicy {
+  TrustedParserOptions createParserOptions(optional SetHTMLUnsafeOptions input = {}, any... arguments);
   readonly attribute DOMString name;
   TrustedHTML createHTML(DOMString input, any... arguments);
   TrustedScript createScript(DOMString input, any... arguments);
@@ -4535,3 +4594,6 @@ dictionary IntersectionObserverEntryInit {
 
 // Storage Access API; receiver ownership and Promise settlement are native.
 partial interface Document { Promise<boolean> hasStorageAccess(); Promise<undefined> requestStorageAccess(); };
+
+// Native foreground and active-document focus inspection.
+partial interface Document { boolean hasFocus(); };

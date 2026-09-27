@@ -3,15 +3,30 @@ import json
 import copy
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 from unittest.mock import patch
 import completion_execution as execution
 
 
+def framework_artifacts(root):
+    python = Path(sys.executable).absolute()
+    controls = root / 'native-controls-contract.json'
+    controls.write_text(json.dumps({
+        'upstream_python': {'path': str(python), 'sha256': execution.digest(python)},
+    }))
+    return {
+        **{name: root/name for name in ('runtime', 'worker', 'framework_build')},
+        'native_controls_contract': controls,
+    }
+
+
 class CompletionExecutionTests(unittest.TestCase):
     def test_architecture_command_binds_candidate_and_raw_output_without_cargo(self):
         candidate = {'path': Path('/frozen/candidate.json'), 'sha256': 'a' * 64, 'artifacts': {}}
-        command = execution.command('architecture', candidate, '/gate.json', '/original/architecture')
+        with patch.object(execution, 'candidate_python', return_value='/pinned/venv/bin/python'):
+            command = execution.command('architecture', candidate, '/gate.json', '/original/architecture')
+        self.assertEqual(command[0], '/pinned/venv/bin/python')
         self.assertEqual(command[2:], ['--require-cutover', '--candidate', '/frozen/candidate.json',
             '--candidate-sha256', 'a' * 64, '--output', '/original/architecture/raw'])
         self.assertNotIn('cargo', command)
@@ -47,7 +62,7 @@ class CompletionExecutionTests(unittest.TestCase):
             candidate = root / 'candidate.json'; candidate.write_text('{}')
             gate = root / 'gate.json'; gate.write_text('{"declaration":"original"}')
             bound = dict(path=candidate, sha256=execution.digest(candidate), record=dict(source_tree_sha256='a'*64),
-                         artifacts={name: root/name for name in ('runtime', 'worker', 'framework_build')})
+                         artifacts=framework_artifacts(root))
             original_persist = execution.persist
             def persist(path, value):
                 original_persist(path, value)
@@ -76,7 +91,7 @@ class CompletionExecutionTests(unittest.TestCase):
                 candidate = root / 'candidate.json'; candidate.write_text('{}')
                 gate = root / 'gate.json'; gate.write_text('{}')
                 bound = dict(path=candidate, sha256=execution.digest(candidate), record=dict(source_tree_sha256='a'*64),
-                             artifacts={name: root/name for name in ('runtime', 'worker', 'framework_build')})
+                             artifacts=framework_artifacts(root))
                 replacement = dict(bound, sha256='b'*64)
                 candidates = [bound, replacement if changed == 'candidate' else bound]
                 hashes = ['a'*64, 'b'*64] if changed == 'source' else ['a'*64]
@@ -94,7 +109,7 @@ class CompletionExecutionTests(unittest.TestCase):
             candidate = root / 'candidate.json'; candidate.write_text('{}')
             gate = root / 'gate.json'; gate.write_text('{}')
             bound = dict(path=candidate, sha256=execution.digest(candidate), record=dict(source_tree_sha256='a'*64),
-                         artifacts={name: root/name for name in ('runtime', 'worker', 'framework_build')})
+                         artifacts=framework_artifacts(root))
             output = root / 'run'
             def run(argv, target, **kwargs):
                 self.assertTrue((target / 'preflight.json').is_file())
@@ -115,7 +130,7 @@ class CompletionExecutionTests(unittest.TestCase):
             candidate = root / 'candidate.json'; candidate.write_text('{}')
             gate = root / 'gate.json'; gate.write_text('{}')
             bound = dict(path=candidate, sha256=execution.digest(candidate), record=dict(source_tree_sha256='a'*64),
-                         artifacts={name: root/name for name in ('runtime', 'worker', 'framework_build')})
+                         artifacts=framework_artifacts(root))
             output = root / 'run'
             def run(argv, target, **kwargs):
                 (target / 'stdout.log').write_text('retained original output')
@@ -160,7 +175,7 @@ class CompletionExecutionTests(unittest.TestCase):
             original = execution.reference(gate)
             bound = dict(path=candidate, sha256=execution.digest(candidate),
                          record=dict(source_tree_sha256='a'*64),
-                         artifacts={name: root/name for name in ('runtime', 'worker', 'framework_build')})
+                         artifacts=framework_artifacts(root))
             output = root / 'run'
             def run(argv, target, **kwargs):
                 gate.write_text('{"declaration":"replacement also structurally valid"}')

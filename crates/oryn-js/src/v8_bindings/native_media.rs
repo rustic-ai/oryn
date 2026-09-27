@@ -1098,6 +1098,25 @@ pub(super) fn install(
         .insert("OverconstrainedError", retained);
     Ok(())
 }
+// Used only immediately before poll, after the enclosing live check. Keep
+// poll itself: retried and media_element's event guard still advance normally.
+// No authority or result survives this synchronous, callback-free segment.
+pub(super) fn poll_is_local(state: &V8BindingState) -> bool {
+    let media = state.native_media.borrow();
+    !media.event_polling
+        && media.captures.is_empty()
+        && media.captured.is_empty()
+        && media.canceling.is_empty()
+        && media.pending.is_empty()
+        && media.tracks.is_empty()
+        && media.streams.is_empty()
+        && media.playback.is_empty()
+        && media.events.is_empty()
+        && media.audio_cleanup.is_empty()
+        && media.muted.is_empty()
+        && !media.resources.has_work()
+}
+
 pub(super) fn poll(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,

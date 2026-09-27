@@ -36,7 +36,7 @@ def main():
     if context.get('candidate_sha256') != bound['candidate_sha256'] or context.get('run_contract_sha256') != bound['sha256']:
         raise ValueError('placement context differs from frozen run')
     result = qualify(json.loads((root / names[1]).read_text()), json.loads((root / names[2]).read_text()),
-                     context, bound['candidate']['artifacts']['runtime']['sha256'])
+                     context, bound['candidate']['artifacts']['worker']['sha256'])
     result['artifacts'] = {name: sha256(root / name) for name in names}
     with args.output.open('x') as stream:
         json.dump(result, stream, indent=2, sort_keys=True)

@@ -27,7 +27,7 @@ use crate::{
     security::{NetworkPolicy, PolicyDenied},
 };
 
-const BROKER_PROTOCOL_VERSION: u32 = 8;
+const BROKER_PROTOCOL_VERSION: u32 = 9;
 use crate::worker_route::WorkerRoute;
 const MAX_BROKER_FRAME_BYTES: usize = 24 * 1024 * 1024;
 const MAX_DECODED_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
@@ -197,6 +197,68 @@ pub struct NetworkStreamResponse {
 /// Headers are always emitted before body chunks and completion.  Keeping this
 /// contract in `oryn-native` lets policy/cache/cookie adapters decorate a live
 /// body without turning it back into a blocking `Read` implementation.
+/// Failure metadata received only through the authenticated host broker route.
+/// The legacy string form stays an ordinary failure, regardless of its text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[serde(untagged)]
+pub enum NetworkFailure {
+    #[error("server certificate rejected: {certificate_rejected}")]
+    Certificate { certificate_rejected: String },
+    #[error("{0}")]
+    Message(String),
+}
+impl std::ops::Deref for NetworkFailure {
+    type Target = str;
+    fn deref(&self) -> &str {
+        match self {
+            Self::Message(message) => message,
+            Self::Certificate {
+                certificate_rejected,
+            } => certificate_rejected,
+        }
+    }
+}
+impl From<NetworkError> for NetworkFailure {
+    fn from(error: NetworkError) -> Self {
+        match error {
+            NetworkError::CertificateRejected(detail) => Self::Certificate {
+                certificate_rejected: detail,
+            },
+            other => Self::Message(other.to_string()),
+        }
+    }
+}
+impl From<String> for NetworkFailure {
+    fn from(message: String) -> Self {
+        Self::Message(message)
+    }
+}
+impl From<&str> for NetworkFailure {
+    fn from(message: &str) -> Self {
+        Self::Message(message.into())
+    }
+}
+impl From<oryn_net::TransportError> for NetworkFailure {
+    fn from(error: oryn_net::TransportError) -> Self {
+        match error {
+            oryn_net::TransportError::CertificateRejected(detail) => Self::Certificate {
+                certificate_rejected: detail,
+            },
+            other => Self::Message(other.to_string()),
+        }
+    }
+}
+impl From<NetworkFailure> for NetworkError {
+    fn from(error: NetworkFailure) -> Self {
+        match error {
+            NetworkFailure::Certificate {
+                certificate_rejected,
+            } => Self::CertificateRejected(certificate_rejected),
+            NetworkFailure::Message(message) => Self::Transport(message),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetworkEvent {
     Headers {
@@ -218,7 +280,7 @@ pub enum NetworkEvent {
     },
     Failed {
         request_id: u64,
-        error: String,
+        error: NetworkFailure,
     },
 }
 
@@ -381,7 +443,7 @@ impl MimePrefixState {
                         NetworkEvent::Failed { request_id, error }
                             if *request_id == operation.request_id =>
                         {
-                            return Poll::Ready(Err(error.clone()));
+                            return Poll::Ready(Err(error.to_string()));
                         }
                         _ => {
                             return Poll::Ready(Err(
@@ -553,7 +615,7 @@ pub(crate) fn collect_started_body_with_metadata(
                 });
             }
             NetworkEvent::Failed { request_id, error } if request_id == operation.request_id => {
-                return Err(NetworkError::Transport(error));
+                return Err(NetworkError::from(error));
             }
             _ => {
                 return Err(NetworkError::Transport(
@@ -742,7 +804,7 @@ fn collect_operation_bounded_inner(
             }
             NetworkEvent::Failed { error, .. } => {
                 let _ = broker.cancel_operation(expected_request_id);
-                return Err(NetworkError::Transport(error));
+                return Err(NetworkError::from(error));
             }
         }
     }
@@ -919,7 +981,7 @@ pub trait NetworkBroker: Send + Sync {
                         Err(error) => {
                             let _ = sender.blocking_send(NetworkEvent::Failed {
                                 request_id,
-                                error: error.to_string(),
+                                error: error.to_string().into(),
                             });
                             break;
                         }
@@ -996,6 +1058,8 @@ pub enum NetworkError {
     Unavailable,
     #[error("host resolution failed for {host}: {detail}")]
     Resolution { host: String, detail: String },
+    #[error("server certificate rejected: {0}")]
+    CertificateRejected(String),
     #[error("network transport failed: {0}")]
     Transport(String),
     #[error("network operation exceeded its {timeout:?} deadline")]
@@ -3296,7 +3360,7 @@ impl NetworkBroker for RustlsTransport {
                 body: request.body,
                 resolved_addrs: request.resolved_addrs,
             }))
-            .map_err(|error| NetworkError::Transport(error.to_string()))?;
+            .map_err(|error| NetworkError::from(NetworkFailure::from(error)))?;
         let status = response.status;
         let headers = response.headers;
         let encoding = headers
@@ -3364,7 +3428,7 @@ impl NetworkBroker for RustlsTransport {
                     let _ = sender
                         .send(NetworkEvent::Failed {
                             request_id,
-                            error: error.to_string(),
+                            error: error.into(),
                         })
                         .await;
                     return;
@@ -3381,7 +3445,7 @@ impl NetworkBroker for RustlsTransport {
                     let _ = sender
                         .send(NetworkEvent::Failed {
                             request_id,
-                            error: error.to_string(),
+                            error: error.to_string().into(),
                         })
                         .await;
                     return;
@@ -3398,7 +3462,7 @@ impl NetworkBroker for RustlsTransport {
                     let _ = sender
                         .send(NetworkEvent::Failed {
                             request_id,
-                            error: error.to_string(),
+                            error: error.to_string().into(),
                         })
                         .await;
                     return;
@@ -3459,7 +3523,7 @@ impl NetworkBroker for RustlsTransport {
                         let _ = sender
                             .send(NetworkEvent::Failed {
                                 request_id,
-                                error: error.to_string(),
+                                error: error.to_string().into(),
                             })
                             .await;
                         return;
@@ -3529,7 +3593,7 @@ struct BrokerResponseEnvelope {
     #[serde(default)]
     event: Option<EncodedNetworkEvent>,
     #[serde(default)]
-    error: Option<String>,
+    error: Option<NetworkFailure>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -3557,7 +3621,7 @@ enum EncodedNetworkEvent {
     },
     Failed {
         request_id: u64,
-        error: String,
+        error: NetworkFailure,
     },
 }
 
@@ -3695,7 +3759,7 @@ impl NetworkBroker for IpcNetworkBroker {
                     });
                 }
                 NetworkEvent::Failed { error, .. } => {
-                    return Err(NetworkError::Transport(error));
+                    return Err(NetworkError::from(error));
                 }
             }
         }
@@ -3899,7 +3963,7 @@ fn broker_response_loop(
                 Ok(event) => event,
                 Err(error) => NetworkEvent::Failed {
                     request_id: 0,
-                    error: error.to_string(),
+                    error: error.to_string().into(),
                 },
             }
         } else if let Some(response) = response.response {
@@ -4140,24 +4204,14 @@ pub fn serve_ipc_broker(
                             let writer = writer.clone();
                             operation_runtime().spawn(async move {
                                 while let Some(event) = operation.next_event().await {
-                                    let event = encode_network_event(event);
-                                    let terminal = matches!(
-                                        event,
-                                        EncodedNetworkEvent::Complete { .. }
-                                            | EncodedNetworkEvent::Failed { .. }
-                                    );
-                                    let envelope = BrokerResponseEnvelope {
-                                        protocol_version: BROKER_PROTOCOL_VERSION,
-                                        route: route.clone(),
+                                    match write_network_event(
+                                        &writer,
+                                        route.clone(),
                                         correlation_id,
-                                        response: None,
-                                        event: Some(event),
-                                        error: None,
-                                    };
-                                    if write_broker_response(&writer, &envelope).is_err()
-                                        || terminal
-                                    {
-                                        break;
+                                        event,
+                                    ) {
+                                        Ok(false) => {}
+                                        Ok(true) | Err(_) => break,
                                     }
                                     operation.request_body_chunk();
                                 }
@@ -4170,7 +4224,7 @@ pub fn serve_ipc_broker(
                             correlation_id,
                             response: None,
                             event: None,
-                            error: Some(error.to_string()),
+                            error: Some(error.into()),
                         }),
                     }
                 }
@@ -4192,7 +4246,7 @@ pub fn serve_ipc_broker(
                     correlation_id: 0,
                     response: None,
                     event: None,
-                    error: Some(format!("invalid broker request: {error}")),
+                    error: Some(format!("invalid broker request: {error}").into()),
                 }),
             }
         };
@@ -4203,6 +4257,43 @@ pub fn serve_ipc_broker(
             return Ok(());
         }
     }
+}
+
+// Retain parent cleanup across serialization and the complete frame write.
+// A queued/dropped event or failed write still releases the original grant;
+// only successful delivery transfers cleanup custody to the worker decoder.
+fn write_network_event(
+    writer: &Arc<Mutex<UnixStream>>,
+    route: Option<WorkerRoute>,
+    correlation_id: u64,
+    event: NetworkEvent,
+) -> Result<bool, NetworkError> {
+    let response_policy = match &event {
+        NetworkEvent::Headers {
+            response_policy, ..
+        } => response_policy.clone(),
+        _ => None,
+    };
+    let event = encode_network_event(event);
+    let terminal = matches!(
+        event,
+        EncodedNetworkEvent::Complete { .. } | EncodedNetworkEvent::Failed { .. }
+    );
+    write_broker_response(
+        writer,
+        &BrokerResponseEnvelope {
+            protocol_version: BROKER_PROTOCOL_VERSION,
+            route,
+            correlation_id,
+            response: None,
+            event: Some(event),
+            error: None,
+        },
+    )?;
+    if let Some(token) = response_policy {
+        token.transferred_to_remote();
+    }
+    Ok(terminal)
 }
 
 fn encode_network_event(event: NetworkEvent) -> EncodedNetworkEvent {
@@ -4352,6 +4443,80 @@ mod tests {
     };
 
     use super::*;
+    #[test]
+    fn parent_header_cleanup_is_released_only_after_successful_ipc_write() {
+        for successful in [false, true] {
+            let count = Arc::new(AtomicUsize::new(0));
+            let cleanup_count = count.clone();
+            let token = ResponsePolicyToken::from("parent-test-grant");
+            token.attach_cleanup(move || {
+                cleanup_count.fetch_add(1, Ordering::SeqCst);
+            });
+            let (parent, worker) = UnixStream::pair().unwrap();
+            let mut reader = BufReader::new(worker);
+            if !successful {
+                // Disable this endpoint's writer: shutting down the peer does
+                // not portably guarantee that the next local write fails.
+                parent.shutdown(std::net::Shutdown::Write).unwrap();
+            }
+            let writer = Arc::new(Mutex::new(parent));
+            let result = write_network_event(
+                &writer,
+                None,
+                7,
+                NetworkEvent::Headers {
+                    response_policy: Some(token),
+                    timing: None,
+                    request_id: 41,
+                    status: 200,
+                    headers: Vec::new(),
+                    content_length: Some(1),
+                    upload: None,
+                },
+            );
+            if successful {
+                assert!(!result.unwrap());
+                assert_eq!(
+                    count.load(Ordering::SeqCst),
+                    0,
+                    "successful handoff must not cancel the remote grant"
+                );
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let envelope: BrokerResponseEnvelope = serde_json::from_str(&line).unwrap();
+                assert!(
+                    matches!(envelope.event, Some(EncodedNetworkEvent::Headers { response_policy: Some(token), .. }) if token == "parent-test-grant")
+                );
+                assert!(
+                    write_network_event(
+                        &writer,
+                        None,
+                        7,
+                        NetworkEvent::Failed {
+                            request_id: 41,
+                            error: "body failed".into()
+                        }
+                    )
+                    .unwrap()
+                );
+                line.clear();
+                reader.read_line(&mut line).unwrap();
+                let envelope: BrokerResponseEnvelope = serde_json::from_str(&line).unwrap();
+                assert!(
+                    matches!(envelope.event, Some(EncodedNetworkEvent::Failed { error, .. }) if error.to_string() == "body failed")
+                );
+                assert_eq!(count.load(Ordering::SeqCst), 0);
+            } else {
+                assert!(result.is_err());
+                assert_eq!(
+                    count.load(Ordering::SeqCst),
+                    1,
+                    "failed delivery must reclaim parent custody exactly once"
+                );
+            }
+        }
+    }
+
     fn policy_test_request() -> NetworkRequest {
         NetworkRequest {
             request_id: 71,
@@ -7716,5 +7881,48 @@ mod retained_body_owner_tests {
             matches!(operation.try_event(), Ok(NetworkEvent::Complete { .. })),
             "shutdown stops before treating the buffered prefix as a completed response"
         );
+    }
+}
+
+#[cfg(test)]
+mod certificate_failure_wire_tests {
+    use super::*;
+    #[test]
+    fn certificate_failure_survives_broker_event_wire_without_reclassifying_strings() {
+        for error in [
+            NetworkFailure::from(oryn_net::TransportError::CertificateRejected(
+                "UnknownIssuer".into(),
+            )),
+            NetworkFailure::from(oryn_net::TransportError::Failed(
+                "invalid certificate: UnknownIssuer".into(),
+            )),
+        ] {
+            let event = NetworkEvent::Failed {
+                request_id: 47,
+                error: error.clone(),
+            };
+            let encoded = serde_json::to_vec(&encode_network_event(event.clone())).unwrap();
+            let decoded = decode_network_event(serde_json::from_slice(&encoded).unwrap()).unwrap();
+            assert_eq!(decoded, event);
+            let runtime = crate::RuntimeError::from(error.clone());
+            assert_eq!(
+                matches!(
+                    runtime.navigation_stop(),
+                    crate::navigation_control::NavigationStop::CertificateRejected(_)
+                ),
+                matches!(error, NetworkFailure::Certificate { .. })
+            );
+        }
+        let legacy: EncodedNetworkEvent = serde_json::from_str(
+            r#"{"kind":"failed","request_id":47,"error":"server certificate rejected"}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            decode_network_event(legacy).unwrap(),
+            NetworkEvent::Failed {
+                error: NetworkFailure::Message(_),
+                ..
+            }
+        ));
     }
 }

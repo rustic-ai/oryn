@@ -5,6 +5,7 @@ pub use font_faces::{
     font_text_codepoints, read_font_face_declaration,
 };
 mod media_lists;
+mod resource_preflight;
 mod resource_urls;
 mod rule_mutations;
 pub use resource_urls::{
@@ -15,6 +16,10 @@ pub use resource_urls::{
 /// Parse first so malformed rules and string/comment lookalikes do not force
 /// network setup. This does not determine cascade or media applicability.
 pub fn stylesheet_requires_resources(source: &str, base_url: &str) -> Result<bool, String> {
+    if !resource_preflight::may_require_resources(source) {
+        url::Url::parse(base_url).map_err(|error| error.to_string())?;
+        return Ok(false);
+    }
     Ok(read_stylesheet(source, base_url, false, true)?
         .iter()
         .any(|rule| {
@@ -32,6 +37,10 @@ pub fn stylesheet_requires_resources(source: &str, base_url: &str) -> Result<boo
 /// Local-only faces still need the resource preparation/publication lifecycle.
 /// They do not issue network requests, but cannot be lost as a pure CSS sheet.
 pub fn stylesheet_has_font_sources(source: &str, base: &str) -> Result<bool, String> {
+    if !resource_preflight::may_have_font_faces(source) {
+        url::Url::parse(base).map_err(|error| error.to_string())?;
+        return Ok(false);
+    }
     let mut rules = read_stylesheet(source, base, false, true)?;
     let mut count = 0usize;
     while let Some(rule) = rules.pop() {

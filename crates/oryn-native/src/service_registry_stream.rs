@@ -249,7 +249,7 @@ impl ServiceRegistry {
                         Err(failure) => {
                             let _ = sender.try_send(NetworkEvent::Failed {
                                 request_id,
-                                error: failure.to_string(),
+                                error: failure.to_string().into(),
                             });
                             cancel.store(true, Ordering::Release);
                             continue;
@@ -296,7 +296,7 @@ impl ServiceRegistry {
                                     },
                                     Err(failure) => NetworkEvent::Failed {
                                         request_id,
-                                        error: failure.to_string(),
+                                        error: failure.to_string().into(),
                                     },
                                 };
                                 if sender.try_send(event).is_err() {

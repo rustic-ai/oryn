@@ -14,8 +14,43 @@ impl DomArena {
         if self.document_is_retired(root) {
             return Err(DomError::StaleNode(root));
         }
+        self.snapshot_document_roots(root, vec![root], BTreeMap::new())
+    }
+
+    /// Snapshot the selected live root and connected hosted descendants sharing
+    /// this arena. Independent documents (for example DOMParser results) are
+    /// not authority to publish actionable nodes merely because they share
+    /// storage. Detached and retired embedding edges are never followed.
+    pub fn snapshot_live_document_tree(&self, root: NodeId) -> Result<Self, DomError> {
+        self.document_id(root)?;
+        if self.document_is_retired(root) {
+            return Err(DomError::StaleNode(root));
+        }
         let mut documents = BTreeSet::new();
         let mut pending = vec![root];
+        let mut hosted = BTreeMap::new();
+        while let Some(document) = pending.pop() {
+            if !documents.insert(document) {
+                continue;
+            }
+            for (&frame, &child) in &self.hosted_documents {
+                if !self.document_is_retired(child) && self.ancestors(frame)?.contains(&document) {
+                    hosted.insert(frame, child);
+                    pending.push(child);
+                }
+            }
+        }
+        self.snapshot_document_roots(root, documents.into_iter().collect(), hosted)
+    }
+
+    fn snapshot_document_roots(
+        &self,
+        root: NodeId,
+        roots: Vec<NodeId>,
+        hosted_documents: BTreeMap<NodeId, NodeId>,
+    ) -> Result<Self, DomError> {
+        let mut documents = BTreeSet::new();
+        let mut pending = roots;
         while let Some(document) = pending.pop() {
             if !documents.insert(document) {
                 continue;
@@ -131,7 +166,7 @@ impl DomArena {
                 .intersection(&retained)
                 .copied()
                 .collect(),
-            hosted_documents: BTreeMap::new(),
+            hosted_documents,
             retired_documents: self
                 .retired_documents
                 .intersection(&documents)
@@ -345,5 +380,67 @@ mod tests {
             arena.snapshot_document_scope(root).unwrap_err(),
             DomError::StaleNode(root)
         );
+    }
+}
+
+#[cfg(test)]
+mod live_tree_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn selected_live_tree_preserves_hosted_edges_and_omits_unrelated_and_retired_documents() {
+        let mut dom = DomRuntime::new();
+        let root = dom.document();
+        let frame = dom.create_element("iframe");
+        dom.append_child(root, frame).unwrap();
+        let child = dom.create(NodeKind::Document);
+        let button = dom.create_element("button");
+        dom.append_child(child, button).unwrap();
+        dom.retain_native(child).unwrap();
+        dom.set_hosted_document(frame, Some(child)).unwrap();
+        let unrelated = dom.create(NodeKind::Document);
+        let unrelated_button = dom.create_element("button");
+        dom.append_child(unrelated, unrelated_button).unwrap();
+        let snapshot = dom.arena().snapshot_live_document_tree(root).unwrap();
+        assert_eq!(snapshot.hosted_document(frame), Some(child));
+        assert_eq!(snapshot.document_host(child), Some(frame));
+        assert!(snapshot.get(button).is_ok());
+        assert!(snapshot.get(unrelated).is_err());
+        assert!(snapshot.get(unrelated_button).is_err());
+        // A selected child does not grant access to its embedding parent.
+        let scoped = dom.arena().snapshot_live_document_tree(child).unwrap();
+        assert!(scoped.get(button).is_ok());
+        assert!(scoped.get(root).is_err());
+        assert_eq!(scoped.document_host(child), None);
+        // Wrapper retention must not let a retired document re-enter projection.
+        dom.set_hosted_document(frame, None).unwrap();
+        assert!(dom.arena().get(child).is_ok());
+        let snapshot = dom.arena().snapshot_live_document_tree(root).unwrap();
+        assert!(snapshot.get(child).is_err());
+        assert!(snapshot.get(button).is_err());
+        assert!(dom.arena().snapshot_live_document_tree(child).is_err());
+        dom.release_native(child).unwrap();
+    }
+
+    #[test]
+    fn detached_host_is_not_live_document_authority() {
+        let mut dom = DomRuntime::new();
+        let root = dom.document();
+        let frame = dom.create_element("iframe");
+        dom.retain_native(frame).unwrap();
+        let child = dom.create(NodeKind::Document);
+        dom.set_hosted_document(frame, Some(child)).unwrap();
+        let snapshot = dom.arena().snapshot_live_document_tree(root).unwrap();
+        assert!(snapshot.get(child).is_err());
+        assert_eq!(snapshot.hosted_document(frame), None);
+        dom.append_child(root, frame).unwrap();
+        assert_eq!(
+            dom.arena()
+                .snapshot_live_document_tree(root)
+                .unwrap()
+                .hosted_document(frame),
+            Some(child)
+        );
+        dom.release_native(frame).unwrap();
     }
 }

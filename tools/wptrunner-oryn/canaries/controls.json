@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "scope": "Separate executor qualification corpus; never added to the pinned Core denominator",
-  "mount": "/__oryn_qualification__/",
+  "mount": "/__oryn_qualification__/canaries/",
   "controls": [
     {"path": "assertion-failure.html", "type": "testharness", "required": "harness OK with exactly the named failing subtest; qualification rejected"},
     {"path": "missing-helper.html", "type": "testharness", "required": "missing resource preserved in resource audit and failing subtest; qualification rejected"},

@@ -111,6 +111,7 @@ struct HttpStreamDestinationInputs<'a> {
     destination: crate::csp::CspDestination,
     cors_enabled: bool,
     media_destination: Option<&'a str>,
+    xslt: bool,
     preload: bool,
     template_nonce: Option<Option<&'a str>>,
     frozen: Option<ordinary_keepalive::Authority>,
@@ -160,7 +161,7 @@ use crate::{
 #[path = "context_inventory_wire.rs"]
 mod inventory_wire;
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 54;
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 56;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NavigationNetworkAuthority {
@@ -368,6 +369,12 @@ pub enum NavigationPolicySource {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum ContextServiceRequest {
+    XsltTransform {
+        page_id: PageId,
+        creator: oryn_js::worker_wire::Creator,
+        request_id: u64,
+        request: oryn_js::platform::XsltRequest,
+    },
     WebFeatureProfile {
         page_id: PageId,
     },
@@ -1159,6 +1166,10 @@ pub enum ContextServiceRequest {
         request: HttpStreamRequest,
         cors_enabled: bool,
     },
+    XsltStreamStart {
+        page_id: PageId,
+        request: HttpStreamRequest,
+    },
     PrefetchStreamStart {
         page_id: PageId,
         request: HttpStreamRequest,
@@ -1288,6 +1299,227 @@ pub enum ContextServiceRequest {
 }
 
 impl ContextServiceRequest {
+    /// Literal variant only: never serialize payloads, grants, URLs, or text.
+    fn diagnostic_operation(&self) -> &'static str {
+        match self {
+            Self::XsltTransform { .. } => "XsltTransform",
+            Self::WebFeatureProfile { .. } => "WebFeatureProfile",
+            Self::ReleaseDeferredContainer { .. } => "ReleaseDeferredContainer",
+            Self::ReserveDeferredContainer { .. } => "ReserveDeferredContainer",
+            Self::PrepareDeferredFetch { .. } => "PrepareDeferredFetch",
+            Self::AcknowledgeDeferredFetch { .. } => "AcknowledgeDeferredFetch",
+            Self::QueryDeferredFetch { .. } => "QueryDeferredFetch",
+            Self::ActivateDeferredFetch { .. } => "ActivateDeferredFetch",
+            Self::CancelDeferredFetch { .. } => "CancelDeferredFetch",
+            Self::PrepareHyperlinkAudit { .. } => "PrepareHyperlinkAudit",
+            Self::FinishHyperlinkAudit { .. } => "FinishHyperlinkAudit",
+            Self::UpdateRealmDocumentUrl { .. } => "UpdateRealmDocumentUrl",
+            Self::ParkInitialDocument { .. } => "ParkInitialDocument",
+            Self::RestoreInitialDocument { .. } => "RestoreInitialDocument",
+            Self::DiscardInitialDocument { .. } => "DiscardInitialDocument",
+            Self::PrepareBlankNavigation { .. } => "PrepareBlankNavigation",
+            Self::PrepareServiceLocalNavigation { .. } => "PrepareServiceLocalNavigation",
+            Self::PrepareInitialLocalNavigation { .. } => "PrepareInitialLocalNavigation",
+            Self::PrepareBlobNavigation { .. } => "PrepareBlobNavigation",
+            Self::PrepareLocalDataNavigation { .. } => "PrepareLocalDataNavigation",
+            Self::CommitPreparedLocalNavigation { .. } => "CommitPreparedLocalNavigation",
+            Self::DiscardPreparedLocalNavigation { .. } => "DiscardPreparedLocalNavigation",
+            Self::AuthorizePageDownload { .. } => "AuthorizePageDownload",
+            Self::QuarantinePageDownload { .. } => "QuarantinePageDownload",
+            Self::NativePlatformQuery { request, .. } => match request {
+                oryn_js::platform_control::Request::StorageAccess { .. } => {
+                    "NativePlatformQuery.StorageAccess"
+                }
+                oryn_js::platform_control::Request::Storage { .. } => "NativePlatformQuery.Storage",
+                oryn_js::platform_control::Request::StorageEvents { .. } => {
+                    "NativePlatformQuery.StorageEvents"
+                }
+                oryn_js::platform_control::Request::CspEvents { .. } => {
+                    "NativePlatformQuery.CspEvents"
+                }
+                oryn_js::platform_control::Request::BluetoothDevices => {
+                    "NativePlatformQuery.BluetoothDevices"
+                }
+                oryn_js::platform_control::Request::BluetoothTestingState => {
+                    "NativePlatformQuery.BluetoothTestingState"
+                }
+                oryn_js::platform_control::Request::InstallEligibility => {
+                    "NativePlatformQuery.InstallEligibility"
+                }
+                oryn_js::platform_control::Request::UiLocaleData { .. } => {
+                    "NativePlatformQuery.UiLocaleData"
+                }
+                oryn_js::platform_control::Request::UiLocale => "NativePlatformQuery.UiLocale",
+                oryn_js::platform_control::Request::PromptBegin { .. } => {
+                    "NativePlatformQuery.PromptBegin"
+                }
+                oryn_js::platform_control::Request::PromptAnswer { .. } => {
+                    "NativePlatformQuery.PromptAnswer"
+                }
+                oryn_js::platform_control::Request::PromptCancel { .. } => {
+                    "NativePlatformQuery.PromptCancel"
+                }
+                oryn_js::platform_control::Request::Media { .. } => "NativePlatformQuery.Media",
+                oryn_js::platform_control::Request::Permission { .. } => {
+                    "NativePlatformQuery.Permission"
+                }
+                oryn_js::platform_control::Request::Geolocation => {
+                    "NativePlatformQuery.Geolocation"
+                }
+                oryn_js::platform_control::Request::DocumentFocus => {
+                    "NativePlatformQuery.DocumentFocus"
+                }
+                oryn_js::platform_control::Request::WindowState => {
+                    "NativePlatformQuery.WindowState"
+                }
+                oryn_js::platform_control::Request::RegisterProtocol { .. } => {
+                    "NativePlatformQuery.RegisterProtocol"
+                }
+                oryn_js::platform_control::Request::UnregisterProtocol { .. } => {
+                    "NativePlatformQuery.UnregisterProtocol"
+                }
+                oryn_js::platform_control::Request::WindowPosition => {
+                    "NativePlatformQuery.WindowPosition"
+                }
+                oryn_js::platform_control::Request::PermissionsPolicySnapshot => {
+                    "NativePlatformQuery.PermissionsPolicySnapshot"
+                }
+                oryn_js::platform_control::Request::PromptResolve { .. } => {
+                    "NativePlatformQuery.PromptResolve"
+                }
+            },
+            Self::SharedMemory { .. } => "SharedMemory",
+            Self::DragFeedback { .. } => "DragFeedback",
+            Self::NotifyUserActivation { .. } => "NotifyUserActivation",
+            Self::TransientUserActivation { .. } => "TransientUserActivation",
+            Self::StickyUserActivation { .. } => "StickyUserActivation",
+            Self::ClipboardAuthorizeScript { .. } => "ClipboardAuthorizeScript",
+            Self::ClipboardRead { .. } => "ClipboardRead",
+            Self::ClipboardWrite { .. } => "ClipboardWrite",
+            Self::NativeWindowGroup { .. } => "NativeWindowGroup",
+            Self::CheckNativeTargetNavigation { .. } => "CheckNativeTargetNavigation",
+            Self::UpdateFrameContainerPolicy { .. } => "UpdateFrameContainerPolicy",
+            Self::CheckFormNavigationPolicy { .. } => "CheckFormNavigationPolicy",
+            Self::InstallDocumentSourceMetadata { .. } => "InstallDocumentSourceMetadata",
+            Self::CaptureDocumentSource { .. } => "CaptureDocumentSource",
+            Self::DeriveInertDocumentSource { .. } => "DeriveInertDocumentSource",
+            Self::DocumentFormAuthority { .. } => "DocumentFormAuthority",
+            Self::CheckDocumentTargetNavigation { .. } => "CheckDocumentTargetNavigation",
+            Self::RetargetFormNavigationAuthority { .. } => "RetargetFormNavigationAuthority",
+            Self::IssueFormNavigationAuthority { .. } => "IssueFormNavigationAuthority",
+            Self::IssueScriptNavigationAuthority { .. } => "IssueScriptNavigationAuthority",
+            Self::IssueDocumentScriptNavigationAuthority { .. } => {
+                "IssueDocumentScriptNavigationAuthority"
+            }
+            Self::ServiceNavigationToScript { .. } => "ServiceNavigationToScript",
+            Self::AcquireNavigationNetworkSource { .. } => "AcquireNavigationNetworkSource",
+            Self::DiscardNavigationNetworkSource { .. } => "DiscardNavigationNetworkSource",
+            Self::ReadServiceNavigationSource { .. } => "ReadServiceNavigationSource",
+            Self::ReadScriptNavigationSource { .. } => "ReadScriptNavigationSource",
+            Self::NativeWindowTargetName { .. } => "NativeWindowTargetName",
+            Self::DisownNativeOpener { .. } => "DisownNativeOpener",
+            Self::NativeWindowOpener { .. } => "NativeWindowOpener",
+            Self::DiscardNativeFrameOpener { .. } => "DiscardNativeFrameOpener",
+            Self::NavigateRelatedWindow { .. } => "NavigateRelatedWindow",
+            Self::PublishNativeWindowInventory { .. } => "PublishNativeWindowInventory",
+            Self::ReadRelatedWindow { .. } => "ReadRelatedWindow",
+            Self::ReadNativeWindowOrigin { .. } => "ReadNativeWindowOrigin",
+            Self::AutomationWindowStatus { .. } => "AutomationWindowStatus",
+            Self::MessageWire { .. } => "MessageWire",
+            Self::WorkerService { .. } => "WorkerService",
+            Self::BindFrameWorkerPolicy { .. } => "BindFrameWorkerPolicy",
+            Self::InheritFrameWorkerPolicy { .. } => "InheritFrameWorkerPolicy",
+            Self::NavigationCheckpoint { .. } => "NavigationCheckpoint",
+            Self::NavigationEvent { .. } => "NavigationEvent",
+            Self::UserPrompt { .. } => "UserPrompt",
+            Self::CancelUserPrompt { .. } => "CancelUserPrompt",
+            Self::GetReferrerPolicy { .. } => "GetReferrerPolicy",
+            Self::PrepareOrdinaryKeepalive { .. } => "PrepareOrdinaryKeepalive",
+            Self::StartOrdinaryKeepalive { .. } => "StartOrdinaryKeepalive",
+            Self::ReleaseOrdinaryKeepalive { .. } => "ReleaseOrdinaryKeepalive",
+            Self::HttpStreamStart { .. } => "HttpStreamStart",
+            Self::ImageStreamStart { .. } => "ImageStreamStart",
+            Self::HttpStreamRead { .. } => "HttpStreamRead",
+            Self::HttpStreamAbort { .. } => "HttpStreamAbort",
+            Self::HttpRequestAbort { .. } => "HttpRequestAbort",
+            Self::Storage { .. } => "Storage",
+            Self::OpenPage { .. } => "OpenPage",
+            Self::ActivatePage { .. } => "ActivatePage",
+            Self::CommitPage { .. } => "CommitPage",
+            Self::CommitPreparedLoadHtml { .. } => "CommitPreparedLoadHtml",
+            Self::CommitNavigationResponsePolicy { .. } => "CommitNavigationResponsePolicy",
+            Self::DiscardNavigationResponsePolicy { .. } => "DiscardNavigationResponsePolicy",
+            Self::InstallDocumentSecurity { .. } => "InstallDocumentSecurity",
+            Self::ReportRealmCspRequest { .. } => "ReportRealmCspRequest",
+            Self::ParserEncodingPolicy { .. } => "ParserEncodingPolicy",
+            Self::InstallRealmMetadata { .. } => "InstallRealmMetadata",
+            Self::InstallMetaSecurity { .. } => "InstallMetaSecurity",
+            Self::InstallReferrerPolicy { .. } => "InstallReferrerPolicy",
+            Self::ReportCspViolations { .. } => "ReportCspViolations",
+            Self::GetDocumentCookie { .. } => "GetDocumentCookie",
+            Self::SetDocumentCookie { .. } => "SetDocumentCookie",
+            Self::GetNativeDocumentAuthority { .. } => "GetNativeDocumentAuthority",
+            Self::GetSecurityOrigin { .. } => "GetSecurityOrigin",
+            Self::MaterializeUpload { .. } => "MaterializeUpload",
+            Self::NavigatePage { .. } => "NavigatePage",
+            Self::CaptureCommandNavigationSource { .. } => "CaptureCommandNavigationSource",
+            Self::AuthorizeNavigation { .. } => "AuthorizeNavigation",
+            Self::AuthorizeFormSubmission { .. } => "AuthorizeFormSubmission",
+            Self::ReadScriptCloseState { .. } => "ReadScriptCloseState",
+            Self::BeginScriptCloseHistory { .. } => "BeginScriptCloseHistory",
+            Self::PublishScriptCloseHistory { .. } => "PublishScriptCloseHistory",
+            Self::AbortScriptCloseHistory { .. } => "AbortScriptCloseHistory",
+            Self::RollbackAuxiliaryRoot { .. } => "RollbackAuxiliaryRoot",
+            Self::BeginActionCloseScope { .. } => "BeginActionCloseScope",
+            Self::EndActionCloseScope { .. } => "EndActionCloseScope",
+            Self::ClosePage { .. } => "ClosePage",
+            Self::PollEvents { .. } => "PollEvents",
+            Self::LoadWorkerScript { .. } => "LoadWorkerScript",
+            Self::CaptureScriptPolicy { .. } => "CaptureScriptPolicy",
+            Self::ReserveScriptLoad { .. } => "ReserveScriptLoad",
+            Self::CancelScriptLoad { .. } => "CancelScriptLoad",
+            Self::ReleaseFrameResponseStream { .. } => "ReleaseFrameResponseStream",
+            Self::ReleaseNetworkResult { .. } => "ReleaseNetworkResult",
+            Self::RunScriptLoad { .. } => "RunScriptLoad",
+            Self::LoadScript { .. } => "LoadScript",
+            Self::LoadTypedModule { .. } => "LoadTypedModule",
+            Self::LoadPageResource { .. } => "LoadPageResource",
+            Self::AuthorizeTrustedTypes { .. } => "AuthorizeTrustedTypes",
+            Self::AuthorizeInlineStyle { .. } => "AuthorizeInlineStyle",
+            Self::AuthorizeInlineScript { .. } => "AuthorizeInlineScript",
+            Self::WebSocketOpen { .. } => "WebSocketOpen",
+            Self::WebSocketSend { .. } => "WebSocketSend",
+            Self::WebSocketPoll { .. } => "WebSocketPoll",
+            Self::WebSocketClose { .. } => "WebSocketClose",
+            Self::MediaStreamStart { .. } => "MediaStreamStart",
+            Self::ImagePreloadStreamStart { .. } => "ImagePreloadStreamStart",
+            Self::XsltStreamStart { .. } => "XsltStreamStart",
+            Self::PrefetchStreamStart { .. } => "PrefetchStreamStart",
+            Self::TemplateStreamStart { .. } => "TemplateStreamStart",
+            Self::GetDocumentDomain { .. } => "GetDocumentDomain",
+            Self::PrepareDocumentDomain { .. } => "PrepareDocumentDomain",
+            Self::CommitDocumentDomain { .. } => "CommitDocumentDomain",
+            Self::SettleNavigationExecution { .. } => "SettleNavigationExecution",
+            Self::ClaimNavigationExecution { .. } => "ClaimNavigationExecution",
+            Self::AcceptNavigationExecution { .. } => "AcceptNavigationExecution",
+            Self::RegisterPrerenderFrame { .. } => "RegisterPrerenderFrame",
+            Self::ReadPrerenderAuthority { .. } => "ReadPrerenderAuthority",
+            Self::MarkPrerenderReady { .. } => "MarkPrerenderReady",
+            Self::MarkPrerenderLoaded { .. } => "MarkPrerenderLoaded",
+            Self::ActivatePrerender { .. } => "ActivatePrerender",
+            Self::ActivateBlankPrerender { .. } => "ActivateBlankPrerender",
+            Self::PublishBlankPrerender { .. } => "PublishBlankPrerender",
+            Self::AcknowledgeBlankPrerender { .. } => "AcknowledgeBlankPrerender",
+            Self::ReservePrerender { .. } => "ReservePrerender",
+            Self::ReserveBlankPrerender { .. } => "ReserveBlankPrerender",
+            Self::CancelBlankPrerender { .. } => "CancelBlankPrerender",
+            Self::CommitPrerenderResponse { .. } => "CommitPrerenderResponse",
+            Self::CancelPrerender { .. } => "CancelPrerender",
+            Self::PreloadResource { .. } => "PreloadResource",
+            Self::AuthorizePreloadConsumption { .. } => "AuthorizePreloadConsumption",
+        }
+    }
+
     /// Only legacy script shims use JSON dispatch. Every other operation must
     /// arrive through a typed native producer; adding a protocol variant never
     /// silently makes it author-callable.
@@ -1350,6 +1582,9 @@ const fn default_http_credentials() -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case")]
 pub enum ContextServiceResponse {
+    XsltTransformed {
+        transform: oryn_js::platform::XsltResult,
+    },
     WebFeatureProfile {
         profile: crate::feature_profile::NativeFeatureProfile,
     },
@@ -1785,6 +2020,9 @@ pub enum ContextEvent {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct RequestEnvelope {
+    /// Diagnostic correlation only. Never consulted for routing or authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    diagnostic: Option<crate::ipc_progress::context_phases::Stamp>,
     protocol_version: u32,
     route: Option<WorkerRoute>,
     message_id: u64,
@@ -1938,6 +2176,7 @@ impl IpcContextClient {
             RuntimeError::ProtocolViolation("context message identifiers exhausted".into())
         })?;
         let envelope = RequestEnvelope {
+            diagnostic: None,
             protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
             route: None,
             message_id,
@@ -2025,11 +2264,75 @@ pub(crate) trait ContextTransport: Send + Sync {
 }
 
 struct ContextDelivery {
+    decode_ns: u128,
+    ready_at: Instant,
     response: Result<ContextServiceResponse, String>,
-    publication: mpsc::Receiver<Result<(), String>>,
 }
 type ContextReply = Result<ContextDelivery, String>;
-type PendingContextReplies = BTreeMap<u64, (Option<WorkerRoute>, mpsc::Sender<ContextReply>)>;
+type PublicationReply = Result<(), String>;
+struct PendingContextReply {
+    route: Option<WorkerRoute>,
+    response: mpsc::Sender<ContextReply>,
+    publication: mpsc::Sender<PublicationReply>,
+}
+type PendingContextReplies = BTreeMap<u64, PendingContextReply>;
+struct ContextReplyWait {
+    response: mpsc::Receiver<ContextReply>,
+    publication: mpsc::Receiver<PublicationReply>,
+    #[cfg(test)]
+    before_wait: Option<mpsc::Sender<()>>,
+    #[cfg(test)]
+    response_consumed: Option<Arc<std::sync::atomic::AtomicBool>>,
+}
+impl ContextReplyWait {
+    fn new(route: Option<WorkerRoute>) -> (PendingContextReply, Self) {
+        let (response, received) = mpsc::channel();
+        let (publication, published) = mpsc::channel();
+        (
+            PendingContextReply {
+                route,
+                response,
+                publication,
+            },
+            Self {
+                response: received,
+                publication: published,
+                #[cfg(test)]
+                before_wait: None,
+                #[cfg(test)]
+                response_consumed: None,
+            },
+        )
+    }
+    fn receive(self) -> Result<(ContextDelivery, Result<(), RuntimeError>), RuntimeError> {
+        #[cfg(test)]
+        if let Some(entered) = self.before_wait {
+            let _ = entered.send(());
+        }
+        // The response is enqueued before ACK publication, but do not wake the
+        // actor to consume it until publication is settled. No ACK is omitted.
+        let publication = self
+            .publication
+            .recv()
+            .map_err(|_| RuntimeError::ContextService("response receipt channel closed".into()))
+            .and_then(|value| value.map_err(RuntimeError::ContextService));
+        // Preserve the original outer transport/protocol error precedence.
+        let delivered = self
+            .response
+            .recv()
+            .map_err(|_| RuntimeError::ContextService("context response channel closed".into()))?
+            .map_err(RuntimeError::ContextService)?;
+        #[cfg(test)]
+        if let Some(consumed) = self.response_consumed {
+            consumed.store(true, Ordering::SeqCst);
+        }
+        Ok((delivered, publication))
+    }
+}
+
+#[cfg(test)]
+#[path = "context_reply_wait_tests.rs"]
+mod context_reply_wait_tests;
 
 struct IpcContextTransport {
     writer: Arc<Mutex<UnixStream>>,
@@ -2067,6 +2370,7 @@ impl IpcContextTransport {
                     if read == 0 {
                         break;
                     }
+                    let decode_started = Instant::now();
                     let Ok(mut response) = serde_json::from_slice::<ResponseEnvelope>(&line) else {
                         break;
                     };
@@ -2080,8 +2384,14 @@ impl IpcContextTransport {
                         .ok()
                         .and_then(|mut pending| pending.remove(&id));
                     let mut accepted = false;
-                    let (publication, delivery) = mpsc::channel();
-                    if let Some((route, sender)) = sender {
+                    let mut publication = None;
+                    if let Some(PendingContextReply {
+                        route,
+                        response: sender,
+                        publication: completed,
+                    }) = sender
+                    {
+                        publication = Some(completed);
                         let valid = response.protocol_version == CONTEXT_SERVICE_PROTOCOL_VERSION
                             && response.route == route;
                         let result = if !valid {
@@ -2097,11 +2407,18 @@ impl IpcContextTransport {
                             sender
                                 .send(Ok(ContextDelivery {
                                     response: result,
-                                    publication: delivery,
+                                    decode_ns: decode_started.elapsed().as_nanos(),
+                                    ready_at: Instant::now(),
                                 }))
                                 .is_ok()
                         } else {
                             let _ = sender.send(Err("context response protocol mismatch".into()));
+                            // Protocol failures historically return before receipt I/O.
+                            // Wake the failed consumer now; the rejected ACK still follows.
+                            if let Some(completed) = publication.take() {
+                                let _ = completed
+                                    .send(Err("context response protocol mismatch".into()));
+                            }
                             false
                         };
                     }
@@ -2117,16 +2434,22 @@ impl IpcContextTransport {
                         .and_then(|mut writer| {
                             write_response_receipt(&mut writer, &receipt).map_err(|_| ())
                         });
-                    let _ = publication
-                        .send(sent.map_err(|_| "response receipt was not published".to_string()));
+                    if let Some(publication) = publication {
+                        let _ = publication.send(
+                            sent.map_err(|_| "response receipt was not published".to_string()),
+                        );
+                    }
                     if sent.is_err() {
                         break;
                     }
                 }
                 let _ = reader_cancel.shutdown(Shutdown::Both);
                 if let Ok(mut pending) = reader_pending.lock() {
-                    for (_, (_, sender)) in std::mem::take(&mut *pending) {
-                        let _ = sender.send(Err("context service connection closed".into()));
+                    for (_, reply) in std::mem::take(&mut *pending) {
+                        let _ = reply
+                            .response
+                            .send(Err("context service connection closed".into()));
+                        // Dropping publication wakes its waiter with the same outer error.
                     }
                 }
             })
@@ -2165,7 +2488,9 @@ impl ContextTransport for IpcContextTransport {
         route: Option<&WorkerRoute>,
         request: ContextServiceRequest,
     ) -> Result<ContextServiceResponse, RuntimeError> {
-        let (sender, receiver) = mpsc::channel();
+        let mut rpc =
+            crate::ipc_progress::context_rpc::Scope::start(route, request.diagnostic_operation());
+        let (reply, wait) = ContextReplyWait::new(route.cloned());
         let mut writer = self
             .writer
             .lock()
@@ -2176,6 +2501,7 @@ impl ContextTransport for IpcContextTransport {
             .map_err(|_| {
                 RuntimeError::ProtocolViolation("context message identifiers exhausted".into())
             })?;
+        rpc.admitted(message_id);
         let mut pending = self
             .pending
             .lock()
@@ -2185,9 +2511,10 @@ impl ContextTransport for IpcContextTransport {
                 resource: "pending context operations".into(),
             });
         }
-        pending.insert(message_id, (route.cloned(), sender));
+        pending.insert(message_id, reply);
         drop(pending);
         let envelope = RequestEnvelope {
+            diagnostic: rpc.diagnostic_stamp(),
             protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
             route: route.cloned(),
             message_id,
@@ -2210,16 +2537,15 @@ impl ContextTransport for IpcContextTransport {
                 .and_then(|mut pending| pending.remove(&message_id));
             return Err(error);
         }
-        let delivered = receiver
-            .recv()
-            .map_err(|_| RuntimeError::ContextService("context response channel closed".into()))?
-            .map_err(RuntimeError::ContextService)?;
-        delivered
-            .publication
-            .recv()
-            .map_err(|_| RuntimeError::ContextService("response receipt channel closed".into()))?
-            .map_err(RuntimeError::ContextService)?;
-        delivered.response.map_err(RuntimeError::ContextService)
+        rpc.written();
+        let (delivered, publication) = wait.receive()?;
+        rpc.decoded(delivered.decode_ns);
+        rpc.response_at(delivered.ready_at);
+        publication?;
+        rpc.published();
+        let result = delivered.response.map_err(RuntimeError::ContextService);
+        rpc.finished(result.is_ok());
+        result
     }
 }
 
@@ -2558,6 +2884,43 @@ impl std::fmt::Debug for ContextFrameResponseLease {
         f.write_str("ContextFrameResponseLease")
     }
 }
+#[cfg(feature = "v8-host")]
+pub(crate) struct ContextAuxiliaryRollback {
+    ticket: script_cleanup_custody::Ticket,
+    target: Option<(SharedContextClient, PageId, Option<u64>)>,
+}
+#[cfg(feature = "v8-host")]
+impl ContextAuxiliaryRollback {
+    pub(crate) fn bind(&mut self, client: SharedContextClient, page: PageId) {
+        self.ticket.bind_auxiliary(client.clone(), page, None);
+        self.target = Some((client, page, None));
+    }
+    pub(crate) fn set_generation(&mut self, generation: u64) {
+        let (client, page, expected) = self.target.as_mut().expect("bound auxiliary");
+        self.ticket
+            .bind_auxiliary(client.clone(), *page, Some(generation));
+        *expected = Some(generation);
+    }
+    pub(crate) fn revoke(&mut self) -> Result<(), RuntimeError> {
+        let (client, page, expected) = self.target.as_ref().expect("bound auxiliary");
+        match client.request(ContextServiceRequest::RollbackAuxiliaryRoot {
+            page_id: *page,
+            expected_generation: *expected,
+        })? {
+            ContextServiceResponse::PageClosed => {
+                self.ticket.finish_if_not_cancelled();
+                Ok(())
+            }
+            _ => Err(RuntimeError::ProtocolViolation(
+                "auxiliary rollback response mismatch".into(),
+            )),
+        }
+    }
+    pub(crate) fn commit(self) {
+        self.ticket.finish_if_not_cancelled();
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RelatedRootAdmission {
@@ -2669,6 +3032,17 @@ impl SharedContextClient {
         ))
     }
 
+    #[cfg(feature = "v8-host")]
+    pub(crate) fn reserve_auxiliary_rollback(
+        &self,
+        source_page: PageId,
+    ) -> Result<ContextAuxiliaryRollback, RuntimeError> {
+        Ok(ContextAuxiliaryRollback {
+            ticket: script_cleanup_custody::Ticket::reserve(self.clone(), source_page)
+                .map_err(RuntimeError::ContextService)?,
+            target: None,
+        })
+    }
     #[cfg(feature = "v8-host")]
     pub(crate) fn reserve_prerender_cleanup(
         &self,
@@ -3026,6 +3400,22 @@ impl SharedContextClient {
             #[cfg(feature = "v8-host")]
             None,
         )
+    }
+
+    #[cfg(feature = "v8-host")]
+    pub(crate) fn direct_page_prompt_controller(
+        &self,
+        page: PageId,
+    ) -> Result<Option<Arc<oryn_js::prompts::PromptController>>, RuntimeError> {
+        let Some(direct) = self.4.as_ref() else {
+            return Ok(None);
+        };
+        direct
+            .context
+            .upgrade()
+            .ok_or(RuntimeError::Closed)?
+            .page_prompt_controller(page)
+            .map(Some)
     }
 
     #[cfg(feature = "v8-host")]
@@ -3926,6 +4316,9 @@ impl SocketLifecycle {
         // route until its original broker has released every admitted operation.
         self.http_cleanup.is_drained()
     }
+    pub(crate) fn drain_cancelled_http(&self, budget: Duration) -> Result<bool, RuntimeError> {
+        self.http_cleanup.drain_cancelled(budget)
+    }
     pub(crate) fn page(&self) -> PageId {
         self.page
     }
@@ -4386,7 +4779,7 @@ fn collect_frame_download_body(
             Some(NetworkEvent::Failed { request_id, error })
                 if request_id == operation.request_id =>
             {
-                return Err(RuntimeError::Network(error));
+                return Err(RuntimeError::from(error));
             }
             _ => {
                 return Err(RuntimeError::ProtocolViolation(
@@ -4658,6 +5051,44 @@ impl ParentContextService {
         &self,
         request: ContextServiceRequest,
     ) -> Result<ContextServiceResponse, RuntimeError> {
+        let details = match &request {
+            ContextServiceRequest::BindFrameWorkerPolicy {
+                page_id,
+                document_generation,
+                ..
+            } => Some((
+                *page_id,
+                None,
+                Some(*document_generation),
+                crate::ipc_progress::Phase::FramePolicyBegin,
+                crate::ipc_progress::Phase::FramePolicyReturned,
+            )),
+            ContextServiceRequest::HttpStreamRead {
+                page_id, stream_id, ..
+            } => Some((
+                *page_id,
+                Some(*stream_id),
+                None,
+                crate::ipc_progress::Phase::ParentBodyBegin,
+                crate::ipc_progress::Phase::ParentBodyReturned,
+            )),
+            _ => None,
+        };
+        let progress = details.and_then(|(page, _, _, _, _)| crate::ipc_progress::observed(page.0));
+        if let Some((_, stream, generation, begin, _)) = details {
+            crate::ipc_progress::record(progress, begin, stream, generation);
+        }
+        let result = self.handle_inner(request);
+        if let Some((_, stream, generation, _, end)) = details {
+            crate::ipc_progress::result(progress, end, stream, generation, Some(result.is_ok()));
+        }
+        result
+    }
+
+    fn handle_inner(
+        &self,
+        request: ContextServiceRequest,
+    ) -> Result<ContextServiceResponse, RuntimeError> {
         if !*self
             .page_admitted
             .lock()
@@ -4881,6 +5312,25 @@ impl ParentContextService {
             self.validate_socket_owner(*page_id)?;
             self.ordinary_keepalive.release(token);
             return Ok(ContextServiceResponse::OrdinaryKeepaliveReleased);
+        }
+        if let ContextServiceRequest::RollbackAuxiliaryRoot {
+            page_id,
+            expected_generation,
+        } = &request
+        {
+            if *page_id != self.source_page_id {
+                return Err(RuntimeError::ContextService(
+                    "foreign auxiliary rollback endpoint".into(),
+                ));
+            }
+            match self.context_owner() {
+                Ok(context) => {
+                    context.rollback_initial_auxiliary(*page_id, *expected_generation)?
+                }
+                Err(RuntimeError::Closed) => {}
+                Err(error) => return Err(error),
+            }
+            return Ok(ContextServiceResponse::PageClosed);
         }
         // Keep the context alive for this bounded request, never for the
         // lifetime of the service retained by one of its own page actors.
@@ -6200,6 +6650,76 @@ impl ParentContextService {
             ContextServiceRequest::HttpStreamStart { page_id, request } => {
                 self.start_http_stream(page_id, request, crate::csp::CspDestination::Connect)
             }
+            ContextServiceRequest::XsltTransform {
+                page_id,
+                creator,
+                request_id,
+                request,
+            } => {
+                #[cfg(feature = "v8-host")]
+                {
+                    self.validate_socket_owner(page_id)?;
+                    let oryn_js::worker_wire::Creator::Window {
+                        target,
+                        document_generation,
+                        stream_epoch,
+                    } = creator
+                    else {
+                        return Err(RuntimeError::ProtocolViolation(
+                            "XSLT helper requires Window creator".into(),
+                        ));
+                    };
+                    let (owner, _, _) = self.context_owner()?.window_worker_creator(
+                        page_id,
+                        &target,
+                        document_generation,
+                        stream_epoch,
+                    )?;
+                    // Reuse the existing bounded, retirement-aware cancellable
+                    // establishment owner. It holds no socket for this role.
+                    let operation = SocketHandshakeLease::begin(
+                        self.socket_lifecycle.clone(),
+                        request_id,
+                        owner,
+                    )?;
+                    operation.check()?;
+                    let result = crate::xslt_process::run(request, || operation.check().is_err())
+                        .map_err(RuntimeError::ContextService)?;
+                    operation.check()?;
+                    Ok(ContextServiceResponse::XsltTransformed { transform: result })
+                }
+                #[cfg(not(feature = "v8-host"))]
+                {
+                    let _ = (page_id, creator, request_id, request);
+                    Err(RuntimeError::ProtocolViolation(
+                        "XSLT unavailable without native V8 runtime".into(),
+                    ))
+                }
+            }
+            ContextServiceRequest::XsltStreamStart { page_id, request } => {
+                if request.client.is_none()
+                    || request.method != "GET"
+                    || !request.body_base64.is_empty()
+                    || request.fetch.as_ref().is_none_or(|fetch| {
+                        fetch.mode != "same-origin" || fetch.redirect != "follow" || fetch.keepalive
+                    })
+                {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "XSLT requires a document-owned same-origin GET".into(),
+                    ));
+                }
+                self.start_http_stream_with_destination(HttpStreamDestinationInputs {
+                    page_id,
+                    request,
+                    destination: crate::csp::CspDestination::Script,
+                    cors_enabled: true,
+                    media_destination: None,
+                    xslt: true,
+                    preload: false,
+                    template_nonce: None,
+                    frozen: None,
+                })
+            }
             ContextServiceRequest::PrefetchStreamStart { page_id, request } => {
                 if request.client.is_none()
                     || request.method != "GET"
@@ -6218,6 +6738,7 @@ impl ParentContextService {
                     destination: crate::csp::CspDestination::Prefetch,
                     cors_enabled: false,
                     media_destination: None,
+                    xslt: false,
                     preload: false,
                     template_nonce: None,
                     frozen: None,
@@ -6246,6 +6767,7 @@ impl ParentContextService {
                     destination: crate::csp::CspDestination::Script,
                     cors_enabled: true,
                     media_destination: None,
+                    xslt: false,
                     preload: false,
                     template_nonce: Some(nonce.as_deref()),
                     frozen: None,
@@ -6267,6 +6789,7 @@ impl ParentContextService {
                     destination: crate::csp::CspDestination::Image,
                     cors_enabled,
                     media_destination: None,
+                    xslt: false,
                     preload: true,
                     template_nonce: None,
                     frozen: None,
@@ -6302,6 +6825,7 @@ impl ParentContextService {
                     destination: crate::csp::CspDestination::Media,
                     cors_enabled,
                     media_destination: Some(&destination),
+                    xslt: false,
                     preload: false,
                     template_nonce: None,
                     frozen: None,
@@ -7464,28 +7988,8 @@ impl ParentContextService {
                 )?;
                 Ok(ContextServiceResponse::ScriptCloseHistoryPublished)
             }
-            ContextServiceRequest::RollbackAuxiliaryRoot {
-                page_id,
-                expected_generation,
-            } => {
-                if page_id != self.source_page_id
-                    || !self.context_owner()?.script_close_eligible(page_id, None)
-                {
-                    return Err(RuntimeError::ContextService(
-                        "auxiliary rollback requires its admitted web-created endpoint".into(),
-                    ));
-                }
-                let creator = self
-                    .context_owner()?
-                    .native_initial_document_creator(page_id)?;
-                if !matches!(creator,oryn_js::worker_wire::Creator::Window{target:oryn_js::message_wire::WindowTarget::Root,document_generation,stream_epoch:0}if expected_generation.is_none_or(|expected|expected==document_generation))
-                {
-                    return Err(RuntimeError::ContextService(
-                        "auxiliary rollback cannot retire a replacement Document".into(),
-                    ));
-                }
-                self.context_owner()?.queue_script_close(page_id)?;
-                Ok(ContextServiceResponse::PageClosed)
+            ContextServiceRequest::RollbackAuxiliaryRoot { .. } => {
+                unreachable!("rollback handled before live admission")
             }
             ContextServiceRequest::BeginActionCloseScope { page_id, action_id } => {
                 self.validate_socket_owner(page_id)?;
@@ -7897,6 +8401,7 @@ impl ParentContextService {
             destination,
             cors_enabled,
             media_destination: None,
+            xslt: false,
             preload: false,
             template_nonce: None,
             frozen: None,
@@ -7912,6 +8417,7 @@ impl ParentContextService {
             destination,
             cors_enabled,
             media_destination,
+            xslt,
             preload,
             template_nonce,
             frozen,
@@ -8066,6 +8572,7 @@ impl ParentContextService {
                 .unwrap_or(if cors_enabled { "cors" } else { "no-cors" }),
             match destination {
                 crate::csp::CspDestination::Image => "image",
+                crate::csp::CspDestination::Script if xslt => "xslt",
                 crate::csp::CspDestination::Object => "object",
                 crate::csp::CspDestination::Media => media_destination.unwrap_or("video"),
                 _ => "",
@@ -8511,6 +9018,7 @@ impl ParentContextService {
                     body: body.clone(),
                     destination: match destination {
                         crate::csp::CspDestination::Image => "image".into(),
+                        crate::csp::CspDestination::Script if xslt => "xslt".into(),
                         crate::csp::CspDestination::Object => "object".into(),
                         crate::csp::CspDestination::Media => {
                             media_destination.unwrap_or("video").into()
@@ -8787,7 +9295,7 @@ impl ParentContextService {
                     Some(NetworkEvent::Failed { request_id, error })
                         if request_id == operation.request_id =>
                     {
-                        return Err(RuntimeError::Network(error));
+                        return Err(RuntimeError::from(error));
                     }
                     Some(_) => {
                         cleanup.cancel();
@@ -8848,6 +9356,7 @@ impl ParentContextService {
                     headers: &response_headers,
                     destination: match destination {
                         crate::csp::CspDestination::Image => "image",
+                        crate::csp::CspDestination::Script if xslt => "xslt",
                         crate::csp::CspDestination::Object => "object",
                         crate::csp::CspDestination::Media => media_destination.unwrap_or("video"),
                         _ => "",
@@ -9214,6 +9723,7 @@ impl ParentContextService {
         stream_id: u64,
         max_bytes: usize,
     ) -> Result<ContextServiceResponse, RuntimeError> {
+        let progress = crate::ipc_progress::observed(page_id.0);
         self.validate_socket_owner(page_id)?;
         let entry = self
             .http_streams
@@ -9235,6 +9745,12 @@ impl ParentContextService {
                 .state
                 .lock()
                 .map_err(|_| RuntimeError::ContextService("HTTP stream state poisoned".into()))?;
+            crate::ipc_progress::record(
+                progress,
+                crate::ipc_progress::Phase::ParentBodyLockAcquired,
+                Some(stream_id),
+                None,
+            );
             let requested = max_bytes.clamp(1, 64 * 1024);
             let mut terminal = false;
             let mut terminal_encoded_bytes = None;
@@ -9243,6 +9759,12 @@ impl ParentContextService {
                 while stream.offset >= stream.current.len() {
                     stream.current = bytes::Bytes::new();
                     stream.offset = 0;
+                    crate::ipc_progress::record(
+                        progress,
+                        crate::ipc_progress::Phase::ParentBodyGrant,
+                        Some(stream_id),
+                        None,
+                    );
                     stream.operation.request_body_chunk();
                     let timeout = entry
                         .frame_deadline
@@ -9259,6 +9781,12 @@ impl ParentContextService {
                         Some(NetworkEvent::Chunk { request_id, bytes })
                             if request_id == stream.operation.request_id =>
                         {
+                            crate::ipc_progress::record(
+                                progress,
+                                crate::ipc_progress::Phase::ParentChunkReceived,
+                                Some(stream_id),
+                                None,
+                            );
                             stream.current = bytes
                         }
                         Some(NetworkEvent::Complete {
@@ -9272,7 +9800,7 @@ impl ParentContextService {
                         Some(NetworkEvent::Failed { request_id, error })
                             if request_id == stream.operation.request_id =>
                         {
-                            return Err(RuntimeError::Network(error));
+                            return Err(RuntimeError::from(error));
                         }
                         Some(_) => {
                             return Err(RuntimeError::ProtocolViolation(
@@ -11147,7 +11675,7 @@ impl ParentContextService {
                     Some(NetworkEvent::Failed { request_id, error })
                         if request_id == operation.request_id =>
                     {
-                        return Err(RuntimeError::Network(error));
+                        return Err(RuntimeError::from(error));
                     }
                     _ => {
                         return Err(RuntimeError::ProtocolViolation(
@@ -12259,6 +12787,7 @@ pub(crate) fn serve_context_transport(
     let dispatch_limit = ContextDispatchLimit::default();
     let publications = Arc::new(Mutex::new(response_custody::Publications::default()));
     let _publication_owner = response_custody::PublicationOwner(publications.clone());
+    let diagnostics = crate::ipc_progress::context_phases::Diagnostics::new();
     loop {
         let mut line = Vec::new();
         let read = read_bounded_line(&mut reader, &mut line, MAX_CONTEXT_FRAME_BYTES)
@@ -12271,9 +12800,19 @@ pub(crate) fn serve_context_transport(
                 let _ = reader.get_ref().shutdown(Shutdown::Both);
                 return Err(error);
             }
+            crate::ipc_progress::context_phases::receipt(
+                &diagnostics,
+                receipt.route.as_ref(),
+                receipt.received_id,
+            );
             continue;
         }
+        let decode_started = Instant::now();
         let request = serde_json::from_slice::<RequestEnvelope>(&line);
+        let diagnostic = request
+            .as_ref()
+            .ok()
+            .and_then(|envelope| envelope.diagnostic);
         let (message_id, route, request, error) = match request {
             Ok(envelope)
                 if envelope.protocol_version == CONTEXT_SERVICE_PROTOCOL_VERSION
@@ -12303,6 +12842,17 @@ pub(crate) fn serve_context_transport(
                 )));
             }
         };
+        let mut phases = crate::ipc_progress::context_phases::Scope::start(
+            &diagnostics,
+            diagnostic,
+            route.as_ref(),
+            message_id,
+            request
+                .as_ref()
+                .map(ContextServiceRequest::diagnostic_operation)
+                .unwrap_or("InvalidEnvelope"),
+            decode_started,
+        );
         let service = service.clone();
         let writer = writer.clone();
         let publications = publications.clone();
@@ -12319,6 +12869,7 @@ pub(crate) fn serve_context_transport(
         std::thread::Builder::new()
             .name("oryn-context-dispatch".into())
             .spawn(move || -> Result<(), RuntimeError> {
+                phases.advance(); // admission and thread start -> handler
                 let scope_result = service.response_scope(route.as_ref(), request.as_ref());
                 let scope_error = scope_result.as_ref().err().map(ToString::to_string);
                 let scope = scope_result.ok().flatten();
@@ -12342,10 +12893,12 @@ pub(crate) fn serve_context_transport(
                     .as_mut()
                     .and_then(shared_memory_response)
                     .and_then(|memory| memory.native_descriptor.clone());
+                phases.advance(); // handler -> response writer wait
                 let writer_owner = writer;
                 let mut writer = writer_owner.lock().map_err(|_| {
                     RuntimeError::ContextService("context writer lock poisoned".into())
                 })?;
+                phases.advance(); // writer acquired -> encoding/custody
                 // Serialize under the writer lock: at most one bounded encoded
                 // response buffer is retained by this channel, not one per dispatch.
                 let encoded = encode_context_response_status(
@@ -12384,6 +12937,8 @@ pub(crate) fn serve_context_transport(
                     drop(unpublished);
                     return Err(RuntimeError::Closed);
                 }
+                phases.advance(); // encoding/custody -> write
+                phases.await_receipt();
                 let written = writer
                     .write_all(&encoded)
                     .and_then(|_| writer.flush())
@@ -12399,6 +12954,7 @@ pub(crate) fn serve_context_transport(
                 if written.is_err() {
                     response_custody::Publications::discard(&publications, message_id);
                 }
+                phases.finished(written.is_ok());
                 written
             })
             .map_err(|error| {
@@ -16298,6 +16854,7 @@ mod tests {
             serde_json::to_writer(
                 &mut worker,
                 &RequestEnvelope {
+                    diagnostic: None,
                     protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
                     route: None,
                     message_id,
@@ -16401,6 +16958,7 @@ mod tests {
 
         for number in [9007199254740991.0_f64, 9007199254740992.0, 0.1, -0.1] {
             let envelope = RequestEnvelope {
+                diagnostic: None,
                 protocol_version: 1,
                 route: None,
                 message_id: 7,
@@ -23999,5 +24557,227 @@ mod credentialless_navigation_request_tests {
             seen[3].security.fetch_metadata.mode,
             Some(crate::fetch_metadata::Mode::NoCors)
         );
+    }
+}
+
+#[cfg(test)]
+mod auxiliary_rollback_identity_tests {
+    use super::*;
+    use oryn_js::{message_wire::MessageRequest, worker_wire::Creator};
+    fn fixture() -> (BrowserContext, PageId, u64) {
+        let context = crate::runtime::Browser::in_process_probe().new_context();
+        let opener = context.new_page();
+        let creator = context
+            .native_initial_document_creator(opener.page_id())
+            .unwrap();
+        let popup = context
+            .new_popup_from_creator(opener.page_id(), &creator)
+            .unwrap();
+        let Creator::Window {
+            document_generation,
+            ..
+        } = context
+            .native_initial_document_creator(popup.page_id())
+            .unwrap()
+        else {
+            unreachable!()
+        };
+        (context, popup.page_id(), document_generation)
+    }
+    #[test]
+    fn rollback_of_retired_initial_identity_does_not_rematerialize_and_repeats_safely() {
+        let (context, page, generation) = fixture();
+        let service = ParentContextService::new(context.clone(), page);
+        context
+            .handle_message_wire(
+                page,
+                MessageRequest::RetireRootDocument {
+                    document_generation: generation,
+                    stream_epoch: 0,
+                },
+            )
+            .unwrap();
+        for _ in 0..2 {
+            assert!(matches!(
+                service
+                    .handle(ContextServiceRequest::RollbackAuxiliaryRoot {
+                        page_id: page,
+                        expected_generation: Some(generation)
+                    })
+                    .unwrap(),
+                ContextServiceResponse::PageClosed
+            ));
+            assert!(context.native_initial_document_creator(page).is_err());
+        }
+    }
+    #[test]
+    fn rollback_cannot_close_a_new_initial_generation_after_retirement() {
+        let (context, page, generation) = fixture();
+        context
+            .handle_message_wire(
+                page,
+                MessageRequest::RetireRootDocument {
+                    document_generation: generation,
+                    stream_epoch: 0,
+                },
+            )
+            .unwrap();
+        let replacement = context.native_initial_document_creator(page).unwrap();
+        let Creator::Window {
+            document_generation: new_generation,
+            ..
+        } = replacement
+        else {
+            unreachable!()
+        };
+        assert_ne!(generation, new_generation);
+        let service = ParentContextService::new(context.clone(), page);
+        assert!(
+            service
+                .handle(ContextServiceRequest::RollbackAuxiliaryRoot {
+                    page_id: page,
+                    expected_generation: Some(generation)
+                })
+                .is_err()
+        );
+        assert_eq!(
+            context.native_initial_document_creator(page).unwrap(),
+            replacement
+        );
+    }
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn lost_rollback_ack_retains_source_custody_until_target_ack() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            mpsc,
+        };
+        struct Target {
+            service: ParentContextService,
+            calls: AtomicUsize,
+            entered: mpsc::Sender<()>,
+            release: Mutex<mpsc::Receiver<()>>,
+        }
+        impl ContextTransport for Target {
+            fn request(
+                &self,
+                request: ContextServiceRequest,
+            ) -> Result<ContextServiceResponse, RuntimeError> {
+                let response = self.service.handle(request)?;
+                if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    return Err(RuntimeError::ContextService(
+                        "injected lost rollback acknowledgement".into(),
+                    ));
+                }
+                self.entered.send(()).unwrap();
+                self.release
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(5))
+                    .unwrap();
+                Ok(response)
+            }
+        }
+        let (context, page, generation) = fixture();
+        let source_page = context.new_page();
+        let source = SharedContextClient::direct(context.clone(), source_page.page_id());
+        let (entered, seen) = mpsc::channel();
+        let (release, wait) = mpsc::channel();
+        let target = SharedContextClient(
+            Arc::new(Target {
+                service: ParentContextService::new(context.clone(), page),
+                calls: AtomicUsize::new(0),
+                entered,
+                release: Mutex::new(wait),
+            }),
+            None,
+            Default::default(),
+            Default::default(),
+            None,
+        );
+        let mut rollback = source
+            .reserve_auxiliary_rollback(source_page.page_id())
+            .unwrap();
+        assert!(source.drain_script_cleanup(Duration::ZERO).is_err());
+        rollback.bind(target, page);
+        rollback.set_generation(generation);
+        assert!(rollback.revoke().is_err());
+        assert!(context.native_initial_document_creator(page).is_err());
+        drop(rollback);
+        seen.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(source.drain_script_cleanup(Duration::ZERO).is_err());
+        release.send(()).unwrap();
+        source.drain_script_cleanup(Duration::from_secs(5)).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod context_rpc_diagnostic_tests {
+    use super::*;
+    #[test]
+    fn diagnostic_operation_never_formats_nested_authority_payload() {
+        let request = ContextServiceRequest::AuthorizePreloadConsumption {
+            proof: "secret authority proof must not appear".into(),
+            request: Box::new(ContextServiceRequest::WebFeatureProfile { page_id: PageId(7) }),
+        };
+        assert_eq!(
+            request.diagnostic_operation(),
+            "AuthorizePreloadConsumption"
+        );
+        assert_eq!(
+            ContextServiceRequest::WebFeatureProfile { page_id: PageId(7) }.diagnostic_operation(),
+            "WebFeatureProfile"
+        );
+    }
+    #[test]
+    fn diagnostic_platform_subtypes_are_literal_and_distinct() {
+        use oryn_js::platform_control::Request;
+        let creator = oryn_js::worker_wire::Creator::Window {
+            target: oryn_js::message_wire::WindowTarget::Root,
+            document_generation: 1,
+            stream_epoch: 0,
+        };
+        for (request, label) in [
+            (Request::DocumentFocus, "NativePlatformQuery.DocumentFocus"),
+            (Request::WindowState, "NativePlatformQuery.WindowState"),
+            (
+                Request::CspEvents { after: 81 },
+                "NativePlatformQuery.CspEvents",
+            ),
+            (
+                Request::StorageEvents { after: 72 },
+                "NativePlatformQuery.StorageEvents",
+            ),
+            (
+                Request::RegisterProtocol {
+                    scheme: "secret".into(),
+                    url: "https://secret.invalid".into(),
+                },
+                "NativePlatformQuery.RegisterProtocol",
+            ),
+        ] {
+            let query = ContextServiceRequest::NativePlatformQuery {
+                page_id: PageId(7),
+                creator: creator.clone(),
+                request,
+            };
+            assert_eq!(query.diagnostic_operation(), label);
+            assert!(!label.contains("secret"));
+        }
+    }
+    #[test]
+    fn diagnostic_envelope_missing_stamp_remains_compatible() {
+        let request = ContextServiceRequest::WebFeatureProfile { page_id: PageId(7) };
+        let envelope = RequestEnvelope {
+            diagnostic: None,
+            protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
+            route: None,
+            message_id: 17,
+            request,
+        };
+        let encoded = serde_json::to_value(&envelope).unwrap();
+        assert!(encoded.get("diagnostic").is_none());
+        let decoded: RequestEnvelope = serde_json::from_value(encoded).unwrap();
+        assert!(decoded.diagnostic.is_none());
     }
 }

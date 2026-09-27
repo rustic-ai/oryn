@@ -120,7 +120,8 @@ class OracleStartupDiagnosticsTests(unittest.TestCase):
             output = Path(directory).resolve()
             with patch.object(support, "check_execution_generation"), \
                     patch.object(support.subprocess, "Popen") as launch, \
-                    patch.object(support.Oracle, "read", side_effect=ValueError("invalid fixture control frame")):
+                    patch.object(support.Oracle, "read", side_effect=ValueError("invalid fixture control frame")), \
+                    patch.object(support, "settle_group", return_value=dict(returncode=1,group_settled=True,errors=[])):
                 launch.return_value.poll.return_value = 1
                 launch.return_value.returncode = 1
                 def started(*args, **kwargs):
@@ -128,7 +129,7 @@ class OracleStartupDiagnosticsTests(unittest.TestCase):
                     kwargs["stderr"].flush()
                     return launch.return_value
                 launch.side_effect = started
-                with self.assertRaisesRegex(ValueError, "fixture prerequisite unavailable"):
+                with self.assertRaisesRegex(RuntimeError, "fixture prerequisite unavailable"):
                     support.Oracle(output)
                 launch.return_value.stdin.close.assert_called_once()
                 launch.return_value.stdout.close.assert_called_once()

@@ -21,12 +21,13 @@ def create_server(provider, mfa_clients):
             super().setup()
             self.connection.settimeout(10)
 
-        def reply(self, status, body, headers=()):
+        def reply(self, status, body, headers=(), *, callback_origin=None):
             data = body.encode('utf-8')
+            form_action = "'self'" + (f' {callback_origin}' if callback_origin else '')
             self.send_response(status)
             for name, value in [('Content-Length', str(len(data))), ('Cache-Control', 'no-store'),
                                 ('Referrer-Policy', 'no-referrer'),
-                                ('Content-Security-Policy', "default-src 'none'; form-action 'self'; frame-ancestors 'none'"), *headers]:
+                                ('Content-Security-Policy', f"default-src 'none'; form-action {form_action}; frame-ancestors 'none'"), *headers]:
                 self.send_header(name, value)
             self.end_headers()
             self.wfile.write(data)
@@ -45,6 +46,7 @@ def create_server(provider, mfa_clients):
                     client = fields.get('client_id', [''])[0]
                     require_mfa = client in mfa_clients
                     handle = provider.begin(self.uri(), require_mfa=require_mfa)
+                    callback_origin = provider.authorization_callback_origin(handle)
                     mfa = ('<p>Authorized synthetic MFA test. Enter test code 246810 to continue.</p>'
                            '<label>Test MFA code<input name="mfa_code" required></label>') if require_mfa else ''
                     body = ('<!doctype html><meta charset=utf-8><title>Controlled identity provider</title>'
@@ -55,7 +57,8 @@ def create_server(provider, mfa_clients):
                             '<label>Password<input type="password" name="password" required></label>'
                             f'{mfa}<button>Authorize test application</button></form>')
                     return self.reply(200, body, [('Content-Type', 'text/html; charset=utf-8'),
-                        ('Set-Cookie', f'idp_pending={handle}; HttpOnly; SameSite=Lax; Path=/authorize')])
+                        ('Set-Cookie', f'idp_pending={handle}; HttpOnly; SameSite=Lax; Path=/authorize')],
+                        callback_origin=callback_origin)
                 if parsed.path == '/identity':
                     fields = parse_qs(parsed.query, max_num_fields=2)
                     authorization = self.headers.get('Authorization', '')

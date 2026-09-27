@@ -94,131 +94,134 @@ impl SelectedPaintImageLoad {
                 request_id,
                 armed: true,
             };
-            let response = client
-                .request(Q::ImageStreamStart {
-                    page_id,
-                    cors_enabled: false,
-                    request: HttpStreamRequest {
-                        upgrade_mixed_image: false,
-                        fetch: None,
-                        client: Some(creator.clone()),
-                        use_cors_preflight: false,
-                        request_id,
-                        method: "GET".into(),
-                        url: url.into(),
-                        headers: Vec::new(),
-                        body_base64: String::new(),
-                        credentials: true,
-                        credentials_mode: Some("include".into()),
-                        initiator_url: None,
-                        referrer_policy: None,
-                    },
-                })
-                .map_err(|error| HostError::Execution(error.to_string()))?;
-            let R::HttpStreamStarted {
-                request_id: actual_request_id,
-                stream_id,
-                url: final_url,
-                status,
-                headers,
-                total_bytes,
-                ..
-            } = response
-            else {
-                return Err(HostError::Execution(
-                    "invalid frame image stream response".into(),
-                ));
-            };
-            if actual_request_id != request_id {
-                return Err(HostError::Execution(
-                    "frame image request identity mismatch".into(),
-                ));
-            }
-            request_cleanup.armed = false;
-            let stream_cleanup = StreamCleanup {
-                client: client.clone(),
-                page_id,
-                creator: creator.clone(),
-                stream_id,
-            };
             let result = (|| {
-                check()?;
-                if !(200..300).contains(&status)
-                    || total_bytes.is_some_and(|bytes| bytes > limit)
-                    || final_url.len() > 64 * 1024
-                {
+                let response = client
+                    .request(Q::ImageStreamStart {
+                        page_id,
+                        cors_enabled: false,
+                        request: HttpStreamRequest {
+                            upgrade_mixed_image: false,
+                            fetch: None,
+                            client: Some(creator.clone()),
+                            use_cors_preflight: false,
+                            request_id,
+                            method: "GET".into(),
+                            url: url.into(),
+                            headers: Vec::new(),
+                            body_base64: String::new(),
+                            credentials: true,
+                            credentials_mode: Some("include".into()),
+                            initiator_url: None,
+                            referrer_policy: None,
+                        },
+                    })
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                let R::HttpStreamStarted {
+                    request_id: actual_request_id,
+                    stream_id,
+                    url: final_url,
+                    status,
+                    headers,
+                    total_bytes,
+                    ..
+                } = response
+                else {
                     return Err(HostError::Execution(
-                        "frame image response rejected by size/status bounds".into(),
+                        "invalid frame image stream response".into(),
+                    ));
+                };
+                if actual_request_id != request_id {
+                    return Err(HostError::Execution(
+                        "frame image request identity mismatch".into(),
                     ));
                 }
-                let media_type = oryn_common::mime_type::MimeType::from_headers(&headers)
-                    .map(|mime| mime.essence().to_owned())
-                    .unwrap_or_else(|| "application/octet-stream".into());
-                let mut bytes = Vec::new();
-                for _ in 0..1024 {
+                request_cleanup.armed = false;
+                let mut stream_cleanup = StreamCleanup {
+                    client: client.clone(),
+                    page_id,
+                    creator: creator.clone(),
+                    stream_id,
+                    armed: true,
+                };
+                let result = (|| {
                     check()?;
-                    let chunk = client
-                        .request(Q::HttpStreamRead {
-                            page_id,
-                            creator: Some(creator.clone()),
-                            stream_id,
-                            max_bytes: 64 * 1024,
-                        })
-                        .map_err(|error| HostError::Execution(error.to_string()))?;
-                    check()?;
-                    let R::HttpStreamChunk {
-                        stream_id: actual,
-                        body_base64,
-                        done,
-                        encoded_body_size: _,
-                    } = chunk
-                    else {
-                        return Err(HostError::Execution("invalid frame image chunk".into()));
-                    };
-                    if actual != stream_id || body_base64.len() > 96 * 1024 {
+                    if !(200..300).contains(&status)
+                        || total_bytes.is_some_and(|bytes| bytes > limit)
+                        || final_url.len() > 64 * 1024
+                    {
                         return Err(HostError::Execution(
-                            "frame image chunk identity/size mismatch".into(),
+                            "frame image response rejected by size/status bounds".into(),
                         ));
                     }
-                    let chunk = base64::Engine::decode(
-                        &base64::engine::general_purpose::STANDARD,
-                        body_base64,
-                    )
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                    if bytes.len().saturating_add(chunk.len()) > limit {
-                        return Err(HostError::Execution(
-                            "frame image body exceeds bounds".into(),
-                        ));
-                    }
-                    bytes.extend(chunk);
-                    if done {
+                    let media_type = oryn_common::mime_type::MimeType::from_headers(&headers)
+                        .map(|mime| mime.essence().to_owned())
+                        .unwrap_or_else(|| "application/octet-stream".into());
+                    let mut bytes = Vec::new();
+                    for _ in 0..1024 {
                         check()?;
-                        return Ok(oryn_common::v4::PaintImageResource {
-                            svg_document_snapshot: false,
-                            svg_instances: Vec::new(),
-                            content_type: oryn_common::xml_encoding::response_content_type(
-                                &headers,
-                            ),
-                            url_aliases: if final_url != url {
-                                vec![url.into()]
-                            } else {
-                                Vec::new()
-                            },
-                            url: final_url,
-                            media_type,
-                            bytes,
-                        });
+                        let chunk = client
+                            .request(Q::HttpStreamRead {
+                                page_id,
+                                creator: Some(creator.clone()),
+                                stream_id,
+                                max_bytes: 64 * 1024,
+                            })
+                            .map_err(|error| HostError::Execution(error.to_string()))?;
+                        check()?;
+                        let R::HttpStreamChunk {
+                            stream_id: actual,
+                            body_base64,
+                            done,
+                            encoded_body_size: _,
+                        } = chunk
+                        else {
+                            return Err(HostError::Execution("invalid frame image chunk".into()));
+                        };
+                        if actual != stream_id || body_base64.len() > 96 * 1024 {
+                            return Err(HostError::Execution(
+                                "frame image chunk identity/size mismatch".into(),
+                            ));
+                        }
+                        let chunk = base64::Engine::decode(
+                            &base64::engine::general_purpose::STANDARD,
+                            body_base64,
+                        )
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                        if bytes.len().saturating_add(chunk.len()) > limit {
+                            return Err(HostError::Execution(
+                                "frame image body exceeds bounds".into(),
+                            ));
+                        }
+                        bytes.extend(chunk);
+                        if done {
+                            check()?;
+                            return Ok(oryn_common::v4::PaintImageResource {
+                                svg_document_snapshot: false,
+                                svg_instances: Vec::new(),
+                                content_type: oryn_common::xml_encoding::response_content_type(
+                                    &headers,
+                                ),
+                                url_aliases: if final_url != url {
+                                    vec![url.into()]
+                                } else {
+                                    Vec::new()
+                                },
+                                url: final_url,
+                                media_type,
+                                bytes,
+                            });
+                        }
                     }
-                }
-                Err(HostError::Execution(
-                    "frame image chunk count exceeds bounds".into(),
-                ))
+                    Err(HostError::Execution(
+                        "frame image chunk count exceeds bounds".into(),
+                    ))
+                })();
+                merge_cleanup(result, stream_cleanup.finish()).and_then(|resource| {
+                    check()?;
+                    Ok(resource)
+                })
             })();
-            drop(stream_cleanup);
-            result.and_then(|resource| {
-                check()?;
-                Ok(resource)
-            })
+            merge_cleanup(result, request_cleanup.finish())
         }
     }
 }
@@ -230,15 +233,45 @@ struct RequestCleanup {
     armed: bool,
 }
 #[cfg(unix)]
+fn merge_cleanup<T>(
+    primary: Result<T, HostError>,
+    cleanup: Result<(), HostError>,
+) -> Result<T, HostError> {
+    match (primary, cleanup) {
+        (result, Ok(())) => result,
+        (Ok(_), Err(cleanup)) => Err(cleanup),
+        (Err(primary), Err(cleanup)) => Err(HostError::Execution(format!(
+            "{primary}; secondary cleanup failure: {cleanup}"
+        ))),
+    }
+}
+#[cfg(unix)]
+impl RequestCleanup {
+    fn finish(&mut self) -> Result<(), HostError> {
+        if !std::mem::replace(&mut self.armed, false) {
+            return Ok(());
+        }
+        match self.client.request(
+            crate::context_service::ContextServiceRequest::HttpRequestAbort {
+                page_id: self.page_id,
+                request_id: self.request_id,
+            },
+        ) {
+            Ok(crate::context_service::ContextServiceResponse::HttpRequestAborted) => Ok(()),
+            Ok(_) => Err(HostError::Execution(
+                "frame image request cleanup returned wrong acknowledgement".into(),
+            )),
+            Err(error) => Err(HostError::Execution(format!(
+                "frame image request cleanup failed: {error}"
+            ))),
+        }
+    }
+}
+#[cfg(unix)]
 impl Drop for RequestCleanup {
     fn drop(&mut self) {
-        if self.armed {
-            let _ = self.client.request(
-                crate::context_service::ContextServiceRequest::HttpRequestAbort {
-                    page_id: self.page_id,
-                    request_id: self.request_id,
-                },
-            );
+        if let Err(error) = self.finish() {
+            eprintln!("native paint fallback cleanup: {error}");
         }
     }
 }
@@ -248,17 +281,37 @@ struct StreamCleanup {
     page_id: oryn_common::v3::PageId,
     creator: oryn_js::worker_wire::Creator,
     stream_id: u64,
+    armed: bool,
 }
 #[cfg(unix)]
-impl Drop for StreamCleanup {
-    fn drop(&mut self) {
-        let _ = self.client.request(
+impl StreamCleanup {
+    fn finish(&mut self) -> Result<(), HostError> {
+        if !std::mem::replace(&mut self.armed, false) {
+            return Ok(());
+        }
+        match self.client.request(
             crate::context_service::ContextServiceRequest::HttpStreamAbort {
                 page_id: self.page_id,
                 creator: Some(self.creator.clone()),
                 stream_id: self.stream_id,
             },
-        );
+        ) {
+            Ok(crate::context_service::ContextServiceResponse::HttpStreamAborted) => Ok(()),
+            Ok(_) => Err(HostError::Execution(
+                "frame image stream cleanup returned wrong acknowledgement".into(),
+            )),
+            Err(error) => Err(HostError::Execution(format!(
+                "frame image stream cleanup failed: {error}"
+            ))),
+        }
+    }
+}
+#[cfg(unix)]
+impl Drop for StreamCleanup {
+    fn drop(&mut self) {
+        if let Err(error) = self.finish() {
+            eprintln!("native paint fallback cleanup: {error}");
+        }
     }
 }
 
@@ -281,6 +334,7 @@ mod tests {
     struct Transport {
         replies: Mutex<VecDeque<Result<R, crate::RuntimeError>>>,
         calls: Mutex<Vec<Q>>,
+        abort_reply: Mutex<Option<Result<R, crate::RuntimeError>>>,
         cancelled: Arc<AtomicBool>,
         cancel_on_read: bool,
     }
@@ -296,8 +350,18 @@ mod tests {
         fn request(&self, request: Q) -> Result<R, crate::RuntimeError> {
             self.calls.lock().unwrap().push(request.clone());
             match request {
-                Q::HttpStreamAbort { .. } => Ok(R::HttpStreamAborted),
-                Q::HttpRequestAbort { .. } => Ok(R::HttpRequestAborted),
+                Q::HttpStreamAbort { .. } => self
+                    .abort_reply
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .unwrap_or(Ok(R::HttpStreamAborted)),
+                Q::HttpRequestAbort { .. } => self
+                    .abort_reply
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .unwrap_or(Ok(R::HttpRequestAborted)),
                 _ => {
                     if self.cancel_on_read && matches!(request, Q::HttpStreamRead { .. }) {
                         self.cancelled.store(true, Ordering::Release);
@@ -342,6 +406,7 @@ mod tests {
         let transport = Arc::new(Transport {
             replies: Mutex::new(replies.into()),
             calls: Mutex::new(Vec::new()),
+            abort_reply: Mutex::new(None),
             cancelled: Arc::new(AtomicBool::new(false)),
             cancel_on_read,
         });
@@ -365,6 +430,67 @@ mod tests {
             ),
             transport,
         )
+    }
+    #[test]
+    fn stream_cleanup_rejects_failed_or_wrong_ack_after_success_and_failure() {
+        for failed_read in [false, true] {
+            for wrong_ack in [false, true] {
+                let read = if failed_read {
+                    Err(crate::RuntimeError::Network("primary read failure".into()))
+                } else {
+                    Ok(chunk(41, "aGk="))
+                };
+                let (load, transport) = load(vec![Ok(started(200, None)), read], false);
+                *transport.abort_reply.lock().unwrap() = Some(if wrong_ack {
+                    Ok(R::HttpRequestAborted)
+                } else {
+                    Err(crate::RuntimeError::Network(
+                        "abort transport failure".into(),
+                    ))
+                });
+                let error = load.run_checked(|| Ok(())).unwrap_err().to_string();
+                assert!(error.contains(if wrong_ack {
+                    "wrong acknowledgement"
+                } else {
+                    "abort transport failure"
+                }));
+                if failed_read {
+                    assert!(error.contains("primary read failure"));
+                }
+                assert_stream_closed(&transport);
+            }
+        }
+    }
+    #[test]
+    fn start_failure_retains_primary_and_failed_request_abort() {
+        for wrong_ack in [false, true] {
+            let (load, transport) = load(
+                vec![Err(crate::RuntimeError::Network("start failed".into()))],
+                false,
+            );
+            *transport.abort_reply.lock().unwrap() = Some(if wrong_ack {
+                Ok(R::HttpStreamAborted)
+            } else {
+                Err(crate::RuntimeError::Network("abort failed".into()))
+            });
+            let error = load.run_checked(|| Ok(())).unwrap_err().to_string();
+            assert!(error.contains("start failed"));
+            assert!(error.contains(if wrong_ack {
+                "wrong acknowledgement"
+            } else {
+                "abort failed"
+            }));
+            assert_eq!(
+                transport
+                    .calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|q| matches!(q, Q::HttpRequestAbort { .. }))
+                    .count(),
+                1
+            );
+        }
     }
     fn assert_stream_closed(transport: &Transport) {
         let calls = transport.calls.lock().unwrap();

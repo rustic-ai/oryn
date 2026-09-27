@@ -1153,6 +1153,7 @@ struct WorkerPage {
     context_wakeups: AtomicUsize,
     process_id: AtomicU32,
     exit_evidence: Mutex<Option<serde_json::Value>>,
+    close_failure: Mutex<Option<RuntimeError>>,
     worker_pool: Arc<WorkerPool>,
 }
 
@@ -1659,12 +1660,21 @@ impl ContextGroup {
     }
 
     fn close(&self, page_id: PageId) -> bool {
+        self.close_if(page_id, |_| Ok(()))
+            .expect("unconditional page close")
+    }
+    fn close_if(
+        &self,
+        page_id: PageId,
+        admit: impl FnOnce(&PageRecord) -> Result<(), RuntimeError>,
+    ) -> Result<bool, RuntimeError> {
         let mut pages = self.pages.lock().expect("page group lock");
         let Some(record) = pages.get_mut(&page_id) else {
-            return false;
+            return Ok(false);
         };
+        admit(record)?;
         if record.descriptor.status == PageStatus::Closed {
-            return false;
+            return Ok(false);
         }
         self.messages
             .lock()
@@ -1700,7 +1710,7 @@ impl ContextGroup {
         if !hidden {
             self.push_event(PageLifecycleEvent::Closed { page_id });
         }
-        true
+        Ok(true)
     }
 
     fn crash(&self, page_id: PageId, detail: String) {
@@ -1823,6 +1833,14 @@ impl std::fmt::Debug for WorkerPage {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.debug_struct("WorkerPage").finish_non_exhaustive()
     }
+}
+
+#[cfg(unix)]
+#[derive(Debug, PartialEq, Eq)]
+enum WorkerCloseOutcome {
+    Closed,
+    ReapedAfterRssLimit,
+    ReapedAfterProcessExit,
 }
 
 #[cfg(unix)]
@@ -1991,45 +2009,206 @@ impl WorkerPage {
         self.process_id.store(0, Ordering::Release);
     }
 
-    fn close(&self) -> Result<crate::worker::WorkerResponse, RuntimeError> {
+    fn checked_close_result(
+        &self,
+        active: &mut crate::worker_client::WorkerClient,
+        response: Result<crate::worker::WorkerResponse, RuntimeError>,
+    ) -> Result<WorkerCloseOutcome, RuntimeError> {
+        match response {
+            Ok(crate::worker::WorkerResponse::Closed) => {
+                self.close_failure
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .take();
+                Ok(WorkerCloseOutcome::Closed)
+            }
+            Ok(response) => {
+                let error = unexpected_worker_response(response);
+                *self
+                    .close_failure
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) = Some(error.clone());
+                Err(error)
+            }
+            Err(error) if matches!(error.root_cause(), RuntimeError::ProtocolViolation(_)) => {
+                *self
+                    .close_failure
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) = Some(error.clone());
+                Err(error)
+            }
+            Err(error)
+                if matches!(error.root_cause(), RuntimeError::WorkerCrashed(_))
+                    || matches!(error.root_cause(), RuntimeError::WorkerLimitExceeded { resource } if resource == "RSS") =>
+            {
+                // This is a physical-retirement result, never an invented IPC
+                // acknowledgement. Preserve the policy failure while requiring
+                // the exact child and every retained broker scope to be settled.
+                if let Some(previous) = self
+                    .close_failure
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .clone()
+                    && matches!(previous.root_cause(), RuntimeError::ProtocolViolation(_))
+                {
+                    return Err(previous);
+                }
+                *self
+                    .close_failure
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) = Some(error.clone());
+                let detail = error.to_string();
+                if let Some(context) = self.context.upgrade() {
+                    context.group.crash(self.page_id, detail.clone());
+                }
+                let mut evidence = active.checked_terminal_cleanup().map_err(|cleanup| {
+                    RuntimeError::ContextService(format!(
+                        "worker retirement after {detail} is incomplete: {cleanup}"
+                    ))
+                })?;
+                evidence["operational_error"] = serde_json::Value::String(detail);
+                let (outcome, kind) = match error.root_cause() {
+                    RuntimeError::WorkerLimitExceeded { .. } => (
+                        WorkerCloseOutcome::ReapedAfterRssLimit,
+                        "reaped_after_rss_limit",
+                    ),
+                    _ => (
+                        WorkerCloseOutcome::ReapedAfterProcessExit,
+                        "reaped_after_process_exit",
+                    ),
+                };
+                evidence["retirement_kind"] = serde_json::json!(kind);
+                *self.exit_evidence.lock().map_err(|_| {
+                    RuntimeError::WorkerCrashed("exit evidence lock poisoned".into())
+                })? = Some(evidence);
+                Ok(outcome)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn cancel_pending_for_close(
+        active: &mut crate::worker_client::WorkerClient,
+        retirement: &mut Option<RuntimeError>,
+    ) -> Result<bool, RuntimeError> {
+        if retirement.is_some() {
+            return Ok(false);
+        }
+        match active.cancel_pending_initialization() {
+            Ok(cancelled) => Ok(cancelled),
+            Err(cancellation) => match active.observed_process_exit() {
+                Ok(Some(status)) => {
+                    // The child exited after the first observation. Preserve
+                    // this cancellation failure as part of the terminal cause;
+                    // the caller must still complete checked physical cleanup.
+                    *retirement = Some(RuntimeError::WorkerCrashed(format!(
+                        "worker exited with {status}; pending environment cancellation failed: {cancellation}"
+                    )));
+                    Ok(false)
+                }
+                Ok(None) => Err(cancellation),
+                Err(observation) => Err(RuntimeError::ContextService(format!(
+                    "{cancellation}; observing worker exit failed: {observation}"
+                ))),
+            },
+        }
+    }
+
+    fn remember_protocol_close_failure(&self, error: &RuntimeError) {
+        if matches!(error.root_cause(), RuntimeError::ProtocolViolation(_)) {
+            *self
+                .close_failure
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Some(error.clone());
+        }
+    }
+
+    fn close(&self) -> Result<WorkerCloseOutcome, RuntimeError> {
         self.retired.store(true, Ordering::Release);
         let mut client = self
             .client
             .lock()
             .map_err(|_| RuntimeError::WorkerCrashed("worker client lock poisoned".into()))?;
+        let prior_close_failure = self
+            .close_failure
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
         let Some(mut active) = client.take() else {
-            return Ok(crate::worker::WorkerResponse::Closed);
+            if let Some(error) = prior_close_failure
+                && matches!(error.root_cause(), RuntimeError::ProtocolViolation(_))
+            {
+                self.remember_protocol_close_failure(&error);
+                return Err(error);
+            }
+            return Ok(WorkerCloseOutcome::Closed);
         };
-        match active.cancel_pending_initialization() {
+        let mut process_retirement = prior_close_failure
+            .clone()
+            .filter(|error| !matches!(error.root_cause(), RuntimeError::ProtocolViolation(_)));
+        if process_retirement.is_none() {
+            // Process-wide revocation can remove a reserved child's grant.
+            // Only an observed exit of this exact owned Child permits taking
+            // physical cleanup instead of the live environment protocol.
+            match active.observed_process_exit() {
+                Ok(Some(status)) => {
+                    if let Some(error) = &prior_close_failure {
+                        // Process death cannot turn a rejected protocol reply
+                        // into a successful close on the next attempt.
+                        *client = Some(active);
+                        return Err(error.clone());
+                    }
+                    process_retirement = Some(RuntimeError::WorkerCrashed(format!(
+                        "worker exited with {status}"
+                    )));
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    *client = Some(active);
+                    self.remember_protocol_close_failure(&error);
+                    return Err(error);
+                }
+            }
+        }
+        match Self::cancel_pending_for_close(&mut active, &mut process_retirement) {
             Ok(true) => {
+                if let Some(error) = &prior_close_failure {
+                    *client = Some(active);
+                    return Err(error.clone());
+                }
                 self.process_id.store(0, Ordering::Release);
                 self.attachment
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
                     .take();
-                return Ok(crate::worker::WorkerResponse::Closed);
+                return Ok(WorkerCloseOutcome::Closed);
             }
             Ok(false) => {}
             Err(error) => {
                 *client = Some(active);
+                self.remember_protocol_close_failure(&error);
                 return Err(error);
             }
         }
         if active.has_sibling_environments() || self.related_admission.is_some() {
-            let response = active.request(crate::worker::WorkerRequest::Close);
-            if !matches!(&response, Ok(crate::worker::WorkerResponse::Closed)) {
-                // Keep the exact route, attachment and process observation for
-                // retry while the actor retains failed terminal cleanup.
-                *client = Some(active);
-                return response;
-            }
+            let response = process_retirement
+                .clone()
+                .map_or_else(|| active.request(crate::worker::WorkerRequest::Close), Err);
+            let outcome = match self.checked_close_result(&mut active, response) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    // Keep exact custody for failed acknowledgement or cleanup.
+                    *client = Some(active);
+                    self.remember_protocol_close_failure(&error);
+                    return Err(error);
+                }
+            };
             self.process_id.store(0, Ordering::Release);
             self.attachment
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .take();
-            // A pooled owner leaves its pool exactly once when its process
-            // remains owned by related roots. Children never own pool slots.
+            // Related children never own their parent's pool slot.
             if self.related_admission.is_none()
                 && matches!(
                     self.config.worker_lifecycle,
@@ -2039,8 +2218,43 @@ impl WorkerPage {
                 self.worker_pool.live.fetch_sub(1, Ordering::AcqRel);
             }
             drop(active);
-            return response;
+            return Ok(outcome);
         }
+        if process_retirement.is_none()
+            && matches!(
+                self.config.worker_lifecycle,
+                WorkerLifecycle::Recycled { .. }
+            )
+        {
+            // Reset continues to require its own encoded identity-bearing ACK.
+            if let Err(error) = active.reset() {
+                *client = Some(active);
+                self.remember_protocol_close_failure(&error);
+                return Err(error);
+            }
+            self.process_id.store(0, Ordering::Release);
+            self.attachment
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take();
+            self.close_failure
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take();
+            self.worker_pool.recycle(active);
+            return Ok(WorkerCloseOutcome::Closed);
+        }
+        let response = process_retirement
+            .clone()
+            .map_or_else(|| active.request(crate::worker::WorkerRequest::Close), Err);
+        let outcome = match self.checked_close_result(&mut active, response) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                *client = Some(active);
+                self.remember_protocol_close_failure(&error);
+                return Err(error);
+            }
+        };
         self.process_id.store(0, Ordering::Release);
         self.attachment
             .lock()
@@ -2048,24 +2262,17 @@ impl WorkerPage {
             .take();
         if matches!(
             self.config.worker_lifecycle,
-            WorkerLifecycle::Recycled { .. }
-        ) {
-            if let Err(error) = active.reset() {
-                self.worker_pool.discard(active);
-                return Err(error);
-            }
-            self.worker_pool.recycle(active);
-            return Ok(crate::worker::WorkerResponse::Closed);
-        }
-        let response = active.request(crate::worker::WorkerRequest::Close);
-        if matches!(
-            self.config.worker_lifecycle,
-            WorkerLifecycle::IsolatedPrewarmed { .. }
+            WorkerLifecycle::IsolatedPrewarmed { .. } | WorkerLifecycle::Recycled { .. }
         ) {
             self.worker_pool.discard(active);
-            self.worker_pool.prepare(&self.config)?;
+            if outcome == WorkerCloseOutcome::Closed {
+                if let Err(error) = self.worker_pool.prepare(&self.config) {
+                    self.remember_protocol_close_failure(&error);
+                    return Err(error);
+                }
+            }
         }
-        response
+        Ok(outcome)
     }
 }
 
@@ -2490,6 +2697,15 @@ mod script_close_sandbox;
 #[path = "script_close_state.rs"]
 mod script_close_state;
 
+#[cfg(feature = "v8-host")]
+#[path = "action_navigation.rs"]
+mod action_navigation;
+#[cfg(all(test, feature = "v8-host"))]
+#[path = "action_navigation_tests.rs"]
+mod action_navigation_tests;
+#[cfg(all(test, unix))]
+#[path = "ipc_boundary_native_tests.rs"]
+mod ipc_boundary_native_tests;
 #[path = "page_actor_turn.rs"]
 mod page_actor_turn;
 #[path = "wait_fairness.rs"]
@@ -4065,7 +4281,12 @@ impl BrowserContext {
             return Err("platform query requires a native Window owner".into());
         };
         let mut private_window = false;
-        if matches!(&request, oryn_js::platform_control::Request::WindowState) {
+        let mut foreground = false;
+        if matches!(
+            &request,
+            oryn_js::platform_control::Request::WindowState
+                | oryn_js::platform_control::Request::DocumentFocus
+        ) {
             let pages = self
                 .inner
                 .group
@@ -4077,6 +4298,9 @@ impl BrowserContext {
             {
                 return Ok(oryn_js::platform_control::Response::WindowRetired);
             }
+            foreground = pages
+                .get(&page)
+                .is_some_and(|record| record.descriptor.active && !record.hidden_prerender);
             let hub = self
                 .inner
                 .group
@@ -4118,6 +4342,23 @@ impl BrowserContext {
         let (owner, _, origin) = self
             .window_worker_creator(page, &target, document_generation, stream_epoch)
             .map_err(|error| error.to_string())?;
+        if matches!(&request, oryn_js::platform_control::Request::DocumentFocus) {
+            let visible = matches!(
+                self.inner
+                    .platform_control
+                    .lock()
+                    .map_err(|_| "platform state lock poisoned")?
+                    .query(
+                        page,
+                        &origin.serialized,
+                        oryn_js::platform_control::Request::WindowState
+                    )?,
+                oryn_js::platform_control::Response::WindowState { hidden: false, .. }
+            );
+            return Ok(oryn_js::platform_control::Response::DocumentFocus {
+                focused: foreground && visible && !private_window,
+            });
+        }
         let top_origin = self
             .inner
             .security_origins
@@ -11113,6 +11354,7 @@ impl BrowserContext {
                     context_wakeups: AtomicUsize::new(0),
                     process_id: AtomicU32::new(process_id),
                     exit_evidence: Mutex::new(None),
+                    close_failure: Mutex::new(None),
                     worker_pool: self.inner.worker_pool.clone(),
                 })),
             };
@@ -11249,7 +11491,18 @@ impl BrowserContext {
                         if let Some(reply) =
                             root.dispatch_fallback(command, &context_owner, &mut next_poll)
                         {
+                            #[cfg(all(unix, feature = "v8-host"))]
+                            let ipc_identity = root.close_progress();
                             drop(root);
+                            #[cfg(all(unix, feature = "v8-host"))]
+                            if let Some(identity) = ipc_identity {
+                                crate::ipc_progress::record(
+                                    Some(identity),
+                                    crate::ipc_progress::Phase::CloseActorReleased,
+                                    None,
+                                    None,
+                                );
+                            }
                             let _ = reply.send(());
                             return;
                         }
@@ -11416,8 +11669,9 @@ impl BrowserContext {
     }
 
     pub async fn close_page(&self, page_id: PageId) -> Result<(), RuntimeError> {
-        // Keep closed records addressable for cleanup retries. Ordinary page
-        // lookup continues to reject them for navigation and script execution.
+        // Keep exact closed/crashed records addressable for physical cleanup.
+        // A crash revokes command liveness but does not discard retained cleanup
+        // custody. Ordinary lookup still rejects both terminal statuses.
         let page = self
             .inner
             .group
@@ -11429,7 +11683,12 @@ impl BrowserContext {
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
                     .get(&page_id)
-                    .filter(|record| record.descriptor.status == PageStatus::Closed)
+                    .filter(|record| {
+                        matches!(
+                            record.descriptor.status,
+                            PageStatus::Closed | PageStatus::Crashed
+                        )
+                    })
                     .map(|record| record.handle.retained_clone())
             })
             .ok_or(RuntimeError::PageNotFound(page_id))?;
@@ -11682,6 +11941,78 @@ impl BrowserContext {
             .ok_or(RuntimeError::PageNotFound(page_id))?;
         page.publish_closed();
         Ok(page)
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn rollback_initial_auxiliary(
+        &self,
+        page_id: PageId,
+        expected: Option<u64>,
+    ) -> Result<(), RuntimeError> {
+        let mut handle = None;
+        let changed = self.inner.group.close_if(page_id, |record| {
+            if !record.created_by_web_content {
+                return Err(RuntimeError::ContextService(
+                    "auxiliary rollback requires a web-created target".into(),
+                ));
+            }
+            if record.descriptor.status != PageStatus::Closed {
+                let policies = self.inner.worker_policies.lock().map_err(|_| {
+                    RuntimeError::ContextService("rollback lifetime registry poisoned".into())
+                })?;
+                let initial = policies
+                    .root_lifetimes
+                    .get(&page_id)
+                    .map_or(expected.is_none(), |life| {
+                        life.matches_initial_rollback(expected)
+                    });
+                let identity = self
+                    .inner
+                    .group
+                    .messages
+                    .lock()
+                    .map_err(|_| {
+                        RuntimeError::ContextService("rollback message registry poisoned".into())
+                    })?
+                    .root_document_identity(page_id.0);
+                if record.descriptor.page.url != "about:blank"
+                    || !initial
+                    || identity.is_some_and(|(generation, epoch)| {
+                        epoch != 0 || expected.is_some_and(|value| value != generation)
+                    })
+                {
+                    return Err(RuntimeError::ContextService(
+                        "auxiliary rollback cannot retire a replacement Document".into(),
+                    ));
+                }
+            }
+            handle = Some(record.handle.detached_clone());
+            Ok(())
+        })?;
+        let Some(page) = handle else {
+            return Ok(());
+        };
+        page.publish_closed();
+        if changed {
+            self.record_context_diagnostic(ContextEvent::PageLifecycle {
+                event: PageLifecycleEvent::Closed { page_id },
+            });
+        }
+        // The page is already non-live under the same lock as the identity
+        // check. Retain ordered teardown independently of reply publication.
+        let job = {
+            let mut pages = self.inner.group.pages.lock().map_err(|_| {
+                RuntimeError::ContextService("rollback page registry poisoned".into())
+            })?;
+            let record = pages
+                .get_mut(&page_id)
+                .ok_or(RuntimeError::PageNotFound(page_id))?;
+            record
+                .script_close
+                .get_or_insert_with(|| crate::script_close_custody::Job::new(page))
+                .clone()
+        };
+        job.start()
     }
 
     pub(crate) fn queue_script_close(&self, page_id: PageId) -> Result<(), RuntimeError> {
@@ -12312,6 +12643,46 @@ impl PageHandle {
 
     #[cfg(unix)]
     pub(crate) async fn scoped_worker_request(
+        &self,
+        scope: crate::host::webdriver_script::AutomationRealmSnapshot,
+        request: crate::worker::WorkerRequest,
+    ) -> Result<crate::worker::WorkerResponse, RuntimeError> {
+        if let crate::worker::WorkerRequest::ExecuteBatch { actions } = request {
+            if actions.len() > 10_000 {
+                return Err(RuntimeError::ProtocolViolation(
+                    "frame action batch limit".into(),
+                ));
+            }
+            let mut results = Vec::with_capacity(actions.len());
+            for action in actions {
+                let outcome = self
+                    .scoped_worker_request_one(
+                        scope.clone(),
+                        crate::worker::WorkerRequest::Execute { action },
+                    )
+                    .await;
+                match outcome {
+                    Ok(crate::worker::WorkerResponse::Action { result }) => results.push(result),
+                    other => {
+                        let cause = match other {
+                            Err(error) => error,
+                            Ok(response) => unexpected_worker_response(response),
+                        };
+                        return Err(RuntimeError::BatchExecutionFailed {
+                            failed_index: results.len(),
+                            completed: results,
+                            cause: Box::new(cause),
+                        });
+                    }
+                }
+            }
+            return Ok(crate::worker::WorkerResponse::Actions { results });
+        }
+        self.scoped_worker_request_one(scope, request).await
+    }
+
+    #[cfg(unix)]
+    async fn scoped_worker_request_one(
         &self,
         scope: crate::host::webdriver_script::AutomationRealmSnapshot,
         request: crate::worker::WorkerRequest,
@@ -13754,13 +14125,37 @@ impl PageHandle {
     }
 
     pub async fn close(&self) -> Result<(), RuntimeError> {
+        self.close_with_observation(None).await
+    }
+
+    pub(crate) async fn close_with_observation(
+        &self,
+        identity: Option<crate::ipc_progress::Identity>,
+    ) -> Result<(), RuntimeError> {
+        let trace = crate::ipc_progress::close_admission::CloseTrace::begin(identity, "handle_entered");
         self.retire_queued_navigations();
-        if let Ok(controller) = self.prompt_controller() {
-            controller.retire();
-        }
+        trace.point("queued_navigations_retired", None);
+        trace.point("prompt_retirement_begin", None);
+        let prompt_state = match self.prompt_controller() {
+            Ok(controller) => {
+                controller.retire();
+                crate::page_terminal_control::prompt_state(&controller)
+            }
+            Err(_) => "lookup_error",
+        };
+        crate::native_timing::point(
+            "close_prompt_retirement",
+            serde_json::json!({
+                "page_id": self.page_id().0, "state_after": prompt_state,
+                "completion_inferred": false
+            }),
+        );
+        trace.point("prompt_retirement_returned", None);
+        trace.point("navigation_retirement_begin", None);
         if let Ok(controller) = self.navigation_control() {
             let _ = controller.retire();
         }
+        trace.point("navigation_retirement_returned", None);
         #[cfg(unix)]
         if let Some(worker) = &self.worker {
             worker.retired.store(true, Ordering::Release);
@@ -13771,14 +14166,24 @@ impl PageHandle {
             self.publish_closed();
             return self.retire_owned_agents().await;
         }
-        self.close_ordered().await
+        self.close_ordered_with_observation(identity).await
     }
 
     // Script closure must queue behind the current command: killing that command
     // loses its action acknowledgement (notably when an OAuth popup closes itself).
     // Explicit host closure above retains its ability to interrupt stuck scripts.
     pub(crate) async fn close_ordered(&self) -> Result<(), RuntimeError> {
+        self.close_ordered_with_observation(None).await
+    }
+
+    async fn close_ordered_with_observation(
+        &self,
+        identity: Option<crate::ipc_progress::Identity>,
+    ) -> Result<(), RuntimeError> {
+        let trace = crate::ipc_progress::close_admission::CloseTrace::begin(identity, "ordered_entered");
         self.retire_queued_navigations();
+        trace.point("ordered_queued_navigations_retired", None);
+        trace.point("direct_reservation_lookup_begin", None);
         #[cfg(all(unix, feature = "v8-host"))]
         if let Some(context) = self.context.upgrade()
             && let Some((route, _)) = context
@@ -13791,9 +14196,11 @@ impl PageHandle {
         {
             page_actor_turn::cancel_direct_root(&route);
         }
+        trace.point("direct_reservation_lookup_returned", None);
         // The actor may already be gone while owned agent teardown is still
         // incomplete. A retry must drain retained processes instead of sending
         // another command to a closed actor and returning early.
+        trace.point("physical_custody_lookup_begin", None);
         let custody = self.context.upgrade().and_then(|context| {
             context
                 .group
@@ -13803,10 +14210,14 @@ impl PageHandle {
                 .get(&self.page_id())
                 .map(|record| record.physical_close.clone())
         });
+        trace.point("physical_custody_lookup_returned", None);
+        trace.point("physical_lock_wait_begin", None);
         let _physical_guard = match &custody {
             Some(custody) => Some(custody.lock().await),
             None => None,
         };
+        trace.point("physical_lock_acquired_or_absent", None);
+        trace.point("physical_completion_lookup_begin", None);
         let completed = self.context.upgrade().is_some_and(|context| {
             context
                 .group
@@ -13816,6 +14227,7 @@ impl PageHandle {
                 .get(&self.page_id())
                 .is_some_and(|record| record.physical_close_complete)
         });
+        trace.point("physical_completion_lookup_returned", Some(completed));
         if completed {
             return self.retire_owned_agents().await;
         }
@@ -13825,25 +14237,33 @@ impl PageHandle {
             // Keep the async caller runnable while the blocking IPC drains,
             // just as ordinary worker requests do.
             let worker = worker.clone();
+            trace.point("parent_worker_close_begin", None);
             let response = tokio::task::spawn_blocking(move || worker.close())
                 .await
                 .map_err(|error| {
                     RuntimeError::WorkerCrashed(format!("worker close task failed: {error}"))
                 })??;
+            trace.point("parent_worker_close_returned", None);
             return match response {
-                crate::worker::WorkerResponse::Closed => {
+                WorkerCloseOutcome::Closed
+                | WorkerCloseOutcome::ReapedAfterRssLimit
+                | WorkerCloseOutcome::ReapedAfterProcessExit => {
                     self.mark_physical_close_complete();
                     self.publish_closed();
                     self.retire_owned_agents().await
                 }
-                response => Err(unexpected_worker_response(response)),
             };
         }
         let (reply, completed) = oneshot::channel();
         let sender = self.sender.as_ref().ok_or(RuntimeError::Closed)?;
         if !sender.is_closed() {
-            if sender.send(PageCommand::Close { reply }).await.is_ok() {
-                let _ = completed.await;
+            trace.point("actor_enqueue_begin", None);
+            let sent = sender.send(PageCommand::Close { reply }).await.is_ok();
+            trace.point("actor_enqueue_returned", Some(sent));
+            if sent {
+                trace.point("actor_ack_wait_begin", None);
+                let acknowledgement = completed.await;
+                trace.point("actor_ack_wait_returned", Some(acknowledgement.is_ok()));
             }
             if !sender.is_closed() {
                 return Err(RuntimeError::ContextService(
@@ -13857,30 +14277,46 @@ impl PageHandle {
     }
 
     async fn retire_owned_agents(&self) -> Result<(), RuntimeError> {
-        let Some(context) = self.owning_context() else {
-            return Ok(());
-        };
-        let agents = context.retire_page_agents(self.page_id()).await;
         #[cfg(unix)]
-        {
-            let custody = context
-                .inner
-                .group
-                .pages
-                .lock()
-                .map_err(|_| RuntimeError::ContextService("page registry poisoned".into()))?
-                .get(&self.page_id())
-                .map(|record| record.queued_navigations.clone());
-            if let Some(custody) = custody {
-                let navigation =
-                    tokio::task::spawn_blocking(move || custody.drain(Duration::from_secs(2)))
-                        .await
-                        .map_err(|error| RuntimeError::ContextService(error.to_string()))?
-                        .map_err(RuntimeError::ContextService);
-                return agents.and(navigation);
+        let ipc_identity = crate::ipc_progress::capture(self.page_id().0);
+        let outcome = async {
+            let Some(context) = self.owning_context() else {
+                return Ok(());
+            };
+            let agents = context.retire_page_agents(self.page_id()).await;
+            #[cfg(unix)]
+            {
+                let custody = context
+                    .inner
+                    .group
+                    .pages
+                    .lock()
+                    .map_err(|_| RuntimeError::ContextService("page registry poisoned".into()))?
+                    .get(&self.page_id())
+                    .map(|record| record.queued_navigations.clone());
+                if let Some(custody) = custody {
+                    let navigation =
+                        tokio::task::spawn_blocking(move || custody.drain(Duration::from_secs(2)))
+                            .await
+                            .map_err(|error| RuntimeError::ContextService(error.to_string()))?
+                            .map_err(RuntimeError::ContextService);
+                    return agents.and(navigation);
+                }
             }
+            agents
         }
-        agents
+        .await;
+        #[cfg(unix)]
+        if let Some(identity) = ipc_identity {
+            crate::ipc_progress::result(
+                Some(identity),
+                crate::ipc_progress::Phase::CloseAgentsSettled,
+                None,
+                None,
+                Some(outcome.is_ok()),
+            );
+        }
+        outcome
     }
 
     fn retire_queued_navigations(&self) {
@@ -13917,6 +14353,12 @@ fn unexpected_worker_response(response: crate::worker::WorkerResponse) -> Runtim
 pub enum RuntimeError {
     #[error("page runtime is closed")]
     Closed,
+    // Local provenance for an unperformed page task. JSON IPC exposes the
+    // existing Closed error; remote input cannot manufacture a local yield.
+    #[doc(hidden)]
+    #[serde(rename = "Closed", skip_deserializing)]
+    #[error("page runtime is closed")]
+    PageTaskYield,
     #[error("page {0:?} is not open in this browser context")]
     PageNotFound(PageId),
     #[error("timed out waiting for a matching page")]
@@ -13956,14 +14398,24 @@ pub enum RuntimeError {
     Semantic(String),
     #[error("browser context service failed: {0}")]
     ContextService(String),
+    #[error("server certificate rejected: {0}")]
+    CertificateRejected(String),
     #[error("network navigation failed: {0}")]
     Network(String),
     #[error("{namespace} identity space is exhausted")]
     IdentityExhausted { namespace: String },
     #[error("navigation history has no entry in that direction")]
     HistoryBoundary,
-    #[error("navigation cancelled by beforeunload")]
+    #[error("navigation cancelled")]
     NavigationCancelled,
+    #[error("{0}")]
+    NavigationStopped(crate::navigation_control::NavigationStop),
+    #[error("{cause}; navigation load cleanup also failed: {cleanup}")]
+    NavigationCleanupFailed {
+        #[source]
+        cause: Box<RuntimeError>,
+        cleanup: Box<RuntimeError>,
+    },
     #[error("wait predicate is not currently satisfied: {0}")]
     WaitUnsatisfied(String),
     #[error("JavaScript evaluation requires the v8-host feature")]
@@ -14063,12 +14515,45 @@ fn target_requires_geometry(target: &oryn_common::agent::Target) -> bool {
     }
 }
 
+#[cfg(unix)]
+impl From<crate::network::NetworkError> for RuntimeError {
+    fn from(error: crate::network::NetworkError) -> Self {
+        match error {
+            crate::network::NetworkError::CertificateRejected(detail) => {
+                Self::CertificateRejected(detail)
+            }
+            other => Self::Network(other.to_string()),
+        }
+    }
+}
+#[cfg(unix)]
+impl From<crate::network::NetworkFailure> for RuntimeError {
+    fn from(error: crate::network::NetworkFailure) -> Self {
+        match error {
+            crate::network::NetworkFailure::Certificate {
+                certificate_rejected,
+            } => Self::CertificateRejected(certificate_rejected),
+            crate::network::NetworkFailure::Message(message) => Self::Network(message),
+        }
+    }
+}
 impl RuntimeError {
+    pub(crate) fn navigation_stop(&self) -> crate::navigation_control::NavigationStop {
+        match self.root_cause() {
+            Self::NavigationStopped(reason) => reason.clone(),
+            Self::CertificateRejected(detail) => {
+                crate::navigation_control::NavigationStop::CertificateRejected(detail.clone())
+            }
+            _ => crate::navigation_control::NavigationStop::Failed(self.to_string()),
+        }
+    }
+
     pub(crate) fn root_cause(&self) -> &RuntimeError {
         let mut current = self;
         while let RuntimeError::ActionExecutionFailed { cause, .. }
         | RuntimeError::BatchExecutionFailed { cause, .. }
-        | RuntimeError::OilExecutionFailed { cause, .. } = current
+        | RuntimeError::OilExecutionFailed { cause, .. }
+        | RuntimeError::NavigationCleanupFailed { cause, .. } = current
         {
             current = cause.as_ref();
         }
@@ -14114,7 +14599,51 @@ struct PendingHistoryPublication {
 #[cfg(all(unix, feature = "v8-host"))]
 type PreparedLocalNavigation = (String, String, Vec<(String, String)>, Option<String>);
 
+/// One namespace per native page, shared by every selected document driver.
+/// Allocation precedes dispatch and is never rolled back on dispatched errors.
+#[derive(Clone, Default)]
+struct PageActionIds(Arc<std::sync::atomic::AtomicU64>);
+impl PageActionIds {
+    fn reserve(&self) -> Result<ActionId, RuntimeError> {
+        self.0
+            .fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |last| last.checked_add(1),
+            )
+            .map(|last| ActionId(last + 1))
+            .map_err(|_| RuntimeError::IdentityExhausted {
+                namespace: "native action".into(),
+            })
+    }
+    #[cfg(test)]
+    fn last(&self) -> u64 {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    #[cfg(test)]
+    fn set_last(&self, value: u64) {
+        self.0.store(value, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+// A terminal handoff can occur after these destructive queue reads. Retain the
+// exact batch until PageState destruction rather than starting fresh navigation
+// or dropping a history task while the owning Close acknowledgement is pending.
+#[cfg(feature = "v8-host")]
+struct PageTaskSignals {
+    console_entries: Vec<crate::executable::ConsoleEntry>,
+    context_entries: Vec<crate::executable::ContextTraceEntry>,
+    location: Option<(oryn_js::v8_bindings::LocationNavigation, HistoryUpdate)>,
+    history_traversal: Option<oryn_js::v8_bindings::HistoryTraversalTask>,
+}
+
 struct PageState {
+    // The actor retains the owning page's terminal admission control. Navigation
+    // cancellation uses a different control and must not suppress rendering.
+    #[cfg(feature = "v8-host")]
+    page_task_terminal_control: Arc<crate::page_terminal_control::PageTerminalControl>,
+    #[cfg(all(test, feature = "v8-host"))]
+    after_page_task_drain: Option<Box<dyn FnOnce() + Send>>,
     #[cfg(feature = "v8-host")]
     prepared_standalone_navigation: Option<crate::standalone_document_policy::BlobResource>,
     #[cfg(feature = "v8-host")]
@@ -14129,6 +14658,17 @@ struct PageState {
     pending_agent_host: Option<crate::host::RawV8Host>,
     #[cfg(feature = "v8-host")]
     pending_navigation_transaction: Option<NavigationTransaction>,
+    #[cfg(all(unix, feature = "v8-host"))]
+    navigation_progress_identity: Option<crate::ipc_progress::Identity>,
+    #[cfg(all(unix, feature = "v8-host"))]
+    committed_navigation_progress: Option<CommittedNavigationProgress>,
+    #[cfg(feature = "v8-host")]
+    action_navigation: Option<action_navigation::Barrier>,
+    #[cfg(feature = "v8-host")]
+    completed_action_frame_selection:
+        Option<(ActionId, crate::executable::ActionFrameCommittedSelection)>,
+    #[cfg(feature = "v8-host")]
+    action_root_navigation: Option<action_navigation::ScopedAction>,
     #[cfg(feature = "v8-host")]
     completed_root_departure: Option<RootDeparture>,
     #[cfg(feature = "v8-host")]
@@ -14139,6 +14679,8 @@ struct PageState {
     failed_install_recovery: Option<FailedInstallRecovery>,
     #[cfg(feature = "v8-host")]
     pending_execution_replies: Vec<PendingNavigationReply>,
+    #[cfg(feature = "v8-host")]
+    terminal_page_task_signals: Option<PageTaskSignals>,
     #[cfg(feature = "v8-host")]
     pending_accessibility: VecDeque<PendingAccessibility>,
     #[cfg(feature = "v8-host")]
@@ -14167,7 +14709,7 @@ struct PageState {
     layout_revision: u64,
     viewport: ViewportState,
     scroll_state: ScrollState,
-    next_action_id: u64,
+    action_ids: PageActionIds,
     lifecycle: Vec<LifecycleState>,
     network_quiet_since: Option<Instant>,
     document: Option<ParsedDocument>,
@@ -14323,6 +14865,12 @@ enum NavigationReply {
         Option<oneshot::Sender<Result<(), RuntimeError>>>,
     ),
     Execution(oryn_js::navigation::NavigationExecutionObserver, u64),
+    // An action keeps its admission reply; this separate terminal receipt fences
+    // subsequent document commands and preserves the original execution observer.
+    ActionNavigation {
+        completion: oneshot::Sender<Result<NavigationResult, RuntimeError>>,
+        previous: Option<Box<NavigationReply>>,
+    },
     Controlled(oneshot::Sender<Result<(), RuntimeError>>),
     Navigation(oneshot::Sender<Result<NavigationResult, RuntimeError>>),
     Html(oneshot::Sender<Result<(Revision, PageInfo), RuntimeError>>),
@@ -14333,6 +14881,10 @@ impl NavigationReply {
         match self {
             Self::JointEvents(emitter, _) => emitter.cached_stop().is_some(),
             Self::Execution(..) => false,
+            Self::ActionNavigation {
+                completion,
+                previous,
+            } => completion.is_closed() || previous.as_ref().is_some_and(|reply| reply.is_closed()),
             Self::Controlled(reply) => reply.is_closed(),
             Self::Navigation(reply) => reply.is_closed(),
             Self::Html(reply) => reply.is_closed(),
@@ -14358,9 +14910,9 @@ impl NavigationReply {
                                 document_generation: result.document_generation,
                             })
                         }),
-                    Err(error) => emitter.publish(NavigationEvent::Stopped(
-                        NavigationStop::Failed(error.to_string()),
-                    )),
+                    Err(error) => {
+                        emitter.publish(NavigationEvent::Stopped(error.navigation_stop()))
+                    }
                 };
                 if state
                     .active_navigation
@@ -14391,6 +14943,17 @@ impl NavigationReply {
                     message: error.to_string(),
                 },
             }),
+            Self::ActionNavigation {
+                completion,
+                previous,
+            } => {
+                // Deliver the existing navigation observer exactly once, retaining
+                // the typed failure for the action fence rather than reissuing input.
+                if let Some(previous) = previous {
+                    previous.complete(state, result.clone());
+                }
+                let _ = completion.send(result);
+            }
             Self::Controlled(reply) => {
                 let _ = reply.send(result.map(|_| ()));
             }
@@ -14458,7 +15021,7 @@ impl JointNavigationPublication {
                 },
                 Err(error) => {
                     if self.phase == 0 {
-                        NavigationEvent::Stopped(NavigationStop::Failed(error.to_string()))
+                        NavigationEvent::Stopped(error.navigation_stop())
                     } else {
                         return std::task::Poll::Ready(Ok(()));
                     }
@@ -14963,6 +15526,9 @@ impl PageState {
     #[cfg(feature = "v8-host")]
     fn poll_history_publications(&mut self) -> Result<(), RuntimeError> {
         loop {
+            if self.terminal_close_requested() {
+                return Ok(());
+            }
             if self
                 .history_publications
                 .front()
@@ -14982,6 +15548,12 @@ impl PageState {
                     .as_mut()
                     .ok_or(RuntimeError::EvaluationUnavailable)?;
                 loop {
+                    // Each preceding stage recorded its actual completed receipt
+                    // before this boundary. Retain the next stage and later jobs
+                    // without interrupting an admitted callback/microtask turn.
+                    if executable.terminal_retired() {
+                        return Ok(false);
+                    }
                     let identity = executable.form_history_root_identity();
                     if let Some(expected) = pending.identity {
                         if identity != Some(expected) {
@@ -14993,6 +15565,9 @@ impl PageState {
                             return Ok(true);
                         }
                     }
+                    #[cfg(test)]
+                    let _stage_phase =
+                        crate::ipc_progress::close_admission::phase("history_publication_stage");
                     match pending.stage {
                         0 => {
                             pending.receipt = Some(
@@ -15367,7 +15942,7 @@ impl PageState {
     #[cfg(feature = "v8-host")]
     fn adopt_agent_document(&mut self, params: AgentDocumentInputs) {
         let AgentDocumentInputs {
-            executable,
+            mut executable,
             url,
             generation,
             origin,
@@ -15377,6 +15952,12 @@ impl PageState {
             isolation,
         } = params;
 
+        // A reserved blank candidate already owns its destination slot before
+        // construction. Keep that exact slot across delayed local registration.
+        if let Some(owner) = executable.terminal_owner_for_page(self.page_id) {
+            self.page_task_terminal_control = owner;
+        }
+        executable.adopt_page_terminal_control(self.page_task_terminal_control.clone());
         self.url = url;
         self.document_generation = generation;
         self.last_issued_document_generation = generation;
@@ -15426,6 +16007,12 @@ impl PageState {
             page_id,
             opener_page_id,
             config,
+            #[cfg(feature = "v8-host")]
+            page_task_terminal_control: crate::page_terminal_control::PageTerminalControl::new(
+                page_id,
+            ),
+            #[cfg(all(test, feature = "v8-host"))]
+            after_page_task_drain: None,
             url: String::new(),
             document_generation,
             last_issued_document_generation: document_generation,
@@ -15440,7 +16027,7 @@ impl PageState {
                 content_height: context_options.viewport.height,
                 ..ScrollState::default()
             },
-            next_action_id: 0,
+            action_ids: PageActionIds::default(),
             lifecycle: Vec::new(),
             network_quiet_since: None,
             document: None,
@@ -15464,6 +16051,16 @@ impl PageState {
             pending_navigation_response: None,
             #[cfg(feature = "v8-host")]
             pending_navigation_transaction: None,
+            #[cfg(all(unix, feature = "v8-host"))]
+            navigation_progress_identity: None,
+            #[cfg(all(unix, feature = "v8-host"))]
+            committed_navigation_progress: None,
+            #[cfg(feature = "v8-host")]
+            action_navigation: None,
+            #[cfg(feature = "v8-host")]
+            completed_action_frame_selection: None,
+            #[cfg(feature = "v8-host")]
+            action_root_navigation: None,
             #[cfg(feature = "v8-host")]
             completed_root_departure: None,
             #[cfg(feature = "v8-host")]
@@ -15474,6 +16071,8 @@ impl PageState {
             failed_install_recovery: None,
             #[cfg(feature = "v8-host")]
             pending_execution_replies: Vec::new(),
+            #[cfg(feature = "v8-host")]
+            terminal_page_task_signals: None,
             #[cfg(feature = "v8-host")]
             pending_accessibility: VecDeque::new(),
             #[cfg(feature = "v8-host")]
@@ -16271,6 +16870,19 @@ impl PageState {
         self.executable = Some(cached.executable);
         self.layout = cached.layout;
         self.history_index = Some(index);
+        // A restored document retains native identity but has a new activation
+        // owner; never attribute it to an earlier fresh-load trace.
+        #[cfg(unix)]
+        {
+            self.committed_navigation_progress = None;
+        }
+        #[cfg(unix)]
+        crate::ipc_progress::record(
+            self.navigation_progress_identity,
+            crate::ipc_progress::Phase::DocumentCommitted,
+            None,
+            Some(self.document_generation),
+        );
         if let Some(navigation) = &self.active_navigation {
             navigation
                 .publish(crate::navigation_control::NavigationEvent::Committed {
@@ -16307,19 +16919,24 @@ impl PageState {
                 stage: 0,
                 retry: None,
             });
-        if !actor_restore {
+        if !actor_restore && !self.terminal_close_requested() {
             self.poll_history_publications()?;
-            self.sync_executable_semantics()?;
-            self.refresh_layout()?;
-            self.record_snapshot();
+            if !self.terminal_close_requested() {
+                self.sync_executable_semantics()?;
+                if self.refresh_page_task_layout()? {
+                    self.record_snapshot();
+                }
+            }
         }
-        self.trace.push(
-            Revision(self.revision),
-            None,
-            TraceEventKind::NavigationCommitted {
-                url: self.url.clone(),
-            },
-        );
+        if !self.terminal_close_requested() {
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::NavigationCommitted {
+                    url: self.url.clone(),
+                },
+            );
+        }
         Ok(Some(NavigationResult {
             page_id: self.page_id,
             requested_url,
@@ -17067,8 +17684,8 @@ impl PageState {
                     Err(error) => Err(map_host_error(error)),
                     Ok(realm) => {
                         provisional_agent_root = Some(realm);
-                        crate::executable::RustExecutableDocument::load_in_agent(
-                            crate::executable::AgentDocumentLoadInput {
+                        crate::executable::RustExecutableDocument::load_for_page(
+                            crate::executable::PageDocumentLoadInput {
                                 parsed: parsed.take(),
                                 source: live_source.take(),
                                 html,
@@ -17078,7 +17695,10 @@ impl PageState {
                                 max_heap_bytes: self.config.max_v8_heap_bytes,
                                 #[cfg(unix)]
                                 context: None,
-                                recovery: &mut self.pending_agent_host,
+                                recovery: Some(&mut self.pending_agent_host),
+                                inherited_origin: None,
+                                scheduled: true,
+                                terminal_control: self.page_task_terminal_control.clone(),
                             },
                         )
                         .map_err(map_host_error)
@@ -17096,8 +17716,8 @@ impl PageState {
                 };
                 next_history[next_history_index].origin = origin.clone();
                 Some(
-                    crate::executable::RustExecutableDocument::load_with_inherited_origin(
-                        crate::executable::InheritedOriginLoadInput {
+                    crate::executable::RustExecutableDocument::load_for_page(
+                        crate::executable::PageDocumentLoadInput {
                             parsed: parsed.take(),
                             source: live_source.take(),
                             html,
@@ -17107,7 +17727,11 @@ impl PageState {
                             max_heap_bytes: self.config.max_v8_heap_bytes,
                             scheduled: self.active_navigation.is_some()
                                 || self.defer_navigation_construction,
-                            origin,
+                            inherited_origin: Some(origin),
+                            recovery: None,
+                            #[cfg(unix)]
+                            context: None,
+                            terminal_control: self.page_task_terminal_control.clone(),
                         },
                     )
                     .map_err(map_host_error),
@@ -17158,8 +17782,8 @@ impl PageState {
                             Err(error) => Err(map_host_error(error)),
                             Ok(realm) => {
                                 provisional_agent_root = Some(realm);
-                                crate::executable::RustExecutableDocument::load_in_agent(
-                                    crate::executable::AgentDocumentLoadInput {
+                                crate::executable::RustExecutableDocument::load_for_page(
+                                    crate::executable::PageDocumentLoadInput {
                                         parsed,
                                         source: live_source,
                                         html,
@@ -17172,7 +17796,10 @@ impl PageState {
                                             self.page_id,
                                             self.opener_page_id,
                                         )),
-                                        recovery: &mut self.pending_agent_host,
+                                        recovery: Some(&mut self.pending_agent_host),
+                                        inherited_origin: None,
+                                        scheduled: true,
+                                        terminal_control: self.page_task_terminal_control.clone(),
                                     },
                                 )
                                 .map_err(map_host_error)
@@ -17181,105 +17808,48 @@ impl PageState {
                     }
                 }
             } else {
-                match (document_client, parsed, live_source) {
-                (Some(context_client), None, Some(source)) => {
-                    crate::executable::RustExecutableDocument::load_stream_with_context_and_limits(
-                        source,
-                        &resources,
-                        self.broker.clone(),
-                        Url::parse(&self.url).ok(),
-                        self.config.max_v8_heap_bytes,
-                        self.active_navigation.is_some()||self.defer_navigation_construction,
-                        (context_client, self.page_id, self.opener_page_id),
-                    )
-                }
-                (Some(context_client), Some(parsed), _) => {
-                    crate::executable::RustExecutableDocument::load_parsed_with_schedule(
+                let scheduled = (parsed.is_some() || live_source.is_some())
+                    && (self.active_navigation.is_some() || self.defer_navigation_construction);
+                crate::executable::RustExecutableDocument::load_for_page(
+                    crate::executable::PageDocumentLoadInput {
                         parsed,
-                        &resources,
-                        self.broker.clone(),
-                        Url::parse(&self.url).ok(),
-                        self.config.max_v8_heap_bytes,
-                        self.active_navigation.is_some()||self.defer_navigation_construction,
-                        Some((context_client, self.page_id, self.opener_page_id)),
-                    )
-                }
-                (Some(context_client), None, None) => {
-                    crate::executable::RustExecutableDocument::load_with_context_and_limits(
+                        source: live_source,
                         html,
-                        &resources,
-                        self.broker.clone(),
-                        Url::parse(&self.url).ok(),
-                        self.config.max_v8_heap_bytes,
-                        (context_client, self.page_id, self.opener_page_id),
-                    )
-                }
-                (None, Some(parsed), _) => {
-                    crate::executable::RustExecutableDocument::load_parsed_with_schedule(
-                        parsed,
-                        &resources,
-                        self.broker.clone(),
-                        Url::parse(&self.url).ok(),
-                        self.config.max_v8_heap_bytes,
-                        self.active_navigation.is_some()||self.defer_navigation_construction,
-                        #[cfg(unix)] None,
-                    )
-                }
-                (None, None, Some(source)) => {
-                    crate::executable::RustExecutableDocument::load_stream_with_limits(
-                        source,
-                        &resources,
-                        self.broker.clone(),
-                        Url::parse(&self.url).ok(),
-                        self.config.max_v8_heap_bytes,
-                        self.active_navigation.is_some()||self.defer_navigation_construction,
-                    )
-                }
-                (None, None, None) => crate::executable::RustExecutableDocument::load_with_limits(
-                    html,
-                    &resources,
-                    self.broker.clone(),
-                    Url::parse(&self.url).ok(),
-                    self.config.max_v8_heap_bytes,
-                ),
-            }
-            .map_err(map_host_error)
+                        resources: &resources,
+                        broker: self.broker.clone(),
+                        base_url: Url::parse(&self.url).ok(),
+                        max_heap_bytes: self.config.max_v8_heap_bytes,
+                        scheduled,
+                        context: document_client
+                            .map(|client| (client, self.page_id, self.opener_page_id)),
+                        recovery: None,
+                        inherited_origin: None,
+                        terminal_control: self.page_task_terminal_control.clone(),
+                    },
+                )
+                .map_err(map_host_error)
             };
             #[cfg(not(unix))]
             let constructed = if let Some(constructed) = standalone_constructed {
                 constructed
             } else {
-                match (parsed, live_source) {
-                    (Some(parsed), _) => {
-                        crate::executable::RustExecutableDocument::load_parsed_with_schedule(
-                            parsed,
-                            &resources,
-                            self.broker.clone(),
-                            Url::parse(&self.url).ok(),
-                            self.config.max_v8_heap_bytes,
-                            self.active_navigation.is_some() || self.defer_navigation_construction,
-                            #[cfg(unix)]
-                            None,
-                        )
-                    }
-                    (None, Some(source)) => {
-                        crate::executable::RustExecutableDocument::load_stream_with_limits(
-                            source,
-                            &resources,
-                            self.broker.clone(),
-                            Url::parse(&self.url).ok(),
-                            self.config.max_v8_heap_bytes,
-                            self.active_navigation.is_some() || self.defer_navigation_construction,
-                        )
-                    }
-                    (None, None) => crate::executable::RustExecutableDocument::load_with_limits(
+                let scheduled = (parsed.is_some() || live_source.is_some())
+                    && (self.active_navigation.is_some() || self.defer_navigation_construction);
+                crate::executable::RustExecutableDocument::load_for_page(
+                    crate::executable::PageDocumentLoadInput {
+                        parsed,
+                        source: live_source,
                         html,
-                        &resources,
-                        self.broker.clone(),
-                        Url::parse(&self.url).ok(),
-                        self.config.max_v8_heap_bytes,
-                    ),
-                }
+                        resources: &resources,
+                        broker: self.broker.clone(),
+                        base_url: Url::parse(&self.url).ok(),
+                        max_heap_bytes: self.config.max_v8_heap_bytes,
+                        scheduled,
+                        recovery: None,
+                        inherited_origin: None,
+                        terminal_control: self.page_task_terminal_control.clone(),
+                    },
+                )
                 .map_err(map_host_error)
             };
             let mut executable = match constructed {
@@ -17432,6 +18002,22 @@ impl PageState {
             #[cfg(feature = "v8-host")]
             self.evict_cached_document(index);
         }
+        // The executable and history now own the committed destination. A
+        // terminal yield retains that custody for destruction without claiming
+        // layout or lifecycle work that the checkpoint deliberately deferred.
+        #[cfg(feature = "v8-host")]
+        if self.terminal_close_requested() {
+            return Ok(());
+        }
+        #[cfg(all(unix, feature = "v8-host"))]
+        self.capture_committed_navigation_progress();
+        #[cfg(all(unix, feature = "v8-host"))]
+        crate::ipc_progress::record(
+            self.navigation_progress_identity,
+            crate::ipc_progress::Phase::DocumentCommitted,
+            None,
+            Some(self.document_generation),
+        );
         // The installed document and its session history commit together.
         // Layout/readiness failures after this point do not resurrect the old
         // history beneath a destination whose scripts have already executed.
@@ -17452,7 +18038,13 @@ impl PageState {
             self.navigation_committed = true;
         }
         #[cfg(feature = "v8-host")]
-        self.refresh_layout()?;
+        {
+            if !self.refresh_page_task_layout()? {
+                return Ok(());
+            }
+        }
+        #[cfg(all(unix, feature = "v8-host"))]
+        self.record_committed_navigation_progress(NavigationReadinessStage::LayoutCompleted);
         self.record_snapshot();
         self.trace.push(
             Revision(self.revision),
@@ -17507,6 +18099,10 @@ impl PageState {
                 None,
                 TraceEventKind::LifecycleChanged { state },
             );
+            #[cfg(all(unix, feature = "v8-host"))]
+            if state == LifecycleState::Load {
+                self.record_committed_navigation_progress(NavigationReadinessStage::LoadReady);
+            }
         }
         self.network_quiet_since = Some(Instant::now());
         Ok(())
@@ -17720,12 +18316,12 @@ impl PageState {
         if let (Some(operation), Some(executable)) = (operation, self.executable.as_mut()) {
             use oryn_js::navigation_api::NativeNavigationFailure;
             let reason = match &failure {
-                RuntimeError::NavigationCancelled | RuntimeError::Closed => {
-                    NativeNavigationFailure::Abort
-                }
-                RuntimeError::Network(_) | RuntimeError::Download(_) => {
-                    NativeNavigationFailure::Network
-                }
+                RuntimeError::NavigationCancelled
+                | RuntimeError::Closed
+                | RuntimeError::PageTaskYield => NativeNavigationFailure::Abort,
+                RuntimeError::Network(_)
+                | RuntimeError::CertificateRejected(_)
+                | RuntimeError::Download(_) => NativeNavigationFailure::Network,
                 RuntimeError::PolicyDenied { .. } | RuntimeError::ConfirmationRequired { .. } => {
                     NativeNavigationFailure::Security
                 }
@@ -17747,6 +18343,8 @@ impl PageState {
         &mut self,
         mut pending: PendingNavigationReply,
     ) -> Option<PendingNavigationReply> {
+        #[cfg(test)]
+        let _reply_phase = crate::ipc_progress::close_admission::phase("page_poll_execution_reply");
         if pending.joint_publication.is_some() {
             return self.poll_joint_navigation_publication(pending);
         }
@@ -18157,8 +18755,28 @@ impl PageState {
             return None;
         };
         let previous = std::mem::replace(&mut self.defer_navigation_construction, true);
+        #[cfg(unix)]
+        let previous_ipc_identity = std::mem::replace(
+            &mut self.navigation_progress_identity,
+            crate::ipc_progress::capture(self.page_id.0),
+        );
         let result = run(self);
+        #[cfg(unix)]
+        {
+            self.navigation_progress_identity = previous_ipc_identity;
+        }
         self.defer_navigation_construction = previous;
+        self.retain_document_reply(reply, generation, deadline, result)
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn retain_document_reply(
+        &mut self,
+        reply: NavigationReply,
+        generation: u64,
+        deadline: Instant,
+        result: Result<NavigationProgress, RuntimeError>,
+    ) -> Option<PendingNavigationReply> {
         match result {
             Ok(NavigationProgress::Joint(receipt, result)) => {
                 return Some(PendingNavigationReply {
@@ -18181,6 +18799,12 @@ impl PageState {
                     .as_mut()
                     .filter(|transaction| transaction.id == id)
                 {
+                    let mut reply = reply;
+                    if let NavigationReply::ActionNavigation { previous, .. } = &mut reply {
+                        // begin_script_navigation may already own the JS execution
+                        // observer. Do not replace or drop that terminal publication.
+                        *previous = transaction.reply.take().map(Box::new);
+                    }
                     transaction.reply = Some(reply);
                 } else {
                     reply.complete(self, Err(RuntimeError::NavigationCancelled));
@@ -18978,7 +19602,7 @@ impl PageState {
                         Some(crate::network::NetworkEvent::Failed { request_id, error })
                             if request_id == expected_request_id =>
                         {
-                            return Err(RuntimeError::Network(error));
+                            return Err(RuntimeError::from(error));
                         }
                         Some(crate::network::NetworkEvent::Chunk { .. })
                         | Some(crate::network::NetworkEvent::Complete { .. }) => {
@@ -19230,7 +19854,7 @@ impl PageState {
                     }
                     crate::network::NetworkEvent::Complete { .. } => break,
                     crate::network::NetworkEvent::Failed { error, .. } => {
-                        return Err(RuntimeError::Network(error));
+                        return Err(RuntimeError::from(error));
                     }
                     crate::network::NetworkEvent::Headers { .. } => {
                         return Err(RuntimeError::ProtocolViolation(
@@ -19305,6 +19929,7 @@ impl PageState {
 
     #[cfg(feature = "v8-host")]
     fn finish_pending_navigation_response(&mut self) -> Result<(), RuntimeError> {
+        let _close_phase = crate::ipc_progress::close_admission::phase("navigation_response_completion");
         let Some(pending) = self.pending_navigation_response.take() else {
             return Ok(());
         };
@@ -19344,6 +19969,8 @@ impl PageState {
             }
             std::mem::take(&mut *capture)
         };
+        #[cfg(unix)]
+        self.record_committed_navigation_progress(NavigationReadinessStage::ParserSettled);
         self.trace.push(
             Revision(self.revision),
             None,
@@ -20562,6 +21189,11 @@ impl PageState {
         {
             self.poll_page_tasks()
                 .map_err(|error| ScriptError::javascript(error.to_string()))?;
+            if let FrameCommand::ResolveActionSelection { current, action_id } = &command {
+                return self
+                    .resolve_action_frame_selection(current, *action_id)
+                    .map(FrameResponse::Selected);
+            }
             if let FrameCommand::NavigateSelectedDocumentWindow {
                 receipt,
                 selected,
@@ -20851,7 +21483,8 @@ impl PageState {
                 | FrameCommand::FocusWindow { .. }
                 | FrameCommand::NavigateWindow { .. }
                 | FrameCommand::NavigateFormWindow { .. } => unreachable!(),
-                FrameCommand::SelectSemantic { .. }
+                FrameCommand::ResolveActionSelection { .. }
+                | FrameCommand::SelectSemantic { .. }
                 | FrameCommand::Element { .. }
                 | FrameCommand::NavigateSelectedFormWindow { .. }
                 | FrameCommand::NavigateSelectedDocumentWindow { .. } => unreachable!(),
@@ -21281,17 +21914,20 @@ impl PageState {
         if let Err(error) = &result
             && let Some(navigation) = &self.active_navigation
         {
-            let reason = navigation.checkpoint().err().unwrap_or_else(|| {
-                crate::navigation_control::NavigationStop::Failed(error.to_string())
-            });
+            let reason = navigation
+                .checkpoint()
+                .err()
+                .unwrap_or_else(|| error.navigation_stop());
             let _ = navigation.publish(crate::navigation_control::NavigationEvent::Stopped(reason));
-            self.stop_navigation_load()?;
+            return Err(self.stop_failed_navigation_load(error.clone()));
         }
         result
     }
 
     #[cfg(all(unix, feature = "v8-host"))]
     fn poll_prerender_candidates(&mut self) -> Result<(), RuntimeError> {
+        #[cfg(test)]
+        let _candidate_phase = crate::ipc_progress::close_admission::phase("page_poll_prerender");
         if self.frame_scope.is_some() || self.pending_navigation_transaction.is_some() {
             return Ok(());
         }
@@ -21306,18 +21942,19 @@ impl PageState {
             .prerender_source_snapshot()
             .map_err(map_host_error)?;
         let mut host = Some(executable.take_agent_host().map_err(map_host_error)?);
-        let (high, diagnostics) =
-            self.prerender_candidates
-                .poll(prerender_roster::PrerenderPollInput {
-                    snapshot: source,
-                    host: &mut host,
-                    client,
-                    page: self.page_id,
-                    broker,
-                    source_url: &self.url,
-                    policy: self.referrer_policy,
-                    config: &self.config,
-                });
+        let (high, diagnostics) = self.prerender_candidates.poll_for_page(
+            prerender_roster::PrerenderPollInput {
+                snapshot: source,
+                host: &mut host,
+                client,
+                page: self.page_id,
+                broker,
+                source_url: &self.url,
+                policy: self.referrer_policy,
+                config: &self.config,
+            },
+            self.page_task_terminal_control.clone(),
+        );
         self.last_issued_document_generation = self.last_issued_document_generation.max(high);
         if let Some(host) = host {
             match executable.return_agent_host_after_turn(host) {
@@ -21347,7 +21984,16 @@ impl PageState {
     }
 
     #[cfg(feature = "v8-host")]
+    fn terminal_close_requested(&self) -> bool {
+        crate::page_terminal_control::retired(Some(&self.page_task_terminal_control))
+    }
+
+    #[cfg(feature = "v8-host")]
     fn poll_page_tasks_inner(&mut self) -> Result<(), RuntimeError> {
+        let _close_phase = crate::ipc_progress::close_admission::phase("page_poll");
+        if self.terminal_close_requested() {
+            return Ok(());
+        }
         if let Some(executable) = self.executable.as_mut() {
             if executable.standalone_close_pending() {
                 executable.drain_tasks().map_err(map_host_error)?;
@@ -21371,14 +22017,24 @@ impl PageState {
             return Ok(());
         }
         self.poll_source_resume();
-        if self.root_source_resume.is_some() {
+        if self.root_source_resume.is_some() || self.terminal_close_requested() {
             return Ok(());
         }
         self.poll_accessibility_operations();
+        if self.terminal_close_requested() {
+            return Ok(());
+        }
         for pending in std::mem::take(&mut self.pending_execution_replies) {
+            if self.terminal_close_requested() {
+                self.pending_execution_replies.push(pending);
+                continue;
+            }
             if let Some(pending) = self.poll_navigation_reply(pending) {
                 self.pending_execution_replies.push(pending);
             }
+        }
+        if self.terminal_close_requested() {
+            return Ok(());
         }
         if let Err(error) = self.poll_history_publications()
             && !self
@@ -21393,7 +22049,13 @@ impl PageState {
         {
             return Err(error);
         }
+        if self.terminal_close_requested() {
+            return Ok(());
+        }
         self.poll_navigation_control_checkpoint()?;
+        if self.terminal_close_requested() {
+            return Ok(());
+        }
         if let Some(pending) = self.poll_navigation_transaction()
             && let Some(previous) = self.pending_committed_navigation_reply.replace(pending)
         {
@@ -21401,13 +22063,16 @@ impl PageState {
                 .reply
                 .complete(self, Err(RuntimeError::NavigationCancelled));
         }
+        if self.terminal_close_requested() {
+            return Ok(());
+        }
         if self.frame_scope.is_none()
-            && self
+            && let Some(reason) = self
                 .active_navigation
                 .as_ref()
-                .is_some_and(|job| job.checkpoint().is_err())
+                .and_then(|job| job.checkpoint().err())
         {
-            self.stop_navigation_load()?;
+            return Err(self.stop_failed_navigation_load(RuntimeError::NavigationStopped(reason)));
         }
         if self.frame_scope.is_some() {
             self.executable
@@ -21415,8 +22080,18 @@ impl PageState {
                 .ok_or(RuntimeError::EvaluationUnavailable)?
                 .drain_tasks()
                 .map_err(map_host_error)?;
+            #[cfg(test)]
+            if let Some(after_drain) = self.after_page_task_drain.take() {
+                after_drain();
+            }
+            if self.terminal_close_requested() {
+                return Ok(());
+            }
             self.sync_executable_semantics()?;
-            self.refresh_layout()?;
+            if self.terminal_close_requested() {
+                return Ok(());
+            }
+            self.refresh_page_task_layout()?;
             return Ok(());
         }
         #[cfg(unix)] if self.prerender_recovery.is_some()||self.pending_navigation_transaction.as_ref().is_some_and(|transaction|matches!(&transaction.phase,NavigationTransactionPhase::Prerender(job) if job.source_suspended())){return Ok(())}
@@ -21424,29 +22099,71 @@ impl PageState {
         if self.executable.is_none() {
             return Ok(());
         }
-        let (console_entries, context_entries, location, history_traversal) = {
+        // A drain can run author work long enough for another thread to enqueue
+        // terminal Close. Yield before starting a new rendering pass; leave all
+        // retained replies and the Close acknowledgement with their current owners.
+        self.executable
+            .as_mut()
+            .ok_or(RuntimeError::EvaluationUnavailable)?
+            .drain_tasks()
+            .map_err(map_host_error)?;
+        #[cfg(test)]
+        if let Some(after_drain) = self.after_page_task_drain.take() {
+            after_drain();
+        }
+        if self.terminal_close_requested() {
+            return Ok(());
+        }
+        let signals = {
             let executable = self
                 .executable
                 .as_mut()
                 .ok_or(RuntimeError::EvaluationUnavailable)?;
-            executable.drain_tasks().map_err(map_host_error)?;
             if executable.standalone_departed() {
                 return Ok(());
             }
-            (
-                executable.take_console_entries().unwrap_or_default(),
-                executable.take_context_trace_entries().unwrap_or_default(),
-                take_script_navigation(executable),
-                executable
+            PageTaskSignals {
+                console_entries: executable.take_console_entries().unwrap_or_default(),
+                context_entries: executable.take_context_trace_entries().unwrap_or_default(),
+                location: take_script_navigation(executable),
+                history_traversal: executable
                     .take_history_traversal()
                     .map_err(map_host_error)?,
-            )
+            }
         };
-        #[cfg(unix)]
-        self.poll_prerender_candidates()?;
-        self.sync_executable_semantics()?;
-        self.finish_pending_navigation_response()?;
-        self.sync_executable_semantics()?;
+        // Keep extraction order unchanged. An admitted operation completes (and
+        // its real error still propagates) before terminal handoff; the exact
+        // already-extracted batch remains owned until real page destruction.
+        let ready = (|| -> Result<bool, RuntimeError> {
+            if self.terminal_close_requested() {
+                return Ok(false);
+            }
+            #[cfg(unix)]
+            self.poll_prerender_candidates()?;
+            if self.terminal_close_requested() {
+                return Ok(false);
+            }
+            self.sync_executable_semantics()?;
+            if self.terminal_close_requested() {
+                return Ok(false);
+            }
+            self.finish_pending_navigation_response()?;
+            if self.terminal_close_requested() {
+                return Ok(false);
+            }
+            self.sync_executable_semantics()?;
+            Ok(!self.terminal_close_requested())
+        })()?;
+        if !ready {
+            self.terminal_page_task_signals = Some(signals);
+            return Ok(());
+        }
+        let PageTaskSignals {
+            console_entries,
+            context_entries,
+            location,
+            history_traversal,
+        } = signals;
         for entry in console_entries {
             self.trace.push(
                 Revision(self.revision),
@@ -21471,6 +22188,9 @@ impl PageState {
             self.begin_script_navigation(location, update)?;
             return Ok(());
         }
+        if self.terminal_close_requested() {
+            return Ok(());
+        }
         let after = self.semantic_graph.semantic_revision();
         if before != after
             || self.executable.as_ref().is_some_and(|executable| {
@@ -21478,7 +22198,9 @@ impl PageState {
                     || executable.native_animation_revision() != self.layout_animation_revision
             })
         {
-            self.refresh_layout()?;
+            if !self.refresh_page_task_layout()? {
+                return Ok(());
+            }
             self.revision += 1;
             self.record_snapshot();
             self.trace.push(
@@ -21721,6 +22443,19 @@ impl PageState {
 
     #[cfg(feature = "v8-host")]
     fn refresh_layout(&mut self) -> Result<(), RuntimeError> {
+        if self.refresh_page_task_layout()? {
+            Ok(())
+        } else {
+            Err(RuntimeError::PageTaskYield)
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn refresh_page_task_layout(&mut self) -> Result<bool, RuntimeError> {
+        let _close_phase = crate::ipc_progress::close_admission::phase("layout");
+        if self.terminal_close_requested() {
+            return Ok(false);
+        }
         // The root phase already samples the complete native realm tree.
         // Preparing its child scenes must not start another author rAF phase.
         if !(self.presentation.building && self.frame_scope.is_some())
@@ -21730,7 +22465,11 @@ impl PageState {
                 .run_animation_frame_phase()
                 .map_err(map_host_error)?;
         }
-        self.refresh_layout_geometry()
+        if self.terminal_close_requested() {
+            return Ok(false);
+        }
+        self.refresh_layout_geometry()?;
+        Ok(true)
     }
 
     #[cfg(feature = "v8-host")]
@@ -23967,9 +24706,9 @@ impl PageState {
                     "webrtc_and_media",
                     "WebRTC and media capture are outside the application-compatibility subset",
                 ),
-                unsupported_capability(
+                supported_capability(
                     "xhr.synchronous_main_thread",
-                    "synchronous main-thread XHR is intentionally unsupported",
+                    "policy-brokered synchronous XHR with owned cancellation and Window restrictions",
                 ),
                 supported_capability(
                     "cookie.same_site",
@@ -24385,6 +25124,7 @@ impl PageState {
 
     #[cfg(feature = "v8-host")]
     fn sync_executable_semantics(&mut self) -> Result<(), RuntimeError> {
+        let _close_phase = crate::ipc_progress::close_admission::phase("semantic_projection");
         let Some(executable) = self.executable.as_ref() else {
             return Ok(());
         };
@@ -24461,6 +25201,8 @@ impl PageState {
                     state: LifecycleState::Load,
                 },
             );
+            #[cfg(unix)]
+            self.record_committed_navigation_progress(NavigationReadinessStage::LoadReady);
         }
         self.executable
             .as_mut()
@@ -24786,12 +25528,6 @@ impl PageState {
                 !check_interactability,
             );
         }
-        let next_action_id =
-            self.next_action_id
-                .checked_add(1)
-                .ok_or_else(|| RuntimeError::IdentityExhausted {
-                    namespace: "native action".into(),
-                })?;
         let next_revision =
             self.revision
                 .checked_add(1)
@@ -24814,6 +25550,23 @@ impl PageState {
             return Err(RuntimeError::Disabled);
         }
         let local_name = name.local.as_ref();
+        let supported = match action.action {
+            SemanticAction::Type | SemanticAction::Clear => {
+                matches!(local_name, "input" | "textarea")
+            }
+            SemanticAction::Click => matches!(local_name, "button" | "a" | "input" | "select"),
+            SemanticAction::Check | SemanticAction::Uncheck => local_name == "input",
+            SemanticAction::Select => local_name == "select",
+            SemanticAction::Focus | SemanticAction::Hover => true,
+            SemanticAction::Submit => matches!(local_name, "form" | "button" | "input"),
+            _ => false,
+        };
+        if !supported {
+            return Err(RuntimeError::UnsupportedAction {
+                action: action.action,
+            });
+        }
+        let action_id = self.action_ids.reserve()?;
         let (summary, mutated) = match action.action {
             SemanticAction::Type if matches!(local_name, "input" | "textarea") => {
                 let value = action.value.unwrap_or_default();
@@ -24882,7 +25635,6 @@ impl PageState {
 
         let revision_before = Revision(self.revision);
         self.revision = next_revision;
-        self.next_action_id = next_action_id;
         let upserted = if mutated {
             self.semantic_graph.apply_mutations(
                 &document.dom,
@@ -24913,7 +25665,7 @@ impl PageState {
         };
         let result = ActionResult {
             contract_version: CONTRACT_VERSION,
-            action_id: ActionId(self.next_action_id),
+            action_id,
             page_id: self.page_id,
             revision_before,
             revision_after: Revision(self.revision),
@@ -25163,24 +25915,42 @@ impl PageState {
         }
         // Reserve identity before crossing the dispatch boundary. Every error
         // after this point is distinct from a safe pre-dispatch stale target.
-        let action_id = ActionId(self.next_action_id.checked_add(1).ok_or_else(|| {
-            RuntimeError::IdentityExhausted {
-                namespace: "native action".into(),
-            }
-        })?);
         self.revision
             .checked_add(1)
             .ok_or_else(|| RuntimeError::IdentityExhausted {
                 namespace: "page revision".into(),
             })?;
         let revision_before = Revision(self.revision);
-        self.next_action_id = action_id.0;
+        let action_id = self.action_ids.reserve()?;
+        #[cfg(unix)]
+        let ipc_identity = crate::ipc_progress::capture(self.page_id.0);
         #[cfg(unix)]
         let close_scope = action_close_completion::Scope::begin(
             self.context_client.clone(),
             self.page_id,
             action_id.0,
         )?;
+        let frame_navigation = self
+            .executable
+            .as_mut()
+            .ok_or(RuntimeError::StaleSemanticRef)?
+            .begin_action_frame_navigation()
+            .map_err(map_host_error)?;
+        let action_navigation_deadline = Instant::now().checked_add(self.config.navigation_timeout);
+        let scoped_action = self.frame_scope.is_some();
+        if scoped_action {
+            // The checkpoint restores the selected realm, so root queues must
+            // be inspected later by their owning PageState after scope return.
+            self.action_root_navigation = Some(action_navigation::ScopedAction {
+                action_id,
+                deadline: action_navigation_deadline,
+                #[cfg(unix)]
+                ipc_identity,
+            });
+        }
+        #[cfg(unix)]
+        let previous_ipc_identity =
+            std::mem::replace(&mut self.navigation_progress_identity, ipc_identity);
         let outcome = (|| -> Result<ActionResult, RuntimeError> {
             let retained_replacement = files.is_none()
                 && matches!(action.action, SemanticAction::Type | SemanticAction::Clear);
@@ -25225,14 +25995,23 @@ impl PageState {
                         .apply_action(node_id, action.action, action.value.as_deref())
                         .map_err(map_host_error)?;
                 }
-                let pending_navigation = take_script_navigation(executable);
+                let pending_navigation = if scoped_action {
+                    None
+                } else {
+                    take_script_navigation(executable)
+                };
+                let pending_history = if scoped_action {
+                    None
+                } else {
+                    executable
+                        .take_history_traversal()
+                        .map_err(map_host_error)?
+                };
                 (
                     executable.take_console_entries().unwrap_or_default(),
                     executable.take_context_trace_entries().unwrap_or_default(),
                     pending_navigation,
-                    executable
-                        .take_history_traversal()
-                        .map_err(map_host_error)?,
+                    pending_history,
                     executable
                         .diagnostics
                         .iter()
@@ -25356,10 +26135,11 @@ impl PageState {
                     },
                 );
             }
+            let action_source_generation = self.document_generation;
             if let Some((location, update)) = pending_navigation {
                 let previous_generation = self.document_generation;
                 let navigation = self.begin_script_navigation(location.clone(), update)?;
-                result.revision_after = match navigation {
+                result.revision_after = match &navigation {
                     NavigationProgress::Ready(result) => result.revision,
                     NavigationProgress::Pending(_) | NavigationProgress::Joint(..) => {
                         Revision(self.revision)
@@ -25373,13 +26153,21 @@ impl PageState {
                 result
                     .effects
                     .push(Effect::Navigation { url: location.url });
+                self.retain_action_navigation(
+                    action_id,
+                    previous_generation,
+                    action_navigation_deadline,
+                    navigation,
+                )?;
             } else if let Some(task) = pending_history_traversal
-                && let Some(navigation) = self.begin_queued_history_navigation(task)?
+                && let Some(navigation) = self.begin_action_history_navigation(task)?
             {
-                let (revision, url) = match navigation {
-                    NavigationProgress::Ready(result) => (result.revision, result.final_url),
+                let (revision, url) = match &navigation {
+                    NavigationProgress::Ready(result) => {
+                        (result.revision, result.final_url.clone())
+                    }
                     NavigationProgress::Joint(_, result) => {
-                        (Revision(self.revision), result.final_url)
+                        (Revision(self.revision), result.final_url.clone())
                     }
                     NavigationProgress::Pending(_) => (
                         Revision(self.revision),
@@ -25392,15 +26180,44 @@ impl PageState {
                 result.revision_after = revision;
                 result.delta = None;
                 result.effects.push(Effect::Navigation { url });
+                self.retain_action_navigation(
+                    action_id,
+                    action_source_generation,
+                    action_navigation_deadline,
+                    navigation,
+                )?;
             }
             Ok(result)
         })();
+        let mut outcome = outcome;
+        let frame_navigation = frame_navigation.finish().map_or(Ok(()), |receipt| {
+            if let (Ok(result), Some(url)) = (&mut outcome, receipt.selected_navigation_url()) {
+                result.effects.push(Effect::Navigation { url });
+            }
+            self.retain_action_frame_navigation(action_id, action_navigation_deadline, receipt)
+        });
+        #[cfg(unix)]
+        {
+            self.navigation_progress_identity = previous_ipc_identity;
+        }
+        let outcome = outcome.and_then(|result| frame_navigation.map(|()| result));
         #[cfg(unix)]
         let outcome = close_scope.finish(outcome.is_ok()).and(outcome);
-        outcome.map_err(|error| RuntimeError::ActionExecutionFailed {
+        let outcome = outcome.map_err(|error| RuntimeError::ActionExecutionFailed {
             action_id,
             cause: Box::new(error),
-        })
+        });
+        #[cfg(unix)]
+        if let Some(identity) = ipc_identity {
+            crate::ipc_progress::result(
+                Some(identity),
+                crate::ipc_progress::Phase::ActionSettled,
+                None,
+                Some(self.document_generation),
+                Some(outcome.is_ok()),
+            );
+        }
+        outcome
     }
 }
 
@@ -27878,7 +28695,7 @@ mod tests {
             page.validate_target(stale_node),
             Err(RuntimeError::StaleSemanticRef)
         ));
-        assert_eq!(page.next_action_id, 0);
+        assert_eq!(page.action_ids.last(), 0);
         assert!(matches!(
             page.box_model(expected),
             Err(RuntimeError::LayoutUnavailable(_))
@@ -28401,7 +29218,7 @@ mod tests {
         assert!(!worker.execution_retired());
         assert!(matches!(
             worker.close(),
-            Ok(crate::worker::WorkerResponse::Closed)
+            Ok(WorkerCloseOutcome::Closed)
         ));
         assert!(worker.execution_retired());
         assert!(matches!(worker.enter_queue(), Err(RuntimeError::Closed)));
@@ -28415,7 +29232,7 @@ mod tests {
         assert!(!sibling.worker.as_ref().unwrap().execution_retired());
         assert!(matches!(
             worker.close(),
-            Ok(crate::worker::WorkerResponse::Closed)
+            Ok(WorkerCloseOutcome::Closed)
         ));
     }
 
@@ -39194,30 +40011,86 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
-    async fn xhr_sync_main_thread_is_truthfully_unsupported() {
-        let page = Browser::new().new_context().new_page();
-        page.load_html(
-            "https://app.example.test/xhr-sync",
-            r#"<output id=result>pending</output><script>
-              try { const xhr=new XMLHttpRequest();xhr.open('GET','/api',false); }
-              catch(error) { document.querySelector('#result').textContent=String(error.message); }
-            </script>"#,
-        )
-        .await
-        .expect("load synchronous XHR diagnostic fixture");
-        assert_eq!(
-            page.evaluate("document.querySelector('#result').textContent")
-                .await
-                .expect("read synchronous XHR diagnostic"),
-            "synchronous main-thread XHR is unsupported"
-        );
-        assert!(page.trace().await.expect("XHR trace").iter().any(|entry| {
-            matches!(
-                &entry.kind,
-                TraceEventKind::PolicyDenied { capability }
-                    if capability == "xhr.synchronous_main_thread"
-            )
-        }));
+    async fn xhr_sync_returns_before_send_and_enforces_cors() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        struct ListenerOwner {
+            stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+            thread: Option<std::thread::JoinHandle<()>>,
+        }
+        impl Drop for ListenerOwner {
+            fn drop(&mut self) {
+                self.stop.store(true, std::sync::atomic::Ordering::Release);
+                if let Some(thread) = self.thread.take() {
+                    let _ = thread.join();
+                }
+            }
+        }
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let listener_stop = stop.clone();
+        let mut server = ListenerOwner {
+            stop,
+            thread: Some(std::thread::spawn(move || {
+                for index in 0..3 {
+                    let end = std::time::Instant::now() + Duration::from_secs(15);
+                    let mut stream = loop {
+                        if listener_stop.load(std::sync::atomic::Ordering::Acquire) {
+                            return;
+                        }
+                        match listener.accept() {
+                            Ok((stream, _)) => break stream,
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                assert!(
+                                    std::time::Instant::now() < end,
+                                    "sync request not received"
+                                );
+                                std::thread::sleep(Duration::from_millis(2));
+                            }
+                            Err(error) => panic!("accept XHR: {error}"),
+                        }
+                    };
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    stream
+                        .set_write_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    let mut request = [0; 8192];
+                    let count = stream.read(&mut request).unwrap();
+                    let request = String::from_utf8_lossy(&request[..count]);
+                    assert!(request.starts_with("GET /"));
+                    let cors = if index == 1 {
+                        "Access-Control-Allow-Origin: *\r\n"
+                    } else {
+                        ""
+                    };
+                    stream.write_all(format!("HTTP/1.1 200 OK\r\n{cors}Content-Type: text/plain\r\nContent-Length: 6\r\nConnection: close\r\n\r\nnative").as_bytes()).unwrap();
+                }
+            })),
+        };
+        let context = Browser::new().new_context_with_options(ContextOptions::loopback_test());
+        let page = context.new_page();
+        page.load_html(format!("http://{address}/app"), "<body></body>")
+            .await
+            .unwrap();
+        let result = page.evaluate(&format!(r#"(() => {{
+            const events=[];const xhr=new XMLHttpRequest();
+            for(const name of ['readystatechange','loadstart','progress','load','loadend','error'])
+              xhr.addEventListener(name,e=>events.push(name==='readystatechange'?String(xhr.readyState):name));
+            xhr.open('GET','/same',false);xhr.send();
+            if(xhr.responseText!=='native'||xhr.status!==200)throw Error('sync response');
+            if(events.join(',')!=='1,4,load,loadend')throw Error(events.join(','));
+            const allowed=new XMLHttpRequest();allowed.open('GET','http://localhost:{port}/cors',false);allowed.send();
+            if(allowed.responseText!=='native')throw Error('CORS allowed response');
+            const denied=new XMLHttpRequest();denied.open('GET','http://localhost:{port}/denied',false);
+            let error='';try{{denied.send()}}catch(e){{error=e.name}}
+            if(error!=='NetworkError'||denied.status!==0||denied.readyState!==4)throw Error('CORS denied '+error);
+            return 'ok';
+        }})()"#, port=address.port())).await.unwrap();
+        server.thread.take().unwrap().join().unwrap();
+        assert_eq!(result, "ok");
     }
 
     #[cfg(feature = "v8-host")]
@@ -43922,12 +44795,411 @@ mod direct_related_actor_tests {
 #[cfg(all(test, unix))]
 mod shared_close_protocol_tests {
     use super::*;
+    fn peer_page(
+        context: &BrowserContext,
+        page: PageId,
+        client: crate::worker_client::WorkerClient,
+        related: bool,
+    ) -> WorkerPage {
+        let pid = client.process_id();
+        let admission = related.then(|| client.related_root_admission());
+        let attachment = Arc::new(client.attachment());
+        let config = BrowserConfig::default();
+        WorkerPage {
+            page_id: page,
+            opener_page_id: related.then_some(PageId(0)),
+            context: Arc::downgrade(&context.inner),
+            client: Mutex::new(Some(client)),
+            attachment: Mutex::new(Some(attachment)),
+            related_admission: admission,
+            worker_pool: Arc::new(WorkerPool::new(config.worker_lifecycle)),
+            config,
+            options: ContextOptions::default(),
+            pending: AtomicUsize::new(0),
+            retired: AtomicBool::new(false),
+            context_wakeups: AtomicUsize::new(0),
+            process_id: AtomicU32::new(pid),
+            exit_evidence: Mutex::new(None),
+            close_failure: Mutex::new(None),
+        }
+    }
+
+    #[test]
+    fn exited_process_retires_root_and_pending_child_only_after_real_cleanup() {
+        let context = Browser::new().new_context();
+        let parent = context.new_page().page_id();
+        let child = context.new_page().page_id();
+        let (client, probe) = crate::worker_client::protocol_fixture::responder_for_context(
+            context.clone(),
+            parent,
+            Vec::new(),
+        );
+        let reserved = client
+            .attachment()
+            .reserve(
+                &BrowserConfig::default(),
+                &ContextOptions::default(),
+                child,
+                parent,
+                context.clone(),
+            )
+            .unwrap();
+        let parent_worker = peer_page(&context, parent, client, false);
+        let child_worker = peer_page(&context, child, reserved.client, true);
+        let pending = probe.hold_script_cleanup();
+        probe.kill_and_unbind();
+        assert!(!probe.process_alive());
+        for worker in [&parent_worker, &child_worker] {
+            let error = worker.close().unwrap_err();
+            assert!(error.to_string().contains("SIGKILL"));
+            assert!(error.to_string().contains("outstanding script authority"));
+            assert!(worker.client.lock().unwrap().is_some());
+            assert!(worker.exit_evidence.lock().unwrap().is_none());
+            assert!(worker.attachment.lock().unwrap().is_some());
+        }
+        assert_eq!(probe.next_message_id(), 1);
+        drop(pending);
+        for worker in [&parent_worker, &child_worker] {
+            assert_eq!(
+                worker.close().unwrap(),
+                WorkerCloseOutcome::ReapedAfterProcessExit
+            );
+            let evidence = worker.exit_evidence.lock().unwrap().clone().unwrap();
+            assert_eq!(evidence["signal"], libc::SIGKILL);
+            assert_eq!(evidence["reaped"], true);
+            assert_eq!(evidence["router_cleanup_complete"], true);
+            assert!(
+                evidence["operational_error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("SIGKILL")
+            );
+            assert!(worker.client.lock().unwrap().is_none());
+            assert!(worker.attachment.lock().unwrap().is_none());
+            assert_eq!(worker.process_id.load(Ordering::Acquire), 0);
+        }
+        assert_eq!(
+            probe.next_message_id(),
+            1,
+            "no IPC after checked process exit"
+        );
+    }
+
+    #[test]
+    fn live_pending_child_with_missing_grant_keeps_protocol_failure_and_custody() {
+        let context = Browser::new().new_context();
+        let parent = context.new_page().page_id();
+        let child = context.new_page().page_id();
+        let (client, probe) = crate::worker_client::protocol_fixture::responder_for_context(
+            context.clone(),
+            parent,
+            Vec::new(),
+        );
+        let reserved = client
+            .attachment()
+            .reserve(
+                &BrowserConfig::default(),
+                &ContextOptions::default(),
+                child,
+                parent,
+                context.clone(),
+            )
+            .unwrap();
+        let worker = peer_page(&context, child, reserved.client, true);
+        probe.unbind_while_alive();
+        assert!(
+            matches!(worker.close(), Err(RuntimeError::ProtocolViolation(message)) if message == "unknown environment grant")
+        );
+        assert!(probe.process_alive());
+        assert!(worker.client.lock().unwrap().is_some());
+        assert!(worker.attachment.lock().unwrap().is_some());
+        assert!(worker.exit_evidence.lock().unwrap().is_none());
+        assert!(
+            matches!(worker.close_failure.lock().unwrap().as_ref(), Some(RuntimeError::ProtocolViolation(message)) if message == "unknown environment grant")
+        );
+        assert_eq!(probe.next_message_id(), 1);
+        probe.kill_and_unbind();
+        assert!(
+            matches!(worker.close(), Err(RuntimeError::ProtocolViolation(message)) if message == "unknown environment grant")
+        );
+        assert_eq!(probe.next_message_id(), 1);
+        assert!(worker.client.lock().unwrap().is_some());
+        assert!(worker.exit_evidence.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn reset_protocol_failure_remains_failed_after_owned_process_exit() {
+        let context = Browser::new().new_context();
+        let page = context.new_page().page_id();
+        let (client, probe) = crate::worker_client::protocol_fixture::responder_for_context(
+            context.clone(),
+            page,
+            Vec::new(),
+        );
+        let mut worker = peer_page(&context, page, client, false);
+        let lifecycle = WorkerLifecycle::Recycled {
+            capacity: 1,
+            max_leases: 2,
+        };
+        worker.config.worker_lifecycle = lifecycle;
+        worker.worker_pool = Arc::new(WorkerPool::new(lifecycle));
+        worker.worker_pool.live.store(1, Ordering::Release);
+        // The actual probe/attachment still owns the process: Reset must reject
+        // that surviving custody instead of consuming another owner's stream.
+        let original = worker.close().unwrap_err();
+        assert!(
+            matches!(&original, RuntimeError::ProtocolViolation(message) if message.contains("surviving page handles"))
+        );
+        assert!(probe.process_alive());
+        probe.kill_and_unbind();
+        assert_eq!(worker.close().unwrap_err(), original);
+        assert_eq!(probe.next_message_id(), 1);
+        assert_eq!(worker.worker_pool.live.load(Ordering::Acquire), 1);
+        assert!(worker.client.lock().unwrap().is_some());
+        assert!(worker.exit_evidence.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn pending_cancel_rechecks_exit_after_live_probe_and_retains_both_causes() {
+        let context = Browser::new().new_context();
+        let parent = context.new_page().page_id();
+        let child = context.new_page().page_id();
+        let (client, probe) = crate::worker_client::protocol_fixture::responder_for_context(
+            context.clone(),
+            parent,
+            Vec::new(),
+        );
+        let reserved = client
+            .attachment()
+            .reserve(
+                &BrowserConfig::default(),
+                &ContextOptions::default(),
+                child,
+                parent,
+                context.clone(),
+            )
+            .unwrap();
+        let worker = peer_page(&context, child, reserved.client, true);
+        let pending = probe.hold_script_cleanup();
+        let mut active = worker.client.lock().unwrap().take().unwrap();
+        // Deterministically place the exit between the production initial
+        // observation and the production pending-cancellation helper.
+        assert!(active.observed_process_exit().unwrap().is_none());
+        probe.kill_and_unbind();
+        let mut retirement = None;
+        assert!(!WorkerPage::cancel_pending_for_close(&mut active, &mut retirement).unwrap());
+        let cause = retirement.unwrap();
+        assert!(cause.to_string().contains("SIGKILL"));
+        assert!(cause.to_string().contains("unknown environment grant"));
+        let failed = worker
+            .checked_close_result(&mut active, Err(cause))
+            .unwrap_err();
+        assert!(failed.to_string().contains("outstanding script authority"));
+        assert!(worker.exit_evidence.lock().unwrap().is_none());
+        *worker.client.lock().unwrap() = Some(active);
+        drop(pending);
+        assert_eq!(
+            worker.close().unwrap(),
+            WorkerCloseOutcome::ReapedAfterProcessExit
+        );
+        let evidence = worker.exit_evidence.lock().unwrap().clone().unwrap();
+        let diagnostic = evidence["operational_error"].as_str().unwrap();
+        assert!(diagnostic.contains("SIGKILL"));
+        assert!(diagnostic.contains("unknown environment grant"));
+        assert_eq!(evidence["reaped"], true);
+        assert_eq!(evidence["router_cleanup_complete"], true);
+        assert_eq!(probe.next_message_id(), 1);
+    }
+
+    #[test]
+    fn protocol_failure_is_not_reclassified_by_transport_kill() {
+        use crate::worker::{WORKER_PROTOCOL_VERSION, WorkerRequest, WorkerResponse};
+        for malformed_live_reply in [false, true] {
+            let context = Browser::new().new_context();
+            let page = context.new_page().page_id();
+            let replies = if malformed_live_reply {
+                vec![
+                    (
+                        WorkerRequest::Close,
+                        WorkerResponse::Pong {
+                            protocol_version: WORKER_PROTOCOL_VERSION,
+                        },
+                    ),
+                    (
+                        WorkerRequest::Close,
+                        WorkerResponse::Error {
+                            error: Box::new(RuntimeError::WorkerCrashed(
+                                "later transport failure".into(),
+                            )),
+                        },
+                    ),
+                ]
+            } else {
+                vec![(
+                    WorkerRequest::Close,
+                    WorkerResponse::Error {
+                        error: Box::new(RuntimeError::ProtocolViolation(
+                            "original malformed response".into(),
+                        )),
+                    },
+                )]
+            };
+            let (client, probe) = crate::worker_client::protocol_fixture::responder_for_context(
+                context.clone(),
+                page,
+                replies,
+            );
+            let worker = peer_page(&context, page, client, false);
+            let original = worker.close().unwrap_err();
+            assert!(matches!(original, RuntimeError::ProtocolViolation(_)));
+            if malformed_live_reply {
+                assert!(probe.process_alive());
+                assert_eq!(worker.close().unwrap_err(), original);
+            }
+            assert!(!probe.process_alive());
+            let count = if malformed_live_reply { 3 } else { 2 };
+            assert_eq!(probe.next_message_id(), count);
+            assert!(worker.client.lock().unwrap().is_some());
+            assert!(worker.exit_evidence.lock().unwrap().is_none());
+            assert_eq!(
+                worker.close_failure.lock().unwrap().as_ref(),
+                Some(&original)
+            );
+            assert_eq!(worker.close().unwrap_err(), original);
+            assert_eq!(probe.next_message_id(), count);
+            assert!(worker.client.lock().unwrap().is_some());
+            assert!(worker.exit_evidence.lock().unwrap().is_none());
+            worker.retire();
+            assert!(worker.client.lock().unwrap().is_none());
+            assert_eq!(worker.close().unwrap_err(), original);
+        }
+    }
+
+    #[test]
+    fn close_transport_crash_requires_reap_and_preserves_original_error() {
+        use crate::worker::{WorkerRequest, WorkerResponse};
+        let context = Browser::new().new_context();
+        let page = context.new_page().page_id();
+        let (client, probe) = crate::worker_client::protocol_fixture::responder_for_context(
+            context.clone(),
+            page,
+            vec![(
+                WorkerRequest::Close,
+                WorkerResponse::Error {
+                    error: Box::new(RuntimeError::WorkerCrashed("original peer failure".into())),
+                },
+            )],
+        );
+        let worker = peer_page(&context, page, client, false);
+        assert_eq!(
+            worker.close().unwrap(),
+            WorkerCloseOutcome::ReapedAfterProcessExit
+        );
+        assert!(!probe.process_alive());
+        assert_eq!(probe.next_message_id(), 2);
+        let evidence = worker.exit_evidence.lock().unwrap().clone().unwrap();
+        assert!(
+            evidence["operational_error"]
+                .as_str()
+                .unwrap()
+                .contains("original peer failure")
+        );
+        assert_eq!(evidence["reaped"], true);
+    }
+
+    #[test]
+    fn rss_close_retries_retained_cleanup_without_ipc_and_preserves_policy_failure() {
+        use crate::worker::{WorkerRequest, WorkerResponse};
+        for (related, monitor_limit) in [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let context = Browser::new().new_context();
+            let page = context.new_page().page_id();
+            let (client, probe) = crate::worker_client::protocol_fixture::responder_for_context(
+                context.clone(),
+                page,
+                if monitor_limit {
+                    Vec::new()
+                } else {
+                    vec![(
+                        WorkerRequest::Close,
+                        WorkerResponse::LimitExceeded {
+                            resource: "RSS".into(),
+                        },
+                    )]
+                },
+            );
+            if monitor_limit {
+                probe.enforce_zero_rss_limit();
+            }
+            let pending_script = probe.hold_script_cleanup();
+            let pid = client.process_id();
+            let admission = related.then(|| client.related_root_admission());
+            let attachment = Arc::new(client.attachment());
+            let observed_attachment = Arc::downgrade(&attachment);
+            let config = BrowserConfig::default();
+            let worker = WorkerPage {
+                page_id: page,
+                opener_page_id: related.then_some(PageId(0)),
+                context: Arc::downgrade(&context.inner),
+                client: Mutex::new(Some(client)),
+                attachment: Mutex::new(Some(attachment)),
+                related_admission: admission,
+                worker_pool: Arc::new(WorkerPool::new(config.worker_lifecycle)),
+                config,
+                options: ContextOptions::default(),
+                pending: AtomicUsize::new(0),
+                retired: AtomicBool::new(false),
+                context_wakeups: AtomicUsize::new(0),
+                process_id: AtomicU32::new(pid),
+                exit_evidence: Mutex::new(None),
+                close_failure: Mutex::new(None),
+            };
+            let first = worker.close().unwrap_err();
+            assert!(first.to_string().contains("RSS"));
+            assert!(first.to_string().contains("outstanding script authority"));
+            assert!(!probe.process_alive());
+            assert_eq!(probe.next_message_id(), 2);
+            assert!(worker.client.lock().unwrap().is_some());
+            assert_eq!(worker.process_id.load(Ordering::Acquire), pid);
+            assert!(observed_attachment.upgrade().is_some());
+            assert!(worker.exit_evidence.lock().unwrap().is_none());
+            assert!(pending_script.cancel.load(Ordering::Acquire));
+            drop(pending_script);
+            assert_eq!(
+                worker.close().unwrap(),
+                WorkerCloseOutcome::ReapedAfterRssLimit
+            );
+            assert!(!probe.process_alive());
+            assert_eq!(probe.next_message_id(), 2);
+            assert!(worker.client.lock().unwrap().is_none());
+            assert!(observed_attachment.upgrade().is_none());
+            assert_eq!(worker.process_id.load(Ordering::Acquire), 0);
+            let evidence = worker.exit_evidence.lock().unwrap().clone().unwrap();
+            assert_eq!(evidence["worker_pid"], pid);
+            assert_eq!(evidence["reaped"], true);
+            assert_eq!(evidence["router_cleanup_complete"], true);
+            assert_eq!(evidence["retirement_kind"], "reaped_after_rss_limit");
+            assert!(
+                evidence["operational_error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("RSS")
+            );
+            assert!(context.inner.group.events.lock().unwrap().iter().any(|event| matches!(
+                event, PageLifecycleEvent::Crashed { page_id, detail } if *page_id == page && detail.contains("RSS")
+            )));
+            assert_eq!(worker.close().unwrap(), WorkerCloseOutcome::Closed);
+            assert_eq!(probe.next_message_id(), 2);
+        }
+    }
+
     #[test]
     fn shared_close_retains_exact_client_and_attachment_until_encoded_closed_ack() {
         use crate::worker::{WORKER_PROTOCOL_VERSION, WorkerRequest, WorkerResponse};
         let context = Browser::new().new_context();
         let page = context.new_page().page_id();
-        let (client, probe) = crate::worker_client::protocol_fixture::responder(
+        let (client, probe) = crate::worker_client::protocol_fixture::responder_for_context(
+            context.clone(),
             page,
             vec![
                 (
@@ -43966,9 +45238,13 @@ mod shared_close_protocol_tests {
             context_wakeups: AtomicUsize::new(0),
             process_id: AtomicU32::new(pid),
             exit_evidence: Mutex::new(None),
+            close_failure: Mutex::new(None),
             worker_pool: pool.clone(),
         };
-        assert!(matches!(worker.close(), Ok(WorkerResponse::Pong { .. })));
+        assert!(matches!(
+            worker.close(),
+            Err(RuntimeError::ProtocolViolation(_))
+        ));
         assert_eq!(probe.next_message_id(), 2);
         for expected_message in [2, 3] {
             if expected_message == 3 {
@@ -43987,7 +45263,7 @@ mod shared_close_protocol_tests {
             assert_eq!(probe.next_message_id(), expected_message);
             assert_eq!(pool.live.load(Ordering::Acquire), 1);
         }
-        assert!(matches!(worker.close(), Ok(WorkerResponse::Closed)));
+        assert!(matches!(worker.close(), Ok(WorkerCloseOutcome::Closed)));
         assert_eq!(probe.next_message_id(), 4);
         assert!(worker.client.lock().unwrap().is_none());
         assert!(observed_attachment.upgrade().is_none());
@@ -43995,7 +45271,7 @@ mod shared_close_protocol_tests {
         // A related child never releases its parent's pool slot or process.
         assert_eq!(pool.live.load(Ordering::Acquire), 1);
         assert!(probe.process_alive());
-        assert!(matches!(worker.close(), Ok(WorkerResponse::Closed)));
+        assert!(matches!(worker.close(), Ok(WorkerCloseOutcome::Closed)));
         assert_eq!(probe.next_message_id(), 4);
     }
 }
@@ -44247,6 +45523,50 @@ mod semantic_sync_faults {
             page.sync_executable_semantics().unwrap();
             page.sync_executable_semantics().unwrap();
             assert_eq!(count(&page), 2);
+        }
+    }
+
+    #[test]
+    fn scoped_trace_retains_page_diagnostics_once_in_owner_archive() {
+        let mut page = page();
+        page.load_document(
+            "https://semantics.test/frames".into(),
+            "<iframe srcdoc='<p>Child</p>'></iframe>",
+            None,
+            None,
+            HistoryUpdate::Push,
+            &BTreeMap::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        page.poll_page_tasks().unwrap();
+        let scope = page
+            .executable
+            .as_ref()
+            .unwrap()
+            .automation_realms()
+            .into_iter()
+            .find(|entry| entry.live && entry.parent_realm.is_some())
+            .unwrap();
+        page.executable
+            .as_mut()
+            .unwrap()
+            .diagnostics
+            .push(oryn_common::v3::CapabilityDiagnostic {
+                capability: "diagnostics.collection".into(),
+                support: oryn_common::v3::SupportLevel::Partial,
+                alternatives: Vec::new(),
+                handoff_lossy: true,
+                detail: Some("retained scoped collection failure".into()),
+            });
+        for _ in 0..2 {
+            page.scoped_worker_request(scope.clone(), crate::worker::WorkerRequest::Trace)
+                .unwrap();
+            let events = page.trace.snapshot();
+            assert_eq!(events.iter().filter(|event| matches!(&event.kind,
+                TraceEventKind::ScriptDiagnostic { capability, detail }
+                    if capability == "diagnostics.collection" && detail == "retained scoped collection failure"
+            )).count(), 1);
         }
     }
 
@@ -44849,7 +46169,7 @@ mod semantic_sync_faults {
         let target = page
             .resolve_selector("#edit", SemanticAction::Type)
             .unwrap();
-        let before = page.next_action_id;
+        let before = page.action_ids.last();
         let result = page
             .execute(NativeAction {
                 target,
@@ -44858,7 +46178,7 @@ mod semantic_sync_faults {
             })
             .unwrap();
         assert_eq!(result.action_id.0, before + 1);
-        assert_eq!(page.next_action_id, before + 1);
+        assert_eq!(page.action_ids.last(), before + 1);
         assert_eq!(
             page.executable
                 .as_mut()
@@ -44879,7 +46199,7 @@ mod semantic_sync_faults {
             })
             .is_err()
         );
-        assert_eq!(page.next_action_id, before + 2);
+        assert_eq!(page.action_ids.last(), before + 2);
         assert_eq!(
             page.executable
                 .as_mut()
@@ -44901,7 +46221,7 @@ mod semantic_sync_faults {
             )
             .unwrap();
         let target = page.resolve_selector("#b", SemanticAction::Click).unwrap();
-        let previous = page.next_action_id;
+        let previous = page.action_ids.last();
         let fault = Fault::at(Stage::Snapshot);
         let error = page
             .execute_in_realm(
@@ -44918,7 +46238,7 @@ mod semantic_sync_faults {
             error,
             RuntimeError::Semantic("injected Snapshot failure".into())
         );
-        assert_eq!(page.next_action_id, previous);
+        assert_eq!(page.action_ids.last(), previous);
         assert_eq!(
             page.executable
                 .as_mut()
@@ -44934,7 +46254,7 @@ mod semantic_sync_faults {
         let mut page = page();
         page.executable.as_mut().unwrap().evaluate("globalThis.clicks=0;document.querySelector('#b').onclick=()=>{clicks++;document.querySelector('#b').textContent='Changed';};'ready'").unwrap();
         let target = page.resolve_selector("#b", SemanticAction::Click).unwrap();
-        let previous = page.next_action_id;
+        let previous = page.action_ids.last();
         // The first snapshot is preflight. Fail the snapshot after dispatch.
         let fault = Fault::after(Stage::Snapshot, 1);
         let error = page
@@ -44952,7 +46272,7 @@ mod semantic_sync_faults {
             panic!("unexpected action failure: {error:?}")
         };
         assert_eq!(*action_id, ActionId(previous + 1));
-        assert_eq!(page.next_action_id, previous + 1);
+        assert_eq!(page.action_ids.last(), previous + 1);
         assert_eq!(
             serde_json::from_str::<RuntimeError>(&serde_json::to_string(&error).unwrap()).unwrap(),
             error
@@ -44985,7 +46305,7 @@ mod semantic_sync_faults {
                 .unwrap(),
             "2"
         );
-        page.next_action_id = u64::MAX;
+        page.action_ids.set_last(u64::MAX);
         assert!(matches!(
             page.execute_in_realm(
                 NativeAction {
@@ -45510,6 +46830,82 @@ fn webdriver_cookie_admission_fault(context: &BrowserContext, page: PageId) {
 mod extraction_text_source_tests {
     use super::*;
     #[test]
+    fn parser_only_actions_share_page_allocator_and_new_pages_restart() {
+        fn driver(page_id: PageId, ids: PageActionIds) -> (PageState, SemanticRef) {
+            let mut page = PageState::new(
+                page_id,
+                None,
+                BrowserConfig::default(),
+                ContextOptions::default(),
+                None,
+                #[cfg(all(unix, feature = "v8-host"))]
+                None,
+            );
+            page.action_ids = ids;
+            let parsed = crate::html::parse("<input value=original>");
+            let node = parsed.dom.iter().find_map(|(id, node)| matches!(&node.kind, crate::dom::NodeKind::Element { name } if name.local.as_ref()=="input").then_some(id)).unwrap();
+            let target = SemanticRef {
+                page_id,
+                document_generation: page.document_generation,
+                node: (u64::from(node.generation) << 32) | u64::from(node.slot),
+            };
+            page.document = Some(parsed);
+            (page, target)
+        }
+        let ids = PageActionIds::default();
+        let (mut root, root_target) = driver(PageId(708), ids.clone());
+        let (mut frame, frame_target) = driver(PageId(708), ids.clone());
+        for (expected, selected, target, sensitive) in [
+            (1, &mut root, root_target, false),
+            (2, &mut frame, frame_target, true),
+        ] {
+            let result = selected
+                .execute_with_interactability(
+                    NativeAction {
+                        target,
+                        action: SemanticAction::Type,
+                        value: Some("changed".into()),
+                    },
+                    false,
+                    sensitive,
+                )
+                .unwrap();
+            assert_eq!(result.action_id, ActionId(expected));
+        }
+        let (mut replacement, target) = driver(PageId(708), ids);
+        assert_eq!(
+            replacement
+                .execute_with_interactability(
+                    NativeAction {
+                        target,
+                        action: SemanticAction::Clear,
+                        value: None
+                    },
+                    false,
+                    false
+                )
+                .unwrap()
+                .action_id,
+            ActionId(3)
+        );
+        let (mut independent, target) = driver(PageId(709), PageActionIds::default());
+        assert_eq!(
+            independent
+                .execute_with_interactability(
+                    NativeAction {
+                        target,
+                        action: SemanticAction::Type,
+                        value: Some("new".into())
+                    },
+                    false,
+                    false
+                )
+                .unwrap()
+                .action_id,
+            ActionId(1)
+        );
+    }
+    #[test]
     fn parser_only_action_counters_exhaust_before_mutation() {
         for action_exhausted in [false, true] {
             let mut page = PageState::new(
@@ -45526,11 +46922,11 @@ mod extraction_text_source_tests {
             let original = parsed.dom.get(node).unwrap().clone();
             page.document = Some(parsed);
             if action_exhausted {
-                page.next_action_id = u64::MAX;
+                page.action_ids.set_last(u64::MAX);
             } else {
                 page.revision = u64::MAX;
             }
-            let before = (page.next_action_id, page.revision);
+            let before = (page.action_ids.last(), page.revision);
             let target = SemanticRef {
                 page_id: page.page_id,
                 document_generation: page.document_generation,
@@ -45548,7 +46944,7 @@ mod extraction_text_source_tests {
                 ),
                 Err(RuntimeError::IdentityExhausted { .. })
             ));
-            assert_eq!((page.next_action_id, page.revision), before);
+            assert_eq!((page.action_ids.last(), page.revision), before);
             assert_eq!(
                 page.document.as_ref().unwrap().dom.get(node).unwrap(),
                 &original
@@ -46141,3 +47537,107 @@ mod network_idle_test_clock {
 #[cfg(all(test, unix))]
 #[path = "initial_auxiliary_navigation_tests.rs"]
 mod initial_auxiliary_navigation_tests;
+
+#[cfg(all(test, unix, feature = "v8-host"))]
+#[path = "secure_context_regressions.rs"]
+mod secure_context_regressions;
+
+#[cfg(all(test, unix))]
+#[path = "document_focus_regressions.rs"]
+mod document_focus_regressions;
+
+#[cfg(test)]
+mod crashed_page_cleanup_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn crashed_page_close_uses_exact_retained_physical_custody() {
+        let context = Browser::in_process_probe().new_context();
+        let page = context.new_page();
+        let sibling = context.new_page();
+        let id = page.page_id();
+        let sender = page.sender.as_ref().unwrap().clone();
+        let physical = context.inner.group.pages.lock().unwrap()[&id]
+            .physical_close
+            .clone();
+        let held = physical.lock().await;
+        context
+            .inner
+            .group
+            .crash(id, "regression: worker terminal".into());
+        assert!(context.inner.group.handle(id).is_none());
+        let mut closing = Box::pin(context.close_page(id));
+        let state = std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(std::future::Future::poll(closing.as_mut(), cx))
+        })
+        .await;
+        assert!(
+            matches!(state, std::task::Poll::Pending),
+            "crashed cleanup skipped its physical barrier"
+        );
+        assert!(!sender.is_closed());
+        assert!(!context.inner.group.pages.lock().unwrap()[&id].physical_close_complete);
+        drop(held);
+        closing.await.unwrap();
+        assert!(sender.is_closed());
+        assert!(context.inner.group.pages.lock().unwrap()[&id].physical_close_complete);
+        assert!(context.inner.group.handle(id).is_none());
+        assert!(context.inner.group.handle(sibling.page_id()).is_some());
+        assert!(!sibling.sender.as_ref().unwrap().is_closed());
+        context.close_page(id).await.unwrap();
+        assert!(matches!(
+            context.close_page(PageId(u64::MAX)).await,
+            Err(RuntimeError::PageNotFound(PageId(u64::MAX)))
+        ));
+        sibling.close().await.unwrap();
+        context.retire_workers().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn crashed_page_cleanup_error_is_preserved_and_exact_record_retries() {
+        let context = Browser::in_process_probe().new_context();
+        let page = context.new_page();
+        let id = page.page_id();
+        context
+            .inner
+            .group
+            .crash(id, "regression: crashed page retains cleanup".into());
+        let retained_sender = context
+            .inner
+            .group
+            .pages
+            .lock()
+            .unwrap()
+            .get_mut(&id)
+            .unwrap()
+            .handle
+            .sender
+            .take();
+        let error = context.close_page(id).await.unwrap_err();
+        assert!(
+            matches!(error, RuntimeError::Closed),
+            "a real retained-owner cleanup error was replaced"
+        );
+        assert!(!context.inner.group.pages.lock().unwrap()[&id].physical_close_complete);
+        assert!(!page.sender.as_ref().unwrap().is_closed());
+        context
+            .inner
+            .group
+            .pages
+            .lock()
+            .unwrap()
+            .get_mut(&id)
+            .unwrap()
+            .handle
+            .sender = retained_sender;
+        context.close_page(id).await.unwrap();
+        assert!(page.sender.as_ref().unwrap().is_closed());
+        assert!(context.inner.group.pages.lock().unwrap()[&id].physical_close_complete);
+        assert!(context.inner.group.handle(id).is_none());
+        context.retire_workers().await.unwrap();
+    }
+}
+
+#[cfg(all(test, feature = "v8-host"))]
+#[path = "navigation_settlement_error_tests.rs"]
+mod navigation_settlement_error_tests;

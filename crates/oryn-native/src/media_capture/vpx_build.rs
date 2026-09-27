@@ -15,7 +15,11 @@ pub fn build() -> std::path::PathBuf {
         .current_dir(&output)
         .args([
             "--target=generic-gnu",
-            "--disable-vp9",
+            "--enable-vp9-decoder",
+            "--enable-vp8-decoder",
+            "--disable-vp9-encoder",
+            "--disable-vp9-highbitdepth",
+            "--size-limit=8192x8192",
             "--disable-vp8-encoder",
             "--disable-examples",
             "--disable-tools",
@@ -90,9 +94,45 @@ pub fn build() -> std::path::PathBuf {
         configure.status().expect("libvpx configure").success(),
         "libvpx decoder configuration failed"
     );
+    let config = fs::read_to_string(output.join("vpx_config.h"))
+        .expect("generated libvpx decoder configuration");
+    for expected in [
+        "#define CONFIG_VP8_DECODER 1",
+        "#define CONFIG_VP9_DECODER 1",
+        "#define CONFIG_VP8_ENCODER 0",
+        "#define CONFIG_VP9_ENCODER 0",
+        "#define CONFIG_VP9_HIGHBITDEPTH 0",
+        "#define CONFIG_SIZE_LIMIT 1",
+        "#define DECODE_WIDTH_LIMIT 8192",
+        "#define DECODE_HEIGHT_LIMIT 8192",
+    ] {
+        assert!(
+            config.lines().any(|line| line.trim() == expected),
+            "libvpx decoder configuration missing {expected}"
+        );
+    }
+    // Upstream's generated dispatch-header rules depend on their definition
+    // scripts, but omit the configuration they also read. Recreate all four
+    // after configure so a retained VP8-only header cannot enter a VP9 build.
+    for header in [
+        "vp8_rtcd.h",
+        "vp9_rtcd.h",
+        "vpx_dsp_rtcd.h",
+        "vpx_scale_rtcd.h",
+    ] {
+        match fs::remove_file(output.join(header)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => panic!("cannot invalidate libvpx dispatch header {header}: {error}"),
+        }
+    }
     assert!(
         Command::new("make")
             .current_dir(&output)
+            // The top-level .DEFAULT recipe only enters the library submake
+            // when the archive is absent. Select it explicitly so a retained
+            // archive is rebuilt after configuration or decoder source changes.
+            .arg("target=libs")
             .arg("-j")
             .arg(env::var("NUM_JOBS").unwrap_or_else(|_| "1".into()))
             .arg("libvpx.a")

@@ -1,7 +1,7 @@
 """Join real upstream results with native shared-backing process diagnostics."""
 from urllib.parse import urlsplit
 
-TEST = '/__oryn_shared_memory__/engine-lifecycle.https.html?placement=1'
+TEST = '/__oryn_shared_memory__/shared-memory/engine-lifecycle.https.html?placement=1'
 NAMES = {
     'A worker waiter can be notified through another mapping and is removed exactly once',
     'A remote notify settles the originating agent asynchronous waiter',
@@ -76,7 +76,7 @@ def qualify(record, report, context, binary):
         url = urlsplit(agent.get('script_url', ''))
         if (agent.get('kind') == 'Dedicated' and agent.get('live') is True
                 and (url.scheme, url.netloc) == (page_url.scheme, page_url.netloc)
-                and url.path == '/__oryn_shared_memory__/worker.js' and url.query == 'placement=1'
+                and url.path == '/__oryn_shared_memory__/shared-memory/worker.js' and url.query == 'placement=1'
                 and any(owner.get('kind') == 'window' and owner.get('id') == page_id
                         and owner.get('frame') is None for owner in agent.get('owners', []))):
             pid = placement(agent, binary, parent)

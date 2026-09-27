@@ -40,7 +40,13 @@ class OAuthRejectionTests(unittest.TestCase):
     def test_wrong_redirect_is_rejected_by_real_token_endpoint(self):
         # Pinned oauthlib 3.3.1 raises MismatchingRedirectURIError
         # (invalid_request); rejection and zero issued tokens remain mandatory.
-        data=self.assert_rejected('redirect',error='invalid_request');self.assertEqual(data['oauth']['tokens'],[])
+        corpus=json.loads((ROOT/'test-harness/workflows/saas-cases-v4.json').read_text())
+        case=next(row for row in corpus['cases'] if row['id']=='oauth_reject_redirect')
+        self.assertEqual(case['expected_extractions'],['invalid_request'])
+        data=self.assert_rejected('redirect',error=case['expected_extractions'][0])
+        self.assertEqual(data['oauth']['tokens'],[])
+        self.assertEqual(data['oauth']['codes'],[dict(consumed=0)])
+        self.assertEqual([row['outcome'] for row in data['oauth']['events'] if row['action']=='token_exchange'],[400])
     def test_expired_actual_grant_cannot_issue_token(self):
         data=self.assert_rejected('expiry');self.assertEqual(data['oauth']['codes'],[dict(consumed=0)])
     def test_replay_revokes_first_token_without_creating_application_session(self):

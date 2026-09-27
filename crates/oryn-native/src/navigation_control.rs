@@ -47,6 +47,8 @@ pub enum NavigationStop {
     Cancelled,
     #[error("page retired")]
     Retired,
+    #[error("server certificate rejected: {0}")]
+    CertificateRejected(String),
     #[error("native navigation failed: {0}")]
     Failed(String),
     #[error("invalid navigation lifecycle transition")]

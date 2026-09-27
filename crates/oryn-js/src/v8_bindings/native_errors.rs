@@ -60,7 +60,15 @@ fn get_stack(
 fn set_stack(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::ReturnValue) {
     let object = args.this();
     if !object.is_native_error() && !is_dom(scope, object.into()) {
-        throw_type_error(scope, "Error stack receiver required");
+        // An inherited setter must permit ordinary Error-style subclasses such
+        // as WPT's Object.create(Error.prototype) AssertionError. Store an own
+        // public data property; this does not grant the native/private brand.
+        let Some(name) = v8::String::new(scope, "stack") else {
+            return;
+        };
+        if object.create_data_property(scope, name.into(), args.get(0)) == Some(false) {
+            throw_type_error(scope, "Cannot define Error stack on this object");
+        }
         return;
     }
     if let Some(key) = key(scope) {
@@ -321,5 +329,93 @@ mod tests {
         let key = v8::String::new(scope, "copy").unwrap();
         context.global(scope).set(scope, key.into(), copy);
         assert!(eval(scope,"copy.stack===original.stack&&copy.name==='DataError'&&copy.message==='wire'&&!Object.hasOwn(copy,'stack')&&Error.isError(copy)").is_true());
+    }
+    #[test]
+    fn wpt_assertion_error_keeps_failure_message_and_writable_ordinary_stack() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        assert!(eval(scope, r#"(()=>{
+            // Pinned testharness shape: no native Error construction for this,
+            // Error.prototype inheritance, then ordinary this.stack assignment.
+            function AssertionError(message) {
+                this.message=message;
+                this.stack=(new Error(message)).stack;
+            }
+            AssertionError.prototype=Object.create(Error.prototype);
+            AssertionError.prototype.name='AssertionError';
+            function assert_equals(actual,expected) {
+                if(actual!==expected)throw new AssertionError('expected '+expected+' but got '+actual);
+            }
+            let caught; try { assert_equals('actual','expected'); } catch(error) { caught=error; }
+            if(!(caught instanceof AssertionError)||caught.message!=='expected expected but got actual')throw Error('assertion failure was masked');
+            if(typeof caught.stack!=='string'||!caught.stack.includes('expected expected but got actual'))throw Error('assertion stack missing');
+            const d=Object.getOwnPropertyDescriptor(caught,'stack');
+            if(!d||!d.writable||!d.enumerable||!d.configurable||d.value!==caught.stack)throw Error('ordinary stack descriptor');
+            caught.stack='rewritten assertion stack';
+            if(caught.stack!=='rewritten assertion stack'||Error.isError(caught))throw Error('ordinary assignment granted native brand');
+            const copy=structuredClone(caught);
+            if(Error.isError(copy)||copy.message!==caught.message||copy.stack!==caught.stack)throw Error('ordinary clone changed brand');
+            const native=structuredClone(new TypeError('native'));
+            native.stack='native replacement';
+            if(!Error.isError(native)||Object.hasOwn(native,'stack')||structuredClone(native).stack!=='native replacement')throw Error('native private stack changed');
+            const dom=new DOMException('dom','DataError'); dom.stack='dom replacement';
+            if(!Error.isError(dom)||Object.hasOwn(dom,'stack')||structuredClone(dom).stack!=='dom replacement')throw Error('DOMException private stack changed');
+            const getter=Object.getOwnPropertyDescriptor(Error.prototype,'stack').get;
+            const setter=Object.getOwnPropertyDescriptor(Error.prototype,'stack').set;
+            for(const fake of [Object.create(Error.prototype),Object.create(DOMException.prototype),new Proxy(new Error(),{})]) {
+                setter.call(fake,'public stack');
+                if(Error.isError(fake))throw Error('forged brand');
+                try { getter.call(fake); throw Error('forged private stack accepted'); } catch(e) { if(!(e instanceof TypeError))throw e; }
+            }
+            try { setter.call(Object.preventExtensions(Object.create(Error.prototype)),'x'); throw Error('nonextensible assignment accepted'); } catch(e) { if(!(e instanceof TypeError))throw e; }
+            const marker={};
+            try { setter.call(new Proxy({}, {defineProperty(){throw marker}}),'x'); throw Error('proxy exception swallowed'); } catch(e) { if(e!==marker)throw e; }
+            return true;
+        })()"#).is_true());
+    }
+    #[test]
+    fn ordinary_stack_assignment_does_not_brand_cross_realm_objects() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let first = v8::Context::new(scope, Default::default());
+        let _first = {
+            let scope = &mut v8::ContextScope::new(scope, first);
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+            ));
+            install_generated_bindings(scope, first, dom, RealmId(1), 1).unwrap()
+        };
+        let second = v8::Context::new(scope, Default::default());
+        let _second = {
+            let scope = &mut v8::ContextScope::new(scope, second);
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+            ));
+            let state = install_generated_bindings(scope, second, dom, RealmId(2), 1).unwrap();
+            eval(
+                scope,
+                "globalThis.native=new DOMException('other','DataError');globalThis.fake=Object.create(Error.prototype)",
+            );
+            state
+        };
+        let scope = &mut v8::ContextScope::new(scope, first);
+        let other = second.global(scope);
+        let name = v8::String::new(scope, "other").unwrap();
+        first.global(scope).set(scope, name.into(), other.into());
+        assert!(eval(scope, r#"(()=>{
+            const setter=Object.getOwnPropertyDescriptor(Error.prototype,'stack').set;
+            setter.call(other.fake,'foreign ordinary');setter.call(other.native,'foreign native');
+            if(Error.isError(other.fake)||other.Error.isError(other.fake)||other.fake.stack!=='foreign ordinary')throw Error('foreign fake brand');
+            if(!Error.isError(other.native)||!other.Error.isError(other.native)||other.native.stack!=='foreign native'||Object.hasOwn(other.native,'stack'))throw Error('foreign native brand');
+            return structuredClone(other.native).stack==='foreign native';
+        })()"#).is_true());
     }
 }

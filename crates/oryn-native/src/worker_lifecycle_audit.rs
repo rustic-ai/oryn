@@ -58,11 +58,65 @@ pub struct ProcessRecord {
     pub role: String,
     pub binary_sha256: Option<String>,
     pub spawned_unix_ns: u128,
+    pub launch_started_unix_ns: u128,
+    pub resource_identity_version: u32,
+    pub kernel_birth: Option<[u64; 2]>,
+    pub event_samples: Vec<ProcessResourceSample>,
+    pub resource_sample_errors: Vec<String>,
     pub reaped_unix_ns: Option<u128>,
     pub exit_code: Option<i32>,
     pub signal: Option<i32>,
     pub leases: Vec<WorkerLeaseRecord>,
 }
+/// Event RSS is a per-process observation, never an instantaneous tree total.
+#[derive(Clone, Serialize)]
+pub struct ProcessResourceSample {
+    pub phase: &'static str,
+    pub unix_started_ns: u128,
+    pub unix_ended_ns: u128,
+    pub kernel_birth: [u64; 2],
+    pub rss_bytes: u64,
+}
+
+#[cfg(target_os = "macos")]
+fn resource_sample(pid: u32, phase: &'static str) -> Result<ProcessResourceSample, String> {
+    let started = now();
+    let mut info = std::mem::MaybeUninit::<libc::proc_taskallinfo>::zeroed();
+    let size = i32::try_from(std::mem::size_of::<libc::proc_taskallinfo>())
+        .expect("proc_taskallinfo fits i32");
+    // SAFETY: exact kernel ABI buffer, no borrowed child handle is transferred.
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid.cast_signed(),
+            libc::PROC_PIDTASKALLINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    if written != size {
+        return Err(format!(
+            "{phase} resource query: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    // SAFETY: the kernel initialized the full BSD+task record in one query.
+    let info = unsafe { info.assume_init() };
+    if info.pbsd.pbi_pid != pid
+        || info.pbsd.pbi_ppid != std::process::id()
+        || info.pbsd.pbi_start_tvusec >= 1_000_000
+    {
+        return Err(format!("{phase} resource identity mismatch"));
+    }
+    Ok(ProcessResourceSample {
+        phase,
+        unix_started_ns: started,
+        unix_ended_ns: now(),
+        kernel_birth: [info.pbsd.pbi_start_tvsec, info.pbsd.pbi_start_tvusec],
+        rss_bytes: info.ptinfo.pti_resident_size,
+    })
+}
+
 #[derive(Serialize)]
 pub struct WorkerLifecycleSnapshot {
     pub schema_version: u32,
@@ -71,7 +125,7 @@ pub struct WorkerLifecycleSnapshot {
     pub gaps: Vec<String>,
     pub processes: Vec<ProcessRecord>,
 }
-fn now() -> u128 {
+pub(crate) fn now() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|time| time.as_nanos())
@@ -112,6 +166,7 @@ pub(crate) struct ProcessObservation {
     launch_id: u64,
 }
 pub(crate) fn spawned(
+    launch_started_unix_ns: u128,
     launch_id: u64,
     pid: u32,
     context: u64,
@@ -120,6 +175,10 @@ pub(crate) fn spawned(
     binary_sha256: Option<String>,
 ) -> Option<ProcessObservation> {
     let state = ACTIVE.get()?.lock().ok()?.upgrade()?;
+    // Capture before taking the audit lock: registration latency cannot erase
+    // a short child's only sample. A failed query remains explicit evidence.
+    #[cfg(target_os = "macos")]
+    let sample = resource_sample(pid, "launch");
     let mut records = state.lock().unwrap_or_else(|error| error.into_inner());
     if records.processes.len() >= MAX_PROCESSES {
         records.overflow = true;
@@ -151,6 +210,38 @@ pub(crate) fn spawned(
             role: "page".into(),
             binary_sha256,
             spawned_unix_ns: time,
+            launch_started_unix_ns,
+            resource_identity_version: if cfg!(target_os = "macos") { 1 } else { 0 },
+            kernel_birth: {
+                #[cfg(target_os = "macos")]
+                {
+                    sample.as_ref().ok().map(|value| value.kernel_birth)
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    None
+                }
+            },
+            event_samples: {
+                #[cfg(target_os = "macos")]
+                {
+                    sample.as_ref().ok().cloned().into_iter().collect()
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    Vec::new()
+                }
+            },
+            resource_sample_errors: {
+                #[cfg(target_os = "macos")]
+                {
+                    sample.err().into_iter().collect()
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    Vec::new()
+                }
+            },
             reaped_unix_ns: None,
             exit_code: None,
             signal: None,
@@ -201,6 +292,39 @@ impl ProcessObservation {
             });
         }
     }
+    /// Called while the Child is still retained, before an intentional kill.
+    /// At most one retirement query: repeated cleanup does not add overhead.
+    pub(crate) fn sample_retirement(&self) {
+        #[cfg(target_os = "macos")]
+        {
+            let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+            let Some(record) = state.processes.get_mut(&self.launch_id) else {
+                return;
+            };
+            if record.reaped_unix_ns.is_some()
+                || record
+                    .event_samples
+                    .iter()
+                    .any(|sample| sample.phase == "retirement")
+                || record
+                    .resource_sample_errors
+                    .iter()
+                    .any(|error| error.starts_with("retirement"))
+            {
+                return;
+            }
+            match resource_sample(record.worker_pid, "retirement") {
+                Ok(sample) if record.kernel_birth == Some(sample.kernel_birth) => {
+                    record.event_samples.push(sample)
+                }
+                Ok(_) => record
+                    .resource_sample_errors
+                    .push("retirement resource identity mismatch".into()),
+                Err(error) => record.resource_sample_errors.push(error),
+            }
+        }
+    }
+
     pub(crate) fn end_leases(&self, page: Option<u64>) {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let time = state.timestamp();
@@ -280,12 +404,39 @@ mod tests {
             role: "page".into(),
             binary_sha256: None,
             spawned_unix_ns: 1,
+            launch_started_unix_ns: 1,
+            resource_identity_version: 0,
+            kernel_birth: None,
+            event_samples: Vec::new(),
+            resource_sample_errors: Vec::new(),
             reaped_unix_ns: None,
             exit_code: None,
             signal: None,
             leases: Vec::new(),
         }
     }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn launch_event_captures_owned_child_birth_and_rss_before_registration() {
+        let before = now();
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("10")
+            .spawn()
+            .unwrap();
+        let sample = resource_sample(child.id(), "launch");
+        // Release the real child even when an evidence assertion fails.
+        let _ = child.kill();
+        child.wait().unwrap();
+        let sample = sample.unwrap();
+        assert!(sample.unix_started_ns >= before);
+        assert!(sample.unix_ended_ns >= sample.unix_started_ns);
+        let born = u128::from(sample.kernel_birth[0]) * 1_000_000_000
+            + u128::from(sample.kernel_birth[1]) * 1_000;
+        assert!(born + 999 >= before);
+        assert!(born <= sample.unix_ended_ns);
+        assert!(sample.rss_bytes > 0);
+    }
+
     #[test]
     fn lease_history_budget_is_shared_across_processes_and_never_wraps() {
         let state = Arc::new(Mutex::new(State {
@@ -375,6 +526,11 @@ mod tests {
             role: "verification".into(),
             binary_sha256: None,
             spawned_unix_ns: 1,
+            launch_started_unix_ns: 1,
+            resource_identity_version: 0,
+            kernel_birth: None,
+            event_samples: Vec::new(),
+            resource_sample_errors: Vec::new(),
             reaped_unix_ns: None,
             exit_code: None,
             signal: None,

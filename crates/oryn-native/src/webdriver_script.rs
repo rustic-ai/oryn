@@ -223,6 +223,11 @@ pub enum ElementCommand {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FrameCommand {
     Inventory,
+    /// Native OIL continuation of one completed action; not a public OIL command.
+    ResolveActionSelection {
+        current: AutomationRealmSnapshot,
+        action_id: oryn_common::v3::ActionId,
+    },
     NamedInventory,
     NavigateServiceWindow {
         current: AutomationRealmSnapshot,

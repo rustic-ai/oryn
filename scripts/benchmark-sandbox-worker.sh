@@ -13,6 +13,11 @@ samples="${SAMPLES:-30}"
 parent="$repo_root/target/release/oryn"
 app="$repo_root/target/release/OrynPageWorker.app"
 worker="$app/Contents/MacOS/oryn-page-worker"
+if [[ -n "${ORYN_SECURITY_PREBUILT_CANDIDATE:-}" ]]; then
+  parent="$(python3 "$repo_root/scripts/security_prebuilt.py" path runtime)"
+  worker="$(python3 "$repo_root/scripts/security_prebuilt.py" path worker)"
+  app="$(dirname "$(dirname "$(dirname "$worker")")")"
+fi
 fixture="$repo_root/benchmarks/conformance/javascript-mutation-smoke.html"
 mkdir -p "$output_dir"
 source_clean=true
@@ -128,8 +133,9 @@ combined_bytes="$((parent_bytes + app_bytes))"
 parent_gzip_bytes="$(gzip -c "$parent" | wc -c | tr -d '[:space:]')"
 worker_gzip_bytes="$(gzip -c "$worker" | wc -c | tr -d '[:space:]')"
 compressed_bundle="$(mktemp -t oryn-sandbox-worker-bundle.XXXXXX.tar.gz)"
-tar -C "$repo_root/target/release" -czf "$compressed_bundle" \
-  oryn OrynPageWorker.app
+tar -czf "$compressed_bundle" \
+  -C "$(dirname "$parent")" "$(basename "$parent")" \
+  -C "$(dirname "$app")" "$(basename "$app")"
 combined_gzip_bytes="$(wc -c <"$compressed_bundle" | tr -d '[:space:]')"
 
 percentile() {

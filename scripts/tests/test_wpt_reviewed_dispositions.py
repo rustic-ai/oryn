@@ -32,8 +32,8 @@ class DispositionTests(unittest.TestCase):
             defects.append(dict(id=f'history-{n}', path=relative, source_sha256=disposition.digest(source),
                                 variants=variants, assertion_name_contains='historical assertion',
                                 source_predicates=['synthetic historical predicate']))
-            self.coverage += [dict(id='testharness:/' + relative + variant, path=relative,
-                                   url='/' + relative + variant, tier='necessary', test_type='testharness',
+            self.coverage += [dict(id='testharness:' + relative + variant, path=relative,
+                                   url=relative + variant, tier='necessary', test_type='testharness',
                                    sha256=disposition.digest(source)) for variant in variants]
         self.legacy = self.root / 'synthetic-legacy.json'
         self.legacy.write_text(json.dumps(dict(schema_version=1, upstream=dict(revision=gate.REVISION), defects=defects)))
@@ -129,7 +129,7 @@ class DispositionTests(unittest.TestCase):
         # Reusing a TestCase as a fixture must not export its cases into this
         # module's discovery population. Both original source populations stay.
         loader = unittest.TestLoader()
-        self.assertEqual(loader.loadTestsFromModule(sys.modules[__name__]).countTestCases(), 15)
+        self.assertEqual(loader.loadTestsFromModule(sys.modules[__name__]).countTestCases(), 20)
         self.assertEqual(loader.loadTestsFromModule(qualification_fixture).countTestCases(), 20)
         with patch.object(gate, 'CORE_TOTAL', 1):
             rows, summary = gate.reconcile(self.f.core, [self.pair], self.reviews, self.f.candidate, self.root,
@@ -226,6 +226,52 @@ class DispositionTests(unittest.TestCase):
             gate.reconcile(self.f.core,[self.pair],self.reviews,self.f.candidate,self.root,
                 profile_context=self.context,disposition_policy=policy,disposition_applications=self.applications_path)
 
+    def test_empty_core_policy_accepts_exact_relative_ledger_without_waivers(self):
+        self.freeze([])
+        policy = self.policy()
+        self.assertEqual(policy.imported_core_count, 0)
+        self.assertEqual(policy.decisions, {})
+        self.assertEqual(policy.targets, {})
+        self.assertEqual(sum(row['tier'] == 'necessary' for row in self.coverage), 8)
+        policy.finish()
+
+    def test_approved_inventory_identity_fields_fail_closed(self):
+        original = copy.deepcopy(self.coverage)
+        row = original[1]
+        for change in ({'id': 'testharness:/' + row['url']},
+                       {'url': '/' + row['url']},
+                       {'path': 'editing/foreign.html'},
+                       {'test_type': 'reftest'},
+                       {'sha256': 'f' * 64},
+                       {'url': row['url'] + '&extra=1'}):
+            with self.subTest(change=change):
+                self.coverage = copy.deepcopy(original)
+                self.coverage[1].update(change)
+                with self.assertRaises(ValueError):
+                    self.policy()
+        self.coverage = original[0:1] + original[2:]
+        with self.assertRaisesRegex(ValueError, 'missing or ambiguous'):
+            self.policy()
+
+    def test_approved_inventory_duplicate_or_alias_identity_is_ambiguous(self):
+        original = copy.deepcopy(self.coverage)
+        for identifier in (original[1]['id'], 'testharness:/' + original[1]['url']):
+            with self.subTest(identifier=identifier):
+                self.coverage = copy.deepcopy(original)
+                self.coverage.append(dict(original[1], id=identifier))
+                with self.assertRaisesRegex(ValueError, 'duplicate|ambiguous'):
+                    self.policy()
+
+    def test_all_imported_variants_remain_necessary_even_with_no_core_decisions(self):
+        self.freeze([])
+        original = copy.deepcopy(self.coverage)
+        for index in range(1, len(original)):
+            with self.subTest(index=index):
+                self.coverage = copy.deepcopy(original)
+                self.coverage[index]['tier'] = 'core'
+                with self.assertRaisesRegex(ValueError, 'zero-Core'):
+                    self.policy()
+
     def test_historical_scope_cannot_be_promoted_to_core(self):
         self.coverage[1]['tier']='core'
         with self.assertRaisesRegex(ValueError,'zero-Core'): self.policy()
@@ -296,3 +342,25 @@ class ApprovedLedgerScopeTests(unittest.TestCase):
         tiers=[module.classify(item['path'],policy)[0] for item in ledger['defects'] for _ in item['variants']]
         self.assertEqual(tiers,['necessary']*8)
         self.assertNotIn('core',tiers)
+
+    def test_real_pinned_relative_inventory_rows_join_unchanged_approved_ledger(self):
+        fixture = json.loads((Path(__file__).parent / 'fixtures' /
+                              'approved-ledger-pinned-inventory.json').read_text())
+        ledger = json.loads(disposition.APPROVED_LEDGER.read_text())
+        self.assertEqual(disposition.digest(disposition.APPROVED_LEDGER), disposition.APPROVED_LEDGER_SHA256)
+        self.assertEqual(fixture['upstream_revision'], gate.REVISION)
+        self.assertEqual(fixture['coverage_sha256'],
+                         '685884081872242895990657052f3e412faaec207f16854cd303350792c999ed')
+        rows = {row['id']: row for row in fixture['rows']}
+        self.assertEqual(len(rows), 8)
+        matched = []
+        for defect in ledger['defects']:
+            for variant in defect['variants']:
+                row = disposition.approved_inventory_row(rows, defect['path'], variant,
+                                                         defect['source_sha256'])
+                self.assertEqual(row['url'], defect['path'] + variant)
+                self.assertEqual(row['id'], 'testharness:' + row['url'])
+                self.assertEqual(row['tier'], 'necessary')
+                matched.append(row['id'])
+        self.assertEqual(set(matched), set(rows))
+        self.assertEqual(len(matched), 8)

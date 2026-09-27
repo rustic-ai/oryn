@@ -11,7 +11,7 @@ historical-test-input = ["oryn-native/historical-test-input"]
 # initialized only after re-exec into the sandboxed worker role.
 default = ["native", "core-full"]
 native = []
-webdriver-server = ["dep:axum", "dep:libc"]
+webdriver-server = ["dep:axum", "dep:libc", "render"]
 core-full = ["oryn-native/core-full"]
 core-lite = ["oryn-native/core-lite"]
 native-v8 = ["oryn-native/v8-host", "oryn-native/v8-sandbox"]

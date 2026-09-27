@@ -5,14 +5,54 @@ artifacts consumed by workflow_evidence. Scheduling a callback is never evidence
 of native context concurrency. Missing adapters and failed attempts stay visible.
 """
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 import hashlib
 import json
+from workflow_cleanup import CleanupFailure, failure_details
 import os
 from pathlib import Path
 import threading
+import signal
+import stat
 
-from workflow_contract import planned_attempts
+from workflow_contract import planned_attempts, select_attempts
 from workflow_evidence import reconcile
+
+
+_TERMINAL_NAMES = frozenset(('native-process-cleanup.json', 'native-execution-terminal.json', 'fixture-cleanup.json'))
+
+
+def capture_exception_terminals(directory, root):
+    """Exception-only bounded receipt discovery; no source or worker scans."""
+    references, errors = [], []
+    visited = 0
+    total = 0
+    def walk_error(error):
+        raise error
+    try:
+        for parent, directories, files in os.walk(directory, followlinks=False, onerror=walk_error):
+            visited += 1
+            if visited > 512:raise ValueError('terminal directory bound exceeded')
+            directories.sort()
+            for name in sorted(_TERMINAL_NAMES.intersection(files)):
+                if len(references) >= 768:raise ValueError('terminal receipt bound exceeded')
+                path=Path(parent)/name
+                expected=Path(root).resolve()/Path(directory).relative_to(root)
+                if not path.resolve().is_relative_to(expected):
+                    raise ValueError('terminal receipt resolves outside exact attempt')
+                flags=os.O_RDONLY | getattr(os,'O_NONBLOCK',0) | getattr(os,'O_NOFOLLOW',0)
+                fd=os.open(path,flags)
+                with os.fdopen(fd,'rb') as stream:
+                    metadata=os.fstat(stream.fileno())
+                    if not stat.S_ISREG(metadata.st_mode) or metadata.st_size>16*1024*1024:
+                        raise ValueError('terminal receipt is not a bounded regular file')
+                    data=stream.read(16*1024*1024+1)
+                total += len(data)
+                if total>16*1024*1024:raise ValueError('terminal byte bound exceeded')
+                references.append(dict(path=str(path.relative_to(root)),sha256=hashlib.sha256(data).hexdigest()))
+    except (OSError, ValueError) as error:
+        errors.append('terminal receipt capture: '+str(error))
+    return references,errors
 
 
 class ExecutionJournal:
@@ -53,8 +93,49 @@ class ExecutionJournal:
         self.stream.close()
 
 
-def execute_contract(contract, candidate, adapters, output, oracles, *, workers=5,
-                     stop=None, candidate_probe=None):
+@contextmanager
+def cancellation_signals(stop):
+    """Let adapters retire their owned workers before a supervisor escalates."""
+    previous = {}
+    def request_stop(signum, frame):
+        stop.set()
+    try:
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            previous[signum] = signal.signal(signum, request_stop)
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
+def run_recovery_lanes(attempts, perform, *, workers=4, stop):
+    """Parallelize cells, never repetitions within the same cell."""
+    if type(workers) is not int or not 1 <= workers <= 4:
+        raise ValueError('recovery worker count must be 1..4')
+    cells = {}
+    for attempt in attempts:
+        cells.setdefault(attempt['cell'], []).append(attempt)
+    def run_cell(repetitions):
+        for attempt in repetitions:
+            if stop.is_set():
+                return
+            perform(attempt)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = []
+        try:
+            for repetitions in cells.values():
+                futures.append(pool.submit(run_cell, repetitions))
+            for future in as_completed(futures):
+                future.result()
+        except BaseException:
+            stop.set()
+            for future in futures:
+                future.cancel()
+            raise
+
+
+def execute_contract(contract, candidate, adapters, output, oracles, *, workers=5, recovery_workers=4,
+                     stop=None, candidate_probe=None, attempt_ids=None):
     """Execute all frozen attempts, without silently substituting narrower cases.
 
     adapters maps each complete behavior-cell ID to an adapter callable accepting
@@ -70,6 +151,8 @@ def execute_contract(contract, candidate, adapters, output, oracles, *, workers=
     """
     if type(workers) is not int or not 1 <= workers <= 20:
         raise ValueError('worker count must be 1..20')
+    if type(recovery_workers) is not int or not 1 <= recovery_workers <= 4:
+        raise ValueError('recovery worker count must be 1..4')
     # Adapters and callers can retain references to the supplied dictionaries.
     # Freeze the complete JSON inputs before planning/persisting, so neither
     # the denominator nor the independent oracle can change during execution.
@@ -77,12 +160,15 @@ def execute_contract(contract, candidate, adapters, output, oracles, *, workers=
     candidate = json.loads(json.dumps(candidate))
     oracles = json.loads(json.dumps(oracles))
     stop = stop if stop is not None else threading.Event()
-    plan = planned_attempts(contract)
+    plan = select_attempts(planned_attempts(contract), attempt_ids)
+    # Freeze explicit subset identity just like contract and oracle inputs.
+    attempt_ids = None if attempt_ids is None else [item['attempt_id'] for item in plan]
     journal = ExecutionJournal(output, plan, candidate)
     infrastructure = []
 
     def perform(attempt):
-        record = dict(attempt, **candidate, passed=False, timed_out=False, errors=[])
+        record = dict(attempt, **candidate, passed=False, timed_out=False, interrupted=False, disposition='not_executed', errors=[])
+        started = False
         artifact_name = hashlib.sha256(attempt['attempt_id'].encode()).hexdigest()
         directory = journal.directory/'artifacts'/artifact_name
         directory.mkdir(parents=True, exist_ok=False)
@@ -103,6 +189,7 @@ def execute_contract(contract, candidate, adapters, output, oracles, *, workers=
                         raise
                 if stop.is_set():
                     raise ValueError('cancellation requested before adapter admission')
+                started = True
                 result = adapters[attempt['cell']](dict(attempt), directory, stop)
                 if not isinstance(result, dict):
                     raise ValueError('malformed adapter result')
@@ -111,14 +198,23 @@ def execute_contract(contract, candidate, adapters, output, oracles, *, workers=
                 if ('errors' in result and (not isinstance(result['errors'], list)
                         or any(not isinstance(error, str) for error in result['errors']))):
                     raise ValueError('malformed adapter errors')
-                for flag in ('passed', 'timed_out'):
+                for flag in ('passed', 'timed_out', 'interrupted'):
                     if flag in result and type(result[flag]) is not bool:
                         raise ValueError('malformed adapter ' + flag)
                 # The controller, not the adapter, owns identity and the plan.
-                record.update({key: value for key, value in result.items() if key not in attempt and key not in candidate})
+                record.update({key: value for key, value in result.items() if key not in attempt and key not in candidate and key != 'disposition'})
             except Exception as error:
+                if isinstance(error, CleanupFailure) and error.custody_lost:
+                    stop.set()
                 record['passed'] = False
+                record.update(failure_details(error))
                 record['errors'] = ['adapter failure: '+str(error)]
+                if started:
+                    references, capture_errors = capture_exception_terminals(directory, journal.directory)
+                    record['terminal_evidence'] = references
+                    record['terminal_evidence_errors'] = capture_errors
+                    record['cleanup_uncertain'] = isinstance(error, CleanupFailure) and error.custody_lost
+
         # Capture drift after this attempt even if later attempts restore bytes.
         # Preserve native outcomes, but an attempt with lost custody cannot pass.
         if candidate_probe is not None:
@@ -126,9 +222,21 @@ def execute_contract(contract, candidate, adapters, output, oracles, *, workers=
                 if candidate_probe() != candidate:
                     raise ValueError('candidate differs after attempt')
             except Exception as error:
+                if isinstance(error, CleanupFailure) and error.custody_lost:
+                    stop.set()
                 record['passed'] = False
                 record.setdefault('errors', []).append('post-attempt custody: ' + str(error))
                 stop.set()
+        if record.get('timed_out'):
+            record['passed'] = False
+            record['disposition'] = 'timed_out'
+        elif record.get('interrupted'):
+            record['passed'] = False
+            record['disposition'] = 'interrupted'
+        elif record.get('passed'):
+            record['disposition'] = 'passed'
+        else:
+            record['disposition'] = 'failed' if started else 'not_executed'
         journal.append(record)
         return record
 
@@ -146,8 +254,12 @@ def execute_contract(contract, candidate, adapters, output, oracles, *, workers=
         # Each phase is explicit; mixed scheduling cannot replace serial/recovery
         # repetitions or fault injections. Native activity is measured by adapters.
         for mode in ('serial', 'mixed_family', 'recovery_repeat', 'fault_injection'):
+            if stop.is_set():
+                raise InterruptedError('execution cancellation requested')
             selected = [attempt for attempt in plan if attempt['mode'] == mode]
-            if mode == 'mixed_family':
+            if mode == 'recovery_repeat':
+                run_recovery_lanes(selected, perform, workers=recovery_workers, stop=stop)
+            elif mode == 'mixed_family':
                 with ThreadPoolExecutor(max_workers=workers) as pool:
                     futures = []
                     try:
@@ -165,7 +277,11 @@ def execute_contract(contract, candidate, adapters, output, oracles, *, workers=
                         raise
             else:
                 for attempt in selected:
+                    if stop.is_set():
+                        raise InterruptedError('execution cancellation requested')
                     perform(attempt)
+        if stop.is_set():
+            raise InterruptedError('execution cancellation requested')
         if candidate_probe is not None and candidate_probe() != candidate:
             raise ValueError('candidate changed during execution')
     except BaseException as error:
@@ -175,18 +291,22 @@ def execute_contract(contract, candidate, adapters, output, oracles, *, workers=
         # result for every not-started attempt before handing control back.
         for attempt in plan:
             if attempt['attempt_id'] not in journal.identities:
-                journal.append(dict(attempt, **candidate, passed=False, timed_out=False,
-                                    errors=['not executed: infrastructure interrupted']))
+                journal.append(dict(attempt, **candidate, passed=False, timed_out=False, interrupted=False, disposition='not_executed',
+                                    errors=['not executed: infrastructure interrupted: ' + str(error)]))
         if not isinstance(error, Exception):
             raise
     finally:
         journal.close()
-    summary = reconcile(contract, candidate, journal.records, journal.directory, oracles)
+    summary = reconcile(contract, candidate, journal.records, journal.directory, oracles,
+                        attempt_ids=attempt_ids)
     if 'candidate_manifest_sha256' in candidate:
         summary['candidate_manifest_sha256'] = candidate['candidate_manifest_sha256']
-    summary.update(scope='full_contract_execution', plan_sha256=journal.plan_sha256,
+    summary.update(scope=('full_contract_execution' if attempt_ids is None
+                          else 'focused_contract_execution'), plan_sha256=journal.plan_sha256,
                    infrastructure_errors=infrastructure, family_qualified=False,
-                   goal_complete=False)
+                   goal_complete=False,
+                   scheduling={'mixed_workers': workers, 'recovery_workers': recovery_workers,
+                               'recovery_order': 'serial_within_cell'})
     # Structural validation is only one input to signed native qualification.
     if infrastructure:
         summary['structurally_valid'] = False

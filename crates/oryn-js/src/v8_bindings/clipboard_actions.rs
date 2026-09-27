@@ -571,8 +571,19 @@ fn input_event<'s>(
     text: Option<&str>,
     store: Option<data_transfer::SharedStore>,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
-    let event =
-        create_input_event_object(scope, state, kind, input_type, text, kind == "beforeinput")?;
+    // Input/textarea beforeinput and every input event expose empty ranges.
+    // Do not construct then discard a snapshot of an unrelated DOM selection:
+    // it may have been removed by the completed SPA action.
+    let include_target_ranges = !control(state, target) && kind != "input";
+    let event = create_input_event_object_with_ranges(
+        scope,
+        state,
+        kind,
+        input_type,
+        text,
+        kind == "beforeinput",
+        include_target_ranges,
+    )?;
     let id = event_id(scope, event)?;
     if let Some(record) = state.events.borrow_mut().get_mut(&id) {
         record.is_trusted = true;
@@ -916,6 +927,216 @@ pub(super) fn action(
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+    // A real DOM range survives removal and rebases, while the binding cache
+    // still names the reclaimed link text (the cart failure's state).
+    fn removed_selection_cache(state: &V8BindingState) -> (u64, RangeRecord) {
+        let old = state.dom.borrow().find_by_id("old").unwrap();
+        let parent = state.dom.borrow().parent(old).unwrap().unwrap();
+        let text = state.dom.borrow().children(old).unwrap()[0];
+        let point = BoundaryPoint {
+            container: text,
+            offset: 15,
+        };
+        let id = set_selection_boundaries(state, point, point).unwrap();
+        let cached = state.ranges.borrow()[&id].clone();
+        state.dom.borrow_mut().retain_native(old).unwrap();
+        state.dom.borrow_mut().remove_child(parent, old).unwrap();
+        state.dom.borrow_mut().release_native(old).unwrap();
+        // Removal records retain their own native lease until observer delivery
+        // completes. Model that real checkpoint before expecting reclamation;
+        // the live range has already rebased, but its binding cache has not.
+        let delivered = state.dom.borrow_mut().drain_mutations();
+        state
+            .dom
+            .borrow_mut()
+            .release_mutation_roots(&delivered)
+            .unwrap();
+        let live = state.dom.borrow().live_range(LiveRangeId(id)).unwrap();
+        assert_eq!(live.start.container, parent);
+        assert_eq!(live.end.container, parent);
+        assert_eq!(state.ranges.borrow()[&id].start_container, text);
+        assert!(state.dom.borrow().arena().get(text).is_err());
+        // This is the old unconditional event-construction operation. It must
+        // fail on the obsolete cache, independently of the repaired path.
+        assert!(register_static_range(state, cached.clone()).is_err());
+        (id, cached)
+    }
+
+    #[test]
+    fn generic_editing_input_dispatch_never_snapshots_target_ranges() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<span id=old>Review checkout</span><input id=t value=old>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(237), 3).unwrap();
+        eval(
+            scope,
+            "document.getElementById('t').focus();globalThis.inputCalls=0;globalThis.inputRangeCount=-1;document.getElementById('t').addEventListener('input',e=>{inputCalls++;inputRangeCount=e.getTargetRanges().length})",
+        );
+        let (id, _) = removed_selection_cache(&state);
+        // Endpoint cells are empty: focus resolves a valid input; only the
+        // unrelated cached range is invalid, isolating event construction.
+        state.selection_anchor.set(None);
+        state.selection_focus.set(None);
+        dispatch_editing_input(scope, &state, "insertText", Some("x")).unwrap();
+        eval(
+            scope,
+            "if(inputCalls !== 1 || inputRangeCount !== 0 || document.getElementById('t').value !== 'old') throw Error('generic input dispatch changed effects')",
+        );
+        assert_eq!(state.selection_range.get(), Some(id));
+        assert!(state.dom.borrow().live_range(LiveRangeId(id)).is_ok());
+    }
+
+    #[test]
+    fn control_beforeinput_and_input_ignore_unrelated_stale_selection() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse(
+                "<span id=old>Review checkout</span><input id=i><textarea id=t></textarea><div id=rich contenteditable>abc</div>",
+            )
+            .into_runtime()
+            .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(234), 3).unwrap();
+        let (range_id, cached) = removed_selection_cache(&state);
+        for (id, kind) in [
+            ("i", "beforeinput"),
+            ("t", "beforeinput"),
+            ("rich", "input"),
+        ] {
+            state.ranges.borrow_mut().insert(range_id, cached.clone());
+            let target = state.dom.borrow().find_by_id(id).unwrap();
+            let event =
+                input_event(scope, &state, target, kind, "insertText", Some("x"), None).unwrap();
+            // Event construction must not read/rebase this irrelevant cache.
+            assert_eq!(
+                state.ranges.borrow()[&range_id].start_container,
+                cached.start_container
+            );
+            let key = v8_string(scope, "eventUnderTest").unwrap();
+            context
+                .global(scope)
+                .set(scope, key.into(), event.into())
+                .unwrap();
+            eval(
+                scope,
+                "if(eventUnderTest.getTargetRanges().length !== 0) throw Error('event exposed unrelated ranges')",
+            );
+            // The JS method boundary may legitimately synchronize the cache.
+            assert_eq!(state.selection_range.get(), Some(range_id));
+            assert!(state.dom.borrow().live_range(LiveRangeId(range_id)).is_ok());
+        }
+    }
+
+    #[test]
+    fn rich_beforeinput_rebases_live_range_after_spa_subtree_removal() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse(
+                "<div id=rich contenteditable><span id=old>abc</span><span>def</span></div>",
+            )
+            .into_runtime()
+            .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(235), 3).unwrap();
+        let host = state.dom.borrow().find_by_id("rich").unwrap();
+        let old = state.dom.borrow().find_by_id("old").unwrap();
+        let text = state.dom.borrow().children(old).unwrap()[0];
+        let id = set_selection_boundaries(
+            &state,
+            BoundaryPoint {
+                container: text,
+                offset: 0,
+            },
+            BoundaryPoint {
+                container: text,
+                offset: 2,
+            },
+        )
+        .unwrap();
+        let event = input_event(
+            scope,
+            &state,
+            host,
+            "beforeinput",
+            "insertText",
+            Some("x"),
+            None,
+        )
+        .unwrap();
+        let key = v8_string(scope, "eventUnderTest").unwrap();
+        context
+            .global(scope)
+            .set(scope, key.into(), event.into())
+            .unwrap();
+        eval(
+            scope,
+            "if(eventUnderTest.getTargetRanges().length !== 1 || eventUnderTest.getTargetRanges()[0].endOffset !== 2) throw Error('rich range missing')",
+        );
+        state.dom.borrow_mut().remove_child(host, old).unwrap();
+        assert_eq!(state.ranges.borrow()[&id].start_container, text);
+        let event = input_event(
+            scope,
+            &state,
+            host,
+            "beforeinput",
+            "insertText",
+            Some("x"),
+            None,
+        )
+        .unwrap();
+        let key = v8_string(scope, "eventUnderTest").unwrap();
+        context
+            .global(scope)
+            .set(scope, key.into(), event.into())
+            .unwrap();
+        eval(
+            scope,
+            "const range=eventUnderTest.getTargetRanges()[0]; if(!range || range.startContainer !== document.getElementById('rich') || range.startOffset !== 0 || range.endOffset !== 0) throw Error('rich live range not rebased')",
+        );
+    }
+
+    #[test]
+    fn rich_beforeinput_does_not_swallow_invalid_live_range() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<div id=rich contenteditable>abc</div>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(236), 3).unwrap();
+        state.selection_range.set(Some(u64::MAX));
+        let target = state.dom.borrow().find_by_id("rich").unwrap();
+        let result = input_event(
+            scope,
+            &state,
+            target,
+            "beforeinput",
+            "insertText",
+            Some("x"),
+            None,
+        );
+        assert!(matches!(result, Err(V8BindingError::Dom(_))));
+    }
+
     #[test]
     fn retained_clipboard_event_resumes_suffix_and_detaches_only_on_completion() {
         super::super::tests::initialize_v8();

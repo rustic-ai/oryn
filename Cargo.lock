@@ -2792,6 +2792,7 @@ dependencies = [
  "futures-util",
  "oryn-common",
  "reqwest 0.12.28",
+ "rustls",
  "serde",
  "thiserror 2.0.17",
  "tokio",

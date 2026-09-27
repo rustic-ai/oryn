@@ -133,6 +133,170 @@ class ProvenanceTests(unittest.TestCase):
             with environment({}, config):
                 pass
 
+    def test_streamed_digest_matches_bytes_and_never_reads_whole_file(self):
+        import hashlib
+        path = self.root / 'large-artifact'
+        contents = bytes(range(256)) * 8193
+        path.write_bytes(contents)
+        with patch.object(Path, 'read_bytes', side_effect=AssertionError('whole-file allocation')):
+            self.assertEqual(provenance.digest(path), hashlib.sha256(contents).hexdigest())
+        path.write_bytes(b'')
+        self.assertEqual(provenance.digest(path), hashlib.sha256(b'').hexdigest())
+
+    def test_final_inventory_still_rejects_mutation_during_semantic_validation(self):
+        original = provenance.rendering_contracts
+        def mutate(manifest):
+            result = original(manifest)
+            # Same-size drift after initial artifact validation must not pass.
+            (self.root / 'runtime').write_bytes(b'RUNTIME')
+            return result
+        with patch.object(provenance, 'rendering_contracts', side_effect=mutate):
+            with self.assertRaisesRegex(ValueError, 'artifact missing or changed'):
+                provenance.load_contract(self.contract_path)
+
+
+class SchemaTwoTransactionTests(unittest.TestCase):
+    save_candidate = ProvenanceTests.save_candidate
+
+    def setUp(self):
+        import sys
+        scripts = str(Path(provenance.__file__).resolve().parents[3] / 'scripts')
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        import completion_provenance as canonical
+        self.canonical = canonical
+        ProvenanceTests.setUp(self)
+        self.candidate['source_tree_sha256'] = 'a' * 64
+        for name in canonical.REQUIRED_ARTIFACTS - self.candidate['artifacts'].keys():
+            path = self.root / ('canonical-' + name)
+            path.write_text('canonical artifact ' + name)
+            self.candidate['artifacts'][name] = {'path': str(path), 'sha256': provenance.digest(path)}
+        workflow = self.root / 'test-harness/workflows/five-family-contract-v1.json'
+        workflow.parent.mkdir(parents=True)
+        workflow.write_bytes(Path(self.candidate['artifacts']['workflow_contract']['path']).read_bytes())
+        self.save_candidate()
+        self.contract['schema_version'] = 2
+        self.contract_path.write_text(json.dumps(self.contract))
+        for target, replacement in [('ROOT', self.root), ('validate_engine', None), ('validate_source_snapshot', None)]:
+            mocker = patch.object(canonical, target, replacement) if target == 'ROOT' else patch.object(canonical, target)
+            active = mocker.start()
+            self.addCleanup(mocker.stop)
+            if target != 'ROOT':
+                setattr(self, target, active)
+        self.seen_bound = None
+        def selected(path, candidate=None):
+            self.validate_engine.assert_called_once()
+            self.validate_source_snapshot.assert_called_once()
+            self.assertIsNotNone(candidate)
+            self.assertEqual(candidate['record'], self.candidate)
+            self.seen_bound = candidate
+            return {'fixture_path': str(self.fixture_path), 'profile_sha256': provenance.digest(self.fixture_path),
+                    'candidate': candidate}
+        self.envelope = patch('core_profile_contract.resolve_envelope', side_effect=selected)
+        self.envelope_mock = self.envelope.start()
+        self.addCleanup(self.envelope.stop)
+
+    def test_schema_two_uses_real_canonical_bound_and_exactly_two_broad_sweeps(self):
+        original = self.canonical.read_record
+        with patch.object(self.canonical, 'read_record', wraps=original) as reads:
+            result = provenance.load_contract(self.contract_path)
+        self.assertEqual(reads.call_count, 2 * len(self.candidate['artifacts']))
+        self.assertIs(result['profile_envelope']['candidate'], self.seen_bound)
+        self.assertEqual(result['candidate'], self.candidate)
+        self.assertEqual(result['candidate_sha256'], provenance.digest(self.candidate_path))
+        self.assertEqual(result['fixture_sha256'], provenance.digest(self.fixture_path))
+        self.assertEqual(result['cookie_profile'], provenance.cookie_profile.from_fixture(self.fixture))
+        self.assertEqual(result['feature_profile'], provenance.feature_profile.from_fixture(self.fixture))
+
+    def test_plugin_final_work_is_inside_canonical_final_inventory(self):
+        original = provenance._package_sources
+        calls = 0
+        def sources(package):
+            nonlocal calls
+            calls += 1
+            result = original(package)
+            if calls == 2:
+                (self.root / 'runtime').write_text('mutation during final plugin membership check')
+            return result
+        with patch.object(provenance, '_package_sources', side_effect=sources):
+            with self.assertRaisesRegex(ValueError, 'artifact missing or changed'):
+                provenance.load_contract(self.contract_path)
+
+    def test_schema_two_canonical_semantic_failure_prevents_envelope_work(self):
+        self.validate_engine.side_effect = ValueError('canonical engine mismatch')
+        with self.assertRaisesRegex(ValueError, 'canonical engine mismatch'):
+            provenance.load_contract(self.contract_path)
+        self.envelope_mock.assert_not_called()
+
+    def test_schema_two_mutable_bound_cannot_relabel_artifact(self):
+        original = self.envelope_mock.side_effect
+        def substitute(path, candidate=None):
+            result = original(path, candidate=candidate)
+            candidate['record']['source_tree_sha256'] = 'b' * 64
+            return result
+        self.envelope_mock.side_effect = substitute
+        with self.assertRaisesRegex(ValueError, 'binding changed during transaction'):
+            provenance.load_contract(self.contract_path)
+
+    def test_plugin_primary_failure_retains_final_drift_diagnostic(self):
+        primary = RuntimeError('envelope consumer failed')
+        def fail(*args, **kwargs):
+            (self.root / 'runtime').write_text('changed during failed callback')
+            raise primary
+        self.envelope_mock.side_effect = fail
+        with self.assertRaises(RuntimeError) as caught:
+            provenance.load_contract(self.contract_path)
+        self.assertIs(caught.exception, primary)
+        self.assertTrue(any('candidate final integrity check failed' in note for note in primary.__notes__))
+
+    def test_final_plugin_membership_addition_is_rejected(self):
+        original = provenance._package_sources
+        calls = 0
+        def changed(package):
+            nonlocal calls
+            calls += 1
+            result = original(package)
+            if calls == 2:
+                result['unexpected.py'] = ('0' * 64, self.root / 'unexpected.py')
+            return result
+        with patch.object(provenance, '_package_sources', side_effect=changed):
+            with self.assertRaisesRegex(ValueError, 'plugin file set'):
+                provenance.load_contract(self.contract_path)
+
+    def test_tls_same_bytes_symlink_retarget_after_initial_read_is_rejected(self):
+        ca = self.root / 'ca.pem'
+        first, second = self.root / 'ca-first', self.root / 'ca-second'
+        first.write_bytes(ca.read_bytes()); second.write_bytes(ca.read_bytes())
+        ca.unlink(); ca.symlink_to(first)
+        original = provenance.cookie_profile.from_fixture
+        def changed(fixture):
+            ca.unlink(); ca.symlink_to(second)
+            return original(fixture)
+        with patch.object(provenance.cookie_profile, 'from_fixture', side_effect=changed):
+            with self.assertRaisesRegex(ValueError, 'TLS material or destination changed'):
+                provenance.load_contract(self.contract_path)
+
+    def test_envelope_and_candidate_same_bytes_symlink_retarget_are_rejected(self):
+        for role in ('envelope', 'candidate'):
+            with self.subTest(role=role):
+                target = self.contract_path if role == 'envelope' else self.candidate_path
+                twin = self.root / (role + '-twin.json'); twin.write_bytes(target.read_bytes())
+                link = self.root / (role + '-link.json'); link.symlink_to(target)
+                if role == 'candidate':
+                    self.contract['candidate']['path'] = str(link)
+                    self.contract_path.write_text(json.dumps(self.contract))
+                original = self.envelope_mock.side_effect
+                def changed(path, candidate=None):
+                    result = original(path, candidate=candidate)
+                    link.unlink(); link.symlink_to(twin)
+                    return result
+                self.envelope_mock.side_effect = changed
+                self.validate_engine.reset_mock(); self.validate_source_snapshot.reset_mock()
+                with self.assertRaisesRegex(ValueError, 'destination changed'):
+                    provenance.load_contract(link if role == 'envelope' else self.contract_path)
+                self.envelope_mock.side_effect = original
+
+
 
 if __name__ == '__main__':
     unittest.main()

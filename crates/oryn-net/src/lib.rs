@@ -61,6 +61,8 @@ pub enum TransportError {
     Unavailable,
     #[error("transport cancelled")]
     Cancelled,
+    #[error("server certificate rejected: {0}")]
+    CertificateRejected(String),
     #[error("transport failed: {0}")]
     Failed(String),
     #[error("compressed response exceeded {limit} bytes")]
@@ -506,7 +508,7 @@ impl HttpTransport for RustlsTransport {
         let cancellation = operation.operation.cancellation.clone();
         let response = tokio::select! {
             _ = cancellation.cancelled() => return Err(TransportError::Cancelled),
-            response = builder.send() => response.map_err(|error| TransportError::Failed(error.to_string()))?,
+            response = builder.send() => response.map_err(request_error)?,
         };
         let connection = response.extensions().get::<reqwest::ConnectionTiming>();
         let new_connection = connection
@@ -2472,6 +2474,74 @@ mod document_kind_encoding_tests {
                 assert_eq!(actual, expected);
                 assert_eq!(decoder.encoding_name(), Some(encoding));
             }
+        }
+    }
+}
+
+/// Retain only the TLS verifier's typed certificate rejection. Ordinary TLS,
+/// DNS, socket and HTTP failures must not acquire certificate authority.
+fn request_error(error: reqwest::Error) -> TransportError {
+    match certificate_rejection(&error, 32) {
+        Some(detail) => TransportError::CertificateRejected(detail),
+        None => TransportError::Failed(error.to_string()),
+    }
+}
+
+fn certificate_rejection(
+    error: &(dyn std::error::Error + 'static),
+    mut budget: usize,
+) -> Option<String> {
+    fn visit(error: &(dyn std::error::Error + 'static), budget: &mut usize) -> Option<String> {
+        if *budget == 0 {
+            return None;
+        }
+        *budget -= 1;
+        if let Some(rustls::Error::InvalidCertificate(cause)) =
+            error.downcast_ref::<rustls::Error>()
+        {
+            return Some(cause.to_string());
+        }
+        // io::Error's inner error is not guaranteed to appear as its source.
+        if let Some(io) = error.downcast_ref::<std::io::Error>() {
+            if let Some(inner) = io.get_ref() {
+                if let Some(cause) = visit(inner, budget) {
+                    return Some(cause);
+                }
+            }
+        }
+        error.source().and_then(|source| visit(source, budget))
+    }
+    visit(error, &mut budget)
+}
+
+#[cfg(test)]
+mod certificate_error_tests {
+    use super::*;
+    #[test]
+    fn certificate_rejection_preserves_verifier_causes_through_io_wrapping() {
+        for cause in [
+            rustls::CertificateError::UnknownIssuer,
+            rustls::CertificateError::NotValidForName,
+        ] {
+            let detail = cause.to_string();
+            let error = std::io::Error::other(rustls::Error::InvalidCertificate(cause));
+            assert_eq!(certificate_rejection(&error, 32), Some(detail));
+        }
+    }
+    #[test]
+    fn certificate_rejection_does_not_infer_from_text_or_other_tls_errors() {
+        for error in [
+            std::io::Error::other("invalid peer certificate: UnknownIssuer"),
+            std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                "certificate rejected",
+            ),
+            std::io::Error::other(rustls::Error::General("invalid certificate".into())),
+            std::io::Error::other(rustls::Error::AlertReceived(
+                rustls::AlertDescription::BadCertificate,
+            )),
+        ] {
+            assert_eq!(certificate_rejection(&error, 32), None);
         }
     }
 }

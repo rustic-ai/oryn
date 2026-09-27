@@ -129,6 +129,24 @@ fn main() {
     verify_generated_registry();
     if env::var_os("CARGO_FEATURE_V8_HOST").is_some() {
         verify_v8_api_headers();
+        // libxslt is the browser's XSLT1 engine; use platform SDK libraries.
+        let mut xslt = cc::Build::new();
+        xslt.file("src/xslt_bridge.c").flag_if_supported("-std=c11");
+        if let Some(include) = env::var_os("ORYN_XSLT_INCLUDE_DIR") {
+            xslt.include(include);
+        } else if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+            let sdk =
+                env::var("SDKROOT").expect("XSLT compilation requires the admitted macOS SDKROOT");
+            xslt.include(Path::new(&sdk).join("usr/include/libxml2"));
+        } else {
+            xslt.include("/usr/include/libxml2");
+        }
+        xslt.compile("oryn_xslt");
+        println!("cargo:rustc-link-lib=xslt");
+        println!("cargo:rustc-link-lib=xml2");
+        println!("cargo:rerun-if-changed=src/xslt_bridge.c");
+        println!("cargo:rerun-if-env-changed=ORYN_XSLT_INCLUDE_DIR");
+
         let mut bridge = cc::Build::new();
         bridge
             .cpp(true)

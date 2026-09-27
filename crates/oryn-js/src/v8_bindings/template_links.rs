@@ -76,6 +76,17 @@ pub(super) fn content<'s>(
         .get_private(scope, key)
         .filter(|value| value.is_object()))
 }
+pub(super) fn host<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    content: NodeId,
+) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    let content = wrap_node(scope, state, content)?;
+    let key = key(scope, true)?;
+    Ok(content
+        .get_private(scope, key)
+        .filter(|value| value.is_object()))
+}
 /// Follow native parent, shadow host and preserved template host edges using
 /// arena-qualified identities. A numeric NodeId in another arena never aliases.
 pub(super) fn validate(

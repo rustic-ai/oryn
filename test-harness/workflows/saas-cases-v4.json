@@ -73,7 +73,7 @@
         "observe"
       ],
       "expected_extractions": [
-        "invalid_grant"
+        "invalid_request"
       ],
       "expected_authenticated": 0,
       "expected_logins": 0,

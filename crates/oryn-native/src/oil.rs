@@ -1380,7 +1380,42 @@ impl NativeOilSession {
         });
         self.last_observation = None;
         self.delta_cursor = Revision(0);
-        match self.page.observe().await {
+        let selection = if result
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, oryn_common::v3::Effect::Navigation { .. }))
+            && let Some(current) = self.page.frame_scope().cloned()
+        {
+            use crate::host::webdriver_script::{FrameCommand, FrameResponse};
+            // The unscoped command waits for the existing navigation barrier.
+            // The actor resolves only this action's exact installed successor;
+            // the URL effect is a trigger, never selection authority.
+            match self
+                .page
+                .with_frame_scope(None)
+                .native_frame_command(FrameCommand::ResolveActionSelection {
+                    current,
+                    action_id: result.action_id,
+                })
+                .await
+            {
+                Ok(FrameResponse::Selected(destination)) => {
+                    self.page = self.page.with_frame_scope(Some(destination));
+                    Ok(())
+                }
+                Ok(_) => Err(RuntimeError::ProtocolViolation(
+                    "invalid action frame selection response".into(),
+                )),
+                Err(error) => Err(error),
+            }
+        } else {
+            Ok(())
+        };
+        let observation = match selection {
+            Ok(()) => self.page.observe().await,
+            Err(error) => Err(error),
+        };
+        match observation {
             Ok(observation) => {
                 // Refresh aliases without consuming changes the caller has not
                 // observed. A document replacement starts a new delta baseline.
@@ -3639,5 +3674,377 @@ mod tests {
             error,
             NativeOilError::Runtime(RuntimeError::Closed)
         ));
+    }
+}
+
+#[cfg(all(test, unix, feature = "v8-host"))]
+mod oil_selected_navigation_tests {
+    use super::*;
+    use crate::host::webdriver_script::{AutomationRealmSnapshot, FrameCommand, FrameResponse};
+    use crate::network::{
+        NetworkBroker, NetworkError, NetworkEvent, NetworkOperation, NetworkRequest,
+        NetworkResponse, SharedNetworkBroker,
+    };
+    use crate::security::{ConsequentialAction, PolicyRule};
+    use oryn_common::v3::{ActionId, Effect};
+    use std::sync::{Arc, Mutex};
+
+    const PAYMENT: &str = "https://payment-oil.test";
+    type Requests = Arc<Mutex<Vec<NetworkRequest>>>;
+    struct Broker {
+        status: u16,
+        requests: Requests,
+    }
+    impl NetworkBroker for Broker {
+        fn send(&self, _: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+            unreachable!("native frame driver uses owned operations")
+        }
+        fn start_operation(
+            &self,
+            request: NetworkRequest,
+        ) -> Result<NetworkOperation, NetworkError> {
+            let id = request.request_id;
+            let child = request.url.ends_with("/child");
+            let submitted = request.url.ends_with("/authorize");
+            let status = if submitted { self.status } else { 200 };
+            self.requests.lock().unwrap().push(request);
+            let (sender, events) = tokio::sync::mpsc::channel(8);
+            let mut headers = vec![("content-type".into(), "text/html".into())];
+            if status == 302 {
+                headers.push(("location".into(), "/approved".into()));
+            }
+            sender
+                .try_send(NetworkEvent::Headers {
+                    response_policy: None,
+                    timing: None,
+                    request_id: id,
+                    status,
+                    headers,
+                    content_length: None,
+                    upload: None,
+                })
+                .unwrap();
+            let body = if child {
+                "<!doctype html><title>Payment</title><form method=post action=/authorize><input name=quote value=owned><button id=authorize>Authorize payment</button></form><button id=noop type=button>No navigation</button>"
+            } else if status == 403 {
+                "<!doctype html><title>Denied</title><p id=payment-denied>Denied</p>"
+            } else {
+                "<!doctype html><title>Approved</title><p id=payment-authorized>Authorized</p><button id=next>Next</button>"
+            };
+            if status != 302 {
+                sender
+                    .try_send(NetworkEvent::Chunk {
+                        request_id: id,
+                        bytes: body.as_bytes().to_vec().into(),
+                    })
+                    .unwrap();
+            }
+            sender
+                .try_send(NetworkEvent::Complete {
+                    encoded_body_size: None,
+                    request_id: id,
+                })
+                .unwrap();
+            Ok(NetworkOperation {
+                body_demand_pending: Default::default(),
+                prefetched: Default::default(),
+                request_id: id,
+                events,
+                demand: None,
+            })
+        }
+    }
+    async fn fixture(status: u16) -> (PageHandle, NativeOilSession, Requests) {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut options = crate::ContextOptions::default();
+        options
+            .action_policy
+            .rules
+            .insert(ConsequentialAction::FormSubmission, PolicyRule::Allow);
+        let context = crate::Browser::in_process_with_config(Default::default())
+            .new_context_with_broker(
+                options,
+                SharedNetworkBroker::new(Broker {
+                    status,
+                    requests: requests.clone(),
+                }),
+            );
+        let page = context.new_page();
+        page.load_html("https://merchant-oil.test/root", format!("<!doctype html><title>Merchant</title><iframe id=payment src='{PAYMENT}/child'></iframe>")).await.unwrap();
+        let mut session = NativeOilSession::new(page.clone());
+        session
+            .execute("frame css(#payment)\nobserve")
+            .await
+            .unwrap();
+        requests.lock().unwrap().clear();
+        (page, session, requests)
+    }
+    fn assert_post_count(requests: &Requests, count: usize) {
+        let requests = requests.lock().unwrap();
+        let posts = requests
+            .iter()
+            .filter(|request| request.method == "POST")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            posts.len(),
+            count,
+            "selection refresh never replays input or submission"
+        );
+        for post in posts {
+            assert_eq!(post.body, b"quote=owned");
+        }
+    }
+    async fn current_at(page: &PageHandle, url: &str) -> AutomationRealmSnapshot {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let FrameResponse::Inventory(frames) = page
+                .native_frame_command(FrameCommand::Inventory)
+                .await
+                .unwrap()
+            else {
+                panic!("inventory response")
+            };
+            if let Some(frame) = frames
+                .into_iter()
+                .find(|frame| frame.parent_realm.is_some() && frame.url == url && frame.live)
+            {
+                return frame;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "frame did not reach {url}"
+            );
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    }
+    async fn successful_navigation(status: u16) {
+        let (page, mut session, requests) = fixture(status).await;
+        let source = session.page.frame_scope().unwrap().clone();
+        let stale_reader = session.page.clone();
+        let old_target = session
+            .page
+            .resolve_selector("#authorize", SemanticAction::Click)
+            .await
+            .unwrap();
+        let output = session.execute("click css(#authorize)").await.unwrap();
+        let NativeOilOutput::Action { result } = &output[0] else {
+            panic!("action receipt")
+        };
+        assert_eq!(result.action_id, ActionId(1));
+        assert!(result.effects.iter().any(|effect| matches!(effect, Effect::Navigation { url } if url == &format!("{PAYMENT}/authorize"))));
+        assert!(
+            !result
+                .diagnostics
+                .iter()
+                .any(|detail| detail.contains("follow-up observation unavailable"))
+        );
+        let destination = session.page.frame_scope().unwrap();
+        assert!(destination.same_navigable_as(&source));
+        assert!(!destination.same_document_as(&source));
+        assert_eq!(
+            destination.url,
+            format!(
+                "{PAYMENT}/{}",
+                if status == 302 {
+                    "approved"
+                } else {
+                    "authorize"
+                }
+            )
+        );
+        let selector = if status == 403 {
+            "#payment-denied"
+        } else {
+            "#payment-authorized"
+        };
+        let output = session
+            .execute(&format!("wait visible css({selector}) --timeout 1s"))
+            .await
+            .unwrap();
+        assert!(matches!(&output[0], NativeOilOutput::Text { value } if value == "visible"));
+        assert!(stale_reader.observe().await.is_err());
+        assert!(
+            session
+                .page
+                .execute(NativeAction {
+                    target: old_target,
+                    action: SemanticAction::Click,
+                    value: None
+                })
+                .await
+                .is_err()
+        );
+        assert_post_count(&requests, 1);
+        session.execute("frame main").await.unwrap();
+        assert!(session.page.frame_scope().is_none());
+        assert_eq!(
+            session.page.evaluate("document.title").await.unwrap(),
+            "Merchant"
+        );
+        page.close().await.unwrap();
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn oil_selected_navigation_post_refreshes_session_and_preserves_stale_clones() {
+        successful_navigation(200).await;
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn oil_selected_navigation_redirect_refreshes_committed_destination_without_replay() {
+        successful_navigation(302).await;
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn oil_selected_navigation_http_error_document_remains_selected() {
+        successful_navigation(403).await;
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn oil_action_ids_survive_selected_navigation_and_root_interleave() {
+        let (page, mut session, requests) = fixture(200).await;
+        page.evaluate(
+            "document.body.insertAdjacentHTML('afterbegin','<input id=root-action>');'ready'",
+        )
+        .await
+        .unwrap();
+        let mut root = NativeOilSession::new(page.clone());
+        let first = root.execute("focus css(#root-action)").await.unwrap();
+        let second = session.execute("click css(#authorize)").await.unwrap();
+        session.page.evaluate("document.body.insertAdjacentHTML('beforeend','<input id=destination-action>');'ready'").await.unwrap();
+        let destination = session
+            .execute("focus css(#destination-action)")
+            .await
+            .unwrap();
+        let last = root.execute("focus css(#root-action)").await.unwrap();
+        let ids = [&first, &second, &destination, &last].map(|outputs| {
+            let NativeOilOutput::Action { result } = &outputs[0] else {
+                panic!("action receipt")
+            };
+            assert_eq!(result.page_id, page.page_id());
+            result.action_id.0
+        });
+        assert_eq!(ids[0], 1);
+        assert_eq!(ids[1], 2);
+        assert_eq!(ids, [1, 2, 3, 4]);
+        assert_post_count(&requests, 1);
+        page.close().await.unwrap();
+    }
+    async fn stale_successor(replace_connection: bool) {
+        let (page, mut session, requests) = fixture(200).await;
+        let source = session.page.frame_scope().unwrap().clone();
+        let target = session
+            .page
+            .resolve_selector("#authorize", SemanticAction::Click)
+            .await
+            .unwrap();
+        let result = session
+            .page
+            .execute(NativeAction {
+                target,
+                action: SemanticAction::Click,
+                value: None,
+            })
+            .await
+            .unwrap();
+        let installed = current_at(&page, &format!("{PAYMENT}/authorize")).await;
+        assert!(!installed.same_document_as(&source));
+        assert!(
+            page.native_frame_command(FrameCommand::ResolveActionSelection {
+                current: source.clone(),
+                action_id: ActionId(result.action_id.0 + 1)
+            })
+            .await
+            .is_err()
+        );
+        let script = if replace_connection {
+            format!(
+                "const old=document.getElementById('payment');const fresh=document.createElement('iframe');fresh.id='payment';fresh.src='{PAYMENT}/later';old.replaceWith(fresh);true"
+            )
+        } else {
+            format!("document.getElementById('payment').src='{PAYMENT}/later';true")
+        };
+        page.evaluate(script).await.unwrap();
+        let later = current_at(&page, &format!("{PAYMENT}/later")).await;
+        assert!(!later.same_document_as(&installed));
+        assert_eq!(later.same_navigable_as(&source), !replace_connection);
+        let refreshed = session.refresh_after_action(result).await;
+        assert_eq!(refreshed.action_id, ActionId(1));
+        assert!(
+            refreshed
+                .diagnostics
+                .iter()
+                .any(|detail| detail.contains("follow-up observation unavailable"))
+        );
+        assert!(
+            session
+                .page
+                .frame_scope()
+                .unwrap()
+                .same_document_as(&source)
+        );
+        assert!(session.last_observation.is_none());
+        assert!(
+            session
+                .execute("wait visible css(#payment-authorized) --timeout 1ms")
+                .await
+                .is_err()
+        );
+        assert_post_count(&requests, 1);
+        page.close().await.unwrap();
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn oil_selected_navigation_rejects_later_unrelated_document_in_same_connection() {
+        stale_successor(false).await;
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn oil_selected_navigation_rejects_replaced_embedding_connection() {
+        stale_successor(true).await;
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn oil_selected_navigation_does_not_refresh_unowned_document_replacement() {
+        let (page, mut session, requests) = fixture(200).await;
+        let source = session.page.frame_scope().unwrap().clone();
+        let target = session
+            .page
+            .resolve_selector("#noop", SemanticAction::Click)
+            .await
+            .unwrap();
+        let result = session
+            .page
+            .execute(NativeAction {
+                target,
+                action: SemanticAction::Click,
+                value: None,
+            })
+            .await
+            .unwrap();
+        assert!(
+            !result
+                .effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Navigation { .. }))
+        );
+        page.evaluate(format!(
+            "document.getElementById('payment').src='{PAYMENT}/later';true"
+        ))
+        .await
+        .unwrap();
+        let later = current_at(&page, &format!("{PAYMENT}/later")).await;
+        assert!(later.same_navigable_as(&source));
+        assert!(!later.same_document_as(&source));
+        let refreshed = session.refresh_after_action(result).await;
+        assert_eq!(refreshed.action_id, ActionId(1));
+        assert!(
+            refreshed
+                .diagnostics
+                .iter()
+                .any(|detail| detail.contains("follow-up observation unavailable"))
+        );
+        assert!(
+            session
+                .page
+                .frame_scope()
+                .unwrap()
+                .same_document_as(&source)
+        );
+        assert!(session.last_observation.is_none());
+        assert_post_count(&requests, 0);
+        page.close().await.unwrap();
     }
 }

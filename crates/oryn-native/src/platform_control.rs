@@ -560,6 +560,9 @@ impl State {
             Request::StorageAccess { .. } => {
                 Err("storage access requires native document cookie authority".into())
             }
+            Request::DocumentFocus => {
+                Err("focus inspection requires native document authority".into())
+            }
             Request::WindowState => Ok(Response::WindowState {
                 hidden: self.hidden.contains(&page),
                 revision: self.revision,

@@ -219,7 +219,8 @@ class WorkflowExecutionTests(unittest.TestCase):
         self.assertEqual(len(affected), 1)
         self.assertFalse(affected[0]['passed'])
         self.assertTrue(any('post-attempt custody' in error for error in affected[0]['errors']))
-        self.assertEqual(summary['infrastructure_errors'], [])
+        self.assertEqual(summary['infrastructure_errors'], ['execution cancellation requested'])
+        self.assertFalse(summary['structurally_valid'])
 
     def test_transient_post_attempt_drift_is_retained_even_after_bytes_restore(self):
         cell = self.contract['families'][0]['cells'][0]['id']
@@ -242,3 +243,45 @@ class WorkflowExecutionTests(unittest.TestCase):
         self.assertEqual(len(affected), 1)
         self.assertFalse(affected[0]['passed'])
         self.assertTrue(any('post-attempt custody' in error for error in affected[0]['errors']))
+
+
+class CancellationTerminalRetentionTests(unittest.TestCase):
+    def test_completed_wave_then_interrupt_retains_receipts_and_132_denominator(self):
+        from workflow_cleanup import NativeExecutionFailure
+        contract=json.loads(DEFAULT_CONTRACT.read_text())
+        plan=planned_attempts(contract)[:132]
+        candidate=dict(parent_sha256='a'*64,worker_sha256='b'*64,source_tree_sha256='c'*64)
+        stop=threading.Event()
+        def adapter(attempt,directory,stop):
+            for index,code in enumerate((0,-9)):
+                wave=directory/f'mixed-{index}';wave.mkdir()
+                terminal=dict(parent_pid=10+index,returncode=code,primary_error=None if index==0 else 'native executor interrupted',timed_out=False,interrupted=index==1)
+                (wave/'native-execution-terminal.json').write_text(json.dumps(terminal))
+                (wave/'native-process-cleanup.json').write_text(json.dumps(dict(terminal,process_group=10+index,group_settled=True,errors=[],discovery_sealed=True,unresolved_candidates=[])))
+                (wave/'fixture-cleanup.json').write_text(json.dumps(dict(primary_error=terminal['primary_error'],errors=[],custody_lost=False,receipts=[dict(returncode=0,forced=False)])))
+            stop.set()
+            raise NativeExecutionFailure('native executor interrupted',interrupted=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            output=Path(temporary)/'run'
+            summary=execute_contract(contract,candidate,{p['cell']:adapter for p in plan},output,{},stop=stop,attempt_ids=[p['attempt_id'] for p in plan])
+            records=[json.loads(line) for line in (output/'attempts.jsonl').read_text().splitlines()]
+            self.assertEqual(len(records),132)
+            interrupted=next(r for r in records if r['disposition']=='interrupted')
+            self.assertEqual(interrupted['primary_error'],'native executor interrupted')
+            self.assertFalse(interrupted['timed_out'])
+            self.assertEqual(len(interrupted['terminal_evidence']),6)
+            self.assertEqual(sum(r['disposition']=='not_executed' for r in records),131)
+            diagnostic=summary['terminal_diagnostics'][interrupted['attempt_id']]
+            self.assertEqual(diagnostic['cleanup_status'],'settled',diagnostic)
+            self.assertTrue(all(d['cleanup_status']=='not_applicable' for key,d in summary['terminal_diagnostics'].items() if key!=interrupted['attempt_id']))
+            self.assertFalse(summary['structurally_valid'])
+            self.assertFalse(any('fixture cleanup failed' in e or 'missing artifact reference' in e for e in summary['errors']))
+
+    def test_symlink_terminal_cannot_be_pinned_as_owned_receipt(self):
+        from workflow_execution import capture_exception_terminals
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);directory=root/'attempt';directory.mkdir()
+            outside=root/'unowned';outside.write_text('{}')
+            (directory/'fixture-cleanup.json').symlink_to(outside)
+            refs,errors=capture_exception_terminals(directory,root)
+            self.assertEqual(refs,[]);self.assertTrue(errors)

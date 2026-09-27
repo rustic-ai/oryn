@@ -18,12 +18,15 @@ pub(super) struct State {
 }
 impl PageState {
     pub(super) fn publish_native_rendering_opportunity(&mut self) -> Result<(), RuntimeError> {
-        if self.presentation.building {
+        if self.presentation.building || self.terminal_close_requested() {
             return Ok(());
         }
         self.presentation.building = true;
         let result = (|| {
             for iteration in 0..64 {
+                if self.terminal_close_requested() {
+                    return Ok(());
+                }
                 self.presentation.iteration = iteration;
                 self.presentation.observer_relayout = false;
                 self.prepare_native_rendering_opportunity()?;
@@ -69,6 +72,9 @@ impl PageState {
             self.refresh_layout()?;
         } else {
             self.refresh_layout_geometry()?;
+        }
+        if self.terminal_close_requested() {
+            return Ok(());
         }
         let Some(page) = self.executable.as_ref() else {
             return Ok(());
@@ -160,6 +166,9 @@ impl PageState {
             }
             page.sample_intersection_observers()
                 .map_err(map_host_error)?;
+        }
+        if self.terminal_close_requested() {
+            return Ok(());
         }
         let Some(page) = self.executable.as_ref() else {
             return Ok(());

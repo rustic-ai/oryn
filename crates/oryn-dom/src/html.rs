@@ -1227,6 +1227,7 @@ pub(crate) struct OrynTreeSink {
     allow_declarative: Cell<bool>,
     encoding_events: Cell<bool>,
     dom_string_transport: Cell<bool>,
+    xslt_source: Cell<bool>,
     patches_enabled: Cell<bool>,
     patch_scope: Cell<Option<NodeId>>,
     fragment_root_key: Cell<Option<NodeId>>,
@@ -2180,8 +2181,10 @@ impl OrynTreeSink {
         drop(dom);
         let key = self.key(&owner, element);
         let inherited = parent.is_some_and(|parent| self.filtered_nodes.borrow().contains(&parent));
-        let custom =
-            custom && !inherited && disposition == crate::sanitizer::ParserElementDisposition::Keep;
+        let custom = custom
+            && !self.xslt_source.get()
+            && !inherited
+            && disposition == crate::sanitizer::ParserElementDisposition::Keep;
         if inherited || disposition == crate::sanitizer::ParserElementDisposition::Drop {
             self.filtered_nodes.borrow_mut().insert(key);
         } else if disposition == crate::sanitizer::ParserElementDisposition::Unwrap
@@ -2241,6 +2244,7 @@ impl OrynTreeSink {
             allow_declarative: Cell::new(true),
             encoding_events: Cell::new(false),
             dom_string_transport: Cell::new(true),
+            xslt_source: Cell::new(false),
             patches_enabled: Cell::new(true),
             patch_scope: Cell::new(None),
             fragment_root_key: Cell::new(None),
@@ -2263,6 +2267,9 @@ impl OrynTreeSink {
         let sink = Self::with_runtime(dom, document);
         sink.dom_string_transport.set(false);
         sink
+    }
+    pub(crate) fn suppress_xslt_source_execution(&self) {
+        self.xslt_source.set(true);
     }
     pub(crate) fn begin_xml_input(&self, content_type: &str) -> bool {
         self.queue_mutation(ParserMutation::BeginXml(content_type.into()));

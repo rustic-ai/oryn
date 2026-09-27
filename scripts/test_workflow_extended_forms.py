@@ -64,6 +64,8 @@ class ExtendedFormsTests(unittest.TestCase):
         parts=[f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode() for name,value in fields]
         parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="document"; filename="authorized-document.txt"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode()+payload+b'\r\n')
         body=b''.join(parts)+f'--{boundary}--\r\n'.encode()
+        self.assertEqual(self.fixture.submit(self.case,'submit','POST','multipart/form-data; boundary='+boundary,body,'foreign'),403)
+        self.assertEqual(module.snapshot(self.db,self.case)['receipts'],[])
         self.assertEqual(self.fixture.submit(self.case,'submit','POST','multipart/form-data; boundary='+boundary,body,self.row['session']),303)
         # A new Fixture reader uses the durable file, not browser-visible text.
         receipt=module.snapshot(self.db,self.case)['receipts'][0]

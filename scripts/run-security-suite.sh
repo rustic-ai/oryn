@@ -30,6 +30,10 @@ if [[ -n "${ORYN_SECURITY_PREBUILT_CANDIDATE:-}" ]]; then
 fi
 parent="$repo_root/target/release/oryn"
 worker="$repo_root/target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker"
+if [[ -n "${ORYN_SECURITY_PREBUILT_CANDIDATE:-}" ]]; then
+  parent="$(python3 "$repo_root/scripts/security_prebuilt.py" path runtime)"
+  worker="$(python3 "$repo_root/scripts/security_prebuilt.py" path worker)"
+fi
 worker_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field worker)"
 expected_context_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field context)"
 expected_agent_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field agent)"

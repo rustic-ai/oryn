@@ -1345,6 +1345,12 @@ impl RootDocumentLifetime {
             self.commitments.remove(&generation);
         }
     }
+    pub(super) fn matches_initial_rollback(&self, expected: Option<u64>) -> bool {
+        self.epoch == 0
+            && expected.is_none_or(|generation| {
+                self.high_generation == generation && self.commitments.get(&generation) == Some(&0)
+            })
+    }
     pub(super) fn reserve(&mut self) -> Result<u64, String> {
         let generation = self
             .high_generation

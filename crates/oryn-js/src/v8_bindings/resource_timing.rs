@@ -114,20 +114,26 @@ pub(super) fn admit(
     request: &PlatformHostRequest,
     pending: &PendingPlatformOperation,
 ) {
+    let xslt = matches!(request, PlatformHostRequest::XsltStart { .. });
     let operation = match request {
         PlatformHostRequest::PrefetchStart { request }
         | PlatformHostRequest::ImagePreloadStart { request, .. }
         | PlatformHostRequest::HttpStart { request }
+        | PlatformHostRequest::XsltStart { request }
         | PlatformHostRequest::ImageStart { request, .. }
         | PlatformHostRequest::MediaStart { request, .. } => {
-            let initiator = match pending {
-                PendingPlatformOperation::Preload(_) => "link",
-                PendingPlatformOperation::MediaResource(p) => p.initiator(),
-                PendingPlatformOperation::TextTrack(p) => p.initiator(),
-                PendingPlatformOperation::CssImage(_) => "css",
-                PendingPlatformOperation::ImageStart { .. } => "img",
-                PendingPlatformOperation::FetchStart { .. } => "fetch",
-                _ => "xmlhttprequest",
+            let initiator = if xslt {
+                "other"
+            } else {
+                match pending {
+                    PendingPlatformOperation::Preload(_) => "link",
+                    PendingPlatformOperation::MediaResource(p) => p.initiator(),
+                    PendingPlatformOperation::TextTrack(p) => p.initiator(),
+                    PendingPlatformOperation::CssImage(_) => "css",
+                    PendingPlatformOperation::ImageStart { .. } => "img",
+                    PendingPlatformOperation::FetchStart { .. } => "fetch",
+                    _ => "xmlhttprequest",
+                }
             };
             Operation::Start(Box::new(Span {
                 entry: Entry {

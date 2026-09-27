@@ -136,14 +136,21 @@ class RustV8SourceTests(unittest.TestCase):
         selected = source.validate(self.root)
         paths = [path.relative_to(self.root).as_posix() for path in self.root.rglob('*') if path.is_file()]
         full = self.root / 'full.tar'
-        snapshot.write(full, self.root, snapshot.inventory(self.root, paths))
+        full_index = snapshot.write(full, self.root, snapshot.inventory(self.root, paths))
         with patch.object(completion_provenance, 'ROOT', self.root):
             completion_provenance.validate_engine_source_snapshot(full, selected)
+            validated = snapshot.validate(full, full_index['source_tree_sha256'])
+            with patch('tarfile.open', side_effect=AssertionError('validated archive reopened')):
+                completion_provenance.validate_engine_source_snapshot(full, selected, validated)
             missing = self.root / 'missing.tar'
-            snapshot.write(missing, self.root, snapshot.inventory(self.root,
+            missing_index = snapshot.write(missing, self.root, snapshot.inventory(self.root,
                 [name for name in paths if name != source.VENDOR + '/src/handle.rs']))
             with self.assertRaisesRegex(ValueError, 'omits or changes selected Rust V8'):
                 completion_provenance.validate_engine_source_snapshot(missing, selected)
+            validated_missing = snapshot.validate(missing, missing_index['source_tree_sha256'])
+            with patch('tarfile.open', side_effect=AssertionError('validated archive reopened')):
+                with self.assertRaisesRegex(ValueError, 'omits or changes selected Rust V8'):
+                    completion_provenance.validate_engine_source_snapshot(missing, selected, validated_missing)
 
     def test_compiled_runtime_must_bind_all_rust_inputs_and_actual_binding(self):
         path = Path(__file__).with_name('validate-v8-rust-runtime.py')

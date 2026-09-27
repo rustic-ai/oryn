@@ -11,11 +11,17 @@ use std::sync::Arc;
 mod cleanup;
 const ACTIVE: usize = 32;
 const WIRE_BYTES: usize = 32 * 1024 * 1024;
+enum StreamOperation {
+    Read(u64),
+    Abort(u64),
+}
 #[derive(Default)]
 struct State {
     pending: BTreeSet<HostOperationId>,
     ready: VecDeque<PlatformHostCompletion>,
-    receipts: BTreeMap<HostOperationId, (cleanup::Ticket, Option<u64>)>,
+    receipts: BTreeMap<HostOperationId, (cleanup::Ticket, Option<u64>, Option<u64>)>,
+    streams: BTreeMap<u64, cleanup::Ticket>,
+    stream_operations: BTreeMap<HostOperationId, StreamOperation>,
     sockets: BTreeMap<u64, cleanup::Ticket>,
     socket_closes: BTreeMap<HostOperationId, u64>,
 }
@@ -43,6 +49,8 @@ impl AgentPlatformHost {
         {
             let mut state = self.state.borrow_mut();
             state.receipts.clear();
+            state.streams.clear();
+            state.stream_operations.clear();
             state.sockets.clear();
             state.socket_closes.clear();
             let mut pending = std::mem::take(&mut state.pending);
@@ -134,9 +142,38 @@ impl AgentPlatformHost {
                 });
                 state
                     .receipts
-                    .insert(completion.operation_id, (ticket, socket_id));
+                    .insert(completion.operation_id, (ticket, socket_id, stream_id));
             } else {
                 ticket.accept();
+            }
+            if let Some(operation) = state.stream_operations.remove(&completion.operation_id) {
+                let stream = match &operation {
+                    StreamOperation::Read(id) | StreamOperation::Abort(id) => *id,
+                };
+                let terminal_success = match (&operation, &completion.result) {
+                    (
+                        StreamOperation::Read(_),
+                        Ok(PlatformHostResult::HttpChunk {
+                            stream_id,
+                            done: true,
+                            ..
+                        }),
+                    ) => *stream_id == stream,
+                    (StreamOperation::Abort(_), Ok(PlatformHostResult::HttpAborted)) => true,
+                    _ => false,
+                };
+                let continuing = matches!((&operation, &completion.result),
+                    (StreamOperation::Read(_), Ok(PlatformHostResult::HttpChunk { stream_id, done: false, .. })) if *stream_id == stream);
+                if terminal_success {
+                    if let Some(ticket) = state.streams.remove(&stream) {
+                        ticket.accept();
+                    }
+                } else if !continuing {
+                    // Cancellation/admission failures may precede driver
+                    // execution. An error is not proof the stream was closed:
+                    // activate its pre-reserved exact-stream cleanup instead.
+                    state.streams.remove(&stream);
+                }
             }
             if let Some(socket) = state.socket_closes.remove(&completion.operation_id)
                 && let Some(ticket) = state.sockets.remove(&socket)
@@ -188,6 +225,21 @@ impl PlatformHost for AgentPlatformHost {
         if self.cleanup.borrow().is_none() {
             *self.cleanup.borrow_mut() = Some(cleanup::Ticket::reserve(self.transport.clone())?);
         }
+        let stream_operation = match &request {
+            PlatformHostRequest::HttpRead { stream_id, .. } => {
+                Some(StreamOperation::Read(*stream_id))
+            }
+            PlatformHostRequest::HttpAbort { stream_id } => {
+                Some(StreamOperation::Abort(*stream_id))
+            }
+            _ => None,
+        };
+        if let Some(operation) = stream_operation {
+            self.state
+                .borrow_mut()
+                .stream_operations
+                .insert(operation_id, operation);
+        }
         if let PlatformHostRequest::WebSocketClose { socket_id, .. } = &request {
             self.state
                 .borrow_mut()
@@ -237,21 +289,31 @@ impl PlatformHost for AgentPlatformHost {
             state.pending.clear();
             state.ready.clear();
             state.receipts.clear();
+            state.streams.clear();
+            state.stream_operations.clear();
             state.sockets.clear();
             state.socket_closes.clear();
         }
         self.cleanup.borrow_mut().take();
+    }
+    fn abandon_http_stream(&self, stream: u64) {
+        // The result receipt was reserved before polling and retained when the
+        // consumer accepted this stream. Drop only activates that existing job;
+        // it neither admits a new RPC job nor retires this worker's endpoint.
+        self.state.borrow_mut().streams.remove(&stream);
     }
     fn abandon_websocket(&self, socket: u64) {
         self.state.borrow_mut().sockets.remove(&socket);
     }
     fn acknowledge_completion(&self, id: HostOperationId, accepted: bool) {
         let receipt = self.state.borrow_mut().receipts.remove(&id);
-        if let Some((ticket, socket)) = receipt
+        if let Some((ticket, socket, stream)) = receipt
             && accepted
         {
             if let Some(socket) = socket {
                 self.state.borrow_mut().sockets.insert(socket, ticket);
+            } else if let Some(stream) = stream {
+                self.state.borrow_mut().streams.insert(stream, ticket);
             } else {
                 ticket.accept();
             }
@@ -488,6 +550,281 @@ mod reply_custody_tests {
             drop(requests);
             assert!(std::time::Instant::now() < deadline);
             std::thread::yield_now();
+        }
+    }
+}
+
+#[cfg(test)]
+mod stream_cleanup_tests {
+    use super::*;
+    use oryn_js::worker_wire::WorkerError;
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    #[derive(Default)]
+    struct Parent {
+        requests: Mutex<Vec<AgentServiceRequest>>,
+        completions: Mutex<VecDeque<PlatformHostCompletion>>,
+        release_attempts: std::sync::atomic::AtomicUsize,
+    }
+    impl WorkerTransport for Parent {
+        fn request(
+            &self,
+            request: AgentServiceRequest,
+        ) -> Result<AgentServiceResponse, WorkerError> {
+            self.requests.lock().unwrap().push(request.clone());
+            match request {
+                AgentServiceRequest::PlatformPoll { max } => {
+                    let mut ready = self.completions.lock().unwrap();
+                    let count = max.min(ready.len());
+                    Ok(AgentServiceResponse::PlatformCompletions(
+                        ready.drain(..count).collect(),
+                    ))
+                }
+                AgentServiceRequest::PlatformReleaseResult {
+                    stream_id: Some(7),
+                    socket_id: None,
+                } => {
+                    if self
+                        .release_attempts
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                        == 0
+                    {
+                        // Wrong acknowledgement must retain the exact stream job
+                        // for retry; it must not retire the worker endpoint.
+                        Ok(AgentServiceResponse::PlatformCompletions(Vec::new()))
+                    } else {
+                        Ok(AgentServiceResponse::Done)
+                    }
+                }
+                _ => Ok(AgentServiceResponse::Done),
+            }
+        }
+    }
+    fn start() -> PlatformHostRequest {
+        PlatformHostRequest::HttpStart {
+            request: PlatformHttpRequest {
+                upgrade_mixed_image: false,
+                fetch: None,
+                use_cors_preflight: false,
+                method: "GET".into(),
+                url: "https://a.test/data".into(),
+                headers: vec![],
+                body: vec![],
+                credentials: "same-origin".into(),
+                initiator_url: Some("https://a.test/".into()),
+                referrer_policy: None,
+            },
+        }
+    }
+    fn started(operation: u64, stream: u64) -> PlatformHostCompletion {
+        PlatformHostCompletion {
+            operation_id: HostOperationId(operation),
+            result: Ok(PlatformHostResult::HttpStarted {
+                timing: None,
+                internal_response: None,
+                response_type: None,
+                upload: None,
+                cors_filtered: false,
+                redirected: false,
+                stream_id: stream,
+                status: 200,
+                url: "https://a.test/data".into(),
+                headers: vec![],
+            }),
+        }
+    }
+
+    #[test]
+    fn abandoned_worker_xhr_stream_preserves_siblings_and_subsequent_requests() {
+        for timeout in [false, true] {
+            let parent = Arc::new(Parent::default());
+            let host = AgentPlatformHost::new(parent.clone(), "https://a.test".into());
+            host.submit(HostOperationId(1), start()).unwrap();
+            parent.completions.lock().unwrap().push_back(started(1, 7));
+            assert_eq!(host.drain_completions(1).len(), 1);
+            host.acknowledge_completion(HostOperationId(1), true);
+            assert!(host.state.borrow().streams.contains_key(&7));
+            // A separate fetch is admitted before the synchronous reader fails.
+            host.submit(HostOperationId(2), start()).unwrap();
+            host.submit(
+                HostOperationId(3),
+                PlatformHostRequest::HttpRead {
+                    stream_id: 7,
+                    max_bytes: 64 * 1024,
+                },
+            )
+            .unwrap();
+            if timeout {
+                host.cancel(HostOperationId(3));
+            } else {
+                // Models a synchronous consumer rejecting a collected-body
+                // limit after a successful, nonterminal read completion.
+                parent
+                    .completions
+                    .lock()
+                    .unwrap()
+                    .push_back(PlatformHostCompletion {
+                        operation_id: HostOperationId(3),
+                        result: Ok(PlatformHostResult::HttpChunk {
+                            encoded_body_size: None,
+                            stream_id: 7,
+                            bytes: vec![0; 6],
+                            done: false,
+                        }),
+                    });
+                assert_eq!(host.drain_completions(1).len(), 1);
+                host.acknowledge_completion(HostOperationId(3), true);
+            }
+            host.abandon_http_stream(7);
+            host.abandon_http_stream(7); // repeated handoff must not duplicate jobs
+            assert!(!host.retired.get());
+            assert!(host.state.borrow().pending.contains(&HostOperationId(2)));
+            parent.completions.lock().unwrap().push_back(started(2, 8));
+            if timeout {
+                parent
+                    .completions
+                    .lock()
+                    .unwrap()
+                    .push_back(PlatformHostCompletion {
+                        operation_id: HostOperationId(3),
+                        result: Err("AbortError".into()),
+                    });
+            }
+            let completions = host.drain_completions(2);
+            assert!(
+                completions
+                    .iter()
+                    .any(|entry| entry.operation_id == HostOperationId(2)
+                        && matches!(
+                            entry.result,
+                            Ok(PlatformHostResult::HttpStarted { stream_id: 8, .. })
+                        ))
+            );
+            host.acknowledge_completion(HostOperationId(2), true);
+            // A new request still traverses the real adapter and receives its
+            // correlated start/body, after the failed request's cleanup handoff.
+            host.submit(HostOperationId(4), start()).unwrap();
+            parent.completions.lock().unwrap().push_back(started(4, 9));
+            assert_eq!(host.drain_completions(1).len(), 1);
+            host.acknowledge_completion(HostOperationId(4), true);
+            host.submit(
+                HostOperationId(5),
+                PlatformHostRequest::HttpRead {
+                    stream_id: 9,
+                    max_bytes: 1,
+                },
+            )
+            .unwrap();
+            parent
+                .completions
+                .lock()
+                .unwrap()
+                .push_back(PlatformHostCompletion {
+                    operation_id: HostOperationId(5),
+                    result: Ok(PlatformHostResult::HttpChunk {
+                        encoded_body_size: None,
+                        stream_id: 9,
+                        bytes: b"x".to_vec(),
+                        done: true,
+                    }),
+                });
+            let delivered = host.drain_completions(1);
+            assert!(
+                matches!(&delivered[0].result, Ok(PlatformHostResult::HttpChunk { bytes, done: true, .. }) if bytes == b"x")
+            );
+            host.acknowledge_completion(HostOperationId(5), true);
+            assert!(!host.state.borrow().streams.contains_key(&9));
+            assert!(host.state.borrow().streams.contains_key(&8));
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while parent
+                .release_attempts
+                .load(std::sync::atomic::Ordering::SeqCst)
+                < 2
+            {
+                assert!(
+                    Instant::now() < deadline,
+                    "stream cleanup did not retry wrong ACK"
+                );
+                std::thread::yield_now();
+            }
+            assert!(!host.retired.get());
+            assert!(
+                !parent
+                    .requests
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|request| matches!(
+                        request,
+                        AgentServiceRequest::PlatformRetire
+                            | AgentServiceRequest::PlatformReleaseResult {
+                                stream_id: Some(8 | 9),
+                                ..
+                            }
+                    ))
+            );
+        }
+    }
+    #[test]
+    fn cancellation_before_driver_execution_does_not_disarm_stream_cleanup() {
+        for abort in [false, true] {
+            let parent = Arc::new(Parent::default());
+            let host = AgentPlatformHost::new(parent.clone(), "https://a.test".into());
+            host.submit(HostOperationId(1), start()).unwrap();
+            parent.completions.lock().unwrap().push_back(started(1, 7));
+            host.drain_completions(1);
+            host.acknowledge_completion(HostOperationId(1), true);
+            host.submit(
+                HostOperationId(2),
+                if abort {
+                    PlatformHostRequest::HttpAbort { stream_id: 7 }
+                } else {
+                    PlatformHostRequest::HttpRead {
+                        stream_id: 7,
+                        max_bytes: 1,
+                    }
+                },
+            )
+            .unwrap();
+            host.cancel(HostOperationId(2));
+            // Parent can return this before AgentIo::execute runs. The live
+            // parent stream still requires the retained release-result job.
+            parent
+                .completions
+                .lock()
+                .unwrap()
+                .push_back(PlatformHostCompletion {
+                    operation_id: HostOperationId(2),
+                    result: Err("cancelled before execute".into()),
+                });
+            assert!(host.drain_completions(1)[0].result.is_err());
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while parent
+                .release_attempts
+                .load(std::sync::atomic::Ordering::SeqCst)
+                < 2
+            {
+                assert!(
+                    Instant::now() < deadline,
+                    "failed operation discarded cleanup custody"
+                );
+                std::thread::yield_now();
+            }
+            assert!(!host.retired.get());
+            host.submit(HostOperationId(3), start()).unwrap();
+            parent.completions.lock().unwrap().push_back(started(3, 8));
+            assert_eq!(host.drain_completions(1).len(), 1);
+            host.acknowledge_completion(HostOperationId(3), true);
+            assert!(host.state.borrow().streams.contains_key(&8));
+            assert!(
+                !parent
+                    .requests
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|request| matches!(request, AgentServiceRequest::PlatformRetire))
+            );
         }
     }
 }

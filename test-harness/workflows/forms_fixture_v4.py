@@ -41,7 +41,7 @@ def snapshot(database,case_id):
 class Fixture:
     def __init__(self,database):
         self.database=str(database);self.lock=threading.RLock()
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db, db:
             db.executescript('CREATE TABLE cases(case_id TEXT PRIMARY KEY,scenario TEXT,nonce TEXT,session TEXT,accepted INTEGER DEFAULT 0);'
                 'CREATE TABLE requests(case_id TEXT,method TEXT,path TEXT,status INTEGER,body_sha256 TEXT,body_bytes INTEGER,fields TEXT,files TEXT);'
                 'CREATE TABLE receipts(case_id TEXT UNIQUE,method TEXT,path TEXT,fields TEXT,files TEXT);'
@@ -51,18 +51,18 @@ class Fixture:
         if not re.fullmatch('[0-9a-f]{32}',identity):raise ValueError('invalid case')
         if message['command']=='snapshot':return snapshot(self.database,identity)
         if message['command']!='create' or message.get('scenario') not in SCENARIOS:raise ValueError('invalid fixture command/scenario')
-        with self.lock,sqlite3.connect(self.database) as db:
+        with self.lock,closing(sqlite3.connect(self.database)) as db, db:
             db.execute('INSERT INTO cases(case_id,scenario,nonce,session) VALUES(?,?,?,?)',(identity,message['scenario'],secrets.token_hex(16),secrets.token_hex(32)))
         return {}
     def row(self,identity):
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db, db:
             db.row_factory=sqlite3.Row
             row=db.execute('SELECT * FROM cases WHERE case_id=?',(identity,)).fetchone()
             return dict(row) if row else None
     def submit(self,identity,route,method,content_type,body,cookie):
         try:fields,files=legacy.decode_submission(content_type,body)
         except (ValueError,UnicodeError):fields,files=[],[]
-        with self.lock,sqlite3.connect(self.database) as db:
+        with self.lock,closing(sqlite3.connect(self.database)) as db, db:
             db.row_factory=sqlite3.Row;row=db.execute('SELECT * FROM cases WHERE case_id=?',(identity,)).fetchone()
             if row is None:return 404
             status=303
@@ -84,7 +84,7 @@ class Fixture:
         return f'<form method=post action="/advanced/{identity}/submit">{hidden}<button>Repeat document request</button></form>'
 
     def deny(self,identity,path):
-        with self.lock,sqlite3.connect(self.database) as db:db.execute('INSERT INTO denials VALUES(?,?,403)',(identity,path))
+        with self.lock,closing(sqlite3.connect(self.database)) as db, db:db.execute('INSERT INTO denials VALUES(?,?,403)',(identity,path))
 
 
 def page(identity,row):
@@ -146,6 +146,11 @@ def serve(database,fixture_type=Fixture):
                 self.reply(200,page(identity,row),[('Set-Cookie',f'form_session={row["session"]}; Path=/advanced/{identity}/; HttpOnly; SameSite=Lax')]);return
             if route=='receipt':
                 if cookie!=row['session']:fixture.deny(identity,route);self.reply(403,'<p id=denied>Context access denied</p>');return
+                # This route is implemented by the HTTP handler, not Fixture.get;
+                # publish the same actual response hold as wrapped method routes.
+                faults = getattr(fixture, 'workflow_response_faults', None)
+                if faults is not None:
+                    faults.before_response(identity, 'receipt', 200)
                 self.reply(200,'<p id=receipt>Document received</p>'+fixture.repeat_form(identity) if row['accepted'] else '<p id=empty>No receipt</p>');return
             if route not in ('submit','override'):self.reply(405,'Invalid method');return
             if self.command=='GET':body=parsed.query.encode();content_type='application/x-www-form-urlencoded'
@@ -160,7 +165,7 @@ def serve(database,fixture_type=Fixture):
         do_GET=handle_request
         do_POST=handle_request
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler);server.daemon_threads=False
-    thread=threading.Thread(target=server.serve_forever);thread.start();sealed=False
+    thread=threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.05});thread.start();sealed=False
     print(json.dumps(dict(event='ready',port=server.server_port)),flush=True)
     try:
         for line in sys.stdin:

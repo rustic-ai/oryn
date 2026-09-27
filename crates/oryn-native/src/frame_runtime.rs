@@ -1,6 +1,13 @@
 // Included in runtime: independent semantic/layout state for each selected frame.
 // The real executable remains a single page-owned isolate; it is lent only for
 // the duration of a serialized command and restored on every ordinary error.
+#[cfg(feature = "v8-host")]
+struct ScopedActionNavigationUpdate {
+    action_id: ActionId,
+    url: Option<String>,
+    root_replaced: bool,
+}
+
 impl PageState {
     fn scoped_worker_request(
         &mut self,
@@ -81,7 +88,7 @@ impl PageState {
                     ..
                 }
             );
-            let mut response = self.with_scoped_frame(
+            let (mut response, navigation) = self.with_scoped_frame_result(
                 scope,
                 print_media,
                 viewport_override,
@@ -122,6 +129,18 @@ impl PageState {
                     Ok(response)
                 },
             )?;
+            if let (Some(navigation), WorkerResponse::Action { result }) =
+                (navigation, &mut response)
+                && result.action_id == navigation.action_id
+            {
+                if let Some(url) = navigation.url {
+                    result.effects.push(Effect::Navigation { url });
+                }
+                // A selected-frame delta cannot describe a replaced root DOM.
+                if navigation.root_replaced {
+                    result.delta = None;
+                }
+            }
             if let WorkerResponse::WebdriverActions { feedback, .. } = &mut response {
                 feedback.page_generation = self.document_generation;
             }
@@ -135,14 +154,40 @@ impl PageState {
     fn with_scoped_frame<T>(
         &mut self,
         scope: crate::host::webdriver_script::AutomationRealmSnapshot,
-        _print_media: bool,
+        print_media: bool,
         viewport_override: Option<ViewportState>,
         native_scene: bool,
         read_only: bool,
         operation: impl FnOnce(&mut PageState) -> Result<T, RuntimeError>,
     ) -> Result<T, RuntimeError> {
+        self.with_scoped_frame_result(
+            scope,
+            print_media,
+            viewport_override,
+            native_scene,
+            read_only,
+            operation,
+        )
+        .map(|(value, _navigation)| value)
+    }
+
+    // Wait, WebDriver and recursive paint callers own different result types.
+    // Navigation ownership is independent of optional worker-response metadata.
+    #[cfg(feature = "v8-host")]
+    fn with_scoped_frame_result<T>(
+        &mut self,
+        scope: crate::host::webdriver_script::AutomationRealmSnapshot,
+        _print_media: bool,
+        viewport_override: Option<ViewportState>,
+        native_scene: bool,
+        read_only: bool,
+        operation: impl FnOnce(&mut PageState) -> Result<T, RuntimeError>,
+    ) -> Result<(T, Option<ScopedActionNavigationUpdate>), RuntimeError> {
         if !native_scene {
             self.poll_page_tasks()?;
+        }
+        if self.terminal_close_requested() {
+            return Err(RuntimeError::PageTaskYield);
         }
         let key = (
             self.document_generation,
@@ -272,6 +317,10 @@ impl PageState {
             frame.network_quiet_since = Some(Instant::now());
             frame
         };
+        // Cached, fresh, nested and replacement frame drivers all allocate in
+        // the owning page namespace, never in a document-local counter.
+        frame.action_ids = self.action_ids.clone();
+        frame.page_task_terminal_control = self.page_task_terminal_control.clone();
         frame.broker = selected_broker;
         if frame.viewport != frame_viewport {
             frame.viewport = frame_viewport;
@@ -298,11 +347,21 @@ impl PageState {
             );
         }
         frame.web_fonts = self.web_fonts.clone();
+        let trace_boundary = frame.trace.snapshot().len();
         frame.executable = self.executable.take();
         let result = (|| {
+            if frame.terminal_close_requested() {
+                return Err(RuntimeError::PageTaskYield);
+            }
             frame.sync_executable_semantics()?;
             if !native_scene {
                 frame.refresh_layout()?;
+            }
+            // Do not fabricate a generic operation result after a layout yield.
+            // The restoration block below still returns the borrowed executable,
+            // automation scope and any existing action-navigation custody.
+            if frame.terminal_close_requested() {
+                return Err(RuntimeError::PageTaskYield);
             }
             if changed {
                 frame.revision = frame.revision.checked_add(1).ok_or_else(|| {
@@ -315,6 +374,31 @@ impl PageState {
             Ok(response)
         })();
         self.executable = frame.executable.take();
+        // The owner must pump this action's embedded navigation after the frame
+        // returns its borrowed executable. Its semantic state cannot drive a root
+        // navigation or silently lose a receipt when the old frame is retired.
+        let action_navigation = frame.action_navigation.take();
+        let mut action_root_navigation = frame.action_root_navigation.take();
+        if frame.terminal_close_requested() {
+            frame.action_root_navigation = action_root_navigation.take();
+        }
+        // The lent executable owns a page-wide diagnostic cursor. A scoped
+        // projection/command may consume it into the frame trace, so retain
+        // newly published records in the owner trace before fallible restoration.
+        // The prefix boundary prevents replay on a subsequent scoped command.
+        for event in frame.trace.snapshot().into_iter().skip(trace_boundary) {
+            if matches!(
+                &event.kind,
+                TraceEventKind::ScriptDiagnostic { .. } | TraceEventKind::Console { .. }
+            ) {
+                self.trace.push_causal(
+                    Revision(self.revision),
+                    event.action_id,
+                    event.causality,
+                    event.kind,
+                );
+            }
+        }
         let restoration = self
             .executable
             .as_mut()
@@ -328,10 +412,125 @@ impl PageState {
                 .iter()
                 .any(|entry| entry.same_document_as(&scope))
         });
+        if !live && let Some(deferred) = frame.action_root_navigation.take() {
+            // An invalidated frame cannot keep deferred custody in the cache.
+            // Transfer it to the root's existing failure barrier before dropping
+            // the projection, preserving an independently returned operation error.
+            self.retain_failed_action_navigation(
+                deferred.action_id,
+                result
+                    .as_ref()
+                    .err()
+                    .cloned()
+                    .unwrap_or(RuntimeError::Closed),
+            );
+        }
         if live {
             self.frame_states.insert(key, frame);
         }
-        restoration?;
+        let action_id = action_navigation
+            .as_ref()
+            .map(|barrier| barrier.action_id)
+            .or_else(|| {
+                action_root_navigation
+                    .as_ref()
+                    .map(|deferred| deferred.action_id)
+            });
+        if let Some(barrier) = action_navigation {
+            self.adopt_action_navigation(barrier)?;
+        }
+        if let Err(error) = restoration {
+            if let Some(action_id) = action_id {
+                self.retain_failed_action_navigation(action_id, error.clone());
+                return match result {
+                    Err(original) => Err(original),
+                    Ok(_) => Err(RuntimeError::ActionExecutionFailed {
+                        action_id,
+                        cause: Box::new(error),
+                    }),
+                };
+            }
+            return Err(error);
+        }
+        let mut navigation_update = None;
+        if let Some(deferred) = action_root_navigation {
+            if self.terminal_close_requested() {
+                self.retain_failed_action_navigation(
+                    deferred.action_id,
+                    result
+                        .as_ref()
+                        .err()
+                        .cloned()
+                        .unwrap_or(RuntimeError::Closed),
+                );
+                return result.map(|value| (value, None));
+            }
+            #[cfg(unix)]
+            let previous_ipc_identity = std::mem::replace(
+                &mut self.navigation_progress_identity,
+                deferred.ipc_identity,
+            );
+            let navigation = (|| {
+                if self.frame_scope.is_some() {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "scoped action returned to a non-root PageState".into(),
+                    ));
+                }
+                let (location, history) = self
+                    .executable
+                    .as_mut()
+                    .ok_or(RuntimeError::EvaluationUnavailable)?
+                    .take_root_action_navigation()
+                    .map_err(map_host_error)?;
+                let generation = self.document_generation;
+                let (progress, url) = if let Some(location) = location {
+                    let update = if location.reload {
+                        HistoryUpdate::Reload
+                    } else if location.replace {
+                        HistoryUpdate::Replace
+                    } else {
+                        HistoryUpdate::Push
+                    };
+                    let url = location.url.clone();
+                    (
+                        Some(self.begin_script_navigation(location, update)?),
+                        Some(url),
+                    )
+                } else if let Some(history) = history {
+                    (self.begin_action_history_navigation(history)?, None)
+                } else {
+                    (None, None)
+                };
+                if let Some(progress) = progress {
+                    self.retain_action_navigation(
+                        deferred.action_id,
+                        generation,
+                        deferred.deadline,
+                        progress,
+                    )?;
+                    navigation_update = Some(ScopedActionNavigationUpdate {
+                        action_id: deferred.action_id,
+                        url,
+                        root_replaced: self.document_generation != generation,
+                    });
+                }
+                Ok(())
+            })();
+            #[cfg(unix)]
+            {
+                self.navigation_progress_identity = previous_ipc_identity;
+            }
+            if let Err(error) = navigation {
+                self.retain_failed_action_navigation(deferred.action_id, error.clone());
+                return match result {
+                    Err(original) => Err(original),
+                    Ok(_) => Err(RuntimeError::ActionExecutionFailed {
+                        action_id: deferred.action_id,
+                        cause: Box::new(error),
+                    }),
+                };
+            }
+        }
         let checkpoint = if native_scene {
             Ok(())
         } else {
@@ -340,7 +539,16 @@ impl PageState {
         match result {
             Err(error) => Err(error),
             Ok(value) => {
-                checkpoint?;
+                if let Err(error) = checkpoint {
+                    if let Some(action_id) = action_id {
+                        self.retain_failed_action_navigation(action_id, error.clone());
+                        return Err(RuntimeError::ActionExecutionFailed {
+                            action_id,
+                            cause: Box::new(error),
+                        });
+                    }
+                    return Err(error);
+                }
                 if read_only
                     && !self.executable.as_ref().is_some_and(|executable| {
                         executable
@@ -351,7 +559,7 @@ impl PageState {
                 {
                     return Err(RuntimeError::StaleSemanticRef);
                 }
-                Ok(value)
+                Ok((value, navigation_update))
             }
         }
     }
@@ -429,26 +637,10 @@ impl PageState {
             Q::Execute { action } => R::Action {
                 result: self.dispatch_scoped_action(action)?,
             },
-            Q::ExecuteBatch { actions } => {
-                if actions.len() > 10_000 {
-                    return Err(RuntimeError::ProtocolViolation(
-                        "frame action batch limit".into(),
-                    ));
-                }
-                let mut results = Vec::with_capacity(actions.len());
-                for action in actions {
-                    match self.dispatch_scoped_action(action) {
-                        Ok(result) => results.push(result),
-                        Err(cause) => {
-                            return Err(RuntimeError::BatchExecutionFailed {
-                                failed_index: results.len(),
-                                completed: results,
-                                cause: Box::new(cause),
-                            });
-                        }
-                    }
-                }
-                R::Actions { results }
+            Q::ExecuteBatch { .. } => {
+                return Err(RuntimeError::ProtocolViolation(
+                    "scoped batches require per-action actor admission".into(),
+                ));
             }
             Q::SetFiles { target, files } => R::Action {
                 result: self.set_files(target, files)?,
@@ -471,7 +663,7 @@ impl PageState {
                 assessment: self.last_challenge.clone(),
             },
             Q::Trace => R::Trace {
-                events: self.trace.events().to_vec(),
+                events: self.trace.snapshot(),
             },
             Q::PaintSnapshot => R::PaintSnapshot {
                 snapshot: Box::new(complete_paint_snapshot(

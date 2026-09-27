@@ -1239,6 +1239,7 @@ pub(super) fn call<'s>(
     Ok(Some(v8::Boolean::new(scope, changed).into()))
 }
 
+#[derive(Clone)]
 pub(super) enum PolicySource {
     Instance(Rc<RefCell<Config>>),
     Configuration(Config),
@@ -1247,9 +1248,11 @@ pub(super) struct PolicySnapshot {
     config: Config,
     instance: Option<Rc<RefCell<Config>>>,
 }
+#[derive(Clone)]
 pub(super) struct SinkOptions {
     pub run_scripts: bool,
     source: PolicySource,
+    source_object: Option<v8::Weak<v8::Object>>,
 }
 impl SinkOptions {
     /// Called at the sink's algorithmic sanitizer-acquisition point, after
@@ -1263,6 +1266,33 @@ impl SinkOptions {
                 PolicySource::Configuration(_) => None,
             },
         })
+    }
+    pub(super) fn stream_configuration(&self, safe: bool) -> Result<Config> {
+        if safe {
+            if let PolicySource::Instance(config) = &self.source {
+                config.borrow_mut().remove_unsafe();
+            }
+        }
+        self.configuration(safe)
+    }
+    pub(super) fn stream_dictionary<'s>(
+        &self,
+        scope: &mut v8::PinScope<'s, '_>,
+    ) -> Result<v8::Local<'s, v8::Object>> {
+        let object = v8::Object::new(scope);
+        let run = v8::Boolean::new(scope, self.run_scripts);
+        put(scope, object, "runScripts", run.into())?;
+        let config = if let Some(value) = self
+            .source_object
+            .as_ref()
+            .and_then(|value| value.to_local(scope))
+        {
+            value.into()
+        } else {
+            configuration_value(scope, &self.configuration(false)?)?
+        };
+        put(scope, object, "sanitizer", config)?;
+        Ok(object)
     }
     pub(super) fn configuration(&self, safe: bool) -> Result<Config> {
         match &self.source {
@@ -1320,9 +1350,18 @@ pub(super) fn options(
     } else {
         source(scope, value)?
     };
+    let source_object = if matches!(&source, PolicySource::Instance(_)) {
+        value
+            .try_cast::<v8::Object>()
+            .ok()
+            .map(|value| v8::Weak::new(scope, value))
+    } else {
+        None
+    };
     Ok(SinkOptions {
         run_scripts,
         source,
+        source_object,
     })
 }
 

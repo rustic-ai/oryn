@@ -108,6 +108,8 @@ mod document_factory_arguments;
 mod document_processing_instruction;
 mod document_title;
 mod dom_implementation;
+mod xslt;
+pub use xslt::transform_document as transform_document_xslt;
 mod file_reader;
 mod file_reader_sync;
 mod html_stream;
@@ -140,6 +142,7 @@ mod template_links;
 #[cfg(test)]
 mod text_content_tests;
 mod traced_native_roots;
+mod trusted_parser_options;
 mod websocket_lifecycle;
 
 use std::{
@@ -243,6 +246,7 @@ mod retained_focus;
 mod retained_form_reset;
 mod retained_validation;
 mod script_error_task;
+mod secure_context;
 mod stylesheet_event_task;
 pub use clipboard_actions::NativeClipboardGrant;
 pub use native_keyboard::{
@@ -332,6 +336,7 @@ mod token_lists;
 mod transform_streams;
 mod tree_walkers;
 mod url_objects;
+mod url_statics;
 mod validation;
 mod window_document;
 pub mod window_messages;
@@ -481,6 +486,7 @@ mod css_math;
 pub mod prompts;
 pub mod window_proxy;
 mod xhr_responses;
+mod xhr_sync;
 pub use global_events::{report_exception, report_script_exception};
 
 static NEXT_OBSERVER_REGISTRATION_ORDER: AtomicU64 = AtomicU64::new(1);
@@ -1035,6 +1041,7 @@ struct ResponseRecord {
 }
 
 struct XhrRecord {
+    synchronous: bool,
     upload_id: u64,
     upload_events: bool,
     upload_complete: bool,
@@ -1349,6 +1356,7 @@ struct ReadableStreamRecord {
 }
 
 enum PendingPlatformOperation {
+    SynchronousHttp,
     CssImage(css_images::Pending),
     MediaResource(media_resource::Pending),
     TextTrack(text_tracks::Pending),
@@ -1672,6 +1680,7 @@ struct TrustedPolicyCallbacks {
     name: String,
     default_object: Option<v8::Weak<v8::Object>>,
     create_html: Option<v8::Weak<v8::Function>>,
+    create_parser_options: Option<v8::Weak<v8::Function>>,
     create_script: Option<v8::Weak<v8::Function>>,
     create_script_url: Option<v8::Weak<v8::Function>>,
 }
@@ -1740,6 +1749,7 @@ mod node_lists;
 mod page_rules;
 mod stylesheet_ownership;
 mod stylesheet_sets;
+mod window_dimensions;
 mod window_named;
 mod window_scroll;
 pub use native_pointer::{
@@ -2255,6 +2265,25 @@ struct ScriptPreparationReceipt {
     // exceeding the existing source limit, retained without its oversized text.
     output: RefCell<Option<Result<String, ()>>>,
 }
+/// Browser input authority is independent of author same-origin DOM access.
+/// A weak binding pins the actual child DOM instance without retaining a realm.
+struct NativeInputFrame {
+    state: std::rc::Weak<V8BindingState>,
+    document: NodeId,
+    generation: u64,
+}
+
+/// Exact current native child input identity. Document NodeIds can repeat in
+/// distinct DOM arenas; realm and all document epochs are part of the route.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeFrameInputIdentity {
+    pub realm: RealmId,
+    pub document: NodeId,
+    pub generation: u64,
+    pub stream_epoch: u64,
+    pub authority_epoch: u64,
+}
+
 pub struct V8BindingState {
     document_provenance_capture: RefCell<Option<Rc<document_provenance::Capture>>>,
     animation_frames: RefCell<animation_frames::State>,
@@ -2456,9 +2485,11 @@ pub struct V8BindingState {
     layout_cache_key: RefCell<Option<LayoutCacheKey>>,
     layout_provider: RefCell<Option<Rc<dyn BindingLayoutProvider>>>,
     frame_viewport_parent: RefCell<Option<FrameViewportParent>>,
+    document_focus_admission: Cell<Option<fn(&mut v8::PinScope, &Rc<V8BindingState>) -> bool>>,
     paint_environment: RefCell<(Vec<u8>, u64)>,
     page_paint_environment: RefCell<(Vec<u8>, u64)>,
     frame_roots: RefCell<BTreeMap<NodeId, NodeId>>,
+    native_input_frames: RefCell<BTreeMap<NodeId, NativeInputFrame>>,
     frame_windows: RefCell<BTreeMap<NodeId, v8::Global<v8::Object>>>,
     window_target_name: RefCell<Rc<RefCell<window_named::TargetName>>>,
     frame_target_names: RefCell<BTreeMap<NodeId, Rc<RefCell<window_named::TargetName>>>>,
@@ -5720,6 +5751,13 @@ impl V8BindingState {
         child.set_native_layout_viewport(width, height, false)?;
         Ok(())
     }
+    pub fn set_document_focus_admission(
+        &self,
+        admission: fn(&mut v8::PinScope, &Rc<V8BindingState>) -> bool,
+    ) {
+        self.document_focus_admission.set(Some(admission));
+    }
+
     pub fn set_frame_viewport_parent(
         &self,
         parent: &Rc<V8BindingState>,
@@ -6113,6 +6151,33 @@ impl V8BindingState {
         self.layout_cache_key.borrow_mut().take();
     }
 
+    pub fn set_native_input_frame(&self, frame: NodeId, child: &Rc<V8BindingState>) {
+        self.native_input_frames.borrow_mut().insert(
+            frame,
+            NativeInputFrame {
+                state: Rc::downgrade(child),
+                document: child.document_root(),
+                generation: child.document_generation(),
+            },
+        );
+    }
+
+    pub fn native_input_frame_identity(&self, frame: NodeId) -> Option<NativeFrameInputIdentity> {
+        let frames = self.native_input_frames.borrow();
+        let entry = frames.get(&frame)?;
+        let child = entry.state.upgrade()?;
+        (!child.execution_retired()
+            && child.document_root() == entry.document
+            && child.document_generation() == entry.generation)
+            .then(|| NativeFrameInputIdentity {
+                realm: child.realm(),
+                document: entry.document,
+                generation: entry.generation,
+                stream_epoch: child.document_stream_epoch(),
+                authority_epoch: child.document_authority_epoch(),
+            })
+    }
+
     pub fn set_frame_document(&self, frame: NodeId, document: NodeId) {
         self.frame_roots.borrow_mut().insert(frame, document);
     }
@@ -6133,6 +6198,7 @@ impl V8BindingState {
             .borrow_mut()
             .set_embedded_document_active(frame, false);
         self.clear_frame_document(frame);
+        self.native_input_frames.borrow_mut().remove(&frame);
         self.frame_windows.borrow_mut().remove(&frame);
         self.frame_target_names.borrow_mut().remove(&frame);
         self.frame_referrer_snapshots.borrow_mut().remove(&frame);
@@ -7644,6 +7710,7 @@ fn install_url_statics(
         .get(scope, name.into())
         .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
         .ok_or(V8BindingError::MissingInterface("URL"))?;
+    url_statics::install(scope, constructor)?;
     let create = v8::Function::builder(blob_url_create_callback)
         .length(1)
         .constructor_behavior(v8::ConstructorBehavior::Throw)
@@ -10219,6 +10286,7 @@ fn install_trusted_types(
         .get_slot::<V8BindingState>()
         .ok_or(V8BindingError::Allocation("Trusted Types state"))?;
     for interface in [
+        "TrustedParserOptions",
         "TrustedHTML",
         "TrustedScript",
         "TrustedScriptURL",
@@ -10393,7 +10461,12 @@ fn trusted_create_policy(
     // before reserving the name or borrowing the native policy map mutably.
     let callbacks = (|| -> Result<_, V8BindingError> {
         let mut callbacks = Vec::new();
-        for name in ["createHTML", "createScript", "createScriptURL"] {
+        for name in [
+            "createHTML",
+            "createParserOptions",
+            "createScript",
+            "createScriptURL",
+        ] {
             let callback = if let Some(options) = options {
                 let key = v8::String::new(scope, name)
                     .ok_or(V8BindingError::Allocation("policy callback name"))?;
@@ -10519,6 +10592,7 @@ fn trusted_create_policy(
             name: name.clone(),
             default_object: None,
             create_html: callbacks.next().flatten(),
+            create_parser_options: callbacks.next().flatten(),
             create_script: callbacks.next().flatten(),
             create_script_url: callbacks.next().flatten(),
         },
@@ -12499,24 +12573,11 @@ fn initialize_platform_constructor<'s>(
         return Ok(true);
     }
     if name == "URL" {
-        let input = args
-            .get(0)
-            .to_string(scope)
-            .ok_or(V8BindingError::JavaScriptException)?
-            .to_rust_string_lossy(scope);
-        let parsed = if args.length() > 1 && !args.get(1).is_undefined() {
-            let base = args
-                .get(1)
-                .to_string(scope)
-                .ok_or(V8BindingError::JavaScriptException)?
-                .to_rust_string_lossy(scope);
-            Url::parse(&base).and_then(|base| base.join(&input))
-        } else {
-            Url::parse(&input)
-        }
-        .map_err(|_| V8BindingError::Unsupported {
-            interface: "URL".into(),
-            member: "TypeError".into(),
+        let parsed = url_statics::parse_arguments(scope, args)?.ok_or_else(|| {
+            V8BindingError::Unsupported {
+                interface: "URL".into(),
+                member: "TypeError".into(),
+            }
         })?;
         let id = register_platform_object(state, PlatformObjectRecord::Url(parsed));
         bind_platform_object(scope, state, id, args.this());
@@ -13200,6 +13261,7 @@ fn initialize_platform_constructor<'s>(
         let id = register_platform_object(
             state,
             PlatformObjectRecord::XMLHttpRequest(XhrRecord {
+                synchronous: false,
                 upload_id,
                 upload_events: false,
                 upload_complete: true,
@@ -15503,7 +15565,10 @@ fn generated_constructor<'s>(
         wrapper_graphs::refresh(scope, &state);
         return;
     }
-    if matches!(name, "DOMParser" | "XMLSerializer" | "XPathEvaluator") && args.is_construct_call()
+    if matches!(
+        name,
+        "DOMParser" | "XMLSerializer" | "XPathEvaluator" | "XSLTProcessor"
+    ) && args.is_construct_call()
     {
         let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
             throw_type_error(scope, "generated binding state is unavailable");
@@ -15760,6 +15825,10 @@ fn generated_attribute_getter<'s>(
         return;
     }
 
+    if interface == "TrustedParserOptions" && member == "runScripts" {
+        trusted_parser_options::get_run_scripts(scope, args, return_value);
+        return;
+    }
     if interface == "TrustedTypePolicy" && member == "name" {
         let Some((owner, id)) = trusted_policy_owner(scope, args.this()) else {
             throw_type_error(scope, "incompatible Trusted Types policy receiver");
@@ -15834,6 +15903,10 @@ fn generated_attribute_getter<'s>(
         && let Some(length) = node_lists::static_length(scope, args.this())
     {
         return_value.set_uint32(length);
+        return;
+    }
+    if matches!(interface, "Window" | "WorkerGlobalScope") && member == "isSecureContext" {
+        secure_context::get(scope, args, return_value);
         return;
     }
     let Some(state) = binding_state_for_receiver(scope, args.this()) else {
@@ -15913,6 +15986,28 @@ fn generated_attribute_getter<'s>(
         match state.native_layout_viewport() {
             Ok((width, height)) => return_value.set_int32(
                 (if member == "innerWidth" {
+                    width
+                } else {
+                    height
+                })
+                .round()
+                .clamp(0., f64::from(i32::MAX)) as i32,
+            ),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
+    if interface == "Window" && matches!(member, "outerWidth" | "outerHeight") {
+        if !global_events::is_global(scope, &state, args.this()) {
+            throw_type_error(scope, "outer dimension requires Window receiver");
+            return;
+        }
+        if !global_events::check_window_access(scope, &state, args.this()) {
+            return;
+        }
+        match window_dimensions::outer_size(&state) {
+            Ok((width, height)) => return_value.set_int32(
+                (if member == "outerWidth" {
                     width
                 } else {
                     height
@@ -16944,6 +17039,10 @@ fn generated_operation_impl<'s>(
         .unwrap_or(metadata.arity);
 
     if interface == "TrustedTypePolicy" {
+        if member == "createParserOptions" {
+            trusted_parser_options::create(scope, args, return_value);
+            return;
+        }
         let kind = match member {
             "createHTML" => Some(TrustedKind::Html),
             "createScript" => Some(TrustedKind::Script),
@@ -17376,6 +17475,7 @@ fn generated_operation_impl<'s>(
             | "DOMImplementation"
             | "DOMParser"
             | "XMLSerializer"
+            | "XSLTProcessor"
             | "History"
             | "Storage"
     ) {
@@ -25124,6 +25224,9 @@ fn set_platform_attribute(
                     member: "InvalidStateError".into(),
                 });
             }
+            if xhr.synchronous && state.binding_global == BindingGlobal::Window {
+                return Err(xhr_sync::exception("InvalidAccessError"));
+            }
             xhr.response_type = kind;
         }
         return Ok(());
@@ -25411,6 +25514,9 @@ fn set_platform_attribute(
             .uint32_value(scope)
             .ok_or(V8BindingError::JavaScriptException)? as u64;
         if let PlatformObjectRecord::XMLHttpRequest(xhr) = &mut *platform_object_mut(state, id)? {
+            if xhr.synchronous && state.binding_global == BindingGlobal::Window {
+                return Err(xhr_sync::exception("InvalidAccessError"));
+            }
             xhr.timeout = timeout;
             xhr.deadline = xhr.send_started.and_then(|started| {
                 (timeout > 0).then(|| started + Duration::from_millis(timeout))
@@ -27418,22 +27524,18 @@ fn call_platform_operation<'s>(
                 let _ = parsed_url.set_password(Some(&password));
             }
             let url = parsed_url.to_string();
-            if !args.get(2).is_undefined() && !args.get(2).boolean_value(scope) {
-                record_platform_trace(
-                    scope,
-                    "capability_failure",
-                    serde_json::json!({
-                        "capability": "xhr.synchronous_main_thread",
-                    }),
-                );
-                return Err(V8BindingError::Message(
-                    "synchronous main-thread XHR is unsupported".into(),
-                ));
-            }
+            let synchronous = !args.get(2).is_undefined() && !args.get(2).boolean_value(scope);
             let mut record = platform_object_mut(state, id)?;
             let PlatformObjectRecord::XMLHttpRequest(xhr) = &mut *record else {
                 return Err(V8BindingError::Allocation("XHR record"));
             };
+            if synchronous
+                && state.binding_global == BindingGlobal::Window
+                && (xhr.timeout != 0 || !xhr.response_type.is_empty())
+            {
+                return Err(xhr_sync::exception("InvalidAccessError"));
+            }
+            xhr.synchronous = synchronous;
             let changed_state = xhr.ready_state != 1;
             xhr.method = method;
             xhr.url = url;
@@ -27730,6 +27832,12 @@ fn call_platform_operation<'s>(
                 xhr.send_started = Some(started);
                 xhr.deadline =
                     (xhr.timeout > 0).then(|| started + Duration::from_millis(xhr.timeout));
+            }
+            if matches!(&*platform_object(state, id)?,
+                PlatformObjectRecord::XMLHttpRequest(xhr) if xhr.synchronous)
+            {
+                xhr_sync::send(scope, state, id, generation, request)?;
+                return Ok(None);
             }
             dispatch_platform_event(scope, state, id, "loadstart", None)?;
             {
@@ -28971,6 +29079,9 @@ fn call_stateful_operation<'s>(
             interface: interface.into(),
             member: member.into(),
         });
+    }
+    if interface == "XSLTProcessor" {
+        return xslt::operation(scope, state, object, member, args);
     }
     if interface == "XMLSerializer" && member == "serializeToString" {
         let branded = object.internal_field_count() >= 6
@@ -35232,6 +35343,13 @@ fn call_operation<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    if interface == "Document" && member == "hasFocus" {
+        let focused = match active_document_state_for_node(scope, state, node) {
+            Some(owner) if owner.document_root() == node => document_has_focus(scope, &owner)?,
+            _ => false,
+        };
+        return Ok(Some(v8::Boolean::new(scope, focused).into()));
+    }
     if matches!(
         interface,
         "HTMLObjectElement" | "HTMLEmbedElement" | "HTMLIFrameElement"
@@ -35465,11 +35583,26 @@ fn call_operation<'s>(
         ) => node_operation_dispatch::dispatch_element_shadowroot(
             scope, state, node, interface, member, args,
         ),
-        ("Element" | "ShadowRoot", "streamAppendHTMLUnsafe") => {
-            node_operation_dispatch::dispatch_element_shadowroot_32(
-                scope, state, node, interface, member, args,
-            )
-        }
+        (
+            "Element" | "ShadowRoot",
+            "streamHTML"
+            | "streamHTMLUnsafe"
+            | "streamAppendHTML"
+            | "streamAppendHTMLUnsafe"
+            | "streamPrependHTML"
+            | "streamPrependHTMLUnsafe",
+        )
+        | (
+            "Element" | "CharacterData" | "DocumentType",
+            "streamBeforeHTML"
+            | "streamBeforeHTMLUnsafe"
+            | "streamAfterHTML"
+            | "streamAfterHTMLUnsafe"
+            | "streamReplaceWithHTML"
+            | "streamReplaceWithHTMLUnsafe",
+        ) => node_operation_dispatch::dispatch_element_shadowroot_32(
+            scope, state, node, interface, member, args,
+        ),
         ("Element" | "ShadowRoot", "setHTML" | "setHTMLUnsafe") => {
             node_operation_dispatch::dispatch_element_shadowroot_33(
                 scope, state, node, interface, member, args,
@@ -44066,6 +44199,88 @@ pub fn dispatch_native_transfer_event(
 /// Native browsing-context focus; author Window.focus/dispatchEvent properties
 /// are never consulted. The deepest focused node is preserved when it already
 /// belongs to this document.
+fn focus_path_contains(dom: &DomRuntime, target: NodeId) -> Result<bool, V8BindingError> {
+    let mut cursor = dom.focused();
+    while let Some(node) = cursor {
+        if node == target {
+            return Ok(true);
+        }
+        let record = dom.arena().get(node)?;
+        cursor = match record.kind {
+            NodeKind::Document => dom.arena().document_host(node),
+            _ => record.parent,
+        };
+    }
+    Ok(false)
+}
+
+fn document_has_focus(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+) -> Result<bool, V8BindingError> {
+    if state.execution_retired()
+        || state.document_prerendering()
+        || state
+            .document_focus_admission
+            .get()
+            .is_some_and(|admit| !admit(scope, state))
+    {
+        return Ok(false);
+    }
+    {
+        let dom = state.dom.borrow();
+        let root = state.document_root();
+        if !dom.is_connected(root)? || dom.is_inert(root)? {
+            return Ok(false);
+        }
+        // The deepest focus is shared by nested documents in a DOM. A focused
+        // descendant counts for its ancestors, never an unrelated sibling.
+        if dom.focused().is_some()
+            && dom.focused_element_in(root)?.is_none()
+            && dom.arena().document_host(root) != dom.focused()
+        {
+            return Ok(false);
+        }
+        if dom.focused().is_none() && dom.arena().document_host(root).is_some() {
+            return Ok(false);
+        }
+    }
+    let mut current = state.clone();
+    let mut seen = std::collections::BTreeSet::new();
+    loop {
+        if !seen.insert(Rc::as_ptr(&current) as usize)
+            || current
+                .document_focus_admission
+                .get()
+                .is_some_and(|admit| !admit(scope, &current))
+        {
+            return Ok(false);
+        }
+        let relation = current.frame_viewport_parent.borrow().clone();
+        let Some((parent, frame, connection)) = relation else {
+            break;
+        };
+        let Some(parent) = parent.upgrade() else {
+            return Ok(false);
+        };
+        if parent.execution_retired() {
+            return Ok(false);
+        }
+        {
+            let dom = parent.dom.borrow();
+            if !dom.is_connected(frame)?
+                || dom.is_inert(frame)?
+                || dom.frame_context_generation(frame) != connection
+                || !focus_path_contains(&dom, frame)?
+            {
+                return Ok(false);
+            }
+        }
+        current = parent;
+    }
+    native_platform::document_window_focused(state)
+}
+
 pub fn focus_browsing_context(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
@@ -44182,10 +44397,8 @@ pub fn focus_embedding_frame(
     frame: NodeId,
 ) -> Result<(), V8BindingError> {
     if state.execution_retired()
-        || !state
-            .dom
-            .borrow()
-            .is_element(frame, "http://www.w3.org/1999/xhtml", "iframe")
+        || state.dom.borrow().embedded_content_kind(frame).is_none()
+        || !state.dom.borrow().embedded_content_allowed(frame)
     {
         return Err(V8BindingError::Allocation("retired focus frame"));
     }
@@ -44282,6 +44495,27 @@ fn create_input_event_object<'s>(
     data: Option<&str>,
     cancelable: bool,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    create_input_event_object_with_ranges(
+        scope,
+        state,
+        event_type,
+        input_type,
+        data,
+        cancelable,
+        event_type != "input",
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_input_event_object_with_ranges<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    event_type: &str,
+    input_type: &str,
+    data: Option<&str>,
+    cancelable: bool,
+    include_target_ranges: bool,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
     let template = state
         .instance_templates
         .borrow()
@@ -44334,10 +44568,17 @@ fn create_input_event_object<'s>(
         v8::Boolean::new(scope, false).into(),
     )?;
     let ranges = v8::Array::new(scope, 0);
-    let selected = state
-        .selection_range
-        .get()
-        .and_then(|range_id| state.ranges.borrow().get(&range_id).cloned());
+    let selected = if include_target_ranges {
+        // Rebase cached endpoints against the native live range before making
+        // a StaticRange snapshot. Do not swallow invalid live range errors.
+        synchronize_selection_range(state)?;
+        state
+            .selection_range
+            .get()
+            .and_then(|range_id| state.ranges.borrow().get(&range_id).cloned())
+    } else {
+        None
+    };
     if let Some(range) = selected {
         let static_id = register_static_range(state, range)?;
         let range = new_stateful_object(scope, state, "StaticRange", static_id)?;
@@ -45682,6 +45923,66 @@ mod tests {
     use oryn_dom::html;
 
     use super::*;
+
+    #[test]
+    fn document_has_focus_follows_nested_dom_focus_and_rejects_stale_document() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body><iframe id=a></iframe><iframe id=b></iframe></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let (a, b, ad, bd, input) = {
+            let mut dom = dom.borrow_mut();
+            let a = dom.find_by_id("a").unwrap();
+            let b = dom.find_by_id("b").unwrap();
+            let ad = dom.create(NodeKind::Document);
+            let bd = dom.create(NodeKind::Document);
+            let input = dom.create_element("input");
+            dom.append_child(ad, input).unwrap();
+            dom.set_hosted_document(a, Some(ad)).unwrap();
+            dom.set_hosted_document(b, Some(bd)).unwrap();
+            (a, b, ad, bd, input)
+        };
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let root_context = v8::Context::new(scope, Default::default());
+        let root = {
+            let scope = &mut v8::ContextScope::new(scope, root_context);
+            install_generated_bindings(scope, root_context, dom.clone(), RealmId(0), 1).unwrap()
+        };
+        let a_context = v8::Context::new(scope, Default::default());
+        let child_a = {
+            let scope = &mut v8::ContextScope::new(scope, a_context);
+            install_generated_bindings_with_root(scope, a_context, dom.clone(), RealmId(1), 1, ad)
+                .unwrap()
+        };
+        let b_context = v8::Context::new(scope, Default::default());
+        let child_b = {
+            let scope = &mut v8::ContextScope::new(scope, b_context);
+            install_generated_bindings_with_root(scope, b_context, dom.clone(), RealmId(2), 1, bd)
+                .unwrap()
+        };
+        let mut focus_in = |context, state: &Rc<V8BindingState>| {
+            let scope = &mut v8::ContextScope::new(scope, context);
+            document_has_focus(scope, state).unwrap()
+        };
+        assert!(focus_in(root_context, &root));
+        assert!(!focus_in(a_context, &child_a));
+        dom.borrow_mut().focus(Some(input)).unwrap();
+        assert!(focus_in(root_context, &root));
+        assert!(focus_in(a_context, &child_a));
+        assert!(!focus_in(b_context, &child_b));
+        dom.borrow_mut().focus(Some(bd)).unwrap();
+        assert!(focus_in(root_context, &root));
+        assert!(!focus_in(a_context, &child_a));
+        assert!(focus_in(b_context, &child_b));
+        dom.borrow_mut().set_hosted_document(b, None).unwrap();
+        assert!(!focus_in(b_context, &child_b));
+        child_a.retire_execution();
+        assert!(!focus_in(a_context, &child_a));
+        assert!(dom.borrow().is_connected(a).unwrap());
+    }
 
     #[test]
     fn document_hit_testing_retargets_shadow_content_and_excludes_unassigned_light_nodes() {

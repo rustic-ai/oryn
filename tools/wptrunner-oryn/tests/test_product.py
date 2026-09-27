@@ -55,10 +55,14 @@ class ProductContractTests(unittest.TestCase):
         browser._contract_path = "/private/run-contract.json"
         with patch.object(integration, "load_contract", return_value={"fixture_path": "/configuration path/test.json", "fixture_sha256": "a" * 64}):
             command = browser.make_command()
+        import shutil
+        self.addCleanup(shutil.rmtree, browser._native_timing.directory, True)
+        self.addCleanup(lambda: browser._native_timing.finish(process_stopped=True))
         self.assertEqual(command, [
             "/runtime path/driver", "--host", "127.0.0.1", "--port", "8123",
             "--browser-binary", "/runtime path/oryn", "--auth-token-file", "/private/token-file",
             "--configuration", "/configuration path/test.json", "--configuration-sha256", "a" * 64,
+            "--diagnostic-fd", str(browser._native_timing.fd),
         ])
 
 
@@ -69,8 +73,12 @@ class AuthenticatedTransportTests(unittest.TestCase):
         token = "a" * 64
         transport = AuthenticatedTransport("127.0.0.1", 8123, token)
         headers = {"Content-Type": "application/json"}
-        with patch.object(HTTPWireProtocol, "_request", return_value="response") as request:
-            self.assertEqual(transport._request("POST", "/session", "{}", headers), "response")
+        import io
+        response = io.BytesIO(b'{"value": null}')
+        response.status = 200
+        response.getheaders = lambda: [("Content-Type", "application/json")]
+        with patch.object(HTTPWireProtocol, "_request", return_value=response) as request:
+            self.assertEqual(transport.send("POST", "/session", {}, headers).body, {"value": None})
             args = request.call_args.args
         self.assertEqual(args[1], "/session")
         self.assertEqual(args[3]["Authorization"], "Bearer " + token)
@@ -81,7 +89,7 @@ class AuthenticatedTransportTests(unittest.TestCase):
         from oryn_wptrunner.protocol import AuthenticatedTransport
         transport = AuthenticatedTransport("127.0.0.1", 8123, "a" * 64)
         with self.assertRaises(ValueError):
-            transport._request("GET", "/status", None, {"authorization": "other"})
+            transport.send("GET", "/status", None, {"authorization": "other"})
         for token in ("", "A" * 64, "a" * 63, "a" * 65):
             with self.assertRaises(ValueError):
                 AuthenticatedTransport("127.0.0.1", 8123, token)
@@ -187,3 +195,55 @@ class NativeAsyncOperationContractTests(unittest.TestCase):
         error = {"type": "positionUnavailable"}
         asyncio.run(part.set_geolocation_override(UNDEFINED, error, ["window"]))
         part.webdriver.send_session_command.assert_called_with("POST", "oryn/geolocation", {"error": error, "contexts": ["window"]})
+
+
+class BoundArgumentsTimingTests(unittest.TestCase):
+    def fixture(self):
+        from types import SimpleNamespace
+        contract = {'candidate_sha256': 'a' * 64, 'sha256': 'b' * 64,
+                    'fixture_path': '/fixture/config.json',
+                    'fixture': {'tls': {name: {'path': name + '.pem'}
+                                      for name in ('ca', 'certificate', 'key')}}}
+        args = {'binary': '/runtime', 'webdriver_binary': '/driver', 'oryn_run_contract': '/run',
+                'ssl_type': 'pregenerated', 'ca_cert_path': '/fixture/ca.pem',
+                'host_cert_path': '/fixture/certificate.pem', 'host_key_path': '/fixture/key.pem'}
+        info = {'oryn_candidate_sha256': 'a' * 64, 'oryn_run_contract_sha256': 'b' * 64}
+        return contract, args, info, SimpleNamespace(config={})
+
+    def test_one_load_per_browser_kwargs_keeps_each_public_admission_fresh(self):
+        contract, args, info, subsuite = self.fixture()
+        with patch.object(integration, 'load_contract', return_value=contract) as loader:
+            result = integration.browser_kwargs(None, 'testharness', info, None, subsuite, **args)
+            self.assertEqual(loader.call_count, 1)
+            self.assertEqual(result['binary'], args['binary'])
+            integration.check_args(**args)
+            self.assertEqual(loader.call_count, 2)
+            loader.return_value = {**contract, 'sha256': 'c' * 64}
+            with self.assertRaisesRegex(ValueError, 'changed after run_info'):
+                integration.browser_kwargs(None, 'testharness', info, None, subsuite, **args)
+            self.assertEqual(loader.call_count, 3)
+
+    def test_shared_argument_checks_keep_tls_and_argument_rejections(self):
+        contract, args, info, subsuite = self.fixture()
+        for change in ({'ssl_type': 'none'}, {'ca_cert_path': '/other/ca.pem'},
+                       {'webdriver_args': ['--unsafe']}, {'binary_args': ['--unsafe']}):
+            with self.subTest(change=change), patch.object(integration, 'load_contract', return_value=contract):
+                with self.assertRaises(ValueError):
+                    integration.check_args(**{**args, **change})
+                with self.assertRaises(ValueError):
+                    integration.browser_kwargs(None, 'testharness', info, None, subsuite, **{**args, **change})
+        subsuite.config['binary_args'] = ['--unsafe']
+        with patch.object(integration, 'load_contract', return_value=contract), self.assertRaises(ValueError):
+            integration.browser_kwargs(None, 'testharness', info, None, subsuite, **args)
+
+    def test_browser_start_forwards_and_preserves_failure_without_previous_identity(self):
+        from wptrunner.browsers.base import WebDriverBrowser
+        browser = object.__new__(integration.OrynBrowser)
+        browser._timing_identity = {'candidate_sha256': 'stale'}
+        failure = RuntimeError('actual start failed')
+        with patch.object(WebDriverBrowser, 'start', side_effect=failure) as start:
+            with self.assertRaises(RuntimeError) as caught:
+                browser.start({'group': 'value'}, preference=True)
+            self.assertIs(caught.exception, failure)
+            start.assert_called_once_with({'group': 'value'}, preference=True)
+        self.assertIsNone(browser._timing_identity)

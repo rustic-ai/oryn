@@ -259,6 +259,13 @@ pub(super) fn delay(state: &V8BindingState) -> Option<Duration> {
         )
     })
 }
+// Capture before polling: cleanup or a session can issue native requests even
+// when zero events complete. An empty poll still updates its existing clock.
+pub(super) fn poll_requires_live_check(state: &V8BindingState) -> bool {
+    let pip = state.picture_in_picture.borrow();
+    !pip.tasks.is_empty() || !pip.cleanup.is_empty() || pip.session.is_some()
+}
+
 pub(super) fn poll(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
@@ -576,6 +583,67 @@ mod tests {
             .run(scope)
             .unwrap()
     }
+    #[test]
+    fn major_idle_pip_preserves_empty_poll_clock_and_retry_state() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        assert!(!poll_requires_live_check(&state));
+        assert!(state.picture_in_picture.borrow().next_poll.is_none());
+        let before = Instant::now();
+        assert_eq!(poll(scope, &state).unwrap(), 0);
+        assert!(
+            state.picture_in_picture.borrow().next_poll.unwrap()
+                >= before + Duration::from_millis(50)
+        );
+        let existing_clock = state.picture_in_picture.borrow().next_poll;
+        let retry = Instant::now() + Duration::from_secs(60);
+        state.picture_in_picture.borrow_mut().retry = Some(retry);
+        assert!(!poll_requires_live_check(&state));
+        assert_eq!(poll(scope, &state).unwrap(), 0);
+        assert_eq!(state.picture_in_picture.borrow().next_poll, existing_clock);
+        assert_eq!(state.picture_in_picture.borrow().retry, Some(retry));
+    }
+
+    #[test]
+    fn major_idle_pip_cleanup_requires_guard_even_with_zero_completed_events() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let backend = Arc::new(Backend::default());
+        let _messages = register(&state);
+        state.set_native_platform_backend(backend.clone());
+        state
+            .picture_in_picture
+            .borrow_mut()
+            .cleanup
+            .insert("retained-video".into());
+        let requires_guard = poll_requires_live_check(&state);
+        assert!(requires_guard);
+        assert_eq!(poll(scope, &state).unwrap(), 0);
+        assert_eq!(*backend.commands.lock().unwrap(), vec![false]);
+        assert!(state.picture_in_picture.borrow().cleanup.is_empty());
+        assert!(!poll_requires_live_check(&state));
+        assert!(
+            requires_guard,
+            "capture the active boundary before cleanup; zero count and empty-after do not waive its guard"
+        );
+        assert_eq!(poll(scope, &state).unwrap(), 0);
+        assert_eq!(*backend.commands.lock().unwrap(), vec![false]);
+    }
+
     #[test]
     fn pip_policy_reports_and_retained_entry_resize_exit_share_native_identity() {
         super::super::tests::initialize_v8();

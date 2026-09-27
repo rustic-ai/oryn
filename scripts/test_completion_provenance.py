@@ -30,6 +30,79 @@ class CompletionProvenanceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 provenance.read_record(dict(path=path, sha256='a' * 64))
 
+    def test_transaction_and_standalone_each_use_two_complete_inventories(self):
+        original = provenance.read_record
+        for operation in ('standalone', 'transaction'):
+            with self.subTest(operation=operation), patch.object(provenance, 'read_record', wraps=original) as reads:
+                if operation == 'standalone':
+                    value = provenance.load_candidate(self.candidate)
+                else:
+                    with provenance.candidate_transaction(self.candidate) as value:
+                        self.assertEqual(reads.call_count, len(self.record['artifacts']))
+                        self.assertEqual(value['record'], self.record)
+                self.assertEqual(reads.call_count, 2 * len(self.record['artifacts']))
+                self.assertEqual(value['sha256'], provenance.digest(self.candidate))
+
+    def test_transaction_body_drift_and_mutated_public_baseline_cannot_authorize_bytes(self):
+        with self.assertRaisesRegex(ValueError, 'artifact missing or changed'):
+            with provenance.candidate_transaction(self.candidate) as bound:
+                worker = bound['artifacts']['worker']
+                worker.write_text('changed after canonical semantics')
+                bound['record']['artifacts']['worker']['sha256'] = provenance.digest(worker)
+
+    def test_transaction_rejects_public_binding_mutation_without_disk_drift(self):
+        with self.assertRaisesRegex(ValueError, 'binding changed during transaction'):
+            with provenance.candidate_transaction(self.candidate) as bound:
+                bound['record']['source_tree_sha256'] = 'b' * 64
+
+    def test_transaction_candidate_symlink_retarget_with_identical_bytes_is_rejected(self):
+        alternate = self.root / 'same-candidate.json'
+        alternate.write_bytes(self.candidate.read_bytes())
+        link = self.root / 'selected-candidate.json'
+        link.symlink_to(self.candidate)
+        with self.assertRaisesRegex(ValueError, 'manifest destination changed'):
+            with provenance.candidate_transaction(link):
+                link.unlink()
+                link.symlink_to(alternate)
+
+    def test_transaction_preserves_primary_error_and_reports_final_integrity_failure(self):
+        primary = RuntimeError('consumer failed')
+        with self.assertRaises(RuntimeError) as caught:
+            with provenance.candidate_transaction(self.candidate) as bound:
+                bound['artifacts']['worker'].write_text('drift on exceptional path')
+                raise primary
+        self.assertIs(caught.exception, primary)
+        self.assertTrue(any('candidate final integrity check failed' in note
+                            for note in primary.__notes__))
+
+    def test_transaction_final_security_membership_rejects_added_resource(self):
+        import hashlib
+        worker = self.root / 'Worker.app/Contents/MacOS/oryn-page-worker'
+        worker.parent.mkdir(parents=True)
+        worker.write_text('signed worker fixture')
+        self.record['artifacts']['worker'] = self.reference(worker)
+        relative = 'Contents/MacOS/oryn-page-worker'
+        inventory = {relative: self.reference(worker)}
+        security = self.root / 'security-prebuilt.json'
+        security.write_text(json.dumps({'bundle_files': inventory}))
+        self.record['artifacts']['security_prebuilt'] = self.reference(security)
+        self.record['artifacts']['security_bundle_' + hashlib.sha256(relative.encode()).hexdigest()] = self.reference(worker)
+        self.persist()
+        with self.assertRaisesRegex(ValueError, 'bundle file set or bytes changed'):
+            with provenance.candidate_transaction(self.candidate):
+                (worker.parent / 'unexpected-resource').write_text('added during plugin work')
+
+    def test_transaction_does_not_skip_registry_or_architecture_semantics(self):
+        for name in ('core_profile_registry', 'architecture_prebuilt'):
+            path = self.root / name
+            path.write_text('{}')
+            self.record['artifacts'][name] = self.reference(path)
+        self.persist()
+        with patch('core_profile_contract.validate_registry') as registry, patch('architecture_prebuilt.validate_preparation') as architecture:
+            with provenance.candidate_transaction(self.candidate):
+                registry.assert_called_once()
+                architecture.assert_called_once()
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name).resolve()
@@ -245,6 +318,75 @@ class CompletionProvenanceTests(unittest.TestCase):
             provenance.join(self.candidate, components)
         with self.assertRaisesRegex(ValueError, 'missing or changed'):
             provenance.read_record(dict(path='relative', sha256='a' * 64))
+
+
+    def test_transaction_reuses_only_its_freshly_validated_source_index(self):
+        indexes = [dict(files=[{'path': 'first'}]), dict(files=[{'path': 'second'}])]
+        with patch.object(provenance, 'validate_source_snapshot', side_effect=indexes) as snapshots, \
+                patch.object(provenance, 'validate_engine') as engine:
+            for index in indexes:
+                with provenance.candidate_transaction(self.candidate):
+                    self.assertIs(engine.call_args.args[3], index)
+            self.assertEqual(snapshots.call_count, 2)
+            self.assertEqual(engine.call_count, 2)
+            self.assertIsNot(engine.call_args_list[0].args[3], engine.call_args_list[1].args[3])
+
+    def test_semantic_timing_children_preserve_order_and_optional_validator_calls(self):
+        from contextlib import contextmanager
+        events = []
+        @contextmanager
+        def phase(name):
+            events.append(('begin', name))
+            try:
+                yield
+            finally:
+                events.append(('end', name))
+        for name in ('core_profile_registry', 'architecture_prebuilt', 'security_prebuilt'):
+            path = self.root / name
+            path.write_text('{}')
+            self.record['artifacts'][name] = self.reference(path)
+        self.persist()
+        with patch('core_profile_contract.validate_registry') as registry, \
+                patch('architecture_prebuilt.validate_preparation') as architecture, \
+                patch('security_prebuilt.validate_bundle') as security:
+            with provenance.candidate_transaction(self.candidate, phase=phase):
+                registry.assert_called_once()
+                architecture.assert_called_once()
+                security.assert_called_once()
+            self.assertEqual(security.call_count, 2)  # Existing final membership check remains.
+        expected = [('begin', 'inventory.initial'), ('end', 'inventory.initial'),
+                    ('begin', 'candidate.semantics')]
+        for name in ('source_snapshot', 'engine', 'workflow', 'registry', 'architecture', 'security'):
+            expected.extend([('begin', 'candidate.' + name), ('end', 'candidate.' + name)])
+        expected.extend([('end', 'candidate.semantics'),
+                         ('begin', 'inventory.final'), ('end', 'inventory.final')])
+        self.assertEqual(events, expected)
+
+    def test_failed_semantic_child_still_closes_parent_and_checks_final_inventory(self):
+        from contextlib import contextmanager
+        events = []
+        @contextmanager
+        def phase(name):
+            events.append(('begin', name))
+            try:
+                yield
+            except BaseException as error:
+                events.append(('error', name, type(error).__name__))
+                raise
+            finally:
+                events.append(('end', name))
+        primary = RuntimeError('engine validation failed')
+        original = provenance.read_record
+        with patch.object(provenance, 'validate_engine', side_effect=primary), \
+                patch.object(provenance, 'read_record', wraps=original) as reads:
+            with self.assertRaises(RuntimeError) as caught:
+                with provenance.candidate_transaction(self.candidate, phase=phase):
+                    self.fail('failed semantics must not publish a candidate')
+            self.assertIs(caught.exception, primary)
+            self.assertEqual(reads.call_count, 2 * len(self.record['artifacts']))
+        self.assertIn(('error', 'candidate.engine', 'RuntimeError'), events)
+        self.assertIn(('error', 'candidate.semantics', 'RuntimeError'), events)
+        self.assertEqual(events[-2:], [('begin', 'inventory.final'), ('end', 'inventory.final')])
 
 
 class RenderContractProvenanceTests(unittest.TestCase):

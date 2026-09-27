@@ -168,6 +168,7 @@ mod tests {
                 let edge=Rc::new(FrameLifetime{root_realm:environments[0].realm,message_token:token,
                     #[cfg(unix)] deferred_cleanup:RefCell::new(None),message_generation:std::cell::Cell::new(None),frame,connection_generation:generation,
                     parent:Rc::downgrade(parent),parent_environment:environments[parent_index],environment:std::cell::Cell::new(environments[index]),
+                    initial_input_document:std::cell::Cell::new(None),
                     child:RefCell::new(Rc::downgrade(state)),opener:RefCell::new(None),closed:std::cell::Cell::new(false)});
                 edges.push(edge.clone());Rc::downgrade(&edge)
             });

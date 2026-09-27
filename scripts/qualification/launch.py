@@ -14,6 +14,7 @@ import uuid
 HISTORICAL_SHA256 = 'b771fe6c9c532bc6cfaecdc00b44612c960386c01d30f38c68da3e850a09d687'
 PREVIOUS_PREFLIGHT_SHA256 = '14779fad2e2382e25cfbeba063596b3fafae7f98066340d91b40a797baa90323'
 ADMISSION_REGRESSION = 'artifacts/completion-validation-2026-09-18/repair48-dispatch-proposal-02/test_repair48_runtime_admission.py'
+CLEANUP_REGRESSION = 'scripts/test_workflow_cleanup.py'
 SUPERVISOR_KEY = 'ORYN_REPAIR49_SUPERVISED_GROUP'
 SUPERVISOR_VALUE = 'outer-owned-session'
 OUTPUT_NAMES = ('preflight.json', 'process.json', 'full.log', 'test-results.json', 'execution.json')
@@ -53,16 +54,16 @@ def regression_sources(root, previous_path, bound):
 
 
 def validate_population(identities, previous_path):
-    """Keep all 103 prior sources and exactly the new runtime-admission source."""
+    """Keep all 104 prior sources and exactly the reviewed cleanup regression source."""
     if digest(previous_path) != PREVIOUS_PREFLIGHT_SHA256:
         raise ValueError('Python12 source population record changed')
     previous = json.loads(Path(previous_path).read_text())['test_sources']
     if len(previous) != 103 or len(set(previous)) != 103:
         raise ValueError('all 103 Python12 source paths are required')
-    required = set(previous) | {ADMISSION_REGRESSION}
+    required = set(previous) | {ADMISSION_REGRESSION, CLEANUP_REGRESSION}
     observed = [identity['path'] for identity in identities]
-    if len(required) != 104 or len(observed) != 104 or set(observed) != required:
-        raise ValueError('Python14 requires exactly the preserved 103 sources and new admission regression')
+    if len(required) != 105 or len(observed) != 105 or set(observed) != required:
+        raise ValueError('Python14 requires exactly the preserved 104 sources and reviewed cleanup regression')
 
 
 def bind_native_inputs(environment):

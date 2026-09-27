@@ -276,6 +276,9 @@ impl Commit {
         }
         if self.phase == 2 {
             let candidate = self.candidate.as_mut().unwrap();
+            candidate
+                .executable
+                .adopt_page_terminal_control(page.page_task_terminal_control.clone());
             if !candidate.executable.has_agent_host() {
                 let host = page
                     .pending_agent_host
@@ -503,7 +506,13 @@ impl Commit {
                 .as_mut()
                 .ok_or(RuntimeError::NavigationCancelled)?;
             executable.drain_tasks().map_err(map_host_error)?;
+            if executable.terminal_retired() {
+                return Ok(false);
+            }
             executable.poll_context_events().map_err(map_host_error)?;
+            if executable.terminal_retired() {
+                return Ok(false);
+            }
             if executable.form_history_root_identity() != self.destination_identity
                 || executable.native_navigation_load_epoch() != self.destination_epoch
             {
@@ -1047,6 +1056,111 @@ mod tests {
         }
         (context, page, requests)
     }
+    #[test]
+    fn candidate_driver_inherits_page_control_before_host_lending() {
+        let (context, mut page, _requests) = fixture();
+        let control = context.page_prompt_controller(page.page_id).unwrap();
+        assert!(page.page_task_terminal_control.bind(control.clone()));
+        let source = page
+            .executable
+            .as_mut()
+            .unwrap()
+            .prerender_source_snapshot()
+            .unwrap()
+            .unwrap();
+        let mut candidate = page
+            .prerender_candidates
+            .take_for_activation(&source, "https://prerender.test/next")
+            .expect("actual loaded candidate");
+        let mut host = Some(page.executable.as_mut().unwrap().take_agent_host().unwrap());
+        control.retire();
+        assert!(
+            candidate.executable.terminal_retired(),
+            "constructor inherited exact page slot"
+        );
+        let (result, labels) =
+            crate::ipc_progress::close_admission::capture_test_phase_labels(|| {
+                candidate.poll_with_host(&mut host)
+            });
+        result.unwrap();
+        assert!(host.is_some(), "retirement cannot strand the shared host");
+        assert!(!labels.contains(&"timers_and_control_tasks"));
+        let target =
+            crate::page_terminal_control::PageTerminalControl::new(PageId(page.page_id.0 + 100));
+        let target_control = Arc::new(oryn_js::prompts::PromptController::new());
+        assert!(target.bind(target_control));
+        candidate.executable.adopt_page_terminal_control(target);
+        assert!(
+            !candidate.executable.terminal_retired(),
+            "explicit root adoption uses destination ownership"
+        );
+        host.as_mut()
+            .unwrap()
+            .retire_agent_root(candidate.executable.agent_root_realm())
+            .unwrap();
+        drop(candidate);
+        assert!(
+            page.executable
+                .as_mut()
+                .unwrap()
+                .install_agent_host(host.take().unwrap())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn candidate_checkpoint_handoff_retains_extracted_root_signals_before_projection() {
+        use crate::host::JavaScriptHost;
+        let (context, mut page, _requests) = fixture();
+        let control = context.page_prompt_controller(page.page_id).unwrap();
+        assert!(page.page_task_terminal_control.bind(control.clone()));
+        page.prerender_candidates.force_document_poll_for_test();
+        let executable = page.executable.as_mut().unwrap();
+        let mut host = executable.take_agent_host().unwrap();
+        host.evaluate_string("console.log('retained-before-candidate');'queued'")
+            .unwrap();
+        assert!(matches!(
+            executable.return_agent_host_after_turn(host),
+            Ok(None)
+        ));
+        let entered = std::rc::Rc::new(std::cell::Cell::new(false));
+        let in_candidate = entered.clone();
+        let hit = std::rc::Rc::new(std::cell::Cell::new(false));
+        let retired = hit.clone();
+        let (result, labels) =
+            crate::ipc_progress::close_admission::capture_test_phase_labels_with_hook(
+                || page.poll_page_tasks_inner(),
+                move |label| {
+                    if label == "page_poll_prerender" {
+                        in_candidate.set(true);
+                    }
+                    if in_candidate.get()
+                        && label == "checkpoint_dynamic_frames"
+                        && !retired.replace(true)
+                    {
+                        control.retire();
+                    }
+                },
+            );
+        result.unwrap();
+        assert!(
+            entered.get() && hit.get(),
+            "actual retained candidate reached its checkpoint"
+        );
+        assert!(!labels.contains(&"semantic_projection"));
+        assert!(!labels.contains(&"navigation_response_completion"));
+        assert!(page.executable.as_ref().unwrap().has_agent_host());
+        assert!(page.prerender_candidates.loaded_for_test());
+        assert!(
+            page.terminal_page_task_signals
+                .as_ref()
+                .unwrap()
+                .console_entries
+                .iter()
+                .any(|entry| entry.message.contains("retained-before-candidate"))
+        );
+    }
+
     #[test]
     fn loaded_candidate_keeps_dynamic_child_parser_running_before_activation() {
         struct LateChild;

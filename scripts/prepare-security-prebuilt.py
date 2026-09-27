@@ -9,7 +9,7 @@ import subprocess
 
 from completion_provenance import ROOT, digest
 from generation_gate import inherited_generation_lease
-from security_prebuilt import BUILD_COMMANDS, bundle_inventory, preparation_artifacts, source_hash, verify_signature
+from security_prebuilt import BUILD_COMMANDS, bundle_inventory, preparation_artifacts, source_hash, selected_worker_bundle
 
 
 def record(path):
@@ -21,6 +21,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--profile', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--worker', type=Path,
+                        default=ROOT/'target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker')
     args = parser.parse_args()
     lease = inherited_generation_lease()
     profile_path = args.profile.resolve()
@@ -30,9 +32,7 @@ def main():
     spec.loader.exec_module(module)
     profile = module.validate(json.loads(profile_path.read_text()), ROOT, 'core-full', 'aarch64-apple-darwin')
     identity = source_hash()
-    worker = ROOT/'target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker'
-    worker_manifest = worker.parents[1]/'Resources/worker-manifest.json'
-    verify_signature({'artifacts':{'worker':worker,'worker_manifest':worker_manifest}})
+    worker, worker_manifest = selected_worker_bundle(args.worker, profile_path, identity)
     bundle_files = bundle_inventory(worker)
     output = args.output.resolve()
     # A fresh output owns its Cargo directory; it cannot overwrite release inputs.

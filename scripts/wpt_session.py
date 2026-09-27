@@ -6,6 +6,71 @@ import threading
 import uuid
 
 
+MAX_DIAGNOSTIC_EVENTS = 256
+MAX_DIAGNOSTIC_BYTES = 1024 * 1024
+
+
+def validate_diagnostic_evidence(message):
+    # Older historical frames may omit this additive evidence. Omission is
+    # preserved as unavailable by the report consumer, never as a complete audit.
+    if 'diagnostic_events' not in message and 'diagnostic_audit' not in message:
+        return
+    events, audit = message.get('diagnostic_events'), message.get('diagnostic_audit')
+    if not isinstance(events, list) or not isinstance(audit, dict):
+        raise ValueError('invalid diagnostic evidence')
+    fields = ('recorded_events', 'encoded_bytes', 'dropped_events', 'dropped_bytes', 'event_limit', 'byte_limit')
+    if (type(audit.get('schema_version')) is not int or audit['schema_version'] != 1
+            or audit.get('scope') != 'pre_cleanup_live_pages'
+            or any(type(audit.get(key)) is not int or audit[key] < 0 for key in fields)
+            or any(type(audit.get(key)) is not bool for key in ('complete', 'overflow', 'source_overflow'))
+            or audit['event_limit'] != MAX_DIAGNOSTIC_EVENTS or audit['byte_limit'] != MAX_DIAGNOSTIC_BYTES
+            or audit['recorded_events'] != len(events) or len(events) > MAX_DIAGNOSTIC_EVENTS):
+        raise ValueError('invalid diagnostic audit')
+    error = audit.get('collection_error')
+    if 'collection_error' not in audit or error is not None and not isinstance(error, str):
+        raise ValueError('invalid diagnostic collection error')
+    if audit.get('coverage_snapshot') != 'before_archive':
+        raise ValueError('invalid diagnostic page coverage snapshot')
+    def page_id(value):
+        return isinstance(value, str) and value.isascii() and value.isdigit() and int(value) > 0
+    coverage = {}
+    for key in ('expected_live_pages', 'captured_pages', 'missing_pages'):
+        values = audit.get(key)
+        if (not isinstance(values, list) or not all(page_id(value) for value in values)
+                or values != sorted(set(values))):
+            raise ValueError('invalid diagnostic page population')
+        coverage[key] = set(values)
+    if coverage['missing_pages'] != coverage['expected_live_pages'] - coverage['captured_pages']:
+        raise ValueError('diagnostic missing-page population contradicts capture')
+    identities, size, source_overflow = set(), 0, False
+    for row in events:
+        if (not isinstance(row, dict) or set(row) != {'page_id', 'sequence', 'event'}
+                or not page_id(row['page_id']) or row['page_id'] not in coverage['captured_pages']
+                or type(row['sequence']) is not int or row['sequence'] < 0
+                or not isinstance(row['event'], dict)):
+            raise ValueError('invalid diagnostic event identity')
+        identity = (row['page_id'], row['sequence'])
+        if identity in identities:
+            raise ValueError('duplicate diagnostic event identity')
+        identities.add(identity)
+        event = row['event']
+        if event.get('kind') == 'script_diagnostic':
+            if not isinstance(event.get('capability'), str) or not isinstance(event.get('detail'), str):
+                raise ValueError('invalid script diagnostic')
+            source_overflow |= event['capability'] == 'diagnostics.overflow'
+        elif event.get('kind') == 'console':
+            if event.get('level') != 'error' or not isinstance(event.get('message'), str):
+                raise ValueError('invalid console diagnostic')
+        else:
+            raise ValueError('invalid diagnostic event kind')
+        size += len(json.dumps(row, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
+    if (size != audit['encoded_bytes'] or size > MAX_DIAGNOSTIC_BYTES
+            or audit['overflow'] is not (audit['dropped_events'] != 0)
+            or source_overflow and not audit['source_overflow']
+            or audit['complete'] is not (not audit['overflow'] and not audit['source_overflow'] and error is None and not coverage['missing_pages'])):
+        raise ValueError('diagnostic audit contradicts original events')
+
+
 def validate_result_frame(message):
     if type(message.get('page_id')) is not int or message['page_id'] < 1:
         raise ValueError('invalid result page identity')
@@ -19,6 +84,7 @@ def validate_result_frame(message):
         raise ValueError('invalid teardown evidence')
     if not isinstance(message.get('resources'), list) or type(message.get('resource_evidence_complete')) is not bool:
         raise ValueError('invalid resource evidence')
+    validate_diagnostic_evidence(message)
 
 
 class WptSession:

@@ -15,7 +15,7 @@ class PlacementTests(unittest.TestCase):
         snapshot = {'schema': 1, 'nonce': context['nonce'], 'capture_id': 'f' * 64, 'parent_pid': 10,
                     'pages': [{'id': 1, 'url': 'https://web-platform.test:8443' + TEST, 'placement': placement(11)}],
                     'agents': [{'id': id, 'kind': 'Dedicated', 'live': True, 'owners': [window],
-                                'script_url': 'https://web-platform.test:8443/__oryn_shared_memory__/worker.js?placement=1',
+                                'script_url': 'https://web-platform.test:8443/__oryn_shared_memory__/shared-memory/worker.js?placement=1',
                                 'placement': placement(11 + id, True)} for id in (2, 3)],
                     'shared_backings': [{'backing_sha256': str(index) * 64, 'wasm': wasm,
                                          'memory64': False, 'growable': growable, 'maximum_length': 262144,

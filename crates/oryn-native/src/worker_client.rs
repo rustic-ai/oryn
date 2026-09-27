@@ -82,8 +82,8 @@ struct RouteAdmission {
     network_request: Option<u64>,
 }
 
-/// Owns an in-flight reservation. Failure and disconnect discard only this
-/// token; successful completion transfers it to the worker's document commit.
+/// Owns a response reservation until synchronous completion or streaming
+/// header publication transfers custody. Body completion is a separate lifetime.
 struct ResponsePolicyReservation {
     authority: Arc<RouteAuthority>,
     token: Option<String>,
@@ -109,6 +109,25 @@ impl ResponsePolicyReservation {
         Ok(token.clone())
     }
 
+    fn transfer_to_headers(mut self) -> crate::network::ResponsePolicyToken {
+        assert!(
+            self.admitted.get(),
+            "response headers must be admitted before transfer"
+        );
+        let token = self.token.take().expect("live response reservation");
+        let owned = crate::network::ResponsePolicyToken::from(token.clone());
+        let authority = self.authority.clone();
+        owned.attach_cleanup(move || {
+            authority
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .response_policies
+                .abandon_reservation(&token);
+        });
+        owned
+    }
+
     fn retain_for_commit(mut self) {
         if self.admitted.get() {
             self.token.take();
@@ -124,7 +143,7 @@ impl Drop for ResponsePolicyReservation {
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .response_policies
-                .discard(&token);
+                .abandon_reservation(&token);
         }
     }
 }
@@ -470,6 +489,7 @@ impl NetworkBroker for PageNetworkBroker {
         let (sender, events) = tokio::sync::mpsc::channel(8);
         std::thread::spawn(move || {
             let _admission = admission;
+            let mut response_headers_transferred = false;
             while let Some(mut event) = operation.blocking_event() {
                 let Some(context) = context.upgrade() else {
                     let _ = route.inner.cancel_operation(request_id);
@@ -484,7 +504,7 @@ impl NetworkBroker for PageNetworkBroker {
                     drop(context);
                     let _ = sender.blocking_send(NetworkEvent::Failed {
                         request_id,
-                        error: error.to_string(),
+                        error: error.to_string().into(),
                     });
                     return;
                 }
@@ -497,6 +517,17 @@ impl NetworkBroker for PageNetworkBroker {
                 } = &mut event
                 {
                     *response_policy = None;
+                    // Moving cleanup custody must not admit a second response
+                    // header block after the original native grant was issued.
+                    if response_headers_transferred {
+                        let _ = route.inner.cancel_operation(request_id);
+                        drop(context);
+                        let _ = sender.blocking_send(NetworkEvent::Failed {
+                            request_id,
+                            error: "navigation response headers already admitted".into(),
+                        });
+                        return;
+                    }
                     if *response_id != request_id {
                         let _ = route.inner.cancel_operation(request_id);
                         drop(context);
@@ -514,24 +545,27 @@ impl NetworkBroker for PageNetworkBroker {
                         drop(context);
                         let _ = sender.blocking_send(NetworkEvent::Failed {
                             request_id,
-                            error: error.to_string(),
+                            error: error.to_string().into(),
                         });
                         return;
                     }
                     if crate::frame_embedding::creates_document(*status, &response_headers) {
-                        if let Some(grant) = &reservation {
+                        if let Some(grant) = reservation.take() {
                             match grant.headers(
                                 *status,
                                 request_url.clone(),
                                 response_headers.clone(),
                             ) {
-                                Ok(token) => *response_policy = Some(token.into()),
+                                Ok(_) => {
+                                    *response_policy = Some(grant.transfer_to_headers());
+                                    response_headers_transferred = true;
+                                }
                                 Err(error) => {
                                     let _ = route.inner.cancel_operation(request_id);
                                     drop(context);
                                     let _ = sender.blocking_send(NetworkEvent::Failed {
                                         request_id,
-                                        error: error.to_string(),
+                                        error: error.to_string().into(),
                                     });
                                     return;
                                 }
@@ -550,7 +584,10 @@ impl NetworkBroker for PageNetworkBroker {
                     {
                         let _ = route.inner.cancel_operation(request_id);
                         drop(context);
-                        let _ = sender.blocking_send(NetworkEvent::Failed { request_id, error });
+                        let _ = sender.blocking_send(NetworkEvent::Failed {
+                            request_id,
+                            error: error.into(),
+                        });
                         return;
                     }
                 }
@@ -558,7 +595,6 @@ impl NetworkBroker for PageNetworkBroker {
                 // A full downstream queue must not retain the context that
                 // owns this route while waiting for a reader that was dropped.
                 drop(context);
-                let complete = matches!(event, NetworkEvent::Complete { .. });
                 let terminal = matches!(
                     event,
                     NetworkEvent::Complete { .. } | NetworkEvent::Failed { .. }
@@ -568,9 +604,6 @@ impl NetworkBroker for PageNetworkBroker {
                     return;
                 }
                 if terminal {
-                    if complete && let Some(grant) = reservation.take() {
-                        grant.retain_for_commit();
-                    }
                     return;
                 }
             }
@@ -614,6 +647,23 @@ struct BoundWorkerRoute {
 }
 
 impl BoundWorkerRoute {
+    fn response_policy_error(&self, error: RuntimeError) -> RuntimeError {
+        match error {
+            RuntimeError::ProtocolViolation(message)
+                if message.starts_with("unknown navigation response grant:") =>
+            {
+                RuntimeError::ProtocolViolation(format!(
+                    "{message} route_process_session={} route_environment={} route_generation={} route_page={}",
+                    self.identity.process_session,
+                    self.identity.environment,
+                    self.identity.generation,
+                    self.network.page_id.0,
+                ))
+            }
+            other => other,
+        }
+    }
+
     fn context_request(
         &self,
         request: ContextServiceRequest,
@@ -723,7 +773,8 @@ impl BoundWorkerRoute {
                             )?);
                             Ok(())
                         },
-                    )?;
+                    )
+                    .map_err(|error| self.response_policy_error(error))?;
                 let committed =
                     context.native_prerender_scope(page_id, &token, (generation, epoch))?;
                 Ok(ContextServiceResponse::PrerenderResponseCommitted {
@@ -752,15 +803,18 @@ impl BoundWorkerRoute {
                 })?;
                 // Keep revocation serialized through native policy publication.
                 // An admitted request alone does not prevent route retirement.
-                state.response_policies.commit(
-                    page_id,
-                    &token,
-                    &document_url,
-                    &headers,
-                    |source, url, values| {
-                        context.commit_navigation_response_policy(page_id, source, url, values)
-                    },
-                )?;
+                state
+                    .response_policies
+                    .commit(
+                        page_id,
+                        &token,
+                        &document_url,
+                        &headers,
+                        |source, url, values| {
+                            context.commit_navigation_response_policy(page_id, source, url, values)
+                        },
+                    )
+                    .map_err(|error| self.response_policy_error(error))?;
                 Ok(ContextServiceResponse::DocumentSecurityInstalled)
             }
             ContextServiceRequest::DiscardNavigationResponsePolicy { page_id, token } => {
@@ -800,9 +854,49 @@ struct WorkerRoutes {
     script_cleanup: BTreeMap<crate::worker_route::WorkerRoute, RouteScriptCleanup>,
 }
 
+// Killing the child closes its broker pipe, so the broker thread and the
+// initiating request can both retire this router. Only one drains at a time;
+// followers wait for that owner, rather than treating `closing` as settlement.
+#[derive(Default)]
+struct RouterDrainOwner {
+    busy: Mutex<bool>,
+    settled: Condvar,
+}
+struct RouterDrainGuard<'a>(&'a RouterDrainOwner);
+impl RouterDrainOwner {
+    fn acquire(&self, timeout: Duration) -> Result<RouterDrainGuard<'_>, RuntimeError> {
+        let busy = self
+            .busy
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("worker drain ownership poisoned".into()))?;
+        let (mut busy, _) = self
+            .settled
+            .wait_timeout_while(busy, timeout, |busy| *busy)
+            .map_err(|_| RuntimeError::ContextService("worker drain ownership poisoned".into()))?;
+        if *busy {
+            return Err(RuntimeError::ContextService(
+                "worker drain owner remains pending".into(),
+            ));
+        }
+        *busy = true;
+        Ok(RouterDrainGuard(self))
+    }
+}
+impl Drop for RouterDrainGuard<'_> {
+    fn drop(&mut self) {
+        *self
+            .0
+            .busy
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = false;
+        self.0.settled.notify_all();
+    }
+}
+
 #[derive(Default)]
 struct WorkerBrokerRouter {
     route: Mutex<WorkerRoutes>,
+    drain_owner: RouterDrainOwner,
 }
 
 impl WorkerBrokerRouter {
@@ -1206,6 +1300,8 @@ impl WorkerBrokerRouter {
     }
 
     fn unbind_with_timeout(&self, timeout: Duration) -> Result<(), RuntimeError> {
+        let started = Instant::now();
+        let _owner = self.drain_owner.acquire(timeout)?;
         let previous = {
             let mut routes = self
                 .route
@@ -1223,7 +1319,6 @@ impl WorkerBrokerRouter {
                 .map(|slot| std::mem::replace(slot, WorkerRouteState::Draining))
                 .collect::<Vec<_>>()
         };
-        let started = Instant::now();
         let mut failure = None;
         let mut draining = Vec::new();
         // Revoke every authority before waiting for any admitted operation.
@@ -1270,6 +1365,12 @@ impl WorkerBrokerRouter {
     /// realm and acknowledged its cleanup queue. Ordinary revocation cannot
     /// discard these scopes because late cleanup receipts still need them.
     fn finish_acknowledged_reset(&self) -> Result<(), RuntimeError> {
+        self.finish_unbound_cleanup()
+    }
+
+    // The caller must own either ResetReady or a checked, reaped child. Revoking
+    // routes alone does not prove that retained script/network work has stopped.
+    fn finish_unbound_cleanup(&self) -> Result<(), RuntimeError> {
         let retired = {
             let mut routes = self
                 .route
@@ -1278,23 +1379,23 @@ impl WorkerBrokerRouter {
             if routes.closing || !routes.environments.is_empty() || routes.process_session.is_some()
             {
                 return Err(RuntimeError::ProtocolViolation(
-                    "reset cleanup requires fully unbound process".into(),
+                    "terminal cleanup requires fully unbound process".into(),
                 ));
             }
             for (_, registry, sockets, navigation, resources) in routes.script_cleanup.values() {
                 if !sockets.is_drained()? {
                     return Err(RuntimeError::ProtocolViolation(
-                        "reset acknowledged with outstanding network custody".into(),
+                        "terminal cleanup has outstanding network custody".into(),
                     ));
                 }
                 if !resources.is_drained()? {
                     return Err(RuntimeError::ProtocolViolation(
-                        "reset acknowledged with outstanding navigation resources".into(),
+                        "terminal cleanup has outstanding navigation resources".into(),
                     ));
                 }
                 if !registry.is_drained()? {
                     return Err(RuntimeError::ProtocolViolation(
-                        "reset acknowledged with outstanding script authority".into(),
+                        "terminal cleanup has outstanding script authority".into(),
                     ));
                 }
                 if let Some(control) = navigation
@@ -1303,7 +1404,7 @@ impl WorkerBrokerRouter {
                         .map_err(|error| RuntimeError::ContextService(error.to_string()))?
                 {
                     return Err(RuntimeError::ProtocolViolation(
-                        "reset acknowledged with outstanding navigation authority".into(),
+                        "terminal cleanup has outstanding navigation authority".into(),
                     ));
                 }
             }
@@ -1332,6 +1433,39 @@ impl WorkerBrokerRouter {
     }
 }
 
+enum ResponsePolicyCleanup {
+    ContextLease,
+    NetworkToken,
+}
+
+impl WorkerBrokerRouter {
+    fn discard_navigation_response_policy(
+        &self,
+        identity: Option<&crate::worker_route::WorkerRoute>,
+        page_id: PageId,
+        token: &str,
+        source: ResponsePolicyCleanup,
+    ) -> Result<(), RuntimeError> {
+        // This exact route remains authorized for cleanup after retirement;
+        // revocation has already cleared its grants. Never resolve a token
+        // through a replacement environment's authority.
+        self.navigation_resource_cleanup(identity, page_id)?;
+        if let Ok(route) = self.authorized(identity) {
+            let mut state =
+                route.network.authority.state.lock().map_err(|_| {
+                    RuntimeError::ContextService("worker route lock poisoned".into())
+                })?;
+            match source {
+                ResponsePolicyCleanup::ContextLease => state.response_policies.discard(token),
+                ResponsePolicyCleanup::NetworkToken => {
+                    state.response_policies.discard_network_token(token)
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 impl NetworkBroker for WorkerBrokerRouter {
     fn discard_response_policy_routed(
         &self,
@@ -1340,22 +1474,15 @@ impl NetworkBroker for WorkerBrokerRouter {
     ) -> Result<(), NetworkError> {
         let identity = identity
             .ok_or_else(|| NetworkError::Transport("missing response policy route".into()))?;
-        match ContextTransport::request_routed(
-            self,
+        self.discard_navigation_response_policy(
             Some(identity),
-            ContextServiceRequest::DiscardNavigationResponsePolicy {
-                page_id: PageId(identity.environment),
-                token: token.into(),
-            },
+            PageId(identity.environment),
+            token,
+            ResponsePolicyCleanup::NetworkToken,
         )
-        .map_err(|error| NetworkError::Transport(error.to_string()))?
-        {
-            ContextServiceResponse::NavigationResponsePolicyDiscarded => Ok(()),
-            _ => Err(NetworkError::Transport(
-                "invalid response policy cleanup acknowledgement".into(),
-            )),
-        }
+        .map_err(|error| NetworkError::Transport(error.to_string()))
     }
+
     fn start_routed(
         &self,
         identity: Option<&crate::worker_route::WorkerRoute>,
@@ -1518,20 +1645,12 @@ impl ContextTransport for WorkerBrokerRouter {
         }
         if let ContextServiceRequest::DiscardNavigationResponsePolicy { page_id, token } = &request
         {
-            // This exact route remains authorized for cleanup after retirement;
-            // revocation has already cleared its grants. Never resolve a token
-            // through a replacement environment's authority.
-            self.navigation_resource_cleanup(identity, *page_id)?;
-            if let Ok(route) = self.authorized(identity) {
-                route
-                    .network
-                    .authority
-                    .state
-                    .lock()
-                    .map_err(|_| RuntimeError::ContextService("worker route lock poisoned".into()))?
-                    .response_policies
-                    .discard(token);
-            }
+            self.discard_navigation_response_policy(
+                identity,
+                *page_id,
+                token,
+                ResponsePolicyCleanup::ContextLease,
+            )?;
             return Ok(ContextServiceResponse::NavigationResponsePolicyDiscarded);
         }
         if let ContextServiceRequest::AcknowledgeBlankPrerender {
@@ -1944,6 +2063,9 @@ impl Drop for LaunchingWorker {
         if let Some(monitor) = &self.monitor {
             monitor.stop.store(true, Ordering::Release);
         }
+        if let Some(observation) = &self.observation {
+            observation.sample_retirement();
+        }
         let _ = child.kill();
         if let Ok(status) = child.wait()
             && let Some(observation) = &self.observation
@@ -2111,7 +2233,8 @@ fn contextualize_worker_deadline(
     let mut current = &mut error;
     while let RuntimeError::ActionExecutionFailed { cause, .. }
     | RuntimeError::BatchExecutionFailed { cause, .. }
-    | RuntimeError::OilExecutionFailed { cause, .. } = current
+    | RuntimeError::OilExecutionFailed { cause, .. }
+    | RuntimeError::NavigationCleanupFailed { cause, .. } = current
     {
         current = cause.as_mut();
     }
@@ -2163,6 +2286,25 @@ impl WorkerClient {
         Ok(true)
     }
 
+    /// Observe only this owned child; never infer exit from a missing route or PID.
+    pub(crate) fn observed_process_exit(
+        &self,
+    ) -> Result<Option<std::process::ExitStatus>, RuntimeError> {
+        let mut session = self.session.lock().map_err(|_| {
+            RuntimeError::WorkerCrashed("worker process dispatcher lock poisoned".into())
+        })?;
+        let status = session
+            .child
+            .try_wait()
+            .map_err(|error| RuntimeError::WorkerCrashed(error.to_string()))?;
+        if let Some(status) = status
+            && let Some(observation) = &session.process_observation
+        {
+            observation.reaped(status);
+        }
+        Ok(status)
+    }
+
     pub(crate) fn checked_exit_evidence(&self) -> Result<serde_json::Value, RuntimeError> {
         use std::os::unix::process::ExitStatusExt;
         let mut session = self.session.lock().map_err(|_| {
@@ -2180,6 +2322,20 @@ impl WorkerClient {
         Ok(
             serde_json::json!({"worker_pid":pid,"reaped":true,"signal":status.signal(),"exit_code":status.code()}),
         )
+    }
+
+    /// Verify physical retirement without claiming a child-issued Closed ACK.
+    /// Never kill a live process here or turn an attempted kill into evidence.
+    pub(crate) fn checked_terminal_cleanup(&mut self) -> Result<serde_json::Value, RuntimeError> {
+        let mut evidence = self.checked_exit_evidence()?;
+        self.router.unbind()?;
+        self.router.finish_unbound_cleanup()?;
+        // The exact process is reaped and all retained routes are settled. Drop
+        // must not issue another IPC operation to a dead transport.
+        self.attached = false;
+        self.pending_initialization = None;
+        evidence["router_cleanup_complete"] = serde_json::json!(true);
+        Ok(evidence)
     }
 
     pub(crate) fn execution_placement(
@@ -2233,6 +2389,20 @@ impl WorkerClient {
             page_id.0,
             config.document_generation_base,
         )?;
+        let timing_identity = crate::native_timing::worker_identity(
+            session_id,
+            context_owner.id(),
+            page_id.0,
+            config.document_generation_base,
+            None,
+            role,
+        );
+        let mut launch_timing =
+            crate::native_timing::Scope::start("worker_launch_total", timing_identity.clone());
+        let mut verification_timing = crate::native_timing::Scope::start(
+            "worker_input_verification",
+            timing_identity.clone(),
+        );
         let worker_path = discover_worker()?;
         let verification = if requires_trusted_worker() {
             Some(verify_worker(&worker_path)?)
@@ -2248,16 +2418,21 @@ impl WorkerClient {
         #[cfg(not(target_os = "linux"))]
         let launch_binary_sha256: Option<String> = None;
 
+        verification_timing.finish(true);
         let (parent_broker, child_broker) = UnixStream::pair()
             .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
         let (parent_context, child_context) = UnixStream::pair()
             .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
         let child_fd = child_broker.as_raw_fd();
         let child_context_fd = child_context.as_raw_fd();
+        let diagnostic_fd = crate::native_timing::inherited_fd();
         let mut command = Command::new(launch_path);
         #[cfg(target_os = "linux")]
         if is_linux_multicall_worker(launch_path) {
             command.arg("__oryn-page-worker");
+        }
+        if diagnostic_fd.is_some() {
+            command.arg("--diagnostic-fd").arg("5");
         }
         command
             .arg("--broker-fd")
@@ -2285,13 +2460,34 @@ impl WorkerClient {
                 if libc::dup2(child_context_fd, CONTEXT_FD) == -1 {
                     return Err(std::io::Error::last_os_error());
                 }
+                if let Some(fd) = diagnostic_fd {
+                    // Validated retained source is >=64; it cannot alias protocol slots.
+                    if libc::dup2(fd, 5) == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
                 Ok(())
             });
         }
+        let mut spawn_timing =
+            crate::native_timing::Scope::start("worker_os_spawn", timing_identity.clone());
+        let launch_started_unix_ns = crate::worker_lifecycle_audit::now();
         let child = command
             .spawn()
             .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
+        spawn_timing.finish(true);
+        let timing_identity = crate::native_timing::worker_identity(
+            session_id,
+            context_owner.id(),
+            page_id.0,
+            config.document_generation_base,
+            Some(child.id()),
+            role,
+        );
+        launch_timing.set_identity(timing_identity.clone());
+        crate::native_timing::point("worker_spawned", timing_identity.clone());
         let process_observation = crate::worker_lifecycle_audit::spawned(
+            launch_started_unix_ns,
             session_id,
             child.id(),
             context_owner.id(),
@@ -2311,12 +2507,17 @@ impl WorkerClient {
             monitor: None,
             router: None,
         };
+        let mut running_identity_timing = crate::native_timing::Scope::start(
+            "worker_running_identity_verification",
+            timing_identity.clone(),
+        );
         #[cfg(target_os = "macos")]
         verify_running_worker(child.id(), launch_path)?;
         #[cfg(target_os = "macos")]
         let launch_code_directory_hash = Some(running_code_directory_hash(child.id())?);
         #[cfg(not(target_os = "macos"))]
         let launch_code_directory_hash: Option<String> = None;
+        running_identity_timing.finish(true);
         let rss_monitor = RssMonitor::start(child.id())?;
         child.monitor = Some(rss_monitor.clone());
         drop(child_broker);
@@ -2406,6 +2607,10 @@ impl WorkerClient {
             leases: 1,
             code_directory_hash: launch_code_directory_hash.clone(),
         };
+        let mut ready_timing = crate::native_timing::Scope::start(
+            "worker_initialize_and_validate",
+            timing_identity.clone(),
+        );
         let response = client.request_with_timeout(
             WorkerRequest::Initialize {
                 related_actor: None,
@@ -2504,6 +2709,9 @@ impl WorkerClient {
             observation.binary(&binary_sha256);
         }
         client.binary_sha256 = binary_sha256;
+        ready_timing.finish(true);
+        crate::native_timing::point("worker_ready_validated", timing_identity);
+        launch_timing.finish(true);
         Ok(client)
     }
 
@@ -2519,6 +2727,16 @@ impl WorkerClient {
         }
         let timeout = request_timeout(&request, &self.limits);
         self.request_with_timeout(request, timeout)
+    }
+
+    /// Shorten only the next test caller's transport budgets after real startup.
+    /// Child configuration and production defaults remain unchanged.
+    #[cfg(test)]
+    pub(crate) fn set_response_budget_for_test(&mut self, budget: Duration) {
+        let millis = u64::try_from(budget.as_millis()).expect("test response budget");
+        assert!(millis > 0);
+        self.limits.command_wall_ms = millis;
+        self.limits.navigation_wall_ms = millis;
     }
 
     pub(crate) fn has_sibling_environments(&self) -> bool {
@@ -2779,6 +2997,23 @@ impl WorkerClient {
         opener_page_id: Option<PageId>,
         audit_context_id: u64,
     ) -> Result<(), RuntimeError> {
+        let timing_identity = crate::native_timing::worker_identity(
+            self.session_id,
+            audit_context_id,
+            page_id.0,
+            config.document_generation_base,
+            Some(self.process_id()),
+            "reused_environment",
+        );
+        let mut timing = crate::native_timing::Scope::start(
+            "worker_environment_initialize_and_validate",
+            timing_identity.clone(),
+        );
+        crate::ipc_progress::bind_context(
+            &self.route_identity,
+            audit_context_id,
+            self.process_id(),
+        );
         let nonce = handshake_nonce(self.session_id);
         let result = self.request_with_timeout(
             WorkerRequest::Initialize {
@@ -2858,6 +3093,8 @@ impl WorkerClient {
         {
             observation.begin_lease(audit_context_id, page_id.0, config.document_generation_base);
         }
+        timing.finish(true);
+        crate::native_timing::point("worker_environment_ready_validated", timing_identity);
         Ok(())
     }
 
@@ -2917,6 +3154,9 @@ impl WorkerClient {
         }
         let pid = session.child.id();
         session.rss_monitor.stop.store(true, Ordering::Release);
+        if let Some(observation) = &session.process_observation {
+            observation.sample_retirement();
+        }
         session
             .child
             .kill()
@@ -2945,7 +3185,14 @@ impl WorkerProcessSession {
         request: WorkerRequest,
         timeout: Duration,
     ) -> Result<WorkerResponse, RuntimeError> {
-        let result = self.exchange_with_timeout(route, request, timeout);
+        let progress_scope = crate::ipc_progress::request(route, self.next_message_id, &request);
+        let progress = progress_scope.identity();
+        let mut timing = crate::native_timing::Scope::start(
+            "native_parent_request_exchange",
+            serde_json::to_value(progress).unwrap_or(serde_json::Value::Null),
+        );
+        let result = self.exchange_with_timeout(route, request, timeout, progress);
+        timing.finish(result.is_ok());
         // Enforce retirement here, not only in WorkerPage. Initialization,
         // reset, and direct callers must also discard malformed or failed
         // transports, including JSON parse errors and unexpected EOF.
@@ -2955,7 +3202,19 @@ impl WorkerProcessSession {
                 | RuntimeError::WorkerCrashed(_)
                 | RuntimeError::WorkerLimitExceeded { .. })
         ) {
+            crate::ipc_progress::record(
+                progress,
+                crate::ipc_progress::Phase::TransportRetirementBegin,
+                None,
+                None,
+            );
             self.kill();
+            crate::ipc_progress::record(
+                progress,
+                crate::ipc_progress::Phase::TransportRetirementReturned,
+                None,
+                None,
+            );
         }
         result
     }
@@ -2965,6 +3224,7 @@ impl WorkerProcessSession {
         route: &crate::worker_route::WorkerRoute,
         request: WorkerRequest,
         timeout: Duration,
+        progress: Option<crate::ipc_progress::Identity>,
     ) -> Result<WorkerResponse, RuntimeError> {
         if route.process_session != self.session_id {
             return Err(RuntimeError::ProtocolViolation(
@@ -2987,6 +3247,12 @@ impl WorkerProcessSession {
                 ));
             }
         };
+        crate::ipc_progress::record(
+            progress,
+            crate::ipc_progress::Phase::RequestSend,
+            None,
+            None,
+        );
         let envelope = HostEnvelope {
             protocol_version: WORKER_PROTOCOL_VERSION,
             route: Some(route.clone()),
@@ -3005,9 +3271,28 @@ impl WorkerProcessSession {
             contextualize_worker_deadline(error, "ipc_write", command, message_id)
         })?;
 
+        crate::ipc_progress::record(
+            progress,
+            crate::ipc_progress::Phase::RequestWritten,
+            None,
+            None,
+        );
+        let response_started = Instant::now();
         let response = self.read_frame(response_timeout).map_err(|error| {
+            crate::ipc_progress::record(
+                progress,
+                crate::ipc_progress::Phase::ResponseReadFailed,
+                None,
+                None,
+            );
             contextualize_worker_deadline(error, "ipc_response", command, message_id)
         })?;
+        crate::ipc_progress::record(
+            progress,
+            crate::ipc_progress::Phase::ResponseRead,
+            None,
+            None,
+        );
         let response: WorkerEnvelope = serde_json::from_slice(&response)
             .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
         if response.protocol_version != WORKER_PROTOCOL_VERSION
@@ -3036,6 +3321,26 @@ impl WorkerProcessSession {
                     command,
                     message_id,
                 ))
+            }
+            WorkerResponse::Closed if command == "close" => {
+                // The child has released its actor, but HttpRequestAbort only
+                // schedules parent cancellation. Keep the exact route's cleanup
+                // receipt inside this exchange and its existing response budget.
+                let scope = self
+                    .router
+                    .network_cleanup_registry(Some(route), PageId(route.environment))?;
+                let remaining = timeout.saturating_sub(response_started.elapsed());
+                if !scope.drain_cancelled_http(remaining)? {
+                    return Err(contextualize_worker_deadline(
+                        RuntimeError::WorkerLimitExceeded {
+                            resource: "IPC response wall time awaiting HTTP cancellation".into(),
+                        },
+                        "ipc_response",
+                        command,
+                        message_id,
+                    ));
+                }
+                Ok(WorkerResponse::Closed)
             }
             response => Ok(response),
         }
@@ -3194,6 +3499,9 @@ impl WorkerProcessSession {
 
     fn kill(&mut self) {
         self.rss_monitor.stop.store(true, Ordering::Release);
+        if let Some(observation) = &self.process_observation {
+            observation.sample_retirement();
+        }
         let _ = self.child.kill();
         if let Ok(status) = self.child.wait()
             && let Some(observation) = &self.process_observation
@@ -3865,6 +4173,30 @@ mod tests {
             resource,
             "wall time (phase=ipc_response, command=evaluate, message_id=17)"
         );
+    }
+
+    #[test]
+    fn navigation_cleanup_wrapper_preserves_worker_deadline_context() {
+        let secondary = RuntimeError::Script("secondary cleanup failure".into());
+        let error = contextualize_worker_deadline(
+            RuntimeError::NavigationCleanupFailed {
+                cause: Box::new(RuntimeError::WorkerLimitExceeded {
+                    resource: "wall time".into(),
+                }),
+                cleanup: Box::new(secondary.clone()),
+            },
+            "worker_execution",
+            "controlled_navigation",
+            23,
+        );
+        assert!(
+            matches!(error.root_cause(), RuntimeError::WorkerLimitExceeded { resource }
+            if resource == "wall time (phase=worker_execution, command=controlled_navigation, message_id=23)")
+        );
+        let RuntimeError::NavigationCleanupFailed { cleanup, .. } = error else {
+            panic!("cleanup custody changed")
+        };
+        assert_eq!(*cleanup, secondary);
     }
 
     #[test]
@@ -4842,6 +5174,569 @@ mod tests {
         router.unbind().unwrap();
     }
 
+    struct HeadersThenBodyEnd {
+        failed: bool,
+        duplicate_headers: bool,
+    }
+
+    impl NetworkBroker for HeadersThenBodyEnd {
+        fn send(&self, _: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+            panic!("regression must use the streaming parent path")
+        }
+
+        fn start_operation(
+            &self,
+            request: NetworkRequest,
+        ) -> Result<NetworkOperation, NetworkError> {
+            let (sender, events) = tokio::sync::mpsc::channel(3);
+            sender
+                .try_send(NetworkEvent::Headers {
+                    response_policy: None,
+                    timing: None,
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("content-type".into(), "text/html".into())],
+                    content_length: Some(1),
+                    upload: None,
+                })
+                .unwrap();
+            if self.duplicate_headers {
+                sender
+                    .try_send(NetworkEvent::Headers {
+                        response_policy: None,
+                        timing: None,
+                        request_id: request.request_id,
+                        status: 200,
+                        headers: vec![("content-type".into(), "text/plain".into())],
+                        content_length: Some(1),
+                        upload: None,
+                    })
+                    .unwrap();
+            }
+            if self.failed {
+                sender
+                    .try_send(NetworkEvent::Failed {
+                        request_id: request.request_id,
+                        error: "body failed after admitted headers".into(),
+                    })
+                    .unwrap();
+            }
+            drop(sender);
+            Ok(NetworkOperation {
+                body_demand_pending: Default::default(),
+                prefetched: Default::default(),
+                request_id: request.request_id,
+                events,
+                demand: None,
+            })
+        }
+    }
+
+    fn header_transfer_fixture(
+        failed: bool,
+    ) -> (
+        BrowserContext,
+        crate::runtime::PageHandle,
+        PageNetworkBroker,
+    ) {
+        let context = Browser::in_process_probe().new_context();
+        let page = context.new_page();
+        let broker = PageNetworkBroker {
+            authority: Arc::new(RouteAuthority::default()),
+            inner: crate::network::SharedNetworkBroker::new(HeadersThenBodyEnd {
+                failed,
+                duplicate_headers: false,
+            }),
+            context: context.downgrade(),
+            page_id: page.page_id(),
+        };
+        (context, page, broker)
+    }
+
+    fn wait_header_relay(authority: &RouteAuthority) {
+        let state = authority.state.lock().unwrap();
+        let (state, _) = authority
+            .drained
+            .wait_timeout_while(state, Duration::from_secs(5), |state| state.active != 0)
+            .unwrap();
+        assert_eq!(state.active, 0, "parent response relay did not settle");
+    }
+
+    fn header_transfer_request() -> NetworkRequest {
+        NetworkRequest {
+            request_id: 41,
+            method: "GET".into(),
+            url: "https://headers.test/document".into(),
+            headers: Vec::new(),
+            body: Vec::new(),
+            credentials: true,
+            resolved_addrs: Vec::new(),
+            security: CookieRequestContext {
+                kind: CookieRequestKind::Document,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn streamed_header_transfer_still_rejects_duplicate_header_events() {
+        let (_context, page, mut broker) = header_transfer_fixture(false);
+        broker.inner = crate::network::SharedNetworkBroker::new(HeadersThenBodyEnd {
+            failed: false,
+            duplicate_headers: true,
+        });
+        let mut operation = broker.start_operation(header_transfer_request()).unwrap();
+        let token = match operation.next_event().await.unwrap() {
+            NetworkEvent::Headers {
+                response_policy: Some(token),
+                headers,
+                ..
+            } => {
+                assert_eq!(headers, vec![("content-type".into(), "text/html".into())]);
+                token
+            }
+            event => panic!("missing original response: {event:?}"),
+        };
+        assert!(
+            matches!(operation.next_event().await, Some(NetworkEvent::Failed { error, .. }) if error.to_string() == "navigation response headers already admitted")
+        );
+        assert!(operation.next_event().await.is_none());
+        wait_header_relay(&broker.authority);
+        drop(token);
+        drop(operation);
+        broker
+            .inner
+            .drain_owned_operations(Duration::from_secs(5))
+            .unwrap();
+        page.close().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn streamed_header_grant_survives_body_failure_and_eof_before_native_commit() {
+        for failed in [false, true] {
+            let (context, page, broker) = header_transfer_fixture(failed);
+            let mut operation = broker.start_operation(header_transfer_request()).unwrap();
+            let (token, headers) = match operation.next_event().await.unwrap() {
+                NetworkEvent::Headers {
+                    response_policy: Some(token),
+                    headers,
+                    ..
+                } => (token, headers),
+                event => panic!("missing admitted response: {event:?}"),
+            };
+            if failed {
+                assert!(
+                    matches!(operation.next_event().await, Some(NetworkEvent::Failed { error, .. }) if error.to_string().contains("body failed after admitted headers"))
+                );
+            }
+            assert!(operation.next_event().await.is_none());
+            wait_header_relay(&broker.authority);
+            // The response body has ended unsuccessfully before native commit.
+            // Its retained headers still authenticate exactly one document.
+            let parked = context.park_initial_document(page.page_id()).unwrap();
+            broker
+                .authority
+                .state
+                .lock()
+                .unwrap()
+                .response_policies
+                .commit(
+                    page.page_id(),
+                    &token,
+                    "https://headers.test/document",
+                    &headers,
+                    |source, url, values| {
+                        context.commit_navigation_response_policy(
+                            page.page_id(),
+                            source,
+                            url,
+                            values,
+                        )
+                    },
+                )
+                .unwrap();
+            token.committed();
+            context
+                .verify_document_security(page.page_id(), "https://headers.test/document", &headers)
+                .unwrap();
+            assert!(
+                broker
+                    .authority
+                    .state
+                    .lock()
+                    .unwrap()
+                    .response_policies
+                    .commit(
+                        page.page_id(),
+                        &token,
+                        "https://headers.test/document",
+                        &headers,
+                        |_, _, _| panic!("replayed response installed policy"),
+                    )
+                    .is_err()
+            );
+            context
+                .finish_initial_document(page.page_id(), parked, false)
+                .unwrap();
+            drop(token);
+            drop(operation);
+            broker
+                .inner
+                .drain_owned_operations(Duration::from_secs(5))
+                .unwrap();
+            page.close().await.unwrap();
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn streamed_header_custody_reclaims_unread_and_uncommitted_responses() {
+        for unread in [false, true] {
+            let (context, page, broker) = header_transfer_fixture(true);
+            let source = context
+                .capture_navigation_response_source(page.page_id())
+                .unwrap();
+            let mut operation = broker.start_operation(header_transfer_request()).unwrap();
+            let token = if unread {
+                None
+            } else {
+                match operation.next_event().await.unwrap() {
+                    NetworkEvent::Headers {
+                        response_policy: Some(token),
+                        ..
+                    } => Some(token),
+                    event => panic!("missing admitted response: {event:?}"),
+                }
+            };
+            drop(operation);
+            wait_header_relay(&broker.authority);
+            if let Some(token) = token {
+                assert!(
+                    broker
+                        .authority
+                        .state
+                        .lock()
+                        .unwrap()
+                        .response_policies
+                        .begin(41, source.clone())
+                        .is_err(),
+                    "retained header token must still own its grant"
+                );
+                drop(token);
+            }
+            // Dropping an unread queue or the last retained header token frees
+            // the request ID, independently of body terminal delivery.
+            let next = broker
+                .authority
+                .state
+                .lock()
+                .unwrap()
+                .response_policies
+                .begin(41, source)
+                .unwrap();
+            broker
+                .authority
+                .state
+                .lock()
+                .unwrap()
+                .response_policies
+                .discard(&next);
+            broker
+                .inner
+                .drain_owned_operations(Duration::from_secs(5))
+                .unwrap();
+            page.close().await.unwrap();
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn streamed_header_custody_remains_revocable_by_cancel_and_retirement() {
+        for retired in [false, true] {
+            let (_context, page, broker) = header_transfer_fixture(true);
+            let mut operation = broker.start_operation(header_transfer_request()).unwrap();
+            let (token, headers) = match operation.next_event().await.unwrap() {
+                NetworkEvent::Headers {
+                    response_policy: Some(token),
+                    headers,
+                    ..
+                } => (token, headers),
+                event => panic!("missing admitted response: {event:?}"),
+            };
+            if retired {
+                broker.authority.revoke().unwrap();
+            } else {
+                broker.cancel_operation(41).unwrap();
+            }
+            let error = broker
+                .authority
+                .state
+                .lock()
+                .unwrap()
+                .response_policies
+                .commit(
+                    page.page_id(),
+                    &token,
+                    "https://headers.test/document",
+                    &headers,
+                    |_, _, _| panic!("revoked response installed policy"),
+                )
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(if retired {
+                    "response policy route retired"
+                } else {
+                    "reason=request_cancelled"
+                }),
+                "{error}"
+            );
+            drop(token);
+            drop(operation);
+            wait_header_relay(&broker.authority);
+            broker
+                .inner
+                .drain_owned_operations(Duration::from_secs(5))
+                .unwrap();
+            page.close().await.unwrap();
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn ipc_delivered_header_grant_survives_body_failure_until_native_commit() {
+        let (context, page, network) = header_transfer_fixture(true);
+        let authority = network.authority.clone();
+        let inner = network.inner.clone();
+        let page_id = page.page_id();
+        let service =
+            ParentContextService::new_with_network(context.clone(), page_id, Some(inner.clone()))
+                .into_shared();
+        let identity = crate::worker_route::WorkerRoute::issue(1, page_id.0, 0).unwrap();
+        let router = Arc::new(WorkerBrokerRouter::default());
+        router
+            .bind(BoundWorkerRoute {
+                identity: identity.clone(),
+                network,
+                context: service,
+            })
+            .unwrap();
+        let (worker, parent) = UnixStream::pair().unwrap();
+        let server_router = router.clone();
+        let server = std::thread::spawn(move || {
+            crate::network::serve_ipc_broker(parent, server_router, 1024 * 1024)
+        });
+        let ipc = crate::network::IpcNetworkBroker::new(worker);
+        let mut operation = ipc
+            .start_routed(Some(&identity), header_transfer_request())
+            .unwrap();
+        let (token, headers) = match operation.next_event().await.unwrap() {
+            NetworkEvent::Headers {
+                response_policy: Some(token),
+                headers,
+                ..
+            } => (token, headers),
+            event => panic!("missing IPC headers: {event:?}"),
+        };
+        assert!(
+            matches!(operation.next_event().await, Some(NetworkEvent::Failed { error, .. }) if error.to_string().contains("body failed after admitted headers"))
+        );
+        assert!(operation.next_event().await.is_none());
+        wait_header_relay(&authority);
+        let parked = context.park_initial_document(page_id).unwrap();
+        assert!(matches!(
+            router
+                .request_routed(
+                    Some(&identity),
+                    ContextServiceRequest::CommitNavigationResponsePolicy {
+                        page_id,
+                        token: token.to_string(),
+                        document_url: "https://headers.test/document".into(),
+                        headers: headers.clone(),
+                    }
+                )
+                .unwrap(),
+            ContextServiceResponse::DocumentSecurityInstalled
+        ));
+        token.committed();
+        context
+            .verify_document_security(page_id, "https://headers.test/document", &headers)
+            .unwrap();
+        context
+            .finish_initial_document(page_id, parked, false)
+            .unwrap();
+        drop(token);
+        drop(operation);
+        drop(ipc);
+        server.join().unwrap().unwrap();
+        inner
+            .drain_owned_operations(Duration::from_secs(5))
+            .unwrap();
+        page.close().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn response_policy_cleanup_diagnostics_distinguish_context_and_network_owners() {
+        let browser = Browser::in_process_probe();
+        let context = browser.new_context();
+        let page = context.new_page();
+        let page_id = page.page_id();
+        let inner = crate::network::SharedNetworkBroker::new(CaptureBroker {
+            requests: Arc::new(Mutex::new(Vec::new())),
+        });
+        let service =
+            ParentContextService::new_with_network(context.clone(), page_id, Some(inner.clone()))
+                .into_shared();
+        let authority = Arc::new(RouteAuthority::default());
+        let identity = crate::worker_route::WorkerRoute::issue(1, page_id.0, 0).unwrap();
+        let router = WorkerBrokerRouter::default();
+        router
+            .bind(BoundWorkerRoute {
+                identity: identity.clone(),
+                context: service,
+                network: PageNetworkBroker {
+                    authority: authority.clone(),
+                    inner,
+                    context: context.downgrade(),
+                    page_id,
+                },
+            })
+            .unwrap();
+        let url = "https://response-policy.test/";
+        for (request_id, network_cleanup, reason) in [
+            (1, false, "context_token_discarded"),
+            (2, true, "network_token_discarded"),
+        ] {
+            let source = context.capture_navigation_response_source(page_id).unwrap();
+            let token = {
+                let mut state = authority.state.lock().unwrap();
+                let token = state.response_policies.begin(request_id, source).unwrap();
+                state
+                    .response_policies
+                    .headers(&token, 200, url.into(), Vec::new())
+                    .unwrap();
+                token
+            };
+            let cleanup = |route: &crate::worker_route::WorkerRoute| {
+                if network_cleanup {
+                    NetworkBroker::discard_response_policy_routed(&router, Some(route), &token)
+                        .map_err(|error| error.to_string())
+                } else {
+                    router
+                        .request_routed(
+                            Some(route),
+                            ContextServiceRequest::DiscardNavigationResponsePolicy {
+                                page_id,
+                                token: token.clone(),
+                            },
+                        )
+                        .map(|response| {
+                            assert!(matches!(
+                                response,
+                                ContextServiceResponse::NavigationResponsePolicyDiscarded
+                            ));
+                        })
+                        .map_err(|error| error.to_string())
+                }
+            };
+            let foreign = crate::worker_route::WorkerRoute::issue(1, page_id.0, 0).unwrap();
+            assert!(cleanup(&foreign).is_err());
+            // Failed foreign cleanup cannot consume the original parent's grant.
+            assert!(
+                authority
+                    .state
+                    .lock()
+                    .unwrap()
+                    .response_policies
+                    .headers(&token, 200, url.into(), Vec::new())
+                    .unwrap_err()
+                    .to_string()
+                    .contains("headers already admitted")
+            );
+            cleanup(&identity).unwrap();
+            cleanup(&identity).unwrap();
+            let error = router
+                .request_routed(
+                    Some(&identity),
+                    ContextServiceRequest::CommitNavigationResponsePolicy {
+                        page_id,
+                        token: token.clone(),
+                        document_url: url.into(),
+                        headers: Vec::new(),
+                    },
+                )
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(&format!("reason={reason} request_id={request_id}")),
+                "{error}"
+            );
+            assert!(!error.contains(&token));
+        }
+        // Revoked routes retain exact-route idempotent cleanup admission.
+        authority.revoke().unwrap();
+        NetworkBroker::discard_response_policy_routed(&router, Some(&identity), "already-removed")
+            .unwrap();
+        router
+            .request_routed(
+                Some(&identity),
+                ContextServiceRequest::DiscardNavigationResponsePolicy {
+                    page_id,
+                    token: "already-removed".into(),
+                },
+            )
+            .unwrap();
+        page.close().await.unwrap();
+    }
+
+    #[test]
+    fn response_reservation_drop_records_abandonment_but_completed_transfer_remains_committable() {
+        let authority = Arc::new(RouteAuthority::default());
+        let source = crate::agent_registry::AgentOwner::Window {
+            page: PageId(1),
+            target: oryn_js::message_wire::WindowTarget::Root,
+            generation: 7,
+            epoch: 0,
+        };
+        for completed in [false, true] {
+            let token = authority
+                .state
+                .lock()
+                .unwrap()
+                .response_policies
+                .begin(1, source.clone())
+                .unwrap();
+            let reservation = ResponsePolicyReservation {
+                authority: authority.clone(),
+                token: Some(token.clone()),
+                admitted: std::cell::Cell::new(false),
+            };
+            reservation
+                .headers(200, "https://response-policy.test/".into(), Vec::new())
+                .unwrap();
+            if completed {
+                reservation.retain_for_commit();
+            } else {
+                drop(reservation);
+            }
+            let mut state = authority.state.lock().unwrap();
+            let result = state.response_policies.commit(
+                PageId(1),
+                &token,
+                "https://response-policy.test/",
+                &[],
+                |_, _, _| Ok(()),
+            );
+            if completed {
+                result.unwrap();
+            } else {
+                let error = result.unwrap_err().to_string();
+                assert!(
+                    error.contains("reason=reservation_abandoned request_id=1"),
+                    "{error}"
+                );
+                assert!(!error.contains(&token));
+            }
+        }
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn response_policy_commit_requires_exact_live_router_and_parent_grant() {
         let browser = Browser::in_process_probe();
@@ -4910,7 +5805,22 @@ mod tests {
         context
             .verify_document_security(page_id, url, &headers)
             .unwrap();
-        assert!(router.request_routed(Some(&identity), request()).is_err());
+        let replay_error = router
+            .request_routed(Some(&identity), request())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            replay_error.contains("reason=consumed request_id=1"),
+            "{replay_error}"
+        );
+        assert!(
+            replay_error.contains(&format!(
+                "route_process_session=1 route_environment={} route_generation=0 route_page={}",
+                page_id.0, page_id.0,
+            )),
+            "{replay_error}"
+        );
+        assert!(!replay_error.contains(token.as_str()));
         context
             .finish_initial_document(page_id, parked, false)
             .unwrap();
@@ -5505,6 +6415,72 @@ mod tests {
             allowed(current),
             "replayed ACK cannot replace the current document authority"
         );
+    }
+
+    #[test]
+    fn checked_terminal_cleanup_rejects_live_child_without_terminating_it() {
+        let (mut client, probe) = protocol_fixture::responder(PageId(41), Vec::new());
+        assert!(client.checked_terminal_cleanup().is_err());
+        assert!(probe.process_alive());
+        assert_eq!(probe.next_message_id(), 1);
+    }
+
+    #[test]
+    fn checked_terminal_cleanup_requires_reap_and_retained_script_drain() {
+        let context = crate::Browser::in_process_with_config(Default::default()).new_context();
+        let mut route = fixture_worker_route(&context);
+        let (mut client, probe) = protocol_fixture::responder(
+            route.network.page_id,
+            vec![(
+                WorkerRequest::Close,
+                WorkerResponse::LimitExceeded {
+                    resource: "RSS".into(),
+                },
+            )],
+        );
+        route.identity = client.route_identity.clone();
+        let registry = route.context.script_cleanup_registry();
+        client.router.bind(route.clone()).unwrap();
+        let token = registry.reserve().unwrap();
+        let running = registry.claim(token).unwrap();
+        assert!(
+            matches!(client.request(WorkerRequest::Close), Err(RuntimeError::WorkerLimitExceeded { resource }) if resource == "RSS")
+        );
+        assert!(!probe.process_alive());
+        assert!(client.checked_terminal_cleanup().is_err());
+        assert!(
+            client
+                .router
+                .script_cleanup_registry(Some(&route.identity), route.network.page_id)
+                .is_ok()
+        );
+        assert!(running.cancel.load(Ordering::Acquire));
+        drop(running);
+        let evidence = client.checked_terminal_cleanup().unwrap();
+        assert_eq!(evidence["worker_pid"], client.process_id());
+        assert_eq!(evidence["reaped"], true);
+        assert_eq!(evidence["router_cleanup_complete"], true);
+        assert!(
+            client
+                .router
+                .route
+                .lock()
+                .unwrap()
+                .script_cleanup
+                .is_empty()
+        );
+        assert_eq!(probe.next_message_id(), 2);
+    }
+
+    #[test]
+    fn checked_terminal_cleanup_rejects_incomplete_router_unbind() {
+        let (mut client, probe) = protocol_fixture::responder(PageId(43), Vec::new());
+        client.kill();
+        assert!(!probe.process_alive());
+        client.router.route.lock().unwrap().closing = true;
+        assert!(client.checked_terminal_cleanup().is_err());
+        assert!(client.router.route.lock().unwrap().closing);
+        assert_eq!(probe.next_message_id(), 1);
     }
 
     #[test]
@@ -6401,6 +7377,57 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_router_retirement_waits_for_existing_cleanup_owner() {
+        let context = Browser::new().new_context();
+        let router = Arc::new(WorkerBrokerRouter::default());
+        let route = fixture_worker_route(&context);
+        let authority = route.network.authority.clone();
+        let admission = authority.admit(None).unwrap();
+        router.bind(route).unwrap();
+        let first = router.clone();
+        let first = std::thread::spawn(move || first.unbind());
+        let state = authority.state.lock().unwrap();
+        let (state, _) = authority
+            .drained
+            .wait_timeout_while(state, Duration::from_secs(1), |state| !state.retired)
+            .unwrap();
+        assert!(state.retired);
+        drop(state);
+        let (entered, entry) = std::sync::mpsc::channel();
+        let (returned, result) = std::sync::mpsc::channel();
+        let second = router.clone();
+        let second = std::thread::spawn(move || {
+            entered.send(()).unwrap();
+            returned.send(second.unbind()).unwrap();
+        });
+        entry.recv_timeout(Duration::from_secs(1)).unwrap();
+        let early = result.recv_timeout(Duration::from_millis(50));
+        // Release before asserting so failed regressions never leave a drain blocked.
+        drop(admission);
+        first.join().unwrap().unwrap();
+        second.join().unwrap();
+        assert!(
+            matches!(early, Err(std::sync::mpsc::RecvTimeoutError::Timeout)),
+            "concurrent unbind returned before original cleanup settled: {early:?}"
+        );
+        result
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .unwrap();
+        assert!(router.route.lock().unwrap().environments.is_empty());
+    }
+
+    #[test]
+    fn concurrent_router_drain_budget_expires_without_releasing_owner() {
+        let owner = RouterDrainOwner::default();
+        let guard = owner.acquire(Duration::ZERO).unwrap();
+        assert!(owner.acquire(Duration::ZERO).is_err());
+        assert!(*owner.busy.lock().unwrap());
+        drop(guard);
+        assert!(owner.acquire(Duration::ZERO).is_ok());
+    }
+
+    #[test]
     fn failed_drain_permanently_retires_router_even_after_late_completion() {
         let fixture_context = Browser::new().new_context();
         let router = WorkerBrokerRouter::default();
@@ -6568,6 +7595,24 @@ pub(crate) mod protocol_fixture {
         session: Arc<Mutex<WorkerProcessSession>>,
     }
     impl Probe {
+        pub(crate) fn hold_script_cleanup(&self) -> crate::script_load_lease::ScriptLoadLease {
+            let session = self.session.lock().unwrap();
+            let routes = session.router.route.lock().unwrap();
+            let registry = &routes.script_cleanup.values().next().unwrap().1;
+            let token = registry.reserve().unwrap();
+            registry.claim(token).unwrap()
+        }
+        pub(crate) fn enforce_zero_rss_limit(&self) {
+            let mut session = self.session.lock().unwrap();
+            assert!(session.rss_monitor.resident_bytes.load(Ordering::Acquire) > 0);
+            session.limits.worker_rss_bytes = 0;
+        }
+        pub(crate) fn kill_and_unbind(&self) {
+            self.session.lock().unwrap().kill();
+        }
+        pub(crate) fn unbind_while_alive(&self) {
+            self.session.lock().unwrap().router.unbind().unwrap();
+        }
         pub(crate) fn next_message_id(&self) -> u64 {
             self.session.lock().unwrap().next_message_id
         }
@@ -6584,6 +7629,40 @@ pub(crate) mod protocol_fixture {
     fn quoted(value: &str) -> String {
         format!("'{}'", value.replace('\'', "'\"'\"'"))
     }
+    pub(crate) fn responder_for_context(
+        context: BrowserContext,
+        page: PageId,
+        steps: Vec<(WorkerRequest, WorkerResponse)>,
+    ) -> (WorkerClient, Probe) {
+        let (mut client, probe) = responder(page, steps);
+        client.runtime.policy_digest =
+            Some(crate::worker::policy_digest(&ContextOptions::default()));
+        client.limits = WorkerLimits::from(&BrowserConfig::default());
+        client.session.lock().unwrap().limits = client.limits.clone();
+        let network = context
+            .shared_network_broker()
+            .expect("native test network broker");
+        client
+            .router
+            .bind(BoundWorkerRoute {
+                identity: client.route_identity.clone(),
+                context: ParentContextService::new_with_network(
+                    context.clone(),
+                    page,
+                    Some(network.clone()),
+                )
+                .into_shared(),
+                network: PageNetworkBroker {
+                    authority: Arc::new(RouteAuthority::default()),
+                    inner: network.for_page(page.0).new_request_scope(),
+                    context: context.downgrade(),
+                    page_id: page,
+                },
+            })
+            .unwrap();
+        (client, probe)
+    }
+
     pub(crate) fn responder(
         page: PageId,
         steps: Vec<(WorkerRequest, WorkerResponse)>,

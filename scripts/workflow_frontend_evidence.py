@@ -21,7 +21,7 @@ def sources(recipe):
              f'test-harness/workflows/{family}_fixture_v{version}.py',
              f'test-harness/workflows/v2/{family}-client.mjs',
              f'scripts/run-oil-{family}-outcomes.py', 'scripts/workflow_native_adapter.py',
-             'scripts/workflow_frontend_evidence.py']
+             'scripts/workflow_frontend_evidence.py', 'scripts/workflow_outcome_evidence.py']
     if family == 'research': files.append('test-harness/workflows/v2/research-search.mjs')
     if family == 'forms': files.append('test-harness/workflows/forms_fixture_v2.py')
     if family == 'booking': files.append('test-harness/workflows/v2/timezone-resolution.mjs')
@@ -73,7 +73,8 @@ def validate_claim(root, claim, attempt, candidate, artifact):
     if (len(steps) != len(lines) or any(step.get('index') != index or step.get('error')
             or step.get('timed_out') is not False for index, step in enumerate(steps))):
         raise ValueError('frontend witness native task truncated or failed')
-    frames = [frame for step in steps for frame in step['outputs']]
+    from workflow_outcome_evidence import command_frames
+    frames = command_frames(steps, lines)
     data = json.loads(artifact(root, claim.get('sealed_oracle')))
     if family == 'forms':
         from urllib.parse import urlsplit

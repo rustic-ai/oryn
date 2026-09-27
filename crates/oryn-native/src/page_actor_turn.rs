@@ -540,7 +540,22 @@ pub(super) fn dispatch(
             );
         }
         PageCommand::Trace { reply } => {
-            let _ = reply.send(state.trace.events().to_vec());
+            #[cfg(feature = "v8-host")]
+            if let Some(executable) = state.executable.as_mut() {
+                // Trace capture must retain diagnostics even when semantic
+                // projection failed. The document cursor prevents duplicates.
+                for diagnostic in executable.take_unpublished_diagnostics() {
+                    state.trace.push(
+                        Revision(state.revision),
+                        None,
+                        TraceEventKind::ScriptDiagnostic {
+                            capability: diagnostic.capability,
+                            detail: diagnostic.detail.unwrap_or_default(),
+                        },
+                    );
+                }
+            }
+            let _ = reply.send(state.trace.snapshot());
         }
         PageCommand::Execute { action, reply } => {
             let _ = reply.send(state.execute(action));
@@ -600,6 +615,9 @@ fn finish_turn(
     pending_captures: &mut VecDeque<capture_readiness::Pending>,
     paint_completion_sender: &mpsc::WeakSender<PageCommand>,
 ) {
+    if state.terminal_close_requested() {
+        return;
+    }
     // Retain preexisting reply/capture custody for Close teardown;
     // no author work may run between departure ACK and destruction.
     #[cfg(all(unix, feature = "v8-host"))]
@@ -610,6 +628,9 @@ fn finish_turn(
     if let Some(pending) = state.poll_navigation_transaction() {
         pending_navigations.push(pending);
     }
+    if state.terminal_close_requested() {
+        return;
+    }
     #[cfg(feature = "v8-host")]
     if let Some(pending) = state.pending_committed_navigation_reply.take() {
         pending_navigations.push(pending);
@@ -617,12 +638,17 @@ fn finish_turn(
     #[cfg(feature = "v8-host")]
     {
         let mut waiting = Vec::new();
-        for pending in pending_navigations.drain(..) {
-            if let Some(pending) = state.poll_navigation_reply(pending) {
+        for pending in std::mem::take(pending_navigations) {
+            if state.terminal_close_requested() {
+                waiting.push(pending);
+            } else if let Some(pending) = state.poll_navigation_reply(pending) {
                 waiting.push(pending);
             }
         }
         *pending_navigations = waiting;
+    }
+    if state.terminal_close_requested() {
+        return;
     }
     #[cfg(feature = "v8-host")]
     {
@@ -642,11 +668,18 @@ fn finish_turn(
 /// No reply queue or receiver is carried implicitly by the previously active
 /// document. A shared actor can therefore rotate roots at task boundaries.
 pub(super) struct Root {
+    close_observer: Option<crate::ipc_progress::close_admission::Registration>,
     // A retained root owns its document state on the heap. Moving a root between
     // agent queues must not copy the full document/prerender state onto every
     // scheduler frame (including unoptimized builds).
     pub(super) state: Box<PageState>,
+    #[cfg(all(unix, feature = "v8-host"))]
+    close_progress: Option<crate::ipc_progress::Identity>,
+    #[cfg(all(unix, feature = "v8-host"))]
+    close_progress_reported: u8,
     pending_wait: Option<wait_fairness::Pending>,
+    #[cfg(feature = "v8-host")]
+    pending_action_command: Option<action_navigation::Pending>,
     #[cfg(feature = "v8-host")]
     pending_webdriver: Option<webdriver_fairness::Pending>,
     #[cfg(feature = "v8-host")]
@@ -674,7 +707,17 @@ impl Root {
         #[cfg(feature = "v8-host")]
         let paint_completion_sender = paint_completion_owner.downgrade();
         Self {
+            close_observer: crate::ipc_progress::close_admission::register(
+                state.page_id.0,
+                state.config.document_generation_base,
+            ),
+            #[cfg(all(unix, feature = "v8-host"))]
+            close_progress: None,
+            #[cfg(all(unix, feature = "v8-host"))]
+            close_progress_reported: 0,
             pending_wait: None,
+            #[cfg(feature = "v8-host")]
+            pending_action_command: None,
             #[cfg(feature = "v8-host")]
             pending_webdriver: None,
             #[cfg(feature = "v8-host")]
@@ -711,7 +754,9 @@ impl Root {
     fn poll_terminal_cleanup(&mut self) -> bool {
         #[cfg(feature = "v8-host")]
         {
-            self.terminal_cleanup.retain_mut(|cleanup| !cleanup.poll());
+            let state = &mut self.state;
+            self.terminal_cleanup
+                .retain_mut(|cleanup| !cleanup.poll_with_trace(state));
             self.terminal_cleanup.is_empty()
         }
         #[cfg(not(feature = "v8-host"))]
@@ -720,25 +765,28 @@ impl Root {
         }
     }
     fn finish_pending_turn(&mut self, context: &BrowserContext) {
-        if context
+        let can_finish = context
             .page_prompt_controller(self.state.page_id)
-            .map_or(true, |controller| controller.inspect().is_err())
-        {
-            return;
-        }
+            .is_ok_and(|controller| controller.inspect().is_ok());
         #[cfg(feature = "v8-host")]
-        finish_turn(
-            &mut self.state,
-            &mut self.pending_navigations,
-            &mut self.pending_captures,
-            &self.paint_completion_sender,
-        );
+        if can_finish {
+            finish_turn(
+                &mut self.state,
+                &mut self.pending_navigations,
+                &mut self.pending_captures,
+                &self.paint_completion_sender,
+            );
+        }
+        #[cfg(not(feature = "v8-host"))]
+        let _ = can_finish;
     }
     fn has_pending_command(&self) -> bool {
         let pending = self.pending_wait.is_some();
         #[cfg(feature = "v8-host")]
-        let pending =
-            pending || self.pending_webdriver.is_some() || !self.terminal_cleanup.is_empty();
+        let pending = pending
+            || self.pending_action_command.is_some()
+            || self.pending_webdriver.is_some()
+            || !self.terminal_cleanup.is_empty();
         pending
     }
     fn pending_command_delay(&self) -> Option<Duration> {
@@ -751,6 +799,11 @@ impl Root {
             .into_iter()
             .chain(
                 self.pending_webdriver
+                    .as_ref()
+                    .map(|pending| pending.next_delay()),
+            )
+            .chain(
+                self.pending_action_command
                     .as_ref()
                     .map(|pending| pending.next_delay()),
             )
@@ -959,6 +1012,41 @@ impl Root {
         command: PageCommand,
         context: &BrowserContext,
     ) -> Option<oneshot::Sender<()>> {
+        #[cfg(feature = "v8-host")]
+        if self.state.page_task_terminal_control.controller().is_none() {
+            match context.page_prompt_controller(self.state.page_id) {
+                Ok(controller) => {
+                    self.state.page_task_terminal_control.bind(controller);
+                }
+                Err(_) => self.state.page_task_terminal_control.lookup_failed(),
+            }
+        }
+        #[cfg(all(unix, feature = "v8-host"))]
+        let navigation_owner = if matches!(&command, PageCommand::PollContextEvents) {
+            self.state.pending_navigation_transaction.as_ref().and_then(|pending| pending.ipc_identity)
+                .or_else(|| self.state.committed_navigation_progress.as_ref().map(|progress| progress.owner))
+        } else {
+            None
+        };
+        #[cfg(not(all(unix, feature = "v8-host")))]
+        let navigation_owner = None;
+        let _close_turn = crate::ipc_progress::close_admission::turn(
+            self.close_observer.as_ref(),
+            if matches!(&command, PageCommand::PollContextEvents) { "actor_poll_context_events" } else { "actor_dispatch" },
+            navigation_owner,
+        );
+        #[cfg(all(unix, feature = "v8-host"))]
+        if matches!(&command, PageCommand::Close { .. }) && self.close_progress.is_none() {
+            self.close_progress = crate::ipc_progress::capture(self.state.page_id.0);
+            if let Some(identity) = self.close_progress {
+                crate::ipc_progress::record(
+                    Some(identity),
+                    crate::ipc_progress::Phase::CloseActorEntered,
+                    None,
+                    Some(self.state.document_generation),
+                );
+            }
+        }
         self.poll_terminal_cleanup();
         #[cfg(all(unix, feature = "v8-host"))]
         let command = if self.state.script_close_departure_completed() {
@@ -968,6 +1056,11 @@ impl Root {
             command
         };
         if matches!(&command, PageCommand::PollContextEvents) && self.has_pending_command() {
+            #[cfg(feature = "v8-host")]
+            if self.pending_action_command.is_some() {
+                self.poll_action_command(context);
+                return None;
+            }
             if let Some(pending) = self.pending_wait.take() {
                 self.pending_wait = pending.poll(&mut self.state);
             }
@@ -978,7 +1071,25 @@ impl Root {
             self.finish_pending_turn(context);
             return None;
         }
+        #[cfg(feature = "v8-host")]
+        if action_navigation::replaces_document(&command) {
+            // Explicit recovery owns the next navigation. Dropping this receiver
+            // retires the previous fence; ordinary navigation cancellation retains
+            // the old transaction's terminal publication and transport cleanup.
+            self.state.action_navigation = None;
+        }
+        #[cfg(feature = "v8-host")]
+        let _ = self.state.poll_action_navigation();
         let mut command = Some(command);
+        #[cfg(feature = "v8-host")]
+        if self.state.action_navigation.is_some()
+            && let Some(pending) =
+                action_navigation::Pending::from_command(&mut command, &self.state)
+        {
+            self.pending_action_command = Some(pending);
+            self.poll_action_command(context);
+            return None;
+        }
         if let Some(pending) = wait_fairness::Pending::from_command(&mut command, &self.state) {
             match context.page_prompt_controller(self.state.page_id) {
                 Ok(controller) => {
@@ -1021,7 +1132,68 @@ impl Root {
     }
 }
 impl Root {
+    #[cfg(all(unix, feature = "v8-host"))]
+    pub(super) fn close_progress(&self) -> Option<crate::ipc_progress::Identity> {
+        self.close_progress
+    }
+    #[cfg(all(unix, feature = "v8-host"))]
+    fn report_close_pending(&mut self, bit: u8, phase: crate::ipc_progress::Phase) {
+        if self.close_progress_reported & bit == 0
+            && let Some(identity) = self.close_progress
+        {
+            self.close_progress_reported |= bit;
+            crate::ipc_progress::record(
+                Some(identity),
+                phase,
+                None,
+                Some(self.state.document_generation),
+            );
+        }
+    }
+    #[cfg(feature = "v8-host")]
+    fn poll_action_command(&mut self, context: &BrowserContext) {
+        let Some(pending) = self.pending_action_command.take() else {
+            return;
+        };
+        if pending.closed() {
+            return;
+        }
+        if context
+            .page_prompt_controller(self.state.page_id)
+            .map_or(true, |controller| controller.inspect().is_err())
+        {
+            pending.reject(RuntimeError::Closed);
+            return;
+        }
+        if let Some(error) = pending.expired() {
+            pending.reject(error);
+            return;
+        }
+        // One bounded native task turn, then the existing transaction/readiness
+        // suffix. Never await network I/O while owning this root's unique host.
+        if let Err(error) = self.state.poll_page_tasks() {
+            self.state.fail_action_navigation(error.clone());
+            self.state.cancel_navigation_transaction(error);
+        }
+        self.finish_pending_turn(context);
+        match self.state.poll_action_navigation() {
+            std::task::Poll::Pending => self.pending_action_command = Some(pending),
+            std::task::Poll::Ready(Err(error)) => pending.reject(error),
+            std::task::Poll::Ready(Ok(())) => {
+                // Only the next command is resumed; the admitted action is never
+                // retained here and cannot be submitted for a second time.
+                if let Some(command) = pending.resume() {
+                    let _ = self.dispatch(command, context);
+                }
+            }
+        }
+    }
+
     fn cancel_pending_commands(&mut self) {
+        #[cfg(feature = "v8-host")]
+        if let Some(pending) = self.pending_action_command.take() {
+            pending.reject(RuntimeError::Closed);
+        }
         if let Some(pending) = self.pending_wait.take() {
             pending.reject(RuntimeError::Closed);
         }
@@ -1129,6 +1301,8 @@ impl Drop for Root {
 #[cfg(all(test, feature = "v8-host"))]
 mod tests {
     use super::*;
+    include!("terminal_close_yield_tests.rs");
+    include!("page_terminal_control_tests.rs");
     fn root(page: u64) -> (Root, mpsc::Sender<PageCommand>) {
         let (sender, receiver) = mpsc::channel(4);
         let state = PageState::new(
@@ -1721,6 +1895,17 @@ mod related_actor {
                     .find(|entry| entry.route.as_ref() == Some(&attach.route))
                 {
                     entry.context = attach.context;
+                    // Remote claims can attach before the destination's local
+                    // PageRecord is registered. Never inherit source-page control
+                    // or silently replace an already bound destination controller.
+                    if let Some(context) = entry.context.upgrade() {
+                        match context.page_prompt_controller(entry.root.state.page_id) {
+                            Ok(controller) => {
+                                entry.root.state.page_task_terminal_control.bind(controller);
+                            }
+                            Err(_) => entry.root.state.page_task_terminal_control.lookup_failed(),
+                        }
+                    }
                     entry.context_guard.take();
                     entry.reserved_sender.take();
                 }
@@ -1917,6 +2102,22 @@ mod related_actor {
                 let _ = entry.root.state.drain_retired_agent_documents(owned);
             }
             if entry.retiring {
+                if !entry.retire_realms.is_empty() {
+                    entry
+                        .root
+                        .report_close_pending(1, crate::ipc_progress::Phase::CloseRealmsPending);
+                }
+                if entry.root.state.has_retired_agent_documents() {
+                    entry
+                        .root
+                        .report_close_pending(2, crate::ipc_progress::Phase::CloseDocumentsPending);
+                }
+                if !entry.root.terminal_cleanup.is_empty() {
+                    entry.root.report_close_pending(
+                        4,
+                        crate::ipc_progress::Phase::CloseNativeCleanupPending,
+                    );
+                }
                 if let Some(owned) = host.as_mut() {
                     entry
                         .retire_realms
@@ -1934,7 +2135,16 @@ mod related_actor {
                     }
                     let mut removed = entries.remove(cursor);
                     let reply = removed.close_reply.take();
+                    let ipc_identity = removed.root.close_progress();
                     drop(removed);
+                    if let Some(identity) = ipc_identity {
+                        crate::ipc_progress::record(
+                            Some(identity),
+                            crate::ipc_progress::Phase::CloseActorReleased,
+                            None,
+                            None,
+                        );
+                    }
                     if let Some(reply) = reply {
                         let _ = reply.send(());
                     }

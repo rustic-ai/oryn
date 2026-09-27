@@ -486,6 +486,15 @@ pub(super) fn csp(state: &V8BindingState, event: &crate::platform_control::CspEv
     queue_report(state, report);
 }
 
+// Exact local no-work witness, independent of suspension/readiness policy.
+pub(super) fn queues_empty(state: &V8BindingState) -> bool {
+    state
+        .reporting
+        .borrow()
+        .observers
+        .values()
+        .all(|observer| observer.queue.is_empty())
+}
 pub(super) fn ready(state: &V8BindingState) -> bool {
     !state.execution_retired()
         && !state.execution_suspended()

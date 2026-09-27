@@ -27,6 +27,7 @@ pub(super) struct Roster {
     retry: Option<Instant>,
     interest_pending: bool,
     accepted_blank: bool,
+    terminal_control: Option<Arc<crate::page_terminal_control::PageTerminalControl>>,
     #[cfg(test)]
     diagnostic_failure: Option<String>,
 }
@@ -63,6 +64,14 @@ impl Roster {
         self.jobs
             .values()
             .any(|job| matches!(&job.phase, Phase::Document { loaded: true, .. }))
+    }
+    #[cfg(test)]
+    pub(super) fn force_document_poll_for_test(&mut self) {
+        for job in self.jobs.values_mut() {
+            if let Phase::Document { next, .. } = &mut job.phase {
+                *next = None;
+            }
+        }
     }
     #[cfg(all(test, feature = "in-process-probe"))]
     pub(super) fn diagnostic_for_test(&self) -> String {
@@ -221,6 +230,15 @@ impl Roster {
             drop(document);
         }
     }
+    pub fn poll_for_page(
+        &mut self,
+        params: PrerenderPollInput<'_>,
+        terminal_control: Arc<crate::page_terminal_control::PageTerminalControl>,
+    ) -> (u64, Vec<String>) {
+        self.terminal_control = Some(terminal_control);
+        self.poll(params)
+    }
+
     pub fn poll(&mut self, params: PrerenderPollInput<'_>) -> (u64, Vec<String>) {
         let PrerenderPollInput {
             snapshot,
@@ -412,13 +430,14 @@ impl Roster {
                             )?))
                         }
                     },
-                    Phase::Fetch(mut pending) => match pending.poll() {
-                        Poll::Pending => Phase::Fetch(pending),
-                        Poll::Ready(Err(error)) => return Err(error),
-                        Poll::Ready(Ok(prepared)) => {
-                            let mut provisional = None;
-                            let (destination_client, destination_page) = prepared.endpoint();
-                            let result =
+                    Phase::Fetch(mut pending) => {
+                        match pending.poll() {
+                            Poll::Pending => Phase::Fetch(pending),
+                            Poll::Ready(Err(error)) => return Err(error),
+                            Poll::Ready(Ok(prepared)) => {
+                                let mut provisional = None;
+                                let (destination_client, destination_page) = prepared.endpoint();
+                                let result =
                                 prepared.construct(prerender_load::PrerenderConstructionInput {
                                     previous: source.realm,
                                     client: destination_client,
@@ -427,29 +446,35 @@ impl Roster {
                                     deadline: job.deadline,
                                     host,
                                     provisional: &mut provisional,
+                                    // A _blank root has a distinct page owner even
+                                    // while its host is lent by the source page.
+                                    terminal_control: self.terminal_control.as_ref()
+                                        .map(|owner| owner.for_page(destination_page))
+                                        .unwrap_or_else(|| crate::page_terminal_control::PageTerminalControl::new(destination_page)),
                                 });
-                            if let Some(realm) = provisional {
-                                self.retiring.push_back(realm)
-                            }
-                            let document = result?;
-                            #[cfg(test)]
-                            if FAIL_AFTER_CONSTRUCTION.with(|fail| fail.replace(false)) {
-                                self.retiring
-                                    .push_back(document.executable.agent_root_realm());
-                                return Err(RuntimeError::ProtocolViolation(
-                                    "injected candidate construction failure".into(),
-                                ));
-                            }
-                            Phase::Document {
-                                document,
-                                ready: false,
-                                ready_ack: None,
-                                loaded: false,
-                                ack: None,
-                                next: None,
+                                if let Some(realm) = provisional {
+                                    self.retiring.push_back(realm)
+                                }
+                                let document = result?;
+                                #[cfg(test)]
+                                if FAIL_AFTER_CONSTRUCTION.with(|fail| fail.replace(false)) {
+                                    self.retiring
+                                        .push_back(document.executable.agent_root_realm());
+                                    return Err(RuntimeError::ProtocolViolation(
+                                        "injected candidate construction failure".into(),
+                                    ));
+                                }
+                                Phase::Document {
+                                    document,
+                                    ready: false,
+                                    ready_ack: None,
+                                    loaded: false,
+                                    ack: None,
+                                    next: None,
+                                }
                             }
                         }
-                    },
+                    }
                     Phase::Document {
                         mut document,
                         mut ready,
@@ -467,6 +492,16 @@ impl Roster {
                         if !live || (!loaded && Instant::now() >= job.deadline) {
                             self.retiring.push_back(realm);
                             return Err(RuntimeError::NavigationCancelled);
+                        }
+                        if document.executable.terminal_retired() {
+                            return Ok(Phase::Document {
+                                document,
+                                ready,
+                                ready_ack,
+                                loaded,
+                                ack,
+                                next,
+                            });
                         }
                         if !ready {
                             if ready_ack.is_none() {
@@ -498,6 +533,16 @@ impl Roster {
                                 return Err(error);
                             }
                             next = Some(Instant::now() + Duration::from_millis(25));
+                        }
+                        if document.executable.terminal_retired() {
+                            return Ok(Phase::Document {
+                                document,
+                                ready,
+                                ready_ack,
+                                loaded,
+                                ack,
+                                next,
+                            });
                         }
                         if !loaded && document.load_complete() {
                             if ack.is_none() {

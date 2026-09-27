@@ -33,6 +33,48 @@ def module(name, path):
 build = module("framework_build", ROOT / "scripts/build_app_compatibility_framework_corpus.py")
 
 
+NAVIGATION_PROGRESS_PHASES = frozenset({
+    "transaction_bound", "navigation_policy_consumed", "request_start",
+    "io_submit_started", "io_submit_accepted", "io_job_entered", "broker_entered",
+    "broker_returned", "result_delivered", "admission_received", "headers_received",
+    "transaction_headers_ready",
+})
+
+
+def successful_navigation_progress(kind):
+    """Recognize the exact informational HeaderDiagnostics schema, not all diagnostics."""
+    if kind.get("capability") != "navigation.io":
+        return False
+    detail = kind.get("detail")
+    if not isinstance(detail, str) or len(detail) > 16384:
+        return False
+
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate diagnostic field")
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(detail, object_pairs_hook=unique_fields)
+    except (ValueError, RecursionError):
+        return False
+    fields = {"navigation_id", "source_generation", "request_id", "phase", "error",
+              "elapsed_us", "deadline_remaining_us"}
+    if not isinstance(value, dict) or set(value) != fields:
+        return False
+    if (not isinstance(value["phase"], str)
+            or value["phase"] not in NAVIGATION_PROGRESS_PHASES or value["error"] is not None):
+        return False
+    if any(type(value[key]) is not int or value[key] < minimum for key, minimum in
+           (("navigation_id", 1), ("source_generation", 1), ("request_id", 0), ("elapsed_us", 0))):
+        return False
+    remaining = value["deadline_remaining_us"]
+    return remaining is None or (type(remaining) is int and remaining >= 0)
+
+
 def validate(framework, task, frames):
     errors = []
     if not frames or any(
@@ -60,9 +102,16 @@ def validate(framework, task, frames):
     if len(traces) != 1:
         errors.append("missing or duplicate diagnostic trace")
     for trace in traces:
-        for event in trace.get("events", []):
-            kind = event.get("kind", {})
-            if kind.get("kind") == "script_diagnostic" or (
+        events = trace.get("events")
+        if not isinstance(events, list):
+            errors.append("malformed diagnostic trace")
+            continue
+        for event in events:
+            kind = event.get("kind") if isinstance(event, dict) else None
+            if not isinstance(kind, dict):
+                errors.append("malformed diagnostic event")
+                continue
+            if (kind.get("kind") == "script_diagnostic" and not successful_navigation_progress(kind)) or (
                 kind.get("kind") == "console" and kind.get("level") == "error"
             ):
                 errors.append(

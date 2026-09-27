@@ -3,6 +3,31 @@
 //! parser's migration-aware handle map, so publishing does not clone open nodes.
 use super::*;
 impl StreamingParser {
+    /// Set a native insertion boundary before any tokenizer input. The existing
+    /// parser handle map retains both the parent and anchor across callbacks;
+    /// a removed/reparented anchor follows the stream-location append fallback.
+    pub fn set_fragment_insertion_before(
+        &mut self,
+        before: Option<NodeId>,
+    ) -> Result<(), DomError> {
+        let sink = &mut self.inner.tokenizer.sink.sink;
+        let root = sink
+            .fragment_root_key
+            .get()
+            .ok_or(DomError::StaleNode(self.document))?;
+        let (owner, target) = sink.resolve(root);
+        if let Some(before) = before
+            && owner.borrow().parent(before)? != Some(target)
+        {
+            return Err(DomError::StaleNode(before));
+        }
+        let target_key = sink.key(&owner, target);
+        let before_key = before.map(|node| sink.key(&owner, node));
+        sink.stream_locations
+            .borrow_mut()
+            .insert(root, (target_key, before_key));
+        Ok(())
+    }
     pub fn with_fragment(
         dom: SharedDomRuntime,
         target: NodeId,
@@ -853,5 +878,59 @@ mod stack_close_notification_regressions {
                 .unwrap()
                 .is_empty()
         );
+    }
+}
+
+#[cfg(test)]
+mod insertion_boundary_tests {
+    use super::*;
+    #[test]
+    fn fragment_insertion_boundary_orders_text_and_open_nodes_across_chunks() {
+        let dom = std::rc::Rc::new(RefCell::new(DomRuntime::new()));
+        let root = dom.borrow_mut().create_element("div");
+        let tail = dom.borrow_mut().create_element("i");
+        dom.borrow_mut().append_child(root, tail).unwrap();
+        let mut parser = StreamingParser::with_fragment(
+            dom.clone(),
+            root,
+            crate::sanitizer::FragmentContext::html_body(),
+            None,
+            false,
+        )
+        .unwrap();
+        parser.set_fragment_insertion_before(Some(tail)).unwrap();
+        for chunk in ["A<b>", "B", "C</b>D"] {
+            let input = ParserInput::unicode(chunk);
+            assert_eq!(
+                parser
+                    .push_input_until_resource_or_script(&input)
+                    .consumed_bytes,
+                input.len()
+            );
+        }
+        assert!(parser.prepare_finish());
+        let native = dom.borrow();
+        assert_eq!(native.children(root).unwrap().last(), Some(&tail));
+        assert_eq!(native.arena().text_content(root).unwrap(), "ABCD");
+        assert_eq!(native.children(root).unwrap().len(), 4);
+    }
+    #[test]
+    fn fragment_insertion_rejects_foreign_anchor_before_input() {
+        let dom = std::rc::Rc::new(RefCell::new(DomRuntime::new()));
+        let root = dom.borrow_mut().create_element("div");
+        let other = dom.borrow_mut().create_element("div");
+        let anchor = dom.borrow_mut().create_element("i");
+        dom.borrow_mut().append_child(other, anchor).unwrap();
+        let mut parser = StreamingParser::with_fragment(
+            dom.clone(),
+            root,
+            crate::sanitizer::FragmentContext::html_body(),
+            None,
+            false,
+        )
+        .unwrap();
+        assert!(parser.set_fragment_insertion_before(Some(anchor)).is_err());
+        assert!(dom.borrow().children(root).unwrap().is_empty());
+        assert_eq!(dom.borrow().parent(anchor).unwrap(), Some(other));
     }
 }

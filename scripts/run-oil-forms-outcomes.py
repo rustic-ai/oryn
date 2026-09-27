@@ -16,6 +16,7 @@ import subprocess
 import sys
 import threading
 import time
+from workflow_cleanup import CleanupFailure, settle_group
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "test-harness/workflows"
@@ -105,28 +106,27 @@ class Oracle:
         check_execution_generation()
         self.lock = threading.Lock()
         self.stderr = open(output / "fixture.stderr", "wb")
-        check_execution_generation()
-        self.process = subprocess.Popen(
-            [sys.executable, str(fixture or FIXTURES / "forms_fixture.py"), *map(str, arguments)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=self.stderr,
-            text=True,
-            bufsize=1,
-        )
+        self.process = None
         try:
+            check_execution_generation()
+            self.process = subprocess.Popen(
+                [sys.executable, str(fixture or FIXTURES / "forms_fixture.py"), *map(str, arguments)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr,
+                text=True, bufsize=1, start_new_session=True,
+            )
             ready = self.read()
             if ready.get("event") != "ready" or type(ready.get("port")) is not int:
                 raise ValueError("invalid fixture startup")
             self.origin = f"http://127.0.0.1:{ready['port']}"
-        except Exception as error:
+        except BaseException as error:
             cleanup = self.close()
-            # Preserve startup diagnostics even when a test's temporary output
-            # directory is removed during unwinding. Never treat EOF as readiness.
-            stderr = (output / "fixture.stderr").read_text(errors="replace")[-8192:]
-            raise ValueError(
-                f"fixture startup failed: {error}; cleanup={cleanup}; stderr={stderr}"
-            ) from error
+            try:
+                diagnostic = (output / "fixture.stderr").read_text(errors="replace")[-8192:]
+            except Exception as read_error:
+                diagnostic = 'stderr unavailable: '+str(read_error)
+            settled = cleanup == {"returncode": 0, "forced": False} or (cleanup.get('group_settled') is True and cleanup.get('resources_settled') is True)
+            raise CleanupFailure(error, [f"fixture startup cleanup={cleanup}; stderr={diagnostic}"],
+                                 not settled, (self,) if not settled else ()) from error
 
     def read(self):
         if not select.select([self.process.stdout], [], [], 15)[0]:
@@ -148,19 +148,37 @@ class Oracle:
             return response["result"]
 
     def close(self):
-        forced = False
-        if self.process.poll() is None:
+        forced, errors = False, []
+        pipes_settled = True
+        process = self.process
+        settled = process is None
+        if process is not None:
             try:
-                self.process.stdin.write('{"command":"shutdown"}\n')
-                self.process.stdin.flush()
-                self.process.wait(timeout=10)
-            except (OSError, subprocess.TimeoutExpired):
+                if process.poll() is None:
+                    process.stdin.write('{"command":"shutdown"}\n')
+                    process.stdin.flush()
+                    process.wait(timeout=10)
+            except BaseException as error:
                 forced = True
-                self.process.kill()
-                self.process.wait(timeout=10)
-        for pipe in (self.process.stdin, self.process.stdout, self.stderr):
-            pipe.close()
-        return {"returncode": self.process.returncode, "forced": forced}
+                errors.append('fixture shutdown: '+repr(error))
+            try:
+                receipt = settle_group(process, timeout=10)
+                settled = receipt['group_settled'] and type(receipt['returncode']) is int
+                errors.extend(receipt['errors'])
+            except BaseException as error:
+                settled = False
+                errors.append('fixture settlement: '+repr(error))
+        for pipe in ((process.stdin, process.stdout) if process is not None else ()) + (self.stderr,):
+            try:
+                if pipe is not None:
+                    pipe.close()
+            except BaseException as error:
+                errors.append('fixture pipe close: '+repr(error))
+                pipes_settled = False
+        result = dict(returncode=process.returncode if process is not None else 0, forced=forced)
+        if errors or not settled or result['returncode'] != 0 or forced:
+            result.update(errors=errors, group_settled=settled, resources_settled=settled and pipes_settled)
+        return result
 
 
 def run_case(oracle, case, sample, contract, binary, worker, output):

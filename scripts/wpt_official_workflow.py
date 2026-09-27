@@ -15,6 +15,8 @@ import sys
 from wpt_full_qualification import REVISION, EXECUTORS, sha256, bind_inventory, validate_inventory
 from wpt_fixture_contract import validate as validate_fixture
 from completion_execution import run_owned, reference, persist
+from wpt_shared_placement import TEST as PLACEMENT_TEST
+from wpt_execution_evidence import execution_metadata, verify_execution_policy
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / 'tools/wptrunner-oryn'
@@ -39,9 +41,8 @@ def read_inventory(folder, checkout, manifest, policy):
     return core
 
 
-def runner_command(python, checkout, contract, prepared, kind, output, gate_path):
-    if kind not in {'core', 'canaries', 'placement'}:
-        raise ValueError('unknown execution collection')
+def runner_command(python, checkout, contract, prepared, kind, output, gate_path, *, core_processes=1):
+    processes = execution_metadata(kind, core_processes)['processes']
     bound = load_contract(contract)
     candidate = bound['candidate']['artifacts']
     fixture = bound['fixture']
@@ -54,7 +55,7 @@ def runner_command(python, checkout, contract, prepared, kind, output, gate_path
             '--host-cert-path', str(root / fixture['tls']['certificate']['path']),
             '--host-key-path', str(root / fixture['tls']['key']['path']),
             '--include-file', str(Path(prepared) / (kind + '.include')),
-            '--processes', '1', '--repeat', '1', '--rerun', '1', '--retry-unexpected', '0',
+            '--processes', str(processes), '--repeat', '1', '--rerun', '1', '--retry-unexpected', '0',
             '--no-pause-after-test', '--no-install-fonts',
             '--log-wptreport', str(Path(output) / 'wptreport.json'),
             '--log-raw', str(Path(output) / 'mozlog.jsonl'),
@@ -62,7 +63,8 @@ def runner_command(python, checkout, contract, prepared, kind, output, gate_path
     return args
 
 
-def prepare(gate_path, contract_path, inventory, checkout, manifest, policy, python, output):
+def prepare(gate_path, contract_path, inventory, checkout, manifest, policy, python, output, *, core_processes=1, core_timeout_seconds=43200):
+    execution_metadata('core', core_processes, core_timeout_seconds)
     admission = GenerationLease(gate_path, validator=generation_gate)
     bound = load_contract(contract_path)
     validate_fixture(bound['fixture'], Path(bound['fixture_path']).parent)
@@ -89,44 +91,51 @@ def prepare(gate_path, contract_path, inventory, checkout, manifest, policy, pyt
     canary_metadata = output / 'canary-metadata'
     canary_metadata.mkdir()
     canary_manifest = output / 'canary-manifest.json'
-    # Actual pinned manifest generation, only for the separate canary root.
+    # Preserve the fixture files and upstream classification: each collection
+    # is a selected child directory of the same root mounted by wptrunner.
+    controls = json.loads((PLUGIN / 'canaries/controls.json').read_text())
+    canary_requirements = [argument for row in controls['controls']
+                           for argument in ('--require-test', row['type'],
+                                            controls['mount'] + row['path'])]
     check_preparation_inputs()
     subprocess.run([str(python), str(ROOT / 'scripts/wpt-upstream-entry.py'), '--checkout', str(checkout), '--generation-gate', str(gate_path),
-                    'manifest', '--tests', str(PLUGIN / 'canaries'), '--output', str(canary_manifest),
-                    '--url-base', '/__oryn_qualification__/'], check=True, env=admission.environment())
+                    'manifest', '--tests', str(PLUGIN), '--subdir', 'canaries', '--output', str(canary_manifest),
+                    '--url-base', '/__oryn_qualification__/', *canary_requirements], check=True, env=admission.environment())
     check_preparation_inputs()
-    placement_root = ROOT / 'crates/oryn-native/tests/fixtures/shared-memory'
+    placement_root = ROOT / 'crates/oryn-native/tests/fixtures'
     placement_metadata = output / 'placement-metadata'
     placement_metadata.mkdir()
     placement_manifest = output / 'placement-manifest.json'
     admission.check()
     subprocess.run([str(python), str(ROOT / 'scripts/wpt-upstream-entry.py'), '--checkout', str(checkout), '--generation-gate', str(gate_path),
-                    'manifest', '--tests', str(placement_root), '--output', str(placement_manifest),
-                    '--url-base', '/__oryn_shared_memory__/'], check=True, env=admission.environment())
+                    'manifest', '--tests', str(placement_root), '--subdir', 'shared-memory', '--output', str(placement_manifest),
+                    '--url-base', '/__oryn_shared_memory__/', '--require-test', 'testharness',
+                    PLACEMENT_TEST], check=True, env=admission.environment())
     check_preparation_inputs()
     config = configparser.ConfigParser(interpolation=None)
     config['manifest:official'] = {'tests': str(checkout), 'metadata': str(metadata),
                                     'manifest': str(Path(manifest).resolve()), 'url_base': '/'}
-    config['manifest:oryn-qualification'] = {'tests': str(PLUGIN / 'canaries'),
+    config['manifest:oryn-qualification'] = {'tests': str(PLUGIN),
         'metadata': str(canary_metadata), 'manifest': str(canary_manifest), 'url_base': '/__oryn_qualification__/'}
     config['manifest:oryn-shared-memory'] = {'tests': str(placement_root), 'metadata': str(placement_metadata),
         'manifest': str(placement_manifest), 'url_base': '/__oryn_shared_memory__/'}
-    (output / 'placement.include').write_text('/__oryn_shared_memory__/engine-lifecycle.https.html?placement=1\n')
+    (output / 'placement.include').write_text(PLACEMENT_TEST + '\n')
     with (output / 'wptrunner.ini').open('w') as stream:
         config.write(stream)
     (output / 'core.include').write_text(''.join(row['url'] + '\n' for _, row in sorted(core.items()) if row['test_type'] in EXECUTORS))
-    controls = json.loads((PLUGIN / 'canaries/controls.json').read_text())
     (output / 'canaries.include').write_text(''.join(controls['mount'] + row['path'] + '\n' for row in controls['controls']))
     inputs = [Path(gate_path), Path(contract_path), Path(manifest), Path(policy), Path(python).resolve(),
               Path(__file__), ROOT / 'scripts/completion_execution.py', ROOT / 'scripts/completion_provenance.py',
               ROOT / 'scripts/wpt_execution_evidence.py', ROOT / 'scripts/generation_gate.py', ROOT / 'scripts/wpt-upstream-entry.py', ROOT / 'scripts/run-official-wpt.py',
               *sorted((PLUGIN / 'oryn_wptrunner').rglob('*.py')),
               Path(inventory) / 'plan.json', Path(inventory) / 'coverage.jsonl',
-              *sorted((PLUGIN / 'canaries').glob('*')), *sorted(output.glob('*.ini')), *sorted(output.glob('*.include')), canary_manifest, placement_manifest, *sorted(placement_root.iterdir()), ROOT / 'scripts/wpt_shared_placement.py']
+              *sorted((PLUGIN / 'canaries').rglob('*')), *sorted(output.glob('*.ini')), *sorted(output.glob('*.include')), canary_manifest, placement_manifest, *sorted((placement_root / 'shared-memory').rglob('*')), ROOT / 'scripts/wpt_shared_placement.py', ROOT / 'scripts/wpt_canary_qualification.py']
     if envelope:
         inputs += [Path(record['path']) for record in envelope['registry']['inputs']]
         inputs.append(ROOT / 'scripts/core_profile_contract.py')
-    lock = {'schema_version': 2 if envelope else 1, 'candidate_sha256': bound['candidate_sha256'],
+    lock = {'schema_version': 2 if envelope else 1, 'core_processes': core_processes,
+            'core_timeout_seconds': core_timeout_seconds,
+            'candidate_sha256': bound['candidate_sha256'],
             'run_contract_sha256': bound['sha256'], 'upstream_revision': REVISION,
             'feature_environment_sha256': bound['feature_environment_sha256'],
             'feature_profile': bound['feature_profile'], 'feature_profile_sha256': bound['feature_profile_sha256'],
@@ -156,6 +165,8 @@ def execute(gate_path, contract_path, checkout, prepared, python, kind, output):
     frozen_gate = reference(gate_path)
     bound = load_contract(contract_path)
     lock = json.loads((Path(prepared) / 'workflow-lock.json').read_text())
+    process_policy = execution_metadata(kind, lock.get('core_processes', 1),
+                                        lock.get('core_timeout_seconds', 43200))
     if str(Path(checkout).resolve()) != lock.get('checkout') or str(Path(python).resolve()) != lock.get('python'):
         raise ValueError('prepared checkout/runtime path changed')
     if lock['candidate_sha256'] != bound['candidate_sha256'] or lock['run_contract_sha256'] != bound['sha256']:
@@ -185,7 +196,9 @@ def execute(gate_path, contract_path, checkout, prepared, python, kind, output):
     output = Path(output).resolve()
     admission.check()
     output.mkdir(parents=True, exist_ok=False)
-    command = runner_command(python, checkout, contract_path, prepared, kind, output, gate_path)
+    command = runner_command(python, checkout, contract_path, prepared, kind, output, gate_path,
+                             core_processes=process_policy['core_processes'])
+    verify_execution_policy(lock, kind, {**process_policy, 'argv': command})
     environment = admission.environment()
     # Native configuration is immutable; remove legacy diagnostics from the child.
     for name in list(environment):
@@ -198,8 +211,10 @@ def execute(gate_path, contract_path, checkout, prepared, python, kind, output):
         environment['ORYN_CORE_COLLECTION'] = kind
     environment['ORYN_WPT_PROTOCOL_CUSTODY'] = str(custody_path)
     environment['ORYN_WPT_CANDIDATE_SHA256'] = bound['candidate_sha256']
+    if kind == 'canaries':
+        environment['ORYN_WPT_CANARY_RESOURCE_AUDIT'] = '1'
     if kind == 'placement':
-        placement = {'schema': 1, 'test': '/__oryn_shared_memory__/engine-lifecycle.https.html?placement=1',
+        placement = {'schema': 1, 'test': PLACEMENT_TEST,
                      'nonce': secrets.token_hex(32), 'run_contract': str(Path(contract_path).resolve()),
                      'candidate_sha256': bound['candidate_sha256'], 'run_contract_sha256': bound['sha256'],
                      'output': str(output / 'placement.json')}
@@ -207,7 +222,7 @@ def execute(gate_path, contract_path, checkout, prepared, python, kind, output):
         context_path.write_text(json.dumps(placement, indent=2) + '\n')
         environment['ORYN_WPT_PLACEMENT_CONTEXT'] = str(context_path)
     profile_context = profile_identity(envelope, kind) if envelope else {}
-    preflight = {**profile_context, 'schema_version': 2 if envelope else 1, 'candidate_sha256': bound['candidate_sha256'],
+    preflight = {**profile_context, **process_policy, 'schema_version': 2 if envelope else 1, 'candidate_sha256': bound['candidate_sha256'],
                  'collection': kind, 'argv': command,
                  'generation_gate': frozen_gate, 'run_contract': reference(contract_path),
                  'workflow_lock': reference(Path(prepared) / 'workflow-lock.json'),
@@ -245,8 +260,11 @@ def execute(gate_path, contract_path, checkout, prepared, python, kind, output):
     # Repeat admission after preflight work, before any upstream executor runs.
     # Keep the same check after execution to retain failures in the run receipt.
     verify_inputs()
-    execution = run_owned(command, output, environment=environment, cwd=checkout)
+    execution = run_owned(command, output, timeout=process_policy['timeout_seconds'],
+                          environment=environment, cwd=checkout)
     errors = []
+    if execution['returncode'] == 65:
+        errors.append('official run admission or final integrity was rejected')
     if execution['timed_out'] or execution['error'] or not execution['cleanup_complete']:
         errors.append('official executor failed custody or cleanup')
     try:
@@ -255,7 +273,7 @@ def execute(gate_path, contract_path, checkout, prepared, python, kind, output):
         errors.append(str(error))
     record = {'upstream_revision': REVISION, **{key: lock[key] for key in ('feature_environment_sha256', 'feature_profile', 'feature_profile_sha256', 'cookie_profile', 'cookie_profile_sha256', 'fixture_environment_sha256', 'manifest_sha256', 'coverage_sha256', 'policy_sha256', 'core_include_sha256', 'core_total')},
               **{name + '_sha256': bound['candidate']['artifacts'][name]['sha256'] for name in ('runtime', 'driver', 'source_snapshot', 'worker_manifest')},
-              **profile_context, 'schema_version': 2 if envelope else 1, 'candidate_sha256': bound['candidate_sha256'], 'collection': kind,
+              **profile_context, **process_policy, 'schema_version': 2 if envelope else 1, 'candidate_sha256': bound['candidate_sha256'], 'collection': kind,
               'argv': command, 'returncode': execution['returncode'], 'launch_error': execution['error'],
               'timed_out': execution['timed_out'], 'cleanup_complete': execution['cleanup_complete'],
               'elapsed_ns': execution['elapsed_ns'], 'errors': errors, 'custody_complete': not errors,

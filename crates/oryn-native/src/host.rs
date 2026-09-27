@@ -376,6 +376,11 @@ mod raw_v8 {
         );
     }
 
+    #[cfg(test)]
+    std::thread_local! {
+        static FAIL_PAGE_TRANSITION_CHECKPOINT_ONCE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
     type PublicationIdentity = (NodeId, u64, u64, bool);
     pub struct NativePageTransition {
         unload_timing: oryn_js::navigation_timing::UnloadTiming,
@@ -446,6 +451,9 @@ mod raw_v8 {
             u64,
         )>,
         receipt: Option<u64>,
+        // A completed native receipt has been consumed. Keep that fact while
+        // its microtask-only completion can fail, so retry never redispatches.
+        publication_complete: bool,
     }
     impl Drop for NativePageRecipient {
         fn drop(&mut self) {
@@ -1143,9 +1151,14 @@ mod raw_v8 {
                     | PlatformHostRequest::MediaStart { .. }
                     | PlatformHostRequest::ImagePreloadStart { .. }
                     | PlatformHostRequest::PrefetchStart { .. }
+                    | PlatformHostRequest::XsltStart { .. }
             );
-            let is_cancellable_start =
-                is_http_start || matches!(&request, PlatformHostRequest::WebSocketOpen { .. });
+            let is_cancellable_start = is_http_start
+                || matches!(
+                    &request,
+                    PlatformHostRequest::WebSocketOpen { .. }
+                        | PlatformHostRequest::XsltTransform { .. }
+                );
             let request_id = if is_cancellable_start {
                 Some(next_parent_http_request_identity()?)
             } else {
@@ -1875,6 +1888,9 @@ mod raw_v8 {
         #[cfg(unix)]
         deferred_cleanup: RefCell<Option<crate::context_service::ContextDeferredContainerLease>>,
         message_generation: std::cell::Cell<Option<(u64, u64)>>,
+        // Published only by a successful native bind of an uncommitted initial
+        // Document. This is input membership, never a driver/parser claim.
+        initial_input_document: std::cell::Cell<Option<(NodeId, u64)>>,
         frame: NodeId,
         connection_generation: u64,
         parent: std::rc::Weak<V8BindingState>,
@@ -2160,6 +2176,7 @@ mod raw_v8 {
                     #[cfg(unix)]
                     deferred_cleanup: RefCell::new(None),
                     message_generation: std::cell::Cell::new(None),
+                    initial_input_document: std::cell::Cell::new(None),
                     frame,
                     connection_generation: dom.borrow_mut().track_frame_context(frame),
                     parent: Rc::downgrade(&active),
@@ -2178,6 +2195,7 @@ mod raw_v8 {
                 "cannot rebind a discarded frame lifetime".into(),
             ));
         }
+        lifetime.initial_input_document.set(None);
         let frame_modals_allowed = dom
             .borrow()
             .attribute_in_null_namespace(frame, "sandbox")
@@ -2194,6 +2212,7 @@ mod raw_v8 {
         active
             .install_initial_frame_layout(&child_state, width, height)
             .map_err(|error| HostError::Execution(error.to_string()))?;
+        child_state.set_document_focus_admission(native_document_focus_admitted);
         child_state
             .set_frame_viewport_parent(&active, frame)
             .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -2445,8 +2464,19 @@ mod raw_v8 {
             let scope = &mut v8::ContextScope::new(scope, child);
             if current_fetch_endpoint(scope).is_some() {
                 standalone_platform_http::install(scope, &child_state)?;
+            } else {
+                standalone_platform_http::install_transform_only(scope, &child_state);
             }
         }
+        lifetime.initial_input_document.set(
+            child
+                .get_slot::<InitialFrameDocument>()
+                .is_some_and(|initial| !initial.committed.get())
+                .then_some((
+                    child_state.document_root(),
+                    child_state.document_generation(),
+                )),
+        );
         Ok(())
     }
 
@@ -2783,6 +2813,9 @@ mod raw_v8 {
             bind_native_frame_lifetime(scope, parent, child, frame)?;
             let child_window = v8::Global::new(scope, child_window);
             state.set_frame_window(frame, child_window.clone());
+            if let Some(child_state) = child.get_slot::<V8BindingState>() {
+                state.set_native_input_frame(frame, &child_state);
+            }
             if !sandboxed_origin {
                 state.set_frame_document(frame, document);
                 state.set_frame_committed_window(frame, child_window);
@@ -2994,6 +3027,162 @@ mod raw_v8 {
         }
     }
 
+    fn native_document_focus_admitted(
+        scope: &mut v8::PinScope,
+        state: &Rc<V8BindingState>,
+    ) -> bool {
+        let Some(context) = scope
+            .get_slot::<NativeRealmIdentities>()
+            .and_then(|registry| registry.contexts.get(&state.realm()))
+            .cloned()
+            .and_then(|weak| weak.to_local(scope))
+        else {
+            return false;
+        };
+        if !context
+            .get_slot::<V8BindingState>()
+            .is_some_and(|owner| Rc::ptr_eq(&owner, state))
+        {
+            return false;
+        }
+        let Some(frame) = context.get_slot::<FrameLifetime>() else {
+            return false;
+        };
+        let Some(environments) = scope.get_slot::<AgentEnvironments>() else {
+            return false;
+        };
+        native_pointer_frame_binding(&frame, frame.root_realm, environments)
+            .is_some_and(|binding| Rc::ptr_eq(&binding.child, state))
+    }
+
+    // No callbacks or IPC: reject stale target/ancestor membership before
+    // ActivatePage can make any externally visible foreground transition.
+    fn native_window_focus_preflight<'s>(
+        scope: &mut v8::PinScope<'s, '_>,
+        mut context: v8::Local<'s, v8::Context>,
+    ) -> bool {
+        let mut seen = BTreeSet::new();
+        loop {
+            let Some(state) = context.get_slot::<V8BindingState>() else {
+                return false;
+            };
+            if state.execution_retired() || !seen.insert(state.realm()) {
+                return false;
+            }
+            let Some(frame) = context.get_slot::<FrameLifetime>() else {
+                return true;
+            };
+            if !native_document_focus_admitted(scope, &state) {
+                return false;
+            }
+            let Some(parent_context) = scope
+                .get_slot::<NativeRealmIdentities>()
+                .and_then(|registry| registry.contexts.get(&frame.parent_environment.realm))
+                .cloned()
+                .and_then(|weak| weak.to_local(scope))
+            else {
+                return false;
+            };
+            context = parent_context;
+        }
+    }
+
+    fn focus_native_window_context<'s>(
+        scope: &mut v8::PinScope<'s, '_>,
+        context: v8::Local<'s, v8::Context>,
+    ) -> Result<(), HostError> {
+        if !native_window_focus_preflight(scope, context) {
+            return Err(HostError::Execution("focus ancestry retired".into()));
+        }
+        let target = context
+            .get_slot::<V8BindingState>()
+            .ok_or_else(|| HostError::Execution("focus state unavailable".into()))?;
+        if context.get_slot::<FrameLifetime>().is_some()
+            && !native_document_focus_admitted(scope, &target)
+        {
+            return Err(HostError::Execution(
+                "focus document membership retired".into(),
+            ));
+        }
+        let mut cursor = context;
+        let mut ancestors = Vec::new();
+        let mut lifetimes = Vec::new();
+        let mut seen = BTreeSet::new();
+        while let Some(frame) = cursor.get_slot::<FrameLifetime>() {
+            if frame.closed.get() || !seen.insert(frame.parent_environment.realm) {
+                return Err(HostError::Execution("focus ancestry retired".into()));
+            }
+            let parent = frame
+                .parent
+                .upgrade()
+                .ok_or_else(|| HostError::Execution("focus parent retired".into()))?;
+            let parent_context = scope
+                .get_slot::<NativeRealmIdentities>()
+                .and_then(|registry| registry.contexts.get(&frame.parent_environment.realm))
+                .cloned()
+                .and_then(|weak| weak.to_local(scope))
+                .ok_or_else(|| HostError::Execution("focus parent context retired".into()))?;
+            lifetimes.push(frame.clone());
+            if parent_context.get_slot::<FrameLifetime>().is_some()
+                && !native_document_focus_admitted(scope, &parent)
+            {
+                return Err(HostError::Execution(
+                    "focus ancestor membership retired".into(),
+                ));
+            }
+            ancestors.push((parent_context, parent, frame.frame));
+            cursor = parent_context;
+        }
+        for (parent_context, parent, frame) in ancestors.iter().rev() {
+            if parent_context.get_slot::<FrameLifetime>().is_some()
+                && !native_document_focus_admitted(scope, parent)
+            {
+                return Err(HostError::Execution(
+                    "focus ancestor membership changed".into(),
+                ));
+            }
+            let scope = &mut v8::ContextScope::new(scope, *parent_context);
+            oryn_js::v8_bindings::focus_embedding_frame(scope, parent, *frame)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+        }
+        if lifetimes.iter().any(|frame| {
+            frame.closed.get()
+                || !frame.parent.upgrade().is_some_and(|parent| {
+                    if parent.execution_retired() {
+                        return false;
+                    }
+                    let dom = parent.dom();
+                    let dom = dom.borrow();
+                    dom.is_connected(frame.frame).unwrap_or(false)
+                        && dom.frame_context_generation(frame.frame)
+                            == Some(frame.connection_generation)
+                })
+        }) {
+            return Err(HostError::Execution(
+                "focus ancestry changed during callbacks".into(),
+            ));
+        }
+        for (parent_context, parent, _) in &ancestors {
+            if parent_context.get_slot::<FrameLifetime>().is_some()
+                && !native_document_focus_admitted(scope, parent)
+            {
+                return Err(HostError::Execution(
+                    "focus ancestor membership changed".into(),
+                ));
+            }
+        }
+        if context.get_slot::<FrameLifetime>().is_some()
+            && !native_document_focus_admitted(scope, &target)
+        {
+            return Err(HostError::Execution(
+                "focus document membership changed".into(),
+            ));
+        }
+        let scope = &mut v8::ContextScope::new(scope, context);
+        oryn_js::v8_bindings::focus_browsing_context(scope, &target)
+            .map_err(|error| HostError::Execution(error.to_string()))
+    }
+
     fn native_window_focus_callback(
         scope: &mut v8::PinScope,
         args: v8::FunctionCallbackArguments,
@@ -3003,10 +3192,7 @@ mod raw_v8 {
             throw_type_error(scope, "Window.focus requires a Window receiver");
             return;
         };
-        if context
-            .get_slot::<V8BindingState>()
-            .is_some_and(|state| state.execution_retired())
-        {
+        if !native_window_focus_preflight(scope, context) {
             return;
         }
         #[cfg(unix)]
@@ -3024,7 +3210,7 @@ mod raw_v8 {
             let Some(source_endpoint) = context_endpoint_for_binding(scope, &source) else {
                 return;
             };
-            let _ = source_endpoint
+            let admitted = source_endpoint
                 .client
                 .request(ContextServiceRequest::ActivatePage {
                     source_page_id: source_endpoint.page_id,
@@ -3032,6 +3218,12 @@ mod raw_v8 {
                     creator,
                     expected: None,
                 });
+            if !matches!(admitted, Ok(ContextServiceResponse::PageActivated { .. })) {
+                return;
+            }
+        }
+        if let Err(error) = focus_native_window_context(scope, context) {
+            throw_type_error(scope, &error.to_string());
         }
     }
 
@@ -4244,8 +4436,12 @@ mod raw_v8 {
         {
             sync_native_document_domain(scope, context, &state)?;
         }
-        if !has_parent_platform(scope) && current_fetch_endpoint(scope).is_some() {
-            standalone_platform_http::install(scope, &state)?;
+        if !has_parent_platform(scope) {
+            if current_fetch_endpoint(scope).is_some() {
+                standalone_platform_http::install(scope, &state)?;
+            } else {
+                standalone_platform_http::install_transform_only(scope, &state);
+            }
         }
         standalone_activation_v8::install(scope, context)?;
         // Parent and standalone resource selection is complete. Retain failed
@@ -6276,6 +6472,9 @@ mod raw_v8 {
             }
             let window = v8::Global::new(scope, child_window);
             state.set_frame_window(frame, window.clone());
+            if let Some(child_state) = child.get_slot::<V8BindingState>() {
+                state.set_native_input_frame(frame, &child_state);
+            }
             if same_origin && let Some(document) = document {
                 state.set_frame_document(frame, document);
                 state.set_frame_committed_window(frame, window);
@@ -7516,7 +7715,7 @@ mod raw_v8 {
             .map_err(|error| HostError::Execution(error.to_string()))
         }
 
-        #[cfg(unix)]
+        #[cfg(all(unix, test))]
         pub(crate) fn admit_navigation_auxiliary_root(
             &mut self,
             page_id: PageId,
@@ -7532,7 +7731,47 @@ mod raw_v8 {
             v8::scope!(let handles, &mut self.isolate);
             let context = v8::Local::new(handles, &context);
             let scope = &mut v8::ContextScope::new(handles, context);
-            create_admitted_auxiliary_root(scope, page_id, opener_page_id, admission, None)
+            let endpoint = current_context_endpoint(scope)
+                .ok_or_else(|| HostError::Execution("popup source endpoint missing".into()))?;
+            let rollback = endpoint
+                .client
+                .reserve_auxiliary_rollback(endpoint.page_id)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            create_admitted_auxiliary_root(
+                scope,
+                page_id,
+                opener_page_id,
+                admission,
+                None,
+                rollback,
+            )
+        }
+
+        #[cfg(unix)]
+        pub(crate) fn admit_navigation_auxiliary_root_reserved(
+            &mut self,
+            page_id: PageId,
+            opener_page_id: Option<PageId>,
+            admission: crate::context_service::RelatedRootAdmission,
+            rollback: crate::context_service::ContextAuxiliaryRollback,
+        ) -> Result<(), HostError> {
+            let context = self
+                .contexts
+                .get(&self.active_realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("popup creator context unavailable".into()))?;
+            let _deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
+            v8::scope!(let handles, &mut self.isolate);
+            let context = v8::Local::new(handles, &context);
+            let scope = &mut v8::ContextScope::new(handles, context);
+            create_admitted_auxiliary_root(
+                scope,
+                page_id,
+                opener_page_id,
+                admission,
+                None,
+                rollback,
+            )
         }
 
         #[cfg(unix)]
@@ -7778,6 +8017,15 @@ mod raw_v8 {
             task: oryn_js::v8_bindings::HistoryTraversalTask,
             destination: Option<oryn_js::navigation_api::NavigationHistorySnapshot>,
         ) -> Result<(), HostError> {
+            self.run_history_task_with_receipt(task, destination)
+                .map(|_| ())
+        }
+        pub fn run_history_task_with_receipt(
+            &mut self,
+            task: oryn_js::v8_bindings::HistoryTraversalTask,
+            destination: Option<oryn_js::navigation_api::NavigationHistorySnapshot>,
+        ) -> Result<Option<oryn_js::joint_history::NativeJointTraversalReceipt>, HostError>
+        {
             let context = self
                 .contexts
                 .get(&self.active_realm)
@@ -7789,7 +8037,7 @@ mod raw_v8 {
             v8::scope!(let handles,&mut self.isolate);
             let context = v8::Local::new(handles, &context);
             let scope = &mut v8::ContextScope::new(handles, context);
-            oryn_js::navigation_api::run_history_task(scope, task, destination)
+            oryn_js::navigation_api::run_history_task_with_receipt(scope, task, destination)
                 .map_err(|error| HostError::Execution(error.to_string()))
         }
 
@@ -8185,12 +8433,16 @@ mod raw_v8 {
             rendering_time: Instant,
         ) -> Result<(), HostError> {
             let root_identity = self.automation_realm_identity(root);
-            self.visit_native_document_tree(root, |host, realm| {
-                if host.realm_is_parked(realm) {
-                    return Ok(());
-                }
-                host.run_document_animation_frames(realm, rendering_time)
-            })?;
+            {
+                let _close_phase =
+                    crate::ipc_progress::close_admission::phase("animation_tree_callbacks");
+                self.visit_native_document_tree(root, |host, realm| {
+                    if host.realm_is_parked(realm) {
+                        return Ok(());
+                    }
+                    host.run_document_animation_frames(realm, rendering_time)
+                })?;
+            }
             if self.automation_realm_identity(root) != root_identity || self.realm_is_parked(root) {
                 return Ok(());
             }
@@ -8202,6 +8454,7 @@ mod raw_v8 {
             root: RealmId,
             rendering_time: Instant,
         ) -> Result<(), HostError> {
+            let _close_phase = crate::ipc_progress::close_admission::phase("animation_publication");
             // A later child callback can update an earlier parent's effects.
             // Revisit the current live tree without invoking callbacks again.
             if self.realm_is_parked(root) {
@@ -8224,6 +8477,8 @@ mod raw_v8 {
             realm: RealmId,
             rendering_time: Instant,
         ) -> Result<(), HostError> {
+            let _close_phase =
+                crate::ipc_progress::close_admission::phase("animation_document_callbacks");
             let state = self.binding_states.get(&realm).cloned().ok_or_else(|| {
                 HostError::Execution("active rendering document is unavailable".into())
             })?;
@@ -8301,6 +8556,7 @@ mod raw_v8 {
                     authority: recipient_authority,
                     ancestors: ancestors.clone(),
                     receipt: None,
+                    publication_complete: false,
                 });
                 let mut children = Vec::new();
                 for frame in self.automation_frame_order(realm)? {
@@ -8410,7 +8666,7 @@ mod raw_v8 {
                     return Ok(false);
                 }
                 self.activate_realm(recipient.realm)?;
-                if recipient.receipt.is_none() {
+                if !recipient.publication_complete && recipient.receipt.is_none() {
                     let event = if transition.kind == "unload" {
                         oryn_js::navigation_api::NativePublicationEvent::Unload {
                             timing: if recipient.realm == transition.root {
@@ -8432,9 +8688,26 @@ mod raw_v8 {
                     recipient.receipt = Some(self.start_native_event_publication(event)?);
                     transition.started = true;
                 }
-                if !self.resume_native_history_publication(recipient.receipt.unwrap())? {
-                    return Ok(false);
+                if !recipient.publication_complete {
+                    if !self.resume_native_history_publication(recipient.receipt.unwrap())? {
+                        return Ok(false);
+                    }
+                    // The native receipt is consumed by successful resume. Record
+                    // completion before any fallible suffix, retaining the exact
+                    // recipient until its admitted microtasks are settled.
+                    recipient.receipt = None;
+                    recipient.publication_complete = true;
                 }
+                #[cfg(test)]
+                if FAIL_PAGE_TRANSITION_CHECKPOINT_ONCE.with(|fail| fail.replace(false)) {
+                    return Err(HostError::Execution(
+                        "injected page-transition microtask failure".into(),
+                    ));
+                }
+                // Complete the pending microtask checkpoint for this admitted
+                // event, even after terminal Close admission, without task polling.
+                // A pending event receipt never reaches this boundary.
+                self.run_microtask_checkpoint()?;
                 transition.recipients.pop_front();
             }
             for (owner, identity, authority) in transition.reveal_targets.drain(..) {
@@ -8987,6 +9260,28 @@ mod raw_v8 {
             let context = v8::Local::new(scope, context);
             let scope = &mut v8::ContextScope::new(scope, context);
             oryn_js::v8_bindings::seed_image_document(scope, &state, bytes)
+                .map_err(|error| HostError::Execution(error.to_string()))
+        }
+
+        pub(crate) fn transform_document_xslt(
+            &mut self,
+        ) -> Result<Option<(String, i32)>, HostError> {
+            let realm = self.active_realm;
+            let state = self
+                .binding_states
+                .get(&realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("XSLT Document owner absent".into()))?;
+            let context = self
+                .contexts
+                .get(&realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("XSLT Document context absent".into()))?;
+            let _deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
+            v8::scope!(let scope,&mut self.isolate);
+            let context = v8::Local::new(scope, context);
+            let scope = &mut v8::ContextScope::new(scope, context);
+            oryn_js::v8_bindings::transform_document_xslt(scope, &state)
                 .map_err(|error| HostError::Execution(error.to_string()))
         }
 
@@ -15539,6 +15834,10 @@ mod raw_v8 {
         let endpoint = current_context_endpoint(scope)
             .ok_or(V8BindingError::Allocation("navigation context endpoint"))?;
         let local_inventory = local_navigation_inventory(scope)?;
+        let rollback = endpoint
+            .client
+            .reserve_auxiliary_rollback(endpoint.page_id)
+            .map_err(|error| V8BindingError::Message(error.to_string()))?;
         let response = endpoint
             .client
             .request(ContextServiceRequest::OpenPage {
@@ -15590,8 +15889,15 @@ mod raw_v8 {
                             "existing target supplied auxiliary admission".into(),
                         ));
                     }
-                    create_admitted_auxiliary_root(scope, page_id, opener_page_id, admission, None)
-                        .map_err(|error| V8BindingError::Message(error.to_string()))?;
+                    create_admitted_auxiliary_root(
+                        scope,
+                        page_id,
+                        opener_page_id,
+                        admission,
+                        None,
+                        rollback,
+                    )
+                    .map_err(|error| V8BindingError::Message(error.to_string()))?;
                 }
                 let local_frame = selected_frame
                     .as_ref()
@@ -15798,6 +16104,7 @@ mod raw_v8 {
         keepalive_token: Option<&str>,
     ) -> Result<PlatformHostResult, String> {
         use crate::context_service::WebSocketFrame;
+        let xslt = matches!(request, PlatformHostRequest::XsltStart { .. });
         let prefetch = matches!(request, PlatformHostRequest::PrefetchStart { .. });
         let image_preload = matches!(request, PlatformHostRequest::ImagePreloadStart { .. });
         let media_destination = match &request {
@@ -15812,6 +16119,21 @@ mod raw_v8 {
             _ => true,
         };
         match request {
+            PlatformHostRequest::XsltTransform { request } => {
+                let response = state
+                    .client
+                    .request(ContextServiceRequest::XsltTransform {
+                        page_id: state.page_id,
+                        creator: creator.ok_or("XSLT requires native Window creator")?,
+                        request_id: request_id.ok_or("XSLT requires cancellation identity")?,
+                        request,
+                    })
+                    .map_err(|error| error.to_string())?;
+                let ContextServiceResponse::XsltTransformed { transform: result } = response else {
+                    return Err("invalid XSLT helper response".into());
+                };
+                Ok(PlatformHostResult::XsltTransformed { transform: result })
+            }
             PlatformHostRequest::NavigationPreload { .. } => {
                 Err("SecurityError: window platform cannot consume service preload".into())
             }
@@ -15819,12 +16141,18 @@ mod raw_v8 {
             | PlatformHostRequest::ImageStart { request, .. }
             | PlatformHostRequest::MediaStart { request, .. }
             | PlatformHostRequest::ImagePreloadStart { request, .. }
+            | PlatformHostRequest::XsltStart { request }
             | PlatformHostRequest::PrefetchStart { request } => {
                 let stream_request = platform_http_stream_request(request, creator, request_id)?;
                 let command = if let Some(token) = keepalive_token {
                     ContextServiceRequest::StartOrdinaryKeepalive {
                         page_id: state.page_id,
                         token: token.into(),
+                    }
+                } else if xslt {
+                    ContextServiceRequest::XsltStreamStart {
+                        page_id: state.page_id,
+                        request: stream_request,
                     }
                 } else if prefetch {
                     ContextServiceRequest::PrefetchStreamStart {
@@ -19611,6 +19939,119 @@ mod raw_v8 {
         }
 
         #[test]
+        fn page_transition_completes_recipient_microtasks_before_next_recipient_without_timers() {
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body></body>")
+                    .into_runtime()
+                    .unwrap(),
+            ));
+            host.install_dom(dom, 1).unwrap();
+            host.execute("globalThis.trace=[];globalThis.frame=document.createElement('iframe');document.body.append(frame);addEventListener('pageshow',()=>{trace.push('parent');Promise.resolve().then(()=>trace.push('parent-microtask'))});frame.contentWindow.addEventListener('pageshow',()=>{trace.push('child');Promise.resolve().then(()=>trace.push('child-microtask'))});__oryn_timer_schedule(()=>trace.push('timer'),0,false,[])").unwrap();
+            let mut transition = host
+                .prepare_native_page_transition(RealmId(0), "pageshow", false)
+                .unwrap();
+            assert_eq!(transition.recipients.len(), 2);
+            let child = transition.recipients[1].owner.clone();
+            child.set_execution_suspended(true);
+            assert!(!host.resume_native_page_transition(&mut transition).unwrap());
+            assert_eq!(transition.recipients.len(), 1);
+            assert!(transition.recipients[0].receipt.is_none());
+            assert!(!transition.recipients[0].publication_complete);
+            host.activate_realm(RealmId(0)).unwrap();
+            assert_eq!(
+                host.evaluate_string("trace.join(',')").unwrap(),
+                "parent,parent-microtask"
+            );
+            child.set_execution_suspended(false);
+            assert!(host.resume_native_page_transition(&mut transition).unwrap());
+            assert!(transition.recipients.is_empty());
+            host.activate_realm(RealmId(0)).unwrap();
+            assert_eq!(
+                host.evaluate_string("trace.join(',')").unwrap(),
+                "parent,parent-microtask,child,child-microtask"
+            );
+            assert!(host.resume_native_page_transition(&mut transition).unwrap());
+            assert_eq!(
+                host.evaluate_string("trace.join(',')").unwrap(),
+                "parent,parent-microtask,child,child-microtask"
+            );
+            assert_eq!(host.drain_scheduled_timers(false).unwrap(), 1);
+            assert_eq!(
+                host.evaluate_string("trace.join(',')").unwrap(),
+                "parent,parent-microtask,child,child-microtask,timer"
+            );
+            assert_eq!(host.drain_scheduled_timers(false).unwrap(), 0);
+        }
+
+        #[test]
+        fn page_transition_checkpoint_error_keeps_consumed_receipt_without_callback_replay() {
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body></body>")
+                    .into_runtime()
+                    .unwrap(),
+            ));
+            host.install_dom(dom, 1).unwrap();
+            host.execute("globalThis.trace=[];globalThis.frame=document.createElement('iframe');document.body.append(frame);addEventListener('pageshow',()=>{trace.push('event');Promise.resolve().then(()=>trace.push('microtask'))});frame.contentWindow.addEventListener('pageshow',()=>trace.push('child'))").unwrap();
+            let mut transition = host
+                .prepare_native_page_transition(RealmId(0), "pageshow", false)
+                .unwrap();
+            FAIL_PAGE_TRANSITION_CHECKPOINT_ONCE.with(|fail| fail.set(true));
+            let error = host
+                .resume_native_page_transition(&mut transition)
+                .unwrap_err();
+            assert!(
+                matches!(error, HostError::Execution(message) if message == "injected page-transition microtask failure")
+            );
+            assert!(!FAIL_PAGE_TRANSITION_CHECKPOINT_ONCE.with(|fail| fail.get()));
+            assert_eq!(transition.recipients.len(), 2);
+            assert!(transition.recipients[1].receipt.is_none());
+            assert!(!transition.recipients[1].publication_complete);
+            assert!(transition.recipients[0].publication_complete);
+            assert!(
+                transition.recipients[0].receipt.is_none(),
+                "consumed receipt cannot be resumed or cancelled again"
+            );
+            assert_eq!(host.evaluate_string("trace.join(',')").unwrap(), "event");
+            assert!(host.resume_native_page_transition(&mut transition).unwrap());
+            assert!(transition.recipients.is_empty());
+            host.activate_realm(RealmId(0)).unwrap();
+            assert_eq!(
+                host.evaluate_string("trace.join(',')").unwrap(),
+                "event,microtask,child"
+            );
+            assert!(host.resume_native_page_transition(&mut transition).unwrap());
+            assert_eq!(
+                host.evaluate_string("trace.join(',')").unwrap(),
+                "event,microtask,child"
+            );
+        }
+
+        #[test]
+        fn page_transition_revalidates_later_recipient_after_completed_microtasks() {
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body></body>")
+                    .into_runtime()
+                    .unwrap(),
+            ));
+            host.install_dom(dom, 1).unwrap();
+            host.execute("globalThis.trace=[];globalThis.frame=document.createElement('iframe');document.body.append(frame);addEventListener('pageshow',()=>{trace.push('parent');Promise.resolve().then(()=>{trace.push('microtask');frame.remove()})});frame.contentWindow.addEventListener('pageshow',()=>trace.push('stale-child'))").unwrap();
+            let mut transition = host
+                .prepare_native_page_transition(RealmId(0), "pageshow", false)
+                .unwrap();
+            assert_eq!(transition.recipients.len(), 2);
+            assert!(host.resume_native_page_transition(&mut transition).unwrap());
+            host.activate_realm(RealmId(0)).unwrap();
+            assert_eq!(
+                host.evaluate_string("trace.join(',')").unwrap(),
+                "parent,microtask"
+            );
+            assert!(transition.recipients.is_empty());
+        }
+
+        #[test]
         fn page_transition_tree_includes_initial_children_and_preserves_active_realm() {
             let mut host = host();
             let dom = Rc::new(RefCell::new(
@@ -19685,11 +20126,14 @@ mod raw_v8 {
                     .global(scope)
                     .create_data_property(scope, key.into(), callback.into());
             }
-            host.execute("globalThis.trace=[];__oryn_timer_schedule(()=>trace.push('timer'),0,false,[]);addEventListener('unload',()=>{trace.push('first');parkNative()});addEventListener('unload',()=>trace.push('tail'))").unwrap();
+            host.execute("globalThis.trace=[];__oryn_timer_schedule(()=>trace.push('timer'),0,false,[]);addEventListener('unload',()=>{trace.push('first');Promise.resolve().then(()=>trace.push('microtask'));parkNative()});addEventListener('unload',()=>trace.push('tail'))").unwrap();
             let mut transition = host
                 .prepare_native_page_transition(RealmId(0), "unload", false)
                 .unwrap();
             assert!(!host.resume_native_page_transition(&mut transition).unwrap());
+            assert!(transition.recipients[0].receipt.is_some());
+            assert!(!transition.recipients[0].publication_complete);
+            assert_eq!(host.evaluate_string("trace.join(',')").unwrap(), "first");
             let state = host.binding_states.get(&RealmId(0)).unwrap().clone();
             assert!(state.is_unloading());
             state.set_execution_suspended(false);
@@ -19697,10 +20141,14 @@ mod raw_v8 {
             assert!(state.is_unloading());
             assert!(host.resume_native_page_transition(&mut transition).unwrap());
             assert!(!state.is_unloading());
+            assert_eq!(
+                host.evaluate_string("trace.join(',')").unwrap(),
+                "first,tail,microtask"
+            );
             assert_eq!(host.drain_scheduled_timers(false).unwrap(), 1);
             assert_eq!(
                 host.evaluate_string("trace.join(',')").unwrap(),
-                "first,tail,timer"
+                "first,tail,microtask,timer"
             );
         }
 
@@ -21242,6 +21690,340 @@ mod raw_v8 {
             assert_eq!(next, RealmId(2));
             assert_eq!(host.active_realm(), RealmId(0));
             assert!(host.realm_execution_live(next));
+        }
+
+        #[test]
+        fn document_has_focus_supports_each_native_document_embedding_kind() {
+            for tag in ["iframe", "frame", "object", "embed"] {
+                let mut host = host();
+                let dom = Rc::new(RefCell::new(
+                    oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+                ));
+                host.install_dom(dom.clone(), 1).unwrap();
+                host.execute(&format!("globalThis.owner=document.createElement('{tag}');owner.id='owner';document.body.append(owner)")).unwrap();
+                host.adopt_created_realms();
+                let owner = dom.borrow().find_by_id("owner").unwrap();
+                let parsed = oryn_dom::html::parse("<body><input id=field>");
+                let document = dom
+                    .borrow_mut()
+                    .import_subtree(&parsed.dom, parsed.document)
+                    .unwrap();
+                let origin = host.realm_descriptor(RealmId(0)).unwrap().origin.clone();
+                // Real native response-document commit, including object/embed
+                // whose absent source must not invent an initial child.
+                let child = host
+                    .commit_frame_document(owner, origin, dom.clone(), document)
+                    .unwrap();
+                host.activate_realm(child).unwrap();
+                assert_eq!(
+                    host.evaluate_string("window.focus();String(document.hasFocus())")
+                        .unwrap(),
+                    "true",
+                    "{tag}"
+                );
+                host.activate_realm(RealmId(0)).unwrap();
+                assert_eq!(
+                    host.evaluate_string(
+                        "[document.hasFocus(),document.activeElement===owner].join('|')"
+                    )
+                    .unwrap(),
+                    "true|true",
+                    "{tag}"
+                );
+            }
+        }
+
+        #[test]
+        fn document_has_focus_tracks_shadow_hosted_frame_and_sibling_focus() {
+            let mut host = host();
+            host.install_dom(
+                Rc::new(RefCell::new(
+                    oryn_dom::html::parse("<body><div id=host></div></body>")
+                        .into_runtime()
+                        .unwrap(),
+                )),
+                1,
+            )
+            .unwrap();
+            host.execute("globalThis.shadow=document.getElementById('host').attachShadow({mode:'open'});globalThis.first=document.createElement('iframe');globalThis.second=document.createElement('iframe');shadow.append(first,second)").unwrap();
+            host.adopt_created_realms();
+            assert_eq!(host.evaluate_string("first.contentWindow.focus();[document.hasFocus(),first.contentDocument.hasFocus(),second.contentDocument.hasFocus()].join('|')").unwrap(),"true|true|false");
+            assert_eq!(host.evaluate_string("second.contentWindow.focus();[document.hasFocus(),first.contentDocument.hasFocus(),second.contentDocument.hasFocus()].join('|')").unwrap(),"true|false|true");
+        }
+
+        #[test]
+        fn document_has_focus_rejects_closed_pending_abort_and_reused_frame_counter() {
+            fn during_abort(
+                scope: &mut v8::PinScope,
+                _: v8::FunctionCallbackArguments,
+                mut rv: v8::ReturnValue,
+            ) {
+                let context = scope.get_current_context();
+                let child = context.get_slot::<V8BindingState>().unwrap();
+                let lifetime = context.get_slot::<FrameLifetime>().unwrap();
+                checkpoint_frame_lifetimes(scope);
+                let parent = lifetime.parent.upgrade().unwrap();
+                // A real abort callback owns the child stack here. Invoke the
+                // same native binding admission as production enumeration while
+                // its closed lifetime and still-live weak mapping coexist.
+                let environments = scope.get_slot::<AgentEnvironments>().unwrap();
+                let rejected =
+                    native_pointer_frame_binding(&lifetime, RealmId(0), environments).is_none();
+                assert!(!native_window_focus_preflight(scope, context));
+                let source = v8::String::new(scope, "globalThis.focusEvents=0;addEventListener('focus',()=>focusEvents++);window.focus();document.hasFocus() || focusEvents!==0").unwrap();
+                let focused = v8::Script::compile(scope, source, None)
+                    .unwrap()
+                    .run(scope)
+                    .unwrap();
+                rv.set_bool(
+                    focused.is_false()
+                        && lifetime.closed.get()
+                        && !child.execution_retired()
+                        && parent.native_input_frame_identity(lifetime.frame).is_some()
+                        && rejected,
+                );
+            }
+            let mut host = host();
+            host.install_dom(
+                Rc::new(RefCell::new(
+                    oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+                )),
+                1,
+            )
+            .unwrap();
+            host.execute("globalThis.trace=[];globalThis.frame=document.createElement('iframe');document.body.append(frame)").unwrap();
+            host.adopt_created_realms();
+            let (before, initial) = host
+                .native_pointer_frame_snapshots(RealmId(0))
+                .pop()
+                .unwrap();
+            assert!(initial);
+            let child_state = host.binding_states.get(&before.realm).unwrap().clone();
+            let parent_state = host.binding_states.get(&RealmId(0)).unwrap().clone();
+            let context = host.contexts.get(&before.realm).unwrap().clone();
+            {
+                v8::scope!(let scope, &mut host.isolate);
+                let context = v8::Local::new(scope, &context);
+                let scope = &mut v8::ContextScope::new(scope, context);
+                let callback = v8::Function::new(scope, during_abort).unwrap();
+                let key = v8::String::new(scope, "probeClosedFrame").unwrap();
+                context
+                    .global(scope)
+                    .set(scope, key.into(), callback.into())
+                    .unwrap();
+            }
+            host.activate_realm(before.realm).unwrap();
+            assert_eq!(
+                host.evaluate_string(
+                    r#"
+                const controller=new AbortController();
+                controller.signal.addEventListener('abort',()=>{
+                    parent.frame.remove();parent.trace.push('closed:'+probeClosedFrame());
+                });
+                controller.signal.addEventListener('abort',()=>parent.trace.push('tail'));
+                controller.abort();'done'
+            "#
+                )
+                .unwrap(),
+                "done"
+            );
+            // The generated abort operation runs the native lifecycle hook
+            // after its complete listener suffix. Cleanup may therefore finish
+            // before evaluate_string returns; only the callback owns retention.
+            host.activate_realm(RealmId(0)).unwrap();
+            assert_eq!(
+                host.evaluate_string("trace.join()").unwrap(),
+                "closed:true,tail"
+            );
+            assert!(child_state.execution_retired());
+            assert!(
+                parent_state
+                    .native_input_frame_identity(before.frame.unwrap())
+                    .is_none()
+            );
+            assert!(host.native_pointer_frame_snapshots(RealmId(0)).is_empty());
+            host.execute("document.body.append(frame)").unwrap();
+            host.adopt_created_realms();
+            let (after, initial) = host
+                .native_pointer_frame_snapshots(RealmId(0))
+                .pop()
+                .unwrap();
+            assert!(initial);
+            assert_eq!(before.frame, after.frame);
+            // Full discard removes the counter; a new lifetime starts at 1.
+            // Counter reuse must not revive the retained document selection.
+            assert_eq!(before.frame_generation, Some(1));
+            assert_eq!(after.frame_generation, before.frame_generation);
+            assert!(
+                before
+                    .frame_token
+                    .as_ref()
+                    .is_some_and(|token| !token.is_empty())
+            );
+            assert!(
+                after
+                    .frame_token
+                    .as_ref()
+                    .is_some_and(|token| !token.is_empty())
+            );
+            assert_ne!(before.frame_token, after.frame_token);
+            assert_ne!(before.realm, after.realm);
+            let replacement_state = host.binding_states.get(&after.realm).unwrap();
+            assert!(!Rc::ptr_eq(&child_state, replacement_state));
+            assert!(child_state.execution_retired());
+            assert!(!before.same_navigable_as(&after));
+            assert!(!before.same_document_as(&after));
+            let current = host.native_pointer_frame_snapshots(RealmId(0));
+            assert_eq!(current.len(), 1);
+            assert!(
+                current
+                    .iter()
+                    .any(|(entry, _)| entry.same_document_as(&after))
+            );
+            assert!(
+                current
+                    .iter()
+                    .all(|(entry, _)| !entry.same_document_as(&before))
+            );
+            assert_eq!(
+                host.evaluate_string("trace.join()").unwrap(),
+                "closed:true,tail",
+                "abort suffix was not replayed by retirement or reinsertion"
+            );
+        }
+
+        #[test]
+        fn native_frame_input_closed_pending_abort_rejects_retained_weak_child() {
+            fn during_abort(
+                scope: &mut v8::PinScope,
+                _: v8::FunctionCallbackArguments,
+                mut rv: v8::ReturnValue,
+            ) {
+                let context = scope.get_current_context();
+                let child = context.get_slot::<V8BindingState>().unwrap();
+                let lifetime = context.get_slot::<FrameLifetime>().unwrap();
+                checkpoint_frame_lifetimes(scope);
+                let parent = lifetime.parent.upgrade().unwrap();
+                // A real abort callback owns the child stack here. Invoke the
+                // same native binding admission as production enumeration while
+                // its closed lifetime and still-live weak mapping coexist.
+                let environments = scope.get_slot::<AgentEnvironments>().unwrap();
+                let rejected =
+                    native_pointer_frame_binding(&lifetime, RealmId(0), environments).is_none();
+                rv.set_bool(
+                    lifetime.closed.get()
+                        && !child.execution_retired()
+                        && parent.native_input_frame_identity(lifetime.frame).is_some()
+                        && rejected,
+                );
+            }
+            let mut host = host();
+            host.install_dom(
+                Rc::new(RefCell::new(
+                    oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+                )),
+                1,
+            )
+            .unwrap();
+            host.execute("globalThis.trace=[];globalThis.frame=document.createElement('iframe');document.body.append(frame)").unwrap();
+            host.adopt_created_realms();
+            let (before, initial) = host
+                .native_pointer_frame_snapshots(RealmId(0))
+                .pop()
+                .unwrap();
+            assert!(initial);
+            let child_state = host.binding_states.get(&before.realm).unwrap().clone();
+            let parent_state = host.binding_states.get(&RealmId(0)).unwrap().clone();
+            let context = host.contexts.get(&before.realm).unwrap().clone();
+            {
+                v8::scope!(let scope, &mut host.isolate);
+                let context = v8::Local::new(scope, &context);
+                let scope = &mut v8::ContextScope::new(scope, context);
+                let callback = v8::Function::new(scope, during_abort).unwrap();
+                let key = v8::String::new(scope, "probeClosedFrame").unwrap();
+                context
+                    .global(scope)
+                    .set(scope, key.into(), callback.into())
+                    .unwrap();
+            }
+            host.activate_realm(before.realm).unwrap();
+            assert_eq!(
+                host.evaluate_string(
+                    r#"
+                const controller=new AbortController();
+                controller.signal.addEventListener('abort',()=>{
+                    parent.frame.remove();parent.trace.push('closed:'+probeClosedFrame());
+                });
+                controller.signal.addEventListener('abort',()=>parent.trace.push('tail'));
+                controller.abort();'done'
+            "#
+                )
+                .unwrap(),
+                "done"
+            );
+            // The generated abort operation runs the native lifecycle hook
+            // after its complete listener suffix. Cleanup may therefore finish
+            // before evaluate_string returns; only the callback owns retention.
+            host.activate_realm(RealmId(0)).unwrap();
+            assert_eq!(
+                host.evaluate_string("trace.join()").unwrap(),
+                "closed:true,tail"
+            );
+            assert!(child_state.execution_retired());
+            assert!(
+                parent_state
+                    .native_input_frame_identity(before.frame.unwrap())
+                    .is_none()
+            );
+            assert!(host.native_pointer_frame_snapshots(RealmId(0)).is_empty());
+            host.execute("document.body.append(frame)").unwrap();
+            host.adopt_created_realms();
+            let (after, initial) = host
+                .native_pointer_frame_snapshots(RealmId(0))
+                .pop()
+                .unwrap();
+            assert!(initial);
+            assert_eq!(before.frame, after.frame);
+            // Full discard removes the counter; a new lifetime starts at 1.
+            // Counter reuse must not revive the retained document selection.
+            assert_eq!(before.frame_generation, Some(1));
+            assert_eq!(after.frame_generation, before.frame_generation);
+            assert!(
+                before
+                    .frame_token
+                    .as_ref()
+                    .is_some_and(|token| !token.is_empty())
+            );
+            assert!(
+                after
+                    .frame_token
+                    .as_ref()
+                    .is_some_and(|token| !token.is_empty())
+            );
+            assert_ne!(before.frame_token, after.frame_token);
+            assert_ne!(before.realm, after.realm);
+            let replacement_state = host.binding_states.get(&after.realm).unwrap();
+            assert!(!Rc::ptr_eq(&child_state, replacement_state));
+            assert!(child_state.execution_retired());
+            assert!(!before.same_navigable_as(&after));
+            assert!(!before.same_document_as(&after));
+            let current = host.native_pointer_frame_snapshots(RealmId(0));
+            assert_eq!(current.len(), 1);
+            assert!(
+                current
+                    .iter()
+                    .any(|(entry, _)| entry.same_document_as(&after))
+            );
+            assert!(
+                current
+                    .iter()
+                    .all(|(entry, _)| !entry.same_document_as(&before))
+            );
+            assert_eq!(
+                host.evaluate_string("trace.join()").unwrap(),
+                "closed:true,tail",
+                "abort suffix was not replayed by retirement or reinsertion"
+            );
         }
 
         #[test]

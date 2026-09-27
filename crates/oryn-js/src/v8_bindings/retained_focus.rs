@@ -1,6 +1,24 @@
 //! Traced focus transition with retained native event/default progress.
 use super::retained_dom_event::Event as EventJob;
 use super::*;
+// Failure-only metadata: never include replacement text, markup, URL or error text.
+pub(super) fn report_failure(state: &V8BindingState, target: Option<NodeId>, phase: &str) {
+    use std::io::Write;
+    let focused = state.dom.try_borrow().ok().and_then(|dom| dom.focused());
+    let row = serde_json::json!({
+        "kind": "oryn_semantic_edit_failure", "version": 1,
+        "pid": std::process::id(), "phase": phase,
+        "document": format!("{:?}", state.document_root()),
+        "generation": state.document_generation(), "epoch": state.document_stream_epoch(),
+        "target": target.map(|node| format!("{node:?}")),
+        "focused": focused.map(|node| format!("{node:?}")),
+        "selection_anchor": state.selection_anchor.get().map(|point| format!("{point:?}")),
+        "selection_focus": state.selection_focus.get().map(|point| format!("{point:?}"))
+    });
+    let mut stderr = std::io::stderr().lock();
+    let _ = writeln!(stderr, "{row}");
+    let _ = stderr.flush();
+}
 fn live(state: &V8BindingState, node: NodeId, generation: u64, epoch: u64) -> bool {
     !state.execution_retired()
         && state.document_generation() == generation
@@ -28,6 +46,7 @@ pub(super) struct Transition {
     revision: Option<u64>,
     phase: u8,
     event: Option<EventJob>,
+    failure_reported: bool,
 }
 impl Transition {
     pub(super) fn new(
@@ -45,15 +64,18 @@ impl Transition {
             owner: state.clone(),
             previous: previous
                 .map(|node| oryn_dom::TrackedNodeLease::new(&state.dom, node))
-                .transpose()?,
+                .transpose()
+                .inspect_err(|_| report_failure(state, target, "focus.previous_lease"))?,
             target: target
                 .map(|node| oryn_dom::TrackedNodeLease::new(&state.dom, node))
-                .transpose()?,
+                .transpose()
+                .inspect_err(|_| report_failure(state, target, "focus.target_lease"))?,
             generation: state.document_generation(),
             epoch: state.document_stream_epoch(),
             revision: None,
             phase: 0,
             event: None,
+            failure_reported: false,
         })
     }
     fn node(
@@ -76,6 +98,19 @@ impl Transition {
         .then_some(node)
     }
     pub(super) fn poll(
+        &mut self,
+        scope: &mut v8::PinScope,
+        state: &Rc<V8BindingState>,
+    ) -> Result<bool, V8BindingError> {
+        let result = self.poll_inner(scope, state);
+        if result.is_err() && !self.failure_reported {
+            self.failure_reported = true;
+            let target = self.target.as_ref().map(|lease| lease.current().1);
+            report_failure(state, target, &format!("focus.phase{}", self.phase));
+        }
+        result
+    }
+    fn poll_inner(
         &mut self,
         scope: &mut v8::PinScope,
         state: &Rc<V8BindingState>,

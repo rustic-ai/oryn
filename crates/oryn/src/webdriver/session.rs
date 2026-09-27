@@ -38,9 +38,9 @@ fn no_window() -> CommandError {
 fn runtime_error(error: oryn_native::RuntimeError) -> CommandError {
     let code = match &error {
         oryn_native::RuntimeError::Upload(_) => "invalid argument",
-        oryn_native::RuntimeError::Closed | oryn_native::RuntimeError::PageNotFound(_) => {
-            "no such window"
-        }
+        oryn_native::RuntimeError::Closed
+        | oryn_native::RuntimeError::PageTaskYield
+        | oryn_native::RuntimeError::PageNotFound(_) => "no such window",
         _ => "unknown error",
     };
     CommandError {
@@ -87,11 +87,18 @@ async fn close_context(context: BrowserContext) -> Result<(), CommandError> {
 }
 
 impl Session {
+    pub(super) fn timing_identity(&self, webdriver_session_id: &str) -> Value {
+        serde_json::json!({"webdriver_session_id":webdriver_session_id,
+            "context_id":self.context.as_ref().map(BrowserContext::id),
+            "page_id":self.current.as_ref().map(PageHandle::id)})
+    }
     pub async fn create(
         browser: &Browser,
         options: ContextOptions,
         capabilities: Map<String, Value>,
     ) -> Result<Self, CommandError> {
+        let mut creation_timing =
+            oryn_native::native_timing::Scope::start("native_session_create", Value::Null);
         // Validate settings before creating a context or starting any page.
         let timeouts = capabilities
             .get("timeouts")
@@ -117,8 +124,17 @@ impl Session {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
+        let mut context_timing =
+            oryn_native::native_timing::Scope::start("native_context_create", Value::Null);
         let context = browser.new_audited_context_with_isolated_auxiliaries(options);
         let page = context.new_page();
+        let identity = serde_json::json!({"context_id":context.id(),"page_id":page.id()});
+        context_timing.set_identity(identity.clone());
+        context_timing.finish(true);
+        creation_timing.set_identity(identity.clone());
+        oryn_native::native_timing::point("native_context_created", identity.clone());
+        let mut page_timing =
+            oryn_native::native_timing::Scope::start("native_initial_page", identity.clone());
         if let Err(error) = page.goto("about:blank").await {
             let cleanup = close_context(context).await;
             return Err(CommandError {
@@ -129,6 +145,7 @@ impl Session {
                 },
             });
         }
+        page_timing.finish(true);
         let mut session = Self {
             #[cfg(test)]
             lookup_wait_observer: None,
@@ -146,6 +163,8 @@ impl Session {
             prompt_policy,
         };
         session.window_handles()?;
+        creation_timing.finish(true);
+        oryn_native::native_timing::point("native_session_created", identity);
         Ok(session)
     }
 
@@ -927,6 +946,10 @@ mod tests {
         );
         assert_eq!(
             super::runtime_error(oryn_native::RuntimeError::Closed).code,
+            "no such window"
+        );
+        assert_eq!(
+            super::runtime_error(oryn_native::RuntimeError::PageTaskYield).code,
             "no such window"
         );
     }

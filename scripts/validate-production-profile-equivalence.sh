@@ -22,7 +22,7 @@ cargo run -q -p oryn-webidl -- check \
 cargo test -p oryn-native --lib --bins --tests
 cargo test -p oryn-native --lib --bins --tests --features "v8-host v8-sandbox core-full"
 cargo test -p oryn-native --lib --bins --tests --features "v8-host v8-sandbox core-lite"
-cargo test -p oryn --features "native-v8 core-full"
+cargo test -p oryn --features "native-v8 core-full webdriver-server"
 
 cargo check -p oryn --no-default-features --features native
 cargo check -p oryn --no-default-features --features "native native-v8 core-lite"

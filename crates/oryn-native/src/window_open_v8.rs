@@ -339,6 +339,10 @@ fn native_window_open_callback(
                 reserve_blank_prerender_activation_slot(scope)
                     .map_err(|error| error.to_string())?;
             }
+            let rollback = endpoint
+                .client
+                .reserve_auxiliary_rollback(endpoint.page_id)
+                .map_err(|error| error.to_string())?;
             let response = endpoint
                 .client
                 .request(ContextServiceRequest::OpenPage {
@@ -408,6 +412,7 @@ fn native_window_open_callback(
                             opener_page_id,
                             admission,
                             related_navigation_url.as_deref(),
+                            rollback,
                         )
                         .map_err(|error| error.to_string())?;
                     }

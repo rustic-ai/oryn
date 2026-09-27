@@ -1924,6 +1924,11 @@ pub(super) fn delay(state: &V8BindingState) -> Option<std::time::Duration> {
             })
     })
 }
+// Exact empty-queue check; future retries and other owners remain active.
+pub(super) fn queue_empty(state: &V8BindingState) -> bool {
+    state.activation_jobs.borrow().queue.is_empty()
+}
+
 pub(super) fn poll(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,

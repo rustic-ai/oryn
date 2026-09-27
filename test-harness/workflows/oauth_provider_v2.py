@@ -180,6 +180,24 @@ class Provider:
             self.audit(client_id, 'authorization_started', 200)
             return handle
 
+    def authorization_callback_origin(self, handle):
+        """The credential document permits only its validated registered client.
+
+        Derive CSP from server-owned registration after begin() validation, never
+        from the request Host or an untrusted redirect_uri parameter.
+        """
+        with self.lock:
+            row = self.db.execute(
+                'SELECT c.redirect_uri FROM oauth_pending p JOIN oauth_clients c '
+                'ON c.client_id=p.case_id WHERE p.digest=? AND p.expires>?',
+                (fingerprint(handle), self.clock())).fetchone()
+            if not row:
+                raise ValueError('authorization expired or consumed')
+            parsed = urlsplit(row['redirect_uri'])
+            # register() admits only exact http://127.0.0.1:<port> callbacks.
+            # Canonical fields exclude path, query, credentials and header text.
+            return f'{parsed.scheme}://{parsed.hostname}:{parsed.port}'
+
     def authorize(self, handle, username, password, mfa_code=''):
         """Called only by the IdP credential form, bound to its HttpOnly cookie."""
         with self.lock, self.db:

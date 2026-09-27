@@ -74,6 +74,24 @@ def load_contract(path=DEFAULT_CONTRACT, root=ROOT):
     return contract
 
 
+def select_attempts(plan, attempt_ids=None):
+    """Select explicit originals without altering their frozen specifications.
+
+    None retains the full denominator. Focused diagnostics must publish their
+    selection and cannot be promoted to full-contract qualification.
+    """
+    if attempt_ids is None:
+        return plan
+    if (not isinstance(attempt_ids, (list, tuple)) or not attempt_ids
+            or any(not isinstance(item, str) for item in attempt_ids)
+            or len(set(attempt_ids)) != len(attempt_ids)):
+        raise ValueError('focused selection must contain unique original IDs')
+    selected = set(attempt_ids)
+    if selected - {item['attempt_id'] for item in plan}:
+        raise ValueError('focused selection contains unknown original IDs')
+    return [item for item in plan if item['attempt_id'] in selected]
+
+
 def planned_attempts(contract):
     """Stable attempt IDs prevent retries from replacing failed observations."""
     validate_contract(contract)

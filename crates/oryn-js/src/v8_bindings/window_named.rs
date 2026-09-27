@@ -251,7 +251,7 @@ pub(super) fn install(
         .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
         .ok_or(V8BindingError::Allocation("Window prototype"))?;
     // Global-interface attributes are own properties of the global object.
-    for attribute_name in ["name", "length"] {
+    for attribute_name in ["name", "length", "outerWidth", "outerHeight"] {
         let name_key = v8::String::new(scope, attribute_name).unwrap();
         let attribute = window_prototype
             .get_own_property_descriptor(scope, name_key.into())

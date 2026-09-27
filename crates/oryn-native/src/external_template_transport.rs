@@ -665,7 +665,9 @@ impl TemplateStandalone {
                 self.active.store(0, std::sync::atomic::Ordering::Release);
                 Ok((Vec::new(), true))
             }
-            NetworkEvent::Failed { request_id, error } if request_id == expected => Err(error),
+            NetworkEvent::Failed { request_id, error } if request_id == expected => {
+                Err(error.to_string())
+            }
             _ => Err("external template body identity/order".into()),
         }
     }

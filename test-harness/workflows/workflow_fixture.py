@@ -4,6 +4,7 @@ import importlib.util
 import html
 import hashlib
 import json
+from contextlib import closing
 import sqlite3
 from urllib.parse import parse_qsl
 from pathlib import Path
@@ -20,7 +21,7 @@ def instrument(base,database,family):
             self.workflow_response_faults=ResponseFaults(database)
             self.workflow_commit_gates=CommitGates(database)
             self.workflow_pending={}
-            with sqlite3.connect(database) as db:
+            with closing(sqlite3.connect(database)) as db, db:
                 db.execute("CREATE TABLE IF NOT EXISTS workflow_recovery_views(case_id TEXT, token TEXT, state TEXT)")
                 db.execute("CREATE TABLE IF NOT EXISTS workflow_recovery_retries(case_id TEXT, token TEXT, body_sha256 TEXT, matched INTEGER)")
         def workflow_effect(self,case):
@@ -40,7 +41,7 @@ def instrument(base,database,family):
             if actual==pending['before']:state='not_committed'
             elif pending.get('after')==actual and pending.get('status')==303:state='committed'
             else:return 409,'<p id=commit-state>conflict</p>',[]
-            with sqlite3.connect(database) as db:
+            with closing(sqlite3.connect(database)) as db, db:
                 db.execute('INSERT INTO workflow_recovery_views VALUES(?,?,?)',(case,token,state))
             markup=f'<p id=commit-state>{state}</p>'
             if state=='not_committed':
@@ -64,7 +65,7 @@ def instrument(base,database,family):
             if message['command']=='arm_response_fault':
                 # Validate case authority using the backend's private snapshot.
                 super().command(dict(command='snapshot',case_id=message['case_id']))
-                self.workflow_response_faults.arm(message['case_id'],message['token'],message['route'],message['delay_ms'],message.get('expected_status'),message.get('skip_matches',0))
+                self.workflow_response_faults.arm(message['case_id'],message['token'],message['route'],message['delay_ms'],message.get('expected_status'),message.get('skip_matches',0),message.get('response_gate'))
                 return dict(armed=True)
             result=super().command(message)
             if message['command']=='snapshot':
@@ -88,7 +89,7 @@ def instrument(base,database,family):
                     pending=self.workflow_pending.get(case)
                     if pending is not None and pending.get('retry_authorized') and pending['gate']['route']==route:
                         matched=(body==pending['body'] and cookie==pending['cookie'] and verb==pending['verb'])
-                        with sqlite3.connect(database) as db:
+                        with closing(sqlite3.connect(database)) as db, db:
                             db.execute('INSERT INTO workflow_recovery_retries VALUES(?,?,?,?)',(case,pending['gate']['token'],hashlib.sha256(body).hexdigest(),int(matched)))
                         pending['retry_authorized']=False
                         if not matched:return (409,'Original request mismatch',[]) if method=='post' else 409

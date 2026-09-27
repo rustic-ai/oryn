@@ -32,9 +32,29 @@ class RawFamilyReplayTests(unittest.TestCase):
         data = self.control.records(self.case)
         frames = self.control.frames(self.case)
         prepared = raw.prepared_recipe(self.recipe, controls.BASE, None)
+        outputs=[[] for _ in prepared.lines]
+        action_steps=[i for i,line in enumerate(prepared.lines) if line.split()[0] in ('click','type','select')]
+        actions=[frame for frame in frames if frame['kind']=='action']
+        self.assertEqual(len(actions),len(action_steps))
+        for index,frame in zip(action_steps,actions):outputs[index].append(copy.deepcopy(frame))
+        for frame in frames:
+            if frame['kind']=='structured':
+                owner=frame['command_provenance'];index=owner['step']
+                self.assertEqual(prepared.lines[index],owner['oil'])
+                self.assertTrue(prepared.lines[index].startswith('extract '))
+                output=copy.deepcopy(frame);del output['command_provenance']
+                outputs[index].append(output)
+        # The shared control has one source observation per explicit observe,
+        # followed by a final-location observation at the last command.
+        observe_steps=[i for i,line in enumerate(prepared.lines) if line=='observe']
+        observations=[frame for frame in frames if frame['kind']=='observation']
+        self.assertEqual(len(observations),len(observe_steps)+1)
+        for index,frame in zip(observe_steps,observations[:-1]):outputs[index].append(copy.deepcopy(frame))
+        outputs[observe_steps[-1]].append(copy.deepcopy(observations[-1]))
+        self.assertEqual(sum(map(len,outputs)),len(frames))
         self.session = dict(id='context-0', context_id=1, page_id=1, adversarial_for=None,
             errors=[], cleanup_errors=[], workers_retired=True, secret_labels=[], recovery=[], fault_evidence=None,
-            steps=[dict(index=i, error=None, expected_error_matched=True, timed_out=False, outputs=frames if i == 0 else []) for i in range(len(prepared.lines))])
+            steps=[dict(index=i, error=None, expected_error_matched=True, timed_out=False, outputs=outputs[i]) for i in range(len(prepared.lines))])
         self.plan = dict(schema_version=1, attempt_id='a', sessions=[dict(id='context-0',
             steps=[dict(oil=line) for line in prepared.lines], uploads=[], fault=None, recovery_steps=[])])
         self.native = dict(schema_version=1, attempt_id='a', infrastructure_errors=[],
@@ -88,10 +108,29 @@ class RawFamilyReplayTests(unittest.TestCase):
             self.check()
 
     def test_rehashed_native_output_still_reaches_independent_validator(self):
-        next(frame for frame in self.session['steps'][0]['outputs'] if frame['kind'] == 'structured')['value'] = 'invented'
+        index=next(i for i,step in enumerate(self.plan['sessions'][0]['steps']) if step['oil'].startswith('extract '))
+        next(frame for frame in self.session['steps'][index]['outputs'] if frame['kind'] == 'structured')['value'] = 'invented'
         self.wave['native_evidence'] = self.save('native.json', self.native)
         with self.assertRaisesRegex(ValueError, 'independent family outcome'):
             self.check()
+
+    def test_rehashed_wrong_step_or_duplicate_extraction_cannot_hide_behind_values(self):
+        original=copy.deepcopy(self.native)
+        extracts=[i for i,step in enumerate(self.plan['sessions'][0]['steps']) if step['oil'].startswith('extract ')]
+        first,second=extracts[:2]
+        for mutation in ('move','duplicate','swap'):
+            with self.subTest(mutation=mutation):
+                self.native=copy.deepcopy(original)
+                steps=self.native['sessions'][0]['steps']
+                if mutation=='move':
+                    steps[second]['outputs'].extend(steps[first]['outputs']);steps[first]['outputs']=[]
+                elif mutation=='duplicate':
+                    steps[first]['outputs'].append(copy.deepcopy(steps[first]['outputs'][0]))
+                else:
+                    steps[first]['outputs'],steps[second]['outputs']=steps[second]['outputs'],steps[first]['outputs']
+                self.wave['native_evidence']=self.save('native.json',self.native)
+                with self.assertRaisesRegex(ValueError,'independent family outcome'):
+                    self.check()
 
     def test_task_fault_authority_candidate_and_step_controls(self):
         original_plan, original_native = copy.deepcopy(self.plan), copy.deepcopy(self.native)
@@ -205,14 +244,16 @@ class RawResourceCustodyTests(unittest.TestCase):
                 path = root / name; path.write_text(json.dumps(value))
                 return dict(path=name, sha256=digest(path))
             samples = dict(parent_pid=10, samples=[{}], errors=[], overflow=False)
-            cleanup = dict(parent_pid=10, returncode=0, errors=[])
+            cleanup = dict(parent_pid=10, process_group=10, group_settled=True, returncode=0, errors=[])
             accounting = dict(complete=True, errors=[], groups=[])
             wave = dict(samples=saved('samples.json', samples), process_cleanup=saved('cleanup.json', cleanup), accounting=saved('accounting.json', accounting))
             native = dict(sessions=[])
             with patch('workflow_resources.reconcile_resources', return_value=accounting) as recompute:
                 raw.check_resources(root, wave, native, artifact)
                 recompute.assert_called_once_with(samples, native)
-                for update in (dict(parent_pid=11), dict(returncode=False), dict(errors=['survivor'])):
+                for update in (dict(parent_pid=11), dict(returncode=False), dict(errors=['survivor']),
+                               dict(group_settled=False), dict(group_settled=None),
+                               dict(process_group=11), dict(process_group=True), dict(process_group=None)):
                     wave['process_cleanup'] = saved('cleanup.json', dict(cleanup, **update))
                     with self.assertRaisesRegex(ValueError, 'cleanup'):
                         raw.check_resources(root, wave, native, artifact)
@@ -275,3 +316,70 @@ class RawRecoveryAndProbeTests(unittest.TestCase):
         case.receiver.snapshot.return_value = dict(requests=[dict(status=303)], receipts=[])
         with self.assertRaisesRegex(ValueError, 'durable mutation'):
             raw.replay_probe(case, probe, 0, inputs, sessions, Path('/sealed'))
+
+
+class SaaSDatabaseBundleTests(unittest.TestCase):
+    def setUp(self):
+        from types import SimpleNamespace
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name);self.identity='a'*32;self.database=self.root/'app.sqlite3'
+        self.receiver=adapter.load('raw_bundle_saas',adapter.FIXTURES/'saas_fixture_v2.py')
+        fixture=self.receiver.Fixture(self.database);fixture.origin='http://127.0.0.1:41004'
+        fixture.command(dict(command='create',case_id=self.identity,scenario='normal'))
+        with fixture.provider.db:
+            fixture.provider.audit(self.identity,'token_exchange',400)
+        fixture.db.close();fixture.provider.close()
+        self.case=SimpleNamespace(family='saas',version=2,database=self.database)
+        def saved(path):return dict(path=str(path.relative_to(self.root)),sha256=digest(path))
+        self.claim=adapter.preserved_case_databases(self.case,saved)
+        self.expected=self.receiver.snapshot(self.database,self.identity)
+
+    def snapshot(self,claim=None,version=2):
+        from types import SimpleNamespace
+        case=SimpleNamespace(family='saas',version=version)
+        with raw.case_database_bytes(self.root,self.claim if claim is None else claim,case,artifact) as path:
+            self.assertNotEqual(path,self.database)
+            return self.receiver.snapshot(path,self.identity)
+
+    def test_real_oauth_snapshot_survives_verified_private_bundle_for_v2_and_v4(self):
+        for version in (2,4):
+            self.assertEqual(self.snapshot(version=version),self.expected)
+        self.assertEqual(self.expected['oauth']['events'],[dict(action='token_exchange',outcome=400)])
+        self.assertEqual(self.expected['oauth']['tokens'],[])
+
+    def test_missing_sidecar_does_not_fall_back_to_existing_adjacent_file(self):
+        claim=dict(self.claim);del claim['oauth_database']
+        self.assertTrue(Path(str(self.database)+'.oauth').is_file())
+        with self.assertRaisesRegex(ValueError,'OAuth database'):self.snapshot(claim)
+
+    def test_foreign_reference_hash_change_and_corrupt_bytes_are_rejected(self):
+        claim=copy.deepcopy(self.claim);claim['oauth_database']['path']='foreign.sqlite3.oauth'
+        with self.assertRaisesRegex(ValueError,'owner/path'):self.snapshot(claim)
+        claim=copy.deepcopy(self.claim);claim['oauth_database']['sha256']='0'*64
+        with self.assertRaises(ValueError):self.snapshot(claim)
+        path=Path(str(self.database)+'.oauth');path.write_bytes(b'not SQLite')
+        self.claim['oauth_database']['sha256']=digest(path)
+        with self.assertRaisesRegex(ValueError,'SQLite'):self.snapshot()
+
+    def test_rehashed_oauth_mutation_changes_independent_durable_outcome(self):
+        import sqlite3
+        path=Path(str(self.database)+'.oauth')
+        with sqlite3.connect(path) as db:db.execute('UPDATE oauth_events SET outcome=200')
+        self.claim['oauth_database']['sha256']=digest(path)
+        self.assertNotEqual(self.snapshot()['oauth'],self.expected['oauth'])
+
+    def test_commit_bundle_retains_gate_tables_and_oauth_assertions(self):
+        import sqlite3
+        with sqlite3.connect(self.database) as db:
+            db.execute('CREATE TABLE workflow_commit_gates(token TEXT,phase TEXT)')
+            db.execute("INSERT INTO workflow_commit_gates VALUES('bound-token','before_commit')")
+        self.claim['database']['sha256']=digest(self.database)
+        with raw.case_database_bytes(self.root,self.claim,self.case,artifact) as path:
+            self.assertEqual(self.receiver.snapshot(path,self.identity),self.expected)
+            with sqlite3.connect(f'file:{path}?mode=ro',uri=True) as db:
+                self.assertEqual(db.execute('SELECT token,phase FROM workflow_commit_gates').fetchall(),[('bound-token','before_commit')])
+
+    def test_ordinary_family_bundle_rejects_unexpected_oauth_database(self):
+        from types import SimpleNamespace
+        with self.assertRaisesRegex(ValueError,'unexpected raw OAuth'):
+            with raw.case_database_bytes(self.root,self.claim,SimpleNamespace(family='research',version=3),artifact):pass

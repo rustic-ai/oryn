@@ -4,7 +4,7 @@ use oryn_js::worker_wire::*;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::{self, Read, Write};
 
-pub const VERSION: u32 = 19;
+pub const VERSION: u32 = 20;
 pub const MAX_FRAME: usize = 32 * 1024 * 1024;
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ParentFrame {

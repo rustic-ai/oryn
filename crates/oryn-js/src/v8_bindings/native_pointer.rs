@@ -1519,6 +1519,7 @@ pub(super) fn pointer_event<'s>(
 pub struct NativeFramePointerTarget {
     pub frame: NodeId,
     pub document: NodeId,
+    pub identity: NativeFrameInputIdentity,
     pub x: f64,
     pub y: f64,
     pub movement_x: f64,
@@ -1569,7 +1570,7 @@ pub fn native_frame_pointer_coordinates(
         return Ok(None);
     }
     refresh_layout(state)?;
-    let Some(document) = state.frame_roots.borrow().get(&frame).copied() else {
+    let Some(identity) = state.native_input_frame_identity(frame) else {
         return Ok(None);
     };
     let layout = state.layout.borrow();
@@ -1587,7 +1588,8 @@ pub fn native_frame_pointer_coordinates(
     let content = projection.box_model.content_box;
     Ok(Some(NativeFramePointerTarget {
         frame,
-        document,
+        document: identity.document,
+        identity,
         x: local_x - content.x,
         y: local_y - content.y,
         movement_x: local_x - previous_x,
@@ -1609,7 +1611,7 @@ pub fn native_frame_pointer_parent_coordinates(
         return Ok(None);
     }
     refresh_layout(state)?;
-    let Some(document) = state.frame_roots.borrow().get(&frame).copied() else {
+    let Some(identity) = state.native_input_frame_identity(frame) else {
         return Ok(None);
     };
     let layout = state.layout.borrow();
@@ -1634,7 +1636,8 @@ pub fn native_frame_pointer_parent_coordinates(
     };
     Ok(Some(NativeFramePointerTarget {
         frame,
-        document,
+        document: identity.document,
+        identity,
         x: point.0,
         y: point.1,
         movement_x: point.0 - previous.0,
@@ -1672,7 +1675,7 @@ pub fn native_frame_pointer_target(
     let Some(frame) = hit else {
         return Ok(None);
     };
-    let Some(document) = state.frame_roots.borrow().get(&frame).copied() else {
+    let Some(identity) = state.native_input_frame_identity(frame) else {
         return Ok(None);
     };
     if scrollbar_surface(state, frame, true, false, x, y).is_some_and(|(bars, x, y)| {
@@ -1702,7 +1705,8 @@ pub fn native_frame_pointer_target(
         .unwrap_or((local_x, local_y));
     Ok(Some(NativeFramePointerTarget {
         frame,
-        document,
+        document: identity.document,
+        identity,
         x: local_x - content.x,
         y: local_y - content.y,
         movement_x: local_x - previous.0,

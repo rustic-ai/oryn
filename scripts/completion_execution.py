@@ -10,11 +10,11 @@ import os
 from pathlib import Path
 import signal
 import subprocess
-import sys
 import time
 
 from completion_provenance import ROOT, digest, load_candidate, read_record
 from generation_gate import generation_gate, GenerationLease
+from completion_process_supervisor import Cancellation, supervise
 
 KINDS = {'frameworks', 'security', 'architecture', 'reliability', 'booking-regression', 'native-prerequisites', 'fixture-topology', 'native-media'}
 
@@ -36,19 +36,29 @@ def source_hash():
     return subprocess.check_output([str(ROOT / 'scripts/source-tree-hash.sh')], cwd=ROOT, text=True).strip()
 
 
+def candidate_python(candidate):
+    """Validate pinned bytes while retaining the declared venv invocation path.
+
+    Resolving an executable symlink can change Python's environment, and using
+    the verifier's interpreter makes otherwise identical receipts disagree.
+    """
+    controls = json.loads(candidate['artifacts']['native_controls_contract'].read_text())
+    reference = controls['upstream_python']
+    read_record(reference)  # Checks absolute path, existing file and SHA-256.
+    return reference['path']  # Deliberately do not use read_record's resolved path.
+
+
 def command(kind, candidate, gate, output):
     artifacts = candidate['artifacts']
     raw = Path(output) / 'raw'
     if kind == 'fixture-topology':
-        controls = json.loads(artifacts['native_controls_contract'].read_text())
-        python = read_record(controls['upstream_python'])
-        return [str(python), str(ROOT / 'scripts/run-wpt-topology-probe.py'),
+        return [candidate_python(candidate), str(ROOT / 'scripts/run-wpt-topology-probe.py'),
                 '--generation-gate', str(Path(gate).resolve()), '--candidate', str(candidate['path']), '--output', str(raw)]
     if kind == 'native-media':
-        return [sys.executable, str(ROOT / 'scripts/run-native-media-qualification.py'),
+        return [candidate_python(candidate), str(ROOT / 'scripts/run-native-media-qualification.py'),
                 '--generation-gate', str(Path(gate).resolve()), '--candidate', str(candidate['path']), '--output', str(raw)]
     if kind == 'native-prerequisites':
-        return [sys.executable, str(ROOT / 'scripts/run-wpt-native-controls.py'),
+        return [candidate_python(candidate), str(ROOT / 'scripts/run-wpt-native-controls.py'),
                 '--generation-gate', str(Path(gate).resolve()), '--candidate', str(candidate['path']), '--output', str(raw)]
     if kind == 'booking-regression':
         plan = json.loads(artifacts['qualification_plan'].read_text())
@@ -57,32 +67,31 @@ def command(kind, candidate, gate, output):
             raise ValueError('exact booking mechanism regression name required')
         return [str(artifacts['booking_regression']), '--exact', name, '--nocapture']
     if kind == 'frameworks':
-        return [sys.executable, str(ROOT / 'scripts/run-oil-framework-outcomes.py'),
+        return [candidate_python(candidate), str(ROOT / 'scripts/run-oil-framework-outcomes.py'),
                 '--generation-gate', str(Path(gate).resolve()), '--binary', str(artifacts['runtime']), '--worker', str(artifacts['worker']),
                 '--build', str(artifacts['framework_build']), '--samples', '3', '--jobs', '1', '--output', str(raw)]
     if kind == 'reliability':
-        return [sys.executable, str(ROOT / 'scripts/run-oil-full-contract.py'),
+        return [candidate_python(candidate), str(ROOT / 'scripts/run-oil-full-contract.py'),
                 '--binary', str(artifacts['workflow_executor']), '--worker', str(artifacts['worker']),
                 '--candidate', str(candidate['path']), '--generation-gate', str(Path(gate).resolve()), '--output', str(raw)]
     if kind == 'architecture':
-        return [sys.executable, str(ROOT / 'scripts/validate_runtime_architecture.py'), '--require-cutover',
+        return [candidate_python(candidate), str(ROOT / 'scripts/validate_runtime_architecture.py'), '--require-cutover',
                 '--candidate', str(candidate['path']), '--candidate-sha256', candidate['sha256'],
                 '--output', str(raw)]
     if kind == 'security':
-        # This existing suite selects these release paths itself. Explicitly
-        # reject a differently located candidate instead of running another one.
-        expected = {'runtime': ROOT / 'target/release/oryn',
-                    'worker': ROOT / 'target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker'}
-        if any(artifacts[name] != path.resolve() for name, path in expected.items()):
-            raise ValueError('security suite fixed paths differ from candidate')
+        # The prebuilt suite resolves runtime and worker from this exact frozen candidate.
         return [str(ROOT / 'scripts/run-security-suite.sh'), str(raw),
                 '--prebuilt-candidate', str(candidate['path']),
                 '--candidate-sha256', candidate['sha256']]
     raise ValueError('unknown completion producer')
 
 
-def run_owned(argv, output, timeout=43200, environment=None, cwd=None):
-    """One owned process group; a successful parent exit alone is insufficient."""
+def run_owned(argv, output, timeout=43200, environment=None, cwd=None, *, deadline=None):
+    """One owned process group; a successful parent exit alone is insufficient.
+
+    Optional Unix-wall deadline includes admission and startup. The supervisor's
+    existing post-cancellation grace is only for owned cleanup, not more work.
+    """
     child_environment = dict(os.environ if environment is None else environment)
     gate_path = child_environment.get('ORYN_GENERATION_GATE')
     gate_digest = child_environment.get('ORYN_GENERATION_GATE_SHA256')
@@ -91,45 +100,32 @@ def run_owned(argv, output, timeout=43200, environment=None, cwd=None):
     admission = GenerationLease(gate_path, validator=generation_gate, expected=gate_digest)
     output = Path(output)
     started = time.monotonic_ns()
-    code = None
-    error = None
-    timed_out = False
-    cleanup = False
-    with (output / 'stdout.log').open('xb') as stdout, (output / 'stderr.log').open('xb') as stderr:
-        process = None
-        try:
-            admission.check()
-            process = subprocess.Popen(argv, cwd=ROOT if cwd is None else cwd, stdout=stdout, stderr=stderr, start_new_session=True, env=child_environment)
+    result = dict(returncode=None, error=None, timed_out=False, cleanup_complete=True,
+                  cleanup_errors=[], cancellation_signal=None, forced_cleanup=False, events=[])
+    with Cancellation() as cancellation:
+        with (output / 'stdout.log').open('xb') as stdout, (output / 'stderr.log').open('xb') as stderr:
             try:
-                code = process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                os.killpg(process.pid, signal.SIGKILL)
-                code = process.wait(timeout=15)
-        except Exception as failure:
-            error = str(failure)
-        finally:
-            if process is not None:
-                try:
-                    os.killpg(process.pid, 0)
-                except ProcessLookupError:
-                    cleanup = True
-                except PermissionError:
-                    pass
-                else:
-                    # Surviving descendants stay a failure even after this kill.
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                if process.poll() is None:
-                    try:
-                        process.kill()
-                        process.wait(timeout=15)
-                    except Exception as failure:
-                        error = (error + '; ' if error else '') + 'child reap failed: ' + str(failure)
-    return dict(argv=argv, returncode=code, timed_out=timed_out, error=error,
-                cleanup_complete=cleanup, elapsed_ns=time.monotonic_ns() - started)
+                admission.check()
+                if cancellation.signum is not None:
+                    raise InterruptedError('cancelled before producer launch')
+                if deadline is not None and time.time() >= deadline:
+                    raise TimeoutError('absolute execution deadline reached before launch')
+                process = subprocess.Popen(argv, cwd=ROOT if cwd is None else cwd,
+                    stdout=stdout, stderr=stderr, start_new_session=True, env=child_environment)
+            except BaseException as failure:
+                result['error'] = repr(failure)
+                result['timed_out'] = isinstance(failure, TimeoutError)
+            else:
+                remaining = timeout
+                if deadline is not None:
+                    wall_remaining = max(0, deadline - time.time())
+                    remaining = wall_remaining if timeout is None else min(timeout, wall_remaining)
+                result = supervise(process, cancellation, timeout=remaining, grace=60)
+        result['cancellation_signal'] = cancellation.signum
+        if cancellation.signum is not None:
+            result['error'] = result['error'] or 'owned execution cancelled by signal ' + str(cancellation.signum)
+    return dict(argv=argv, elapsed_ns=time.monotonic_ns() - started, **result)
+
 
 
 def produce(kind, candidate_path, gate, output):

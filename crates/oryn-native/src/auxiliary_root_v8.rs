@@ -25,31 +25,13 @@ struct AuxiliaryRoots {
 }
 struct RootActorRoute(crate::worker_route::WorkerRoute);
 
-struct RootCreationRollback {
-    context: SharedContextClient,
-    page: PageId,
-    expected_generation: Option<u64>,
-    armed: bool,
-}
-impl Drop for RootCreationRollback {
-    fn drop(&mut self) {
-        if self.armed {
-            let _ = self
-                .context
-                .request(ContextServiceRequest::RollbackAuxiliaryRoot {
-                    page_id: self.page,
-                    expected_generation: self.expected_generation,
-                });
-        }
-    }
-}
-
 pub(super) fn create_admitted_auxiliary_root(
     scope: &mut v8::PinScope,
     page_id: PageId,
     opener_page_id: Option<PageId>,
     admission: crate::context_service::RelatedRootAdmission,
     initial_navigation: Option<&str>,
+    mut rollback: crate::context_service::ContextAuxiliaryRollback,
 ) -> Result<(), HostError> {
     let creator = scope.get_current_context();
     let source = current_context_endpoint(scope)
@@ -78,6 +60,11 @@ pub(super) fn create_admitted_auxiliary_root(
             "auxiliary admission does not match native creator".into(),
         ));
     }
+    let context = source
+        .client
+        .related_endpoint(&admission)
+        .map_err(|error| HostError::Execution(error.to_string()))?;
+    rollback.bind(context.clone(), page_id);
     let policy = admission
         .policy
         .clone()
@@ -98,16 +85,6 @@ pub(super) fn create_admitted_auxiliary_root(
         .native_document_base_url(true)
         .map_err(|error| HostError::Execution(error.to_string()))?;
     let referrer = creator_state.document_referrer_policy();
-    let context = source
-        .client
-        .related_endpoint(&admission)
-        .map_err(|error| HostError::Execution(error.to_string()))?;
-    let mut rollback = RootCreationRollback {
-        context: context.clone(),
-        page: page_id,
-        expected_generation: None,
-        armed: true,
-    };
     let response = context
         .request(ContextServiceRequest::GetNativeDocumentAuthority {
             page_id,
@@ -131,7 +108,7 @@ pub(super) fn create_admitted_auxiliary_root(
             "auxiliary initial authority already consumed".into(),
         ));
     }
-    rollback.expected_generation = Some(document_generation);
+    rollback.set_generation(document_generation);
     let origin = Origin::from_native_authority(&serialized, opaque_key.as_deref())
         .map_err(|error| HostError::Execution(error.into()))?;
     let broker = if admission.direct {
@@ -313,6 +290,9 @@ pub(super) fn create_admitted_auxiliary_root(
         Ok(())
     });
     if let Err(error) = result {
+        // Revoke the parent target while its original native identity still
+        // exists. A failed/lost reply remains owned by the pre-admission ticket.
+        let rollback_error = rollback.revoke().err();
         fail_runtime_bootstrap(local);
         if let Some(state) = local.get_slot::<V8BindingState>() {
             state.retire_execution();
@@ -324,7 +304,12 @@ pub(super) fn create_admitted_auxiliary_root(
         identities.pending_contexts.remove(&realm);
         identities.contexts.remove(&realm);
         identities.realms.remove(realm);
-        return Err(error);
+        return Err(match rollback_error {
+            Some(cleanup) => {
+                HostError::Execution(format!("{error}; auxiliary rollback retained: {cleanup}"))
+            }
+            None => error,
+        });
     }
     let registry = scope.get_slot_mut::<AuxiliaryRoots>().unwrap();
     registry.pages.insert(page_id, realm);
@@ -346,7 +331,7 @@ pub(super) fn create_admitted_auxiliary_root(
         referrer_policy: crate::referrer::ReferrerPolicy::parse_list(&referrer),
         isolation: admission.isolation,
     });
-    rollback.armed = false;
+    rollback.commit();
     Ok(())
 }
 
@@ -824,6 +809,37 @@ mod tests {
 
     #[test]
     fn initial_auxiliary_navigation_is_root_local_and_seals_opener_source() {
+        exercise_initial_auxiliary_navigation(false);
+    }
+
+    #[test]
+    fn initial_auxiliary_failure_preserves_bootstrap_error_and_lost_rollback_ack() {
+        let original = exercise_initial_auxiliary_navigation(false);
+        let retained = exercise_initial_auxiliary_navigation(true);
+        assert!(retained.contains(&original), "primary error lost: {retained}");
+        assert!(retained.contains("injected lost rollback acknowledgement"));
+    }
+
+    fn exercise_initial_auxiliary_navigation(lose_ack: bool) -> String {
+        use crate::context_service::ContextTransport;
+        struct LoseRollbackAck {
+            routes: Arc<Routes>,
+            armed: std::sync::atomic::AtomicBool,
+        }
+        impl ContextTransport for LoseRollbackAck {
+            fn request(&self, _: ContextServiceRequest) -> Result<ContextServiceResponse, crate::RuntimeError> {
+                Err(crate::RuntimeError::ProtocolViolation("test requires route".into()))
+            }
+            fn request_routed(&self, route: Option<&crate::worker_route::WorkerRoute>, request: ContextServiceRequest) -> Result<ContextServiceResponse, crate::RuntimeError> {
+                let rollback = matches!(&request, ContextServiceRequest::RollbackAuxiliaryRoot { .. });
+                let response = self.routes.request_routed(route, request)?;
+                if rollback && self.armed.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                    return Err(crate::RuntimeError::ContextService("injected lost rollback acknowledgement".into()));
+                }
+                Ok(response)
+            }
+        }
+        let mut failure = None;
         for fail_authorization in [false, true] {
             let browser = crate::Browser::in_process_with_config(Default::default());
             let owner = browser.new_context();
@@ -839,8 +855,14 @@ mod tests {
                 first_route.clone(),
                 SharedContextClient::direct(owner.clone(), first.page_id()),
             )]))));
-            let endpoint =
-                SharedContextClient::for_test_transport(transport.clone(), first_route.clone());
+            let endpoint = SharedContextClient::for_test_transport(
+                Arc::new(LoseRollbackAck {
+                    routes: transport.clone(),
+                    armed: std::sync::atomic::AtomicBool::new(lose_ack),
+                }),
+                first_route.clone(),
+            );
+            let cleanup_source = endpoint.clone();
             let mut host = RawV8Host::new_with_network_context_and_heap_limit(
                 None,
                 Some(Url::parse(url).unwrap()),
@@ -865,6 +887,9 @@ mod tests {
                 .unwrap();
             let creator = host.binding_states[&parent]
                 .native_worker_creator()
+                .unwrap();
+            let rollback = cleanup_source
+                .reserve_auxiliary_rollback(first.page_id())
                 .unwrap();
             let second = owner
                 .new_popup_from_creator(first.page_id(), &creator)
@@ -898,10 +923,11 @@ mod tests {
                     Some(first.page_id()),
                     admission,
                     Some(destination),
+                    rollback,
                 )
             };
             if fail_authorization {
-                assert!(result.is_err());
+                failure = Some(result.unwrap_err().to_string());
                 assert!(host.take_created_auxiliary_roots().is_empty());
                 assert!(
                     owner
@@ -913,6 +939,7 @@ mod tests {
                     host.evaluate_string("document.body.textContent").unwrap(),
                     "parent"
                 );
+                cleanup_source.drain_script_cleanup(std::time::Duration::from_secs(5)).unwrap();
                 continue;
             }
             result.unwrap();
@@ -992,6 +1019,7 @@ mod tests {
                 "parent"
             );
         }
+        failure.expect("authorization failure exercised")
     }
 
     struct Routes(

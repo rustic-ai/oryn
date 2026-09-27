@@ -13,7 +13,7 @@ if grep -Eq "$v8_package_pattern" <<<"$default_tree"; then
 fi
 
 release_tree="$(cargo tree --locked -p oryn --no-default-features \
-  --features 'native core-full' -e normal,build)"
+  --features 'native core-full webdriver-server' -e normal,build)"
 if grep -Eq "$v8_package_pattern" <<<"$release_tree"; then
   echo "explicit macOS parent dependency graph contains V8" >&2
   exit 1

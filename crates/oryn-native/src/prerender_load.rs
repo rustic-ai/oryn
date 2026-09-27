@@ -11,6 +11,7 @@ pub struct PrerenderConstructionInput<'a> {
     pub deadline: Instant,
     pub host: &'a mut Option<crate::host::RawV8Host>,
     pub provisional: &'a mut Option<oryn_js::realm::RealmId>,
+    pub terminal_control: Arc<crate::page_terminal_control::PageTerminalControl>,
 }
 use super::*;
 use std::task::Poll;
@@ -515,6 +516,7 @@ impl PreparedCandidate {
             deadline,
             host,
             provisional,
+            terminal_control,
         } = params;
 
         let csp = crate::csp::CspPolicySet::from_agent_policy(&self.policy);
@@ -633,8 +635,8 @@ impl PreparedCandidate {
             content_type: Some(self.content_type),
             encoding,
         };
-        let mut executable = crate::executable::RustExecutableDocument::load_in_agent(
-            crate::executable::AgentDocumentLoadInput {
+        let mut executable = crate::executable::RustExecutableDocument::load_for_page(
+            crate::executable::PageDocumentLoadInput {
                 parsed: None,
                 source: Some(stream),
                 html: "",
@@ -642,8 +644,11 @@ impl PreparedCandidate {
                 broker: Some(broker.clone()),
                 base_url: Some(base.clone()),
                 max_heap_bytes: max_heap,
+                scheduled: true,
+                inherited_origin: None,
+                terminal_control,
                 context: Some((client, page, None)),
-                recovery: host,
+                recovery: Some(host),
             },
         )
         .map_err(map_host_error)?;
@@ -733,6 +738,9 @@ impl CandidateDocument {
             .and_then(|_| self.executable.poll_context_events());
         *host = Some(self.executable.take_agent_host().map_err(map_host_error)?);
         result.map_err(map_host_error)?;
+        if self.executable.terminal_retired() {
+            return Ok(());
+        }
         self.activation_available = host.as_ref().is_some_and(|host| {
             host.prerender_activation_available(self.executable.agent_root_realm())
         });

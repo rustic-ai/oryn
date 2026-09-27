@@ -9,6 +9,7 @@ enum State {
     Detached,
     Armed(Cleanup),
     Committed,
+    Transferred,
 }
 
 struct Inner {
@@ -36,9 +37,9 @@ impl ResponsePolicyToken {
         &self.0.token
     }
 
-    /// IPC decode installs cleanup before publishing this value into a queue.
+    /// Parent header publication and IPC decode install cleanup before queuing.
     /// Deserialization alone cannot create native cancellation authority.
-    pub(super) fn attach_cleanup(&self, cleanup: impl FnOnce() + Send + Sync + 'static) {
+    pub(crate) fn attach_cleanup(&self, cleanup: impl FnOnce() + Send + Sync + 'static) {
         let mut state = self
             .0
             .state
@@ -49,6 +50,17 @@ impl ResponsePolicyToken {
             "response cleanup is attached once"
         );
         *state = State::Armed(Box::new(cleanup));
+    }
+
+    /// Parent IPC retains the armed token through the complete frame write.
+    /// Only successful handoff relinquishes its cleanup to the remote decoder,
+    /// which installs its own cleanup before publishing the received headers.
+    pub(super) fn transferred_to_remote(&self) {
+        *self
+            .0
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = State::Transferred;
     }
 
     /// Called only after the native commit acknowledgement. All retained copies

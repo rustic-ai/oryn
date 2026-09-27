@@ -13,6 +13,8 @@ enum NavigationProgress {
 #[cfg(feature = "v8-host")]
 struct NavigationTransaction {
     id: u64,
+    #[cfg(unix)]
+    ipc_identity: Option<crate::ipc_progress::Identity>,
     timing: oryn_js::navigation_timing::NavigationTiming,
     requested_url: String,
     current: Url,
@@ -142,17 +144,22 @@ impl PageState {
         if let Some(settlement) = self.settling_navigation.take()
             && let Some(reply) = settlement.reply
         {
-            reply.complete(self, Err(RuntimeError::NavigationCancelled));
+            // A delayed ACK may already own the primary failure. Cleanup or
+            // replacement must not overwrite it with a later cancellation.
+            let cause = settlement.result.err().unwrap_or_else(|| error.clone());
+            reply.complete(self, Err(cause));
         }
         let Some(mut transaction) = self.pending_navigation_transaction.take() else {
             return;
         };
         if let Some(reply) = transaction.admission_reply.take() {
-            let _ = reply.send(Err(if matches!(&error, RuntimeError::Closed) {
-                RuntimeError::Closed
-            } else {
-                RuntimeError::NavigationCancelled
-            }));
+            let _ = reply.send(Err(
+                if matches!(&error, RuntimeError::Closed | RuntimeError::PageTaskYield) {
+                    RuntimeError::Closed
+                } else {
+                    RuntimeError::NavigationCancelled
+                },
+            ));
         }
         #[cfg(unix)]
         self.retain_prerender_recovery(&mut transaction);
@@ -481,6 +488,15 @@ impl PageState {
         self.cancel_navigation_transaction(RuntimeError::NavigationCancelled);
         self.next_navigation_transaction = id;
         self.pending_navigation_transaction = Some(NavigationTransaction {
+            #[cfg(unix)]
+            ipc_identity: self
+                .navigation_progress_identity
+                .or_else(|| {
+                    self.action_navigation
+                        .as_ref()
+                        .and_then(|barrier| barrier.ipc_identity)
+                })
+                .or_else(|| crate::ipc_progress::capture(self.page_id.0)),
             timing: oryn_js::navigation_timing::NavigationTiming::new(
                 Instant::now(),
                 match history {
@@ -945,7 +961,22 @@ impl PageState {
                 self.config.max_redirects,
                 Some(transaction.deadline),
             )
-            .with_timing(transaction.timing.clone()),
+            .with_timing(transaction.timing.clone())
+            .with_diagnostics(
+                self.trace.diagnostic_sink(Revision(self.revision)),
+                {
+                    #[cfg(unix)]
+                    {
+                        transaction.ipc_identity
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        None
+                    }
+                },
+                transaction.id,
+                transaction.source_generation,
+            ),
         ));
         Ok(None)
     }
@@ -1131,6 +1162,25 @@ impl PageState {
     }
 
     fn step_navigation_transaction(
+        &mut self,
+        transaction: &mut NavigationTransaction,
+    ) -> std::task::Poll<Result<NavigationResult, RuntimeError>> {
+        // A future actor turn may run for a different command. Carry admission
+        // identity through this exact transaction rather than recapturing it.
+        #[cfg(unix)]
+        let previous = std::mem::replace(
+            &mut self.navigation_progress_identity,
+            transaction.ipc_identity,
+        );
+        let result = self.step_navigation_transaction_inner(transaction);
+        #[cfg(unix)]
+        {
+            self.navigation_progress_identity = previous;
+        }
+        result
+    }
+
+    fn step_navigation_transaction_inner(
         &mut self,
         transaction: &mut NavigationTransaction,
     ) -> std::task::Poll<Result<NavigationResult, RuntimeError>> {
@@ -1970,12 +2020,17 @@ impl PageState {
                     return Poll::Pending;
                 }
                 let ready = (|| -> Result<bool, RuntimeError> {
+                    if self.terminal_close_requested() {
+                        return Ok(false);
+                    }
                     self.poll_history_publications()?;
-                    if !self.history_publications.is_empty() {
+                    if self.terminal_close_requested() || !self.history_publications.is_empty() {
                         return Ok(false);
                     }
                     self.sync_executable_semantics()?;
-                    self.refresh_layout()?;
+                    if !self.refresh_page_task_layout()? {
+                        return Ok(false);
+                    }
                     let interactive = self
                         .executable
                         .as_ref()
@@ -2068,6 +2123,32 @@ impl PageState {
         }
     }
 
+    // Follow only the two forward HTTP handoffs. A pending dependency or ACK
+    // keeps its phase and yields immediately; departure retries are not polled
+    // again. Each step retains the existing live-authority/deadline/checkpoint
+    // checks, and at most one departure (which may invoke author code) can run.
+    fn step_ready_navigation_transaction(
+        &mut self,
+        transaction: &mut NavigationTransaction,
+    ) -> std::task::Poll<Result<NavigationResult, RuntimeError>> {
+        for _ in 0..3 {
+            let was_http = matches!(transaction.phase, NavigationTransactionPhase::Http(_));
+            let was_mime = matches!(transaction.phase, NavigationTransactionPhase::Mime { .. });
+            let progress = self.step_navigation_transaction(transaction);
+            let forward = (was_http
+                && matches!(transaction.phase, NavigationTransactionPhase::Mime { .. }))
+                || (was_mime
+                    && matches!(
+                        transaction.phase,
+                        NavigationTransactionPhase::Departure { .. }
+                    ));
+            if progress.is_ready() || !forward {
+                return progress;
+            }
+        }
+        std::task::Poll::Pending
+    }
+
     fn poll_navigation_transaction(&mut self) -> Option<PendingNavigationReply> {
         #[cfg(unix)]
         if self.script_close_owns_departure() {
@@ -2092,7 +2173,7 @@ impl PageState {
                     if let Err(error) = result
                         && settlement.result.is_ok()
                     {
-                        settlement.result = Err(RuntimeError::Network(error.to_string()));
+                        settlement.result = Err(RuntimeError::NavigationStopped(error));
                     }
                     if let Some(reply) = self.deliver_navigation_settlement(settlement) {
                         return Some(reply);
@@ -2102,7 +2183,7 @@ impl PageState {
         }
         let mut transaction = self.pending_navigation_transaction.take()?;
         self.polling_navigation_transaction = true;
-        let progress = self.step_navigation_transaction(&mut transaction);
+        let progress = self.step_ready_navigation_transaction(&mut transaction);
         self.polling_navigation_transaction = false;
         let result = match progress {
             std::task::Poll::Pending => {
@@ -2192,11 +2273,10 @@ impl PageState {
         if result.is_err()
             && let Some(emitter) = transaction.emitter.as_ref()
         {
-            let reason = emitter.checkpoint().err().unwrap_or_else(|| {
-                crate::navigation_control::NavigationStop::Failed(
-                    result.as_ref().err().unwrap().to_string(),
-                )
-            });
+            let reason = emitter
+                .checkpoint()
+                .err()
+                .unwrap_or_else(|| result.as_ref().err().unwrap().navigation_stop());
             let _ = emitter.publish(crate::navigation_control::NavigationEvent::Stopped(reason));
         }
         let mut settlement = NavigationSettlement {
@@ -2227,7 +2307,7 @@ impl PageState {
                 }
                 Err(error) => {
                     if settlement.result.is_ok() {
-                        settlement.result = Err(RuntimeError::Network(error.to_string()));
+                        settlement.result = Err(RuntimeError::NavigationStopped(error));
                     }
                 }
             }
@@ -2650,7 +2730,7 @@ impl PageState {
                     .map_err(map_host_error)?;
             }
             self.sync_executable_semantics()?;
-            self.refresh_layout()?;
+            self.refresh_page_task_layout()?;
         }
         Ok(())
     }
@@ -3144,9 +3224,10 @@ impl PageState {
                     self.navigation_control_checkpoint = Some((emitter, ack));
                     return Ok(());
                 }
-                std::task::Poll::Ready(Err(_)) => {
-                    self.stop_navigation_load()?;
-                    return Ok(());
+                std::task::Poll::Ready(Err(reason)) => {
+                    return Err(
+                        self.stop_failed_navigation_load(RuntimeError::NavigationStopped(reason))
+                    );
                 }
                 std::task::Poll::Ready(Ok(())) => {}
             }
@@ -3158,7 +3239,11 @@ impl PageState {
         {
             match emitter.checkpoint_pending() {
                 Ok(ack) => self.navigation_control_checkpoint = Some((emitter, ack)),
-                Err(_) => self.stop_navigation_load()?,
+                Err(reason) => {
+                    return Err(
+                        self.stop_failed_navigation_load(RuntimeError::NavigationStopped(reason))
+                    );
+                }
             }
         }
         Ok(())
@@ -3736,3 +3821,198 @@ mod settled_navigation_result_tests {
         }
     }
 }
+
+// Diagnostic-only state for the currently committed native document. The owner
+// is captured before queued continuation; no later active request is consulted.
+// Native identity/load epoch checks suppress stale attribution after document
+// replacement, document.open, cancellation or history activation.
+#[cfg(all(unix, feature = "v8-host"))]
+struct CommittedNavigationProgress {
+    owner: crate::ipc_progress::Identity,
+    generation: u64,
+    native_identity: (oryn_js::realm::RealmId, u64, u64),
+    load_epoch: u64,
+    reported: u8,
+}
+#[cfg(all(unix, feature = "v8-host"))]
+#[derive(Clone, Copy)]
+enum NavigationReadinessStage {
+    LayoutCompleted,
+    ParserSettled,
+    LoadReady,
+}
+#[cfg(all(unix, feature = "v8-host"))]
+impl CommittedNavigationProgress {
+    fn select(
+        &mut self,
+        stage: NavigationReadinessStage,
+        generation: u64,
+        native_identity: Option<(oryn_js::realm::RealmId, u64, u64)>,
+        load_epoch: Option<u64>,
+    ) -> Option<(crate::ipc_progress::Identity, crate::ipc_progress::Phase)> {
+        if self.generation != generation
+            || native_identity != Some(self.native_identity)
+            || load_epoch != Some(self.load_epoch)
+        {
+            return None;
+        }
+        use crate::ipc_progress::Phase;
+        let (bit, phase) = match stage {
+            NavigationReadinessStage::LayoutCompleted => (1, Phase::NavigationLayoutCompleted),
+            NavigationReadinessStage::ParserSettled => (2, Phase::NavigationParserSettled),
+            NavigationReadinessStage::LoadReady => (4, Phase::NavigationLoadReady),
+        };
+        if self.reported & bit != 0 {
+            return None;
+        }
+        self.reported |= bit;
+        Some((self.owner, phase))
+    }
+}
+#[cfg(all(unix, feature = "v8-host"))]
+impl PageState {
+    fn capture_committed_navigation_progress(&mut self) {
+        self.committed_navigation_progress = (|| {
+            let owner = self.navigation_progress_identity?;
+            let executable = self.executable.as_ref()?;
+            Some(CommittedNavigationProgress {
+                owner,
+                generation: self.document_generation,
+                native_identity: executable.form_history_root_identity()?,
+                load_epoch: executable.native_navigation_load_epoch()?,
+                reported: 0,
+            })
+        })();
+    }
+    fn record_committed_navigation_progress(&mut self, stage: NavigationReadinessStage) {
+        // A temporary selected-frame view is not the committed root even when
+        // its numeric document generation happens to match.
+        if self.frame_scope.is_some() {
+            return;
+        }
+        let Some(progress) = self.committed_navigation_progress.as_mut() else {
+            return;
+        };
+        // These getters read existing native slots; no parent RPC, authority
+        // lookup, task pump, retry, or new deadline is introduced by logging.
+        let native_identity = self
+            .executable
+            .as_ref()
+            .and_then(|page| page.form_history_root_identity());
+        let load_epoch = self
+            .executable
+            .as_ref()
+            .and_then(|page| page.native_navigation_load_epoch());
+        if let Some((owner, phase)) =
+            progress.select(stage, self.document_generation, native_identity, load_epoch)
+        {
+            // Independent of context_rpc's sampling budget. The general sink
+            // retains its own explicit truncation and regular-file-only rules.
+            crate::ipc_progress::record(Some(owner), phase, None, Some(self.document_generation));
+        }
+    }
+}
+
+#[cfg(all(test, unix, feature = "v8-host"))]
+mod navigation_readiness_trace_tests {
+    use super::*;
+
+    fn progress(page: u64) -> CommittedNavigationProgress {
+        let route = crate::worker_route::WorkerRoute::issue(801, page, 7).unwrap();
+        let request = crate::ipc_progress::request(
+            &route,
+            4,
+            &crate::worker::WorkerRequest::Observe { profile: None },
+        );
+        CommittedNavigationProgress {
+            owner: request.identity().unwrap(),
+            generation: 5,
+            native_identity: (oryn_js::realm::RealmId(31), 5, 8),
+            load_epoch: 9,
+            reported: 0,
+        }
+    }
+
+    #[test]
+    fn readiness_trace_rejects_stale_document_stream_and_cancel_epoch() {
+        let mut trace = progress(890_301);
+        let original = trace.native_identity;
+        for (generation, native, epoch) in [
+            (6, Some(original), Some(9)),
+            (5, None, Some(9)),
+            (5, Some((oryn_js::realm::RealmId(32), 5, 8)), Some(9)),
+            (5, Some((oryn_js::realm::RealmId(31), 6, 8)), Some(9)),
+            (5, Some((oryn_js::realm::RealmId(31), 5, 9)), Some(9)),
+            (5, Some(original), None),
+            (5, Some(original), Some(10)),
+        ] {
+            assert!(
+                trace
+                    .select(
+                        NavigationReadinessStage::LoadReady,
+                        generation,
+                        native,
+                        epoch
+                    )
+                    .is_none()
+            );
+            assert_eq!(
+                trace.reported, 0,
+                "a stale check cannot consume a current stage"
+            );
+        }
+        assert!(
+            trace
+                .select(
+                    NavigationReadinessStage::LoadReady,
+                    5,
+                    Some(original),
+                    Some(9)
+                )
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn readiness_trace_retains_owner_and_emits_each_actual_stage_once() {
+        let mut trace = progress(890_302);
+        let original = trace.owner;
+        let native = trace.native_identity;
+        let route = crate::worker_route::WorkerRoute::issue(801, 890_302, 7).unwrap();
+        let later = crate::ipc_progress::request(
+            &route,
+            5,
+            &crate::worker::WorkerRequest::Observe { profile: None },
+        );
+        assert!(later.identity() != Some(original));
+        let mut phases = Vec::new();
+        for stage in [
+            NavigationReadinessStage::LayoutCompleted,
+            NavigationReadinessStage::ParserSettled,
+            NavigationReadinessStage::LoadReady,
+        ] {
+            let (owner, phase) = trace.select(stage, 5, Some(native), Some(9)).unwrap();
+            assert!(
+                owner == original,
+                "continuation cannot adopt the later command"
+            );
+            phases.push(serde_json::to_value(phase).unwrap());
+            for _ in 0..32 {
+                assert!(trace.select(stage, 5, Some(native), Some(9)).is_none());
+            }
+        }
+        assert_eq!(
+            serde_json::Value::Array(phases),
+            serde_json::json!([
+                "navigation_layout_completed",
+                "navigation_parser_settled",
+                "navigation_load_ready"
+            ])
+        );
+        assert_eq!(trace.reported, 7);
+    }
+}
+
+#[cfg(all(test, feature = "v8-host"))]
+#[path = "navigation_ready_progress_tests.rs"]
+mod navigation_ready_progress_tests;

@@ -271,6 +271,10 @@ static vpx_codec_err_t init_decoder(vpx_codec_alg_priv_t *ctx) {
     return VPX_CODEC_MEM_ERROR;
   }
   ctx->pbi->max_threads = ctx->cfg.threads;
+  // This pinned decoder fork treats nonzero cfg dimensions as exact admission,
+  // not hints. Zero/zero retains upstream unconstrained behavior.
+  ctx->pbi->common.oryn_admitted_width = ctx->cfg.w;
+  ctx->pbi->common.oryn_admitted_height = ctx->cfg.h;
   ctx->pbi->inv_tile_order = ctx->invert_tile_order;
 
   RANGE_CHECK(ctx, row_mt, 0, 1);

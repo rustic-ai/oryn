@@ -84,6 +84,22 @@ def global_variant(row):
     return realm, variant
 
 
+def approved_inventory_row(coverage, path, variant, source_sha256):
+    # These eight pinned ledger variants have literal relative manifest URLs.
+    # Join exact fields; never add/remove slashes, decode, or reorder a query.
+    url = path + variant
+    rows = [row for row in coverage.values()
+            if row.get('path') == path and row.get('url') == url]
+    require(len(rows) == 1, 'approved ledger inventory identity missing or ambiguous')
+    row = rows[0]
+    require(row.get('test_type') == 'testharness'
+            and row.get('id') == 'testharness:' + url,
+            'approved ledger inventory identity malformed')
+    require(row.get('tier') == 'necessary' and row.get('sha256') == source_sha256,
+            'approved ledger must retain its exact zero-Core Necessary scope')
+    return row
+
+
 def profile_identity(context, candidate=None):
     require(isinstance(context, dict), 'reviewed dispositions require verified profile context')
     result = {key: context.get(key) for key in IDENTITY_FIELDS}
@@ -173,12 +189,11 @@ class Policy:
                 require(predicate in content, 'approved source predicate missing')
             text(defect['assertion_name_contains'], 'legacy named assertion')
             for variant in defect['variants']:
-                identifier = 'testharness:/' + defect['path'] + variant
+                row = approved_inventory_row(self.coverage, defect['path'], variant,
+                                             defect['source_sha256'])
+                identifier = row['id']
                 require(identifier not in imported, 'duplicate approved imported assertion scope')
                 imported.add(identifier)
-                row = self.coverage.get(identifier)
-                require(row is not None and row.get('tier') == 'necessary' and row['sha256'] == defect['source_sha256'],
-                        'approved ledger must retain its exact zero-Core Necessary scope')
         require(len(imported) == 8, 'approved ledger applicability changed')
         self.imported_core_count = 0
 

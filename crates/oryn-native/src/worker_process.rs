@@ -13,6 +13,18 @@ use std::{os::fd::FromRawFd, os::unix::net::UnixStream};
 /// Enter the untrusted page-worker role before any application runtime or
 /// background thread is created.
 pub fn run() -> std::io::Result<()> {
+    #[cfg(unix)]
+    if let Some(fd) = inherited_fd("--diagnostic-fd")? {
+        if fd != 5 {
+            return Err(std::io::Error::other(
+                "worker diagnostic descriptor must use dedicated slot 5",
+            ));
+        }
+        crate::native_timing::install_inherited(fd)?;
+    }
+    crate::native_timing::point("worker_process_entry", serde_json::Value::Null);
+    let mut timing =
+        crate::native_timing::Scope::start("worker_bootstrap", serde_json::Value::Null);
     let trusted_binary_sha256 = std::env::var("ORYN_TRUSTED_WORKER_SHA256").ok();
     clear_environment();
     if let Some(binary_sha256) = trusted_binary_sha256 {
@@ -22,10 +34,22 @@ pub fn run() -> std::io::Result<()> {
     }
     #[cfg(target_os = "linux")]
     crate::linux_sandbox::install()?;
-    tokio::runtime::Builder::new_current_thread()
+    // The transform role retains normal identity, environment and sandbox
+    // initialization, but never creates Tokio or V8 background threads.
+    if xslt_helper_role(std::env::args_os().skip(1))? {
+        return crate::xslt_process::serve_helper();
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()?
-        .block_on(async_main())
+        .build()?;
+    timing.finish(true);
+    let result = runtime.block_on(async_main());
+    // A final self sample before returning, not kernel terminal CPU accounting.
+    crate::native_timing::point(
+        "worker_serve_returned",
+        serde_json::json!({"success":result.is_ok()}),
+    );
+    result
 }
 
 async fn async_main() -> std::io::Result<()> {
@@ -162,4 +186,64 @@ fn inherited_fd(name: &str) -> std::io::Result<Option<std::os::fd::RawFd>> {
         }
     }
     Ok(None)
+}
+
+/// A helper receives only its bounded standard streams, never agent/page
+/// descriptors or a second process role supplied alongside the helper flag.
+fn xslt_helper_role(
+    arguments: impl IntoIterator<Item = std::ffi::OsString>,
+) -> std::io::Result<bool> {
+    let arguments = arguments.into_iter().collect::<Vec<_>>();
+    let arguments = if arguments
+        .first()
+        .is_some_and(|value| value == "__oryn-page-worker")
+    {
+        &arguments[1..]
+    } else {
+        &arguments[..]
+    };
+    if !arguments.iter().any(|value| value == "--xslt-helper") {
+        return Ok(false);
+    }
+    if arguments.len() != 1 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "XSLT helper role cannot carry page or agent arguments",
+        ));
+    }
+    Ok(true)
+}
+
+#[cfg(test)]
+mod xslt_role_tests {
+    use super::xslt_helper_role;
+    fn role(arguments: &[&str]) -> std::io::Result<bool> {
+        xslt_helper_role(
+            arguments
+                .iter()
+                .map(|value| std::ffi::OsString::from(*value)),
+        )
+    }
+    #[test]
+    fn helper_role_preserves_dedicated_and_linux_multicall_dispatch() {
+        assert!(role(&["--xslt-helper"]).unwrap());
+        assert!(role(&["__oryn-page-worker", "--xslt-helper"]).unwrap());
+        assert!(!role(&["--runtime-info"]).unwrap());
+        assert!(!role(&["__oryn-page-worker", "--broker-fd", "3"]).unwrap());
+    }
+    #[test]
+    fn helper_role_rejects_mixed_capabilities_and_duplicate_roles() {
+        for arguments in [
+            vec!["--xslt-helper", "--agent-control-fd", "3"],
+            vec!["--broker-fd", "3", "--xslt-helper"],
+            vec!["--xslt-helper", "--runtime-info"],
+            vec!["--xslt-helper", "--xslt-helper"],
+            vec!["__oryn-page-worker", "--xslt-helper", "--context-fd", "4"],
+        ] {
+            assert_eq!(
+                role(&arguments).unwrap_err().kind(),
+                std::io::ErrorKind::InvalidInput
+            );
+        }
+    }
 }

@@ -285,9 +285,13 @@ raise SystemExit(0)
         candidate = dict(path=Path('/frozen/candidate.json'),sha256='f'*64,
                          artifacts={'runtime':root/'target/release/oryn',
                                     'worker':root/'target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker'})
-        command = completion_execution.command('security',candidate,'/gate','/output')
-        self.assertEqual(command,[str(root/'scripts/run-security-suite.sh'),'/output/raw',
-                                  '--prebuilt-candidate','/frozen/candidate.json','--candidate-sha256','f'*64])
+        for artifacts in (candidate['artifacts'],
+                          {'runtime':Path('/external/copied-release/oryn'),
+                           'worker':Path('/external/copied-release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker')}):
+            candidate['artifacts'] = artifacts
+            command = completion_execution.command('security',candidate,'/gate','/output')
+            self.assertEqual(command,[str(root/'scripts/run-security-suite.sh'),'/output/raw',
+                                      '--prebuilt-candidate','/frozen/candidate.json','--candidate-sha256','f'*64])
 
     def test_validated_worker_shell_path_never_builds_signs_or_rewrites_frozen_inputs(self):
         # The shell control-flow integration uses fake tools. The real helper's
@@ -359,6 +363,9 @@ if name=='codesign':
         sys.stdout.buffer.write(plistlib.dumps({'com.apple.security.app-sandbox':True,'com.apple.security.cs.allow-jit':True}))
     sys.exit(0)
 if name=='oryn':
+    if args==['webdriver','--help'] and cfg.get('webdriver_exit'):
+        print('fixture: unrecognized subcommand webdriver',file=sys.stderr)
+        sys.exit(cfg['webdriver_exit'])
     print('Brokered' if '--evaluate' in args else '{}'); sys.exit(0)
 if name in ('engine-worker','oryn-page-worker'):
     if args: print('{}')
@@ -391,7 +398,83 @@ sys.exit(97)
             self.assertFalse(any(call[0] in ('cargo','cp') for call in calls))
             self.assertFalse(any(call[0]=='codesign' and ('--force' in call or '--sign' in call) for call in calls))
             self.assertTrue(any(call[:2]==['codesign','--verify'] for call in calls))
+            self.assertIn(['oryn','webdriver','--help'], calls)
 
+            # A validated frozen CLI can still lack the compiled WebDriver
+            # role. Preserve its original exit/error and reject it before any
+            # signature action or worker launch, without rebuilding the inputs.
+            config['webdriver_exit'] = 64
+            (root/'config.json').write_text(json.dumps(config))
+            (root/'calls.jsonl').write_text('')
+            rejected=subprocess.run(['bash',str(script)],env=environment,cwd=root,
+                                    capture_output=True,text=True,timeout=15)
+            self.assertEqual(rejected.returncode,64,rejected.stdout+'\n'+rejected.stderr)
+            self.assertIn('fixture: unrecognized subcommand webdriver',rejected.stderr)
+            self.assertEqual(before,{str(p):prebuilt.digest(p) for p in frozen.rglob('*') if p.is_file()})
+            self.assertFalse((root/'must-remain-absent').exists())
+            rejected_calls=[json.loads(line) for line in (root/'calls.jsonl').read_text().splitlines()]
+            self.assertIn(['oryn','webdriver','--help'],rejected_calls)
+            self.assertFalse(any(call[0] in ('cargo','cp','codesign','engine-worker','oryn-page-worker')
+                                 for call in rejected_calls))
+
+
+
+class SelectedSecurityBundleTests(unittest.TestCase):
+    def test_selected_staged_worker_rejects_stale_source_and_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            worker = root/'copied-release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker'
+            worker.parent.mkdir(parents=True); worker.write_bytes(b'signed worker')
+            resources = worker.parents[1]/'Resources'; resources.mkdir()
+            profile = root/'profile.json'
+            profile.write_text(json.dumps({'worker_sha256': 'a'*64, 'worker_size_bytes': 19}))
+            (resources/'v8-profile-manifest.json').write_bytes(profile.read_bytes())
+            manifest = resources/'worker-manifest.json'
+            value = {'source_tree_sha256':'b'*64, 'v8_profile_sha256':prebuilt.digest(profile),
+                     'worker_build_sha256':'a'*64, 'worker_build_bytes':19}
+            manifest.write_text(json.dumps(value))
+            with patch.object(prebuilt, 'verify_signature') as verify:
+                self.assertEqual(prebuilt.selected_worker_bundle(worker, profile, 'b'*64),
+                                 (worker, manifest))
+                verify.assert_called_once()
+                for field, replacement in [('source_tree_sha256','c'*64),
+                                           ('v8_profile_sha256','c'*64),
+                                           ('worker_build_sha256','c'*64),
+                                           ('worker_build_bytes',20)]:
+                    changed = dict(value); changed[field] = replacement
+                    manifest.write_text(json.dumps(changed))
+                    with self.assertRaisesRegex(ValueError,'identity mismatch'):
+                        prebuilt.selected_worker_bundle(worker, profile, 'b'*64)
+                manifest.write_text(json.dumps(value))
+                (resources/'v8-profile-manifest.json').write_text('{}')
+                with self.assertRaisesRegex(ValueError,'identity mismatch'):
+                    prebuilt.selected_worker_bundle(worker, profile, 'b'*64)
+
+    def test_frozen_candidate_accepts_external_staging_but_rejects_bundle_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease, candidate, value = SecurityPrebuiltTests().preparation(directory)
+            original_worker = candidate['artifacts']['worker']
+            original_app = original_worker.parents[2]
+            staged = Path(directory).resolve()/'copied-release'
+            staged.mkdir(); shutil.move(str(original_app), str(staged/'OrynPageWorker.app'))
+            worker = staged/'OrynPageWorker.app/Contents/MacOS/oryn-page-worker'
+            candidate['artifacts'].update(runtime=staged/'oryn',worker=worker,
+                worker_manifest=worker.parents[1]/'Resources/worker-manifest.json')
+            value['bundle_files'] = prebuilt.bundle_inventory(worker)
+            candidate['record']['artifacts'].update(prebuilt.preparation_artifacts(value))
+            candidate['artifacts']['security_prebuilt'].write_text(json.dumps(value))
+            environment = {prebuilt.CANDIDATE_ENV:str(candidate['path']),
+                prebuilt.DIGEST_ENV:candidate['sha256'],
+                'CARGO_TARGET_DIR':str(Path(directory).parent/(Path(directory).name+'-checks'))}
+            with patch.dict(os.environ,environment,clear=True), \
+                 patch.object(prebuilt,'inherited_generation_lease',return_value=lease), \
+                 patch.object(prebuilt,'load_candidate',return_value=candidate), \
+                 patch.object(prebuilt,'source_hash',return_value='c'*64):
+                actual, _ = prebuilt.bind()
+                self.assertEqual(actual['artifacts']['worker'], worker)
+                (worker.parents[1]/'Resources/late-resource').write_text('unbound')
+                with self.assertRaisesRegex(ValueError,'file set or bytes changed'):
+                    prebuilt.bind()
 
 if __name__ == '__main__':
     unittest.main()

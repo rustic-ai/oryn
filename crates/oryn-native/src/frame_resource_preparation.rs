@@ -605,7 +605,20 @@ impl RustExecutableDocument {
         let failed_sender = sender.clone();
         let native = std::sync::Arc::new(crate::context_service::ResourceCancellation::default());
         let cancellation = standalone_stylesheet::Cancel::native(native.clone());
+        let progress = crate::ipc_progress::capture(page_id.0);
+        crate::ipc_progress::record(
+            progress,
+            crate::ipc_progress::Phase::FrameQueued,
+            None,
+            None,
+        );
         let result = resource_io_executor::submit(move || {
+            crate::ipc_progress::record(
+                progress,
+                crate::ipc_progress::Phase::FrameStarted,
+                None,
+                None,
+            );
             let _ownership = ownership;
             let response = if worker_lifetime.upgrade().is_some() {
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -616,6 +629,17 @@ impl RustExecutableDocument {
             } else {
                 Err("frame resource owner retired".into())
             };
+            let response_stream = match &response {
+                Ok(ParentResponse::PageResource { stream_id, .. }) => *stream_id,
+                _ => None,
+            };
+            crate::ipc_progress::result(
+                progress,
+                crate::ipc_progress::Phase::FrameHeadersReturned,
+                response_stream,
+                None,
+                Some(response.is_ok()),
+            );
             let mut body = match &response {
                 Ok(ParentResponse::PageResource {
                     stream_id: Some(id),
@@ -624,6 +648,7 @@ impl RustExecutableDocument {
                 }) => {
                     response_lease.attach(*id, policy);
                     Some(frame_response_stream::FrameResponseBody {
+                        progress,
                         client: client.clone(),
                         page_id,
                         id: *id,
@@ -643,7 +668,7 @@ impl RustExecutableDocument {
             {
                 body.lease.cancel();
             }
-            let _ = sender.send(FrameResourceCompletion {
+            let delivered = sender.send(FrameResourceCompletion {
                 _metadata: Vec::new(),
                 timing: None,
                 ancestor_capture: None,
@@ -655,6 +680,13 @@ impl RustExecutableDocument {
                 _bytes: reservation,
                 authority: None,
             });
+            crate::ipc_progress::result(
+                progress,
+                crate::ipc_progress::Phase::FrameCompletionSent,
+                response_stream,
+                None,
+                Some(delivered.is_ok()),
+            );
         });
         if let Err(error) = result {
             let _ = failed_sender.send(FrameResourceCompletion {

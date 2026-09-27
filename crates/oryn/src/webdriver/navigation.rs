@@ -40,6 +40,7 @@ pub fn navigate_command(value: &Value) -> Result<NavigationCommand, CommandError
 pub fn error(error: NavigationStop) -> CommandError {
     let code = match &error {
         NavigationStop::Timeout => "timeout",
+        NavigationStop::CertificateRejected(_) => "insecure certificate",
         NavigationStop::Retired => "no such window",
         _ => "unknown error",
     };
@@ -99,5 +100,26 @@ mod tests {
         ] {
             assert!(navigate_command(&json!({"url":url})).is_ok());
         }
+    }
+}
+
+#[cfg(test)]
+mod certificate_webdriver_tests {
+    use super::*;
+    #[test]
+    fn certificate_navigation_stop_has_exact_webdriver_code_after_wire_roundtrip() {
+        let stop = NavigationStop::CertificateRejected("UnknownIssuer".into());
+        let stop = serde_json::from_slice(&serde_json::to_vec(&stop).unwrap()).unwrap();
+        let mapped = error(stop);
+        assert_eq!(mapped.code, "insecure certificate");
+        assert_eq!(mapped.response()["value"]["error"], "insecure certificate");
+        for stop in [
+            NavigationStop::Failed("server certificate rejected".into()),
+            NavigationStop::Failed("DNS resolution failed".into()),
+        ] {
+            assert_eq!(error(stop).code, "unknown error");
+        }
+        assert_eq!(error(NavigationStop::Timeout).code, "timeout");
+        assert_eq!(error(NavigationStop::Retired).code, "no such window");
     }
 }

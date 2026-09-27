@@ -64,6 +64,17 @@ impl RustExecutableDocument {
                 .get_mut(&realm)
                 .and_then(|owner| owner.execution.take())
             {
+                if matches!(
+                    outcome,
+                    oryn_js::navigation::NavigationExecutionOutcome::Committed { .. }
+                ) && let Some(capture) = &self.action_frame_navigation
+                    && let Some(destination) = self
+                        .automation_realms()
+                        .into_iter()
+                        .find(|entry| entry.realm == realm && entry.live)
+                {
+                    capture.record_selected_commit(&observer, destination);
+                }
                 observer.complete(outcome);
             }
         }

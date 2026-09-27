@@ -72,27 +72,20 @@ class GenerationBarrierTests(unittest.TestCase):
                 candidate.assert_not_called()
                 self.assertFalse(output.exists())
 
-    def test_full_oil_candidate_cannot_change_between_contract_and_execution_binding(self):
+    def test_full_oil_snapshot_drift_precedes_dispatch_and_still_validates_final(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
         runner = module('run-oil-full-contract')
         with tempfile.TemporaryDirectory() as root:
             output = Path(root) / 'evidence'
             argv = ['run', '--generation-gate', 'gate', '--candidate', 'candidate',
                     '--binary', 'native', '--worker', 'worker', '--output', str(output)]
+            snapshot = SimpleNamespace(check=Mock(side_effect=ValueError('snapshot drift')))
             original = {'sha256': 'original-candidate'}
-            replacement = {'sha256': 'replacement-candidate'}
-            with patch('sys.argv', argv), \
-                    patch.object(runner, 'generation_gate', return_value={}), \
-                    patch.object(runner, 'digest', return_value='gate-digest'), \
-                    patch.object(runner, 'load_candidate', side_effect=[original, replacement]), \
-                    patch.object(runner, 'for_candidate', return_value={}) as contract, \
-                    patch.object(runner, 'workflow_identity') as identity, \
-                    patch.object(runner.subprocess, 'check_output') as native, \
-                    patch.object(runner, 'execute_contract') as execute:
-                with self.assertRaisesRegex(ValueError, 'changed after contract binding'):
+            with patch('sys.argv', argv), patch.object(runner, 'generation_gate', return_value={}), patch.object(runner, 'candidate_snapshot', return_value=snapshot), patch.object(runner, 'load_candidate', return_value=original) as candidate, patch.object(runner, 'for_candidate', return_value={}), patch.object(runner, 'workflow_identity', return_value={}), patch.object(runner.subprocess, 'check_output', return_value='source'), patch.object(runner, 'execute_contract') as execute:
+                with self.assertRaisesRegex(ValueError, 'snapshot drift'):
                     runner.main()
-                contract.assert_called_once_with(original)
-                identity.assert_not_called()
-                native.assert_not_called()
+                self.assertEqual(candidate.call_count, 2)
                 execute.assert_not_called()
                 self.assertFalse(output.exists())
 

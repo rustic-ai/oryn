@@ -66,6 +66,29 @@ def source_hash():
     return subprocess.check_output([str(ROOT / 'scripts/source-tree-hash.sh')], cwd=ROOT, text=True).strip()
 
 
+def selected_worker_bundle(worker, profile_path, source):
+    """Admit a selected signed bundle after full core-full profile validation.
+
+    The producer validates raw engine records before this bundle/source join.
+    """
+    worker = Path(worker).resolve()
+    if worker.name != 'oryn-page-worker' or worker.parent.name != 'MacOS':
+        raise ValueError('selected worker must be a bundled page worker')
+    resources = worker.parents[1] / 'Resources'
+    manifest_path = resources / 'worker-manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    profile_path = Path(profile_path).resolve()
+    profile = json.loads(profile_path.read_text())
+    if (manifest.get('source_tree_sha256') != source
+            or manifest.get('v8_profile_sha256') != digest(profile_path)
+            or digest(resources / 'v8-profile-manifest.json') != digest(profile_path)
+            or manifest.get('worker_build_sha256') != profile.get('worker_sha256')
+            or manifest.get('worker_build_bytes') != profile.get('worker_size_bytes')):
+        raise ValueError('selected worker source/profile identity mismatch')
+    verify_signature({'artifacts': {'worker': worker, 'worker_manifest': manifest_path}})
+    return worker, manifest_path
+
+
 def validate_preparation(value, candidate, lease):
     records = candidate['record']['artifacts']
     if (type(value.get('schema_version')) is not int or value['schema_version'] != 1
@@ -152,10 +175,6 @@ def bind():
         raise ValueError('prebuilt security candidate digest mismatch')
     if source_hash() != candidate['record']['source_tree_sha256']:
         raise ValueError('prebuilt security source differs from frozen candidate')
-    fixed = {'runtime': ROOT / 'target/release/oryn',
-             'worker': ROOT / 'target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker'}
-    if any(candidate['artifacts'][key] != value.resolve() for key, value in fixed.items()):
-        raise ValueError('prebuilt security production paths differ from candidate')
     resources = candidate['artifacts']['worker'].parents[1] / 'Resources'
     if (candidate['artifacts']['worker_manifest'] != (resources / 'worker-manifest.json').resolve()
             or digest(resources / 'v8-profile-manifest.json') != candidate['record']['artifacts']['engine_profile']['sha256']):

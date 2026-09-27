@@ -289,6 +289,12 @@ def check_identity(record, expected, *, prefix=''):
 
 def verify_platform(info, selected):
     processor = {'arm64': 'aarch64', 'AMD64': 'x86_64'}.get(info.get('processor'), info.get('processor'))
+    # Pinned mozinfo preserves Darwin's processor='arm' and separately records
+    # 64-bit Apple silicon. Do not interpret generic or 32-bit ARM as aarch64.
+    if (processor == 'arm' and selected['platform'] == 'macOS' and info.get('os') == 'mac'
+            and type(info.get('bits')) is int and info['bits'] == 64
+            and info.get('apple_silicon') is True):
+        processor = 'aarch64'
     if info.get('os') != PLATFORM_OS[selected['platform']] or processor != selected['processor']:
         raise ValueError('Core report platform differs from declared profile')
 

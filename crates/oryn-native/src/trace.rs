@@ -1,5 +1,8 @@
 use oryn_common::v3::{ActionId, PageId, Revision};
 use serde::{Deserialize, Serialize};
+#[cfg(any(feature = "v8-host", test))]
+use std::sync::Weak;
+use std::sync::{Arc, Mutex};
 
 use crate::runtime::LifecycleState;
 
@@ -175,11 +178,58 @@ pub enum TraceEventKind {
     },
 }
 
+// IO diagnostics never acquire page/realm authority. The weak sink cannot
+// keep a retired page alive. The bounded mailbox never waits for network IO.
+#[cfg(any(feature = "v8-host", test))]
+const MAX_PENDING_DIAGNOSTICS: usize = 256;
+#[cfg(any(feature = "v8-host", test))]
+const MAX_PENDING_DIAGNOSTIC_BYTES: usize = 256 * 1024;
+
+#[derive(Debug, Default)]
+struct PendingDiagnostics {
+    events: Vec<(Revision, &'static str, String)>,
+    #[cfg(any(feature = "v8-host", test))]
+    bytes: usize,
+    dropped_events: u64,
+    dropped_bytes: u64,
+    dropped_revision: Option<Revision>,
+}
+
+#[cfg(any(feature = "v8-host", test))]
+#[derive(Clone, Debug)]
+pub(crate) struct DiagnosticSink {
+    pending: Weak<Mutex<PendingDiagnostics>>,
+    revision: Revision,
+}
+
+#[cfg(any(feature = "v8-host", test))]
+impl DiagnosticSink {
+    pub(crate) fn record(&self, capability: &'static str, detail: String) {
+        let Some(pending) = self.pending.upgrade() else {
+            return;
+        };
+        let mut pending = pending.lock().unwrap_or_else(|error| error.into_inner());
+        let bytes = capability.len().saturating_add(detail.len());
+        if pending.events.len() >= MAX_PENDING_DIAGNOSTICS
+            || bytes > MAX_PENDING_DIAGNOSTIC_BYTES.saturating_sub(pending.bytes)
+        {
+            // Preserve complete records, never a truncated original error.
+            pending.dropped_revision.get_or_insert(self.revision);
+            pending.dropped_events = pending.dropped_events.saturating_add(1);
+            pending.dropped_bytes = pending.dropped_bytes.saturating_add(bytes as u64);
+            return;
+        }
+        pending.bytes += bytes;
+        pending.events.push((self.revision, capability, detail));
+    }
+}
+
 #[derive(Debug)]
 pub struct TraceLog {
     page_id: PageId,
     next_sequence: u64,
     events: Vec<TraceEvent>,
+    diagnostics: Arc<Mutex<PendingDiagnostics>>,
 }
 
 impl TraceLog {
@@ -188,7 +238,57 @@ impl TraceLog {
             page_id,
             next_sequence: 0,
             events: Vec::new(),
+            diagnostics: Arc::new(Mutex::new(PendingDiagnostics::default())),
         }
+    }
+
+    #[cfg(any(feature = "v8-host", test))]
+    pub(crate) fn diagnostic_sink(&self, revision: Revision) -> DiagnosticSink {
+        DiagnosticSink {
+            pending: Arc::downgrade(&self.diagnostics),
+            revision,
+        }
+    }
+
+    fn drain_diagnostics(&mut self) {
+        let pending = {
+            let mut queue = self
+                .diagnostics
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            std::mem::take(&mut *queue)
+        };
+        for (revision, capability, detail) in pending.events {
+            self.push_record(
+                revision,
+                None,
+                CausalRelation::Unattributed,
+                TraceEventKind::ScriptDiagnostic {
+                    capability: capability.into(),
+                    detail,
+                },
+            );
+        }
+        if pending.dropped_events != 0 {
+            self.push_record(
+                pending.dropped_revision.unwrap_or(Revision(0)),
+                None,
+                CausalRelation::Unattributed,
+                TraceEventKind::ScriptDiagnostic {
+                    capability: "diagnostics.overflow".into(),
+                    detail: serde_json::json!({"dropped_events": pending.dropped_events,
+                        "dropped_bytes": pending.dropped_bytes})
+                    .to_string(),
+                },
+            );
+        }
+    }
+
+    /// Record-order sequence does not claim cross-thread execution causality.
+    /// Both local and signed-worker trace consumers flush the same mailbox.
+    pub(crate) fn snapshot(&mut self) -> Vec<TraceEvent> {
+        self.drain_diagnostics();
+        self.events.clone()
     }
 
     pub fn push(&mut self, revision: Revision, action_id: Option<ActionId>, kind: TraceEventKind) {
@@ -196,6 +296,17 @@ impl TraceLog {
     }
 
     pub fn push_causal(
+        &mut self,
+        revision: Revision,
+        action_id: Option<ActionId>,
+        causality: CausalRelation,
+        kind: TraceEventKind,
+    ) {
+        self.drain_diagnostics();
+        self.push_record(revision, action_id, causality, kind);
+    }
+
+    fn push_record(
         &mut self,
         revision: Revision,
         action_id: Option<ActionId>,
@@ -255,5 +366,53 @@ mod tests {
         let encoded = serde_json::to_value(trace.events()).unwrap();
         assert!(encoded[0].get("causality").is_none());
         assert_eq!(encoded[1]["causality"], "direct");
+    }
+    #[test]
+    fn asynchronous_diagnostics_keep_original_errors_and_flush_once() {
+        let mut trace = TraceLog::new(PageId(9));
+        let sink = trace.diagnostic_sink(Revision(4));
+        let expected = "broker rejected exact source: α\noriginal detail";
+        let thread_sink = sink.clone();
+        std::thread::spawn(move || thread_sink.record("navigation.io", expected.into()))
+            .join()
+            .unwrap();
+        trace.push(Revision(5), None, TraceEventKind::ScriptFinished);
+        let first = trace.snapshot();
+        assert_eq!(first.len(), 2);
+        assert_eq!(first[0].page_id, PageId(9));
+        assert_eq!(first[0].sequence, 0);
+        assert_eq!(first[0].revision, Revision(4));
+        assert_eq!(first[0].causality, CausalRelation::Unattributed);
+        assert!(
+            matches!(&first[0].kind, TraceEventKind::ScriptDiagnostic { detail, .. }
+            if detail == expected)
+        );
+        assert_eq!(trace.snapshot(), first);
+        drop(trace);
+        assert!(sink.pending.upgrade().is_none());
+        sink.record("navigation.io", "late result after retirement".into());
+    }
+
+    #[test]
+    fn asynchronous_diagnostic_overflow_is_explicit_and_does_not_truncate() {
+        let mut trace = TraceLog::new(PageId(2));
+        let sink = trace.diagnostic_sink(Revision(1));
+        for _ in 0..MAX_PENDING_DIAGNOSTICS {
+            sink.record("navigation.io", "original".into());
+        }
+        sink.record("navigation.io", "dropped".into());
+        let events = trace.snapshot();
+        assert_eq!(events.len(), MAX_PENDING_DIAGNOSTICS + 1);
+        assert!(matches!(&events.last().unwrap().kind,
+            TraceEventKind::ScriptDiagnostic { capability, detail }
+            if capability == "diagnostics.overflow"
+                && serde_json::from_str::<serde_json::Value>(detail).unwrap()["dropped_events"] == 1));
+        sink.record(
+            "navigation.io",
+            "z".repeat(MAX_PENDING_DIAGNOSTIC_BYTES + 1),
+        );
+        assert_eq!(trace.snapshot().len(), events.len() + 1);
+        sink.record("navigation.io", "after overflow".into());
+        assert_eq!(trace.snapshot().len(), events.len() + 2);
     }
 }

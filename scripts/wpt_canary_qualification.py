@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 from wpt_full_qualification import REVISION, sha256, unique
 
-MOUNT = '/__oryn_qualification__/'
+MOUNT = '/__oryn_qualification__/canaries/'
 EXPECTED = {
     'assertion-failure.html': ('OK', 'intentional assertion failure', 'FAIL'),
     'missing-helper.html': ('OK', 'missing helper cannot produce a valid pass', 'FAIL'),

@@ -527,6 +527,10 @@ fn process(record: &mut Record, now: Instant) {
         }
     }
 }
+// A missing deadline is insufficient: retained records still refresh/finalize.
+pub(super) fn records_empty(state: &V8BindingState) -> bool {
+    state.deferred_fetch.borrow().records.is_empty()
+}
 pub(super) fn poll(scope: &mut v8::PinScope, state: &V8BindingState) -> Result<(), V8BindingError> {
     let now = Instant::now();
     for record in state.deferred_fetch.borrow_mut().records.values_mut() {

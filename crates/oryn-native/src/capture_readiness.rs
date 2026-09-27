@@ -128,6 +128,7 @@ impl Pending {
     /// Terminal shutdown cancels native receipts and releases capture custody;
     /// it never begins author callbacks from an actor destructor.
     pub(super) fn reject(mut self, _state: &mut PageState, error: RuntimeError) {
+        let error = self.failure.take().unwrap_or(error);
         self.before = None;
         self.after = None;
         self.ready = None;
@@ -214,6 +215,9 @@ impl Pending {
         state: &mut PageState,
         sender: &mpsc::WeakSender<PageCommand>,
     ) -> Option<Self> {
+        if state.terminal_close_requested() {
+            return Some(self);
+        }
         if self.css_capture.is_none() {
             match crate::executable::NativeCssCapture::new() {
                 Ok(owner) => self.css_capture = Some(owner),
@@ -296,6 +300,9 @@ impl Pending {
                     }
                 }
             }
+            if state.terminal_close_requested() {
+                return Some(self);
+            }
             if !self.live(state) {
                 return self.fail(
                     state,
@@ -317,6 +324,9 @@ impl Pending {
             };
             let ready = match result {
                 Ok(ready) => ready,
+                Err(RuntimeError::PageTaskYield) => return Some(self),
+                // Genuine Closed and every wrapper (including a real cleanup
+                // failure around a yield) retain the existing error path.
                 Err(error) => {
                     return self.fail(state, error);
                 }
@@ -339,6 +349,9 @@ impl Pending {
                 return Some(self);
             }
             self.ready = Some(ready);
+        }
+        if state.terminal_close_requested() {
+            return Some(self);
         }
         if matches!(&self.reply, Reply::Print(..))
             && !self.after_complete
@@ -368,6 +381,9 @@ impl Pending {
                     return Some(self);
                 }
             }
+        }
+        if state.terminal_close_requested() {
+            return Some(self);
         }
         if !self.live(state) {
             return self.fail(
@@ -664,5 +680,86 @@ mod tests {
         );
         pending.reject(&mut state, RuntimeError::Closed);
         assert!(matches!(result.try_recv(), Ok(Err(RuntimeError::Closed))));
+    }
+    #[test]
+    fn terminal_capture_keeps_recorded_failure_without_afterprint_or_early_reply() {
+        use crate::host::JavaScriptHost;
+        let mut state = page();
+        let control = Arc::new(oryn_js::prompts::PromptController::new());
+        assert!(state.page_task_terminal_control.bind(control.clone()));
+        let owner = state.page_task_terminal_control.clone();
+        state
+            .executable
+            .as_mut()
+            .unwrap()
+            .adopt_page_terminal_control(owner);
+        state
+            .executable
+            .as_mut()
+            .unwrap()
+            .execute("globalThis.printTrace=[];onafterprint=()=>printTrace.push('after')")
+            .unwrap();
+        let (reply, mut received) = oneshot::channel();
+        let mut pending = Pending::new(&state, Reply::Print(Default::default(), reply));
+        pending.print_entered = true;
+        pending.failure = Some(RuntimeError::Script("original-print-failure".into()));
+        pending.cleanup_deadline = Some(Instant::now() + Duration::from_secs(1));
+        control.retire();
+        let (sender, _receiver) = mpsc::channel(1);
+        let pending = pending
+            .poll(&mut state, &sender.downgrade())
+            .expect("cleanup custody retained");
+        assert!(matches!(
+            received.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        let executable = state.executable.as_mut().unwrap();
+        let mut host = executable.take_agent_host().unwrap();
+        assert_eq!(host.evaluate_string("printTrace.join(',')").unwrap(), "");
+        assert!(matches!(
+            executable.return_agent_host_after_turn(host),
+            Ok(None)
+        ));
+        pending.reject(&mut state, RuntimeError::Closed);
+        assert!(
+            matches!(received.try_recv(), Ok(Err(RuntimeError::Script(message))) if message == "original-print-failure")
+        );
+    }
+
+    #[test]
+    fn terminal_capture_geometry_yield_retains_reply_for_destruction() {
+        let mut state = page();
+        let control = Arc::new(oryn_js::prompts::PromptController::new());
+        assert!(state.page_task_terminal_control.bind(control.clone()));
+        let owner = state.page_task_terminal_control.clone();
+        state
+            .executable
+            .as_mut()
+            .unwrap()
+            .adopt_page_terminal_control(owner);
+        let (reply, mut received) = oneshot::channel();
+        let pending = Pending::new(&state, Reply::Paint(reply));
+        let (sender, _receiver) = mpsc::channel(1);
+        let hit = std::rc::Rc::new(std::cell::Cell::new(false));
+        let seen = hit.clone();
+        let (pending, labels) =
+            crate::ipc_progress::close_admission::capture_test_phase_labels_with_hook(
+                || pending.poll(&mut state, &sender.downgrade()),
+                move |label| {
+                    if label == "checkpoint_dynamic_frames" && !seen.replace(true) {
+                        control.retire();
+                    }
+                },
+            );
+        assert!(hit.get());
+        assert!(!labels.contains(&"checkpoint_dynamic_stylesheets"));
+        let pending = pending.expect("typed layout yield retains capture custody");
+        assert!(matches!(
+            received.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        assert!(pending.failure.is_none());
+        pending.reject(&mut state, RuntimeError::Closed);
+        assert!(matches!(received.try_recv(), Ok(Err(RuntimeError::Closed))));
     }
 }

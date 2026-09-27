@@ -530,9 +530,7 @@ impl PageHandle {
         }
         .await;
         if let Err(error) = &result {
-            let _ = job.stop(crate::navigation_control::NavigationStop::Failed(
-                error.to_string(),
-            ));
+            let _ = job.stop(error.navigation_stop());
         }
         dispatch.0.take();
         result
@@ -584,10 +582,58 @@ impl PageHandle {
 }
 impl PageState {
     fn stop_navigation_load(&mut self) -> Result<(), RuntimeError> {
+        self.stop_navigation_load_with_error(RuntimeError::NavigationCancelled)
+    }
+
+    fn stop_failed_navigation_load(&mut self, cause: RuntimeError) -> RuntimeError {
+        let cleanup = self.stop_navigation_load_with_error(cause.clone());
+        self.finish_navigation_load_cleanup(cause, cleanup)
+    }
+
+    fn finish_navigation_load_cleanup(
+        &mut self,
+        cause: RuntimeError,
+        cleanup: Result<(), RuntimeError>,
+    ) -> RuntimeError {
+        match cleanup {
+            Ok(()) => cause,
+            Err(cleanup) => {
+                let error = RuntimeError::NavigationCleanupFailed {
+                    cause: Box::new(cause),
+                    cleanup: Box::new(cleanup),
+                };
+                // The controller retains a typed stop (e.g. Timeout). Record
+                // secondary detail once, with bounded payload, in the page trace.
+                let mut detail = error.to_string();
+                if detail.len() > 4096 {
+                    let mut end = 4096;
+                    while !detail.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    detail.truncate(end);
+                    detail.push_str(" [truncated]");
+                }
+                self.trace.push(
+                    Revision(self.revision),
+                    None,
+                    TraceEventKind::ScriptDiagnostic {
+                        capability: "navigation.cleanup".into(),
+                        detail,
+                    },
+                );
+                error
+            }
+        }
+    }
+
+    fn stop_navigation_load_with_error(
+        &mut self,
+        _cause: RuntimeError,
+    ) -> Result<(), RuntimeError> {
         // Clear admission even when native cleanup reports an error. A failed
         // operation must not publish late milestones or stop a later navigation.
         #[cfg(feature = "v8-host")]
-        self.cancel_navigation_transaction(RuntimeError::NavigationCancelled);
+        self.cancel_navigation_transaction(_cause);
         #[cfg(feature = "v8-host")]
         for pending in &self.pending_execution_replies {
             if let Some(receipt) = &pending.joint {
@@ -1051,7 +1097,7 @@ impl PageState {
         request: crate::navigation_control::NavigationRequest,
         emitter: crate::navigation_control::NavigationEmitter,
     ) -> Result<(), RuntimeError> {
-        use crate::navigation_control::{NavigationCommand, NavigationEvent, NavigationStop};
+        use crate::navigation_control::{NavigationCommand, NavigationEvent};
         #[cfg(feature = "v8-host")]
         self.cancel_navigation_transaction(RuntimeError::NavigationCancelled);
         emitter
@@ -1150,15 +1196,13 @@ impl PageState {
                     let reason = emitter
                         .checkpoint()
                         .err()
-                        .unwrap_or_else(|| NavigationStop::Failed(error.to_string()));
+                        .unwrap_or_else(|| error.navigation_stop());
                     let _ = emitter.publish(NavigationEvent::Stopped(reason.clone()));
-                    self.stop_navigation_load().map_err(|cleanup| {
-                        NavigationStop::Failed(format!("{reason}; load cleanup failed: {cleanup}"))
-                    })?;
-                    Err(reason)
+                    let cause = RuntimeError::NavigationStopped(reason);
+                    Err(self.stop_failed_navigation_load(cause).navigation_stop())
                 }
             }
         })();
-        publication.map_err(|error| RuntimeError::Network(error.to_string()))
+        publication.map_err(RuntimeError::NavigationStopped)
     }
 }

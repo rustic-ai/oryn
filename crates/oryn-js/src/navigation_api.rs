@@ -421,6 +421,12 @@ pub(super) fn publications_ready(state: &V8BindingState) -> bool {
             .publication_retry_at
             .is_none_or(|deadline| deadline <= std::time::Instant::now())
 }
+/// Hold real native batches without draining callbacks during fixture setup.
+#[cfg(test)]
+pub(super) fn hold_publications_for_test(state: &V8BindingState, held: bool) {
+    state.navigation_api.borrow_mut().publication_retry_at =
+        held.then(|| std::time::Instant::now() + std::time::Duration::from_secs(60));
+}
 pub(super) fn publication_delay(state: &V8BindingState) -> Option<std::time::Duration> {
     let navigation = state.navigation_api.borrow();
     if navigation.history_projection.pending.is_none()
@@ -6119,10 +6125,18 @@ pub(super) fn joint_document_loaded(state: &V8BindingState) {
 }
 /// A push in any navigable truncates the shared forward history. Publish the
 /// affected local entry disposal using the same retained native event queue.
+// This is an explicit control-flow result, not inferred from an event count.
+// LocalOnly retains receipt reconciliation and native history reads, with no
+// RPC, V8 publication or callback. Blocked and publishing paths keep authority.
+pub(super) enum JointProjectionPoll {
+    LocalOnly,
+    CheckAuthority { completed: usize },
+}
+
 pub(super) fn poll_joint_projection(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
-) -> Result<usize, V8BindingError> {
+) -> Result<JointProjectionPoll, V8BindingError> {
     state
         .joint_history
         .borrow()
@@ -6132,10 +6146,10 @@ pub(super) fn poll_joint_projection(
         || state.execution_suspended()
         || !state.navigation_api.borrow().publications.is_empty()
     {
-        return Ok(0);
+        return Ok(JointProjectionPoll::CheckAuthority { completed: 0 });
     }
     let Some(current) = state.navigation_history_snapshot() else {
-        return Ok(0);
+        return Ok(JointProjectionPoll::LocalOnly);
     };
     let route = state.joint_history_route();
     let group = state.joint_history.borrow().clone();
@@ -6145,7 +6159,7 @@ pub(super) fn poll_joint_projection(
             .selected(&route)
             .is_none_or(|selected| selected.id != current.id)
         {
-            return Ok(0);
+            return Ok(JointProjectionPoll::LocalOnly);
         }
         let removed = state.history.borrow().as_ref().is_some_and(|history| {
             history
@@ -6154,7 +6168,7 @@ pub(super) fn poll_joint_projection(
                 .any(|entry| !timeline.knows(&route, &entry.navigation_id))
         });
         if !removed {
-            return Ok(0);
+            return Ok(JointProjectionPoll::LocalOnly);
         }
         state
             .navigation_history_entries()
@@ -6163,7 +6177,7 @@ pub(super) fn poll_joint_projection(
             .collect::<Vec<_>>()
     };
     let Some(current) = entries.iter().position(|entry| entry.id == current.id) else {
-        return Ok(0);
+        return Ok(JointProjectionPoll::LocalOnly);
     };
     let receipt = start_native_history_publication(
         scope,
@@ -6180,7 +6194,7 @@ pub(super) fn poll_joint_projection(
         .native_receipts
         .remove(&receipt);
     publish_history_update(state, "push");
-    Ok(1)
+    Ok(JointProjectionPoll::CheckAuthority { completed: 1 })
 }
 pub(super) fn poll_joint_tasks(
     scope: &mut v8::PinScope,
@@ -6293,24 +6307,33 @@ pub(super) fn poll_joint_tasks(
 }
 pub fn run_history_task(
     scope: &mut v8::PinScope,
+    task: HistoryTraversalTask,
+    destination: Option<NavigationHistorySnapshot>,
+) -> Result<(), V8BindingError> {
+    run_history_task_with_receipt(scope, task, destination).map(|_| ())
+}
+/// Preserve the exact native joint traversal receipt without admitting a second
+/// traversal. Ordinary task callers retain their existing unit-returning API.
+pub fn run_history_task_with_receipt(
+    scope: &mut v8::PinScope,
     mut task: HistoryTraversalTask,
     _destination: Option<NavigationHistorySnapshot>,
-) -> Result<(), V8BindingError> {
+) -> Result<Option<crate::joint_history::NativeJointTraversalReceipt>, V8BindingError> {
     let state = current_state(scope)?;
     if !task.is_current() {
         task.acknowledge();
-        return Ok(());
+        return Ok(None);
     }
     if !task.is_current_for(&state) {
         return Err(failure("InvalidStateError"));
     }
     if !task.is_runnable() {
-        return Ok(());
+        return Ok(None);
     }
     if task.delta() == 0 {
         let url = state.location_url.borrow().clone();
         task.acknowledge();
-        return location::navigate(scope, &state, url, true, true);
+        return location::navigate(scope, &state, url, true, true).map(|()| None);
     }
     let admission = task.navigation_admission().cloned();
     if admission
@@ -6318,13 +6341,13 @@ pub fn run_history_task(
         .is_some_and(|token| !native_navigation_matches(&state, token))
     {
         task.acknowledge();
-        return Ok(());
+        return Ok(None);
     }
     let result = run_joint_history_delta_with_admission(scope, task.delta(), admission);
     if result.is_ok() {
         task.acknowledge();
     }
-    result.map(|_| ())
+    result
 }
 /// Browser UI and queued script traversal share one frozen native step plan.
 /// The receipt completes only when every selected entry is natively committed.

@@ -68,13 +68,17 @@ plutil -lint "$info_plist" >/dev/null
 if [[ -z "$prebuilt_candidate" ]]; then
 python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 cargo build --locked --release -p oryn \
-  --bin oryn --no-default-features --features "native core-full"
+  --bin oryn --no-default-features --features "native core-full webdriver-server"
 python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 cargo build --locked --release -p oryn-native --features v8-host,v8-sandbox,core-full --bin oryn-page-worker
 mkdir -p "$app/Contents/MacOS" "$resources"
 cp "$worker" "$app_worker"
 cp "$info_plist" "$app/Contents/Info.plist"
 fi
+# The exec-only driver launches this CLI in its WebDriver role. Reject a
+# feature-incomplete build or frozen prebuilt before signing/admission. Help
+# exits during argument parsing without starting a listener or page worker.
+"$parent" webdriver --help >/dev/null
 # The bundle is temporarily invalid after replacing a previously signed
 # executable. Read build metadata from the linker-signed build output; never
 # launch the replaced bundle until codesign has sealed it again below.

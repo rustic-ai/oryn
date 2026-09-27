@@ -10,6 +10,13 @@ pub struct XmlStyleSheet {
     pub alternate: bool,
 }
 pub fn parse_xml_stylesheet(data: &str) -> Option<XmlStyleSheet> {
+    parse_stylesheet(data, false)
+}
+/// XSLT requires an explicit recognized type; CSS retains its absent-type rule.
+pub fn parse_xslt_stylesheet(data: &str) -> Option<XmlStyleSheet> {
+    parse_stylesheet(data, true)
+}
+fn parse_stylesheet(data: &str, xslt: bool) -> Option<XmlStyleSheet> {
     if data.len() > 64 * 1024 {
         return None;
     }
@@ -53,10 +60,15 @@ pub fn parse_xml_stylesheet(data: &str) -> Option<XmlStyleSheet> {
         return None;
     }
     let attributes = attributes?;
-    if attributes
-        .get("type")
-        .is_some_and(|kind| !kind.eq_ignore_ascii_case("text/css"))
-    {
+    let kind = attributes.get("type").map(|kind| kind.to_ascii_lowercase());
+    if if xslt {
+        !matches!(
+            kind.as_deref(),
+            Some("text/xsl" | "application/xslt+xml" | "text/xml" | "application/xml")
+        )
+    } else {
+        kind.as_deref().is_some_and(|kind| kind != "text/css")
+    } {
         return None;
     }
     let href = attributes.get("href")?.clone();
@@ -181,6 +193,58 @@ mod tests {
         assert_eq!(
             dom.arena().stylesheet_text(sheet).unwrap(),
             "root{color:red}"
+        );
+    }
+}
+
+/// First non-alternate XSLT PI in the prolog. The same selection controls source
+/// inertness and transformation, so scripts cannot run from a discarded tree.
+pub fn document_xslt_stylesheet(
+    dom: &DomArena,
+    document: NodeId,
+) -> Result<Option<XmlStyleSheet>, DomError> {
+    for node in &dom.get(document)?.children {
+        match &dom.get(*node)?.kind {
+            NodeKind::Element { .. } => break,
+            NodeKind::ProcessingInstruction { target, data } if target == "xml-stylesheet" => {
+                if let Some(sheet) = parse_xslt_stylesheet(data)
+                    && !sheet.alternate
+                {
+                    return Ok(Some(sheet));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(test)]
+mod xslt_tests {
+    use super::*;
+    #[test]
+    fn xslt_pi_selection_is_explicit_and_only_uses_the_prolog() {
+        assert!(parse_xslt_stylesheet("href='css-default'").is_none());
+        assert!(parse_xslt_stylesheet("type='text/css' href='sheet.css'").is_none());
+        let parsed = crate::xml::parse(
+            "<?xml-stylesheet type='text/xsl' alternate='yes' title='alternate' href='skip.xsl'?><?xml-stylesheet type='application/xslt+xml' href='chosen.xsl'?><r/><?xml-stylesheet type='text/xsl' href='late.xsl'?>",
+            "application/xml",
+        );
+        assert_eq!(
+            document_xslt_stylesheet(&parsed.dom, parsed.document)
+                .unwrap()
+                .unwrap()
+                .href,
+            "chosen.xsl"
+        );
+        let parsed = crate::xml::parse(
+            "<r/><?xml-stylesheet type='text/xsl' href='late.xsl'?>",
+            "application/xml",
+        );
+        assert!(
+            document_xslt_stylesheet(&parsed.dom, parsed.document)
+                .unwrap()
+                .is_none()
         );
     }
 }

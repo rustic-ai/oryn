@@ -296,6 +296,7 @@ impl ParentContextService {
                     cors_enabled: true,
                     media_destination: None,
                     preload: false,
+                    xslt: false,
                     template_nonce: None,
                     frozen: Some(authority),
                 })

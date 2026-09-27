@@ -1,7 +1,7 @@
 //! One OIL replacement, including its original focus and notification suffix.
 use super::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Phase {
     Initial,
     Focus,
@@ -36,9 +36,20 @@ pub struct Replacement {
     changed: bool,
     change_committed: bool,
     failure: Option<&'static str>,
+    failure_reported: bool,
 }
 impl Replacement {
     pub fn new(
+        state: &Rc<V8BindingState>,
+        target: NodeId,
+        value: &str,
+        sensitive: bool,
+    ) -> Result<Self, V8BindingError> {
+        Self::new_inner(state, target, value, sensitive).inspect_err(|_| {
+            retained_focus::report_failure(state, Some(target), "replacement.construct");
+        })
+    }
+    fn new_inner(
         state: &Rc<V8BindingState>,
         target: NodeId,
         value: &str,
@@ -153,6 +164,7 @@ impl Replacement {
             changed: false,
             change_committed: false,
             failure: None,
+            failure_reported: false,
         })
     }
     pub fn owner(&self) -> Rc<V8BindingState> {
@@ -252,6 +264,14 @@ impl Replacement {
         Ok(true)
     }
     fn fail(&mut self, message: &'static str) -> V8BindingError {
+        if !self.failure_reported {
+            self.failure_reported = true;
+            retained_focus::report_failure(
+                &self.owner,
+                Some(self.target),
+                &format!("replacement.{:?}", self.phase),
+            );
+        }
         self.failure = Some(message);
         self.cancel();
         V8BindingError::Allocation(message)
@@ -266,6 +286,18 @@ impl Replacement {
         self.phase = Phase::Done;
     }
     pub fn poll(&mut self, scope: &mut v8::PinScope) -> Result<bool, V8BindingError> {
+        let result = self.poll_inner(scope);
+        if result.is_err() && !self.failure_reported {
+            self.failure_reported = true;
+            retained_focus::report_failure(
+                &self.owner,
+                Some(self.target),
+                &format!("replacement.{:?}", self.phase),
+            );
+        }
+        result
+    }
+    fn poll_inner(&mut self, scope: &mut v8::PinScope) -> Result<bool, V8BindingError> {
         if let Some(message) = self.failure {
             return Err(V8BindingError::Allocation(message));
         }
@@ -541,6 +573,92 @@ mod tests {
             .run(scope)
             .unwrap();
     }
+    #[test]
+    fn spa_replacement_then_foreign_realm_roundtrip_keeps_recipient_edit_live() {
+        super::super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse(
+                "<main id=shop-app><a id=review href='/review'>Review checkout</a></main>",
+            )
+            .into_runtime()
+            .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(231), 3).unwrap();
+        eval(
+            scope,
+            r#"
+            document.getElementById('review').focus();
+            getSelection().collapse(document.getElementById('review').firstChild, 0);
+            const parsed = new DOMParser().parseFromString(
+                '<main id="shop-app"><label for="name">Recipient</label><input id="name"><iframe id="payment-frame"></iframe></main>', 'text/html');
+            document.getElementById('shop-app').replaceWith(document.importNode(parsed.querySelector('#shop-app'), true));
+            globalThis.notifications = [];
+            for (const name of ['beforeinput', 'input', 'change']) {
+                document.getElementById('name').addEventListener(name, () => notifications.push(name));
+            }
+        "#,
+        );
+        // Independent DOM/realm models the payment-realm visit. Actual native
+        // frame selection/authority remains covered by the cart matrix case.
+        {
+            let foreign_context = v8::Context::new(scope, Default::default());
+            let foreign_scope = &mut v8::ContextScope::new(scope, foreign_context);
+            let foreign_dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<form><input id=payment></form>")
+                    .into_runtime()
+                    .unwrap(),
+            ));
+            let foreign = install_generated_bindings(
+                foreign_scope,
+                foreign_context,
+                foreign_dom,
+                RealmId(232),
+                2,
+            )
+            .unwrap();
+            eval(foreign_scope, "document.getElementById('payment').focus()");
+            assert!(foreign.dom.borrow().focused().is_some());
+        }
+        assert_eq!(state.document_generation(), 3);
+        let target = state.dom.borrow().find_by_id("name").unwrap();
+        let mut replacement = Replacement::new(&state, target, "Recipient sample", false).unwrap();
+        assert!(replacement.poll(scope).unwrap());
+        assert!(replacement.poll(scope).unwrap());
+        eval(
+            scope,
+            "if(document.getElementById('name').value !== 'Recipient sample' || notifications.join(',') !== 'beforeinput,input,change') throw Error('replacement replayed or failed')",
+        );
+    }
+
+    #[test]
+    fn diagnostic_keeps_original_stale_target_error_and_does_not_mutate_control() {
+        super::super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<input id=t value=old>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(233), 3).unwrap();
+        let stale = NodeId {
+            slot: u32::MAX,
+            generation: 0,
+        };
+        let result = Replacement::new(&state, stale, "must not appear in diagnostic", true);
+        assert!(matches!(result, Err(V8BindingError::Dom(_))));
+        eval(
+            scope,
+            "if(document.getElementById('t').value !== 'old') throw Error('stale replacement mutated control')",
+        );
+    }
+
     #[test]
     fn widget_verification_and_focus_retries_keep_completed_callbacks() {
         super::super::super::tests::initialize_v8();

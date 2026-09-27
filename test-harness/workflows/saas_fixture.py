@@ -94,6 +94,13 @@ class Fixture:
             case = self.db.execute("SELECT * FROM cases WHERE case_id=?", (case_id,)).fetchone()
             if case is None:
                 return 404, "Unknown case", []
+            if path == "resume":
+                # A fresh page can establish this real origin before requesting
+                # a cookie-protected destination. This public landing page grants
+                # no session authority and changes no application/oracle state.
+                # Keep SameSite=Strict: the next ordinary same-site navigation
+                # must still supply the original cookie and recovery token.
+                return 200, self.page("Resume navigation", "Continue with your existing session."), []
             base = f"/saas/{case_id}"
             valid = self.authorized(case, cookie)
             self.db.execute("INSERT INTO views VALUES(?,?,?)", (case_id, path, int(valid)))
@@ -213,7 +220,7 @@ def serve(database):
 
         def route(self):
             parsed = urlsplit(self.path)
-            match = re.fullmatch(r"/saas/([0-9a-f]{32})/(login|records|create|update|logout)", parsed.path)
+            match = re.fullmatch(r"/saas/([0-9a-f]{32})/(login|records|create|update|logout|resume)", parsed.path)
             cookies = SimpleCookie()
             try:
                 cookies.load(self.headers.get("Cookie", ""))
@@ -249,7 +256,7 @@ def serve(database):
 
     server = NumericLoopbackHTTPServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = False
-    serving = threading.Thread(target=server.serve_forever, daemon=True)
+    serving = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.05}, daemon=True)
     serving.start()
     faulthandler.cancel_dump_traceback_later()
     print(json.dumps({"event": "ready", "port": server.server_port}), flush=True)

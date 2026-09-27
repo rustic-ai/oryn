@@ -10,6 +10,7 @@ use crate::context_service::{
 use std::sync::Arc;
 #[derive(Clone)]
 pub(super) struct FrameResponseBody {
+    pub(super) progress: Option<crate::ipc_progress::Identity>,
     pub(super) client: SharedContextClient,
     pub(super) page_id: oryn_common::v3::PageId,
     pub(super) id: u64,
@@ -112,6 +113,13 @@ impl crate::host::DocumentInput for DecodedFrameInput {
         if let Some(receiver) = self.pending.as_ref() {
             match receiver.try_recv() {
                 Ok(result) => {
+                    crate::ipc_progress::result(
+                        self.body.progress,
+                        crate::ipc_progress::Phase::FrameBodyDelivered,
+                        Some(self.body.id),
+                        None,
+                        Some(result.is_ok()),
+                    );
                     self.pending = None;
                     match result {
                         Ok((bytes, done, encoded_body_size)) => {
@@ -169,7 +177,20 @@ impl crate::host::DocumentInput for DecodedFrameInput {
                 return Poll::Ready(Some(Err(HostError::Execution(error.to_string()))));
             }
         };
+        let progress = body.progress;
+        crate::ipc_progress::record(
+            progress,
+            crate::ipc_progress::Phase::FrameBodyQueued,
+            Some(body.id),
+            None,
+        );
         match resource_io_executor::submit(move || {
+            crate::ipc_progress::record(
+                progress,
+                crate::ipc_progress::Phase::FrameBodyStarted,
+                Some(body.id),
+                None,
+            );
             let _ownership = ownership;
             let result = body
                 .client
@@ -190,6 +211,13 @@ impl crate::host::DocumentInput for DecodedFrameInput {
                         .map(|(bytes, done)| (bytes, done, encoded_body_size)),
                     _ => Err("invalid frame response chunk".into()),
                 });
+            crate::ipc_progress::result(
+                progress,
+                crate::ipc_progress::Phase::FrameBodyReturned,
+                Some(body.id),
+                None,
+                Some(result.is_ok()),
+            );
             let _ = sender.send(result);
         }) {
             Ok(()) => {
@@ -249,6 +277,7 @@ mod tests {
         let client = SharedContextClient::direct(context.clone(), page.page_id());
         let lease = client.reserve_frame_response(page.page_id()).unwrap();
         let body = FrameResponseBody {
+            progress: None,
             client: client.clone(),
             page_id: page.page_id(),
             id: 17,
@@ -329,6 +358,7 @@ mod tests {
             received_bytes: 0,
             replay: Default::default(),
             body: FrameResponseBody {
+                progress: None,
                 client: client.clone(),
                 page_id: page.page_id(),
                 id: 17,

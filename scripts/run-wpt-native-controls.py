@@ -11,7 +11,7 @@ from completion_execution import persist, reference, run_owned, source_hash
 from completion_provenance import ROOT, load_candidate, read_record
 from generation_gate import generation_gate, GenerationLease
 from wpt_fixture_contract import validate as validate_fixture
-from wpt_native_controls import Fixture, Driver, tls_probe, browser_controls, validate_contract, validate_results, focus_lease
+from wpt_native_controls import Fixture, Driver, tls_probe, browser_controls, validate_contract, validate_results, focus_lease, reference_capabilities, new_controls
 
 
 def main():
@@ -42,7 +42,9 @@ def main():
     before['control_inputs'] += [entry[field] for entry in contract['tls'].values() for field in ('certificate', 'key')]
     before['control_inputs'].append(contract['upstream_python'])
     persist(args.output / 'preflight.json', before)
-    record = {'schema_version': 1, 'candidate_manifest_sha256': bound['sha256'], 'errors': []}
+    record = {'schema_version': 1, 'candidate_manifest_sha256': bound['sha256'], 'errors': [],
+              'native': {'errors': [], 'controls': new_controls(True)},
+              'reference': {'errors': [], 'controls': new_controls(False)}}
     token = secrets.token_hex(32); token_path = args.output / 'native.token'
     descriptor = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, 'w') as stream: stream.write(token)
@@ -52,8 +54,7 @@ def main():
     specs = [('native', artifacts['driver'], native_args, token,
               {'browserName': 'oryn', 'acceptInsecureCerts': False}, (0,)),
              ('reference', artifacts['reference_driver'], ['--port={port}'], None,
-              {'browserName': 'chrome', 'acceptInsecureCerts': False,
-               'goog:chromeOptions': {'binary': str(artifacts['reference_browser']), 'args': ['--headless=new']}}, (0, -signal.SIGTERM))]
+              reference_capabilities(artifacts['reference_browser']), (0, -signal.SIGTERM))]
     try:
         admission.check()
         with focus_lease(), Fixture(contract):
@@ -62,10 +63,10 @@ def main():
             for name, binary, arguments, credential, capabilities, allowed_exit in specs:
                 admission.check()
                 driver = Driver(binary, arguments, args.output / name, credential, allowed_exit)
-                data = {'errors': []}
+                data = record[name]
                 try:
                     with driver:
-                        data['controls'] = browser_controls(driver.wire, contract, capabilities, name == 'native')
+                        data['controls'] = browser_controls(driver.wire, contract, capabilities, name == 'native', results=data['controls'])
                 except Exception as error:
                     data['errors'].append(type(error).__name__ + ': ' + str(error))
                 data['cleanup'] = driver.cleanup

@@ -1059,7 +1059,7 @@ impl AgentIo {
                     headers,
                     ..
                 } if request_id == operation.request_id => (status, headers),
-                NetworkEvent::Failed { error, .. } => return Err(error),
+                NetworkEvent::Failed { error, .. } => return Err(error.to_string()),
                 _ => return Err("invalid navigation preload headers".into()),
             };
             if oryn_net::fetch::is_redirect_status(status) {
@@ -1196,7 +1196,7 @@ impl AgentIo {
                     }
                     terminal_encoded_bytes = encoded_body_size;
                 }
-                NetworkEvent::Failed { error, .. } => return Err(error),
+                NetworkEvent::Failed { error, .. } => return Err(error.to_string()),
                 _ => return Err("invalid agent response stream event".into()),
             }
         }
@@ -1693,7 +1693,9 @@ impl AgentOperationExecutor for AgentIo {
                 request,
                 cors_enabled,
             } => self.http_start(id, request, true, cors_enabled, &cancel),
-            PlatformHostRequest::PrefetchStart { .. }
+            PlatformHostRequest::XsltTransform { .. }
+            | PlatformHostRequest::XsltStart { .. }
+            | PlatformHostRequest::PrefetchStart { .. }
             | PlatformHostRequest::ImagePreloadStart { .. }
             | PlatformHostRequest::MediaStart { .. } => {
                 Err("SecurityError: workers cannot create object element resources".into())

@@ -3,7 +3,7 @@
 //! the returned response into a Document or download.
 #[cfg(unix)]
 use super::navigation_fetch::PendingPolicy;
-use super::navigation_fetch::{Headers, PendingHeaders};
+use super::navigation_fetch::{HeaderDiagnostics, Headers, PendingHeaders};
 use super::*;
 use crate::network::NetworkOperation;
 use std::task::Poll;
@@ -36,6 +36,7 @@ pub(super) struct HttpNavigation {
     deadline: Option<Instant>,
     phase: Phase,
     started: Option<(String, String)>,
+    diagnostics: Option<HeaderDiagnostics>,
 }
 
 enum Phase {
@@ -211,7 +212,27 @@ impl HttpNavigation {
             deadline,
             phase: Phase::Admission,
             started: None,
+            diagnostics: None,
         }
+    }
+
+    pub fn with_diagnostics(
+        mut self,
+        sink: crate::trace::DiagnosticSink,
+        ipc_identity: Option<crate::ipc_progress::Identity>,
+        navigation_id: u64,
+        source_generation: u64,
+    ) -> Self {
+        let diagnostics = HeaderDiagnostics::new(
+            sink,
+            ipc_identity,
+            navigation_id,
+            source_generation,
+            self.deadline,
+        );
+        diagnostics.record("transaction_bound", None);
+        self.diagnostics = Some(diagnostics);
+        self
     }
 
     pub fn with_timing(mut self, timing: oryn_js::navigation_timing::NavigationTiming) -> Self {
@@ -256,8 +277,26 @@ impl HttpNavigation {
     }
 
     pub fn poll(&mut self) -> Poll<Result<Response, RuntimeError>> {
-        let result = self.step();
-        if matches!(result, Poll::Ready(_)) {
+        let mut result = self.step();
+        // Start has no outstanding dependency: the preceding step has already
+        // consumed admission/redirect policy. Submit that one owned request in
+        // this turn instead of parking it behind unrelated page housekeeping.
+        // Never eagerly poll a pending policy or headers; never cross more than
+        // one local edge. step() rechecks the original deadline before submit.
+        if result.is_pending() && matches!(self.phase, Phase::Start) {
+            result = self.step();
+        }
+        if let Poll::Ready(result) = &result {
+            if let Some(diagnostics) = &self.diagnostics {
+                diagnostics.record(
+                    if result.is_ok() {
+                        "transaction_headers_ready"
+                    } else {
+                        "transaction_failed"
+                    },
+                    result.as_ref().err().map(ToString::to_string),
+                );
+            }
             self.phase = Phase::Finished;
         }
         result
@@ -314,6 +353,11 @@ impl HttpNavigation {
                     .ok_or_else(|| RuntimeError::IdentityExhausted {
                         namespace: "navigation request identity".into(),
                     })?;
+                if let Some(diagnostics) = &self.diagnostics {
+                    diagnostics
+                        .for_request(request_id)
+                        .record("request_start", None);
+                }
                 let mut headers = vec![(
                     "accept".into(),
                     "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8".into(),
@@ -370,6 +414,9 @@ impl HttpNavigation {
                     self.deadline,
                     #[cfg(unix)]
                     self.client.as_ref(),
+                    self.diagnostics
+                        .as_ref()
+                        .map(|diagnostics| diagnostics.for_request(request_id)),
                 )?);
                 self.started = Some((method, url));
                 Poll::Pending
@@ -593,6 +640,17 @@ impl HttpNavigation {
                 Poll::Ready(Ok(
                     crate::context_service::ContextServiceResponse::NavigationAuthorized,
                 )) => {
+                    // The next hop is identified only if representable; the existing
+                    // Start phase remains responsible for identity exhaustion errors.
+                    if let Some(diagnostics) = &self.diagnostics
+                        && let Some(request_id) = u64::try_from(self.redirects)
+                            .ok()
+                            .and_then(|id| id.checked_add(1))
+                    {
+                        diagnostics
+                            .for_request(request_id)
+                            .record("navigation_policy_consumed", None);
+                    }
                     self.phase = Phase::Start;
                     Poll::Pending
                 }
@@ -952,5 +1010,296 @@ mod tests {
             expired.poll(),
             Poll::Ready(Err(RuntimeError::NavigationCancelled))
         ));
+    }
+    #[cfg(unix)]
+    fn controlled_policy() -> (
+        tokio::sync::oneshot::Sender<
+            Result<crate::context_service::ContextServiceResponse, RuntimeError>,
+        >,
+        PendingPolicy,
+    ) {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        (
+            sender,
+            PendingPolicy::from_receiver_for_test(receiver, None),
+        )
+    }
+    #[cfg(unix)]
+    #[test]
+    fn ready_navigation_policy_submits_headers_in_same_poll_once() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut fetch = transaction(
+            SharedNetworkBroker::new(RedirectFixture {
+                status: 200,
+                requests: requests.clone(),
+            }),
+            10,
+        );
+        let (sender, pending) = controlled_policy();
+        fetch.phase = Phase::NavigationPolicy(pending);
+        assert!(
+            sender
+                .send(Ok(
+                    crate::context_service::ContextServiceResponse::NavigationAuthorized
+                ))
+                .is_ok()
+        );
+        assert!(fetch.poll().is_pending());
+        assert!(
+            matches!(fetch.phase, Phase::Headers(_)),
+            "ready authorization must submit without another actor poll"
+        );
+        assert_eq!(
+            fetch.take_started(),
+            Some(("POST".into(), "https://first.test/start".into()))
+        );
+        assert!(fetch.take_started().is_none());
+        finish(&mut fetch).unwrap();
+        assert_eq!(requests.lock().unwrap().len(), 1);
+        assert!(matches!(
+            fetch.poll(),
+            Poll::Ready(Err(RuntimeError::NavigationCancelled))
+        ));
+        assert_eq!(requests.lock().unwrap().len(), 1);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn pending_navigation_policy_still_yields_without_submission() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut fetch = transaction(
+            SharedNetworkBroker::new(RedirectFixture {
+                status: 200,
+                requests: requests.clone(),
+            }),
+            10,
+        );
+        let (sender, pending) = controlled_policy();
+        fetch.phase = Phase::NavigationPolicy(pending);
+        for _ in 0..3 {
+            assert!(fetch.poll().is_pending());
+            assert!(matches!(fetch.phase, Phase::NavigationPolicy(_)));
+            assert!(fetch.take_started().is_none());
+        }
+        assert!(requests.lock().unwrap().is_empty());
+        assert!(
+            sender
+                .send(Ok(
+                    crate::context_service::ContextServiceResponse::NavigationAuthorized
+                ))
+                .is_ok()
+        );
+        assert!(fetch.poll().is_pending());
+        assert!(matches!(fetch.phase, Phase::Headers(_)));
+        finish(&mut fetch).unwrap();
+        assert_eq!(requests.lock().unwrap().len(), 1);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn ready_navigation_policy_preserves_denial_cancellation_and_original_deadline() {
+        use crate::context_service::ContextServiceResponse as Reply;
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let broker = SharedNetworkBroker::new(RedirectFixture {
+            status: 200,
+            requests: requests.clone(),
+        });
+        for case in 0..4 {
+            let mut fetch = transaction(broker.clone(), 10);
+            let (sender, pending) = controlled_policy();
+            fetch.phase = Phase::NavigationPolicy(pending);
+            match case {
+                0 => {
+                    assert!(
+                        sender
+                            .send(Ok(Reply::PageDenied {
+                                reason: "redirect denied".into()
+                            }))
+                            .is_ok()
+                    );
+                }
+                1 => {
+                    assert!(sender.send(Err(RuntimeError::NavigationCancelled)).is_ok());
+                }
+                2 => {
+                    drop(sender);
+                }
+                _ => {
+                    assert!(sender.send(Ok(Reply::NavigationAuthorized)).is_ok());
+                    fetch.deadline = Some(Instant::now());
+                }
+            }
+            let result = fetch.poll();
+            match case {
+                0 => assert!(matches!(
+                    result,
+                    Poll::Ready(Err(RuntimeError::PolicyDenied { .. }))
+                )),
+                1 => assert!(matches!(
+                    result,
+                    Poll::Ready(Err(RuntimeError::NavigationCancelled))
+                )),
+                2 => assert!(matches!(result, Poll::Ready(Err(RuntimeError::Network(_))))),
+                _ => assert!(matches!(
+                    result,
+                    Poll::Ready(Err(RuntimeError::WorkerLimitExceeded { .. }))
+                )),
+            }
+            assert!(fetch.take_started().is_none());
+            assert!(requests.lock().unwrap().is_empty());
+        }
+    }
+    fn local_request_start_ids(trace: &mut crate::trace::TraceLog) -> Vec<u64> {
+        trace
+            .snapshot()
+            .into_iter()
+            .filter_map(|event| match event.kind {
+                TraceEventKind::ScriptDiagnostic { capability, detail }
+                    if capability == "navigation.io" =>
+                {
+                    let value: serde_json::Value = serde_json::from_str(&detail).unwrap();
+                    (value["phase"] == "request_start")
+                        .then(|| value["request_id"].as_u64().unwrap())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ready_local_start_keeps_redirect_limit_and_request_method_rewrite() {
+        for status in [303, 307] {
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let mut trace = crate::trace::TraceLog::new(PageId(1));
+            let mut fetch = transaction(
+                SharedNetworkBroker::new(RedirectFixture {
+                    status,
+                    requests: requests.clone(),
+                }),
+                1,
+            )
+            .with_diagnostics(trace.diagnostic_sink(Revision(1)), None, 71, 13);
+            // No-policy admission is likewise a local Start edge, not a reason
+            // to spend another actor turn. Redirect body/method logic is original.
+            assert!(fetch.poll().is_pending());
+            assert!(matches!(fetch.phase, Phase::Headers(_)));
+            fetch.take_started();
+            let response = finish(&mut fetch).unwrap();
+            assert_eq!(response.headers.operation.request_id, 2);
+            assert_eq!(local_request_start_ids(&mut trace), vec![1, 2]);
+            let records = requests.lock().unwrap();
+            assert_eq!(records.len(), 2);
+            // IdentityBroker maps local hop IDs to process-wide transport IDs.
+            // Earlier or concurrent owners may have consumed any lower values.
+            assert_ne!(records[0].request_id, 0);
+            assert!(records[1].request_id > records[0].request_id);
+            assert_eq!(records[0].method, "POST");
+            assert_eq!(records[0].body, b"key=value");
+            assert_eq!(
+                records[1].method,
+                if status == 303 { "GET" } else { "POST" }
+            );
+            assert_eq!(
+                records[1].body.as_slice(),
+                if status == 303 {
+                    b"".as_slice()
+                } else {
+                    b"key=value".as_slice()
+                }
+            );
+            assert!(matches!(
+                fetch.poll(),
+                Poll::Ready(Err(RuntimeError::NavigationCancelled))
+            ));
+            assert_eq!(
+                records.len(),
+                2,
+                "terminal polling must not replay a request"
+            );
+        }
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut fetch = transaction(
+            SharedNetworkBroker::new(RedirectFixture {
+                status: 307,
+                requests: requests.clone(),
+            }),
+            0,
+        );
+        assert!(
+            matches!(finish(&mut fetch), Err(RuntimeError::Network(message)) if message.contains("redirect limit"))
+        );
+        assert_eq!(requests.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn ready_local_start_keeps_local_ids_with_interleaved_broker_owners() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut trace = crate::trace::TraceLog::new(PageId(1));
+        let mut fetch = transaction(
+            SharedNetworkBroker::new(RedirectFixture {
+                status: 307,
+                requests: requests.clone(),
+            }),
+            1,
+        )
+        .with_diagnostics(trace.diagnostic_sink(Revision(1)), None, 72, 13);
+        assert!(fetch.poll().is_pending());
+        assert!(matches!(fetch.phase, Phase::Headers(_)));
+        assert_eq!(
+            fetch.take_started(),
+            Some(("POST".into(), "https://first.test/start".into()))
+        );
+        // Wait only for the first actual broker admission, without polling the
+        // navigation again. Its redirect cannot start before the other owner.
+        let first_transport_id = loop {
+            if let Some(request) = requests.lock().unwrap().first() {
+                break request.request_id;
+            }
+            assert!(
+                Instant::now() < fetch.deadline.unwrap(),
+                "first HTTP request did not reach its broker"
+            );
+            std::thread::park_timeout(Duration::from_millis(1));
+        };
+
+        let other_requests = Arc::new(Mutex::new(Vec::new()));
+        let mut other_trace = crate::trace::TraceLog::new(PageId(1));
+        let mut other = transaction(
+            SharedNetworkBroker::new(RedirectFixture {
+                status: 200,
+                requests: other_requests.clone(),
+            }),
+            0,
+        )
+        .with_diagnostics(other_trace.diagnostic_sink(Revision(1)), None, 73, 13);
+        let other_response = finish(&mut other).unwrap();
+        assert_eq!(other_response.headers.operation.request_id, 1);
+        assert_eq!(local_request_start_ids(&mut other_trace), vec![1]);
+        let other_transport_id = {
+            let records = other_requests.lock().unwrap();
+            assert_eq!(records.len(), 1);
+            records[0].request_id
+        };
+
+        let response = finish(&mut fetch).unwrap();
+        assert_eq!(response.current.as_str(), "https://second.test/final");
+        assert_eq!(response.headers.operation.request_id, 2);
+        assert_eq!(local_request_start_ids(&mut trace), vec![1, 2]);
+        let records = requests.lock().unwrap();
+        assert_eq!(records.len(), 2);
+        assert_ne!(first_transport_id, 0);
+        assert_eq!(records[0].request_id, first_transport_id);
+        assert!(other_transport_id > first_transport_id);
+        assert!(records[1].request_id > other_transport_id);
+        assert!(records.iter().all(|request| request.method == "POST"));
+        assert!(records.iter().all(|request| request.body == b"key=value"));
+        assert!(matches!(
+            fetch.poll(),
+            Poll::Ready(Err(RuntimeError::NavigationCancelled))
+        ));
+        assert!(matches!(
+            other.poll(),
+            Poll::Ready(Err(RuntimeError::NavigationCancelled))
+        ));
+        assert_eq!(records.len(), 2);
+        assert_eq!(other_requests.lock().unwrap().len(), 1);
     }
 }

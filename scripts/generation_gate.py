@@ -59,6 +59,8 @@ class GenerationLease:
             self.validator(self.path)
             raise
         self.failure = None
+        self.snapshot = None
+        self.boundary_only = False
         self.lock = threading.RLock()
         self.check()
 
@@ -67,6 +69,10 @@ class GenerationLease:
             if self.failure is not None:
                 raise ValueError('generation admission revoked: ' + self.failure)
             try:
+                if self.snapshot is not None:
+                    if not self.boundary_only:
+                        self.snapshot.check()
+                    return self
                 if sha256(self.path) != self.sha256:
                     raise ValueError('generation declaration changed')
                 self.validator(self.path)
@@ -76,6 +82,30 @@ class GenerationLease:
                 self.failure = str(error)
                 raise
         return self
+
+    def final_check(self):
+        """Always perform deep validation, even after observed metadata drift."""
+        with self.lock:
+            snapshot, previous = self.snapshot, self.failure
+            self.snapshot = None
+            self.failure = None
+            try:
+                self.check()
+                if previous is not None:
+                    raise ValueError('generation admission revoked: ' + previous)
+            except Exception as error:
+                self.failure = previous or str(error)
+                raise
+            finally:
+                self.snapshot = snapshot
+
+    def suite_checks(self, snapshot, *, boundary_only=False):
+        """Admit a suite; boundary-only callers must verify inputs at finalization.
+
+        The boundary-only execution path performs no filesystem work. Input
+        changes are detected at finalization, not before each native operation.
+        """
+        return _SuiteGenerationChecks(self, snapshot, boundary_only)
 
     def environment(self, base=None):
         import os
@@ -99,6 +129,7 @@ if __name__ == '__main__':
     inherited_generation_lease().check()
 
 
+_suite_execution_lease = None
 _execution_lease = None
 _execution_failure = None
 _execution_lock = __import__('threading').RLock()
@@ -111,9 +142,39 @@ def check_execution_generation():
         if _execution_failure is not None:
             raise ValueError('generation admission revoked: ' + _execution_failure)
         try:
+            if _suite_execution_lease is not None:
+                return _suite_execution_lease.check()
             if _execution_lease is None:
                 _execution_lease = inherited_generation_lease()
             return _execution_lease.check()
         except Exception as error:
             _execution_failure = str(error)
             raise
+
+
+class _SuiteGenerationChecks:
+    def __init__(self, lease, snapshot, boundary_only=False):
+        self.lease, self.snapshot = lease, snapshot
+        self.boundary_only = boundary_only
+
+    def __enter__(self):
+        global _suite_execution_lease
+        with _execution_lock:
+            if _suite_execution_lease is not None or self.lease.snapshot is not None:
+                raise ValueError('nested suite generation optimization is not supported')
+            if _execution_failure is not None:
+                raise ValueError('generation admission revoked: ' + _execution_failure)
+            self.lease.check()
+            self.snapshot.check()
+            self.lease.snapshot = self.snapshot
+            self.lease.boundary_only = self.boundary_only
+            _suite_execution_lease = self.lease
+        return self.lease
+
+    def __exit__(self, *_args):
+        global _suite_execution_lease
+        with _execution_lock:
+            _suite_execution_lease = None
+            self.lease.snapshot = None
+            self.lease.boundary_only = False
+        return False

@@ -25,6 +25,8 @@ impl Kind {
         match request {
             PlatformHostRequest::NavigationPreload { .. }
             | PlatformHostRequest::HttpStart { .. }
+            | PlatformHostRequest::XsltStart { .. }
+            | PlatformHostRequest::XsltTransform { .. }
             | PlatformHostRequest::ImageStart { .. }
             | PlatformHostRequest::MediaStart { .. }
             | PlatformHostRequest::ImagePreloadStart { .. }

@@ -904,6 +904,8 @@ def run_session_case(binary, checkout, test, identifier, classification,
         row['resources'] = message.get('resources', [])
         row['resource_audit'] = {key: value for key, value in (message.get('resource_audit') or {}).items() if key != 'records'}
         row['policy_events'] = message.get('policy_events', [])
+        row['diagnostic_events'] = message.get('diagnostic_events', [])
+        row['diagnostic_audit'] = message.get('diagnostic_audit')
         row['worker_memory'] = message.get('worker_memory', [])
         row['resource_error'] = message.get('resource_error')
         row['resource_evidence_complete'] = message.get('resource_evidence_complete') is True

@@ -190,7 +190,7 @@ def serve(database, fixture_type=Fixture, extra_paths=(), configure_server=None)
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = False
     cleanup_extra = configure_server(fixture, server) if configure_server else None
-    thread = threading.Thread(target=server.serve_forever)
+    thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.05})
     thread.start()
     print(json.dumps({"event": "ready", "port": server.server_port}), flush=True)
     sealed = False

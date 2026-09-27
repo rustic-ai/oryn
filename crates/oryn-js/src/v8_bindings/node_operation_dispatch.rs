@@ -1568,7 +1568,7 @@ pub(super) fn dispatch_element_shadowroot_32<'s>(
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     {
         Ok(Some(
-            html_stream::create(scope, state, node, args.get(0))?.into(),
+            html_stream::create(scope, state, node, args.get(0), member)?.into(),
         ))
     }
 }

@@ -2,9 +2,9 @@
 import json
 import os
 from pathlib import Path
-from .provenance import load_contract
+from .provenance import load_run_contract as load_contract
 
-TEST = '/__oryn_shared_memory__/engine-lifecycle.https.html?placement=1'
+TEST = '/__oryn_shared_memory__/shared-memory/engine-lifecycle.https.html?placement=1'
 
 
 def configuration():
