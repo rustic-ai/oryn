@@ -291,3 +291,93 @@ class CollectorBudget(unittest.TestCase):
                 subject.verify_collector_budget(root,preflight,{'elapsed_ns':500_000_000_000})
             with patch.object(subject.time,'monotonic_ns',return_value=602_000_000_000):
                 with self.assertRaises(TimeoutError):subject.collector_budget(services)
+
+
+class BatchedPortWait(unittest.TestCase):
+    PORTS = [8000,8001,8443,8444,9000,8888,8889,8002,8003,8445,8446]
+
+    def simulate(self, *, checkpoint_seconds=3, available=True, overall_seconds=600, first_round_missing=False):
+        clock=SimpleNamespace(ns=1_000_000_000)
+        observations=[]; checkpoints=[]; attempts=[]
+        def advance(seconds):clock.ns+=int(seconds*1_000_000_000)
+        def checkpoint():
+            checkpoints.append(clock.ns);observations.append('checkpoint');advance(checkpoint_seconds)
+        service=MagicMock()
+        lease=SimpleNamespace(checkpoint=checkpoint)
+        def connect(address,timeout):
+            port=address[1];attempts.append(port);observations.append(port)
+            if not available or (first_round_missing and port==9000 and attempts.count(9000)==1):
+                advance(timeout)
+                raise OSError('not listening')
+            return nullcontext()
+        with patch.object(subject.time,'monotonic_ns',side_effect=lambda:clock.ns), \
+             patch.object(subject.time,'sleep',side_effect=advance), \
+             patch.object(subject.socket,'create_connection',side_effect=connect):
+            arguments=dict(overall_deadline_ns=1_000_000_000+overall_seconds*1_000_000_000)
+            if not available or checkpoint_seconds*2>=min(30,overall_seconds):
+                with self.assertRaises(TimeoutError):subject.wait_for_ports(service,lease,self.PORTS,**arguments)
+                result=None
+            else:
+                result=subject.wait_for_ports(service,lease,self.PORTS,**arguments)
+        return result,observations,checkpoints,attempts,service
+
+    def test_eleven_bound_ports_use_two_full_slow_checkpoints_inside_same_thirty_seconds(self):
+        result,observations,checkpoints,attempts,service=self.simulate()
+        self.assertEqual(result['poll_rounds'],1)
+        self.assertEqual(result['completed_monotonic_ns']-result['bind_started_monotonic_ns'],6_000_000_000)
+        self.assertEqual(observations,['checkpoint',*sorted(self.PORTS),'checkpoint'])
+        self.assertEqual(len(checkpoints),2)
+        self.assertEqual(set(attempts),set(self.PORTS))
+        self.assertGreaterEqual(service.check.call_count,2*len(self.PORTS)+3)
+
+    def test_each_retry_round_checks_complete_inputs_then_only_pending_ports(self):
+        result,_,checkpoints,attempts,_=self.simulate(first_round_missing=True)
+        self.assertEqual(result['poll_rounds'],2)
+        self.assertEqual(len(checkpoints),3)
+        self.assertEqual(attempts,sorted(self.PORTS)+[9000])
+
+    def test_unbound_final_custody_and_overall_expiration_do_not_extend_deadline(self):
+        self.simulate(available=False)
+        self.simulate(checkpoint_seconds=16)
+        self.simulate(overall_seconds=5)
+
+    def test_real_input_drift_during_connections_is_rejected_at_final_full_checkpoint(self):
+        from oryn_validation.inputs import InputLease
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve();source=root/'input';source.write_text('original')
+            records=[snapshot_input(root,'input')]
+            clock=SimpleNamespace(ns=1_000_000_000);calls=[]
+            with patch.object(subject.time,'monotonic_ns',side_effect=lambda:clock.ns), \
+                 patch.object(subject.socket,'create_connection') as connect:
+                def connection(address,timeout):
+                    calls.append(address[1])
+                    if len(calls)==5:source.write_text('modified')
+                    return nullcontext()
+                connect.side_effect=connection
+                helper_rejected = False
+                # The outer assertion covers the separate mandatory exit hash.
+                # The inner assertion must succeed before we even reach exit:
+                # a helper that returns 'bound' would raise AssertionError here.
+                with self.assertRaises(ValueError):
+                    with InputLease(records,store_root=root) as lease:
+                        original=lease.checkpoint
+                        def full_checkpoint():
+                            clock.ns+=3_000_000_000
+                            original()
+                        lease.checkpoint=full_checkpoint
+                        with self.assertRaises(ValueError):
+                            subject.wait_for_ports(MagicMock(),lease,self.PORTS,overall_deadline_ns=601_000_000_000)
+                        helper_rejected = True
+                self.assertTrue(helper_rejected)
+                self.assertEqual(len(calls),11)
+
+    def test_first_checkpoint_drift_or_service_failure_never_reports_bound(self):
+        with patch.object(subject.socket,'create_connection') as connect:
+            lease=MagicMock();lease.checkpoint.side_effect=ValueError('input drift')
+            with self.assertRaisesRegex(ValueError,'input drift'):
+                subject.wait_for_ports(MagicMock(),lease,self.PORTS,overall_deadline_ns=subject.time.monotonic_ns()+600_000_000_000)
+            connect.assert_not_called()
+            service=MagicMock();service.check.side_effect=RuntimeError('service exited')
+            with self.assertRaisesRegex(RuntimeError,'service exited'):
+                subject.wait_for_ports(service,MagicMock(),self.PORTS,overall_deadline_ns=subject.time.monotonic_ns()+600_000_000_000)
+            connect.assert_not_called()

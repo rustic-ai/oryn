@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
 import time
 
 from .inputs import snapshot_input
@@ -118,6 +119,54 @@ def await_admission(bound, service, lease, nonce, *, started_ns, timeout_seconds
         if time.monotonic_ns() >= deadline:
             raise TimeoutError('topology service admission did not complete within original lifetime')
         time.sleep(.05)
+
+
+def wait_for_ports(service, lease, ports, *, overall_deadline_ns, bind_started_ns=None):
+    """Poll every pending endpoint between full custody checkpoints.
+
+    A checkpoint covers the complete declared input population, not one port.
+    Its time (including the final checkpoint) consumes the unchanged bind and
+    service budgets. No cached or time-based custody exemption is introduced.
+    """
+    started = time.monotonic_ns() if bind_started_ns is None else bind_started_ns
+    if (type(started) is not int or type(overall_deadline_ns) is not int
+            or started <= 0 or overall_deadline_ns <= started
+            or not ports or any(type(port) is not int or not 0 < port < 65536 for port in ports)):
+        raise ValueError('invalid topology bind population or deadline')
+    deadline = min(overall_deadline_ns, started + BIND_SECONDS * 1_000_000_000)
+    pending = set(ports)
+    rounds = 0
+    def remaining():
+        value = (deadline - time.monotonic_ns()) / 1_000_000_000
+        if value <= 0:
+            raise TimeoutError('upstream fixtures did not finish binding within deadline: ' +
+                               ','.join(map(str, sorted(pending))))
+        return value
+    while pending:
+        service.check()
+        remaining()
+        lease.checkpoint()
+        service.check()
+        remaining()
+        rounds += 1
+        for port in sorted(pending):
+            service.check()
+            timeout = min(.25, remaining())
+            try:
+                with socket.create_connection(('127.0.0.1', port), timeout=timeout):
+                    remaining()
+                    pending.remove(port)
+            except OSError:
+                pass
+            service.check()
+            remaining()
+        if pending:
+            time.sleep(min(.05, remaining()))
+    lease.checkpoint()
+    service.check()
+    remaining()
+    return {'bind_started_monotonic_ns': started, 'ports': sorted(set(ports)),
+            'poll_rounds': rounds, 'completed_monotonic_ns': time.monotonic_ns()}
 
 
 def publish_bound(service, *, nonce, started_ns, ports):

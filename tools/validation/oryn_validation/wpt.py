@@ -489,7 +489,7 @@ def fixture_services(bound, selected, *, output, environment, lease, timeout_sec
             argv = [str(bound['assets']['python']), '-B', '-m', 'oryn_validation.wpt', 'serve',
                     '--run', str(bound['path']), '--store-root', str(bound['store_root']),
                     '--bundle-root', str(bound['bundle_root'])]
-            from .fixture_startup import NONCE, BIND_SECONDS, TOPOLOGY_LIFETIME_SECONDS, await_admission, publish_bound, verify_startup
+            from .fixture_startup import NONCE, BIND_SECONDS, TOPOLOGY_LIFETIME_SECONDS, await_admission, wait_for_ports, publish_bound, verify_startup
             nonce = secrets.token_hex(32)
             if timeout_seconds != TOPOLOGY_LIFETIME_SECONDS:
                 raise ValueError('topology service lifetime differs from reviewed 600-second budget')
@@ -502,19 +502,9 @@ def fixture_services(bound, selected, *, output, environment, lease, timeout_sec
             overall_deadline = await_admission(bound, service, lease, nonce,
                 started_ns=started_ns, timeout_seconds=timeout_seconds)
             bind_started = time.monotonic_ns()
-            deadline = min(overall_deadline, bind_started + BIND_SECONDS * 1_000_000_000)
             ports = [port for values in selected['fixture']['ports'].values() for port in values]
-            for port in ports:
-                while True:
-                    lease.checkpoint()
-                    service.check()
-                    if time.monotonic_ns() >= deadline:
-                        raise TimeoutError('upstream fixture did not bind: ' + str(port))
-                    try:
-                        with socket.create_connection(('127.0.0.1', port), timeout=.25):
-                            break
-                    except OSError:
-                        time.sleep(.05)
+            wait_for_ports(service, lease, ports, overall_deadline_ns=overall_deadline,
+                           bind_started_ns=bind_started)
             publish_bound(service, nonce=nonce, started_ns=bind_started, ports=ports)
             verify_startup(bound, service.output, ports)
         yield services
