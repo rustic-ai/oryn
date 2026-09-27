@@ -18,7 +18,15 @@ The old installed `oryn_wptrunner` package, its distribution metadata, bytecode
 caches, and the system standard library's global `site-packages` entry are excluded.
 A staged environment must not contain an installed Oryn plugin. Execution obtains
 the current plugin from the separately pinned runner source export. Startup `.pth`
-hooks, undeclared dependency files and payload symlinks fail admission.
+hooks, undeclared dependency files and undeclared payload symlinks fail admission.
+The two Homebrew framework aliases
+`config-3.14-darwin/libpython3.14.a` and
+`config-3.14-darwin/libpython3.14.dylib` are explicitly materialized as regular
+files. Each must spell exactly `../../../Python` and resolve to the selected
+framework's regular `Python` file. Their original spelling and target byte/mode
+identities are recorded in `stdlib_materializations`, rechecked after copying,
+and joined to the final regular files. No runtime library is omitted and no
+symlink is retained in the staged tree.
 
 ## Preparation
 
@@ -70,7 +78,16 @@ the environment identity's interpreter, directory and lock to the same run asset
 A shell launcher does not satisfy the executable-file contract. Input admission
 and final checks still cover the runner export and upstream independently.
 
-Native extension dependencies are inspected with `otool`. Homebrew libraries
+Before output allocation, every selected interpreter, stdlib and dependency
+native file is inspected. `inspect_environment_sources(donor_site_packages,
+system_python, stdlib, *, lock_path=None)` exposes the same complete read-only
+preparation preflight, including actual bytes, materializations and native load
+graph. It neither stages files nor executes the selected interpreter.
+
+Native extension dependencies are inspected with `otool -l`. Actual
+`LC_LOAD_DYLIB`, weak, reexport, lazy and upward dylib commands are followed;
+`LC_ID_DYLIB` names only the current object. A same-name actual load is still
+checked. Unsupported dylib command kinds and malformed names fail closed. Homebrew libraries
 outside the store remain explicit selected/resolved path observations with byte
 identities, checked transitively. macOS shared-cache libraries are recorded by
 canonical system load name and macOS build; they are not represented as individually
@@ -99,3 +116,10 @@ selected migration donor's actual bytes and membership, set
 command. That optional test performs read-only payload validation; it does not
 stage or launch the donor interpreter. Without an explicit donor, that one test
 is reported as skipped, while the source-lock and fixture regressions still run.
+
+For complete real-input preflight coverage, also set
+`ORYN_VALIDATION_SYSTEM_PYTHON` and `ORYN_VALIDATION_STDLIB` alongside the donor
+variable. The additional test checks every selected stdlib file/link and native
+load dependency using read-only file access and `otool`; it does not launch a
+Python runtime probe or create an environment. Preparation-only observations are
+not native or WPT qualification.

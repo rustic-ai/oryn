@@ -25,6 +25,10 @@ MACHO = {b'\xfe\xed\xfa\xce', b'\xce\xfa\xed\xfe', b'\xfe\xed\xfa\xcf',
          b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca', b'\xca\xfe\xba\xbf', b'\xbf\xba\xfe\xca'}
 SYSTEM_PREFIXES = ('/opt/homebrew/', '/usr/lib/', '/System/Library/')
 OS_PREFIXES = ('/usr/lib/', '/System/Library/')
+STDLIB_LINKS = {
+    'config-3.14-darwin/libpython3.14.a': '../../../Python',
+    'config-3.14-darwin/libpython3.14.dylib': '../../../Python',
+}
 PROBE = """import hashlib,importlib.metadata,json,os,platform,sys,sysconfig
 import ssl,ctypes,zlib,sqlite3
 print(json.dumps({'version':platform.python_version(),'system':platform.system(),
@@ -61,8 +65,8 @@ def _excluded(name):
             or name.startswith(('oryn_wptrunner/', 'oryn_wptrunner-')))
 
 
-def _payload(root, *, stdlib=False):
-    """Exact membership; the only skipped stdlib link is global site-packages."""
+def _payload(root, *, stdlib=False, materializations=None):
+    """Exact membership; source normalization is explicit and never follows directories."""
     root = Path(root).absolute()
     resolve_input(root.parent, root.name)
     rows = []
@@ -72,13 +76,43 @@ def _payload(root, *, stdlib=False):
             if (stdlib and name == 'site-packages') or _excluded(name):
                 continue
             if path.is_symlink():
-                raise ValueError('Python payload has a symlink: ' + name)
+                if not stdlib or materializations is None or name not in STDLIB_LINKS:
+                    raise ValueError('Python payload has an undeclared symlink: ' + name)
+                source = _stdlib_link_source(root, name)
+                identity = _file(source)
+                materializations.append({'path': name, 'link_target': STDLIB_LINKS[name],
+                                         'materialized': identity})
+                rows.append({'path': name, **identity})
+                continue
             if path.is_dir():
                 visit(path)
             else:
                 rows.append({'path': name, **_file(path)})
     visit(root)
     return sorted(rows, key=lambda r: r['path'])
+
+
+def _stdlib_link_source(root, name):
+    """Only the two pinned framework-development aliases may become regular files."""
+    root = Path(root).absolute()
+    if name not in STDLIB_LINKS:
+        raise ValueError('undeclared stdlib link')
+    path = root / name
+    resolve_input(path.parent.parent, path.parent.name)
+    if not path.is_symlink() or os.readlink(path) != STDLIB_LINKS[name]:
+        raise ValueError('stdlib link spelling changed: ' + name)
+    expected = root.parents[1] / 'Python'
+    target = resolve_input(expected.parent, expected.name)
+    if path.resolve(strict=True) != target:
+        raise ValueError('stdlib link target escaped framework: ' + name)
+    _file(target)
+    return target
+
+
+def _stdlib_source(root):
+    links = []
+    rows = _payload(root, stdlib=True, materializations=links)
+    return rows, sorted(links, key=lambda row: row['path'])
 
 
 def _dependencies(root, lock, *, allow_plugin=False):
@@ -102,9 +136,14 @@ def _dependencies(root, lock, *, allow_plugin=False):
             raise ValueError('dependency METADATA/WHEEL identity absent')
 
 
-def _copy(root, target, rows):
+def _copy(root, target, rows, *, materializations=()):
+    links = {row['path']: row for row in materializations}
     for row in rows:
-        source = resolve_input(root, row['path'])
+        source = (_stdlib_link_source(root, row['path']) if row['path'] in links
+                  else resolve_input(root, row['path']))
+        if row['path'] in links and links[row['path']]['materialized'] != {
+                k: row[k] for k in ('sha256', 'size', 'executable')}:
+            raise ValueError('stdlib materialization differs from admitted source')
         expected = {k: row[k] for k in ('sha256', 'size', 'executable')}
         if _file(source) != expected:
             raise ValueError('Python source changed before copy')
@@ -132,7 +171,28 @@ def _macho(path):
         return stream.read(4) in MACHO
 
 
-def _system_libraries(root):
+def _dylib_loads(commands):
+    """Read load command semantics; LC_ID_DYLIB is only an object's own name."""
+    supported = {'LC_LOAD_DYLIB', 'LC_LOAD_WEAK_DYLIB', 'LC_REEXPORT_DYLIB',
+                 'LC_LAZY_LOAD_DYLIB', 'LC_LOAD_UPWARD_DYLIB'}
+    starts = list(re.finditer(r'^\s*cmd (LC_[A-Z0-9_]+)\s*$', commands, re.MULTILINE))
+    loads = []
+    for index, match in enumerate(starts):
+        kind = match[1]
+        if kind not in supported | {'LC_ID_DYLIB'}:
+            if kind.endswith('_DYLIB'):
+                raise ValueError('unsupported Mach-O dylib command: ' + kind)
+            continue
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(commands)
+        names = re.findall(r'^\s*name (.*?) \(offset \d+\)\s*$', commands[match.end():end], re.MULTILINE)
+        if len(names) != 1:
+            raise ValueError('missing or ambiguous Mach-O dylib name: ' + kind)
+        if kind != 'LC_ID_DYLIB':
+            loads.append(names[0])
+    return loads
+
+
+def _system_libraries(root, *, native_paths=None, local_roots=()):
     """Observe transitive Mach-O dependencies; OS shared-cache names stay explicit.
 
     Homebrew libraries are byte-pinned and their symlink resolutions rechecked.
@@ -140,7 +200,9 @@ def _system_libraries(root):
     represented as copied or individually hash-certified files.
     """
     root = Path(root).absolute()
-    pending = [p for p in root.rglob('*') if p.is_file() and _macho(p)]
+    local_roots = [root, *(Path(p).absolute() for p in local_roots)]
+    pending = ([p for p in root.rglob('*') if p.is_file() and _macho(p)]
+               if native_paths is None else list(native_paths))
     seen, external, os_names = set(), {}, set()
     while pending:
         path = pending.pop()
@@ -148,13 +210,9 @@ def _system_libraries(root):
         if str(resolved) in seen:
             continue
         seen.add(str(resolved))
-        loads = _otool(path, '-L').splitlines()[1:]
-        rpaths = re.findall(r'\n\s*cmd LC_RPATH\n\s*cmdsize \d+\n\s*path (.*?) \(offset',
-                           _otool(path, '-l'))
-        for line in loads:
-            if ' (compatibility version ' not in line:
-                continue
-            name = line.strip().split(' (compatibility version ', 1)[0]
+        commands = _otool(path, '-l')
+        rpaths = re.findall(r'\n\s*cmd LC_RPATH\n\s*cmdsize \d+\n\s*path (.*?) \(offset', commands)
+        for name in _dylib_loads(commands):
             if Path(name).is_absolute() and ('..' in Path(name).parts or str(Path(name)) != name):
                 raise ValueError('noncanonical Python library dependency: ' + name)
             if name.startswith(OS_PREFIXES):
@@ -179,8 +237,9 @@ def _system_libraries(root):
                 raise ValueError('relative Python library dependency: ' + name)
             dependency = Path(name)
             resolved_dependency = dependency.resolve(strict=True)
-            if resolved_dependency.is_relative_to(root):
-                resolve_input(root, resolved_dependency.relative_to(root).as_posix())
+            local = next((r for r in local_roots if resolved_dependency.is_relative_to(r)), None)
+            if local is not None:
+                resolve_input(local, resolved_dependency.relative_to(local).as_posix())
             else:
                 if not name.startswith(SYSTEM_PREFIXES) or not str(resolved_dependency).startswith(SYSTEM_PREFIXES):
                     raise ValueError('Python library dependency is outside explicit system roots: ' + name)
@@ -190,6 +249,45 @@ def _system_libraries(root):
     return {'libraries': [external[k] for k in sorted(external)], 'os_shared_cache_names': sorted(os_names),
             'macos_build': subprocess.check_output(['/usr/bin/sw_vers', '-buildVersion'],
                                                    text=True, timeout=15).strip()}
+
+
+def _source_libraries(python, stdlib, stdlib_rows, links, donor, lock):
+    materialized = {row['path'] for row in links}
+    native = [python]
+    for root, rows in ((stdlib, stdlib_rows), (donor, lock['files'])):
+        for row in rows:
+            path = (_stdlib_link_source(root, row['path'])
+                    if root == stdlib and row['path'] in materialized
+                    else resolve_input(root, row['path']))
+            if _macho(path):
+                native.append(path)
+    return _system_libraries(python.parent.parent, native_paths=native,
+                             local_roots=(stdlib, donor))
+
+
+def inspect_environment_sources(donor_site_packages, system_python, stdlib, *, lock_path=None):
+    """Read every selected input and its native load graph without staging or Python execution."""
+    lock = _lock(lock_path)
+    donor, python, stdlib = map(lambda p: Path(p).absolute(),
+                                (donor_site_packages, system_python, stdlib))
+    resolve_input(python.parent, python.name)
+    interpreter = _file(python)
+    if not interpreter['executable']:
+        raise ValueError('real Python interpreter must be executable')
+    _dependencies(donor, lock, allow_plugin=True)
+    rows, links = _stdlib_source(stdlib)
+    if not {'os.py', 'json/__init__.py', 'sysconfig/__init__.py'} <= {r['path'] for r in rows}:
+        raise ValueError('complete Python stdlib required')
+    libraries = _source_libraries(python, stdlib, rows, links, donor, lock)
+    # Recheck all bytes and original link spellings after native graph inspection.
+    _dependencies(donor, lock, allow_plugin=True)
+    if _stdlib_source(stdlib) != (rows, links) or _file(python) != interpreter:
+        raise ValueError('Python preparation sources drifted during inspection')
+    return {'kind': 'python-environment-source-preflight', 'python': interpreter,
+            'dependency_files': len(lock['files']), 'distributions': len(lock['distributions']),
+            'stdlib_files': len(rows), 'stdlib_payload_sha256': manifest_digest(rows),
+            'stdlib_materializations': links, 'source_system_libraries': libraries,
+            'runtime_executed': False, 'qualified': False}
 
 
 def _clean(result):
@@ -240,17 +338,18 @@ def prepare_environment(donor_site_packages, system_python, stdlib, store_root, 
         if any(p == source or p in source.parents or source in p.parents for p in paths):
             raise ValueError('environment outputs overlap preparation sources')
     _dependencies(donor, lock, allow_plugin=True)
-    stdlib_rows = _payload(stdlib, stdlib=True)
+    stdlib_rows, stdlib_links = _stdlib_source(stdlib)
     if not {'os.py', 'json/__init__.py', 'sysconfig/__init__.py'} <= {r['path'] for r in stdlib_rows}:
         raise ValueError('complete Python stdlib required')
     interpreter = _file(python)
     if not interpreter['executable']:
         raise ValueError('real Python interpreter must be executable')
+    _source_libraries(python, stdlib, stdlib_rows, stdlib_links, donor, lock)
     with ResourceLease(store, ['environment:' + environment_path]) as lease:
         destination.mkdir(parents=True)
         _copy(python.parent, destination / 'bin', [{'path': python.name, **interpreter}])
         (destination / 'bin' / python.name).rename(destination / 'bin/python')
-        _copy(stdlib, destination / 'lib/python3.14', stdlib_rows)
+        _copy(stdlib, destination / 'lib/python3.14', stdlib_rows, materializations=stdlib_links)
         _copy(donor, destination / 'lib/python3.14/site-packages', lock['files'])
         _write_new(destination / 'dependency-lock.json', lock)
         system = _system_libraries(destination)
@@ -266,7 +365,7 @@ def prepare_environment(donor_site_packages, system_python, stdlib, store_root, 
         _validate_probe(actual, destination, lock)
         verify_input(before_probe, store_root=store)
         _dependencies(donor, lock, allow_plugin=True)
-        if _payload(stdlib, stdlib=True) != stdlib_rows or _file(python) != interpreter:
+        if _stdlib_source(stdlib) != (stdlib_rows, stdlib_links) or _file(python) != interpreter:
             raise ValueError('system Python source changed while staging')
         if system != _system_libraries(destination):
             raise ValueError('system Python libraries changed during probe')
@@ -280,6 +379,7 @@ def prepare_environment(donor_site_packages, system_python, stdlib, store_root, 
                  'python': snapshot_input(store, environment_path + '/bin/python'),
                  'dependency_lock': snapshot_input(store, environment_path + '/dependency-lock.json'),
                  'system': system, 'stdlib_payload_sha256': manifest_digest(stdlib_rows),
+                 'stdlib_materializations': stdlib_links,
                  'probe': snapshot_input(store, diagnostics_path, kind='directory'),
                  'plugin_policy': 'runner-source-export'}
         identity.parent.mkdir(parents=True, exist_ok=True)
@@ -294,7 +394,7 @@ def prepare_environment(donor_site_packages, system_python, stdlib, store_root, 
 
 def verify_environment(identity, store_root):
     keys = {'schema_version', 'kind', 'python_version', 'environment', 'python', 'dependency_lock',
-            'system', 'stdlib_payload_sha256', 'probe', 'plugin_policy'}
+            'system', 'stdlib_payload_sha256', 'stdlib_materializations', 'probe', 'plugin_policy'}
     if (not isinstance(identity, dict) or set(identity) != keys or identity['schema_version'] != 1
             or identity['kind'] != 'staged-wpt-python-environment'
             or identity['plugin_policy'] != 'runner-source-export'):
@@ -313,6 +413,14 @@ def verify_environment(identity, store_root):
     if identity['python_version'] != lock['python_version']:
         raise ValueError('Python version differs from dependency lock')
     _dependencies(root / 'lib/python3.14/site-packages', lock)
+    links = identity['stdlib_materializations']
+    if not isinstance(links, list) or [r['path'] for r in links] != sorted({r['path'] for r in links}):
+        raise ValueError('stdlib materialization inventory differs')
+    for row in links:
+        if (set(row) != {'path', 'link_target', 'materialized'} or row['path'] not in STDLIB_LINKS
+                or row['link_target'] != STDLIB_LINKS[row['path']]
+                or _file(resolve_input(root / 'lib/python3.14', row['path'])) != row['materialized']):
+            raise ValueError('stdlib materialization identity differs')
     if manifest_digest(_payload(root / 'lib/python3.14', stdlib=True)) != identity['stdlib_payload_sha256']:
         raise ValueError('staged stdlib content differs')
     if _system_libraries(root) != identity['system']:

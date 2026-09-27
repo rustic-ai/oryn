@@ -12,14 +12,18 @@ from oryn_validation import environments as e
 from oryn_validation.inputs import _file, snapshot_input
 
 
+def dylib_command(name, kind='LC_LOAD_DYLIB'):
+    return '\n cmd ' + kind + '\n cmdsize 80\n name ' + name + ' (offset 24)\n'
+
+
 class Environments(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.cleanup)
         self.root = Path(self.temp.name).resolve()
-        self.store, self.donor, self.stdlib = [self.root / x for x in ('store', 'donor', 'stdlib')]
+        self.store, self.donor, self.stdlib = [self.root / x for x in ('store', 'donor', 'framework/lib/python3.14')]
         for p in (self.store, self.donor, self.stdlib):
-            p.mkdir()
+            p.mkdir(parents=True)
         self.write(self.donor / 'example.py', b'value = 1\n')
         self.write(self.donor / 'example-1.dist-info/METADATA', b'Name: example\nVersion: 1\n')
         self.write(self.donor / 'example-1.dist-info/WHEEL', b'Wheel-Version: 1.0\nTag: py3-none-any\n')
@@ -244,8 +248,7 @@ class Environments(unittest.TestCase):
         native.mkdir()
         self.write(native / 'python', b'\xfe\xed\xfa\xcf' + b'fake')
         with patch.object(e, '_otool', side_effect=lambda p, flag:
-                          str(p) + ':\n\t/usr/lib/../../outside (compatibility version 1.0.0)\n'
-                          if flag == '-L' else ''):
+                          dylib_command('/usr/lib/../../outside')):
             with self.assertRaisesRegex(ValueError, 'noncanonical'):
                 # Call the original function, not the fixture's system observer.
                 self.system_observer(native)
@@ -256,20 +259,89 @@ class Environments(unittest.TestCase):
         for name in ('bin/python', 'lib/runtime.dylib'):
             self.write(native / name, b'\xfe\xed\xfa\xcf' + b'fake')
         def otool(path, flag):
-            if flag == '-l':
-                return ''
             load = '@loader_path/../lib/runtime.dylib' if path.name == 'python' else '/usr/lib/libSystem.B.dylib'
-            return str(path) + ':\n\t' + load + ' (compatibility version 1.0.0)\n'
+            return dylib_command(load)
         with patch.object(e, '_otool', side_effect=otool), patch.object(e.subprocess, 'check_output', return_value='os-build\n'):
             observed = self.system_observer(native)
         self.assertEqual(observed['libraries'], [])
         self.assertEqual(observed['os_shared_cache_names'], ['/usr/lib/libSystem.B.dylib'])
         def os_only(path, flag):
-            return str(path) + ':\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n' if flag == '-L' else ''
+            return dylib_command('/usr/lib/libSystem.B.dylib')
         with patch.object(e, '_otool', side_effect=os_only), patch.object(e.subprocess, 'check_output', return_value='os-build\n'):
             observed = self.system_observer(native)
         self.assertEqual(observed, {'libraries': [], 'os_shared_cache_names': ['/usr/lib/libSystem.B.dylib'],
                                     'macos_build': 'os-build'})
+
+    def add_framework_aliases(self):
+        framework = self.stdlib.parents[1] / 'Python'
+        self.write(framework, b'framework library fixture', executable=True)
+        for name, target in e.STDLIB_LINKS.items():
+            alias = self.stdlib / name
+            alias.parent.mkdir(parents=True, exist_ok=True)
+            alias.symlink_to(target)
+        return framework
+
+    def test_only_declared_framework_aliases_materialize_as_exact_regular_files(self):
+        framework = self.add_framework_aliases()
+        self.prepare()
+        self.assertEqual(len(self.identity['stdlib_materializations']), 2)
+        for row in self.identity['stdlib_materializations']:
+            alias = self.stdlib / row['path']
+            staged = self.store / 'environments/python/lib/python3.14' / row['path']
+            self.assertTrue(alias.is_symlink())
+            self.assertFalse(staged.is_symlink())
+            self.assertEqual(_file(staged), _file(framework))
+        self.assertTrue(e.verify_environment(self.identity, self.store)['valid'])
+        self.identity['stdlib_materializations'][0]['materialized']['sha256'] = '0' * 64
+        with self.assertRaisesRegex(ValueError, 'materialization identity'):
+            e.verify_environment(self.identity, self.store)
+
+    def test_framework_alias_retarget_and_undeclared_link_fail_before_probe(self):
+        self.add_framework_aliases()
+        alias = self.stdlib / next(iter(e.STDLIB_LINKS))
+        alias.unlink(); alias.symlink_to('../../../../system/python3.14')
+        with self.assertRaisesRegex(ValueError, 'spelling changed'):
+            self.prepare()
+        alias.unlink(); alias.symlink_to('../../../Python')
+        (self.stdlib / 'unexpected.py').symlink_to(self.python)
+        with self.assertRaisesRegex(ValueError, 'undeclared symlink'):
+            self.prepare()
+        self.launch.assert_not_called()
+
+    def test_framework_target_change_during_probe_fails_without_identity(self):
+        framework = self.add_framework_aliases()
+        def drift(*args, **kwargs):
+            result = self.probe(*args, **kwargs)
+            framework.write_bytes(b'changed framework bytes')
+            return result
+        self.launch.side_effect = drift
+        with self.assertRaisesRegex(ValueError, 'source changed while staging'):
+            self.prepare()
+        self.assertFalse((self.store / 'identities/python.json').exists())
+
+    def test_macho_self_id_is_not_an_unresolved_load(self):
+        native = self.root / 'native-id'
+        native.mkdir()
+        library = native / 'extension.so'
+        self.write(library, b'\xfe\xed\xfa\xcf' + b'fixture')
+        own = '@rpath/extension.so'
+        def otool(path, flag):
+            return dylib_command(own, 'LC_ID_DYLIB')
+        with patch.object(e, '_otool', side_effect=otool), patch.object(e.subprocess, 'check_output', return_value='os-build\n'):
+            self.assertEqual(self.system_observer(native)['libraries'], [])
+        def unresolved(path, flag):
+            output = otool(path, flag)
+            return output + dylib_command('@rpath/missing.dylib')
+        with patch.object(e, '_otool', side_effect=unresolved):
+            with self.assertRaisesRegex(ValueError, 'unresolved or ambiguous'):
+                self.system_observer(native)
+        # A real load with the same spelling as the ID must not be discarded.
+        with patch.object(e, '_otool', return_value=dylib_command(own, 'LC_ID_DYLIB') + dylib_command(own)):
+            with self.assertRaisesRegex(ValueError, 'unresolved or ambiguous'):
+                self.system_observer(native)
+        for kind in ('LC_LOAD_WEAK_DYLIB', 'LC_REEXPORT_DYLIB', 'LC_LAZY_LOAD_DYLIB', 'LC_LOAD_UPWARD_DYLIB'):
+            self.assertEqual(e._dylib_loads(dylib_command(own, kind)), [own])
+
 
 
 class SourceDependencyLock(unittest.TestCase):
@@ -303,6 +375,17 @@ class SourceDependencyLock(unittest.TestCase):
         # No subprocess, staging, installation or writes to the donor occur here.
         # The migration donor may contain the old plugin, which is never copied.
         e._dependencies(donor, e._lock(), allow_plugin=True)
+
+    @unittest.skipUnless(all(os.environ.get(name) for name in (
+        'ORYN_VALIDATION_DEPENDENCY_DONOR', 'ORYN_VALIDATION_SYSTEM_PYTHON', 'ORYN_VALIDATION_STDLIB')),
+        'set explicit donor, Python and stdlib for read-only complete source preflight')
+    def test_selected_actual_stdlib_and_native_dependency_graph_preflight(self):
+        result = e.inspect_environment_sources(os.environ['ORYN_VALIDATION_DEPENDENCY_DONOR'],
+            os.environ['ORYN_VALIDATION_SYSTEM_PYTHON'], os.environ['ORYN_VALIDATION_STDLIB'])
+        self.assertEqual(result['dependency_files'], 1607)
+        self.assertEqual({r['path'] for r in result['stdlib_materializations']}, set(e.STDLIB_LINKS))
+        self.assertFalse(result['runtime_executed'])
+        self.assertFalse(result['qualified'])
 
 
 if __name__ == '__main__':
