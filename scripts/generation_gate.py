@@ -26,7 +26,12 @@ def generation_gate(path, root=None):
     declaration_sha256 = hashlib.sha256(declaration).hexdigest()
     gate = json.loads(declaration)
     plan = root / 'docs/oryn2/CORE-AND-OIL-COMPLETION-PLAN-2026-09-15.md'
-    if gate.get('schema_version') != 1 or gate.get('plan_sha256') != sha256(plan):
+    if gate.get('schema_version') == 2:
+        import sys
+        sys.path.insert(0, str(ROOT / 'tools/validation'))
+        from oryn_validation.generation import validate_committed_gate
+        validate_committed_gate(gate, root)
+    if gate.get('schema_version') not in (1, 2) or gate.get('plan_sha256') != sha256(plan):
         raise ValueError('generation gate does not bind the current full completion plan')
     requirements = gate.get('requirements', {})
     if set(requirements) != REQUIREMENTS:

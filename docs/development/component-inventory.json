@@ -1,0 +1,1044 @@
+{
+  "components": {
+    "oryn": {
+      "build_script": null,
+      "dependencies": [
+        {
+          "alias": "oryn-common",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-common",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-domain",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": true,
+          "package": "oryn-domain",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-e",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": true,
+          "package": "oryn-e",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-engine",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": true,
+          "package": "oryn-engine",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-h",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": true,
+          "package": "oryn-h",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-native",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-native",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-r",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": true,
+          "package": "oryn-r",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-render",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": true,
+          "package": "oryn-render",
+          "target": "all"
+        }
+      ],
+      "features": {
+        "chromium": [
+          "compat-core",
+          "dep:oryn-h",
+          "oryn-domain/chromium"
+        ],
+        "compat-all": [
+          "chromium",
+          "embedded",
+          "user-browser"
+        ],
+        "compat-core": [
+          "dep:oryn-engine",
+          "dep:oryn-domain"
+        ],
+        "core-full": [
+          "oryn-native/core-full"
+        ],
+        "core-lite": [
+          "oryn-native/core-lite"
+        ],
+        "default": [
+          "native",
+          "core-full"
+        ],
+        "embedded": [
+          "compat-core",
+          "dep:oryn-e"
+        ],
+        "historical-test-input": [
+          "oryn-native/historical-test-input"
+        ],
+        "in-process-probe": [
+          "oryn-native/in-process-probe"
+        ],
+        "native": [],
+        "native-v8": [
+          "oryn-native/v8-host",
+          "oryn-native/v8-sandbox"
+        ],
+        "native-v8-probe": [
+          "oryn-native/v8-host",
+          "in-process-probe"
+        ],
+        "render": [
+          "dep:oryn-render"
+        ],
+        "user-browser": [
+          "compat-core",
+          "dep:oryn-r",
+          "oryn-domain/user-browser"
+        ],
+        "webdriver-server": [
+          "dep:axum",
+          "dep:libc",
+          "render"
+        ]
+      },
+      "path": "crates/oryn"
+    },
+    "oryn-common": {
+      "build_script": null,
+      "dependencies": [],
+      "features": {},
+      "path": "crates/oryn-common"
+    },
+    "oryn-core": {
+      "build_script": null,
+      "dependencies": [
+        {
+          "alias": "oryn-common",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-common",
+          "target": "all"
+        }
+      ],
+      "features": {},
+      "path": "crates/oryn-core"
+    },
+    "oryn-dom": {
+      "build_script": null,
+      "dependencies": [
+        {
+          "alias": "oryn-common",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-common",
+          "target": "all"
+        }
+      ],
+      "features": {},
+      "path": "crates/oryn-dom"
+    },
+    "oryn-domain": {
+      "build_script": null,
+      "dependencies": [
+        {
+          "alias": "oryn-common",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-common",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-engine",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-engine",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-h",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": true,
+          "package": "oryn-h",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-native",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-native",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-r",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": true,
+          "package": "oryn-r",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-native",
+          "default_features": true,
+          "features": [
+            "in-process-probe"
+          ],
+          "kind": "dev-dependencies",
+          "optional": false,
+          "package": "oryn-native",
+          "target": "all"
+        }
+      ],
+      "features": {
+        "chromium": [
+          "dep:oryn-h"
+        ],
+        "default": [],
+        "user-browser": [
+          "dep:oryn-r"
+        ]
+      },
+      "path": "crates/oryn-domain"
+    },
+    "oryn-e": {
+      "build_script": null,
+      "dependencies": [
+        {
+          "alias": "oryn-engine",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-engine",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-scanner",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-scanner",
+          "target": "all"
+        }
+      ],
+      "features": {},
+      "path": "crates/oryn-e"
+    },
+    "oryn-engine": {
+      "build_script": null,
+      "dependencies": [
+        {
+          "alias": "oryn-common",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-common",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-core",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-core",
+          "target": "all"
+        }
+      ],
+      "features": {},
+      "path": "crates/oryn-engine"
+    },
+    "oryn-h": {
+      "build_script": null,
+      "dependencies": [
+        {
+          "alias": "oryn-engine",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-engine",
+          "target": "all"
+        }
+      ],
+      "features": {},
+      "path": "crates/oryn-h"
+    },
+    "oryn-js": {
+      "build_script": "crates/oryn-js/build.rs",
+      "dependencies": [
+        {
+          "alias": "oryn-common",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-common",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-dom",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-dom",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-layout",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": true,
+          "package": "oryn-layout",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-net",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-net",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-webidl",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-webidl",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-webidl",
+          "default_features": true,
+          "features": [],
+          "kind": "build-dependencies",
+          "optional": false,
+          "package": "oryn-webidl",
+          "target": "all"
+        }
+      ],
+      "features": {
+        "default": [],
+        "historical-test-input": [],
+        "v8-host": [
+          "dep:image",
+          "dep:v8",
+          "dep:oryn-layout"
+        ],
+        "v8-sandbox": [
+          "v8/v8_enable_sandbox"
+        ]
+      },
+      "path": "crates/oryn-js"
+    },
+    "oryn-layout": {
+      "build_script": null,
+      "dependencies": [
+        {
+          "alias": "oryn-common",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-common",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-dom",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-dom",
+          "target": "all"
+        }
+      ],
+      "features": {},
+      "path": "crates/oryn-layout"
+    },
+    "oryn-native": {
+      "build_script": "crates/oryn-native/build.rs",
+      "dependencies": [
+        {
+          "alias": "oryn-common",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-common",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-core",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-core",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-dom",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-dom",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-js",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-js",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-layout",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-layout",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-net",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-net",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-render-core",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": true,
+          "package": "oryn-render-core",
+          "target": "all"
+        }
+      ],
+      "features": {
+        "accessibility-host": [
+          "dep:oryn-render-core"
+        ],
+        "core-full": [],
+        "core-lite": [],
+        "default": [],
+        "historical-test-input": [
+          "oryn-js/historical-test-input"
+        ],
+        "in-process-probe": [],
+        "semantic-oracle": [],
+        "v8-host": [
+          "dep:oryn-render-core",
+          "dep:v8",
+          "oryn-js/v8-host"
+        ],
+        "v8-sandbox": [
+          "v8/v8_enable_sandbox",
+          "oryn-js/v8-sandbox"
+        ]
+      },
+      "path": "crates/oryn-native"
+    },
+    "oryn-net": {
+      "build_script": null,
+      "dependencies": [
+        {
+          "alias": "oryn-common",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-common",
+          "target": "all"
+        }
+      ],
+      "features": {},
+      "path": "crates/oryn-net"
+    },
+    "oryn-r": {
+      "build_script": null,
+      "dependencies": [
+        {
+          "alias": "oryn-engine",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-engine",
+          "target": "all"
+        }
+      ],
+      "features": {},
+      "path": "crates/oryn-r"
+    },
+    "oryn-render": {
+      "build_script": null,
+      "dependencies": [
+        {
+          "alias": "oryn-common",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-common",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-layout",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-layout",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-native",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-native",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-render-core",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-render-core",
+          "target": "all"
+        }
+      ],
+      "features": {},
+      "path": "crates/oryn-render"
+    },
+    "oryn-render-core": {
+      "build_script": null,
+      "dependencies": [
+        {
+          "alias": "oryn-common",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-common",
+          "target": "all"
+        },
+        {
+          "alias": "oryn-layout",
+          "default_features": true,
+          "features": [],
+          "kind": "dependencies",
+          "optional": false,
+          "package": "oryn-layout",
+          "target": "all"
+        }
+      ],
+      "features": {},
+      "path": "crates/oryn-render-core"
+    },
+    "oryn-scanner": {
+      "build_script": null,
+      "dependencies": [],
+      "features": {},
+      "path": "crates/oryn-scanner"
+    },
+    "oryn-webidl": {
+      "build_script": null,
+      "dependencies": [],
+      "features": {},
+      "path": "crates/oryn-webidl"
+    }
+  },
+  "includes": [
+    {
+      "expression": "\"../../oryn-scanner/src/scanner.js\");",
+      "line": 6,
+      "macro": "include_str",
+      "source": "crates/oryn-h/src/inject.rs"
+    },
+    {
+      "expression": "\"../assets/NotoSans-Regular.ttf\");",
+      "line": 169,
+      "macro": "include_bytes",
+      "source": "crates/oryn-layout/src/lib.rs"
+    },
+    {
+      "expression": "\"../../oryn-render/tests/assets/variabletest_matching.ttf\");",
+      "line": 10930,
+      "macro": "include_bytes",
+      "source": "crates/oryn-layout/src/lib.rs"
+    },
+    {
+      "expression": "\"../../oryn-render/tests/assets/variabletest_matching.ttf\");",
+      "line": 593,
+      "macro": "include_bytes",
+      "source": "crates/oryn-layout/src/svg_fonts.rs"
+    },
+    {
+      "expression": "\"../../oryn-render/tests/assets/variabletest_matching.ttf\").to_vec()};",
+      "line": 678,
+      "macro": "include_bytes",
+      "source": "crates/oryn-layout/src/svg_fonts.rs"
+    },
+    {
+      "expression": "\"deferred_fetch_context.rs\");",
+      "line": 557,
+      "macro": "include",
+      "source": "crates/oryn-native/src/deferred_fetch.rs"
+    },
+    {
+      "expression": "\"external_template_transport.rs\");",
+      "line": 3,
+      "macro": "include",
+      "source": "crates/oryn-native/src/external_template_resource.rs"
+    },
+    {
+      "expression": "\"webdriver_script_v8.rs\");",
+      "line": 295,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"remote_window_v8.rs\");",
+      "line": 297,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"window_open_v8.rs\");",
+      "line": 298,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"script_close_preparation_v8.rs\");",
+      "line": 299,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"standalone_script_close_v8.rs\");",
+      "line": 300,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"standalone_auxiliary_root_v8.rs\");",
+      "line": 301,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"standalone_root_custody_v8.rs\");",
+      "line": 302,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"remote_message_v8.rs\");",
+      "line": 304,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"typed_modules.rs\");",
+      "line": 824,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"module_reporting.rs\");",
+      "line": 825,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"module_preload.rs\");",
+      "line": 826,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"external_template_resource.rs\");",
+      "line": 827,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"usermedia_profile.rs\");",
+      "line": 828,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"standalone_platform_http.rs\");",
+      "line": 830,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"standalone_activation_v8.rs\");",
+      "line": 833,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"declarative_css_module.rs\");",
+      "line": 862,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"general_preload.rs\");",
+      "line": 863,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"module_settlement.rs\");",
+      "line": 864,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"parser_module_snapshot.rs\");",
+      "line": 865,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"realm_endpoint_tests.rs\");",
+      "line": 902,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"agent_runtime_v8.rs\");",
+      "line": 3684,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"local_document_provenance_v8.rs\");",
+      "line": 4027,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"auxiliary_root_v8.rs\");",
+      "line": 4632,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"prerender_host.rs\");",
+      "line": 4655,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "env!(\"ORYN_STARTUP_SNAPSHOT_PATH\"))[..],",
+      "line": 6075,
+      "macro": "include_bytes",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"historical_keyboard.js\"))?;",
+      "line": 6680,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"native_actions.js\"))?;",
+      "line": 6681,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"dynamic_import_v8.rs\");",
+      "line": 14183,
+      "macro": "include",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "\"../assets/external-references-v1.json\"))",
+      "line": 23856,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/host.rs"
+    },
+    {
+      "expression": "env!(\"ORYN_ICU_DATA_PATH\")).len() }> =",
+      "line": 18,
+      "macro": "include_bytes",
+      "source": "crates/oryn-native/src/lib.rs"
+    },
+    {
+      "expression": "env!(\"ORYN_ICU_DATA_PATH\")));",
+      "line": 19,
+      "macro": "include_bytes",
+      "source": "crates/oryn-native/src/lib.rs"
+    },
+    {
+      "expression": "\"module_graph_backend.rs\");",
+      "line": 38,
+      "macro": "include",
+      "source": "crates/oryn-native/src/module_graph_load.rs"
+    },
+    {
+      "expression": "\"../../../test-harness/scenarios/spa/svelte-tasks.html\"),",
+      "line": 2962,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/oil.rs"
+    },
+    {
+      "expression": "\"../../../test-harness/scenarios/intent-tests/flow-cart.html\")",
+      "line": 2983,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/oil.rs"
+    },
+    {
+      "expression": "\"../../../test-harness/public/shared/styles.css\")",
+      "line": 2988,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/oil.rs"
+    },
+    {
+      "expression": "\"../../../test-harness/scenarios/forms/login.html\").replace(",
+      "line": 3192,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/oil.rs"
+    },
+    {
+      "expression": "\"../../../test-harness/public/shared/styles.css\")",
+      "line": 3196,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/oil.rs"
+    },
+    {
+      "expression": "\"../../../test-harness/scenarios/spa/angular-shop.html\"),",
+      "line": 3235,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/oil.rs"
+    },
+    {
+      "expression": "\"terminal_close_yield_tests.rs\");",
+      "line": 1304,
+      "macro": "include",
+      "source": "crates/oryn-native/src/page_actor_turn.rs"
+    },
+    {
+      "expression": "\"page_terminal_control_tests.rs\");",
+      "line": 1305,
+      "macro": "include",
+      "source": "crates/oryn-native/src/page_actor_turn.rs"
+    },
+    {
+      "expression": "\"prerender_blank_actor.rs\");",
+      "line": 1865,
+      "macro": "include",
+      "source": "crates/oryn-native/src/page_actor_turn.rs"
+    },
+    {
+      "expression": "\"remote_window_projection.rs\");",
+      "line": 3,
+      "macro": "include",
+      "source": "crates/oryn-native/src/remote_window_v8.rs"
+    },
+    {
+      "expression": "\"navigation_actor.rs\");",
+      "line": 14572,
+      "macro": "include",
+      "source": "crates/oryn-native/src/runtime.rs"
+    },
+    {
+      "expression": "\"root_departure.rs\");",
+      "line": 14573,
+      "macro": "include",
+      "source": "crates/oryn-native/src/runtime.rs"
+    },
+    {
+      "expression": "\"script_close_preparation.rs\");",
+      "line": 14575,
+      "macro": "include",
+      "source": "crates/oryn-native/src/runtime.rs"
+    },
+    {
+      "expression": "\"cached_authority_completion.rs\");",
+      "line": 14576,
+      "macro": "include",
+      "source": "crates/oryn-native/src/runtime.rs"
+    },
+    {
+      "expression": "\"initial_document_cleanup.rs\");",
+      "line": 14577,
+      "macro": "include",
+      "source": "crates/oryn-native/src/runtime.rs"
+    },
+    {
+      "expression": "\"shared_host_cache.rs\");",
+      "line": 14579,
+      "macro": "include",
+      "source": "crates/oryn-native/src/runtime.rs"
+    },
+    {
+      "expression": "\"../../../test-harness/scenarios/spa/svelte-tasks.html\"),",
+      "line": 39344,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/runtime.rs"
+    },
+    {
+      "expression": "\"frame_runtime.rs\");",
+      "line": 43493,
+      "macro": "include",
+      "source": "crates/oryn-native/src/runtime.rs"
+    },
+    {
+      "expression": "\"navigation_runtime.rs\");",
+      "line": 43535,
+      "macro": "include",
+      "source": "crates/oryn-native/src/runtime.rs"
+    },
+    {
+      "expression": "\"accessibility_runtime.rs\");",
+      "line": 43573,
+      "macro": "include",
+      "source": "crates/oryn-native/src/runtime.rs"
+    },
+    {
+      "expression": "",
+      "line": 27712,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/rust_executable.rs"
+    },
+    {
+      "expression": "\"../../../test-harness/scenarios/intent-tests/flow-shipping.html\"),",
+      "line": 30010,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/rust_executable.rs"
+    },
+    {
+      "expression": "\"../../../scripts/wpt-report.js\").into(),",
+      "line": 32943,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/rust_executable.rs"
+    },
+    {
+      "expression": "\"../../../scripts/wpt-report.js\").into(),",
+      "line": 32960,
+      "macro": "include_str",
+      "source": "crates/oryn-native/src/rust_executable.rs"
+    },
+    {
+      "expression": "\"../../oryn-render-core/tests/assets/variabletest_matching.ttf\")",
+      "line": 1332,
+      "macro": "include_bytes",
+      "source": "crates/oryn-native/src/svg_capture.rs"
+    },
+    {
+      "expression": "\"security.rs\"));",
+      "line": 3934,
+      "macro": "include_bytes",
+      "source": "crates/oryn-native/src/worker_client.rs"
+    },
+    {
+      "expression": "\"network.rs\"));",
+      "line": 3936,
+      "macro": "include_bytes",
+      "source": "crates/oryn-native/src/worker_client.rs"
+    },
+    {
+      "expression": "\"../tests/assets/variabletest_matching.ttf\").to_vec(),",
+      "line": 394,
+      "macro": "include_bytes",
+      "source": "crates/oryn-render-core/src/glyph_outline.rs"
+    },
+    {
+      "expression": "\"../tests/assets/variabletest_matching.ttf\").to_vec(),",
+      "line": 479,
+      "macro": "include_bytes",
+      "source": "crates/oryn-render-core/src/glyph_outline.rs"
+    },
+    {
+      "expression": "\"scanner.js\");",
+      "line": 3,
+      "macro": "include_str",
+      "source": "crates/oryn-scanner/src/lib.rs"
+    },
+    {
+      "expression": "\"../idl/browser.webidl\")).unwrap();",
+      "line": 143,
+      "macro": "include_str",
+      "source": "crates/oryn-webidl/src/typedefs.rs"
+    },
+    {
+      "expression": "\"../../oryn-js/src/generated/browser.rs\")",
+      "line": 146,
+      "macro": "include_str",
+      "source": "crates/oryn-webidl/src/typedefs.rs"
+    }
+  ],
+  "schema_version": 1
+}

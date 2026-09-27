@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Packaging is a mutating production stage even when invoked directly.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-product_app="$repo_root/target/release/Oryn.app"
+cd "$repo_root"
+cargo_target="${CARGO_TARGET_DIR:-$repo_root/target}"
+case "$cargo_target" in /*) ;; *) cargo_target="$repo_root/$cargo_target" ;; esac
+export CARGO_TARGET_DIR="$cargo_target"
+artifact_root="${ORYN_ARTIFACT_ROOT:-$cargo_target/release}"
+case "$artifact_root" in /*) ;; *) artifact_root="$repo_root/$artifact_root" ;; esac
+export ORYN_ARTIFACT_ROOT="$artifact_root"
+product_app="$artifact_root/Oryn.app"
 product_parent="$product_app/Contents/MacOS/oryn"
 product_worker="$product_app/Contents/Helpers/OrynPageWorker.app"
-standalone_parent="$repo_root/target/release/oryn"
-standalone_worker="$repo_root/target/release/OrynPageWorker.app"
+standalone_parent="$cargo_target/release/oryn"
+standalone_worker="$artifact_root/OrynPageWorker.app"
 info_plist="$repo_root/sandbox/oryn-Info.plist"
 identity="${ORYN_CODESIGN_IDENTITY:-}"
 
@@ -33,7 +43,7 @@ ditto "$standalone_worker" "$product_worker"
 codesign --force --options runtime --timestamp=none --sign "$identity" "$product_app"
 codesign --verify --deep --strict --verbose=2 "$product_app"
 
-runtime="$($product_parent native --runtime-info)"
+runtime="$("$product_parent" native --runtime-info)"
 jq -e '
   .native_v8 == true and
   .execution_mode == "sandboxed_worker" and

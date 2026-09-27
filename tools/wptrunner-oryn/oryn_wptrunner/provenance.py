@@ -117,6 +117,9 @@ def _load_contract(path=None, binary=None, webdriver_binary=None):
     contract_path = contract_input.resolve()
     contract_sha256 = digest(contract_path)
     contract = json.loads(contract_path.read_text())
+    if contract.get('kind') == 'run':
+        from oryn_validation.typed_provenance import load_contract as load_typed
+        return load_typed(contract_input, binary, webdriver_binary)
     if type(contract.get('schema_version')) is not int or contract['schema_version'] not in (1, 2) or contract.get('upstream_revision') != WPT_REVISION:
         raise ValueError('run contract version/revision mismatch')
     candidate_path = artifact(contract['candidate'])
@@ -196,6 +199,9 @@ def _plugin_members(package):
 
 
 def _run_snapshot(path, gate_path):
+    if json.loads(Path(path).read_text()).get('kind') == 'run':
+        from oryn_validation.typed_provenance import run_snapshot
+        return run_snapshot(path)
     import suite_input_lease as lease
     package = Path(__file__).resolve().parent
     # Capture the lexical envelope and installed plugin BEFORE any discovery.
@@ -245,7 +251,7 @@ class _RunAdmission:
         if not selected:
             raise ValueError('run admission needs an explicit contract')
         self.path = Path(selected).absolute()
-        self.gate_path = Path(gate_path).absolute()
+        self.gate_path = Path(gate_path).absolute() if gate_path is not None else None
         self.binary, self.webdriver_binary = binary, webdriver_binary
         self.collection = os.environ.get('ORYN_CORE_COLLECTION')
         self.pid = os.getpid()
@@ -405,6 +411,11 @@ def run_info_extras(logger, **kwargs):
             'oryn_run_contract_sha256': contract['sha256'],
             'oryn_fixture_sha256': contract['fixture_sha256'],
             'oryn_fixture_repairs_sha256': contract['fixture_repairs_sha256']}
+    if contract.get('typed_run'):
+        run = contract['typed_run']
+        result.update(oryn_build_id=run['build']['build_id'], oryn_run_id=run['run_id'],
+                      oryn_profile_id=run['profile'], oryn_runner_commit=run['runner']['commit'],
+                      oryn_original_run_id=run['original_run_id'], oryn_attempt=run['attempt'])
     if contract.get('profile_envelope'):
         from core_profile_contract import identity
         collection = os.environ.get('ORYN_CORE_COLLECTION')

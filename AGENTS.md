@@ -2,11 +2,11 @@
 
 ## Core and OIL delivery work
 
-The user resumed implementation on September 20 after the gap review. Follow [the active gap-repair workflow](docs/oryn2/GAP-REPAIR-WORKFLOW-2026-09-20.md); earlier pause text in stocktake documents is historical. Complete all batch code and regression generation before builds/tests.
+The user approved consolidation implementation on September 27. Follow the active [development process](docs/development/WORKFLOW.md) and [validation migration runbook](docs/validation/CONSOLIDATION.md). Use the existing Cargo workspace and Git commits; do not create another permanent candidate/helper checkout. Focused developer tests are allowed during iteration. Complete, review, and commit the repair batch before official validation.
 
-Current progress lives in [CURRENT_STATUS.md](docs/oryn2/CURRENT_STATUS.md), generated from the single [candidate/gate index](docs/oryn2/current-status.json). Refresh with `python3 scripts/render-current-status.py` and verify with `--check`; do not append new status snapshots to archived reports or count historical checkboxes. Pin new evidence and keep source, review, execution and qualification states separate.
+Migration progress lives outside source in the configured data root's `status/consolidation.json`. The previous [CURRENT_STATUS.md](docs/oryn2/CURRENT_STATUS.md) and candidate/gate index describe legacy evidence until the M7 cutover. Do not modify legacy hashed status or receipts to report new progress. Pin new evidence and keep source, build, execution, validity, observed outcomes, and qualification states separate.
 
-For continuation of the Core and OIL completion effort, read [the governing post-stocktake directive](docs/oryn2/POST-STOCKTAKE-DELIVERY-DIRECTIVE-2026-09-20.md) before assigning work or running builds/tests. It supersedes older immediate-work lists while preserving the full completion plan. Implementation is paused until the user explicitly resumes it; a request to update planning documents is not a resumption. On resumption, follow its complete repair-batch, parallel ownership, immutable validation, compatibility measurement and evidence requirements.
+The [full delivery scope](docs/oryn2/CORE-AND-OIL-COMPLETION-PLAN-2026-09-15.md) remains binding. Dated gap-repair and post-stocktake directives document historical execution rules; the adopted workflow supersedes their per-candidate mechanics, blanket developer-test freeze, and pause statements. Preserve immutable official validation, independent review, all original populations, and failure evidence. Scheduled work remains disabled unless explicitly requested. The coordinator alone owns native builds/signing, fixed ports, and focus-sensitive execution; independent lanes must use disjoint ownership.
 
 ## Project Structure & Module Organization
 Oryn is a Rust workspace with supporting JS/Python tooling.

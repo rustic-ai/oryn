@@ -5,12 +5,19 @@ set -euo pipefail
 python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-build_output="${CARGO_TARGET_DIR:-$repo_root/target}/release"
+cd "$repo_root"
+cargo_target="${CARGO_TARGET_DIR:-$repo_root/target}"
+case "$cargo_target" in /*) ;; *) cargo_target="$repo_root/$cargo_target" ;; esac
+export CARGO_TARGET_DIR="$cargo_target"
+build_output="$cargo_target/release"
+artifact_root="${ORYN_ARTIFACT_ROOT:-$build_output}"
+case "$artifact_root" in /*) ;; *) artifact_root="$repo_root/$artifact_root" ;; esac
+export ORYN_ARTIFACT_ROOT="$artifact_root"
 worker_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field worker)"
 expected_context_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field context)"
 expected_agent_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field agent)"
 worker="$build_output/oryn-page-worker"
-app="$build_output/OrynPageWorker.app"
+app="$artifact_root/OrynPageWorker.app"
 app_worker="$app/Contents/MacOS/oryn-page-worker"
 resources="$app/Contents/Resources"
 manifest="$resources/worker-manifest.json"
@@ -20,7 +27,18 @@ identity="${ORYN_CODESIGN_IDENTITY:-}"
 expected_bundle_id="${ORYN_EXPECTED_BUNDLE_ID:-ai.rustic.oryn.page-worker}"
 expected_team_id="${ORYN_APPLE_TEAM_ID:-5HVA9VFF8K}"
 v8_profile_manifest="${ORYN_V8_PROFILE_MANIFEST:-}"
+typed_engine_profile="${ORYN_TYPED_ENGINE_PROFILE:-}"
+typed_source_identity="${ORYN_TYPED_SOURCE_IDENTITY:-}"
+typed_runtime_output="${ORYN_TYPED_RUNTIME_OUTPUT:-}"
 prebuilt_candidate="${ORYN_SECURITY_PREBUILT_CANDIDATE:-}"
+if [[ -n "$typed_engine_profile" || -n "$typed_source_identity" || -n "$typed_runtime_output" ]]; then
+  if [[ -z "$typed_source_identity" || -n "$prebuilt_candidate" || ( -z "$typed_engine_profile" && -z "$typed_runtime_output" ) || ( -n "$typed_engine_profile" && -n "$typed_runtime_output" ) ]]; then
+    echo "Typed signing requires source identity and exactly one typed profile or new typed output; legacy prebuilt substitution is forbidden." >&2
+    exit 2
+  fi
+  python3 "$repo_root/scripts/oryn-validate.py" source-info \
+    --source-root "$repo_root" --source-identity "$typed_source_identity" >/dev/null
+fi
 if [[ -n "$prebuilt_candidate" ]]; then
   python3 "$repo_root/scripts/security_prebuilt.py" check
   # Only validated candidate paths may enter the no-build/no-sign branch.
@@ -66,9 +84,32 @@ fi
 plutil -lint "$info_plist" >/dev/null
 
 if [[ -z "$prebuilt_candidate" ]]; then
+if [[ -n "$typed_runtime_output" ]]; then
+  # A committed-source build produces its own snapshot under the same owned
+  # process/cache lease. The original profile remains an immutable prelaunch
+  # input; this new intermediate profile is an output of that process.
+  snapshot_output="$artifact_root/oryn-startup-core-full.blob"
+  snapshot_profile="$artifact_root/snapshot-core-full-manifest.json"
+  if [[ -e "$snapshot_output" || -L "$snapshot_output" || -e "$snapshot_profile" || -L "$snapshot_profile" ]]; then
+    echo "Typed builds require new snapshot and intermediate profile outputs." >&2
+    exit 2
+  fi
+  mkdir -p "$artifact_root"
+  (
+    unset ORYN_STARTUP_SNAPSHOT
+    /bin/bash "$repo_root/scripts/build-startup-snapshot.sh" core-full \
+      "$RUSTY_V8_ARCHIVE" "$snapshot_output"
+  )
+  test -s "$snapshot_output"
+  python3 "$repo_root/scripts/oryn-validate.py" engine-profile-refresh \
+    --source-root "$repo_root" --legacy-profile "$v8_profile_manifest" \
+    --output "$snapshot_profile" --startup-snapshot "$snapshot_output"
+  v8_profile_manifest="$snapshot_profile"
+  export ORYN_STARTUP_SNAPSHOT="$snapshot_output"
+fi
 python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 cargo build --locked --release -p oryn \
-  --bin oryn --no-default-features --features "native core-full webdriver-server"
+  --bin oryn --bin oryn-webdriver --no-default-features --features "native core-full webdriver-server"
 python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 cargo build --locked --release -p oryn-native --features v8-host,v8-sandbox,core-full --bin oryn-page-worker
 mkdir -p "$app/Contents/MacOS" "$resources"
@@ -79,6 +120,9 @@ fi
 # feature-incomplete build or frozen prebuilt before signing/admission. Help
 # exits during argument parsing without starting a listener or page worker.
 "$parent" webdriver --help >/dev/null
+if [[ -z "$prebuilt_candidate" ]]; then
+  "$build_output/oryn-webdriver" --help >/dev/null
+fi
 # The bundle is temporarily invalid after replacing a previously signed
 # executable. Read build metadata from the linker-signed build output; never
 # launch the replaced bundle until codesign has sealed it again below.
@@ -105,11 +149,34 @@ if ! jq -e --arg archive "$(jq -r '.archive_sha256' "$v8_profile_manifest")" '
   exit 2
 fi
 if [[ -z "$prebuilt_candidate" ]]; then
-cp "$v8_profile_manifest" "$resources/v8-profile-manifest.json"
+if [[ -n "$typed_runtime_output" ]]; then
+  compiled_profile="$artifact_root/compiled-core-full-manifest.json"
+  python3 "$repo_root/scripts/oryn-validate.py" engine-profile-refresh \
+    --source-root "$repo_root" --legacy-profile "$v8_profile_manifest" \
+    --output "$compiled_profile" --worker "$worker" --runtime-info "$runtime_file"
+  v8_profile_manifest="$compiled_profile"
+  python3 "$repo_root/scripts/oryn-validate.py" typed-runtime-prepare \
+    --source-root "$repo_root" --store-root "${ORYN_DATA_ROOT:?typed runtime requires data root}" \
+    --legacy-profile "$v8_profile_manifest" --output-directory "$typed_runtime_output" \
+    --source-identity "$typed_source_identity"
+  typed_engine_profile="$ORYN_DATA_ROOT/$typed_runtime_output/engine-profile.json"
+fi
+if [[ -n "$typed_engine_profile" ]]; then
+  typed_source_info="$(python3 "$repo_root/scripts/oryn-validate.py" typed-profile-check \
+    --source-root "$repo_root" --legacy-profile "$v8_profile_manifest" \
+    --typed-profile "$typed_engine_profile" --source-identity "$typed_source_identity")"
+  cp "$typed_engine_profile" "$resources/v8-profile-manifest.json"
+else
+  cp "$v8_profile_manifest" "$resources/v8-profile-manifest.json"
+fi
 
 worker_build_sha256="$(shasum -a 256 "$app_worker" | awk '{print $1}')"
 worker_build_bytes="$(wc -c < "$app_worker" | tr -d '[:space:]')"
-source_tree_sha256="$($repo_root/scripts/source-tree-hash.sh)"
+if [[ -n "$typed_engine_profile" ]]; then
+  source_tree_sha256="$(jq -er .tree_sha256 <<<"$typed_source_info")"
+else
+  source_tree_sha256="$("$repo_root/scripts/source-tree-hash.sh")"
+fi
 entitlement_sha256="$(
   printf '%s' '{"com.apple.security.app-sandbox":true,"com.apple.security.cs.allow-jit":true}' |
     shasum -a 256 | awk '{print $1}'
@@ -194,6 +261,15 @@ jq -n \
       max_resource_cache_entry_bytes: 8388608
     }
   }' > "$manifest"
+
+if [[ -n "$typed_engine_profile" ]]; then
+  # New metadata is written before codesign creates the immutable resource seal.
+  # Legacy manifests and signed bundles are never relabeled.
+  typed_manifest="$(mktemp "$resources/worker-manifest.XXXXXX")"
+  jq --arg source_commit "$(jq -er .commit <<<"$typed_source_info")" \
+    '. + {source_commit: $source_commit}' "$manifest" > "$typed_manifest"
+  mv "$typed_manifest" "$manifest"
+fi
 
 codesign --force --options runtime --timestamp=none --sign "$identity" --entitlements "$entitlements" "$app"
 fi

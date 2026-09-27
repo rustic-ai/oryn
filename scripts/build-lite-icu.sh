@@ -11,7 +11,10 @@ filter="$repo_root/config/icu/core-lite-en.json"
 break_iterator_list="$repo_root/config/icu/core-lite-break-iterator-files.txt"
 icu_source="$source_dir/third_party/icu/source"
 icu_revision="$(git -C "$source_dir/third_party/icu" rev-parse HEAD)"
-tools_dir="$repo_root/target/icu-tools-$icu_revision"
+engine_cache_root="${ORYN_ENGINE_CACHE_ROOT:-$repo_root/target}"
+case "$engine_cache_root" in /*) ;; *) engine_cache_root="$repo_root/$engine_cache_root" ;; esac
+tools_dir="${ORYN_ICU_TOOLS_DIR:-$engine_cache_root/icu-tools-$icu_revision}"
+case "$tools_dir" in /*) ;; *) tools_dir="$repo_root/$tools_dir" ;; esac
 
 test -f "$icu_source/runConfigureICU"
 test -f "$filter"

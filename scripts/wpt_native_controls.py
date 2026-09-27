@@ -60,9 +60,11 @@ def focus_lease():
 
 
 class Fixture:
-    def __init__(self, contract): self.contract = contract; self.servers = []; self.threads = []
+    def __init__(self, contract, *, check_inputs=None):
+        self.contract = contract; self.servers = []; self.threads = []
+        self.check_inputs = check_execution_generation if check_inputs is None else check_inputs
     def __enter__(self):
-        check_execution_generation()
+        self.check_inputs()
         body = ('<!doctype html><title>' + MARKER + '</title><body>' + MARKER + '</body>').encode()
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
@@ -80,7 +82,7 @@ class Fixture:
         try:
             for entry in self.contract['tls'].values():
                 url = urlsplit(entry['url'])
-                check_execution_generation()
+                self.check_inputs()
                 server = TlsServer(('127.0.0.1', url.port), Handler)
                 self.servers.append(server)
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -157,11 +159,12 @@ class Wire:
 
 
 class Driver:
-    def __init__(self, binary, args, directory, token=None, allowed_exit=(0,)):
+    def __init__(self, binary, args, directory, token=None, allowed_exit=(0,), *, check_inputs=None):
         self.binary = binary; self.args = args; self.directory = Path(directory); self.token = token; self.allowed_exit = allowed_exit
         self.process = None; self.outputs = []; self.cleanup = None
+        self.check_inputs = check_execution_generation if check_inputs is None else check_inputs
     def __enter__(self):
-        check_execution_generation()
+        self.check_inputs()
         with socket.socket() as reserve:
             reserve.bind(('127.0.0.1', 0)); self.port = reserve.getsockname()[1]
         self.directory.mkdir()
@@ -170,7 +173,7 @@ class Driver:
             argv = [str(self.binary), *[part.replace('{port}', str(self.port)) for part in self.args]]
             # Inherit the component supervisor's process group. A hard timeout
             # of the collector must also retire its browser/driver descendants.
-            check_execution_generation()
+            self.check_inputs()
             self.process = subprocess.Popen(argv, stdout=self.outputs[0], stderr=self.outputs[1])
             self.wire = Wire(self.port, self.token)
             deadline = time.monotonic() + 30

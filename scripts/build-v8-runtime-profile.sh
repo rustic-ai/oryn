@@ -5,6 +5,7 @@ set -euo pipefail
 python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
 profile="${1:?usage: build-v8-runtime-profile.sh core-full|core-lite <output-directory>}"
 output="${2:?usage: build-v8-runtime-profile.sh core-full|core-lite <output-directory>}"
 case "$profile" in core-full|core-lite) ;; *) echo "invalid profile: $profile" >&2; exit 2;; esac
@@ -12,15 +13,24 @@ case "$profile" in core-full|core-lite) ;; *) echo "invalid profile: $profile" >
 rusty_v8_version="150.4.0"
 rusty_v8_revision="5c15a6995c9bb4bacd3e341b59fff32c909c80bf"
 icu_revision="ee5f27adc28bd3f15b2c293f726d14d2e336cbd5"
-source_dir="${ORYN_RUSTY_V8_SOURCE:-$repo_root/target/rusty-v8-src-$rusty_v8_version}"
+engine_cache_root="${ORYN_ENGINE_CACHE_ROOT:-$repo_root/target}"
+case "$engine_cache_root" in /*) ;; *) engine_cache_root="$repo_root/$engine_cache_root" ;; esac
+export ORYN_ENGINE_CACHE_ROOT="$engine_cache_root"
+source_dir="${ORYN_RUSTY_V8_SOURCE:-$engine_cache_root/rusty-v8-src-$rusty_v8_version}"
+case "$source_dir" in /*) ;; *) source_dir="$repo_root/$source_dir" ;; esac
 if [[ "$profile" == core-full ]]; then
-  v8_target_dir="$repo_root/target/rusty-v8-build-$rusty_v8_version"
+  default_v8_target_dir="$engine_cache_root/rusty-v8-build-$rusty_v8_version"
 else
-  v8_target_dir="$repo_root/target/rusty-v8-build-$rusty_v8_version-$profile"
+  default_v8_target_dir="$engine_cache_root/rusty-v8-build-$rusty_v8_version-$profile"
 fi
-oryn_target_dir="$repo_root/target/v8-$profile"
+v8_target_dir="${ORYN_V8_TARGET_DIR:-$default_v8_target_dir}"
+case "$v8_target_dir" in /*) ;; *) v8_target_dir="$repo_root/$v8_target_dir" ;; esac
+oryn_target_dir="${CARGO_TARGET_DIR:-$repo_root/target/v8-$profile}"
+case "$oryn_target_dir" in /*) ;; *) oryn_target_dir="$repo_root/$oryn_target_dir" ;; esac
+bootstrap_target="${ORYN_V8_BOOTSTRAP_TARGET_DIR:-$engine_cache_root/rusty-v8-build-$rusty_v8_version}"
+case "$bootstrap_target" in /*) ;; *) bootstrap_target="$repo_root/$bootstrap_target" ;; esac
 
-mkdir -p "$output"
+mkdir -p "$output" "$engine_cache_root" "$(dirname "$source_dir")"
 output="$(cd "$output" && pwd)"
 rust_sources="$output/rusty-v8-source-inputs.json"
 python3 "$repo_root/scripts/rusty_v8_source_provenance.py" --output "$rust_sources"
@@ -59,7 +69,7 @@ if [[ "$profile" == core-lite ]]; then
   if [[ -n "${ORYN_LITE_ICU_DATA:-}" ]]; then
     icu_source="$ORYN_LITE_ICU_DATA"
   else
-    icu_source="$repo_root/target/generated-icu-$icu_revision-core-lite.dat"
+    icu_source="$engine_cache_root/generated-icu-$icu_revision-core-lite.dat"
     "$repo_root/scripts/build-lite-icu.sh" "$source_dir" "$icu_source"
   fi
   test -f "$icu_source"
@@ -70,10 +80,10 @@ libclang_path="${LIBCLANG_PATH:-}"
 if [[ -z "$libclang_path" && -f /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libclang.dylib ]]; then
   libclang_path=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib
 fi
-bootstrap_tools="$repo_root/target/rusty-v8-build-$rusty_v8_version/release/ninja_gn_binaries"
+bootstrap_tools="$bootstrap_target/release/ninja_gn_binaries"
 gn_path="${GN:-$bootstrap_tools/gn/gn}"
 ninja_path="${NINJA:-$bootstrap_tools/ninja/ninja}"
-clang_base_path="${CLANG_BASE_PATH:-$repo_root/target/rusty-v8-build-$rusty_v8_version/release/clang}"
+clang_base_path="${CLANG_BASE_PATH:-$bootstrap_target/release/clang}"
 
 (
   cd "$source_dir"
@@ -84,7 +94,7 @@ clang_base_path="${CLANG_BASE_PATH:-$repo_root/target/rusty-v8-build-$rusty_v8_v
   NINJA="$ninja_path" \
   CLANG_BASE_PATH="$clang_base_path" \
   LIBCLANG_PATH="$libclang_path" \
-    cargo build --release --features v8_enable_sandbox
+    cargo build --locked --release --features v8_enable_sandbox
 )
 
 archive="$v8_target_dir/release/gn_out/obj/librusty_v8.a"
@@ -124,7 +134,7 @@ if [[ "$profile" == core-lite ]]; then
   export ORYN_ICU_DATA_PATH="$icu_source"
 fi
 python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
-cargo build --manifest-path "$repo_root/Cargo.toml" -p oryn-native --release \
+cargo build --locked --manifest-path "$repo_root/Cargo.toml" -p oryn-native --release \
   --features "v8-host v8-sandbox $profile" --bin oryn-startup-snapshot
 
 snapshot_raw="$oryn_target_dir/release/oryn-startup-$profile.blob"
@@ -145,7 +155,7 @@ if [[ "$profile" == core-lite ]]; then
   break_iterator_manifest_sha="$(shasum -a 256 "$repo_root/config/icu/core-lite-break-iterator-files.txt" | awk '{print $1}')"
 fi
 python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
-cargo build --manifest-path "$repo_root/Cargo.toml" -p oryn-native --release \
+cargo build --locked --manifest-path "$repo_root/Cargo.toml" -p oryn-native --release \
   --features "v8-host v8-sandbox $profile" --bin oryn-page-worker
 
 worker="$oryn_target_dir/release/oryn-page-worker"
@@ -200,4 +210,11 @@ jq -n \
   '($rust_sources[0] + {schema_version:6,rusty_v8_archive_compatibility:{cpp_changes:false,crate_version:$v8,archive_sha256:$archive_sha256,binding_sha256:$binding_sha256},bridge_abi_path:$bridge_abi,bridge_abi_sha256:$bridge_abi_sha256,bridge_abi_size_bytes:$bridge_abi_size,v8_revision:$v8_revision,v8_patch_sha256:$v8_patch_sha256,shared_memory_growth_patch_sha256:$shared_memory_growth_patch_sha256,shared_memory_wait_patch_sha256:$shared_memory_wait_patch_sha256,shared_wasm_size_patch_sha256:$shared_wasm_size_patch_sha256,shared_wasm_backing_patch_sha256:$shared_wasm_backing_patch_sha256,shared_memory_factory_patch_sha256:$shared_memory_factory_patch_sha256,frame_context_reattachment_patch_sha256:$frame_context_reattachment_patch_sha256,html_constructor_deferred_prototype_patch_sha256:$html_constructor_deferred_prototype_patch_sha256,v8_regression_manifest_sha256:$v8_regression_manifest_sha256,profile:$profile,target:$target,v8_version:$v8,rusty_v8_revision:$rusty_v8_revision,icu_revision:$icu_revision,v8_heap_sandbox:true,pointer_compression:true,archive_path:$archive,archive_sha256:$archive_sha256,archive_size_bytes:$archive_size,binding_path:$binding,binding_sha256:$binding_sha256,binding_size_bytes:$binding_size,icu_data_path:$icu_data_path,icu_data_sha256:$icu_sha256,icu_data_size_bytes:$icu_size,icu_filter_sha256:(if $icu_filter_sha256 == "" then null else $icu_filter_sha256 end),break_iterator_manifest_sha256:(if $break_iterator_manifest_sha256 == "" then null else $break_iterator_manifest_sha256 end),startup_snapshot_path:$snapshot,startup_snapshot_sha256:$snapshot_sha256,startup_snapshot_size_bytes:$snapshot_size,external_references_path:$external_references,external_references_sha256:$external_references_sha256,external_references_size_bytes:$external_references_size,worker_path:$worker,worker_sha256:$worker_sha256,worker_size_bytes:$worker_size,gn_args:$gn_args})' \
   > "$output/$profile-manifest.json"
 python3 "$repo_root/scripts/validate-v8-runtime-profile.py" "$output/$profile-manifest.json" --profile "$profile"
+if [[ -n "${ORYN_TYPED_RUNTIME_OUTPUT:-}" ]]; then
+  python3 "$repo_root/scripts/oryn-validate.py" typed-runtime-prepare \
+    --source-root "$repo_root" --store-root "${ORYN_DATA_ROOT:?typed runtime requires data root}" \
+    --legacy-profile "$output/$profile-manifest.json" \
+    --output-directory "$ORYN_TYPED_RUNTIME_OUTPUT" \
+    --source-identity "${ORYN_TYPED_SOURCE_IDENTITY:?typed runtime requires committed source identity}"
+fi
 printf '%s\n' "$output/$profile-manifest.json"
