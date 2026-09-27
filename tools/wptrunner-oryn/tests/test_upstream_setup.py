@@ -60,6 +60,42 @@ class Discovery(unittest.TestCase):
                                text=True, capture_output=True, timeout=60)
         self.assertEqual(child.returncode, 0, child.stderr)
 
+    def test_control_evidence_and_workflow_imports_preserve_fresh_registration(self):
+        program = '''
+import importlib
+import sys
+import localpaths
+from oryn_validation.admission import SOURCE_ROOT, legacy_algorithms
+from oryn_wptrunner.registration import verify_registration
+from wptrunner import wptcommandline
+legacy_algorithms()
+plugin_path = str(SOURCE_ROOT / 'tools/wptrunner-oryn')
+assert sys.path.count(plugin_path) == 1
+for name in ('wpt_execution_evidence', 'wpt_official_workflow'):
+    module = importlib.import_module(name)
+    for action in ('import', 'reload'):
+        if action == 'reload':
+            importlib.reload(module)
+        verify_registration(SOURCE_ROOT)
+        assert sys.path.count(plugin_path) == 1, (name, action, sys.path)
+        args = wptcommandline.create_parser().parse_args(
+            ['--product', 'oryn', '--oryn-run-contract', 'run.json'])
+        assert args.oryn_run_contract == 'run.json'
+sys.path.append(plugin_path)
+for name in ('wpt_execution_evidence', 'wpt_official_workflow'):
+    importlib.reload(sys.modules[name])
+assert sys.path.count(plugin_path) == 2
+try:
+    verify_registration(SOURCE_ROOT)
+except ValueError as error:
+    assert 'exactly one' in str(error)
+else:
+    raise AssertionError('pre-existing duplicate registration was hidden')
+'''
+        child = subprocess.run([sys.executable, '-B', '-c', program], env=os.environ.copy(),
+                               text=True, capture_output=True, timeout=60)
+        self.assertEqual(child.returncode, 0, child.stderr)
+
 
 @unittest.skipUnless(os.environ.get('ORYN_TEST_RUN_MANIFEST'), 'requires retained typed inputs for read-only setup')
 class RetainedCollectionSetup(unittest.TestCase):

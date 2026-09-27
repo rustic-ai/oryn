@@ -3,7 +3,9 @@ import json
 import sys
 from pathlib import Path
 from completion_provenance import ROOT, digest, read_record
-sys.path.insert(0, str(ROOT / 'tools/wptrunner-oryn'))
+PLUGIN = str(ROOT / 'tools/wptrunner-oryn')
+if PLUGIN not in sys.path:
+    sys.path.insert(0, PLUGIN)
 from oryn_wptrunner import feature_profile, cookie_profile
 
 

@@ -20,7 +20,8 @@ from wpt_execution_evidence import execution_metadata, verify_execution_policy
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / 'tools/wptrunner-oryn'
-sys.path.insert(0, str(PLUGIN))
+if str(PLUGIN) not in sys.path:
+    sys.path.insert(0, str(PLUGIN))
 from oryn_wptrunner.provenance import load_contract
 from oryn_wptrunner import feature_profile
 from core_profile_contract import BASE_FIELDS, identity as profile_identity, validate_inventory_binding
