@@ -92,3 +92,31 @@ class TypedWptTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'substitutes declared run input'):
                     python_environment(bound)
                 self.assertEqual(verify.call_count, 1)
+
+
+class RelayEnvironmentBindings(unittest.TestCase):
+    def test_relay_identity_cannot_substitute_or_omit_current_inputs(self):
+        from oryn_validation import fixture_relay, wpt
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = {'path': 'relay/bin/socat'}
+            environment = {'path': 'relay'}
+            identity_record = {'path': 'relay-identity.json'}
+            identity = {'executable': executable, 'environment': environment}
+            path = root / 'relay-identity.json'; path.write_text(json.dumps(identity))
+            roles = {'fixture_relay': executable, 'fixture_relay_environment': environment,
+                     'fixture_relay_identity': identity_record}
+            bound = {'store_root': root, 'assets': {'fixture_relay_identity': path,
+                'fixture_relay': root / 'relay/bin/socat', 'fixture_relay_environment': root / 'relay'},
+                'run': {'assets': roles, 'immutable_inputs': list(roles.values())}}
+            with patch.object(fixture_relay, 'verify_relay', return_value={'valid': True}) as verify:
+                self.assertEqual(wpt.relay_environment(bound), {'valid': True})
+                verify.assert_called_once_with(identity, root)
+                bound['run']['immutable_inputs'].pop()
+                with self.assertRaisesRegex(ValueError, 'absent from immutable'):
+                    wpt.relay_environment(bound)
+                bound['run']['immutable_inputs'].append(identity_record)
+                bound['run']['assets']['fixture_relay'] = {'path': 'other/socat'}
+                with self.assertRaisesRegex(ValueError, 'substitutes input'):
+                    wpt.relay_environment(bound)

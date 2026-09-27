@@ -46,6 +46,16 @@ def parser():
     environment_check = command("environment-verify", "Verify pinned Python bytes, dependencies, and system observations")
     environment_check.add_argument("identity", type=Path)
     environment_check.add_argument("--store-root", type=Path, required=True)
+    reference = command("reference-environment-stage", "Stage and verify the pinned reference app and driver")
+    for name in ("source-app", "source-driver", "store-root"):
+        reference.add_argument("--" + name, type=Path, required=True)
+    reference.add_argument("--source-archive", type=Path,
+                           help="Pinned publisher archive required for archive-based app authentication")
+    reference.add_argument("--output-directory", required=True, help="New store-relative environment directory")
+    relay = command("fixture-relay-identity", "Record dependency identity for an already copied payload/bin/socat; does not copy or launch")
+    relay.add_argument("--store-root", type=Path, required=True)
+    relay.add_argument("--executable-path", required=True, help="Store-relative regular payload/bin/socat")
+    relay.add_argument("--identity-path", required=True, help="New store-relative identity outside payload")
     gate = command("generation-prepare", "Prepare the full 51-requirement source gate for review")
     gate.add_argument("--source-root", type=Path, required=True)
     gate.add_argument("--predecessor", type=Path, required=True)
@@ -183,6 +193,14 @@ def dispatch(args):
     if args.command == "environment-verify":
         from .environments import verify_environment
         return verify_environment(_json(args.identity), args.store_root)
+    if args.command == "reference-environment-stage":
+        from .reference_environment import stage_reference_environment
+        return stage_reference_environment(args.source_app, args.source_driver, args.store_root,
+            args.output_directory, source_archive=args.source_archive)
+    if args.command == "fixture-relay-identity":
+        from .fixture_relay import prepare_relay_identity
+        return prepare_relay_identity(args.store_root, executable_path=args.executable_path,
+                                      identity_path=args.identity_path)
     if args.command == "dataset-export":
         from .datasets import export_dataset
         return export_dataset(args.source_root, args.store_root, export_path=args.export_path,

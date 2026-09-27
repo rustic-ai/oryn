@@ -20,7 +20,7 @@ def verify_control(bound, collection):
     from wpt_canary_qualification import MOUNT, EXPECTED
     from wpt_shared_placement import TEST
     required = {'run', 'report', 'process', 'preflight', 'execution', 'custody', 'raw', 'review', 'output'}
-    required |= {'audit'} if collection == 'canaries' else {'context', 'diagnostics'}
+    required |= {'audit'} if collection == 'canaries' else {'context', 'diagnostics', 'live_six'}
     prefix = 'controls_' + collection + '_'
     missing = [prefix + name for name in required if prefix + name not in bound['assets']]
     if missing:
@@ -164,7 +164,7 @@ def verify_control(bound, collection):
             raise ValueError('five canary outcomes or required failure observations differ')
     else:
         from wpt_shared_placement import qualify
-        for name in ('context', 'diagnostics'):
+        for name in ('context', 'diagnostics', 'live_six'):
             if not paths[name].is_relative_to(root) or execution['artifacts'].get(str(paths[name].relative_to(root))) != _digest(paths[name]):
                 raise ValueError('placement evidence is not bound to original execution')
         context = read_object(paths['context'])
@@ -173,6 +173,10 @@ def verify_control(bound, collection):
         result = qualify(read_object(paths['diagnostics']), report, context, _digest(bound['assets']['worker']))
         if not result['qualification_accepted']:
             raise ValueError('native shared placement did not qualify')
+        from .live_six import verify as verify_live_six
+        verify_live_six(read_object(paths['live_six']), read_object(paths['diagnostics']), context, preflight,
+                        worker_path=str(origin_assets['worker']), worker_sha256=_digest(bound['assets']['worker']),
+                        runtime_path=str(origin_assets['runtime']), runtime_sha256=_digest(bound['assets']['runtime']))
     review = read_object(paths['review'])
     if set(review) != {'schema_version', 'kind', 'author', 'reviewer', 'run_id', 'inputs', 'result_sha256', 'decision'}:
         raise ValueError('control requires an exact independent review record')

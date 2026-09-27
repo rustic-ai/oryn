@@ -37,6 +37,8 @@ Use explicit `--store-root` and `--bundle-root`. Do not infer them from a histor
 
 The WPT adapter accepts typed `kind=run` documents through the new package and retains the legacy adapter path for old evidence. Upstream wptrunner still owns test semantics; the new code does not substitute a browser loop. A current standard-block original selects all 15,985 automated URLs with six workers and records the 752 assessment obligations separately. Do not stitch partial originals, replace failures, or loosen deadlines to manufacture completeness.
 
+The serial placement original also records a separate `live-six.json` proof for its six retained native Dedicated workers. It joins each signed-worker executable path/hash, kernel birth identity and parent chain to the owned runtime in two overlapping observations; saved control admission also requires complete original cleanup and independent review. This proves six simultaneous native workers, not six upstream manager processes. The full Core original separately uses six upstream workers.
+
 Execute official WPT from the committed runner export named in its manifest. The everyday checkout can prepare that export; its mutable source cannot impersonate the frozen runner. Follow [the first-build recipe](FIRST-BUILD.md) for the coordinated build. Every accepted build joins original process logs, source/generation review, declared compiler inputs, and all seven products, including the fresh startup snapshot. A metadata conversion or copied historical binary cannot satisfy that join.
 
 The [Python environment recipe](ENVIRONMENTS.md) preserves exact installed dependency bytes without requiring the old candidate at runtime. Declare its system libraries explicitly and recheck them at admission and finalization. Metadata checkpoints still enumerate every declared member; an experimental filesystem-event shortcut was rejected because it could miss an immediate rename and restoration.
@@ -65,7 +67,7 @@ Before a large build, measure required build/staging demand and require an addit
 | M2 | Strict typed contracts/CLI and negative tests pass |
 | M3 | Reusable build/run workflow preserves every production gate and has no new candidate helper directory |
 | M4 | A clean-source independent signed bundle has zero legacy runtime dependencies and verifies after relocation |
-| M5 | Native/topology prerequisites, five canaries, six-worker placement, failure paths, and independent reviews pass |
+| M5 | Native/topology prerequisites, five canaries, serial placement with six live native Dedicated workers, failure paths, and independent reviews pass |
 | M6 | One full 15,985-URL original completes and is reviewed, preserving all failures and separate assessments |
 | M7 | Archives restore correctly, current status/docs switch, legacy wrappers and live dependencies retire |
 

@@ -164,7 +164,7 @@ class TypedPlacementEvidenceTests(unittest.TestCase):
                     'pages': [{'id': 1, 'url': 'https://web-platform.test:8443' + TEST, 'placement': placement(11)}],
                     'agents': [{'id': agent, 'kind': 'Dedicated', 'live': True, 'owners': [window],
                                 'script_url': 'https://web-platform.test:8443/__oryn_shared_memory__/shared-memory/worker.js?placement=1',
-                                'placement': placement(11 + agent)} for agent in (2, 3)],
+                                'placement': placement(11 + agent)} for agent in range(2, 8)],
                     'shared_backings': [{'backing_sha256': str(index) * 64, 'wasm': wasm, 'memory64': False,
                                          'growable': growable, 'holders': [window, {'kind': 'agent', 'id': 2}, {'kind': 'agent', 'id': 3}]}
                                         for index, wasm, growable in ((1, False, False), (2, False, True), (3, True, True))]}
@@ -186,7 +186,7 @@ class TypedPlacementEvidenceTests(unittest.TestCase):
                  'raw': self.output / 'mozlog.jsonl', 'custody': self.output / 'protocol-custody.jsonl',
                  'process': self.output / 'process/process-result.json', 'preflight': self.output / 'process/preflight.json',
                  'execution': self.output / 'execution.json', 'context': self.output / 'placement-context.json',
-                 'diagnostics': self.output / 'placement.json', 'review': self.root / 'placement-review.json'}
+                 'diagnostics': self.output / 'placement.json', 'live_six': self.output / 'live-six.json', 'review': self.root / 'placement-review.json'}
         paths['report'].write_text(json.dumps(report))
         paths['raw'].write_text(''.join(json.dumps(event) + '\n' for event in events))
         paths['context'].write_text(json.dumps(context)); paths['diagnostics'].write_text(json.dumps(record))
@@ -198,11 +198,15 @@ class TypedPlacementEvidenceTests(unittest.TestCase):
         paths['process'].write_text(json.dumps(process))
         preflight = json.loads(paths['preflight'].read_text()); preflight['argv'] = command
         paths['preflight'].write_text(json.dumps(preflight))
+        from test_live_six import proof
+        live = proof(snapshot, context, preflight, str(self.assets['worker']), str(self.assets['runtime']),
+                     binary, _digest(self.assets['runtime']))
+        paths['live_six'].write_text(json.dumps(live))
         execution = json.loads(paths['execution'].read_text())
         execution.update(collection='placement', returncode=0, run_manifest_sha256=run_hash,
             cleanup_complete=process['cleanup_complete'],
             artifacts={str(paths[name].relative_to(self.output)): _digest(paths[name])
-                       for name in ('report', 'raw', 'custody', 'process', 'preflight', 'context', 'diagnostics')})
+                       for name in ('report', 'raw', 'custody', 'process', 'preflight', 'context', 'diagnostics', 'live_six')})
         paths['execution'].write_text(json.dumps(execution))
         (self.output / 'audit.json').unlink()
         paths['review'].write_text(json.dumps(dict(schema_version=1, kind='typed-control-review', author='author',

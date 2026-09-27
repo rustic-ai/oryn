@@ -1,4 +1,4 @@
-# Offline WPT Python environment
+# Offline validation environments
 
 `oryn_validation.environments` stages a regular Python executable, its complete
 standard library, and the exact existing WPT dependency payload into the configured
@@ -116,6 +116,71 @@ system, not a fully self-contained OS distribution.
 The independent review must preserve these system dependencies and probe limitations.
 A successful environment check establishes Python runtime custody; it grants no
 native, topology, canary, placement, full-population or release qualification.
+
+## Reference browser environment
+
+Stage the already selected reference app, driver and pinned publisher archive
+through the same CLI entry point:
+
+```
+python3 -B scripts/oryn-validate.py reference-environment-stage \
+  --source-app "<selected-app>/Google Chrome for Testing.app" \
+  --source-driver <selected-regular-chromedriver> \
+  --source-archive <pinned-chrome-publisher.zip> \
+  --store-root <data-root> \
+  --output-directory environments/reference-browser-01
+```
+
+`stage_reference_environment(source_app, source_driver, store_root,
+output_directory, *, source_archive=None)` requires a fresh store-relative output
+directory. It copies the app under its original name, the driver as `chromedriver`,
+and the supplied archive as `publisher.zip`, then writes `identity.json`.
+It does not download, launch, probe or re-sign the reference browser.
+
+For the current reference package, `--source-archive` supplies the required
+publisher proof. The archive verifier checks the source-pinned SHA-256, size,
+complete member population and exact app contents, including modes and link
+spellings. The original publisher package omits `CodeResources`; the resulting
+app signature observation remains **`verified: false`**, with the exact missing
+resource failure retained. This narrow archive-authentication policy applies only
+to the reference app. The driver must pass strict signature verification. Production
+Oryn binaries retain their existing strict signature requirements; this reference
+policy grants no exception to them. Omitting `--source-archive` selects the normal
+strict reference app signature policy and cannot admit this missing-resource app.
+
+Every physical app file and the driver have ordinary file Input identities.
+The reference-specific contract separately pins complete directory membership,
+file and directory modes, and internal relative symlink spellings and targets;
+escaping, dangling, cyclic or special-file targets are rejected. Generic Input
+records continue rejecting symlinks. Use `physical_inputs(identity)` for the full
+app/driver/archive file population and `verify_reference_environment(identity,
+store_root)` for the domain checks, signatures and system dependencies. Retain and
+bind the identity itself as well. Admission and final verification recheck the
+staged bytes and original authentication observations; successful staging is not
+reference-rendering or WPT qualification.
+
+## Fixture relay identity
+
+The coordinator first copies a regular Mach-O `socat` executable into a fresh
+payload containing exactly `bin/socat`. Then record its identity:
+
+```
+python3 -B scripts/oryn-validate.py fixture-relay-identity \
+  --store-root <data-root> \
+  --executable-path environments/fixture-relay-01/payload/bin/socat \
+  --identity-path environments/fixture-relay-01/identity.json
+```
+
+`prepare_relay_identity(store_root, *, executable_path, identity_path)` is an
+identity-only operation: it neither copies nor launches the executable and does
+not test ports, protocols or fixture readiness. The identity path must be fresh
+and outside the payload. It verifies exact payload membership and observes the
+Mach-O dependency graph, retaining Homebrew byte/resolution identities and macOS
+shared-cache/build observations. Register and pin all three returned assets—
+`fixture_relay`, `fixture_relay_environment`, and `fixture_relay_identity`—in the
+run's explicit inputs. `verify_relay(identity, store_root)` is required at admission
+and after owned relay descendants settle. A successful identity check is not
+proof that a relay started, served traffic or stopped cleanly.
 
 ## Developer regression check
 

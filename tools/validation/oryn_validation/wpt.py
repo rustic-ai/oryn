@@ -26,7 +26,8 @@ REQUIRED_ASSETS = frozenset({'runtime', 'driver', 'worker_manifest', 'fixture_re
                            'runner_source', 'runner_identity', 'core_include', 'fixture_relay',
                            'fixture_tls_policy', 'fixture_tls_module', 'fixture_tls_bootstrap',
                            'execution_policy', 'upstream_identity', 'python_environment',
-                           'python_environment_identity', 'python_dependency_lock', 'probe'})
+                           'python_environment_identity', 'python_dependency_lock', 'probe',
+                           'fixture_relay_environment', 'fixture_relay_identity'})
 SUITES = {'wpt-core': 'core', 'wpt-canaries': 'canaries', 'wpt-placement': 'placement'}
 
 # These are the reviewed original process budgets. Consolidation removes the
@@ -124,6 +125,21 @@ def python_environment(bound):
     return runtime_environment(identity, bound['store_root'])
 
 
+def relay_environment(bound):
+    """The relay executable and its load graph are explicit current inputs."""
+    from .fixture_relay import verify_relay
+    roles = {'fixture_relay_identity', 'fixture_relay_environment', 'fixture_relay'}
+    if not roles <= bound['assets'].keys() or not roles <= bound['run'].get('assets', {}).keys():
+        raise ValueError('complete fixture relay environment assets required')
+    identity = read_object(bound['assets']['fixture_relay_identity'])
+    for field, role in {'environment': 'fixture_relay_environment', 'executable': 'fixture_relay'}.items():
+        if identity.get(field) != bound['run']['assets'][role]:
+            raise ValueError('fixture relay environment substitutes input: ' + role)
+    if any(bound['run']['assets'][role] not in bound['run']['immutable_inputs'] for role in roles):
+        raise ValueError('fixture relay inputs absent from immutable closure')
+    return verify_relay(identity, bound['store_root'])
+
+
 def inspect_admission(bound):
     """Run currently migrated semantic checks without pretending all gates exist."""
     run, assets = bound['run'], bound['assets']
@@ -145,6 +161,7 @@ def inspect_admission(bound):
     collection = SUITES[run['suite']['name']]
     execution_policy(bound, collection)
     environment = python_environment(bound)
+    relay_environment(bound)
     if run['suite']['sha256'] != _digest(assets['core_manifest']):
         raise ValueError('suite identity differs from pinned full WPT manifest')
     if run['workers'] != (6 if collection == 'core' else 1):
@@ -369,8 +386,14 @@ def execute(path, *, store_root, bundle_root, output, timeout_seconds=None):
         integrity_errors.append(type(error).__name__ + ': ' + str(error))
         raise
     finally:
-        if _digest(bound['path']) != bound['sha256']:
-            integrity_errors.append('run manifest changed during execution')
+        for label, check in (('Python environment', lambda: python_environment(bound)),
+                             ('fixture relay environment', lambda: relay_environment(bound)),
+                             ('run manifest', lambda: _digest(bound['path']) == bound['sha256'])):
+            try:
+                if check() is False:
+                    raise ValueError('run manifest changed during execution')
+            except BaseException as error:
+                integrity_errors.append(label + ' finalization: ' + type(error).__name__ + ': ' + str(error))
         if execution is not None:
             record = {'schema_version': 1, 'kind': 'typed-wpt-execution',
                       'run_id': bound['run']['run_id'], 'run_manifest_sha256': bound['sha256'],
@@ -432,6 +455,7 @@ def fixture_services(bound, selected, *, output, environment, lease, timeout_sec
     also usable by the topology collector; it does not acquire another lock.
     """
     from .processes import OwnedService
+    relay_environment(bound)
     services = []
     with ExitStack() as stack:
         for name, argv, address in relay_commands(bound['assets']['fixture_relay'], selected['fixture']):

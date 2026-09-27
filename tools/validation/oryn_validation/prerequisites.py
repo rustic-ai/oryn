@@ -7,6 +7,7 @@ The caller provisions fixture routes and trust; this module does not alter them.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -72,6 +73,57 @@ def _selected(bound):
     fixture = validate_registry(registry, assets, selected_profile=run['profile'])
     fixture_asset = registry['profiles'][run['profile']]['fixture']
     return fixture_asset, assets[fixture_asset], fixture
+
+
+def reference_environment(bound, *, verify=True):
+    """Bind the complete signed reference app; two executable hashes do not suffice."""
+    from .reference_environment import physical_inputs, verify_reference_environment
+    names = {'reference_environment_identity', 'reference_browser', 'reference_driver'}
+    _require(names <= bound['assets'].keys(), 'complete reference environment assets required')
+    run = bound['run']
+    _require(names <= run.get('assets', {}).keys(), 'reference typed input roles missing')
+    identity = _read(bound['assets']['reference_environment_identity'])
+    records = physical_inputs(identity)
+    _require(all(record in run['immutable_inputs'] for record in records),
+             'reference physical input absent from declared immutable closure')
+    _require(run['assets']['reference_environment_identity'] in run['immutable_inputs'],
+             'reference environment identity absent from immutable closure')
+    for role, field in (('reference_browser', 'browser'), ('reference_driver', 'driver')):
+        _require(run['assets'][role] == identity[field] and
+                 bound['assets'][role] == resolve_input(bound['store_root'], identity[field]['path']),
+                 'reference executable role differs from complete environment: ' + role)
+    receipt = verify_reference_environment(identity, bound['store_root']) if verify else None
+    return identity, receipt
+
+
+def _reference_receipts(value, identity):
+    from .reference_environment import physical_inputs
+    _require(isinstance(value, dict) and value.get('errors') == [], 'reference custody errors or missing proof')
+    expected = {'identity_sha256': manifest_digest(identity),
+                'inputs_sha256': manifest_digest(physical_inputs(identity)),
+                'signatures': identity['signatures'], 'system': identity['system']}
+    for stage in ('admission', 'finalization'):
+        receipt = value.get(stage)
+        _require(isinstance(receipt, dict) and all(receipt.get(key) == item for key, item in expected.items())
+                 and receipt.get('inputs', {}).get('inputs_sha256') == expected['inputs_sha256'],
+                 'reference environment ' + stage + ' proof differs')
+
+
+def validate_reference_evidence(bound, custody, execution):
+    # Current physical files, signed layout and system dependencies are verified
+    # anew; saved successful booleans are never an environment admission.
+    identity, _ = reference_environment(bound)
+    for record in (custody, execution):
+        _reference_receipts(record.get('reference_environment'), identity)
+
+
+class _NativeInputBoundary:
+    def __init__(self, inputs, reference):
+        self.inputs, self.reference = inputs, reference
+
+    def checkpoint(self):
+        self.inputs.checkpoint()
+        self.reference.checkpoint()
 
 
 def native_contract(bound):
@@ -209,6 +261,8 @@ def _stage_evidence(bound, prefix, stage):
              and custody.get('errors') == [] and custody.get('admission', {}).get('inputs_sha256') == expected_digest
              and custody.get('finalization', {}).get('inputs_sha256') == expected_digest,
              'prerequisite immutable-input finalization missing')
+    if stage == 'native':
+        validate_reference_evidence(bound, custody, execution)
     return _read(assets[names['result']])
 
 
@@ -284,6 +338,8 @@ def validate_prerequisites(bound):
     """Current native and topology gate; policy axes may share only exact peers."""
     native = validate_native_prerequisites(bound)
     record = _stage_evidence(bound, 'fixture_topology', 'topology')
+    from .wpt import relay_environment
+    relay_environment(bound)
     _require(not record.get('errors'), 'fixture topology errors')
     _require(record.get('native_result_sha256') == _hash(bound['assets']['native_prerequisites_result']),
              'topology used different native negative controls')
@@ -366,8 +422,10 @@ def _collect_native(bound, lease, output):
                 data = record[name]
                 try:
                     with driver:
+                        lease.checkpoint()
                         data['controls'] = browser_controls(driver.wire, contract, capabilities,
                                                             name == 'native', results=data['controls'])
+                        lease.checkpoint()
                 except Exception as error:
                     data['errors'].append(type(error).__name__ + ': ' + str(error))
                 data['cleanup'] = driver.cleanup
@@ -482,23 +540,46 @@ def collect(bound, stage, output):
     _require(bound['run']['suite']['name'] == STAGES[stage], 'collector run suite differs')
     _require(output == bound['store_root'] / bound['run']['outputs']['results'], 'collector output differs')
     errors, lease = [], InputLease(bound['records'], store_root=bound['store_root'], bundle_root=bound['bundle_root'])
+    reference = None
     try:
-        with lease:
+        with ExitStack() as stack:
+            stack.enter_context(lease)
+            boundary = lease
+            if stage == 'native':
+                from .reference_environment import ReferenceLease
+                identity, _ = reference_environment(bound, verify=False)
+                reference = ReferenceLease(identity, bound['store_root'])
+                stack.enter_context(reference)
+                boundary = _NativeInputBoundary(lease, reference)
             validate_production(bound)
             _selected(bound)
             if stage == 'native':
                 validate_runtime_readiness(bound)
-            result = {'native': _collect_native, 'topology': _collect_topology, 'runtime': _collect_runtime}[stage](bound, lease, output)
+            result = {'native': _collect_native, 'topology': _collect_topology, 'runtime': _collect_runtime}[stage](bound, boundary, output)
             _write(output / 'result.json', result)
             _require(not result['errors'], 'prerequisite observations failed')
     except BaseException as error:
         errors.append(type(error).__name__ + ': ' + str(error))
         raise
     finally:
-        if _hash(bound['path']) != bound['sha256']:
-            errors.append('prerequisite run manifest changed')
-        _write(output / 'custody.json', {'run_manifest_sha256': bound['sha256'], 'errors': errors,
-                                        'admission': lease.admission, 'finalization': lease.finalization})
+        primary_failure = bool(errors)
+        final_error = None
+        try:
+            _require(_hash(bound['path']) == bound['sha256'], 'prerequisite run manifest changed')
+        except BaseException as error:
+            final_error = error
+            errors.append(type(error).__name__ + ': ' + str(error))
+        receipt = {'run_manifest_sha256': bound['sha256'], 'errors': errors,
+                   'admission': lease.admission, 'finalization': lease.finalization}
+        if stage == 'native':
+            reference_errors = ([str(reference.final_error)] if reference is not None and reference.final_error else [])
+            receipt['reference_environment'] = {
+                'admission': reference.admission if reference is not None else None,
+                'finalization': reference.finalization if reference is not None else None,
+                'errors': reference_errors}
+        _write(output / 'custody.json', receipt)
+        if final_error is not None and not primary_failure:
+            raise final_error
 
 
 def execute(path, *, store_root, bundle_root, stage, timeout_seconds=600):
@@ -508,9 +589,12 @@ def execute(path, *, store_root, bundle_root, stage, timeout_seconds=600):
     _, fixture_path, fixture = _selected(bound)
     _require(stage in STAGES and bound['run']['suite']['name'] == STAGES[stage], 'stage suite differs')
     from .bundle_ownership import registered_bundle_owner
-    from .wpt import python_environment
+    from .wpt import python_environment, relay_environment
     build_objects = [registered_bundle_owner(bound)]
     staged_environment = python_environment(bound)
+    reference_before = reference_environment(bound)[1] if stage == 'native' else None
+    if stage == 'topology':
+        relay_environment(bound)
     output = bound['store_root'] / bound['run']['outputs']['results']
     for parent in (output, *output.parents):
         _require(not parent.is_symlink(), 'prerequisite output traverses a symlink')
@@ -569,23 +653,42 @@ def execute(path, *, store_root, bundle_root, stage, timeout_seconds=600):
         errors.append(type(error).__name__ + ': ' + str(error))
         raise
     finally:
-        # Host dylibs and system resources are explicit observations outside the
-        # file InputLease. Recheck after all owned descendants have settled.
+        # Recheck external observations only after owned descendants settle.
         primary_failure = bool(errors)
-        environment_error = None
-        try:
-            python_environment(bound)
-        except BaseException as error:
-            environment_error = error
-            errors.append('Python environment finalization: ' + type(error).__name__ + ': ' + str(error))
-        if _hash(bound['path']) != bound['sha256']:
-            errors.append('prerequisite run manifest changed')
-        _write(output / 'execution.json', {'schema_version': 1, 'kind': 'typed-prerequisite-execution',
+        final_errors, reference_errors = [], []
+        reference_after = None
+        for label, check in (
+                ('Python environment', lambda: python_environment(bound)),
+                ('run manifest', lambda: _require(_hash(bound['path']) == bound['sha256'],
+                                                  'prerequisite run manifest changed'))):
+            try:
+                check()
+            except BaseException as error:
+                final_errors.append(error)
+                errors.append(label + ' finalization: ' + type(error).__name__ + ': ' + str(error))
+        if stage == 'topology':
+            try:
+                relay_environment(bound)
+            except BaseException as error:
+                final_errors.append(error)
+                errors.append('Fixture relay finalization: ' + type(error).__name__ + ': ' + str(error))
+        if stage == 'native':
+            try:
+                reference_after = reference_environment(bound)[1]
+            except BaseException as error:
+                final_errors.append(error)
+                reference_errors.append(type(error).__name__ + ': ' + str(error))
+                errors.append('Reference environment finalization: ' + reference_errors[-1])
+        record = {'schema_version': 1, 'kind': 'typed-prerequisite-execution',
               'stage': stage, 'run_id': bound['run']['run_id'], 'run_manifest_sha256': bound['sha256'],
               'build': bound['run']['build'], 'errors': errors,
-              'artifacts': {str(p.relative_to(output)): _hash(p) for p in output.rglob('*') if p.is_file()}})
-        if environment_error is not None and not primary_failure:
-            raise environment_error
+              'artifacts': {str(p.relative_to(output)): _hash(p) for p in output.rglob('*') if p.is_file()}}
+        if stage == 'native':
+            record['reference_environment'] = {'admission': reference_before,
+                'finalization': reference_after, 'errors': reference_errors}
+        _write(output / 'execution.json', record)
+        if final_errors and not primary_failure:
+            raise final_errors[0]
     return _read(output / 'result.json')
 
 

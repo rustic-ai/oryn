@@ -12,6 +12,12 @@ from oryn_validation.inputs import snapshot_input
 
 
 class NativePrerequisiteContracts(unittest.TestCase):
+    def setUp(self):
+        # These preexisting synthetic fixtures exercise stage/process joins;
+        # complete reference-environment admission has independent tests below.
+        self.reference_gate = patch.object(subject, 'validate_reference_evidence').start()
+        self.addCleanup(patch.stopall)
+
     def stage_fixture(self, root, *, mutate_preflight=None, omit_artifact=False):
         """Synthetic process receipts test the joins, never attest a real run."""
         from test_manifests import run
@@ -204,6 +210,8 @@ class NativePrerequisiteContracts(unittest.TestCase):
                 return {'errors': []}
             with patch.object(subject, 'validate_production'), patch.object(subject, '_selected'), \
                  patch.object(subject, 'validate_runtime_readiness'), \
+                 patch.object(subject, 'reference_environment', return_value=({}, None)), \
+                 patch('oryn_validation.reference_environment.ReferenceLease', return_value=MagicMock(admission=None, finalization=None, final_error=None)), \
                  patch.object(subject, '_collect_native', side_effect=mutate):
                 with self.assertRaisesRegex(ValueError, 'changed'):
                     subject.collect(bound, 'native', output)
@@ -238,6 +246,7 @@ class PrerequisiteLaunchEnvironment(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.object(subject, 'load_inputs', return_value=bound))
             stack.enter_context(patch.object(subject, 'validate_production'))
+            stack.enter_context(patch.object(subject, 'reference_environment', return_value=({}, {})))
             stack.enter_context(patch.object(subject, '_selected', return_value=(None, None, {})))
             owner = stack.enter_context(patch.object(bundle_ownership, 'registered_bundle_owner', return_value='sealed-build'))
             environment = stack.enter_context(patch.object(wpt, 'python_environment',
@@ -276,6 +285,80 @@ class PrerequisiteLaunchEnvironment(unittest.TestCase):
             receipt = self.exercise(Path(temporary).resolve(), drift=True, child_failure=True)
             self.assertIn('primary child failure', receipt['errors'][0])
             self.assertIn('system dependency drift', receipt['errors'][1])
+
+
+class ReferenceEnvironmentIntegration(unittest.TestCase):
+    def fixture(self, root):
+        def file(name, text):
+            path = root / name; path.write_text(text)
+            return snapshot_input(root, name)
+        browser = file('browser', 'browser')
+        driver = file('driver', 'driver')
+        library = file('framework', 'complete app physical dependency')
+        identity = {'browser': browser, 'driver': driver, 'signatures': {'app': 'verified', 'driver': 'verified'},
+                    'system': {'macos_build': 'pinned'}, 'files': [browser, library, driver]}
+        identity_record = file('identity.json', json.dumps(identity))
+        assets = {'reference_browser': browser, 'reference_driver': driver,
+                  'reference_environment_identity': identity_record}
+        return {'store_root': root, 'run': {'assets': assets, 'immutable_inputs': [*assets.values(), library]},
+                'assets': {role: root / record['path'] for role, record in assets.items()}}, identity
+
+    def test_complete_physical_closure_and_exact_selected_binaries_required(self):
+        from oryn_validation import reference_environment as module
+        with tempfile.TemporaryDirectory() as temporary:
+            bound, identity = self.fixture(Path(temporary).resolve())
+            with patch.object(module, 'physical_inputs', return_value=identity['files']), \
+                 patch.object(module, 'verify_reference_environment', return_value={'verified': 'fresh'}) as verify:
+                subject.reference_environment(bound)
+                verify.assert_called_once()
+                bound['run']['immutable_inputs'].pop()
+                with self.assertRaisesRegex(ValueError, 'physical input absent'):
+                    subject.reference_environment(bound)
+                verify.assert_called_once()
+                bound['run']['immutable_inputs'].append(identity['files'][1])
+                bound['run']['assets']['reference_browser'] = identity['driver']
+                with self.assertRaisesRegex(ValueError, 'executable role differs'):
+                    subject.reference_environment(bound)
+
+    def test_saved_reference_proof_requires_current_verification_and_both_custody_boundaries(self):
+        from oryn_validation import reference_environment as module
+        with tempfile.TemporaryDirectory() as temporary:
+            bound, identity = self.fixture(Path(temporary).resolve())
+            digest = subject.manifest_digest(identity['files'])
+            receipt = {'identity_sha256': subject.manifest_digest(identity), 'inputs_sha256': digest,
+                       'inputs': {'inputs_sha256': digest}, 'signatures': identity['signatures'], 'system': identity['system']}
+            custody = {'reference_environment': {'errors': [], 'admission': receipt, 'finalization': receipt}}
+            with patch.object(module, 'physical_inputs', return_value=identity['files']), \
+                 patch.object(module, 'verify_reference_environment', return_value=receipt) as fresh:
+                subject.validate_reference_evidence(bound, custody, custody)
+                fresh.assert_called_once()
+                for field in ('finalization', 'admission'):
+                    bad = copy.deepcopy(custody); bad['reference_environment'][field] = None
+                    with self.assertRaisesRegex(ValueError, 'proof differs'):
+                        subject.validate_reference_evidence(bound, bad, custody)
+                bad = copy.deepcopy(custody); bad['reference_environment']['errors'] = ['link renamed']
+                with self.assertRaisesRegex(ValueError, 'custody errors'):
+                    subject.validate_reference_evidence(bound, custody, bad)
+                fresh.side_effect = ValueError('signed framework changed')
+                with self.assertRaisesRegex(ValueError, 'framework changed'):
+                    subject.validate_reference_evidence(bound, custody, custody)
+
+    def test_combined_boundary_cannot_skip_reference_metadata(self):
+        inputs, reference = MagicMock(), MagicMock()
+        boundary = subject._NativeInputBoundary(inputs, reference)
+        boundary.checkpoint()
+        inputs.checkpoint.assert_called_once(); reference.checkpoint.assert_called_once()
+        reference.checkpoint.side_effect = ValueError('link target changed')
+        with self.assertRaisesRegex(ValueError, 'link target changed'):
+            boundary.checkpoint()
+
+    def test_saved_native_stage_cannot_omit_reference_gate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bound = NativePrerequisiteContracts().stage_fixture(Path(temporary).resolve())
+            with patch.object(subject, 'validate_reference_evidence', side_effect=ValueError('missing signed tree proof')) as gate:
+                with self.assertRaisesRegex(ValueError, 'signed tree proof'):
+                    subject._stage_evidence(bound, 'native_prerequisites', 'native')
+                gate.assert_called_once()
 
 
 if __name__ == '__main__':
