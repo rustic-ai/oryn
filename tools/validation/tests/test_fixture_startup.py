@@ -2,6 +2,8 @@
 from contextlib import ExitStack, nullcontext, contextmanager
 import copy
 import json
+import os
+import stat
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -204,6 +206,18 @@ class OwnerFailureIntegration(unittest.TestCase):
             yield services
         def launch(*args,**kwargs):
             if failure=='launch':raise RuntimeError('primary unknown launch')
+            if owner=='wpt':
+                from oryn_wptrunner import custody
+                custody_path=output/'protocol-custody.jsonl'
+                self.assertEqual(stat.S_IMODE(custody_path.stat().st_mode),0o600)
+                self.assertEqual(custody_path.stat().st_nlink,1)
+                if failure=='custody-mode':custody_path.chmod(0o644)
+                elif failure=='custody-hardlink':os.link(custody_path,output/'custody-alias')
+                elif failure=='custody-symlink':
+                    target=output/'custody-target';custody_path.rename(target);custody_path.symlink_to(target)
+                with patch.dict(os.environ,kwargs['env']):
+                    identity=custody.begin()
+                    custody.append(identity,'teardown')
             (output/'result.json').write_text('{"errors": []}')
             write(output/'process/preflight.json',{'started_monotonic_ns':subject.time.monotonic_ns(), 'timeout_seconds':kwargs['timeout_seconds']})
             if failure=='parser':
@@ -237,8 +251,9 @@ class OwnerFailureIntegration(unittest.TestCase):
                 stack.enter_context(patch.object(prerequisites,'validate_production'))
                 stack.enter_context(patch.object(prerequisites,'_selected',return_value=(None,policy,selected['fixture'])))
                 call=lambda:prerequisites.execute(path,store_root=root,bundle_root=bound['bundle_root'],stage='topology')
-            with self.assertRaisesRegex((ValueError,RuntimeError),
-                {'entry':'primary fixture entry failure','launch':'primary unknown launch','receipt':'settlement failed','second_entry':'primary second entry failure','parser':'upstream WPT failed with exit status 2.*missing TLS activation'}[failure]):call()
+            with self.assertRaisesRegex((ValueError,RuntimeError,OSError),
+                {'entry':'primary fixture entry failure','launch':'primary unknown launch','receipt':'settlement failed','second_entry':'primary second entry failure','parser':'upstream WPT failed with exit status 2.*missing TLS activation',
+                 'custody-mode':'private supervisor ownership','custody-hardlink':'private supervisor ownership','custody-symlink':'.*'}[failure]):call()
             if failure in ('entry','second_entry'):spawn.assert_not_called()
             settled=resources.return_value.__enter__.return_value.mark_settled.call_args.args[0]
         self.assertEqual(settled['cleanup_complete'],failure in ('entry','parser'))
@@ -260,6 +275,17 @@ class OwnerFailureIntegration(unittest.TestCase):
     def test_parser_exit_and_secondary_missing_tls_are_retained_with_clean_settlement(self):
         with tempfile.TemporaryDirectory() as temporary:
             self.exercise(Path(temporary).resolve(),owner='wpt',failure='parser')
+
+    def test_owner_creates_real_private_log_and_child_rejects_substitution(self):
+        previous=os.umask(0o022)
+        try:
+            for failure in ('custody-mode','custody-hardlink','custody-symlink'):
+                with self.subTest(failure=failure),tempfile.TemporaryDirectory() as temporary:
+                    root=Path(temporary).resolve()
+                    self.exercise(root,owner='wpt',failure=failure)
+                    self.assertEqual((root/'output/protocol-custody.jsonl').read_bytes(),b'')
+        finally:
+            os.umask(previous)
 
     def test_entry_failure_preserves_services_and_releases_only_verified_clean_resources(self):
         for owner in ('wpt','prerequisite'):

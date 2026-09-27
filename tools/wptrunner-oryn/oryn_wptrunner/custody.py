@@ -5,6 +5,28 @@ import secrets
 import stat
 
 
+def _private(descriptor):
+    metadata = os.fstat(descriptor)
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_nlink != 1):
+        raise ValueError('protocol custody log lacks private supervisor ownership')
+
+
+def create(path):
+    """Create one new supervisor-owned log, independent of the caller's umask.
+
+    Never chmod/reuse an existing destination. The owner admits its output
+    directory separately; O_EXCL and O_NOFOLLOW reject final-path substitution.
+    """
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        _private(descriptor)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def append(session, phase, error=None):
     path = os.environ.get('ORYN_WPT_PROTOCOL_CUSTODY')
     candidate = os.environ.get('ORYN_WPT_CANDIDATE_SHA256', '')
@@ -16,9 +38,7 @@ def append(session, phase, error=None):
     encoded = (json.dumps(record, sort_keys=True) + '\n').encode()
     descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
     try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid() or metadata.st_mode & 0o077:
-            raise ValueError('protocol custody log lacks private supervisor ownership')
+        _private(descriptor)
         if os.write(descriptor, encoded) != len(encoded):
             raise OSError('incomplete protocol custody append')
         os.fsync(descriptor)

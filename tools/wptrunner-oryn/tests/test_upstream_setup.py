@@ -162,6 +162,48 @@ class RetainedCollectionSetup(unittest.TestCase):
                     self.assertEqual(item.executor_kwargs['capabilities']['browserName'], 'oryn')
                     self.assertFalse(item.executor_kwargs['capabilities']['acceptInsecureCerts'])
 
+    def test_developer_smoke_actual_child_setup_stops_before_native_start(self):
+        from oryn_validation import developer_protocol_smoke as smoke
+        from oryn_validation.worker_environment import worker_environment
+        from oryn_wptrunner import custody
+        class StopBeforeNative(Exception): pass
+        stop = StopBeforeNative('developer setup reached native boundary')
+        bound = dict(run=self.run, assets=self.assets, store_root=self.store, bundle_root=self.bundle)
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            output = Path(temporary).resolve(); config = output / 'developer-config.json'
+            config.write_text(json.dumps({'kind': 'developer-protocol-smoke', 'qualification': 'not-evaluated',
+                'run': str(self.path), 'run_sha256': smoke._digest(self.path),
+                'store_root': str(self.store), 'bundle_root': str(self.bundle),
+                'fixture_role': 'fixture_standard_block'}))
+            custody.create(output / 'protocol-custody.jsonl')
+            stack.enter_context(patch.dict(os.environ, {
+                **worker_environment(bound), 'ORYN_WPT_PROTOCOL_CUSTODY': str(output / 'protocol-custody.jsonl'),
+                'ORYN_WPT_CANDIDATE_SHA256': self.run['build']['manifest_sha256']}))
+            stack.enter_context(patch.object(environment.mpcontext, 'get_context', return_value=MagicMock()))
+            stack.enter_context(patch.object(environment, 'ProxyLoggingContext'))
+            stack.enter_context(patch('wptserve.config.get_port', return_value=49152))
+            def enter(env):
+                env.config = stack.enter_context(env.build_config())
+                for extra in env.env_extras:
+                    stack.enter_context(extra(env.options, env.config))
+                self.assertEqual({name: list(env.config.ports[name]) for name in self.fixture['ports']},
+                                 self.fixture['ports'])
+                return env
+            stack.enter_context(patch.object(environment.TestEnvironment, '__enter__', enter))
+            stack.enter_context(patch.object(environment.TestEnvironment, '__exit__', return_value=False))
+            stack.enter_context(patch.object(environment.TestEnvironment, 'ensure_started'))
+            start = stack.enter_context(patch.object(integration.OrynBrowser, 'start', side_effect=stop))
+            with self.assertRaises(StopBeforeNative) as caught:
+                smoke.child(config, smoke._digest(config))
+            self.assertIs(caught.exception, stop)
+            start.assert_called_once_with({})
+            result = json.loads((output / 'developer-result.json').read_text())
+            self.assertFalse(result['setup_complete'])
+            self.assertFalse(result['teardown_complete'])
+            self.assertEqual(result['qualification'], 'not-evaluated')
+            self.assertIn('HTTP adapter smoke only', result['scope'])
+            self.assertIn('developer setup reached native boundary', result['errors'][0])
+
 
 if __name__ == '__main__':
     unittest.main()

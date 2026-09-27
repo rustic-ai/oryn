@@ -378,8 +378,8 @@ def execute(path, *, store_root, bundle_root, output, timeout_seconds=None):
     environment.update(worker_environment(bound))
     worker_binding = assert_worker_environment(bound, environment)
     (output / 'tls-activation').mkdir()
-    with (output / 'protocol-custody.jsonl').open('x'):
-        pass
+    from oryn_wptrunner.custody import create as create_protocol_custody
+    create_protocol_custody(output / 'protocol-custody.jsonl')
     if selected['collection'] == 'canaries':
         environment['ORYN_WPT_CANARY_RESOURCE_AUDIT'] = '1'
     elif selected['collection'] == 'placement':
