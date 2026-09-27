@@ -599,6 +599,29 @@ def topology_server_config(bound, selected):
             'ws_doc_root': str(assets['wpt_checkout'] / 'websockets/handlers')}
 
 
+def topology_config_class(serve, config):
+    """Apply typed inputs before upstream's constructor enters configuration.
+
+    The pinned constructor invokes __enter__ before build_config adds h2 to
+    its defaults. Late update() merges only existing dictionary keys and can
+    silently discard h2; explicit constructor ports preserve the whole map.
+    """
+    import copy
+    selected = copy.deepcopy(config)
+    class SelectedConfig(serve.ConfigBuilder):
+        def __init__(self, logger, *args, **kwargs):
+            kwargs.update(copy.deepcopy(selected))
+            super().__init__(logger, *args, **kwargs)
+
+        def __enter__(self):
+            result = super().__enter__()
+            if dict(result.ports) != selected['ports']:
+                super().__exit__(None, None, None)
+                raise ValueError('upstream topology ports differ from exact typed fixture')
+            return result
+    return SelectedConfig
+
+
 def serve_topology(args):
     """Canonical upstream wpt serve entry, exclusively for the topology stage."""
     from .prerequisites import load_inputs as prerequisite_inputs, _selected, validate_native_prerequisites
@@ -614,10 +637,7 @@ def serve_topology(args):
     sys.path.insert(0, str(bound['assets']['wpt_checkout'] / 'tools'))
     import localpaths  # noqa: F401
     from tools.serve import serve
-    class SelectedConfig(serve.ConfigBuilder):
-        def __enter__(self):
-            self.update(config)
-            return super().__enter__()
+    SelectedConfig = topology_config_class(serve, config)
     with InputLease(bound['records'], store_root=args.store_root, bundle_root=args.bundle_root) as lease:
         from .fixture_startup import publish_admission
         publish_admission(bound, lease)
