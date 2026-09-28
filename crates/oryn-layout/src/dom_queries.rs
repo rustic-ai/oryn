@@ -294,7 +294,9 @@ impl Element for DomElement<'_> {
                                 )
                         }))
             }
-            NonTSPseudoClass::Modal => self.dom.is_modal_dialog(self.id),
+            NonTSPseudoClass::Modal => {
+                self.dom.is_modal_dialog(self.id) || self.dom.is_fullscreen(self.id)
+            }
             NonTSPseudoClass::PopoverOpen => self.dom.is_popover_open(self.id),
             NonTSPseudoClass::Granted => self
                 .dom
@@ -481,6 +483,39 @@ pub fn query(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modal_matches_fullscreen_and_dialog_but_not_other_top_layer_entries() {
+        let mut dom = DomRuntime::new();
+        let document = dom.document();
+        let dialog = dom.create_element("dialog");
+        let fullscreen = dom.create_element("div");
+        let popover = dom.create_element("div");
+        for node in [dialog, fullscreen, popover] {
+            dom.append_child(document, node).unwrap();
+        }
+        dom.add_to_top_layer(dialog, oryn_dom::TopLayerKind::ModalDialog)
+            .unwrap();
+        dom.add_to_top_layer(fullscreen, oryn_dom::TopLayerKind::Fullscreen)
+            .unwrap();
+        dom.add_to_top_layer(popover, oryn_dom::TopLayerKind::Popover)
+            .unwrap();
+        let matched = |dom: &DomRuntime| {
+            query(
+                dom,
+                document,
+                ":modal",
+                SelectorOperation::All,
+                &BTreeMap::new(),
+            )
+            .unwrap()
+        };
+        assert_eq!(matched(&dom), vec![dialog, fullscreen]);
+        assert!(!dom.is_modal_dialog(fullscreen));
+        dom.remove_from_top_layer(fullscreen);
+        dom.set_attribute(fullscreen, "fullscreen", "").unwrap();
+        assert_eq!(matched(&dom), vec![dialog]);
+    }
 
     #[test]
     fn link_pseudo_classes_exclude_metadata_links_and_missing_href() {

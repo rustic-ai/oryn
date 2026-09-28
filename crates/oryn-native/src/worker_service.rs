@@ -3941,13 +3941,7 @@ impl BrowserContext {
                 "blob URL resource limit",
             ));
         }
-        let mut random = [0u8; 32];
-        getrandom::fill(&mut random)
-            .map_err(|error| WorkerError::new("UnknownError", error.to_string()))?;
-        let token = random
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
+        let token = uuid::Uuid::new_v4();
         let url = format!("blob:{}/{}", origin.serialized, token);
         let mut policies = self
             .inner
@@ -3958,7 +3952,11 @@ impl BrowserContext {
             .blobs
             .values()
             .fold(0usize, |total, blob| total.saturating_add(blob.bytes.len()));
-        if policies.blobs.len() >= 4096 || retained.saturating_add(bytes.len()) > 64 * 1024 * 1024 {
+        // Bound both metadata and payload; tiny independent URLs should not
+        // exhaust the registry long before the byte budget is reached.
+        if policies.blobs.len() >= 64 * 1024
+            || retained.saturating_add(bytes.len()) > 64 * 1024 * 1024
+        {
             return Err(WorkerError::new(
                 "QuotaExceededError",
                 "blob URL registry limit",
@@ -3993,6 +3991,10 @@ impl BrowserContext {
         url: &str,
     ) -> Result<NativeBlobResource, WorkerError> {
         let (partition, origin, _) = self.native_worker_authority(caller)?;
+        // The fragment belongs to the consumer document, not the Blob store
+        // key. A query remains part of that key; revocation still uses the
+        // exact registered URL, as required by File API.
+        let url = url.split_once('#').map_or(url, |(base, _)| base);
         let resource = self
             .inner
             .worker_policies
@@ -4135,6 +4137,71 @@ mod blob_authority_tests {
     }
 
     #[test]
+    fn blob_urls_use_uuids_and_resolve_fragments_without_relaxing_authority() {
+        let context = Browser::new().new_context();
+        let (_handle, owner) = page(&context, "https://a.test/owner");
+        let (_other, foreign) = page(&context, "https://b.test/foreign");
+        let url = context
+            .register_native_blob(owner.clone(), b"payload".to_vec(), "text/plain".into())
+            .unwrap();
+        let id = uuid::Uuid::parse_str(url.rsplit('/').next().unwrap()).unwrap();
+        assert_eq!(id.get_version_num(), 4);
+        assert_eq!(id.to_string(), url.rsplit('/').next().unwrap());
+        let fragment = format!("{url}#part");
+        assert_eq!(
+            context
+                .resolve_native_blob(&owner, &fragment)
+                .unwrap()
+                .bytes,
+            b"payload"
+        );
+        assert!(context.resolve_native_blob(&foreign, &fragment).is_err());
+        assert!(
+            context
+                .resolve_native_blob(&owner, &format!("{url}?changed#part"))
+                .is_err()
+        );
+        // Revocation with a fragment does not identify a registered URL.
+        context.revoke_native_blob(&owner, &fragment).unwrap();
+        assert!(context.resolve_native_blob(&owner, &url).is_ok());
+        context.revoke_native_blob(&owner, &url).unwrap();
+        assert!(context.resolve_native_blob(&owner, &fragment).is_err());
+    }
+
+    #[test]
+    fn thousands_of_small_blob_urls_fit_within_the_resource_budget() {
+        let context = Browser::new().new_context();
+        let (_handle, owner) = page(&context, "https://a.test/owner");
+        let mut urls = std::collections::BTreeSet::new();
+        for _ in 0..5000 {
+            assert!(
+                urls.insert(
+                    context
+                        .register_native_blob(owner.clone(), b"test".to_vec(), "text/plain".into())
+                        .unwrap()
+                )
+            );
+        }
+        for url in urls {
+            context.revoke_native_blob(&owner, &url).unwrap();
+        }
+        assert!(
+            context
+                .inner
+                .worker_policies
+                .lock()
+                .unwrap()
+                .blobs
+                .is_empty()
+        );
+        assert!(
+            context
+                .register_native_blob(owner, vec![0; 4 * 1024 * 1024 + 1], String::new())
+                .is_err()
+        );
+    }
+
+    #[test]
     fn blob_url_resolution_shares_native_origin_and_revocation_preserves_retained_copy() {
         let context = Browser::new().new_context();
         let (first, owner) = page(&context, "https://a.test/first");
@@ -4238,7 +4305,12 @@ mod blob_authority_tests {
             .register_native_blob(owner, vec![1], "text/plain".into())
             .unwrap();
         assert_ne!(a, b);
-        assert_eq!(a.rsplit('/').next().unwrap().len(), 64);
+        assert_eq!(
+            uuid::Uuid::parse_str(a.rsplit('/').next().unwrap())
+                .unwrap()
+                .get_version_num(),
+            4
+        );
         assert!(second.resolve_native_blob(&peer, &a).is_err());
     }
 }

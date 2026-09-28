@@ -296,6 +296,7 @@ pub use history_tasks::HistoryTraversalTask;
 mod location_ancestors;
 pub use location_ancestors::LocationAncestorCapture;
 mod audio_data;
+mod browser_base64;
 mod byte_streams;
 mod document_domain;
 mod document_provenance;
@@ -13849,7 +13850,9 @@ fn blob_url_create_callback(
                     bytes: blob.bytes.clone(),
                     media_type: blob.media_type.clone(),
                 })
-                .map_err(|_| V8BindingError::Allocation("native Blob URL registration"))?;
+                .map_err(|error| {
+                    V8BindingError::Message(format!("native Blob URL registration: {error}"))
+                })?;
             let crate::worker_wire::AgentServiceResponse::BlobUrl(url) = response else {
                 return Err(V8BindingError::Allocation("native Blob URL response"));
             };
@@ -13857,16 +13860,23 @@ fn blob_url_create_callback(
         } else {
             // Isolated binding tests have no context broker. Their local table
             // still uses unguessable identities and never author-provided IDs.
-            let mut random = [0u8; 32];
+            let mut random = [0u8; 16];
             getrandom::fill(&mut random)
                 .map_err(|_| V8BindingError::Allocation("Blob URL entropy"))?;
+            random[6] = (random[6] & 0x0f) | 0x40;
+            random[8] = (random[8] & 0x3f) | 0x80;
+            let hex = random
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
             format!(
-                "blob:{}/{}",
+                "blob:{}/{}-{}-{}-{}-{}",
                 current_platform_origin(&state),
-                random
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect::<String>()
+                &hex[..8],
+                &hex[8..12],
+                &hex[12..16],
+                &hex[16..20],
+                &hex[20..]
             )
         };
         state.blob_urls.borrow_mut().insert(url.clone(), blob_id);
@@ -13899,6 +13909,7 @@ fn blob_url_revoke_callback(
 }
 
 fn blob_url_record(state: &V8BindingState, url: &str) -> Option<BlobRecord> {
+    let url = url.split_once('#').map_or(url, |(base, _)| base);
     if let Some(transport) = state.worker_transport.borrow().clone() {
         let creator = workers::native_creator(state).ok()?;
         return match transport.request(crate::worker_wire::AgentServiceRequest::BlobResolve {
@@ -32251,7 +32262,8 @@ fn get_attribute_value<'s>(
     }
     if matches!(
         interface,
-        "HTMLElement"
+        "Element"
+            | "HTMLElement"
             | "HTMLBodyElement"
             | "HTMLFrameSetElement"
             | "HTMLGeolocationElement"
@@ -34663,7 +34675,8 @@ fn set_attribute_value<'s>(
     }
     if matches!(
         interface,
-        "HTMLElement"
+        "Element"
+            | "HTMLElement"
             | "HTMLBodyElement"
             | "HTMLFrameSetElement"
             | "HTMLGeolocationElement"
@@ -53089,6 +53102,22 @@ mod tests {
             .to_rust_string_lossy(scope);
         assert!(result.contains("xhr:oryn:text/plain|"));
         assert!(result.contains("fetch:oryn"));
+        let source = v8::String::new(scope, r#"(() => {
+            if (!/\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(url)) throw Error('UUID v4');
+            return url;
+        })()"#).unwrap();
+        let url = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            blob_url_record(&state, &format!("{url}#part"))
+                .unwrap()
+                .bytes,
+            b"oryn"
+        );
+        assert!(blob_url_record(&state, &format!("{url}?changed#part")).is_none());
     }
 
     #[test]

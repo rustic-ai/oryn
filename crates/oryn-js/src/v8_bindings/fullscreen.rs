@@ -626,6 +626,35 @@ mod tests {
         messages.assert_lifecycle(1);
     }
     #[test]
+    fn fullscreen_event_attributes_dispatch_and_clear_on_all_elements() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<div id=t></div>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(231), 1).unwrap();
+        assert!(eval(scope, r#"(()=>{
+            for(const node of [document, t, document.createElementNS('http://www.w3.org/2000/svg','svg')]) {
+                for(const name of ['fullscreenchange','fullscreenerror']) {
+                    const property='on'+name;let calls=0;
+                    if(node[property]!==null)throw Error('default handler');
+                    node[property]=function(event){if(this!==node||event.type!==name)throw Error('handler context');calls++};
+                    node.dispatchEvent(new Event(name));
+                    if(calls!==1)throw Error('handler dispatch');
+                    node[property]=null;node.dispatchEvent(new Event(name));
+                    if(calls!==1||node[property]!==null)throw Error('handler clear');
+                }
+            }
+            return true;
+        })()"#).is_true());
+    }
+
+    #[test]
     fn denied_policy_does_not_consume_activation_or_set_native_flag() {
         super::super::tests::initialize_v8();
         let dom = Rc::new(RefCell::new(

@@ -1281,6 +1281,12 @@ pub(super) fn publish_objects(
     }
     global_events::install(scope, context)?;
     structured_clone::install(scope, context)?;
+    if matches!(
+        binding_global,
+        BindingGlobal::Window | BindingGlobal::Worker
+    ) {
+        browser_base64::install(scope, context)?;
+    }
     image_bitmap::install(scope, context)?;
     css_registration::install(scope, context)?;
     if binding_global == BindingGlobal::Window {

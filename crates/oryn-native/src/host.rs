@@ -14534,8 +14534,14 @@ mod raw_v8 {
                 else {
                     continue;
                 };
-                if endpoint.page_id != *page || owner.native_worker_creator()? != *creator {
+                // The registry also retains parked predecessor realms. Compare
+                // their local identity before making an admission RPC: probing
+                // an unrelated cached root must not republish its stale lifetime.
+                if endpoint.page_id != *page || owner.native_local_creator_identity()? != *creator {
                     continue;
+                }
+                if owner.native_worker_creator()? != *creator {
+                    return Err(V8BindingError::Allocation("domain alias identity changed"));
                 }
                 let document = owner.document_root();
                 if owner

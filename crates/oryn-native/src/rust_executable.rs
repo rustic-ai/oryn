@@ -6716,7 +6716,7 @@ Object.assign(OrynWebSocket,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});Object.ass
 const b64chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const bytesToBase64=value=>{const bytes=value instanceof Uint8Array?value:new Uint8Array(value);let out='';for(let index=0;index<bytes.length;index+=3){const first=bytes[index],second=bytes[index+1],third=bytes[index+2];out+=b64chars[first>>2];out+=b64chars[((first&3)<<4)|((second??0)>>4)];out+=second===undefined?'=':b64chars[((second&15)<<2)|((third??0)>>6)];out+=third===undefined?'=':b64chars[third&63]}return out};
 const base64ToBytes=value=>{value=String(value).replace(/\s/g,'');const out=[];for(let index=0;index<value.length;index+=4){const first=b64chars.indexOf(value[index]),second=b64chars.indexOf(value[index+1]),third=value[index+2]==='='?-1:b64chars.indexOf(value[index+2]),fourth=value[index+3]==='='?-1:b64chars.indexOf(value[index+3]);out.push((first<<2)|(second>>4));if(third>=0)out.push(((second&15)<<4)|(third>>2));if(fourth>=0)out.push(((third&3)<<6)|fourth)}return Uint8Array.from(out)};
-globalThis.btoa=value=>bytesToBase64(Uint8Array.from(String(value),char=>char.charCodeAt(0)&255));globalThis.atob=value=>{let result='';for(const byte of base64ToBytes(value))result+=String.fromCharCode(byte);return result};
+// atob and btoa are shared native Window/worker bindings.
 const bodyBytes=body=>{if(body==null)return new Uint8Array();if(body instanceof OrynBlob)return body.__bytes.slice();if(body instanceof ArrayBuffer)return new Uint8Array(body.slice(0));if(ArrayBuffer.isView(body))return new Uint8Array(body.buffer.slice(body.byteOffset,body.byteOffset+body.byteLength));return new TextEncoder().encode(String(body))};
 class OrynBlob {constructor(parts=[],options={}){const chunks=parts.map(bodyBytes),length=chunks.reduce((sum,item)=>sum+item.length,0);this.__bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){this.__bytes.set(chunk,offset);offset+=chunk.length}this.type=String(options.type||'').toLowerCase()}get size(){return this.__bytes.length}slice(start=0,end=this.size,type=''){return new OrynBlob([this.__bytes.slice(start,end)],{type})}arrayBuffer(){return Promise.resolve(this.__bytes.buffer.slice(0))}text(){return Promise.resolve(new TextDecoder().decode(this.__bytes))}stream(){return new OrynReadableStream({start:controller=>{controller.enqueue(this.__bytes.slice());controller.close()}})}}
 class OrynFile extends OrynBlob {constructor(parts,name,options={}){super(parts,options);this.name=String(name);this.lastModified=Number(options.lastModified??0);this.webkitRelativePath=''}}
@@ -16041,6 +16041,55 @@ impl RustExecutableDocument {
                     })?
                     .0;
                 let parent_encoding = document_encoding_at(&parent_dom, parent_document);
+                // Setting iframe.src to a fragment of its current URL retains
+                // the child Document. Take the HTML fragment path before any
+                // response/CSP frame fetch or departure preparation.
+                if resource_completion.is_none()
+                    && navigation_context.is_none()
+                    && srcdoc.is_none()
+                    && embedded_kind.creates_initial_document()
+                    && let Some(previous) = replaced_realms.first().copied()
+                    && let Some(target) = requested.as_deref().and_then(|value| {
+                        oryn_dom::document_url::parse_with_label(
+                            value,
+                            parent_base_url.as_ref(),
+                            &parent_encoding,
+                        )
+                        .ok()
+                    })
+                    && target.fragment().is_some()
+                    && self.frame_realms.get(&previous).is_some_and(|owner| {
+                        Url::parse(&owner.committed_url).is_ok_and(|mut current| {
+                            let mut destination = target.clone();
+                            current.set_fragment(None);
+                            destination.set_fragment(None);
+                            current == destination
+                        })
+                    })
+                {
+                    let source = self
+                        .agent
+                        .host
+                        .capture_navigation_source(None, false, None, None)?;
+                    self.agent.host.activate_realm(previous)?;
+                    let replace = self
+                        .agent
+                        .host
+                        .realm_is_initial_navigation_document(previous);
+                    let admission = self.agent.host.admit_native_navigation(
+                        target.as_str(),
+                        replace,
+                        false,
+                        source,
+                    );
+                    self.agent.host.activate_realm(parent_realm)?;
+                    if matches!(
+                        admission?,
+                        oryn_js::navigation_api::NativeNavigationAdmission::Handled
+                    ) {
+                        continue;
+                    }
+                }
                 let explicit_about_blank = requested
                     .as_deref()
                     .and_then(|value| Url::parse(value).ok())
@@ -31806,6 +31855,68 @@ mod tests {
             catch (error) { checks.push(error === sentinel); }
             checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
         "#).unwrap(), "");
+    }
+
+    #[test]
+    fn iframe_src_fragment_retains_document_and_skips_frame_fetch_policy() {
+        use crate::network::{NetworkBroker, NetworkError, NetworkRequest, NetworkResponse};
+        use std::sync::{Arc, Mutex};
+        struct Resources(Arc<Mutex<Vec<String>>>);
+        impl NetworkBroker for Resources {
+            fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                self.0.lock().unwrap().push(request.url.clone());
+                Ok(NetworkResponse { response_policy: None, timing: None, request_id: request.request_id,
+                    status: 200, headers: vec![("content-type".into(), "text/html".into())],
+                    body: b"<body><script>globalThis.marker=42;onpopstate=()=>parent.postMessage('fragment','*')</script>".to_vec() })
+            }
+        }
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<body>",
+            &BTreeMap::new(),
+            Some(SharedNetworkBroker::new(Resources(seen.clone()))),
+            Some(Url::parse("https://parent.test/").unwrap()),
+        )
+        .unwrap();
+        page.execute("globalThis.loaded=0;globalThis.messages=[];globalThis.violations=0;onmessage=e=>messages.push(e.data);document.addEventListener('securitypolicyviolation',()=>violations++);globalThis.f=document.createElement('iframe');f.onload=()=>loaded++;f.src='https://child.test/document';document.body.append(f)").unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while page.evaluate("String(loaded)").unwrap() != "1" {
+            page.checkpoint().unwrap();
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        let realm = page.frame_realms.keys().copied().next().unwrap();
+        let identity = page.agent.host.automation_realm_identity(realm).unwrap();
+        page.execute("const meta=document.createElement('meta');meta.httpEquiv='Content-Security-Policy';meta.content=\"frame-src 'none'\";document.head.append(meta);f.src += '#part'").unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while page.evaluate("messages.join()").unwrap() != "fragment" {
+            page.checkpoint().unwrap();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "fragment event missing: {:?}",
+                page.diagnostics
+            );
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            page.agent.host.automation_realm_identity(realm),
+            Some(identity)
+        );
+        assert_eq!(
+            page.evaluate("String(violations)+'|'+loaded").unwrap(),
+            "0|1"
+        );
+        assert_eq!(*seen.lock().unwrap(), vec!["https://child.test/document"]);
+        // A real cross-document assignment still observes frame-src.
+        page.execute("f.src='https://child.test/replacement'")
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while page.evaluate("String(violations)").unwrap() == "0" {
+            page.checkpoint().unwrap();
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        assert_eq!(*seen.lock().unwrap(), vec!["https://child.test/document"]);
     }
 
     #[test]

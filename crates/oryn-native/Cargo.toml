@@ -44,6 +44,7 @@ base64 = "0.22"
 libc = "0.2"
 redb = "4.2.0"
 getrandom = "0.3"
+uuid = { version = "1", features = ["v4"] }
 regex = "1"
 zeroize = "1"
 flate2 = "1"
@@ -61,7 +62,6 @@ security-framework = "3.7"
 
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }
-uuid = { version = "1", features = ["v4"] }
 h2 = "0.4"
 http = "1"
 
