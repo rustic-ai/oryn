@@ -29,7 +29,7 @@ fn node(
     scope: &mut v8::PinScope,
     state: &V8BindingState,
     object: v8::Local<v8::Object>,
-) -> Result<NodeId, V8BindingError> {
+) -> Result<(Rc<V8BindingState>, NodeId), V8BindingError> {
     if !is_computed(scope, state, object) {
         return Err(V8BindingError::Unsupported {
             interface: "CSSStyleDeclaration".into(),
@@ -40,7 +40,12 @@ fn node(
         .get_internal_field(scope, 3)
         .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
         .ok_or(V8BindingError::Allocation("computed style element"))?;
-    resolve_receiver(scope, state, target, "Element")
+    let owner = binding_state_for_receiver(scope, target)
+        .ok_or(BindingError::UnknownWrapper(WrapperId(u64::MAX)))?;
+    let node = argument_node(scope, &owner, target.into())?;
+    // A retained element may have moved to another document since creation.
+    let owner = active_document_state_for_node(scope, &owner, node).unwrap_or(owner);
+    Ok((owner, node))
 }
 
 fn pseudo(scope: &mut v8::PinScope, object: v8::Local<v8::Object>) -> Option<String> {
@@ -150,7 +155,8 @@ pub(super) fn create<'s>(
             member: "argument is not an Element".into(),
         });
     }
-    let values = styles(state, node, pseudo.as_deref())?;
+    let owner = active_document_state_for_node(scope, state, node).unwrap_or_else(|| state.clone());
+    let values = styles(&owner, node, pseudo.as_deref())?;
     let template = state
         .instance_templates
         .borrow()
@@ -228,9 +234,9 @@ pub(super) fn property_names(
     state: &V8BindingState,
     object: v8::Local<v8::Object>,
 ) -> Result<Vec<String>, V8BindingError> {
-    let node = node(scope, state, object)?;
+    let (owner, node) = node(scope, state, object)?;
     let pseudo = pseudo(scope, object);
-    let styles = styles(state, node, pseudo.as_deref())?;
+    let styles = styles(&owner, node, pseudo.as_deref())?;
     let mut names = styles
         .keys()
         .filter(|name| !name.starts_with("--"))
@@ -246,18 +252,18 @@ pub(super) fn attribute<'s>(
     object: v8::Local<v8::Object>,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    let node = node(scope, state, object)?;
+    let (owner, node) = node(scope, state, object)?;
     let pseudo = pseudo(scope, object);
     match member {
         "parentRule" => Ok(v8::null(scope).into()),
         "cssText" => v8_string(scope, ""),
         "length" => Ok(v8::Integer::new_from_unsigned(
             scope,
-            styles(state, node, pseudo.as_deref())?.len() as u32,
+            styles(&owner, node, pseudo.as_deref())?.len() as u32,
         )
         .into()),
         _ => {
-            let values = styles(state, node, pseudo.as_deref())?;
+            let values = styles(&owner, node, pseudo.as_deref())?;
             let property = if member == "webkitTransition" {
                 "transition"
             } else {
@@ -274,7 +280,7 @@ pub(super) fn operation<'s>(
     args: &v8::FunctionCallbackArguments<'s>,
     member: &str,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
-    let node = node(scope, state, args.this())?;
+    let (owner, node) = node(scope, state, args.this())?;
     let pseudo = pseudo(scope, args.this());
     if member == "item" {
         let Some(index) = args.get(0).uint32_value(scope) else {
@@ -296,7 +302,7 @@ pub(super) fn operation<'s>(
     match member {
         "getPropertyValue" => Ok(Some(v8_string(
             scope,
-            styles(state, node, pseudo.as_deref())?
+            styles(&owner, node, pseudo.as_deref())?
                 .get(&property)
                 .map_or("", String::as_str),
         )?)),

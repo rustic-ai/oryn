@@ -55,6 +55,43 @@ fn checkpoint_passes(page: &mut RustExecutableDocument) -> usize {
 }
 
 #[test]
+fn outer_history_publication_does_not_keep_checkpoint_spinning() {
+    let mut page = quiet_page();
+    page.agent
+        .host
+        .execute("history.replaceState({saved: 1}, '')")
+        .unwrap();
+    assert!(!page.has_runnable_page_work());
+    assert_eq!(checkpoint_passes(&mut page), 1);
+    // The outer owner must still receive the publication after we yield.
+    assert!(page.take_navigation_history_update().is_some());
+    assert_eq!(checkpoint_passes(&mut page), 1);
+}
+
+#[test]
+fn late_child_history_publication_still_reaches_the_frame_owner() {
+    let mut page = quiet_page();
+    page.agent
+        .host
+        .execute("document.body.append(document.createElement('iframe'))")
+        .unwrap();
+    page.checkpoint().unwrap();
+    let child = *page.frame_realms.keys().next().unwrap();
+    let _hook = HookGuard::install(move |page, pass| {
+        if pass == 0 {
+            page.agent.host.activate_realm(child).unwrap();
+            page.agent
+                .host
+                .execute("history.replaceState({saved: 1}, '')")
+                .unwrap();
+        }
+    });
+    assert!(checkpoint_passes(&mut page) >= 2);
+    page.agent.host.activate_realm(child).unwrap();
+    assert!(page.agent.host.take_navigation_history_update().is_none());
+}
+
+#[test]
 fn idle_checkpoint_runs_once_and_next_invocation_observes_external_work() {
     let mut page = quiet_page();
     assert_eq!(checkpoint_passes(&mut page), 1);

@@ -9130,7 +9130,7 @@ mod checkpoint_pending_tests {
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let held = state.custom_elements.reactions.borrow_mut();
         assert!(state.custom_elements.checkpoint_pending(&state));
-        assert!(state.has_pending_executable_checkpoint_work());
+        assert!(state.has_pending_executable_checkpoint_work(true));
         drop(held);
         assert!(state.custom_elements.reactions.borrow().is_empty());
     }

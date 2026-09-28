@@ -363,7 +363,7 @@ impl Element for DomElement<'_> {
     }
     fn apply_selector_flags(&self, _: selectors::matching::ElementSelectorFlags) {}
     fn is_link(&self) -> bool {
-        self.html_tag(&["a", "area", "link"]) && self.attr("href").is_some()
+        self.html_tag(&["a", "area"]) && self.attr("href").is_some()
     }
     fn is_html_slot_element(&self) -> bool {
         self.html_tag(&["slot"])
@@ -481,6 +481,51 @@ pub fn query(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn link_pseudo_classes_exclude_metadata_links_and_missing_href() {
+        let mut dom = DomRuntime::new();
+        let document = dom.document();
+        let mut expected = Vec::new();
+        for tag in ["link", "a", "area", "div"] {
+            for href in [None, Some("")] {
+                let node = dom.create_element(tag);
+                if let Some(href) = href {
+                    dom.set_attribute(node, "href", href).unwrap();
+                    if matches!(tag, "a" | "area") {
+                        expected.push(node);
+                    }
+                }
+                dom.append_child(document, node).unwrap();
+            }
+        }
+        for selector in [":link", ":any-link", ":link, :visited"] {
+            assert_eq!(
+                query(
+                    &dom,
+                    document,
+                    selector,
+                    SelectorOperation::All,
+                    &BTreeMap::new()
+                )
+                .unwrap(),
+                expected,
+                "{selector}"
+            );
+            assert_eq!(
+                query(
+                    &dom,
+                    document,
+                    selector,
+                    SelectorOperation::First,
+                    &BTreeMap::new()
+                )
+                .unwrap(),
+                vec![expected[0]],
+                "{selector}"
+            );
+        }
+    }
 
     #[test]
     fn relational_and_filtered_nth_selectors_use_stylo_matching() {

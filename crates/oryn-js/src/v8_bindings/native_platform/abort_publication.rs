@@ -255,9 +255,14 @@ impl Target {
                     .collect::<BTreeSet<_>>()
             };
             for stream in streams {
-                if let Some(host) = owner.platform_host.borrow().as_ref() {
-                    host.abandon_http_stream(stream);
-                }
+                // Explicit abort must terminate even a keepalive response.
+                // Abandonment transfers custody and deliberately lets those
+                // transfers continue after the document/consumer goes away.
+                let _ = submit_platform_operation(
+                    &owner,
+                    PlatformHostRequest::HttpAbort { stream_id: stream },
+                    PendingPlatformOperation::WebSocketCommand,
+                );
             }
             self.stage = 5;
         }

@@ -92,15 +92,18 @@ impl RawV8Host {
     }
 
     /// Local queues complement, rather than replace, has_runnable_page_work.
-    pub(crate) fn has_pending_executable_checkpoint_work(&self) -> bool {
+    pub(crate) fn has_pending_executable_checkpoint_work(&self, outer_root: RealmId) -> bool {
+        // Root history updates are consumed by the outer page owner after
+        // this checkpoint returns. Child updates are drained inside the next
+        // pass, so a late child publication must still keep the loop alive.
         // Called only after entered callbacks/scopes have returned. The global
         // observer queue also owns notifications not represented by local queues.
         has_pending_mutation_observer_microtask(&self.isolate)
             || self.checkpoint_realms().is_none_or(|realms| {
                 realms.into_iter().any(|realm| {
-                    self.binding_states
-                        .get(&realm)
-                        .is_none_or(|state| state.has_pending_executable_checkpoint_work())
+                    self.binding_states.get(&realm).is_none_or(|state| {
+                        state.has_pending_executable_checkpoint_work(realm != outer_root)
+                    })
                 })
             })
     }
@@ -1144,7 +1147,7 @@ mod tests {
         assert_eq!(host.executable_checkpoint_witness(), Some(after.clone()));
         let context = host.contexts.remove(&child).unwrap();
         assert!(host.executable_checkpoint_witness().is_none());
-        assert!(host.has_pending_executable_checkpoint_work());
+        assert!(host.has_pending_executable_checkpoint_work(host.active_realm));
         host.contexts.insert(child, context);
         assert_eq!(host.executable_checkpoint_witness(), Some(after));
     }
@@ -1160,7 +1163,7 @@ mod tests {
             .pending_contexts
             .insert(pending, context);
         assert!(host.executable_checkpoint_witness().is_none());
-        assert!(host.has_pending_executable_checkpoint_work());
+        assert!(host.has_pending_executable_checkpoint_work(host.active_realm));
         assert!(
             host.isolate
                 .get_slot::<NativeRealmIdentities>()
@@ -1188,7 +1191,7 @@ mod tests {
         assert!(before.len() >= 2);
         host.execute("frame.remove()").unwrap();
         assert!(host.executable_checkpoint_witness().is_none());
-        assert!(host.has_pending_executable_checkpoint_work());
+        assert!(host.has_pending_executable_checkpoint_work(host.active_realm));
         let frames = host.isolate.get_slot::<FrameLifetimes>().unwrap();
         assert!(!frames.discarded_realms.is_empty());
         assert!(
@@ -1222,9 +1225,9 @@ mod tests {
             queue_mutation_observer_microtask(scope);
         }
         assert!(has_pending_mutation_observer_microtask(&host.isolate));
-        assert!(!state.has_pending_executable_checkpoint_work());
+        assert!(!state.has_pending_executable_checkpoint_work(true));
         let before = host.executable_checkpoint_witness().unwrap();
-        assert!(host.has_pending_executable_checkpoint_work());
+        assert!(host.has_pending_executable_checkpoint_work(host.active_realm));
         assert_eq!(host.executable_checkpoint_witness(), Some(before));
         assert!(has_pending_mutation_observer_microtask(&host.isolate));
         host.run_microtask_checkpoint().unwrap();
@@ -1242,7 +1245,7 @@ mod tests {
         assert_eq!(state.executable_checkpoint_identity(), Some(identity));
         assert!(state.execution_tasks_stopped());
         assert!(host.executable_checkpoint_witness().is_none());
-        assert!(host.has_pending_executable_checkpoint_work());
+        assert!(host.has_pending_executable_checkpoint_work(host.active_realm));
         drop(unloading);
         assert_eq!(host.executable_checkpoint_witness(), Some(before));
     }

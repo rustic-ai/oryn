@@ -14374,7 +14374,10 @@ impl RustExecutableDocument {
             // Unavailable identity/borrow witnesses retain the existing cap.
             let runnable = self.has_runnable_page_work();
             let pending = self.pending_frame_form_history.is_some()
-                || self.agent.host.has_pending_executable_checkpoint_work();
+                || self
+                    .agent
+                    .host
+                    .has_pending_executable_checkpoint_work(self.top_realm);
             let after = self.agent.host.executable_checkpoint_witness();
             if Self::page_task_retired(terminal_control) {
                 return Ok(());
@@ -31768,6 +31771,44 @@ mod tests {
             catch (error) { checks.push(error === sentinel); }
             checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
         "#).unwrap(), "");
+    }
+
+    #[test]
+    fn computed_style_of_child_element_uses_its_own_document() {
+        let mut page = RustExecutableDocument::load(
+            r#"<!doctype html><style>target { color: blue }</style>
+            <iframe id=f width=300 srcdoc='<style>target {color: red}</style><target></target>'></iframe>"#,
+        ).unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            globalThis.target = f.contentDocument.querySelector('target');
+            globalThis.computed = getComputedStyle(target);
+            computed.color
+        "#
+            )
+            .unwrap(),
+            "rgb(255, 0, 0)"
+        );
+        assert_eq!(
+            page.evaluate(
+                r#"
+            target.style.color = 'green'; computed.color
+        "#
+            )
+            .unwrap(),
+            "rgb(0, 128, 0)"
+        );
+        assert_eq!(
+            page.evaluate("String(computed instanceof CSSStyleDeclaration)")
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            page.evaluate("document.body.append(target); target.style.color=''; computed.color")
+                .unwrap(),
+            "rgb(0, 0, 255)"
+        );
     }
 
     #[test]

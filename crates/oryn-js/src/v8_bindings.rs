@@ -6392,7 +6392,7 @@ impl V8BindingState {
     /// Queues drained by executable checkpoints, including work enqueued in
     /// an earlier realm after its turn. Do not consume, prune, or acknowledge
     /// any entry here. Future/delayed entries conservatively retain the cap.
-    pub fn has_pending_executable_checkpoint_work(&self) -> bool {
+    pub fn has_pending_executable_checkpoint_work(&self, include_history_update: bool) -> bool {
         macro_rules! queued {
             ($field:ident) => {
                 self.$field
@@ -6414,7 +6414,7 @@ impl V8BindingState {
             || self.document_parser_gate.try_borrow().map_or(true, |gate| {
                 gate.as_ref().is_some_and(|gate| gate.unclaimed())
             })
-            || navigation_api::executable_checkpoint_pending(self)
+            || navigation_api::executable_checkpoint_pending(self, include_history_update)
             || self.custom_elements.checkpoint_pending(self)
             || post_connection_scripts::checkpoint_pending(self)
             || self.has_pending_selection_change()
@@ -60639,6 +60639,36 @@ target.srcdoc='raw';
     }
 
     #[test]
+    fn abort_after_fetch_headers_cancels_keepalive_transport() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/app").unwrap();
+        let host = Rc::new(TestPlatformHost::default());
+        state.set_platform_host(host.clone());
+        let source = v8::String::new(scope, "globalThis.controller=new AbortController();globalThis.response=null;fetch('/infinite',{keepalive:true,signal:controller.signal}).then(r=>response=r)").unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        state.drain_platform_completions(scope, 8).unwrap();
+        scope.perform_microtask_checkpoint();
+        let source = v8::String::new(scope, "if(!response)throw Error('headers not delivered');controller.abort();controller.abort()").unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert_eq!(*host.aborted_streams.lock().unwrap(), vec![7]);
+    }
+
+    #[test]
     fn generated_fetch_and_xhr_discard_late_completions_after_abort() {
         initialize_v8();
         let parsed = html::parse("<main></main>");
@@ -71715,19 +71745,19 @@ mod executable_checkpoint_pending_tests {
             .borrow_mut()
             .push_back("no-referrer".into());
         assert_eq!(state.executable_checkpoint_identity(), Some(before));
-        assert!(state.has_pending_executable_checkpoint_work());
-        assert!(state.has_pending_executable_checkpoint_work());
+        assert!(state.has_pending_executable_checkpoint_work(true));
+        assert!(state.has_pending_executable_checkpoint_work(true));
         assert_eq!(state.take_pending_referrer_policies(), vec!["no-referrer"]);
         let held = state.pending_dynamic_scripts.borrow_mut();
-        assert!(state.has_pending_executable_checkpoint_work());
+        assert!(state.has_pending_executable_checkpoint_work(true));
         drop(held);
         let held = dom.borrow_mut();
         assert!(state.executable_checkpoint_identity().is_none());
-        assert!(state.has_pending_executable_checkpoint_work());
+        assert!(state.has_pending_executable_checkpoint_work(true));
         drop(held);
         assert_eq!(state.executable_checkpoint_identity(), Some(before));
         state.closed_document_stream.set(Some((3, 4)));
-        assert!(state.has_pending_executable_checkpoint_work());
+        assert!(state.has_pending_executable_checkpoint_work(true));
         assert_eq!(state.take_closed_document_stream(), Some((3, 4)));
     }
 }

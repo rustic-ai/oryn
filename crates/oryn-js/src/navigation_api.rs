@@ -164,12 +164,15 @@ struct NavigateRecord {
 
 /// Exact retained navigation work for the executable fixed point. This is
 /// deliberately broader than ready work; no future publication is consumed.
-pub(super) fn executable_checkpoint_pending(state: &V8BindingState) -> bool {
+pub(super) fn executable_checkpoint_pending(
+    state: &V8BindingState,
+    include_history_update: bool,
+) -> bool {
     let Ok(navigation) = state.navigation_api.try_borrow() else {
         return true;
     };
     navigation.pending.is_some()
-        || navigation.history_update.is_some()
+        || (include_history_update && navigation.history_update.is_some())
         || navigation.staged_swap.is_some()
         || navigation.staged_swap_activation.is_some()
         || navigation.finishing_transition.is_some()
@@ -10141,11 +10144,11 @@ mod executable_checkpoint_pending_tests {
         ));
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let held = state.navigation_api.borrow_mut();
-        assert!(executable_checkpoint_pending(&state));
+        assert!(executable_checkpoint_pending(&state, true));
         drop(held);
         state.navigation_api.borrow_mut().queued_finishes.insert(42);
-        assert!(executable_checkpoint_pending(&state));
-        assert!(executable_checkpoint_pending(&state));
+        assert!(executable_checkpoint_pending(&state, true));
+        assert!(executable_checkpoint_pending(&state, true));
         assert_eq!(
             state
                 .navigation_api
