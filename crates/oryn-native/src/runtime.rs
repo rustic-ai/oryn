@@ -20809,8 +20809,14 @@ impl PageState {
         use crate::host::webdriver_script::{FrameCommand, FrameResponse};
         #[cfg(feature = "v8-host")]
         {
-            self.poll_page_tasks()
-                .map_err(|error| ScriptError::javascript(error.to_string()))?;
+            // Inventory reads the committed realm set. Pumping author callbacks
+            // here can consume the frame RPC's deadline before the actual script
+            // command is admitted. The actor's normal task turns still make
+            // progress independently of this read-only command.
+            if !matches!(&command, FrameCommand::Inventory) {
+                self.poll_page_tasks()
+                    .map_err(|error| ScriptError::javascript(error.to_string()))?;
+            }
             if let FrameCommand::ResolveActionSelection { current, action_id } = &command {
                 return self
                     .resolve_action_frame_selection(current, *action_id)
@@ -25935,6 +25941,66 @@ fn foreign_subtree_diagnostic(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn frame_inventory_does_not_execute_queued_author_tasks() {
+        use crate::host::webdriver_script::{FrameCommand, FrameResponse};
+        let mut page = PageState::new(
+            PageId(229),
+            None,
+            BrowserConfig::default(),
+            ContextOptions::default(),
+            None,
+            #[cfg(unix)]
+            None,
+        );
+        page.load_document(
+            "https://inventory.test/".into(),
+            "<p>Ready</p>",
+            None,
+            None,
+            HistoryUpdate::Push,
+            &BTreeMap::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        page.executable
+            .as_mut()
+            .unwrap()
+            .execute("globalThis.inventoryTimerRuns=0;setTimeout(()=>{inventoryTimerRuns++},10)")
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+        let FrameResponse::Inventory(realms) =
+            page.webdriver_frames(FrameCommand::Inventory).unwrap()
+        else {
+            panic!("expected frame inventory");
+        };
+        assert!(
+            realms
+                .iter()
+                .any(|realm| realm.live && realm.parent_realm.is_none())
+        );
+        assert_eq!(
+            page.executable
+                .as_mut()
+                .unwrap()
+                .evaluate("String(inventoryTimerRuns)")
+                .unwrap(),
+            "0",
+            "read-only frame inventory must not run arbitrary author callbacks"
+        );
+        page.poll_page_tasks().unwrap();
+        assert_eq!(
+            page.executable
+                .as_mut()
+                .unwrap()
+                .evaluate("String(inventoryTimerRuns)")
+                .unwrap(),
+            "1",
+            "normal actor task turns must still dispatch the queued callback"
+        );
+    }
+
     #[cfg(feature = "v8-host")]
     use crate::network::NetworkError;
     #[cfg(feature = "v8-host")]
