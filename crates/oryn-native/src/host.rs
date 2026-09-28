@@ -8084,6 +8084,12 @@ mod raw_v8 {
             let Some(state) = self.binding_states.get(&self.active_realm).cloned() else {
                 return Ok(None);
             };
+            // A parser callback may replace an initial blank navigation before
+            // the driver consumes the replacement. Its old load must not
+            // resolve the newly installed navigation's onload listener.
+            if state.pending_frame_insertions().contains(&frame) {
+                return Ok(None);
+            }
             let Some(context) = self.contexts.get(&self.active_realm).cloned() else {
                 return Ok(None);
             };
@@ -22554,6 +22560,7 @@ mod tests {
         .unwrap();
         assert_eq!(host.evaluate_string("fetchState").unwrap(), "pending");
         assert!(host.has_pending_async_fetches());
+        assert!(!host.has_runnable_page_work());
         let admitted = host.async_fetch_activity();
         assert!(admitted.0 > activity_before.0);
         assert!(admitted.1);

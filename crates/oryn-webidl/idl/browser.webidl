@@ -2002,6 +2002,8 @@ interface HTMLIFrameElement : HTMLElement {
   [CEReactions] attribute DOMString referrerPolicy;
   readonly attribute Document? contentDocument;
   readonly attribute any contentWindow;
+  [CEReactions] attribute DOMString width;
+  [CEReactions] attribute DOMString height;
 };
 
 [Exposed=Window]

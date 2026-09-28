@@ -4034,7 +4034,8 @@ impl V8BindingState {
             _ => true,
         }
     }
-    pub fn has_pending_platform_work(&self) -> bool {
+    /// Work already queued locally; an outstanding host request is not runnable.
+    pub fn has_ready_platform_work(&self) -> bool {
         html_stream::pending(self)
             || idb_delivery::pending(self)
             || self.queued_idb_operations.borrow().iter().any(|queued| {
@@ -4052,6 +4053,10 @@ impl V8BindingState {
                         .is_none_or(|pending| self.platform_operation_is_foreground(pending))
                 })
             || !self.deferred_platform_tasks.borrow().is_empty()
+    }
+
+    pub fn has_pending_platform_work(&self) -> bool {
+        self.has_ready_platform_work()
             || self
                 .pending_platform_operations
                 .borrow()
@@ -33838,13 +33843,15 @@ fn get_attribute_value<'s>(
             };
             v8::Boolean::new(scope, record.attributes.get_null(attribute).is_some()).into()
         }
-        ("HTMLAreaElement", "coords" | "shape") => v8_string(
-            scope,
-            record
-                .attributes
-                .get_null(member)
-                .map_or("", String::as_str),
-        )?,
+        ("HTMLAreaElement", "coords" | "shape") | ("HTMLIFrameElement", "width" | "height") => {
+            v8_string(
+                scope,
+                record
+                    .attributes
+                    .get_null(member)
+                    .map_or("", String::as_str),
+            )?
+        }
         ("HTMLDialogElement", "returnValue") => v8_string(scope, &record.dialog_return_value)?,
         (
             interface,
@@ -35002,6 +35009,7 @@ fn set_attribute_value<'s>(
             | "HTMLButtonElement"
             | "HTMLFormElement"
     ) && !matches!(member, "src" | "formAction" | "action")
+        || interface == "HTMLIFrameElement" && matches!(member, "width" | "height")
         || interface.starts_with("HTML")
             && matches!(
                 member,
@@ -35142,6 +35150,9 @@ fn set_attribute_value<'s>(
         ("Element", "className") => dom.set_attribute_ns(node, None, "class", value)?,
         ("HTMLElement", "title" | "lang" | "dir") | ("HTMLSlotElement", "name") => {
             dom.set_attribute(node, member, value)?
+        }
+        ("HTMLIFrameElement", "width" | "height") => {
+            dom.set_attribute_ns(node, None, member, value)?;
         }
         ("HTMLCanvasElement", "width" | "height") => {
             dom.set_attribute(
@@ -57780,6 +57791,68 @@ target.srcdoc='raw';
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "abort|201|true|text/plain|upgrade|db:2");
+    }
+
+    #[test]
+    fn iframe_dimensions_reflect_domstrings_in_both_directions() {
+        check_global_event_prototype_script(
+            r#"(() => {
+            const frame = document.createElement('iframe');
+            for (const name of ['width', 'height']) {
+                if (frame[name] !== '') throw Error('missing default');
+                for (const value of ['500', '75%', '', '\uD801', '\uDC01', '\uD83D\uDE00']) {
+                    frame[name] = value;
+                    if (frame[name] !== value || frame.getAttribute(name) !== value) throw Error('IDL reflection');
+                    frame.setAttribute(name, value + 'x');
+                    if (frame[name] !== value + 'x') throw Error('attribute reflection');
+                }
+                frame[name] = 300;
+                if (frame[name] !== '300') throw Error('string conversion');
+                frame.removeAttribute(name);
+                if (frame[name] !== '') throw Error('removed default');
+            }
+            return true;
+        })()"#,
+        );
+    }
+
+    #[test]
+    fn waiting_fetch_is_pending_but_only_received_completion_is_runnable() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/").unwrap();
+        let host = Rc::new(TestPlatformHost::default());
+        state.set_platform_host(host.clone());
+        let source = v8::String::new(
+            scope,
+            "globalThis.result='pending';fetch('/data').then(r=>result=String(r.status))",
+        )
+        .unwrap();
+        test_eval::run(scope, source);
+        assert!(state.has_pending_platform_work());
+        assert!(!state.has_ready_platform_work());
+        let completion = host.completions.lock().unwrap().pop_front().unwrap();
+        state
+            .ready_platform_completions
+            .borrow_mut()
+            .push_back(completion);
+        assert!(state.has_ready_platform_work());
+        state.drain_platform_completions(scope, 8).unwrap();
+        scope.perform_microtask_checkpoint();
+        let source = v8::String::new(scope, "result").unwrap();
+        assert_eq!(
+            test_eval::run(scope, source).to_rust_string_lossy(scope),
+            "201"
+        );
+        assert!(!state.has_ready_platform_work());
+        assert!(!state.has_pending_platform_work());
     }
 
     #[test]

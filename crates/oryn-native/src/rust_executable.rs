@@ -31774,6 +31774,58 @@ mod tests {
     }
 
     #[test]
+    fn parser_iframe_srcdoc_load_observes_requested_document() {
+        let mut page = RustExecutableDocument::load(
+            r#"<!doctype html>
+            <iframe id=f></iframe><script>
+            globalThis.loaded = [];
+            f.onload = () => loaded.push(f.contentDocument.querySelector('target') !== null);
+            f.srcdoc = '<target></target>';
+            </script>"#,
+        )
+        .unwrap();
+        assert_eq!(page.evaluate("JSON.stringify(loaded)").unwrap(), "[true]");
+    }
+
+    #[test]
+    fn parser_progresses_past_async_script_before_timer_completion() {
+        let mut page = RustExecutableDocument::load(
+            r#"<!doctype html><script>
+            globalThis.observed = 'pending';
+            (async () => {
+                await new Promise(resolve => setTimeout(resolve, 10));
+                observed = String(document.querySelector('iframe') !== null);
+            })();
+            </script><iframe srcdoc='<p>child</p>'></iframe>"#,
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(15));
+        page.checkpoint().unwrap();
+        assert_eq!(page.evaluate("observed").unwrap(), "true");
+    }
+
+    #[test]
+    fn iframe_resize_updates_child_media_styles_synchronously() {
+        let mut page = RustExecutableDocument::load(
+            r#"<!doctype html><iframe id=f width=300 height=300 style='border:0'
+            srcdoc='<style>@layer {target {color:red}} @media(min-width:500px) {@layer {target {color:green}}}</style><target></target>'></iframe>"#,
+        ).unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const target = f.contentDocument.querySelector('target');
+            const colors = [getComputedStyle(target).color];
+            f.width = 500;
+            colors.push(getComputedStyle(target).color);
+            JSON.stringify([colors, f.getBoundingClientRect().width, f.contentWindow.innerWidth])
+        "#
+            )
+            .unwrap(),
+            r#"[["rgb(255, 0, 0)","rgb(0, 128, 0)"],500,500]"#
+        );
+    }
+
+    #[test]
     fn computed_style_of_child_element_uses_its_own_document() {
         let mut page = RustExecutableDocument::load(
             r#"<!doctype html><style>target { color: blue }</style>

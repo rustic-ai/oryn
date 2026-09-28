@@ -1013,16 +1013,25 @@ impl RawV8Host {
         if self.has_css_dependencies() {
             return true;
         }
-        self.has_pending_async_fetches()
+        // External completions are collected by the bounded actor poll. Waiting
+        // for one must not force zero-delay polling or repeated checkpoints.
+        self.isolate
+            .get_slot::<AsyncFetches>()
+            .is_some_and(|fetches| {
+                fetches.deferred.keys().any(|id| {
+                    fetches
+                        .pending
+                        .get(id)
+                        .is_none_or(|pending| !self.realm_is_parked(pending.environment.realm))
+                })
+            })
             || self.next_timer_delay().is_some_and(|delay| delay.is_zero())
             || self
                 .binding_states
                 .iter()
                 .filter(|(realm, _)| !self.realm_is_parked(**realm))
                 .map(|(_, state)| state)
-                .any(|state| {
-                    state.has_pending_platform_work() || state.has_closed_document_stream()
-                })
+                .any(|state| state.has_ready_platform_work() || state.has_closed_document_stream())
     }
 
     /// Initial native Windows need no compatibility bootstrap to receive

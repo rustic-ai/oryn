@@ -301,6 +301,7 @@ pub(super) struct FrameScriptPreparation {
     html_publication_pending: bool,
     html_input_error: Option<HostError>,
     html_eof: bool,
+    html_bytes_remaining: usize,
     _input_reservation: Option<ScriptSourceReservation>,
     #[cfg(unix)]
     parser_async: Option<PendingParserAsyncModules>,
@@ -469,6 +470,7 @@ impl FrameScriptPreparation {
             html_publication_pending: false,
             html_input_error: None,
             html_eof: false,
+            html_bytes_remaining: 0,
             _input_reservation: None,
             #[cfg(unix)]
             parser_async: None,
@@ -1761,13 +1763,14 @@ impl FrameScriptPreparation {
         Ok(())
     }
     fn poll_html_parser(&mut self, page: &mut RustExecutableDocument) -> Result<(), HostError> {
-        let mut remaining = 64 * 1024;
         for _ in 0..64 {
-            let Some(consumed) = self.poll_html_parser_slice(page, remaining)? else {
+            if self.html_bytes_remaining == 0 {
                 break;
-            };
-            remaining = remaining.saturating_sub(consumed);
-            if remaining == 0 {
+            }
+            if self
+                .poll_html_parser_slice(page, self.html_bytes_remaining)?
+                .is_none()
+            {
                 break;
             }
         }
@@ -1887,6 +1890,9 @@ impl FrameScriptPreparation {
                     }
                 };
             let suffix = chunk.split_off(progress.consumed_bytes);
+            self.html_bytes_remaining = self
+                .html_bytes_remaining
+                .saturating_sub(progress.consumed_bytes);
             if !suffix.is_empty() {
                 parser.input.push_front(suffix);
             }
@@ -1968,6 +1974,7 @@ impl FrameScriptPreparation {
         Ok(None)
     }
     fn poll_parser(&mut self, page: &mut RustExecutableDocument) -> Result<(), HostError> {
+        self.html_bytes_remaining = 64 * 1024;
         self.publish_html_slice(page)?;
         self.drain_parser_events(page)?;
         if !self.live(&page.agent.host) {
@@ -3101,7 +3108,18 @@ impl RustExecutableDocument {
                         execution_allowed,
                         pending.live_parser.as_ref().map(|parser| &parser.parser),
                     ) {
-                        Ok(true) => {}
+                        Ok(true) => {
+                            // Script completion resumes its tokenizer before
+                            // unrelated task sources. Spend only this turn's
+                            // remaining byte budget; a new script stays queued
+                            // for the next turn and slow input never blocks it.
+                            if let Err(error) = pending.poll_html_parser(self) {
+                                pending.parser_retry =
+                                    Some(std::time::Instant::now() + Duration::from_millis(25));
+                                self.frame_script_preparations.push_back(pending);
+                                return Err(error);
+                            }
+                        }
                         Ok(false) => {
                             if job.execution.receipt.is_some() {
                                 pending.parser_retry =
