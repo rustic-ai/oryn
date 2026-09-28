@@ -91,6 +91,30 @@ class DeveloperInputTests(unittest.TestCase):
             path.write_text('/a?variant=1\n/a?variant=2\n')
             self.assertEqual(runner.urls(path), ['/a?variant=1', '/a?variant=2'])
 
+    def test_summary_streams_diagnostics_and_preserves_failure_and_timing(self):
+        import weakref
+        class Event(dict):
+            pass
+        def events():
+            yield {'action': 'suite_start'}
+            yield {'action': 'test_start', 'test': '/a', 'time': 1000}
+            references = []
+            for _ in range(200):
+                event = Event(action='log', message='diagnostic')
+                references.append(weakref.ref(event))
+                yield event
+                if len(references) > 2:
+                    self.assertIsNone(references[-3](), 'diagnostic events must not accumulate')
+            yield {'action': 'test_status', 'test': '/a', 'status': 'FAIL'}
+            yield {'action': 'test_end', 'test': '/a', 'status': 'ERROR', 'message': 'actual failure', 'time': 4500}
+            yield {'action': 'suite_end'}
+        execution = dict(returncode=1, timed_out=False, cleanup_complete=True, error=None)
+        result, interval, failures = runner.summarize_events(['/a'], events(), execution)
+        self.assertTrue(result['compatibility_complete'])
+        self.assertEqual(result['subtest_outcomes'], {'FAIL': 1})
+        self.assertEqual(interval, 3.5)
+        self.assertEqual(failures, [{'test': '/a', 'status': 'ERROR', 'message': 'actual failure'}])
+
     def test_failure_results_are_not_discarded_for_exit_one(self):
         events = [{'action': 'suite_start'}, {'action': 'test_start', 'test': '/a'},
                   {'action': 'test_status', 'test': '/a', 'status': 'FAIL'},

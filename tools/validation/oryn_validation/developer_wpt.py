@@ -62,6 +62,28 @@ def urls(path):
     return rows
 
 
+def summarize_events(population, events, execution):
+    """Reconcile in one pass without retaining multi-gigabyte diagnostic logs."""
+    first_start = last_end = None
+    failures = []
+
+    def observe():
+        nonlocal first_start, last_end
+        for event in events:
+            action = event.get('action')
+            if action == 'test_start':
+                first_start = event['time'] if first_start is None else min(first_start, event['time'])
+            elif action == 'test_end':
+                last_end = event['time'] if last_end is None else max(last_end, event['time'])
+                if event.get('status') not in ('OK', 'PASS'):
+                    failures.append({k: event[k] for k in ('test', 'status', 'message') if k in event})
+            yield event
+
+    reconciliation = reconcile_wpt(population, observe(), execution=execution, assessment_total=0)
+    interval = None if first_start is None or last_end is None else (last_end - first_start) / 1000
+    return reconciliation, interval, failures
+
+
 class DeveloperLookup:
     """Opaque process-local projection with sticky drift and deep-copy returns."""
     def __init__(self, bound, contract):
@@ -186,7 +208,7 @@ def execute(run, store_root, bundle_root, output, include_file, *, workers=6, ti
     include.write_text('\n'.join(population) + '\n')
     phase(output, 'timed_run_start')
     bound = load_developer_inputs(run, store_root=store, bundle_root=bundle_root)
-    bound['run']['workers'] = workers
+    bound['run'].update(workers=workers, run_id=output.name, original_run_id=output.name, attempt=1)
     source = source_info()
     bound['run']['runner'] = dict(commit=source['commit'], working_tree_changes=source['working_tree_changes'])
     config_path = output / 'developer-config.json'
@@ -245,16 +267,15 @@ def execute(run, store_root, bundle_root, output, include_file, *, workers=6, ti
         try:
             actual = output / 'output'
             if process is not None and (actual / 'mozlog.jsonl').exists():
-                events = list(read_mozlog(actual / 'mozlog.jsonl')); execution = dict(process)
+                execution = dict(process)
                 if settled:
                     execution.update(cleanup_complete=settled['cleanup_complete'], cleanup_errors=settled['cleanup_errors'])
-                result['reconciliation'] = reconcile_wpt(population, events, execution=execution, assessment_total=0)
-                starts = [x['time'] for x in events if x.get('action') == 'test_start']
-                ends = [x['time'] for x in events if x.get('action') == 'test_end']
-                if starts and ends:
-                    result['first_test_start_to_last_test_end_seconds'] = (max(ends) - min(starts)) / 1000
-                write(actual / 'non-ok-tests.json', [{k: e[k] for k in ('test', 'status', 'message') if k in e}
-                    for e in events if e.get('action') == 'test_end' and e.get('status') not in ('OK', 'PASS')])
+                reconciliation, interval, failures = summarize_events(
+                    population, read_mozlog(actual / 'mozlog.jsonl'), execution)
+                result['reconciliation'] = reconciliation
+                if interval is not None:
+                    result['first_test_start_to_last_test_end_seconds'] = interval
+                write(actual / 'non-ok-tests.json', failures)
                 from wpt_execution_evidence import protocol_custody
                 result['protocol_completed_sessions'] = protocol_custody(actual / 'protocol-custody.jsonl',
                     bound['run']['build']['manifest_sha256'])
