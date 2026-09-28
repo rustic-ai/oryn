@@ -3457,6 +3457,23 @@ impl SharedContextClient {
         status: Option<crate::render_request_status::Status>,
         initiator: Option<&str>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
+        // Payload-free request-API attempts on the calling actor thread, including
+        // preload/cache waits. These are not counts of physical wire exchanges.
+        // Nested requests retain exclusive timing; diagnostics never authorize IPC.
+        let operation = match &request {
+            ContextServiceRequest::NativePlatformQuery { request, .. } => match request {
+                oryn_js::platform_control::Request::WindowState => "request.window_state",
+                oryn_js::platform_control::Request::WindowPosition => "request.window_position",
+                oryn_js::platform_control::Request::CspEvents { .. } => "request.csp_events",
+                oryn_js::platform_control::Request::StorageEvents { .. } => {
+                    "request.storage_events"
+                }
+                _ => "request.platform_other",
+            },
+            _ => "request.context_other",
+        };
+        let _profile = crate::native_timing::stage(operation);
+        crate::native_timing::count(operation, 1);
         if initiator != Some("link") {
             let candidate=match &request{ContextServiceRequest::RunScriptLoad{page_id,token,render_blocking,request}=>self.claim_resource_preload(request,*render_blocking||matches!(request.as_ref(),ContextServiceRequest::LoadPageResource{initiator,..}if initiator.stylesheet.as_ref().is_some_and(|sheet|sheet.render_blocking))).map(|entry|(entry,Some((*page_id,*token)))),ContextServiceRequest::LoadPageResource{initiator,..}=>self.claim_resource_preload(&request,initiator.stylesheet.as_ref().is_some_and(|sheet|sheet.render_blocking)).map(|entry|(entry,None)),_=>None};
             if let Some((entry, unused_lease)) = candidate {

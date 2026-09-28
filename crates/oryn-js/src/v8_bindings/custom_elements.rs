@@ -961,6 +961,32 @@ impl Drop for DefinitionGuard<'_> {
 }
 
 impl Registry {
+    /// A failed observation is busy; unlike has_pending this does not borrow
+    /// infallibly and includes retained restoration/upgrades still awaiting work.
+    pub(super) fn checkpoint_pending(&self, state: &V8BindingState) -> bool {
+        self.initial_reactions
+            .try_borrow()
+            .map_or(true, |queue| !queue.is_empty())
+            || self
+                .reactions
+                .try_borrow()
+                .map_or(true, |queue| !queue.is_empty())
+            || self
+                .pending_upgrades
+                .try_borrow()
+                .map_or(true, |queue| !queue.is_empty())
+            || self
+                .pending_restoration
+                .try_borrow()
+                .map_or(true, |pending| pending.is_some())
+            || self.processing.get()
+            || self.constructing.get() != 0
+            || state
+                .dom
+                .try_borrow()
+                .map_or(true, |dom| self.cursor.get() != dom.mutation_cursor())
+    }
+
     pub(super) fn has_pending(&self, state: &V8BindingState) -> bool {
         !state.execution_suspended()
             && !state.execution_retired()
@@ -9082,5 +9108,30 @@ mod initial_document_registry_tests {
         finish(scope, &first_state).unwrap();
         finish(scope, &second_state).unwrap();
         assert!(eval(scope, r#"JSON.stringify(events)==='[true,"connected","disconnected","adopted","local-connected"]'"#).is_true());
+    }
+}
+
+#[cfg(test)]
+mod checkpoint_pending_tests {
+    use super::*;
+
+    #[test]
+    fn borrowed_reaction_queue_prevents_idle_without_panicking_or_consuming() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let held = state.custom_elements.reactions.borrow_mut();
+        assert!(state.custom_elements.checkpoint_pending(&state));
+        assert!(state.has_pending_executable_checkpoint_work());
+        drop(held);
+        assert!(state.custom_elements.reactions.borrow().is_empty());
     }
 }

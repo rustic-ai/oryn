@@ -530,8 +530,14 @@ mod tests {
         assert_eq!(value["stream_id"], 33);
         assert_eq!(value["document_generation"], 8);
         assert!(value["observed_success"].is_null());
-        assert_eq!(close_timing_identity(captured, None, None, Some(false))["observed_success"], false);
-        assert_eq!(close_timing_identity(captured, None, None, Some(true))["observed_success"], true);
+        assert_eq!(
+            close_timing_identity(captured, None, None, Some(false))["observed_success"],
+            false
+        );
+        assert_eq!(
+            close_timing_identity(captured, None, None, Some(true))["observed_success"],
+            true
+        );
         assert_eq!(value.as_object().unwrap().len(), 11);
         for forbidden in ["grant", "token", "url", "source", "cookie", "password"] {
             assert!(!value.to_string().contains(forbidden));
@@ -554,7 +560,10 @@ mod tests {
         ] {
             assert!(close_timing_phase(phase).is_none());
         }
-        assert_eq!(close_timing_phase(Phase::CloseAgentsSettled), Some("close_agents_settled"));
+        assert_eq!(
+            close_timing_phase(Phase::CloseAgentsSettled),
+            Some("close_agents_settled")
+        );
     }
 
     #[cfg(all(unix, feature = "v8-host"))]
@@ -571,7 +580,10 @@ mod tests {
             (Phase::CloseActorEntered, "close_actor_entered"),
             (Phase::CloseRealmsPending, "close_realms_pending"),
             (Phase::CloseDocumentsPending, "close_documents_pending"),
-            (Phase::CloseNativeCleanupPending, "close_native_cleanup_pending"),
+            (
+                Phase::CloseNativeCleanupPending,
+                "close_native_cleanup_pending",
+            ),
             (Phase::CloseActorReleased, "close_actor_released"),
             (Phase::CloseAgentsSettled, "close_agents_settled"),
         ];
@@ -581,7 +593,13 @@ mod tests {
             let mut identity = id(4, 12);
             identity.command = Some("close");
             for (index, (phase, _)) in phases.iter().enumerate() {
-                result(Some(identity), *phase, None, Some(8), (index == 5).then_some(false));
+                result(
+                    Some(identity),
+                    *phase,
+                    None,
+                    Some(8),
+                    (index == 5).then_some(false),
+                );
             }
             // These calls must neither write to the pipe nor consume native
             // telemetry slots. Missing identity cannot become a completed close.
@@ -589,39 +607,67 @@ mod tests {
                 result(Some(identity), Phase::RequestReceived, None, None, None);
             }
             result(None, Phase::CloseActorReleased, None, None, Some(true));
-            result(Some(identity), Phase::CloseAgentsSettled, None, None, Some(true));
+            result(
+                Some(identity),
+                Phase::CloseAgentsSettled,
+                None,
+                None,
+                Some(true),
+            );
             return;
         }
         struct Remove(std::path::PathBuf);
         impl Drop for Remove {
-            fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); }
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
         }
         let path = std::env::temp_dir().join(format!(
             "oryn-close-timing-{}-{}.jsonl",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
-        let file = OpenOptions::new().read(true).append(true).create_new(true).mode(0o600).open(&path).unwrap();
+        let file = OpenOptions::new()
+            .read(true)
+            .append(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
         let _remove = Remove(path.clone());
         // Duplicate above the protocol destinations before changing child FD 5.
         let source = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 64) };
         assert!(source >= 64);
         let source = unsafe { File::from_raw_fd(source) };
         let mut command = Command::new(std::env::current_exe().unwrap());
-        command.args(["--exact", FILTER, "--nocapture"]).env(MODE, "1");
+        command
+            .args(["--exact", FILTER, "--nocapture"])
+            .env(MODE, "1");
         let fd = source.as_raw_fd();
         unsafe {
             command.pre_exec(move || {
-                if libc::dup2(fd, 5) != 5 { return Err(std::io::Error::last_os_error()); }
+                if libc::dup2(fd, 5) != 5 {
+                    return Err(std::io::Error::last_os_error());
+                }
                 Ok(())
             });
         }
         let output = command.output().unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert!(!String::from_utf8_lossy(&output.stderr).contains("oryn_ipc_progress"));
         let bytes = std::fs::read(&path).unwrap();
-        let rows: Vec<serde_json::Value> = bytes.split(|byte| *byte == b'\n')
-            .filter(|line| !line.is_empty()).map(|line| serde_json::from_slice(line).unwrap()).collect();
+        let rows: Vec<serde_json::Value> = bytes
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice(line).unwrap())
+            .collect();
         assert_eq!(rows.len(), 7);
         for (index, row) in rows.iter().enumerate() {
             assert_eq!(row["kind"], "oryn_native_timing");
@@ -641,7 +687,9 @@ mod tests {
             assert_eq!(row["terminal_cpu_complete"], false);
             assert!(row["outcome"].is_null());
             assert!(row["scope_id"].is_null());
-            if index < 5 { assert!(row["identity"]["observed_success"].is_null()); }
+            if index < 5 {
+                assert!(row["identity"]["observed_success"].is_null());
+            }
         }
         assert_eq!(rows[5]["identity"]["observed_success"], false);
         assert_eq!(rows[6]["identity"]["observed_success"], true);

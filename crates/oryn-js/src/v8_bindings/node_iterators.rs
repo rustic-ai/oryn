@@ -39,6 +39,11 @@ impl Drop for Record {
         release_or_queue(&self.location.borrow());
     }
 }
+pub(super) fn checkpoint_releases_pending() -> bool {
+    RELEASES.with(|queue| queue.try_borrow().map_or(true, |queue| !queue.is_empty()))
+        || DomRuntime::has_pending_node_iterator_releases()
+}
+
 pub(super) fn drain() -> Result<(), BindingError> {
     oryn_dom::drain_node_iterator_releases()?;
     let pending = RELEASES.with(|queue| std::mem::take(&mut *queue.borrow_mut()));

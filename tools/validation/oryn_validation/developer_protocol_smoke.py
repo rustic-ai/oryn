@@ -8,7 +8,7 @@ and address-class relays; it cannot establish fixture/TLS qualification. This
 module is never called by official WPT admission.
 """
 import argparse
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import json
 import os
 from pathlib import Path
@@ -23,6 +23,50 @@ from .worker_environment import worker_environment, assert_worker_environment
 TEST = '/dom/nodes/Node-isConnected.html'
 DEADLINE = 600
 SCOPE = 'HTTP adapter smoke only; no official TLS activation or address-class relay coverage'
+NATIVE_TIMING_SCOPE = 'native fd capability only; Python timing and collector lifecycle unchanged'
+
+
+def _check_native_timing(value):
+    if type(value) is not bool:
+        raise ValueError('native timing selection must be a boolean')
+    return value
+
+
+def _without_native_timing(command, browser, contract):
+    """Remove only the real collector's argument from the normal safe command.
+
+    No alternative driver argv, token, worker binding or fixture can be supplied
+    through this developer-only switch. Fail closed if the upstream shape changes.
+    """
+    collector = getattr(browser, '_native_timing', None)
+    descriptor = getattr(collector, 'fd', None)
+    if type(descriptor) is not int or descriptor < 3 or getattr(collector, 'closed', None) is not False:
+        raise ValueError('developer timing toggle requires the active normal collector')
+    expected = [browser.webdriver_binary, '--host', browser.host, '--port', str(browser.port),
+                '--browser-binary', browser.binary, '--auth-token-file', browser._token_path,
+                '--configuration', contract['fixture_path'],
+                '--configuration-sha256', contract['fixture_sha256'],
+                '--diagnostic-fd', str(descriptor)]
+    if (type(command) is not list or command != expected
+            or any(type(value) is not str or not value or '\0' in value for value in command)):
+        raise ValueError('developer timing toggle found an unexpected normal browser command')
+    return command[:-2]
+
+
+@contextmanager
+def _browser_native_timing(browser, contract, enabled):
+    """Keep the default browser unchanged; explicit off wraps this instance only."""
+    if _check_native_timing(enabled):
+        yield
+        return
+    from unittest.mock import patch
+    original = browser.make_command
+
+    def make_command():
+        return _without_native_timing(original(), browser, contract)
+
+    with patch.object(browser, 'make_command', side_effect=make_command):
+        yield
 
 
 def _write(path, value):
@@ -71,6 +115,7 @@ def child(config_path, expected_sha256):
     window_samples = config.get('window_profile_samples', 0)
     if type(window_samples) is not int or not 0 <= window_samples <= 20:
         raise ValueError('window profiling requires 0 to 20 samples')
+    native_timing = _check_native_timing(config.get('native_timing', True))
     path, store, bundle = (Path(config[key]) for key in ('run', 'store_root', 'bundle_root'))
     run = read_object(path)
     if _digest(path) != config['run_sha256']:
@@ -111,12 +156,14 @@ def child(config_path, expected_sha256):
         return contract
     result = {'kind': 'developer-protocol-smoke', 'qualification': 'not-evaluated', 'scope': SCOPE,
               'test': TEST, 'setup_complete': False, 'teardown_complete': False,
-              'errors': [], 'selected_worker': contract['worker_binding']}
+              'errors': [], 'selected_worker': contract['worker_binding'],
+              'native_timing': native_timing, 'native_timing_scope': NATIVE_TIMING_SCOPE}
     browser = executor = None
     try:
         with ExitStack() as stack:
-            # These are the only replaced product functions. The developer
-            # environment also omits official TLS bootstrap/relay qualification.
+            # Default mode replaces only the two qualification lookups. Explicit
+            # native timing off additionally wraps this browser's make_command.
+            # The environment omits official TLS bootstrap/relay qualification.
             stack.enter_context(patch.object(integration, 'load_contract', side_effect=lookup))
             stack.enter_context(patch.object(provenance, 'load_run_contract', side_effect=lookup))
             logger = stack.enter_context(wptrunner.GlobalLogger(args, {'raw': sys.stdout}))
@@ -140,6 +187,7 @@ def child(config_path, expected_sha256):
             browser_args = product.get_browser_kwargs(logger, 'testharness', subsuite.run_info,
                 config=env.config, subsuite=subsuite, **options)
             browser = product.get_browser_cls('testharness')(logger, manager_number=0, **browser_args)
+            stack.enter_context(_browser_native_timing(browser, contract, native_timing))
             try:
                 browser.start({})
                 cls, browser_kwargs = browser.executor_browser()
@@ -191,7 +239,8 @@ def child(config_path, expected_sha256):
         _write(output / 'developer-result.json', result)
 
 
-def execute(run_path, *, store_root, bundle_root, output, window_profile_samples=0):
+def execute(run_path, *, store_root, bundle_root, output, window_profile_samples=0, native_timing=True):
+    native_timing = _check_native_timing(native_timing)
     from .processes import run_owned, ResourceLease
     from .bundle_ownership import registered_bundle_owner
     from .production import validate_production
@@ -216,6 +265,7 @@ def execute(run_path, *, store_root, bundle_root, output, window_profile_samples
               'run': str(bound['path']), 'run_sha256': bound['sha256'], 'store_root': str(store_root),
               'bundle_root': str(bundle_root), 'fixture_role': fixture_role,
               'window_profile_samples': window_profile_samples,
+              'native_timing': native_timing, 'native_timing_scope': NATIVE_TIMING_SCOPE,
               'qualification_lookup': 'synthetic developer projection; no official admission'}
     config_path = output / 'developer-config.json'; _write(config_path, config)
     env = {key: value for key, value in os.environ.items()
@@ -246,7 +296,10 @@ def execute(run_path, *, store_root, bundle_root, output, window_profile_samples
                'inputs': inputs.finalization, 'current_source': source.finalization})
     if process['returncode'] != 0 or not process['cleanup_complete'] or process['forced_cleanup']:
         raise RuntimeError('developer protocol smoke failed; inspect ' + str(output))
-    return read_object(output / 'developer-result.json')
+    result = read_object(output / 'developer-result.json')
+    if result.get('native_timing') is not native_timing:
+        raise ValueError('developer result differs from selected native timing mode')
+    return result
 
 
 def main():
@@ -256,14 +309,18 @@ def main():
         parser.add_argument('--' + name, type=Path)
     parser.add_argument('--config-sha256')
     parser.add_argument('--window-profile-samples', type=int, default=0)
+    parser.add_argument('--no-native-timing', action='store_true',
+                        help='developer probe only: omit the native diagnostic fd grant')
     args = parser.parse_args()
     if args.mode == 'child':
+        if args.no_native_timing:
+            parser.error('child native timing selection must come from the hashed configuration')
         child(args.config, args.config_sha256)
     else:
         if any(getattr(args, key) is None for key in ('run', 'store_root', 'bundle_root', 'output')):
             parser.error('execute requires explicit run, store-root, bundle-root and developer output')
         execute(args.run, store_root=args.store_root, bundle_root=args.bundle_root, output=args.output,
-                window_profile_samples=args.window_profile_samples)
+                window_profile_samples=args.window_profile_samples, native_timing=not args.no_native_timing)
 
 
 if __name__ == '__main__':

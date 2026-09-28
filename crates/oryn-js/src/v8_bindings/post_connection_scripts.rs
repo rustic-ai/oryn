@@ -665,6 +665,15 @@ pub(super) fn delay(state: &V8BindingState) -> Option<std::time::Duration> {
         .map(|batch| batch.retry.saturating_duration_since(now))
         .min()
 }
+pub(super) fn checkpoint_pending(state: &V8BindingState) -> bool {
+    state
+        .post_connection_scripts
+        .try_borrow()
+        .map_or(true, |registry| {
+            !registry.queue.is_empty() || registry.draining || registry.admitted.get() != 0
+        })
+}
+
 // Exact empty-queue check; future retries and other owners remain active.
 pub(super) fn queue_empty(state: &V8BindingState) -> bool {
     state.post_connection_scripts.borrow().queue.is_empty()

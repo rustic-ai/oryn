@@ -111,10 +111,10 @@ mod ipc_progress;
 #[cfg(target_os = "linux")]
 pub mod linux_sandbox;
 pub mod native_timing;
-mod page_terminal_control;
 pub mod network;
 mod observable;
 pub mod oil;
+mod page_terminal_control;
 pub mod referrer;
 pub mod replay;
 pub mod resource_audit;

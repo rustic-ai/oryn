@@ -26,6 +26,7 @@ struct State {
     transitions: u64,
 }
 struct Tracker {
+    profile: crate::native_timing::TurnCoalescer,
     key: Key,
     root_id: u64,
     state: Mutex<State>,
@@ -46,7 +47,9 @@ impl Tracker {
                 "incoherent": self.incoherent.load(Ordering::Relaxed),
                 "phase_clock": "clock_monotonic"
             }),
-            Err(_) => serde_json::json!({"available":false,"root_id":self.root_id,"reason":"snapshot_lock_unavailable"}),
+            Err(_) => {
+                serde_json::json!({"available":false,"root_id":self.root_id,"reason":"snapshot_lock_unavailable"})
+            }
         }
     }
     fn missed(&self) {
@@ -94,7 +97,11 @@ impl Tracker {
         };
         state.next_scope = id;
         let previous = state.current.clone();
-        let owner = owner.or_else(|| previous.as_ref().and_then(|frame| frame.retained_navigation_owner));
+        let owner = owner.or_else(|| {
+            previous
+                .as_ref()
+                .and_then(|frame| frame.retained_navigation_owner)
+        });
         state.current = Some(Frame {
             scope_id: id,
             parent_scope_id: previous.as_ref().map(|frame| frame.scope_id),
@@ -105,7 +112,12 @@ impl Tracker {
         let event = self.notification(&mut state, "enter");
         drop(state);
         emit_transition(event);
-        PhaseGuard { tracker: Some(self.clone()), scope_id: id, previous, _actor_thread: std::marker::PhantomData }
+        PhaseGuard {
+            tracker: Some(self.clone()),
+            scope_id: id,
+            previous,
+            _actor_thread: std::marker::PhantomData,
+        }
     }
 }
 fn monotonic() -> Option<u128> {
@@ -134,8 +146,12 @@ pub(crate) struct Registration(Arc<Tracker>);
 impl Drop for Registration {
     fn drop(&mut self) {
         self.0.retired.store(true, Ordering::Relaxed);
+        self.0.profile.retire();
         if let Ok(mut registry) = registry().try_lock() {
-            if registry.get(&self.0.key).is_some_and(|weak| weak.ptr_eq(&Arc::downgrade(&self.0))) {
+            if registry
+                .get(&self.0.key)
+                .is_some_and(|weak| weak.ptr_eq(&Arc::downgrade(&self.0)))
+            {
                 registry.remove(&self.0.key);
             }
         }
@@ -149,16 +165,26 @@ fn register_enabled(page: u64, generation: u64, enabled: bool) -> Option<Registr
         return None;
     }
     let mut registry = registry().try_lock().ok()?;
-    registry.retain(|_, weak| weak.upgrade().is_some_and(|value| !value.retired.load(Ordering::Relaxed)));
+    registry.retain(|_, weak| {
+        weak.upgrade()
+            .is_some_and(|value| !value.retired.load(Ordering::Relaxed))
+    });
     let key = (page, generation);
     if registry.len() >= ROOT_LIMIT || registry.contains_key(&key) {
         return None;
     }
     static NEXT_ROOT: AtomicU64 = AtomicU64::new(1);
-    let id = NEXT_ROOT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1)).ok()?;
+    let id = NEXT_ROOT
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+        .ok()?;
     let tracker = Arc::new(Tracker {
-        key, root_id: id, state: Default::default(), incoherent: AtomicBool::new(false),
-        missed_updates: AtomicU64::new(0), retired: AtomicBool::new(false),
+        profile: Default::default(),
+        key,
+        root_id: id,
+        state: Default::default(),
+        incoherent: AtomicBool::new(false),
+        missed_updates: AtomicU64::new(0),
+        retired: AtomicBool::new(false),
     });
     registry.insert(key, Arc::downgrade(&tracker));
     Some(Registration(tracker))
@@ -174,12 +200,19 @@ pub(crate) struct PhaseGuard {
 }
 impl PhaseGuard {
     fn empty() -> Self {
-        Self { tracker: None, scope_id: 0, previous: None, _actor_thread: std::marker::PhantomData }
+        Self {
+            tracker: None,
+            scope_id: 0,
+            previous: None,
+            _actor_thread: std::marker::PhantomData,
+        }
     }
 }
 impl Drop for PhaseGuard {
     fn drop(&mut self) {
-        let Some(tracker) = &self.tracker else { return; };
+        let Some(tracker) = &self.tracker else {
+            return;
+        };
         let Ok(mut state) = tracker.state.try_lock() else {
             tracker.missed();
             return;
@@ -195,6 +228,8 @@ impl Drop for PhaseGuard {
     }
 }
 pub(crate) struct TurnGuard {
+    profile: Option<crate::native_timing::CommandScope>,
+    profile_owner: Option<Arc<Tracker>>,
     phase: Option<PhaseGuard>,
     previous: Option<Arc<Tracker>>,
     installed: bool,
@@ -202,6 +237,15 @@ pub(crate) struct TurnGuard {
 impl Drop for TurnGuard {
     fn drop(&mut self) {
         self.phase.take();
+        if let Some(mut profile) = self.profile.take() {
+            // A returned actor turn is not a successful WebDriver command.
+            // Protocol errors and pending commands retain their own evidence.
+            if let Some(owner) = &self.profile_owner {
+                profile.finish_into(!std::thread::panicking(), &owner.profile);
+            } else {
+                profile.finish(!std::thread::panicking());
+            }
+        }
         if self.installed {
             CURRENT.with(|current| {
                 if let Ok(mut current) = current.try_borrow_mut() {
@@ -211,17 +255,49 @@ impl Drop for TurnGuard {
         }
     }
 }
-pub(crate) fn turn(registration: Option<&Registration>, phase: &'static str, owner: Option<Identity>) -> TurnGuard {
+pub(crate) fn turn(
+    registration: Option<&Registration>,
+    phase: &'static str,
+    owner: Option<Identity>,
+) -> TurnGuard {
     let tracker = registration.map(|registration| registration.0.clone());
+    let profile = crate::native_timing::enabled().then(|| {
+        crate::native_timing::CommandScope::start(
+            "native_actor_turn",
+            serde_json::json!({
+                "turn": phase, "retained_navigation_owner": owner,
+                "page_id": tracker.as_ref().map(|tracker| tracker.key.0),
+                "route_generation": tracker.as_ref().map(|tracker| tracker.key.1),
+                "scope": "synchronous actor turn; not command completion"
+            }),
+        )
+    });
     let installed = CURRENT.with(|current| {
-        current.try_borrow_mut().ok().map(|mut current| std::mem::replace(&mut *current, tracker.clone()))
+        current
+            .try_borrow_mut()
+            .ok()
+            .map(|mut current| std::mem::replace(&mut *current, tracker.clone()))
     });
     let Some(previous) = installed else {
-        if let Some(tracker) = tracker { tracker.missed(); }
-        return TurnGuard { phase: None, previous: None, installed: false };
+        if let Some(tracker) = &tracker {
+            tracker.missed();
+        }
+        return TurnGuard {
+            profile_owner: tracker,
+            profile,
+            phase: None,
+            previous: None,
+            installed: false,
+        };
     };
     let phase = tracker.as_ref().map(|tracker| tracker.enter(phase, owner));
-    TurnGuard { phase, previous, installed: true }
+    TurnGuard {
+        profile_owner: tracker,
+        profile,
+        phase,
+        previous,
+        installed: true,
+    }
 }
 pub(crate) fn phase(label: &'static str) -> PhaseGuard {
     #[cfg(all(test, feature = "v8-host"))]
@@ -245,9 +321,11 @@ pub(crate) fn phase(label: &'static str) -> PhaseGuard {
 // Test-only observation of the real instrumented callers; no sink or global
 // environment mutation is required. The production tracker remains unchanged.
 #[cfg(all(test, feature = "v8-host"))]
+type TestPhaseHook = Box<dyn FnMut(&'static str)>;
+#[cfg(all(test, feature = "v8-host"))]
 thread_local! {
     static TEST_PHASE_LABELS: RefCell<Option<Vec<&'static str>>> = const { RefCell::new(None) };
-    static TEST_PHASE_HOOK: RefCell<Option<Box<dyn FnMut(&'static str)>>> = const { RefCell::new(None) };
+    static TEST_PHASE_HOOK: RefCell<Option<TestPhaseHook>> = const { RefCell::new(None) };
 }
 #[cfg(all(test, feature = "v8-host"))]
 pub(crate) fn capture_test_phase_labels<T>(
@@ -287,28 +365,42 @@ pub(crate) struct CloseTrace {
 }
 impl CloseTrace {
     pub(crate) fn begin(identity: Option<Identity>, boundary: &'static str) -> Self {
-        let identity = identity.filter(|id| id.command == Some("close") && crate::native_timing::enabled());
-        let mut trace = Self { identity, tracker: None, unavailable: None };
+        let identity =
+            identity.filter(|id| id.command == Some("close") && crate::native_timing::enabled());
+        let mut trace = Self {
+            identity,
+            tracker: None,
+            unavailable: None,
+        };
         if let Some(identity) = identity {
             match registry().try_lock() {
                 Ok(registry) => {
-                    trace.tracker = registry.get(&(identity.page_id, identity.route_generation)).and_then(Weak::upgrade);
-                    if trace.tracker.is_none() { trace.unavailable = Some("tracker_absent_or_retired"); }
+                    trace.tracker = registry
+                        .get(&(identity.page_id, identity.route_generation))
+                        .and_then(Weak::upgrade);
+                    if trace.tracker.is_none() {
+                        trace.unavailable = Some("tracker_absent_or_retired");
+                    }
                 }
                 Err(_) => trace.unavailable = Some("registry_lock_unavailable"),
             }
-            if let Some(tracker) = &trace.tracker { tracker.activate(identity); }
+            if let Some(tracker) = &trace.tracker {
+                tracker.activate(identity);
+            }
         }
         trace.point(boundary, None);
         trace
     }
     pub(crate) fn point(&self, boundary: &'static str, observed_success: Option<bool>) {
         if let Some(identity) = self.identity {
-            crate::native_timing::point("close_admission_boundary", serde_json::json!({
-                "close_request":identity,"boundary":boundary,"observed_success":observed_success,
-                "actor_snapshot":self.tracker.as_ref().map(|tracker|tracker.snapshot()),
-                "snapshot_unavailable":self.unavailable,"completion_inferred":false
-            }));
+            crate::native_timing::point(
+                "close_admission_boundary",
+                serde_json::json!({
+                    "close_request":identity,"boundary":boundary,"observed_success":observed_success,
+                    "actor_snapshot":self.tracker.as_ref().map(|tracker|tracker.snapshot()),
+                    "snapshot_unavailable":self.unavailable,"completion_inferred":false
+                }),
+            );
         }
     }
 }
@@ -324,15 +416,24 @@ mod tests {
 
     fn identity(message: u64, command: &'static str) -> Identity {
         Identity {
-            process_session: 80, page_id: 811, route_generation: 900,
-            message_id: Some(message), command: Some(command), context_id: None,
-            peer_pid: None, association: "request",
+            process_session: 80,
+            page_id: 811,
+            route_generation: 900,
+            message_id: Some(message),
+            command: Some(command),
+            context_id: None,
+            peer_pid: None,
+            association: "request",
         }
     }
     fn tracker() -> Arc<Tracker> {
         Arc::new(Tracker {
-            key: (811, 900), root_id: 31, state: Default::default(),
-            incoherent: AtomicBool::new(false), missed_updates: AtomicU64::new(0),
+            profile: Default::default(),
+            key: (811, 900),
+            root_id: 31,
+            state: Default::default(),
+            incoherent: AtomicBool::new(false),
+            missed_updates: AtomicU64::new(0),
             retired: AtomicBool::new(false),
         })
     }
@@ -352,7 +453,10 @@ mod tests {
         let a = entered.clone();
         let b = release.clone();
         let thread = std::thread::spawn(move || {
-            let _phase = child.enter("timers_and_control_tasks", Some(identity(14, "controlled_navigation")));
+            let _phase = child.enter(
+                "timers_and_control_tasks",
+                Some(identity(14, "controlled_navigation")),
+            );
             a.wait();
             b.wait();
         });
@@ -362,7 +466,10 @@ mod tests {
         release.wait();
         thread.join().unwrap();
         assert_eq!(snapshot["frame"]["phase"], "timers_and_control_tasks");
-        assert_eq!(snapshot["frame"]["retained_navigation_owner"]["message_id"], 14);
+        assert_eq!(
+            snapshot["frame"]["retained_navigation_owner"]["message_id"],
+            14
+        );
         assert_eq!(snapshot["close_request"]["message_id"], 15);
         #[cfg(unix)]
         assert!(snapshot["frame"]["start_monotonic_ns"].is_number());
@@ -444,7 +551,9 @@ mod tests {
     fn transitions_are_silent_before_close_and_have_one_noncompletion_cap() {
         let tracker = tracker();
         let mut state = tracker.state.lock().unwrap();
-        for _ in 0..1000 { assert!(tracker.notification(&mut state, "enter").is_none()); }
+        for _ in 0..1000 {
+            assert!(tracker.notification(&mut state, "enter").is_none());
+        }
         assert_eq!(state.transitions, 0);
         state.close = Some(identity(15, "close"));
         for sequence in 0..TRANSITION_LIMIT {
@@ -456,7 +565,9 @@ mod tests {
         assert_eq!(cap["boundary"], "transition_cap");
         assert_eq!(cap["completion_inferred"], false);
         assert!(cap["frame"].is_null());
-        for _ in 0..10 { assert!(tracker.notification(&mut state, "enter").is_none()); }
+        for _ in 0..10 {
+            assert!(tracker.notification(&mut state, "enter").is_none());
+        }
         assert_eq!(state.transitions, TRANSITION_LIMIT + 11);
     }
     #[test]

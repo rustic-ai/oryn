@@ -151,6 +151,11 @@ impl WrapperRegistry {
 
     /// Called from a V8 weak callback. The callback itself performs no DOM
     /// mutation; leases are released at the next safe scheduler checkpoint.
+    /// Observe deferred finalizers without consuming their retained DOM leases.
+    pub fn has_pending_weak_releases(&self) -> bool {
+        !self.pending_release.is_empty()
+    }
+
     pub fn enqueue_weak_release(&mut self, wrapper: WrapperId) {
         self.pending_release.push_back(wrapper);
     }
@@ -426,9 +431,16 @@ mod tests {
             .unwrap();
         dom.remove(node).unwrap();
         assert!(dom.arena().get(node).is_ok());
+        assert!(!wrappers.has_pending_weak_releases());
         wrappers.enqueue_weak_release(wrapper);
+        assert!(wrappers.has_pending_weak_releases());
+        assert!(
+            wrappers.has_pending_weak_releases(),
+            "readiness must not consume a finalizer"
+        );
         assert!(dom.arena().get(node).is_ok());
         assert_eq!(wrappers.process_weak_releases(&mut dom).unwrap(), 1);
+        assert!(!wrappers.has_pending_weak_releases());
         let mutations = dom.drain_mutations();
         dom.release_mutation_roots(&mutations).unwrap();
         assert_eq!(dom.arena().get(node), Err(DomError::StaleNode(node)));

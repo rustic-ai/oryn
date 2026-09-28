@@ -190,6 +190,14 @@ impl Drop for TrackedNodeLease {
         }
     }
 }
+impl DomRuntime {
+    /// Non-consuming thread-local cleanup observation. Borrow conflicts keep
+    /// the executable checkpoint conservative rather than claiming idle.
+    pub fn has_pending_tracked_node_leases() -> bool {
+        PENDING.with(|queue| queue.try_borrow().map_or(true, |queue| !queue.is_empty()))
+    }
+}
+
 pub fn drain_tracked_node_leases() -> Result<(), DomError> {
     let pending = PENDING.with(|pending| std::mem::take(&mut *pending.borrow_mut()));
     let mut retained = Vec::new();
@@ -244,6 +252,23 @@ pub(super) fn migrate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn checkpoint_pending_release_observation_does_not_consume_custody() {
+        drain_tracked_node_leases().unwrap();
+        let owner = Rc::new(RefCell::new(DomRuntime::new()));
+        let node = owner.borrow_mut().create_text("retained");
+        let lease = TrackedNodeLease::new(&owner, node).unwrap();
+        let held = owner.borrow_mut();
+        drop(lease);
+        assert!(DomRuntime::has_pending_tracked_node_leases());
+        assert!(DomRuntime::has_pending_tracked_node_leases());
+        assert!(held.arena.get(node).is_ok());
+        drop(held);
+        drain_tracked_node_leases().unwrap();
+        assert!(!DomRuntime::has_pending_tracked_node_leases());
+        assert!(owner.borrow().arena.get(node).is_err());
+    }
+
     #[test]
     fn snapshot_local_id_cannot_receive_original_lease_release() {
         let source = Rc::new(RefCell::new(DomRuntime::new()));

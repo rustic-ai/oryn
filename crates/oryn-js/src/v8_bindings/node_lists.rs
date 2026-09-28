@@ -508,6 +508,13 @@ fn node_id_at(
     Ok(contents(state, id)?.get(index as usize).copied())
 }
 
+pub(super) fn checkpoint_releases_pending(state: &V8BindingState) -> bool {
+    ROOT_RELEASES.with(|queue| queue.try_borrow().map_or(true, |queue| !queue.is_empty()))
+        || state.node_lists.lists.try_borrow().map_or(true, |lists| {
+            lists.values().any(|list| list.handle.is_empty())
+        })
+}
+
 pub(super) fn collect(state: &V8BindingState) -> Result<(), BindingError> {
     drain_root_releases()?;
     let (Ok(mut lists), Ok(mut dom)) = (

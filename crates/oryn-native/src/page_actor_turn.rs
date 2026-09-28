@@ -1023,8 +1023,16 @@ impl Root {
         }
         #[cfg(all(unix, feature = "v8-host"))]
         let navigation_owner = if matches!(&command, PageCommand::PollContextEvents) {
-            self.state.pending_navigation_transaction.as_ref().and_then(|pending| pending.ipc_identity)
-                .or_else(|| self.state.committed_navigation_progress.as_ref().map(|progress| progress.owner))
+            self.state
+                .pending_navigation_transaction
+                .as_ref()
+                .and_then(|pending| pending.ipc_identity)
+                .or_else(|| {
+                    self.state
+                        .committed_navigation_progress
+                        .as_ref()
+                        .map(|progress| progress.owner)
+                })
         } else {
             None
         };
@@ -1032,7 +1040,11 @@ impl Root {
         let navigation_owner = None;
         let _close_turn = crate::ipc_progress::close_admission::turn(
             self.close_observer.as_ref(),
-            if matches!(&command, PageCommand::PollContextEvents) { "actor_poll_context_events" } else { "actor_dispatch" },
+            if matches!(&command, PageCommand::PollContextEvents) {
+                "actor_poll_context_events"
+            } else {
+                "actor_dispatch"
+            },
             navigation_owner,
         );
         #[cfg(all(unix, feature = "v8-host"))]

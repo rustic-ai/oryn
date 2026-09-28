@@ -13016,6 +13016,7 @@ impl RustExecutableDocument {
         &mut self,
         terminal_control: Option<&crate::page_terminal_control::PageTerminalControl>,
     ) -> Result<(), HostError> {
+        let _timing = crate::native_timing::stage("executable.task_drain");
         let _close_phase = crate::ipc_progress::close_admission::phase("executable_drain");
         if Self::page_task_retired(terminal_control) {
             return Ok(());
@@ -13883,6 +13884,7 @@ impl RustExecutableDocument {
         &mut self,
         terminal_control: Option<&crate::page_terminal_control::PageTerminalControl>,
     ) -> Result<(), HostError> {
+        let _timing = crate::native_timing::stage("executable.animation_frame");
         if Self::page_task_retired(terminal_control) {
             return Ok(());
         }
@@ -14072,6 +14074,7 @@ impl RustExecutableDocument {
         &mut self,
         terminal_control: Option<&crate::page_terminal_control::PageTerminalControl>,
     ) -> Result<(), HostError> {
+        let _timing = crate::native_timing::stage("executable.checkpoint");
         if Self::page_task_retired(terminal_control) {
             return Ok(());
         }
@@ -14104,10 +14107,12 @@ impl RustExecutableDocument {
         // loads can enqueue work in a different realm of the same page isolate.
         // Run a bounded page-wide fixed point instead of relying on an
         // unrelated future command to tick that realm.
-        for _ in 0..8 {
+        for _pass in 0..8 {
             if Self::page_task_retired(terminal_control) {
                 return Ok(());
             }
+            crate::native_timing::count("executable.checkpoint_passes", 1);
+            let before = self.agent.host.executable_checkpoint_witness();
             if !self.document_load_stopped
                 && self.agent.host.realm_document_load_stopped(self.top_realm)
             {
@@ -14349,6 +14354,39 @@ impl RustExecutableDocument {
             }
             if Self::page_task_retired(terminal_control) {
                 return Ok(());
+            }
+            #[cfg(test)]
+            executable_checkpoint_tests::after_pass(self, _pass);
+            // Always execute the first complete pass. Counts and unchanged
+            // DOM alone are not idle: cross-realm queues, native completions,
+            // parser/script readiness and ownership transitions also matter.
+            // Unavailable identity/borrow witnesses retain the existing cap.
+            let runnable = self.has_runnable_page_work();
+            let pending = self.pending_frame_form_history.is_some()
+                || self.agent.host.has_pending_executable_checkpoint_work();
+            let after = self.agent.host.executable_checkpoint_witness();
+            if Self::page_task_retired(terminal_control) {
+                return Ok(());
+            }
+            let unchanged = before
+                .as_ref()
+                .zip(after.as_ref())
+                .is_some_and(|(before, after)| before == after);
+            if !runnable && !pending && unchanged {
+                crate::native_timing::count("executable.checkpoint_idle_break", 1);
+                break;
+            }
+            if runnable {
+                crate::native_timing::count("executable.checkpoint_runnable", 1);
+            }
+            if pending {
+                crate::native_timing::count("executable.checkpoint_pending_local", 1);
+            }
+            if !unchanged {
+                crate::native_timing::count(
+                    "executable.checkpoint_unavailable_or_changed_witness",
+                    1,
+                );
             }
         }
         self.agent.host.activate_realm(self.top_realm)?;
@@ -39961,3 +39999,7 @@ mod native_frame_input_membership_tests {
         });
     }
 }
+
+#[cfg(test)]
+#[path = "executable_checkpoint_tests.rs"]
+mod executable_checkpoint_tests;

@@ -2284,6 +2284,20 @@ pub struct NativeFrameInputIdentity {
     pub authority_epoch: u64,
 }
 
+/// Complete per-binding document identity observed at executable checkpoint
+/// boundaries. Equality is useful only alongside all-realm and queue witnesses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExecutableCheckpointIdentity {
+    pub instance_id: u64,
+    pub document_root: NodeId,
+    pub document_generation: u64,
+    pub document_stream_epoch: u64,
+    pub document_authority_epoch: u64,
+    pub load_cancellation_epoch: u64,
+    pub document_load_stopped: bool,
+    pub mutation_cursor: u64,
+}
+
 pub struct V8BindingState {
     document_provenance_capture: RefCell<Option<Rc<document_provenance::Capture>>>,
     animation_frames: RefCell<animation_frames::State>,
@@ -6357,6 +6371,88 @@ impl V8BindingState {
         self.dom.borrow_mut().mark_script_started(script)?;
         queue.push_back(DeferredPlatformTask::ScriptError(Box::new(task)));
         Ok(())
+    }
+
+    /// Non-authoritative fixed-point witness: an unavailable borrow prevents
+    /// early exit, and callers must also inspect every live realm and scheduler.
+    pub fn executable_checkpoint_identity(&self) -> Option<ExecutableCheckpointIdentity> {
+        let dom = self.dom.try_borrow().ok()?;
+        Some(ExecutableCheckpointIdentity {
+            instance_id: self.instance_id,
+            document_root: self.document_root(),
+            document_generation: self.document_generation.get(),
+            document_stream_epoch: self.document_stream_epoch.get(),
+            document_authority_epoch: self.document_authority_epoch.get(),
+            load_cancellation_epoch: self.load_cancellation_epoch.get(),
+            document_load_stopped: self.document_load_stopped.get(),
+            mutation_cursor: dom.mutation_cursor().0,
+        })
+    }
+
+    /// Queues drained by executable checkpoints, including work enqueued in
+    /// an earlier realm after its turn. Do not consume, prune, or acknowledge
+    /// any entry here. Future/delayed entries conservatively retain the cap.
+    pub fn has_pending_executable_checkpoint_work(&self) -> bool {
+        macro_rules! queued {
+            ($field:ident) => {
+                self.$field
+                    .try_borrow()
+                    .map_or(true, |queue| !queue.is_empty())
+            };
+        }
+        queued!(pending_dynamic_scripts)
+            || queued!(pending_dynamic_stylesheets)
+            || queued!(pending_dynamic_frames)
+            || queued!(pending_referrer_policies)
+            || queued!(pending_default_actions)
+            || queued!(pending_history_traversal)
+            || self
+                .pending_location_navigation
+                .try_borrow()
+                .map_or(true, |pending| pending.is_some())
+            || self.closed_document_stream.get().is_some()
+            || self.document_parser_gate.try_borrow().map_or(true, |gate| {
+                gate.as_ref().is_some_and(|gate| gate.unclaimed())
+            })
+            || navigation_api::executable_checkpoint_pending(self)
+            || self.custom_elements.checkpoint_pending(self)
+            || post_connection_scripts::checkpoint_pending(self)
+            || self.has_pending_selection_change()
+            || queued!(control_event_tasks)
+            || queued!(stylesheet_event_tasks)
+            || self
+                .window_messages
+                .try_borrow()
+                .map_or(true, |queue| !queue.tasks.is_empty())
+            || queued!(native_csp_tasks)
+            || queued!(script_error_diagnostics)
+            || queued!(editing_recovery)
+            || queued!(range_clone_completions)
+            || queued!(stream_anchor_releases)
+            || queued!(text_encoding_releases)
+            || queued!(platform_listener_releases)
+            || self
+                .wrappers
+                .try_borrow()
+                .map_or(true, |wrappers| wrappers.has_pending_weak_releases())
+            || node_iterators::checkpoint_releases_pending()
+            || node_lists::checkpoint_releases_pending(self)
+            || DomRuntime::has_pending_tracked_node_leases()
+            || self
+                .opaque_range_objects
+                .try_borrow()
+                .map_or(true, |objects| {
+                    objects.values().any(|object| object.is_empty())
+                })
+            || self.ranges.try_borrow().map_or(true, |ranges| {
+                self.range_objects.try_borrow().map_or(true, |objects| {
+                    ranges.keys().any(|id| {
+                        objects
+                            .get(id)
+                            .is_none_or(|object| object.handle.is_empty())
+                    })
+                })
+            })
     }
 
     pub fn has_pending_dynamic_scripts(&self) -> bool {
@@ -71595,5 +71691,43 @@ mod node_base_uri_regressions {
             document.querySelector('base').remove();
             return get.call(node)==='https://example.test/old/document'&&get.call(other)==='https://foreign.test/resources/';
         })()"#).is_true());
+    }
+}
+
+#[cfg(test)]
+mod executable_checkpoint_pending_tests {
+    use super::*;
+
+    #[test]
+    fn local_queue_witness_is_nonconsuming_and_borrows_are_conservative() {
+        tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let before = state.executable_checkpoint_identity().unwrap();
+        state
+            .pending_referrer_policies
+            .borrow_mut()
+            .push_back("no-referrer".into());
+        assert_eq!(state.executable_checkpoint_identity(), Some(before));
+        assert!(state.has_pending_executable_checkpoint_work());
+        assert!(state.has_pending_executable_checkpoint_work());
+        assert_eq!(state.take_pending_referrer_policies(), vec!["no-referrer"]);
+        let held = state.pending_dynamic_scripts.borrow_mut();
+        assert!(state.has_pending_executable_checkpoint_work());
+        drop(held);
+        let held = dom.borrow_mut();
+        assert!(state.executable_checkpoint_identity().is_none());
+        assert!(state.has_pending_executable_checkpoint_work());
+        drop(held);
+        assert_eq!(state.executable_checkpoint_identity(), Some(before));
+        state.closed_document_stream.set(Some((3, 4)));
+        assert!(state.has_pending_executable_checkpoint_work());
+        assert_eq!(state.take_closed_document_stream(), Some((3, 4)));
     }
 }

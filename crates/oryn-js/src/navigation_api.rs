@@ -162,6 +162,28 @@ struct NavigateRecord {
     admission_failed: bool,
 }
 
+/// Exact retained navigation work for the executable fixed point. This is
+/// deliberately broader than ready work; no future publication is consumed.
+pub(super) fn executable_checkpoint_pending(state: &V8BindingState) -> bool {
+    let Ok(navigation) = state.navigation_api.try_borrow() else {
+        return true;
+    };
+    navigation.pending.is_some()
+        || navigation.history_update.is_some()
+        || navigation.staged_swap.is_some()
+        || navigation.staged_swap_activation.is_some()
+        || navigation.finishing_transition.is_some()
+        || navigation.load_restore.is_some()
+        || !navigation.joint_tasks.is_empty()
+        || !navigation.hash_tasks.is_empty()
+        || !navigation.intercepted_history_barriers.is_empty()
+        || navigation.growing_scroll.is_some()
+        || !navigation.publications.is_empty()
+        || !navigation.queued_finishes.is_empty()
+        || !navigation.continuation_requests.is_empty()
+        || !navigation.pending_rejections.is_empty()
+}
+
 #[derive(Default)]
 pub(super) struct NavigationState {
     history_projection: history_projection::State,
@@ -10098,5 +10120,41 @@ mod suspended_unload_publication_regressions {
         assert!(!state.is_unloading());
         assert!(resume_native_history_publication(scope, receipt).is_err());
         assert!(super::test_eval::eval(scope, "trace.join()==='first'").is_true());
+    }
+}
+
+#[cfg(test)]
+mod executable_checkpoint_pending_tests {
+    use super::*;
+
+    #[test]
+    fn history_publication_and_borrow_conflict_are_observed_without_taking() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let held = state.navigation_api.borrow_mut();
+        assert!(executable_checkpoint_pending(&state));
+        drop(held);
+        state.navigation_api.borrow_mut().queued_finishes.insert(42);
+        assert!(executable_checkpoint_pending(&state));
+        assert!(executable_checkpoint_pending(&state));
+        assert_eq!(
+            state
+                .navigation_api
+                .borrow()
+                .queued_finishes
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![42]
+        );
     }
 }

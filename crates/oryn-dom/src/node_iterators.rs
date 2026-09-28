@@ -55,6 +55,14 @@ fn release_foreign(runtime: Weak<RefCell<DomRuntime>>, arena: ArenaId, node: Nod
             .push((runtime, NodeRef { arena, node }))
     });
 }
+impl DomRuntime {
+    /// Non-consuming thread-local cleanup observation. Borrow conflicts keep
+    /// the executable checkpoint conservative rather than claiming idle.
+    pub fn has_pending_node_iterator_releases() -> bool {
+        RELEASES.with(|queue| queue.try_borrow().map_or(true, |queue| !queue.is_empty()))
+    }
+}
+
 pub fn drain_node_iterator_releases() -> Result<(), DomError> {
     let pending = RELEASES.with(|pending| std::mem::take(&mut *pending.borrow_mut()));
     let mut retained = Vec::new();
