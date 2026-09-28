@@ -260,7 +260,7 @@ impl Driver {
                     .ok_or_else(|| CommandError::invalid("script args are missing"))?;
                 *args = authorized;
             }
-            let context = session.script_context().await?;
+            let context = session.execution_context().await?;
             let cancellation = session.cancellation();
             let execute_page = page.clone();
             let result = self
@@ -534,7 +534,7 @@ impl Driver {
             }
             let command = ActionCommand::Perform(request);
             let page = session.current_page()?;
-            let context = session.script_context().await?;
+            let context = session.execution_context().await?;
             let cancellation = session.cancellation();
             let execute_page = page.clone();
             return self
@@ -559,7 +559,7 @@ impl Driver {
                 ActionCommand::Perform(ActionsRequest::parse(&value).map_err(super::script::error)?)
             };
             let page = session.current_page()?;
-            let context = session.script_context().await?;
+            let context = session.execution_context().await?;
             let cancellation = session.cancellation();
             let execute_page = page.clone();
             return self

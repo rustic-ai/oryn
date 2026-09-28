@@ -810,6 +810,23 @@ impl Session {
         visit(self, value)
     }
 
+    /// Bind script/action context in the native command that uses it. Native
+    /// frame results carry connection identities and are assigned session
+    /// handles by finalize_script_result; they need no preliminary inventory.
+    pub async fn execution_context(&mut self) -> Result<ScriptContext, CommandError> {
+        #[cfg(unix)]
+        {
+            self.current_page()?;
+            Ok(ScriptContext {
+                selected: self.selected_frame.clone(),
+                handles: Vec::new(),
+                top_window_handle: Some(self.current_window()?),
+            })
+        }
+        #[cfg(not(unix))]
+        self.script_context().await
+    }
+
     pub async fn script_context(&mut self) -> Result<ScriptContext, CommandError> {
         let page = self.current_page()?;
         let page_id = page.page_id();
@@ -1052,6 +1069,80 @@ mod tests {
         );
         first.delete().await.unwrap();
         other.delete().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn execution_context_binds_windows_and_rejects_retired_selected_frame() {
+        use oryn_native::host::webdriver_script::ScriptRequest;
+        let browser = Browser::new();
+        let mut session = Session::create(&browser, ContextOptions::loopback_test(), Map::new())
+            .await
+            .unwrap();
+        let page = session.current_page().unwrap();
+        page.load_html(
+            "https://example.test/",
+            "<iframe srcdoc='<p>child</p>'></iframe>",
+        )
+        .await
+        .unwrap();
+        let request = |body: &str| ScriptRequest {
+            body: body.encode_utf16().collect(),
+            args: Vec::new(),
+            asynchronous: false,
+            timeout_ms: Some(1000),
+        };
+        let context = session.execution_context().await.unwrap();
+        let value = page
+            .execute_webdriver_script_in_context(
+                request("return [window,document.querySelector('iframe').contentWindow]"),
+                context,
+            )
+            .await
+            .unwrap();
+        let result = session.finalize_script_result(value.clone()).unwrap();
+        assert_eq!(session.authorize_script_arguments(&result).unwrap(), value);
+        let FrameResponse::Inventory(inventory) = page
+            .webdriver_frames(FrameCommand::Inventory)
+            .await
+            .unwrap()
+        else {
+            panic!("inventory");
+        };
+        session.selected_frame = Some(
+            inventory
+                .into_iter()
+                .find(|entry| entry.live && entry.parent_realm.is_some())
+                .unwrap(),
+        );
+        let context = session.execution_context().await.unwrap();
+        let child = page
+            .execute_webdriver_script_in_context(request("return window"), context)
+            .await
+            .unwrap();
+        let ScriptValue::Array(windows) = value else {
+            panic!("window results")
+        };
+        assert_eq!(child, windows[1]);
+        page.evaluate("document.querySelector('iframe').remove();'removed'")
+            .await
+            .unwrap();
+        // Context assembly does not perform a frame RPC. The native operation
+        // rejects the selected retired document when it actually starts.
+        let context = session.execution_context().await.unwrap();
+        let error = page
+            .execute_webdriver_script_in_context(request("return 42"), context)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "no such frame");
+        assert_eq!(
+            session
+                .authorize_script_arguments(&result)
+                .unwrap_err()
+                .code,
+            "no such window"
+        );
+        session.delete().await.unwrap();
     }
 
     #[tokio::test]
