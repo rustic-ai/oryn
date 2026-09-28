@@ -593,6 +593,131 @@ pub(super) fn refresh_agent(scope: &mut v8::PinScope, state: &V8BindingState) {
     }
 }
 
+// Materializing another wrapper in an unchanged detached tree only adds one
+// traced member. Reuse its private reference array instead of walking the tree
+// and rewriting every existing wrapper for each member of a query result.
+pub(super) fn attach_existing_component(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    node: NodeId,
+    object: v8::Local<v8::Object>,
+) -> bool {
+    if state.execution_retired()
+        || node_migration::has_publications(scope)
+        || !state.wrapper_graph_new_nodes.borrow().is_empty()
+        || scope
+            .get_slot::<BindingStateRegistry>()
+            .is_some_and(|registry| registry.cross_realm_wrappers.get())
+    {
+        return false;
+    }
+    let Ok(dom) = state.dom.try_borrow() else {
+        return false;
+    };
+    if state.wrapper_graph_revision.get() != Some(dom.mutation_cursor().0)
+        || retained_by_document(&dom, node)
+        || object.internal_field_count() <= 5
+    {
+        return false;
+    }
+    let Some(root) = native_root(&dom, node, &mut BTreeMap::new()) else {
+        return false;
+    };
+    let Ok(Some(owner)) = dom.arena().node_document(node) else {
+        return false;
+    };
+    let (id, array, length) = {
+        let (Ok(wrappers), Ok(objects), Ok(components)) = (
+            state.wrappers.try_borrow(),
+            state.objects.try_borrow(),
+            state.wrapper_graph_components.try_borrow(),
+        ) else {
+            return false;
+        };
+        let Some(id) = wrappers.lookup(dom.arena().id(), state.realm, node) else {
+            return false;
+        };
+        let Some(members) = components.get(&root) else {
+            return false;
+        };
+        let Some(representative) = members.first() else {
+            return false;
+        };
+        let Some(metadata) = wrappers.metadata(*representative) else {
+            return false;
+        };
+        // An existing member must already trace this node's ownerDocument.
+        // New documents and complex cross-document components use rebuild.
+        if members.contains(&id)
+            || dom.arena().node_document(metadata.node).ok().flatten() != Some(owner)
+            || wrappers
+                .lookup(dom.arena().id(), state.realm, owner)
+                .and_then(|owner| objects.get(&owner))
+                .and_then(|owner| owner.handle.to_local(scope))
+                .is_none()
+        {
+            return false;
+        }
+        let Some(existing) = objects.get(representative) else {
+            return false;
+        };
+        if existing.retention_component != Some(root) || existing.connected_root.is_some() {
+            return false;
+        }
+        let Some(array) = existing
+            .handle
+            .to_local(scope)
+            .and_then(|object| object.get_internal_field(scope, 5))
+            .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+            .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())
+        else {
+            return false;
+        };
+        let Some(length) = members
+            .len()
+            .checked_add(1)
+            .and_then(|length| u32::try_from(length).ok())
+            .filter(|length| *length < u32::MAX)
+        else {
+            return false;
+        };
+        if array.length() != length {
+            return false;
+        }
+        (id, array, length)
+    };
+    drop(dom);
+    let Some(key) = v8::String::new(scope, &length.to_string()) else {
+        return false;
+    };
+    let (Ok(mut objects), Ok(mut components)) = (
+        state.objects.try_borrow_mut(),
+        state.wrapper_graph_components.try_borrow_mut(),
+    ) else {
+        return false;
+    };
+    let (Some(wrapper), Some(members)) = (objects.get_mut(&id), components.get_mut(&root)) else {
+        return false;
+    };
+    if wrapper.retention_component.is_some()
+        || wrapper.connected_root.is_some()
+        || !members.insert(id)
+    {
+        return false;
+    }
+    // No wrapper-registry borrow crosses allocation. The private array cannot
+    // invoke authored setters; Locals retain its members across a collection.
+    if array.create_data_property(scope, key.into(), object.into()) != Some(true) {
+        members.remove(&id);
+        return false;
+    }
+    object.set_internal_field(5, array.into());
+    wrapper.retention_component = Some(root);
+    // Existing members already trace registries throughout the native tree,
+    // including its previously unwrapped nodes. The shared array retains them.
+    true
+}
+
 // A single fresh detached leaf cannot change any existing traced tree.
 pub(super) fn attach_new_leaf(
     scope: &mut v8::PinScope,
@@ -752,6 +877,102 @@ mod fragment_growth_tests {
         let field = object.get_internal_field(scope, 5).unwrap();
         let value = v8::Local::<v8::Value>::try_from(field).unwrap();
         v8::Local::<v8::Array>::try_from(value).unwrap()
+    }
+
+    #[test]
+    fn materializing_detached_nodes_reuses_graph_and_split_remains_collectable() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(309), 1).unwrap();
+        let old_root = {
+            v8::scope!(let scope, scope);
+            let root = v8::Local::<v8::Object>::try_from(eval(
+                scope,
+                r#"
+                globalThis.root=document.createElement('section');
+                root.innerHTML='<b>first</b><i>last</i>';root.saved='root';root
+            "#,
+            ))
+            .unwrap();
+            refresh(scope, &state);
+            let before = graph(scope, root);
+            let length = before.length();
+            eval(
+                scope,
+                &format!(
+                    "globalThis.setterCalls=0;Object.defineProperty(Array.prototype,'{length}',{{configurable:true,set(){{setterCalls++}}}})"
+                ),
+            );
+            let child = v8::Local::<v8::Object>::try_from(eval(scope,
+                "globalThis.held=root.firstChild;held.saved='child';root.lastChild.saved='sibling';held"
+            )).unwrap();
+            let after = graph(scope, child);
+            assert!(before.strict_equals(after.into()));
+            assert_eq!(after.length(), length + 2);
+            assert!(eval(scope, "setterCalls===0 && held.ownerDocument===document").is_true());
+            eval(
+                scope,
+                &format!("delete Array.prototype['{length}'];root=null"),
+            );
+            v8::Weak::new(scope, root)
+        };
+        scope.low_memory_notification();
+        {
+            v8::scope!(let scope, scope);
+            assert!(old_root.to_local(scope).is_some());
+            assert!(eval(scope,
+                "held.parentNode.saved==='root' && held.nextSibling.saved==='sibling' && held.saved==='child'"
+            ).is_true());
+            eval(scope, "held.remove()");
+        }
+        scope.low_memory_notification();
+        assert!(old_root.is_empty());
+        assert!(
+            eval(
+                scope,
+                "held.parentNode===null && held.saved==='child' && held.ownerDocument===document"
+            )
+            .is_true()
+        );
+    }
+
+    #[test]
+    fn materializing_node_rebuilds_when_existing_graph_cannot_grow() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(310), 1).unwrap();
+        let root = v8::Local::<v8::Object>::try_from(eval(
+            scope,
+            "globalThis.root=document.createElement('section');root.innerHTML='<b></b>';root",
+        ))
+        .unwrap();
+        refresh(scope, &state);
+        let before = graph(scope, root);
+        assert_eq!(
+            before.set_integrity_level(scope, v8::IntegrityLevel::Frozen),
+            Some(true)
+        );
+        let child = v8::Local::<v8::Object>::try_from(eval(scope, "root.firstChild")).unwrap();
+        let after = graph(scope, child);
+        assert!(!before.strict_equals(after.into()));
+        assert!(after.strict_equals(graph(scope, root).into()));
+        assert!(eval(scope, "root.firstChild.parentNode===root").is_true());
     }
 
     #[test]

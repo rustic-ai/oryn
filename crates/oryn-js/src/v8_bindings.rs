@@ -29993,7 +29993,10 @@ pub fn wrap_node<'s>(
     // Connected wrappers already have their individual embedder roots. Adding
     // one cannot change a detached tree's traced members; rebuilding all trees
     // here would make wrapping a large connected query result quadratic.
-    if !detached || !wrapper_graphs::attach_new_leaf(scope, state, node, object) {
+    if !detached
+        || !(wrapper_graphs::attach_new_leaf(scope, state, node, object)
+            || wrapper_graphs::attach_existing_component(scope, state, node, object))
+    {
         state.wrapper_graph_new_nodes.borrow_mut().insert(node);
     }
     wrapper_graphs::refresh(scope, state);
