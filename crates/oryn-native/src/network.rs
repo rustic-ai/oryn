@@ -3147,6 +3147,26 @@ pub struct RustlsTransport {
     max_response_bytes: usize,
 }
 
+fn http_runtime() -> Result<Arc<tokio::runtime::Runtime>, NetworkError> {
+    // A network operation or body reader can be the final transport owner and
+    // finish on an async task. Keep the executor process-owned, like the event
+    // runtime, so that releasing a page's transport never drops a Tokio runtime
+    // in that task. HTTP clients, cookies, trust and streams remain per transport.
+    static RUNTIME: OnceLock<Result<Arc<tokio::runtime::Runtime>, String>> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .worker_threads(2)
+                .thread_name("oryn-http")
+                .build()
+                .map(Arc::new)
+                .map_err(|error| error.to_string())
+        })
+        .clone()
+        .map_err(NetworkError::Transport)
+}
+
 struct AsyncBodyReader {
     encoded_bytes: Arc<std::sync::atomic::AtomicU64>,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -3231,16 +3251,11 @@ fn decoded_body_reader(
 
 impl RustlsTransport {
     pub fn new(timeout: Duration, max_response_bytes: usize) -> Result<Self, NetworkError> {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .worker_threads(2)
-            .thread_name("oryn-http")
-            .build()
-            .map_err(|error| NetworkError::Transport(error.to_string()))?;
+        let runtime = http_runtime()?;
         let transport = oryn_net::RustlsTransport::new(timeout, max_response_bytes)
             .map_err(|error| NetworkError::Transport(error.to_string()))?;
         Ok(Self {
-            runtime: Arc::new(runtime),
+            runtime,
             transport: Arc::new(transport),
             max_response_bytes,
         })
@@ -4443,6 +4458,16 @@ mod tests {
     };
 
     use super::*;
+    #[test]
+    fn http_transport_last_owner_can_drop_inside_network_task() {
+        // An operation may retain the final broker/transport after its page
+        // closes. Completing that operation drops it on the async executor.
+        let transport = RustlsTransport::new(Duration::from_secs(1), 1024).unwrap();
+        operation_runtime()
+            .block_on(operation_runtime().spawn(async move { drop(transport) }))
+            .expect("HTTP transport teardown must not drop a Tokio runtime in an async task");
+    }
+
     #[test]
     fn parent_header_cleanup_is_released_only_after_successful_ipc_write() {
         for successful in [false, true] {
