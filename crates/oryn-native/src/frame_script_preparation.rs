@@ -2931,7 +2931,7 @@ impl RustExecutableDocument {
     }
     pub(super) fn poll_frame_script_preparations(&mut self) -> Result<(), HostError> {
         let _parser_turn = self.parser_turn.enter();
-        if self.frame_script_preparations.is_empty() || !self.parser_turn.claim() {
+        if self.frame_script_preparations.is_empty() {
             return Ok(());
         }
         let previous = self.agent.host.active_realm();
@@ -2958,6 +2958,15 @@ impl RustExecutableDocument {
                     .parser_retry
                     .is_some_and(|retry| retry > std::time::Instant::now())
                 {
+                    self.frame_script_preparations.push_back(pending);
+                    continue;
+                }
+                let admitted = if pending.root_document {
+                    self.parser_turn.claim()
+                } else {
+                    self.parser_turn.claim_frame(pending.load.realm)
+                };
+                if !admitted {
                     self.frame_script_preparations.push_back(pending);
                     continue;
                 }

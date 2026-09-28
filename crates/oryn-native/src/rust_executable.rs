@@ -6833,24 +6833,39 @@ pub use crate::host::webdriver_script::AutomationRealmSnapshot;
 thread_local! { static DEFAULT_ACTION_FAILURE: Cell<bool> = const { Cell::new(false) }; static ACCEPTED_LINK_SCHEDULE_FAILURE: Cell<bool> = const { Cell::new(false) }; static DYNAMIC_SCRIPT_AFTER_EXECUTION_FAILURE:Cell<bool>=const{Cell::new(false)}; }
 
 // A page task may recursively checkpoint lifecycle callbacks. All such
-// checkpoints share one parser/resource slice, while independent host work
-// continues through the fixed-point loop.
+// checkpoints share one parser/resource slice per document, capped at 64
+// documents per page task. Newly discovered children can make progress without
+// giving their parent another slice or allowing recursive parsing to grow
+// without bound. Independent host work continues through the fixed-point loop.
 #[derive(Default)]
 struct ParserTurnBudget {
     depth: Cell<usize>,
     used: Cell<bool>,
+    frames: RefCell<BTreeSet<RealmId>>,
 }
 struct ParserTurnGuard(Rc<ParserTurnBudget>);
 impl ParserTurnBudget {
     fn enter(self: &Rc<Self>) -> ParserTurnGuard {
         if self.depth.get() == 0 {
             self.used.set(false);
+            self.frames.borrow_mut().clear();
         }
         self.depth.set(self.depth.get() + 1);
         ParserTurnGuard(self.clone())
     }
     fn claim(&self) -> bool {
-        !self.used.replace(true)
+        if self.used.get() || self.frames.borrow().len() >= 64 {
+            return false;
+        }
+        self.used.set(true);
+        true
+    }
+    fn claim_frame(&self, realm: RealmId) -> bool {
+        let mut frames = self.frames.borrow_mut();
+        if frames.len() + usize::from(self.used.get()) >= 64 {
+            return false;
+        }
+        frames.insert(realm)
     }
 }
 impl Drop for ParserTurnGuard {
@@ -21318,6 +21333,10 @@ mod tests {
             graph: None,
             source_load: Some(scheduler),
         });
+        // Settle the independent rendering deadline before asserting that
+        // this held resource is not runnable. The outer page owner normally
+        // performs this phase; parser continuation alone does not consume it.
+        page.run_animation_frame_phase().unwrap();
         assert!(!page.resume_pending_parser().unwrap());
         assert!(!page.has_runnable_page_work());
         let result = retain_parser_script_source(

@@ -69,6 +69,45 @@ fn outer_history_publication_does_not_keep_checkpoint_spinning() {
 }
 
 #[test]
+fn intercepted_navigation_waits_without_spinning_and_resumes_on_settlement() {
+    let mut page = RustExecutableDocument::load_with_environment(
+        "<body></body>",
+        &BTreeMap::new(),
+        None,
+        Some(Url::parse("https://example.test/start").unwrap()),
+    )
+    .unwrap();
+    page.run_animation_frame_phase().unwrap();
+    page.agent
+        .host
+        .execute(
+            r#"
+        globalThis.navigationFinished = false;
+        navigation.onnavigate = event => event.intercept({
+            handler: () => new Promise(resolve => globalThis.finishNavigation = resolve)
+        });
+        navigation.navigate('#pending').finished.then(() => navigationFinished = true);
+    "#,
+        )
+        .unwrap();
+    page.checkpoint().unwrap();
+    assert_eq!(
+        page.evaluate("typeof finishNavigation").unwrap(),
+        "function"
+    );
+    page.agent.host.take_navigation_history_update();
+    page.run_animation_frame_phase().unwrap();
+    assert_eq!(checkpoint_passes(&mut page), 1);
+    assert_eq!(
+        page.evaluate("String(navigationFinished)").unwrap(),
+        "false"
+    );
+    page.agent.host.execute("finishNavigation()").unwrap();
+    page.checkpoint().unwrap();
+    assert_eq!(page.evaluate("String(navigationFinished)").unwrap(), "true");
+}
+
+#[test]
 fn late_child_history_publication_still_reaches_the_frame_owner() {
     let mut page = quiet_page();
     page.agent

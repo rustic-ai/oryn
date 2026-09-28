@@ -171,8 +171,11 @@ pub(super) fn executable_checkpoint_pending(
     let Ok(navigation) = state.navigation_api.try_borrow() else {
         return true;
     };
-    navigation.pending.is_some()
-        || (include_history_update && navigation.history_update.is_some())
+    // A pending navigation can be waiting on a network response or an author's
+    // intercept promise. Its existence is not work a checkpoint can drain.
+    // Settlement enqueues continuations/publications below; their readiness
+    // still forces another pass, including when a later realm resolves them.
+    (include_history_update && navigation.history_update.is_some())
         || navigation.staged_swap.is_some()
         || navigation.staged_swap_activation.is_some()
         || navigation.finishing_transition.is_some()

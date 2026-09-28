@@ -577,6 +577,52 @@ fn nested_page_checkpoints_share_one_parser_input_slice_and_release_budget() {
 }
 
 #[test]
+fn newly_discovered_child_gets_a_parser_slice_before_parent_input_resumes() {
+    let mut page = RustExecutableDocument::load("<body></body>").unwrap();
+    page.agent.host.execute("globalThis.childTurn=0").unwrap();
+    let (input, _, polls, _) = controlled(
+        vec![r#"<iframe srcdoc="<script>parent.childTurn++</script>"></iframe>"#.into()],
+        true,
+    );
+    install(&mut page, input);
+    {
+        let _turn = page.parser_turn.enter();
+        page.checkpoint().unwrap();
+        page.checkpoint().unwrap();
+        assert_eq!(polls.get(), 1, "the parent still has one input slice");
+        assert_eq!(
+            page.agent
+                .host
+                .evaluate_string("String(childTurn)")
+                .unwrap(),
+            "1",
+            "a new child must not inherit its parent's exhausted parser budget"
+        );
+    }
+    finish(&mut page);
+    assert_eq!(page.evaluate("String(childTurn)").unwrap(), "1");
+}
+
+#[test]
+fn parser_turn_budget_bounds_new_documents_and_resets_for_the_next_task() {
+    let budget = Rc::new(ParserTurnBudget::default());
+    {
+        let _turn = budget.enter();
+        assert!(budget.claim());
+        for realm in 1..64 {
+            assert!(budget.claim_frame(RealmId(realm)));
+            assert!(!budget.claim_frame(RealmId(realm)));
+        }
+        let _nested = budget.enter();
+        assert!(!budget.claim_frame(RealmId(64)));
+        assert!(!budget.claim());
+    }
+    let _next = budget.enter();
+    assert!(budget.claim_frame(RealmId(64)));
+    assert!(budget.claim());
+}
+
+#[test]
 fn parser_turn_budget_resets_after_early_error_and_nested_unwind() {
     let budget = Rc::new(ParserTurnBudget::default());
     let fail = || -> Result<(), HostError> {
