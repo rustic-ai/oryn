@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 
 from .admission import SOURCE_ROOT, legacy_algorithms, read_object
 from .inputs import InputLease, snapshot_input
@@ -67,6 +68,9 @@ def child(config_path, expected_sha256):
     config = read_object(config_path)
     if config.get('kind') != 'developer-protocol-smoke' or config.get('qualification') != 'not-evaluated':
         raise ValueError('developer smoke requires explicitly non-qualification configuration')
+    window_samples = config.get('window_profile_samples', 0)
+    if type(window_samples) is not int or not 0 <= window_samples <= 20:
+        raise ValueError('window profiling requires 0 to 20 samples')
     path, store, bundle = (Path(config[key]) for key in ('run', 'store_root', 'bundle_root'))
     run = read_object(path)
     if _digest(path) != config['run_sha256']:
@@ -149,6 +153,14 @@ def child(config_path, expected_sha256):
                     if not isinstance(session, str) or not session:
                         raise ValueError('developer protocol did not establish a session')
                     result['session_id'] = session
+                    result['window_profile'] = []
+                    for sample in range(window_samples):
+                        executor.protocol.testharness.close_old_windows()
+                        started = time.monotonic_ns()
+                        executor.create_test_window(executor.protocol)
+                        result['window_profile'].append({'sample': sample + 1,
+                            'elapsed_ns': time.monotonic_ns() - started})
+                        executor.protocol.testharness.close_old_windows()
                     observed, subtests = executor.do_test(test)
                     result['outcome'] = {'status': observed.status, 'message': observed.message,
                         'subtests': [{'name': item.name, 'status': item.status, 'message': item.message}
@@ -179,12 +191,14 @@ def child(config_path, expected_sha256):
         _write(output / 'developer-result.json', result)
 
 
-def execute(run_path, *, store_root, bundle_root, output):
+def execute(run_path, *, store_root, bundle_root, output, window_profile_samples=0):
     from .processes import run_owned, ResourceLease
     from .bundle_ownership import registered_bundle_owner
     from .production import validate_production
     legacy_algorithms()
     from oryn_wptrunner.custody import create
+    if type(window_profile_samples) is not int or not 0 <= window_profile_samples <= 20:
+        raise ValueError('window profiling requires 0 to 20 samples')
     if '..' in Path(output).parts:
         raise ValueError('developer smoke output cannot traverse parent directories')
     store_root, bundle_root, output = map(lambda p: Path(p).absolute(), (store_root, bundle_root, output))
@@ -201,12 +215,14 @@ def execute(run_path, *, store_root, bundle_root, output):
     config = {'kind': 'developer-protocol-smoke', 'qualification': 'not-evaluated', 'scope': SCOPE,
               'run': str(bound['path']), 'run_sha256': bound['sha256'], 'store_root': str(store_root),
               'bundle_root': str(bundle_root), 'fixture_role': fixture_role,
+              'window_profile_samples': window_profile_samples,
               'qualification_lookup': 'synthetic developer projection; no official admission'}
     config_path = output / 'developer-config.json'; _write(config_path, config)
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(('ORYN_', 'PYTHON', 'DYLD_'))}
     env.update(python_environment(bound)); env.update(worker_environment(bound))
-    env.update(PYTHONPATH=os.pathsep.join((str(SOURCE_ROOT / 'tools/validation'),
+    env.update(PYTHONPATH=os.pathsep.join((str(bound['assets']['wpt_checkout']),
+                                        str(SOURCE_ROOT / 'tools/validation'),
                                         str(SOURCE_ROOT / 'tools/wptrunner-oryn'))),
                ORYN_WPT_PROTOCOL_CUSTODY=str(output / 'protocol-custody.jsonl'),
                ORYN_WPT_CANDIDATE_SHA256=bound['run']['build']['manifest_sha256'])
@@ -239,13 +255,15 @@ def main():
     for name in ('run', 'store-root', 'bundle-root', 'output', 'config'):
         parser.add_argument('--' + name, type=Path)
     parser.add_argument('--config-sha256')
+    parser.add_argument('--window-profile-samples', type=int, default=0)
     args = parser.parse_args()
     if args.mode == 'child':
         child(args.config, args.config_sha256)
     else:
         if any(getattr(args, key) is None for key in ('run', 'store_root', 'bundle_root', 'output')):
             parser.error('execute requires explicit run, store-root, bundle-root and developer output')
-        execute(args.run, store_root=args.store_root, bundle_root=args.bundle_root, output=args.output)
+        execute(args.run, store_root=args.store_root, bundle_root=args.bundle_root, output=args.output,
+                window_profile_samples=args.window_profile_samples)
 
 
 if __name__ == '__main__':

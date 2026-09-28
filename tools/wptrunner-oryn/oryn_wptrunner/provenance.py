@@ -260,6 +260,7 @@ class _RunAdmission:
         self.failure = None
         self.snapshots = ()
         self._contract = None
+        self.typed_session = None
         self.timing = _AdmissionTiming()
 
     def _revoke(self, error):
@@ -287,8 +288,14 @@ class _RunAdmission:
             self.state = 'admitting'
             try:
                 with span(self.timing, 'run.admission.full') as measured:
-                    self.snapshots = _run_snapshot(self.path, self.gate_path)
-                    result = load_contract(self.path, self.binary, self.webdriver_binary)
+                    if json.loads(self.path.read_text()).get('kind') == 'run':
+                        from oryn_validation.typed_provenance import TypedRunSession
+                        self.typed_session = TypedRunSession(self.path, self.binary, self.webdriver_binary)
+                        self.snapshots = (self.typed_session,)
+                        result = self.typed_session.admit()
+                    else:
+                        self.snapshots = _run_snapshot(self.path, self.gate_path)
+                        result = load_contract(self.path, self.binary, self.webdriver_binary)
                     self._metadata()
                     self._contract = copy.deepcopy(result)
                     measured.bind_contract(result)
@@ -336,17 +343,23 @@ class _RunAdmission:
                 except BaseException as error:
                     self._revoke(error)
                     errors.append(error)
-                # Deliberately attempt the strict full load even after revocation.
+                # Always verify final bytes, even after revocation. Typed runs
+                # reuse their admitted semantics instead of reopening nested
+                # input leases and repeating all production admission.
                 try:
                     with span(None, 'run.final.full'):
-                        current = load_contract(self.path, self.binary, self.webdriver_binary)
-                        if self._contract is not None and current != self._contract:
-                            raise ValueError('final full contract differs from admitted contract')
+                        if self.typed_session is not None:
+                            self.typed_session.finish()
+                        else:
+                            current = load_contract(self.path, self.binary, self.webdriver_binary)
+                            if self._contract is not None and current != self._contract:
+                                raise ValueError('final full contract differs from admitted contract')
                 except BaseException as error:
                     self._revoke(error)
                     errors.append(error)
                 try:
-                    self._metadata()
+                    if self.typed_session is None:
+                        self._metadata()
                 except BaseException as error:
                     self._revoke(error)
                     errors.append(error)
@@ -399,6 +412,25 @@ def load_run_contract(path=None, binary=None, webdriver_binary=None):
     if scope is None:
         return load_contract(path, binary, webdriver_binary)
     return scope.get(path, binary, webdriver_binary)
+
+
+def admitted_execution_inputs(path):
+    """Copy execution inputs from this process's live typed admission only."""
+    scope = _RUN_ADMISSION
+    if scope is None:
+        raise ValueError('execution requires active typed admission')
+    scope._process()
+    with scope.lock:
+        try:
+            if scope.state != 'active' or scope.typed_session is None:
+                raise ValueError('execution requires active typed admission')
+            if Path(path).absolute() != scope.path:
+                raise ValueError('run admission contract path changed')
+            scope._metadata()
+            return scope.typed_session.execution_inputs()
+        except BaseException as error:
+            scope._revoke(error)
+            raise
 
 
 def run_info_extras(logger, **kwargs):

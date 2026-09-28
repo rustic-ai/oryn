@@ -353,7 +353,7 @@ invocation. Unknown path-bearing options fail closed rather than losing data.
     return result
 
 
-def validate_production(bound):
+def validate_production(bound, *, input_lease=None):
     """Require exact committed native inputs, engine profile and live signature.
 
     Source is an exact immutable export plus hash-checked Git objects; the
@@ -361,7 +361,15 @@ developer's shared repository and worktree metadata are never runtime inputs.
     """
     records = _asset_records(bound)
     roots = {'store_root': bound['store_root'], 'bundle_root': bound['bundle_root']}
-    verify_inputs(bound['records'], **roots)
+    def verify_closure():
+        if input_lease is None:
+            verify_inputs(bound['records'], **roots)
+        else:
+            from .inputs import InputLease
+            if type(input_lease) is not InputLease:
+                raise ValueError('production requires a live input lease')
+            input_lease.verify_bound(bound['records'], **roots)
+    verify_closure()
     assets, run = bound['assets'], bound['run']
     build = load_manifest(assets['build_manifest'], 'build')
     _require(run['build'] == {'build_id': build['build_id'], 'manifest_sha256': manifest_digest(build)},
@@ -380,7 +388,10 @@ developer's shared repository and worktree metadata are never runtime inputs.
              'committed source content differs from build')
     _require(_hash(source / 'Cargo.lock') == build['configuration']['cargo_lock_sha256'],
              'committed Cargo.lock differs from build')
-    verify_inputs(build['build_inputs'], **roots)
+    if input_lease is None:
+        verify_inputs(build['build_inputs'], **roots)
+    else:
+        input_lease.verify_subset(build['build_inputs'])
     _require(builds.native_inputs_digest(source_admission, build['configuration'],
                                         external_inputs=build['build_inputs']) == build['build_inputs_sha256'],
              'native build-input identity differs from committed source/configuration')
@@ -421,7 +432,7 @@ developer's shared repository and worktree metadata are never runtime inputs.
                                                worker_path=records['worker']['path'],
                                                manifest_path=records['worker_manifest']['path'])
     _require(signature in build['signatures'], 'fresh signature differs from selected build')
-    verify_inputs(bound['records'], **roots)
+    verify_closure()
     return {'build_id': build['build_id'], 'build_manifest_sha256': manifest_digest(build),
             'source_commit': build['source']['commit'], 'runtime_profile': profile['profile'],
             'target': profile['target'], 'signature': signature}

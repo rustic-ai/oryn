@@ -61,6 +61,13 @@ def _digest(path):
 
 def load_inputs(path, *, store_root, bundle_root):
     """Resolve only schema-declared input records; history and outputs stay inert."""
+    bound = _resolve_inputs(path, store_root=store_root, bundle_root=bundle_root)
+    verify_inputs(bound['records'], store_root=store_root, bundle_root=bundle_root)
+    return bound
+
+
+def _resolve_inputs(path, *, store_root, bundle_root):
+    """Internal discovery only. The caller must establish an InputLease before use."""
     path = Path(path).absolute()
     run = load_manifest(path, expected_kind='run')
     assets = run.get('assets', {})
@@ -78,7 +85,6 @@ def load_inputs(path, *, store_root, bundle_root):
     # runs/<id> while immutable assets resolve relative to the configured store.
     paths = {name: resolve_input(bundle_root if item['scope'] == 'bundle' else store_root,
                                  item['path']) for name, item in assets.items()}
-    verify_inputs(records.values(), store_root=store_root, bundle_root=bundle_root)
     return dict(run=run, path=path, sha256=manifest_record['sha256'], assets=paths,
                 records=list(records.values()), store_root=Path(store_root).absolute(), bundle_root=Path(bundle_root).absolute())
 
@@ -196,10 +202,10 @@ def inspect_admission(bound):
                 python_environment=environment)
 
 
-def official_admission(bound):
+def official_admission(bound, *, input_lease=None):
     selected = inspect_admission(bound)
     from .production import validate_production
-    selected['production'] = validate_production(bound)
+    selected['production'] = validate_production(bound, input_lease=input_lease)
     from .prerequisites import validate_prerequisites
     selected['prerequisites'] = validate_prerequisites(bound)
     # Port review never substitutes for current native, topology, and control
@@ -677,25 +683,23 @@ def upstream(argv=None):
             raise ValueError('topology serve has no caller-selected upstream overrides')
         return serve_topology(args)
     remaining = remaining[1:] if remaining and remaining[0] == '--' else remaining
-    bound = load_inputs(args.run, store_root=args.store_root, bundle_root=args.bundle_root)
-    selected = official_admission(bound)
-    from .worker_environment import assert_worker_environment
-    assert_worker_environment(bound)
-    output = args.store_root.absolute() / bound['run']['outputs']['results']
-    command = plan_command(bound, selected, output)
-    if remaining != command[command.index('--') + 1:]:
-        raise ValueError('upstream arguments differ from the frozen original execution policy')
     os.environ['ORYN_VALIDATION_STORE_ROOT'] = str(args.store_root.absolute())
     os.environ['ORYN_VALIDATION_BUNDLE_ROOT'] = str(args.bundle_root.absolute())
-    sys.path.insert(0, str(bound['assets']['wpt_checkout'] / 'tools'))
-    import localpaths  # noqa: F401 -- pinned upstream path registration
-    from wptrunner import wptrunner
-    from oryn_wptrunner.registration import verify_registration
-    verify_registration(SOURCE_ROOT)
-    from oryn_wptrunner.provenance import run_admission
-    sys.argv = [sys.argv[0], *remaining]
-    with run_admission(args.run, None, bound['assets']['runtime'], bound['assets']['driver']):
+    from oryn_wptrunner.provenance import run_admission, admitted_execution_inputs
+    with run_admission(args.run, None):
+        bound, selected = admitted_execution_inputs(args.run)
+        output = args.store_root.absolute() / bound['run']['outputs']['results']
+        command = plan_command(bound, selected, output)
+        if remaining != command[command.index('--') + 1:]:
+            raise ValueError('upstream arguments differ from the frozen original execution policy')
+        sys.path.insert(0, str(bound['assets']['wpt_checkout'] / 'tools'))
+        import localpaths  # noqa: F401 -- pinned upstream path registration
+        from wptrunner import wptrunner
+        from oryn_wptrunner.registration import verify_registration
+        verify_registration(SOURCE_ROOT)
+        sys.argv = [sys.argv[0], *remaining]
         return wptrunner.main()
+
 
 
 if __name__ == '__main__':

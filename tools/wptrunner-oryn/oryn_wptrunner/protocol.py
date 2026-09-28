@@ -72,9 +72,21 @@ class CheckedSession(Session):
             raise TransportRetiredError("Native driver session is ending")
         if not isinstance(identity, str):
             raise TypeError("Session.session_id must be a str to send a session command")
-        if method == 'POST' and uri == 'url':
+        measured_command = {
+            ('POST', 'url'): 'webdriver.navigation',
+            ('POST', 'window/new'): 'webdriver.new_window',
+            ('POST', 'window'): 'webdriver.switch_window',
+            ('DELETE', 'window'): 'webdriver.close_window',
+            ('GET', 'window/handles'): 'webdriver.window_handles',
+            ('DELETE', 'actions'): 'webdriver.release_actions',
+            ('POST', 'execute/sync'): 'webdriver.execute_sync',
+            ('POST', 'execute/async'): 'webdriver.execute_async',
+        }.get((method, uri))
+        if method == 'POST' and uri.startswith('element/') and uri.endswith('/click'):
+            measured_command = 'webdriver.element_click'
+        if measured_command:
             protocol = getattr(self, '_oryn_timing_protocol', None)
-            with phase(protocol, 'webdriver.navigation'):
+            with phase(protocol, measured_command):
                 return self.send_command(method, urljoin('session/' + identity + '/', uri), body, timeout)
         return self.send_command(method, urljoin('session/' + identity + '/', uri), body, timeout)
 

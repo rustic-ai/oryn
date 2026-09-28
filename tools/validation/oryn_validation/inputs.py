@@ -169,6 +169,30 @@ class InputLease:
         self.finalization = None
         self.final_error = None
         self._baseline = None
+        self._pid = os.getpid()
+
+    def verify_bound(self, records, *, store_root, bundle_root=None):
+        """Reuse only this live process's exact admitted closure, never a receipt."""
+        if (os.getpid() != self._pid or list(records) != self.records
+                or Path(store_root).absolute() != Path(self.store_root).absolute()
+                or (Path(bundle_root).absolute() if bundle_root is not None else None)
+                != (Path(self.bundle_root).absolute() if self.bundle_root is not None else None)):
+            raise InputError('input lease differs from requested closure or process')
+        self.checkpoint()
+
+    def verify_subset(self, records):
+        """Require exact records already covered by this live lease's final sweep."""
+        if os.getpid() != self._pid:
+            raise InputError('input lease belongs to another process')
+        admitted = {(item['scope'], item['path']): item for item in self.records}
+        seen = set()
+        for record in records:
+            validate_input(record)
+            key = record['scope'], record['path']
+            if key in seen or admitted.get(key) != record:
+                raise InputError('input absent from active lease closure: ' + record['path'])
+            seen.add(key)
+        self.checkpoint()
 
     def _observe(self) -> list:
         observations = []

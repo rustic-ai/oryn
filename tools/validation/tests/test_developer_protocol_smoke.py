@@ -46,3 +46,11 @@ class DeveloperSmokeGuards(unittest.TestCase):
         with self.assertRaises(RuntimeError) as caught:
             smoke._cleanup('protocol teardown', fail, result, None)
         self.assertIs(caught.exception, secondary)
+
+    def test_window_profile_sample_count_is_bounded_before_loading(self):
+        for count in (-1, 21, True):
+            with self.subTest(count=count), patch.object(smoke, 'load_inputs') as load:
+                with self.assertRaisesRegex(ValueError, '0 to 20 samples'):
+                    smoke.execute('/run.json', store_root='/store', bundle_root='/bundle',
+                        output='/store/migration/verification/profile', window_profile_samples=count)
+                load.assert_not_called()
