@@ -2175,6 +2175,45 @@ mod agent_runtime_tests {
         verify(message(&mut process), "received === true");
         process.terminate().unwrap();
     }
+    #[test]
+    fn worker_event_burst_does_not_use_page_command_queue_capacity() {
+        let browser = crate::runtime::Browser::in_process_with_config(crate::runtime::BrowserConfig {
+            worker_queue_capacity: 2,
+            ..Default::default()
+        });
+        let context = browser.new_context();
+        let mut boot = bootstrap(
+            "for(let i=0;i<64;i++)postMessage(i);close();",
+            AgentKind::Dedicated,
+            ScriptType::Classic,
+        );
+        boot.limits = context.agent_limits();
+        let mut process = launch(boot, BTreeMap::new());
+        // Let the synchronous startup task finish before polling: the page's
+        // command queue must not truncate an independent worker's event burst.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut values = Vec::new();
+        std::thread::sleep(Duration::from_millis(100));
+        loop {
+            let mut closed = false;
+            for event in process.poll(32).unwrap() {
+                match event {
+                    AgentEvent::Message { value, .. } => values.push(value),
+                    AgentEvent::Closed => closed = true,
+                    AgentEvent::Ready => {},
+                    event => panic!("unexpected worker burst event: {event:?}"),
+                }
+            }
+            if closed { break; }
+            assert!(Instant::now() < deadline, "worker burst must settle");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        process.terminate().unwrap();
+        assert_eq!(values.len(), 64);
+        for (index, value) in values.into_iter().enumerate() {
+            verify(value, &format!("received === {index}"));
+        }
+    }
     fn launch(
         bootstrap: AgentBootstrap,
         scripts: BTreeMap<String, Vec<u16>>,

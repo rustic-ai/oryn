@@ -10695,19 +10695,30 @@ impl RustExecutableDocument {
         &mut self,
         bindings: Vec<crate::host::webdriver_script::WindowHandleBinding>,
     ) -> Result<(), crate::host::webdriver_script::ScriptError> {
+        use crate::host::webdriver_script::ScriptError;
+        if bindings.len() > 4096 {
+            return Err(ScriptError::invalid("window handle limit"));
+        }
         let inventory = self.automation_realms();
-        for binding in &bindings {
-            if !inventory.iter().any(|entry| {
+        let mut live_bindings = Vec::with_capacity(bindings.len());
+        for binding in bindings {
+            if inventory.iter().any(|entry| {
                 entry.live
                     && entry.realm == binding.realm
                     && entry.document_generation == binding.document_generation
                     && entry.stream_epoch == binding.stream_epoch
                     && entry.parent_realm.is_none() == binding.top_level
             }) {
-                return Err(crate::host::webdriver_script::ScriptError::retired());
+                live_bindings.push(binding);
+            } else if binding.top_level {
+                return Err(ScriptError::retired());
             }
+            // Inventory and execution are separate actor turns. A retired
+            // incidental frame must not reject a script in its live parent.
+            // Omit its handle; selected frames and actual reference arguments
+            // still undergo their own document-lifetime checks at execution.
         }
-        self.agent.host.set_webdriver_window_handles(bindings)
+        self.agent.host.set_webdriver_window_handles(live_bindings)
     }
 
     pub fn begin_webdriver_script(
@@ -37606,6 +37617,49 @@ mod automation_script_regression_tests {
         assert_eq!(
             current.document_authority_epoch,
             root.document_authority_epoch
+        );
+    }
+
+    #[test]
+    fn retired_unselected_frame_does_not_reject_root_script() {
+        use crate::host::webdriver_script::{ScriptValue, WindowHandleBinding};
+        let mut page =
+            RustExecutableDocument::load("<body><iframe srcdoc='<p>old</p>'></iframe></body>")
+                .unwrap();
+        let inventory = page.automation_realms();
+        let child = inventory
+            .iter()
+            .find(|entry| entry.parent_realm.is_some() && entry.live)
+            .unwrap()
+            .clone();
+        let bindings = inventory
+            .iter()
+            .filter(|entry| entry.live)
+            .map(|entry| WindowHandleBinding {
+                realm: entry.realm,
+                document_generation: entry.document_generation,
+                stream_epoch: entry.stream_epoch,
+                handle: format!("handle-{}", entry.realm.0),
+                top_level: entry.parent_realm.is_none(),
+            })
+            .collect();
+        // The frame can disappear between the session's inventory RPC and
+        // execution of a script in its still-live parent document.
+        page.execute("document.querySelector('iframe').remove()")
+            .unwrap();
+        page.set_webdriver_window_handles(bindings).unwrap();
+        let id = page.begin_webdriver_script(request("return 42")).unwrap();
+        assert_eq!(
+            page.poll_webdriver_script(id).unwrap(),
+            ScriptPoll::Complete(ScriptValue::Number(
+                serde_json::Number::from_f64(42.0).unwrap()
+            ))
+        );
+        assert_eq!(
+            page.begin_webdriver_script_in_context(&child, request("return 42"))
+                .unwrap_err()
+                .code,
+            "no such frame"
         );
     }
 

@@ -3720,7 +3720,10 @@ impl BrowserContext {
         oryn_js::worker_wire::AgentLimits {
             heap_bytes: self.inner.config.max_v8_heap_bytes,
             queue_bytes: self.inner.config.max_ipc_frame_bytes,
-            queue_messages: self.inner.config.worker_queue_capacity.max(1),
+            // Page-command admission is a small RPC queue. Independent JS
+            // agents need the worker-wire mailbox budget: one synchronous
+            // task can publish many events before its owner gets a turn.
+            queue_messages: oryn_js::worker_wire::AgentLimits::default().queue_messages,
             task_wall_ms: self
                 .inner
                 .config

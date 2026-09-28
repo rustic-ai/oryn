@@ -1238,6 +1238,54 @@ mod tests {
             timeout_ms: None,
         }
     }
+    #[test]
+    fn root_async_script_survives_child_document_replacement() {
+        let mut page = state(849);
+        let (reply, mut response) = oneshot::channel();
+        let request = ScriptRequest {
+            body: r#"
+                const done = arguments[0];
+                const frame = document.createElement('iframe');
+                document.body.append(frame);
+                (async () => {
+                    for (let i = 0; i < 8; i++) {
+                        frame.width = 300;
+                        await new Promise(resolve => {
+                            frame.onload = resolve;
+                            frame.srcdoc = '<style>@layer { target {color:red} } @media(min-width:500px) { @layer { target {color:green} } }</style><target></target>';
+                        });
+                        const target = frame.contentDocument.querySelector('target');
+                        getComputedStyle(target).color;
+                        frame.width = 500;
+                        getComputedStyle(target).color;
+                    }
+                    done('child loaded');
+                })().catch(error => done(String(error)));
+            "#.encode_utf16().collect(),
+            args: vec![],
+            asynchronous: true,
+            timeout_ms: Some(5000),
+        };
+        let mut pending = Pending::from_command(
+            &mut Some(PageCommand::WebdriverScript {
+                request,
+                context: Default::default(),
+                cancellation: None,
+                reply,
+            }),
+            &page,
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while let Some(command) = pending.take() {
+            assert!(Instant::now() < deadline, "child replacement must settle");
+            pending = command.poll(&mut page);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(
+            response.try_recv().unwrap().unwrap(),
+            ScriptValue::String("child loaded".encode_utf16().collect())
+        );
+    }
     #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pending_script_yields_root_turn_and_finishes_after_sibling_progress() {

@@ -41886,10 +41886,103 @@ impl BrowserContext {
             .get_mut(&page_id)
             .filter(|record| record.is_live())
             .ok_or(RuntimeError::Closed)?;
+        // Checkpoints carry the parent-issued native root lifetime. PageInfo
+        // carries the independently allocated semantic generation (including
+        // frame projections), so it cannot authenticate this publication.
+        let policies = self
+            .inner
+            .worker_policies
+            .lock()
+            .map_err(|_| RuntimeError::Closed)?;
+        let hub = self
+            .inner
+            .group
+            .messages
+            .lock()
+            .map_err(|_| RuntimeError::Closed)?;
+        let generation = hub
+            .root_document_identity(page_id.0)
+            .map(|identity| identity.0)
+            .filter(|generation| {
+                policies
+                    .root_lifetimes
+                    .get(&page_id)
+                    .is_some_and(|lifetime| lifetime.current(*generation))
+            })
+            .ok_or_else(|| RuntimeError::ProtocolViolation("retired drag feedback page".into()))?;
         record
             .drag_feedback
-            .apply(feedback, record.descriptor.page.document_generation)
+            .apply(feedback, generation)
             .map_err(RuntimeError::ProtocolViolation)
+    }
+}
+
+#[cfg(all(test, feature = "v8-host", unix))]
+mod drag_feedback_generation_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn drag_checkpoint_uses_native_lifetime_not_semantic_generation() {
+        let browser = Browser::in_process_with_config(Default::default());
+        let context = browser.new_context();
+        let page = context.new_page();
+        page.load_html("https://drag.test/", "<body>drag</body>")
+            .await
+            .unwrap();
+        let native_generation = context
+            .inner
+            .group
+            .messages
+            .lock()
+            .unwrap()
+            .root_document_identity(page.page_id().0)
+            .unwrap()
+            .0;
+        // Page projections allocate semantic generations independently of the
+        // parent-issued native document lifetime used by drag checkpoints.
+        context
+            .inner
+            .group
+            .pages
+            .lock()
+            .unwrap()
+            .get_mut(&page.page_id())
+            .unwrap()
+            .descriptor
+            .page
+            .document_generation = native_generation + 100;
+        context
+            .publish_drag_feedback(
+                page.page_id(),
+                oryn_js::drag_image::FeedbackBatch {
+                    page_generation: native_generation,
+                    updates: Vec::new(),
+                },
+            )
+            .unwrap();
+        assert!(
+            context
+                .publish_drag_feedback(
+                    page.page_id(),
+                    oryn_js::drag_image::FeedbackBatch {
+                        page_generation: native_generation + 100,
+                        updates: Vec::new(),
+                    }
+                )
+                .is_err()
+        );
+        page.close().await.unwrap();
+        assert!(
+            context
+                .publish_drag_feedback(
+                    page.page_id(),
+                    oryn_js::drag_image::FeedbackBatch {
+                        page_generation: native_generation,
+                        updates: Vec::new(),
+                    }
+                )
+                .is_err()
+        );
     }
 }
 
