@@ -282,6 +282,11 @@ impl RustExecutableDocument {
         }
         Ok(())
     }
+    pub(super) fn frame_resource_pending(&self, parent: RealmId, frame: NodeId) -> bool {
+        self.frame_resource_preparations
+            .get(&(parent, frame))
+            .is_some_and(|pending| pending.live(&self.agent.host, parent, frame))
+    }
     pub(super) fn frame_resources_pending(&self, realm: Option<RealmId>) -> bool {
         self.frame_resource_preparations
             .iter()

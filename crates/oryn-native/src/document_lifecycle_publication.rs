@@ -99,10 +99,18 @@ impl RustExecutableDocument {
                 && (!self.document_publication_live(realm, pending)
                     || pending.stage.get() != 7
                         && (pending.stage.get() != 2 || !self.document_load_barrier(realm))
+                        && (pending.stage.get() != 5 || !self.frame_load_navigation_pending(realm))
                         && pending
                             .retry
                             .get()
                             .is_none_or(|retry| retry <= Instant::now()))
+        })
+    }
+    fn frame_load_navigation_pending(&self, realm: RealmId) -> bool {
+        self.frame_realms.get(&realm).is_some_and(|owner| {
+            self.pending_frame_navigations
+                .contains_key(&(owner.parent_realm, owner.frame))
+                || self.frame_resource_pending(owner.parent_realm, owner.frame)
         })
     }
     pub(super) fn document_publication_delay(&self) -> Option<Duration> {
@@ -459,6 +467,18 @@ impl RustExecutableDocument {
                     let Some(owner) = self.frame_realms.get(&realm).cloned() else {
                         return Ok(true);
                     };
+                    // A parent load callback can submit into a newly created
+                    // frame while this publication is being drained. Let the
+                    // accepted navigation reach the frame owner and settle its
+                    // resource before the old document can fire the element's
+                    // load listener. Keep the receipt pending: a same-document
+                    // or rejected navigation
+                    // must not permanently discard the original load event.
+                    if self.agent.host.has_location_navigation()
+                        || self.frame_load_navigation_pending(realm)
+                    {
+                        return Ok(false);
+                    }
                     self.agent.host.activate_realm(owner.parent_realm)?;
                     let Some(receipt) = self.agent.host.start_native_frame_load_publication(
                         owner.frame,
@@ -658,6 +678,56 @@ mod tests {
         );
         assert!(!page.pending_document_loads.contains_key(&realm));
     }
+    #[test]
+    fn queued_frame_navigation_defers_load_without_losing_the_receipt() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<iframe id=f srcdoc='<p>child</p>'></iframe>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.test/start").unwrap()),
+        )
+        .unwrap();
+        let realm = *page.frame_realms.keys().next().unwrap();
+        reset(&mut page, realm);
+        page.agent.host.activate_realm(page.top_realm).unwrap();
+        page.agent
+            .host
+            .execute("globalThis.frameLoads=0;f.onload=()=>frameLoads++")
+            .unwrap();
+        prepare_images(&mut page, realm);
+        page.agent.host.activate_realm(realm).unwrap();
+        page.agent
+            .host
+            .execute("location.href='https://frame.test/next'")
+            .unwrap();
+        assert!(page.agent.host.has_location_navigation());
+        page.queue_document_load(realm).unwrap();
+        assert_eq!(page.document_publications[&realm].stage.get(), 5);
+        page.agent.host.activate_realm(page.top_realm).unwrap();
+        assert_eq!(
+            page.agent
+                .host
+                .evaluate_string("String(frameLoads)")
+                .unwrap(),
+            "0"
+        );
+        // Simulate the owner consuming a navigation without replacing this
+        // document. The deferred original load must still be delivered once.
+        page.agent.host.activate_realm(realm).unwrap();
+        assert!(page.agent.host.take_location_navigation().is_some());
+        resume(&mut page);
+        resume(&mut page);
+        page.agent.host.activate_realm(page.top_realm).unwrap();
+        assert_eq!(
+            page.agent
+                .host
+                .evaluate_string("String(frameLoads)")
+                .unwrap(),
+            "1"
+        );
+        assert!(!page.pending_document_loads.contains_key(&realm));
+    }
+
     #[test]
     fn dom_navigation_finish_does_not_block_native_load_receipt() {
         let mut page = RustExecutableDocument::load_with_environment(

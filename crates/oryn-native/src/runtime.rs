@@ -36164,17 +36164,22 @@ mod tests {
                 Ok(result)
             }
         }
-        for (target, encoding) in ["result", "_blank", "parser-frame", "base-target"]
-            .into_iter()
-            .flat_map(|target| {
-                [
-                    "application/x-www-form-urlencoded",
-                    "text/plain",
-                    "multipart/form-data",
-                ]
-                .map(|encoding| (target, encoding))
-            })
-        {
+        for (target, encoding) in [
+            "result",
+            "_blank",
+            "parser-frame",
+            "load-frame",
+            "base-target",
+        ]
+        .into_iter()
+        .flat_map(|target| {
+            [
+                "application/x-www-form-urlencoded",
+                "text/plain",
+                "multipart/form-data",
+            ]
+            .map(|encoding| (target, encoding))
+        }) {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let mut options = ContextOptions::default();
             options.action_policy.rules.insert(
@@ -36188,12 +36193,25 @@ mod tests {
             let context = Browser::in_process_with_config(BrowserConfig::default())
                 .new_context_with_broker(options, SharedNetworkBroker::new(Echo(requests.clone())));
             let page = context.new_page();
-            if target == "parser-frame" {
-                page.load_html("https://forms.test/start", &format!("<form id=f action=/echo><input name=x value=owned></form><script>const frame=document.createElement('iframe');frame.name='result';document.body.appendChild(frame);f.method='post';f.target=frame.name;f.enctype='{encoding}';frame.onload=()=>{{globalThis.loaded=frame.contentDocument.body.textContent;f.remove()}};f.submit();</script>")).await.unwrap();
+            if matches!(target, "parser-frame" | "load-frame") {
+                let start = if target == "load-frame" {
+                    "addEventListener('load',()=>{Promise.resolve().then(()=>{"
+                } else {
+                    ""
+                };
+                let end = if target == "load-frame" { "})})" } else { "" };
+                page.load_html("https://forms.test/start", &format!("<form id=f action=/echo><input name=x value=owned></form><script>{start}const frame=document.createElement('iframe');frame.name='result';document.body.appendChild(frame);f.method='post';f.target=frame.name;f.enctype='{encoding}';globalThis.loaded=[];frame.onload=()=>{{loaded.push(frame.contentDocument.body.textContent);f.remove()}};f.submit();{end}</script>")).await.unwrap();
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    while page.evaluate("String(loaded.length)").await.unwrap() == "0" {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .expect("submitted frame must publish its load");
                 assert_eq!(
-                    page.evaluate("globalThis.loaded").await.unwrap(),
-                    "accepted",
-                    "initial blank load must not overtake the pending form navigation"
+                    page.evaluate("JSON.stringify(loaded)").await.unwrap(),
+                    r#"["accepted"]"#,
+                    "initial blank load must not overtake the pending form navigation: {target}/{encoding}"
                 );
             } else {
                 page.load_html("https://forms.test/start", "<iframe name=result></iframe><form id=f action=/echo><input name=x value=owned></form>").await.unwrap();
