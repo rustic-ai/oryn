@@ -256,6 +256,15 @@ impl RawV8Host {
     }
 
     pub fn next_timer_delay(&mut self) -> Option<Duration> {
+        self.next_non_rendering_delay()
+            .into_iter()
+            .chain(self.next_rendering_delay())
+            .min()
+    }
+
+    // Rendering callbacks run in the outer animation phase. A due rendering
+    // deadline must wake that phase without keeping executable checkpoints busy.
+    fn next_non_rendering_delay(&mut self) -> Option<Duration> {
         if self.has_standalone_script_close() {
             return Some(Duration::ZERO);
         }
@@ -344,7 +353,6 @@ impl RawV8Host {
             .chain(self.general_preload_delay())
             .chain(self.module_settlement_delay())
             .chain(shared_waits)
-            .chain(self.next_rendering_delay())
             .chain(
                 self.binding_states
                     .iter()
@@ -1003,6 +1011,13 @@ impl RawV8Host {
     }
 
     pub fn has_runnable_page_work(&mut self) -> bool {
+        self.has_runnable_checkpoint_work()
+            || self
+                .next_rendering_delay()
+                .is_some_and(|delay| delay.is_zero())
+    }
+
+    pub(crate) fn has_runnable_checkpoint_work(&mut self) -> bool {
         if self.has_pending_root_navigation() {
             return true;
         }
@@ -1025,7 +1040,9 @@ impl RawV8Host {
                         .is_none_or(|pending| !self.realm_is_parked(pending.environment.realm))
                 })
             })
-            || self.next_timer_delay().is_some_and(|delay| delay.is_zero())
+            || self
+                .next_non_rendering_delay()
+                .is_some_and(|delay| delay.is_zero())
             || self
                 .binding_states
                 .iter()

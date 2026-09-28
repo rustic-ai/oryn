@@ -2915,6 +2915,9 @@ impl RustExecutableDocument {
         })
     }
     pub(super) fn frame_scripts_runnable(&mut self) -> bool {
+        self.frame_scripts_runnable_in_scope(false)
+    }
+    pub(super) fn frame_scripts_runnable_in_scope(&mut self, within_checkpoint: bool) -> bool {
         if self
             .frame_departure_delay()
             .is_some_and(|delay| delay.is_zero())
@@ -2922,10 +2925,22 @@ impl RustExecutableDocument {
             return true;
         }
         let previous = self.agent.host.active_realm();
-        let ready = self
-            .frame_script_preparations
-            .iter_mut()
-            .any(|pending| pending.runnable(&mut self.agent.host));
+        let ready = self.frame_script_preparations.iter_mut().any(|pending| {
+            // The poller admits one slice per document in this page task.
+            // Consumed slices remain ready for the next task, but cannot
+            // make another pass of the current checkpoint progress.
+            if within_checkpoint && pending.live(&self.agent.host) {
+                let admitted = if pending.root_document {
+                    self.parser_turn.can_claim()
+                } else {
+                    self.parser_turn.can_claim_frame(pending.load.realm)
+                };
+                if !admitted {
+                    return false;
+                }
+            }
+            pending.runnable(&mut self.agent.host)
+        });
         let _ = self.agent.host.activate_realm(previous);
         ready
     }

@@ -6853,8 +6853,15 @@ impl ParserTurnBudget {
         self.depth.set(self.depth.get() + 1);
         ParserTurnGuard(self.clone())
     }
+    fn can_claim(&self) -> bool {
+        !self.used.get() && self.frames.borrow().len() < 64
+    }
+    fn can_claim_frame(&self, realm: RealmId) -> bool {
+        let frames = self.frames.borrow();
+        frames.len() + usize::from(self.used.get()) < 64 && !frames.contains(&realm)
+    }
     fn claim(&self) -> bool {
-        if self.used.get() || self.frames.borrow().len() >= 64 {
+        if !self.can_claim() {
             return false;
         }
         self.used.set(true);
@@ -12747,6 +12754,10 @@ impl RustExecutableDocument {
     }
 
     pub fn has_runnable_page_work(&mut self) -> bool {
+        self.has_runnable_work(false)
+    }
+
+    fn has_runnable_work(&mut self, within_checkpoint: bool) -> bool {
         if self
             .standalone_roots
             .upgrade()
@@ -12786,7 +12797,7 @@ impl RustExecutableDocument {
         {
             return true;
         }
-        if self.frame_scripts_runnable() {
+        if self.frame_scripts_runnable_in_scope(within_checkpoint) {
             return true;
         }
         {
@@ -12898,7 +12909,11 @@ impl RustExecutableDocument {
                     .ready
                     .load(std::sync::atomic::Ordering::Acquire)
                     != 0
-                || self.agent.host.has_runnable_page_work()
+                || if within_checkpoint {
+                    self.agent.host.has_runnable_checkpoint_work()
+                } else {
+                    self.agent.host.has_runnable_page_work()
+                }
         }
     }
 
@@ -14388,7 +14403,7 @@ impl RustExecutableDocument {
             // DOM alone are not idle: cross-realm queues, native completions,
             // parser/script readiness and ownership transitions also matter.
             // Unavailable identity/borrow witnesses retain the existing cap.
-            let runnable = self.has_runnable_page_work();
+            let runnable = self.has_runnable_work(true);
             let pending = self.pending_frame_form_history.is_some()
                 || self
                     .agent

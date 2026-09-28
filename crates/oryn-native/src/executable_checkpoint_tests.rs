@@ -267,3 +267,36 @@ fn active_mutations_keep_eight_pass_cap_and_do_not_cache_idle() {
     assert_eq!(observed.get(), 8, "the mutation hook must be retired");
     assert_eq!(checkpoint_passes(&mut page), 1);
 }
+
+#[test]
+fn due_rendering_yields_from_checkpoint_without_losing_animation_callback() {
+    let mut page = quiet_page();
+    page.agent
+        .host
+        .execute("globalThis.animationRan=false;requestAnimationFrame(()=>animationRan=true)")
+        .unwrap();
+    let delay = page.agent.host.next_rendering_delay().unwrap();
+    std::thread::sleep(delay + Duration::from_millis(1));
+    assert!(page.rendering_due());
+    assert!(page.has_runnable_page_work());
+    assert_eq!(checkpoint_passes(&mut page), 1);
+    assert_eq!(
+        page.agent
+            .host
+            .evaluate_string("String(animationRan)")
+            .unwrap(),
+        "false"
+    );
+    assert!(
+        page.rendering_due(),
+        "checkpoint must retain the outer rendering wakeup"
+    );
+    page.run_animation_frame_phase().unwrap();
+    assert_eq!(
+        page.agent
+            .host
+            .evaluate_string("String(animationRan)")
+            .unwrap(),
+        "true"
+    );
+}

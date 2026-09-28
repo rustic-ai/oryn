@@ -713,3 +713,42 @@ fn data_block_batch_keeps_each_microtask_boundary_and_bounds_one_source_slice() 
     finish(&mut page);
     assert!(page.node_by_id("followingData").is_some());
 }
+
+#[test]
+fn exhausted_parser_slice_yields_checkpoint_and_remains_runnable_next_task() {
+    let mut page = RustExecutableDocument::load("").unwrap();
+    page.agent.host.take_navigation_history_update();
+    page.run_animation_frame_phase().unwrap();
+    let (input, _, polls, _) = controlled(
+        vec![
+            "<p id=first>first</p>".into(),
+            "<p id=second>second</p>".into(),
+        ],
+        true,
+    );
+    install(&mut page, input);
+    {
+        let _turn = page.parser_turn.enter();
+        page.checkpoint().unwrap();
+        let (result, labels) =
+            crate::ipc_progress::close_admission::capture_test_phase_labels(|| page.checkpoint());
+        result.unwrap();
+        let passes = labels
+            .into_iter()
+            .filter(|label| *label == "checkpoint_realm_retirement")
+            .count();
+        assert_eq!(
+            passes, 1,
+            "already consumed input cannot progress in this task"
+        );
+        assert_eq!(polls.get(), 1);
+        assert!(
+            page.has_runnable_page_work(),
+            "the outer task must still see ready parser input"
+        );
+        assert!(page.node_by_id("second").is_none());
+    }
+    page.checkpoint().unwrap();
+    assert!(page.node_by_id("second").is_some());
+    finish(&mut page);
+}
