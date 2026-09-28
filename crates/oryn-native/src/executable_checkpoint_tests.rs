@@ -108,6 +108,39 @@ fn intercepted_navigation_waits_without_spinning_and_resumes_on_settlement() {
 }
 
 #[test]
+fn load_restoration_waits_for_lifecycle_without_spinning_checkpoints() {
+    let mut page = quiet_page();
+    page.agent
+        .host
+        .set_document_readiness(oryn_dom::DocumentReadyState::Loading)
+        .unwrap();
+    page.agent
+        .host
+        .sync_navigation_activation(None, "reload")
+        .unwrap();
+    assert_eq!(checkpoint_passes(&mut page), 1);
+    page.agent
+        .host
+        .execute("globalThis.loaded=false;onload=()=>loaded=true")
+        .unwrap();
+    let receipt = page
+        .agent
+        .host
+        .start_native_document_lifecycle_publication(false)
+        .unwrap();
+    assert!(
+        page.agent
+            .host
+            .resume_native_history_publication(receipt)
+            .unwrap()
+    );
+    assert_eq!(
+        page.agent.host.evaluate_string("String(loaded)").unwrap(),
+        "true"
+    );
+}
+
+#[test]
 fn late_child_history_publication_still_reaches_the_frame_owner() {
     let mut page = quiet_page();
     page.agent

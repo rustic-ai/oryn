@@ -175,11 +175,12 @@ pub(super) fn executable_checkpoint_pending(
     // intercept promise. Its existence is not work a checkpoint can drain.
     // Settlement enqueues continuations/publications below; their readiness
     // still forces another pass, including when a later realm resolves them.
+    // Likewise, load_restore holds state for the native load publication. It
+    // becomes a runnable publication only when that lifecycle event is ready.
     (include_history_update && navigation.history_update.is_some())
         || navigation.staged_swap.is_some()
         || navigation.staged_swap_activation.is_some()
         || navigation.finishing_transition.is_some()
-        || navigation.load_restore.is_some()
         || !navigation.joint_tasks.is_empty()
         || !navigation.hash_tasks.is_empty()
         || !navigation.intercepted_history_barriers.is_empty()
@@ -9177,6 +9178,11 @@ mod native_source_origin_admission_tests {
         let state = scroll_fixture(scope);
         state.set_document_scroll_offset((40.0, 80.0)).unwrap();
         sync_activation(scope, None, "traverse").unwrap();
+        assert!(state.navigation_api.borrow().load_restore.is_some());
+        assert!(
+            !executable_checkpoint_pending(&state, false),
+            "restoration waits for load publication, not another checkpoint"
+        );
         state.set_document_scroll_offset((0.0, 0.0)).unwrap();
         eval(
             scope,
