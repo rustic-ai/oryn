@@ -14,10 +14,43 @@ The preservation commit `96b7fd349baff7a5d8e4e19ba61132067762e7ae` records the p
 2. Implement and run focused developer checks while iterating. Use `cargo test -p <package>` and the existing feature/test serialization rules where applicable. A development result is not official qualification.
 3. Review the integrated batch, generated output, source ownership, and cross-feature effects. Commit before official validation. Account explicitly for ignored effective build inputs, especially the prepared V8 checkout; a clean top-level status alone is insufficient.
 4. Reuse existing CI in `.github/workflows/ci-rust.yml`, JS/extension/E2E workflows, and canonical build/signing scripts. Preserve workspace/default/all-feature coverage and serialized V8 tests. The component inventory is a conservative aid, not a complete compiler dependency analyzer.
-5. Produce one clean-source build, verify it, and seal its executable/runtime dependencies. Run acceptance against that identity without editing or re-signing it. Changes to runner/reporting code can reuse native output only after explicit native-input equivalence succeeds.
+5. Produce one clean-source build, verify it, and seal its executable/runtime dependencies. Run acceptance against that identity without editing or re-signing it. For official qualification, runner/reporting changes require explicit native-input equivalence before reusing native output. Ordinary developer runs reuse the existing binary directly; rebuild when native code or its compiled inputs change.
 6. Record original outcomes, including failures, and review validity separately. Fixes produce commits and new build identities when needed; retries receive new run identities. Never combine fragments into a complete original.
 
 Temporary Git worktrees are appropriate for genuine isolation, such as a frozen validation checkout. They share history and are removed after integration and process settlement. Ordinary changes must not create another permanent `acceptance17-rNN` tree or copy of the compiler cache.
+
+## Everyday WPT and profiling
+
+Use `python3 scripts/oryn-validate.py wpt-dev --help` for selected developer tests.
+Supply an existing run manifest or a prior `developer-config.json` as a path/configuration template, its store and
+bundle roots, an include file, and a fresh output under `<store>/development/`.
+The first run extracts a compact configuration; reuse that file to avoid reloading the legacy dataset inventory. Run with the selected WPT Python interpreter and its `PYTHONHOME`. The command
+records the actual checkout (including uncommitted changes), existing native
+build identity, exact selected URLs, raw results and elapsed phases.
+
+No commit, source export, generation gate, independent review receipt, signing,
+native equivalence proof, or complete dependency audit is a prerequisite for
+this developer loop. Run from the working checkout. Build native code when it
+changes; Python runner changes do not require rebuilding or resealing Rust.
+`developer_protocol_smoke` uses the same lightweight default for window profiling.
+
+Expensive operations are explicit:
+
+| Operation | Everyday development | Qualification / investigation |
+| --- | --- | --- |
+| Full dataset/environment/source hashing | Omitted | `--audit-inputs` hashes declared inputs once before the run |
+| Production build/signature checks | Reuse the selected executable | `--audit-inputs` verifies the retained native build once |
+| Repeated child/adapter/shutdown input audits | Removed from developer paths | Existing official immutable-run checks retained |
+| Source export, generation gate and native reuse proof | Not required | Release/qualification preparation only |
+| `wpt-inspect`, `wpt-run` | Do not use as a developer startup step | Expensive qualification commands |
+| Per-experiment helper packages and review manifests | Retired | Preserve historical evidence; no new copies |
+
+The opt-in input audit covers the retained template and native build, not the edited checkout. It is a pre-run observation, not proof of immutability during
+execution or release qualification. Lightweight runs still check executable
+paths, worker and fixture configuration, real TLS behavior, exclusive port/focus
+ownership, process cleanup and exact outcome completeness. They retain failures.
+They do not certify unchanged source/dependency trees. Raw test outcomes and
+qualification are separate facts.
 
 ## Ownership and generated sources
 

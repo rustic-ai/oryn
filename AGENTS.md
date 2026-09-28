@@ -2,7 +2,7 @@
 
 ## Core and OIL delivery work
 
-The user approved consolidation implementation on September 27. Follow the active [development process](docs/development/WORKFLOW.md) and [validation migration runbook](docs/validation/CONSOLIDATION.md). Use the existing Cargo workspace and Git commits; do not create another permanent candidate/helper checkout. Focused developer tests are allowed during iteration. Complete, review, and commit the repair batch before official validation.
+The user approved consolidation implementation on September 27. Follow the active [development process](docs/development/WORKFLOW.md) and [validation migration runbook](docs/validation/CONSOLIDATION.md). Use the existing Cargo workspace and Git commits; do not create another permanent candidate/helper checkout. Focused developer tests are allowed during iteration. Use `wpt-dev` for ordinary WPT testing; source exports, generation/review gates, native equivalence proofs and recursive input audits are not prerequisites for developer runs. Reuse existing native output for Python-only edits. Complete, review, and commit the repair batch before official validation.
 
 Migration progress lives outside source in the configured data root's `status/consolidation.json`. The previous [CURRENT_STATUS.md](docs/oryn2/CURRENT_STATUS.md) and candidate/gate index describe legacy evidence until the M7 cutover. Do not modify legacy hashed status or receipts to report new progress. Pin new evidence and keep source, build, execution, validity, observed outcomes, and qualification states separate.
 

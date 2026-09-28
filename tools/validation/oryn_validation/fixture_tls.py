@@ -19,6 +19,9 @@ def bootstrap_inputs(path,digest):
     manifest, but never hash or rediscover its dataset/build directory closures
     in a Python multiprocessing child.
     """
+    if os.environ.get('ORYN_WPT_DEVELOPER_CONFIG'):
+        from .developer_inputs import bootstrap_inputs as developer_bootstrap
+        return developer_bootstrap()
     from .manifests import load_manifest
     from .inputs import resolve_input, verify_inputs
     from .admission import read_object

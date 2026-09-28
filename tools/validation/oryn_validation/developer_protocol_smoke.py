@@ -1,6 +1,6 @@
 """Coordinator-only native adapter smoke, explicitly outside qualification.
 
-The parent owns resources/processes and verifies retained immutable inputs. The
+The parent owns resources/processes; expensive input audits are opt-in. The
 child uses the current adapter with an explicitly synthetic qualification lookup
 only; browser startup, protocol parts, harness/window readiness, one test and
 teardown are real. This HTTP probe omits the official TLS activation bootstrap
@@ -16,8 +16,8 @@ import sys
 import time
 
 from .admission import SOURCE_ROOT, legacy_algorithms, read_object
-from .inputs import InputLease, snapshot_input
-from .wpt import _digest, load_inputs, plan_command, python_environment
+from .developer_inputs import load_developer_inputs, python_environment, audit_inputs, source_info, serialize_inputs, bundle_owner
+from .wpt import _digest, plan_command
 from .worker_environment import worker_environment, assert_worker_environment
 
 TEST = '/dom/nodes/Node-isConnected.html'
@@ -93,7 +93,8 @@ def _contract(bound, fixture_path, fixture):
     render = render_contracts(SOURCE_ROOT)
     validate_render_contracts(read_object(bound['assets']['worker_manifest']), render)
     features, cookies = feature_profile.from_fixture(fixture), cookie_profile.from_fixture(fixture)
-    return dict(path=str(bound['path']), sha256=bound['sha256'], typed_run=bound['run'],
+    return dict(path=str(bound['path']), sha256=bound['sha256'], typed_run={key: bound['run'][key] for key in
+                    ('build', 'run_id', 'profile', 'runner', 'original_run_id', 'attempt')},
                 worker_binding=assert_worker_environment(bound),
                 candidate_sha256=bound['run']['build']['manifest_sha256'],
                 fixture_path=str(fixture_path), fixture_sha256=_digest(fixture_path), fixture=fixture,
@@ -117,13 +118,10 @@ def child(config_path, expected_sha256):
         raise ValueError('window profiling requires 0 to 20 samples')
     native_timing = _check_native_timing(config.get('native_timing', True))
     path, store, bundle = (Path(config[key]) for key in ('run', 'store_root', 'bundle_root'))
-    run = read_object(path)
-    if _digest(path) != config['run_sha256']:
-        raise ValueError('retained run changed after parent admission')
-    assets = {name: (bundle if record['scope'] == 'bundle' else store) / record['path']
-              for name, record in run['assets'].items()}
-    bound = dict(run=run, path=path, sha256=config['run_sha256'], assets=assets,
-                 store_root=store, bundle_root=bundle)
+    bound = config['inputs']
+    bound.update(assets={k: Path(v) for k, v in bound['assets'].items()},
+                 store_root=store, bundle_root=bundle, path=Path(config_path).absolute(), sha256=expected_sha256)
+    run, assets, path = bound['run'], bound['assets'], bound['path']
     assert_worker_environment(bound)
     output = Path(config_path).parent
     fixture_path = assets[config['fixture_role']]; fixture = read_object(fixture_path)
@@ -239,11 +237,9 @@ def child(config_path, expected_sha256):
         _write(output / 'developer-result.json', result)
 
 
-def execute(run_path, *, store_root, bundle_root, output, window_profile_samples=0, native_timing=True):
+def execute(run_path, *, store_root, bundle_root, output, window_profile_samples=0, native_timing=True, audit=False):
     native_timing = _check_native_timing(native_timing)
     from .processes import run_owned, ResourceLease
-    from .bundle_ownership import registered_bundle_owner
-    from .production import validate_production
     legacy_algorithms()
     from oryn_wptrunner.custody import create
     if type(window_profile_samples) is not int or not 0 <= window_profile_samples <= 20:
@@ -251,12 +247,13 @@ def execute(run_path, *, store_root, bundle_root, output, window_profile_samples
     if '..' in Path(output).parts:
         raise ValueError('developer smoke output cannot traverse parent directories')
     store_root, bundle_root, output = map(lambda p: Path(p).absolute(), (store_root, bundle_root, output))
-    if not output.is_relative_to(store_root / 'migration/verification'):
-        raise ValueError('developer smoke output must be under migration/verification, never official runs')
+    if not any(output.is_relative_to(store_root / path) for path in ('development', 'migration/verification')):
+        raise ValueError('developer smoke output must be under development or migration/verification, never official runs')
     for item in (output, *output.parents):
         if item.is_symlink(): raise ValueError('developer output traverses a symlink')
-    bound = load_inputs(run_path, store_root=store_root, bundle_root=bundle_root)
-    validate_production(bound)
+    bound = load_developer_inputs(run_path, store_root=store_root, bundle_root=bundle_root)
+    if audit:
+        audit_inputs(bound)
     registry = read_object(bound['assets']['core_profile_registry'])
     fixture_role = registry['profiles'][bound['run']['profile']]['fixture']
     output.mkdir(parents=True, exist_ok=False)
@@ -266,7 +263,9 @@ def execute(run_path, *, store_root, bundle_root, output, window_profile_samples
               'bundle_root': str(bundle_root), 'fixture_role': fixture_role,
               'window_profile_samples': window_profile_samples,
               'native_timing': native_timing, 'native_timing_scope': NATIVE_TIMING_SCOPE,
-              'qualification_lookup': 'synthetic developer projection; no official admission'}
+              'qualification_lookup': 'developer projection; no official admission',
+              'input_audit': 'passed-before-run' if audit else 'not-requested', 'source': source_info(),
+              'inputs': serialize_inputs(bound)}
     config_path = output / 'developer-config.json'; _write(config_path, config)
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(('ORYN_', 'PYTHON', 'DYLD_'))}
@@ -276,24 +275,16 @@ def execute(run_path, *, store_root, bundle_root, output, window_profile_samples
                                         str(SOURCE_ROOT / 'tools/wptrunner-oryn'))),
                ORYN_WPT_PROTOCOL_CUSTODY=str(output / 'protocol-custody.jsonl'),
                ORYN_WPT_CANDIDATE_SHA256=bound['run']['build']['manifest_sha256'])
-    current_records = [snapshot_input(SOURCE_ROOT, item, kind='directory') for item in
-                       ('tools/validation', 'tools/wptrunner-oryn', 'scripts')]
-    current_records.append(snapshot_input(SOURCE_ROOT, 'crates/oryn-common/src/v4.rs'))
-    _write(output / 'developer-source-inputs.json', current_records)
-    records = [*bound['records'], snapshot_input(store_root, str(config_path.relative_to(store_root))),
-               snapshot_input(store_root, str(bound['path'].relative_to(store_root)))]
-    with InputLease(records, store_root=store_root, bundle_root=bundle_root) as inputs, \
-         InputLease(current_records, store_root=SOURCE_ROOT) as source:
-        with ResourceLease(store_root, ['native-focus', 'wpt-fixed-ports'],
-                           objects=[registered_bundle_owner(bound)]) as resource:
-            process = run_owned([str(bound['assets']['python']), '-B', '-m',
-                'oryn_validation.developer_protocol_smoke', 'child', '--config', str(config_path),
-                '--config-sha256', _digest(config_path)], cwd=bound['assets']['wpt_checkout'],
-                output=output / 'process', env=env, timeout_seconds=DEADLINE)
-            resource.mark_settled(process)
-        inputs.finalize(); source.finalize(); python_environment(bound)
-        _write(output / 'developer-custody.json', {'qualification': 'not-evaluated',
-               'inputs': inputs.finalization, 'current_source': source.finalization})
+    with ResourceLease(store_root, ['native-focus', 'wpt-fixed-ports'],
+                       objects=[bundle_owner(bound)]) as resource:
+        process = run_owned([str(bound['assets']['python']), '-B', '-m',
+            'oryn_validation.developer_protocol_smoke', 'child', '--config', str(config_path),
+            '--config-sha256', _digest(config_path)], cwd=bound['assets']['wpt_checkout'],
+            output=output / 'process', env=env, timeout_seconds=DEADLINE)
+        resource.mark_settled(process)
+    _write(output / 'developer-custody.json', {'qualification': 'not-evaluated',
+           'input_audit': config['input_audit'], 'source': config['source'],
+           'cleanup_complete': process['cleanup_complete']})
     if process['returncode'] != 0 or not process['cleanup_complete'] or process['forced_cleanup']:
         raise RuntimeError('developer protocol smoke failed; inspect ' + str(output))
     result = read_object(output / 'developer-result.json')
@@ -308,6 +299,7 @@ def main():
     for name in ('run', 'store-root', 'bundle-root', 'output', 'config'):
         parser.add_argument('--' + name, type=Path)
     parser.add_argument('--config-sha256')
+    parser.add_argument('--audit-inputs', action='store_true', help='Expensive: audit inputs and build once before running')
     parser.add_argument('--window-profile-samples', type=int, default=0)
     parser.add_argument('--no-native-timing', action='store_true',
                         help='developer probe only: omit the native diagnostic fd grant')
@@ -320,7 +312,7 @@ def main():
         if any(getattr(args, key) is None for key in ('run', 'store_root', 'bundle_root', 'output')):
             parser.error('execute requires explicit run, store-root, bundle-root and developer output')
         execute(args.run, store_root=args.store_root, bundle_root=args.bundle_root, output=args.output,
-                window_profile_samples=args.window_profile_samples, native_timing=not args.no_native_timing)
+                window_profile_samples=args.window_profile_samples, native_timing=not args.no_native_timing, audit=args.audit_inputs)
 
 
 if __name__ == '__main__':

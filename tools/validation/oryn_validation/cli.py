@@ -156,9 +156,16 @@ def parser():
     reuse = command("native-reuse-check", "Check exact native input and artifact equivalence")
     reuse.add_argument("original", type=Path)
     reuse.add_argument("proposed", type=Path)
+    dev = command("wpt-dev", "Run selected WPT URLs with an existing build; lightweight developer startup")
+    dev.add_argument("manifest", type=Path)
+    for name in ("store-root", "bundle-root", "output", "include-file"):
+        dev.add_argument("--" + name, type=Path, required=True)
+    dev.add_argument("--workers", type=int, default=6)
+    dev.add_argument("--timeout-seconds", type=float, default=7200)
+    dev.add_argument("--audit-inputs", action="store_true", help="Expensive: hash all inputs and verify the native build once before running")
     for name in ("wpt-inspect", "wpt-run"):
-        wpt = command(name, "Inspect typed admission" if name.endswith("inspect") else
-                      "Execute a new original only after every production gate passes")
+        wpt = command(name, "Qualification audit (expensive): inspect typed admission" if name.endswith("inspect") else
+                      "Qualification run (expensive): execute after production gates")
         wpt.add_argument("manifest", type=Path)
         wpt.add_argument("--store-root", type=Path, required=True)
         wpt.add_argument("--bundle-root", type=Path, required=True)
@@ -332,6 +339,13 @@ def dispatch(args):
         from .builds import native_reuse_proof
         return native_reuse_proof(load_manifest(args.original, "build"),
                                   load_manifest(args.proposed, "build"))
+    if args.command == "wpt-dev":
+        from .developer_wpt import execute
+        code = execute(args.manifest, args.store_root, args.bundle_root, args.output, args.include_file,
+                       workers=args.workers, timeout_seconds=args.timeout_seconds, audit=args.audit_inputs)
+        if code:
+            raise RuntimeError('developer run incomplete or infrastructure failure; inspect ' + str(args.output))
+        return _json(args.output / 'timing-result.json')
     if args.command.startswith("wpt-"):
         if args.command == "wpt-reconcile":
             from .results import read_mozlog, reconcile_wpt

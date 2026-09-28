@@ -67,7 +67,7 @@ def load_inputs(path, *, store_root, bundle_root):
 
 
 def _resolve_inputs(path, *, store_root, bundle_root):
-    """Internal discovery only. The caller must establish an InputLease before use."""
+    """Discovery only. Qualification callers must establish an InputLease; developer runs explicitly omit full auditing."""
     path = Path(path).absolute()
     run = load_manifest(path, expected_kind='run')
     assets = run.get('assets', {})
@@ -203,6 +203,8 @@ def inspect_admission(bound):
 
 
 def official_admission(bound, *, input_lease=None):
+    if os.environ.get('ORYN_WPT_DEVELOPER_CONFIG'):
+        raise ValueError('developer bootstrap cannot be used for qualification')
     selected = inspect_admission(bound)
     from .production import validate_production
     selected['production'] = validate_production(bound, input_lease=input_lease)
@@ -496,14 +498,17 @@ def write_canary_audit(bound, output, process):
 
 
 @contextmanager
-def fixture_services(bound, selected, *, output, environment, lease, timeout_seconds, upstream=False, services=None):
+def fixture_services(bound, selected, *, output, environment, lease, timeout_seconds, upstream=False, services=None, verify_environment=True):
     """Own relays inside the caller's single resource lease, including teardown.
 
     Each service has continuous canonical process supervision. This context is
     also usable by the topology collector; it does not acquire another lock.
     """
     from .processes import OwnedService
-    relay_environment(bound)
+    if verify_environment:
+        relay_environment(bound)
+    elif upstream:
+        raise ValueError("topology qualification requires environment verification")
     services = [] if services is None else services
     with ExitStack() as stack:
         for name, argv, address in relay_commands(bound['assets']['fixture_relay'], selected['fixture']):
@@ -514,7 +519,8 @@ def fixture_services(bound, selected, *, output, environment, lease, timeout_sec
             stack.enter_context(service)
             deadline = time.monotonic() + 10
             while True:
-                lease.checkpoint()
+                if lease is not None:
+                    lease.checkpoint()
                 service.check()
                 try:
                     with socket.create_connection(address, timeout=.25):

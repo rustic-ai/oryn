@@ -28,7 +28,7 @@ class DeveloperSmokeGuards(unittest.TestCase):
                 registry = root / 'registry.json'
                 registry.write_text(json.dumps({'profiles': {'standard-block': {'fixture': 'fixture_contract'}}}))
                 output = root / 'migration/verification/probe'
-                bound = {'path': run, 'sha256': smoke._digest(run), 'records': [],
+                bound = {'store_root': root, 'bundle_root': root / 'bundle', 'path': run, 'sha256': smoke._digest(run), 'records': [],
                     'assets': {'core_profile_registry': registry, 'python': root / 'python',
                                'wpt_checkout': root / 'wpt'},
                     'run': {'profile': 'standard-block', 'build': {'manifest_sha256': 'a' * 64}}}
@@ -44,13 +44,12 @@ class DeveloperSmokeGuards(unittest.TestCase):
 
                 with ExitStack() as patches:
                     for target, replacement in (
-                        ('oryn_validation.developer_protocol_smoke.load_inputs', lambda *a, **k: bound),
-                        ('oryn_validation.production.validate_production', lambda *a: None),
-                        ('oryn_validation.bundle_ownership.registered_bundle_owner', lambda *a: 'build:synthetic'),
+                        ('oryn_validation.developer_protocol_smoke.load_developer_inputs', lambda *a, **k: bound),
+                        ('oryn_validation.developer_protocol_smoke.audit_inputs', lambda *a: self.fail('default smoke audited inputs')),
+                        ('oryn_validation.developer_protocol_smoke.source_info', lambda: {'path': 'test'}),
+                        ('oryn_validation.developer_protocol_smoke.bundle_owner', lambda *a: 'build:synthetic'),
                         ('oryn_validation.developer_protocol_smoke.python_environment', lambda *a: {}),
                         ('oryn_validation.developer_protocol_smoke.worker_environment', lambda *a: {}),
-                        ('oryn_validation.developer_protocol_smoke.snapshot_input', lambda *a, **k: {'synthetic': True}),
-                        ('oryn_validation.developer_protocol_smoke.InputLease', Lease),
                         ('oryn_validation.processes.ResourceLease', Lease),
                         ('oryn_validation.processes.run_owned', completed),
                     ):
@@ -66,7 +65,7 @@ class DeveloperSmokeGuards(unittest.TestCase):
 
     def test_native_timing_selection_is_strict_before_loading_or_child_imports(self):
         for value in (0, 1, None, 'false', []):
-            with self.subTest(value=value), patch.object(smoke, 'load_inputs') as load:
+            with self.subTest(value=value), patch.object(smoke, 'load_developer_inputs') as load:
                 with self.assertRaisesRegex(ValueError, 'must be a boolean'):
                     smoke.execute('/run.json', store_root='/store', bundle_root='/bundle',
                         output='/store/migration/verification/profile', native_timing=value)
@@ -94,7 +93,7 @@ class DeveloperSmokeGuards(unittest.TestCase):
     def test_ordinary_run_output_cannot_be_used_for_developer_smoke(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            with patch.object(smoke, 'load_inputs') as load:
+            with patch.object(smoke, 'load_developer_inputs') as load:
                 with self.assertRaisesRegex(ValueError, 'never official runs'):
                     smoke.execute(root / 'run.json', store_root=root, bundle_root=root / 'build',
                                   output=root / 'runs/fake-original')
@@ -105,7 +104,7 @@ class DeveloperSmokeGuards(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             output = root / 'migration/verification/../../runs/fake-original'
-            with patch.object(smoke, 'load_inputs') as load:
+            with patch.object(smoke, 'load_developer_inputs') as load:
                 with self.assertRaisesRegex(ValueError, 'parent directories'):
                     smoke.execute(root / 'run.json', store_root=root, bundle_root=root / 'build', output=output)
                 load.assert_not_called()
@@ -133,7 +132,7 @@ class DeveloperSmokeGuards(unittest.TestCase):
 
     def test_window_profile_sample_count_is_bounded_before_loading(self):
         for count in (-1, 21, True):
-            with self.subTest(count=count), patch.object(smoke, 'load_inputs') as load:
+            with self.subTest(count=count), patch.object(smoke, 'load_developer_inputs') as load:
                 with self.assertRaisesRegex(ValueError, '0 to 20 samples'):
                     smoke.execute('/run.json', store_root='/store', bundle_root='/bundle',
                         output='/store/migration/verification/profile', window_profile_samples=count)
