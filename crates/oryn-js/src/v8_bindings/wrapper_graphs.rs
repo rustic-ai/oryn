@@ -351,6 +351,20 @@ fn rebuild(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
         }
     }
     for node in changed {
+        // Materializing a connected wrapper does not change existing roots.
+        // Still select the new wrapper below so its component membership is
+        // recorded for a later detach. Documents can add ownerDocument edges,
+        // and any intervening mutation must retain the general repair path.
+        if state.wrapper_graph_revision.get() == Some(revision)
+            && new_nodes.contains(&node)
+            && retained_by_document(&dom, node)
+            && !matches!(
+                dom.arena().get(node).map(|node| &node.kind),
+                Ok(NodeKind::Document)
+            )
+        {
+            continue;
+        }
         // Both the former and current component matter when a subtree moves.
         if let Some(object) = wrappers
             .lookup(dom.arena().id(), state.realm, node)

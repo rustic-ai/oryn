@@ -5642,6 +5642,10 @@ fn load_parser_stylesheet_inner(
 
 fn wrap_imported_stylesheet(rule: &oryn_layout::cssom::RuleView, css: &str) -> String {
     let mut output = css.to_string();
+    // Inactive import conditions must not establish cascade layer order.
+    if let Some(layer) = rule.properties.get("layerName") {
+        output = format!("@layer {layer} {{\n{output}\n}}");
+    }
     if let Some(media) = rule
         .properties
         .get("media")
@@ -5650,10 +5654,7 @@ fn wrap_imported_stylesheet(rule: &oryn_layout::cssom::RuleView, css: &str) -> S
         output = format!("@media {media} {{\n{output}\n}}");
     }
     if let Some(condition) = rule.properties.get("supportsText") {
-        output = format!("@supports {condition} {{\n{output}\n}}");
-    }
-    if let Some(layer) = rule.properties.get("layerName") {
-        output = format!("@layer {layer} {{\n{output}\n}}");
+        output = format!("@supports ({condition}) {{\n{output}\n}}");
     }
     output
 }
@@ -31826,6 +31827,35 @@ mod tests {
     }
 
     #[test]
+    fn conditional_imports_reorder_layers_when_frame_resizes() {
+        let mut page = RustExecutableDocument::load(
+            r#"<!doctype html><iframe id=f width=300 height=300 srcdoc='<style>
+            @import url(data:text/css,) layer(B) (max-width:300px);
+            @import url(data:text/css,) layer(A) (max-width:300px);
+            @import url(data:text/css,) layer(A) (min-width:500px);
+            @import url(data:text/css,) layer(B) (min-width:500px);
+            @layer A {target {color:red}} @layer B {target {color:green}}
+            </style><target></target>'></iframe>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const target = f.contentDocument.querySelector('target');
+            const colors = [getComputedStyle(target).color];
+            f.width = 500;
+            colors.push(getComputedStyle(target).color);
+            f.width = 300;
+            colors.push(getComputedStyle(target).color);
+            JSON.stringify(colors)
+        "#
+            )
+            .unwrap(),
+            r#"["rgb(255, 0, 0)","rgb(0, 128, 0)","rgb(255, 0, 0)"]"#
+        );
+    }
+
+    #[test]
     fn computed_style_of_child_element_uses_its_own_document() {
         let mut page = RustExecutableDocument::load(
             r#"<!doctype html><style>target { color: blue }</style>
@@ -36690,7 +36720,8 @@ mod stylesheet_import_expansion_tests {
             oryn_layout::cssom::read_stylesheet(&expanded, "https://example.test/", false, true)
                 .unwrap();
         assert_eq!(parsed.len(), 1);
-        assert!(expanded.starts_with("@layer theme"));
+        assert!(expanded.starts_with("@supports"));
+        assert!(expanded.find("@media").unwrap() < expanded.find("@layer").unwrap());
         assert!(expanded.contains("@supports"));
         assert!(expanded.contains("@media print"));
         assert!(expanded.contains("color: red"));
