@@ -369,10 +369,23 @@ impl DomRuntime {
                     self.render_blocking.expects.remove(&node);
                 }
             }
-            Mutation::Inserted { node, .. } | Mutation::ChildrenReplaced { node, .. } => {
+            Mutation::Inserted { node, .. } => {
                 for node in self.arena.descendants_inclusive(*node).unwrap_or_default() {
                     if self.is_element(node, "http://www.w3.org/1999/xhtml", "link") {
                         self.process_render_expect(node);
+                    }
+                }
+            }
+            Mutation::ChildrenReplaced { added_nodes, .. } => {
+                // Grouped append/replace records name the parent, whose old
+                // descendants have already been processed. Only newly added
+                // subtrees can introduce links. Removed records settle resource
+                // membership before this grouped observer publication.
+                for root in added_nodes {
+                    for node in self.arena.descendants_inclusive(*root).unwrap_or_default() {
+                        if self.is_element(node, "http://www.w3.org/1999/xhtml", "link") {
+                            self.process_render_expect(node);
+                        }
                     }
                 }
             }
@@ -423,6 +436,39 @@ mod tests {
             .set_attribute(target, "id", "other")
             .unwrap();
         assert!(!dom.borrow_mut().render_blocked(document));
+    }
+    #[test]
+    fn grouped_replacement_tracks_new_expect_links_and_releases_old_resources() {
+        let (mut parser, dom, document) = parser();
+        parser.push("<head><link id=old rel=stylesheet href='/sheet.css'></head>");
+        let old = dom.borrow().find_by_id("old").unwrap();
+        let head = dom.borrow().parent(old).unwrap().unwrap();
+        let lease = dom
+            .borrow_mut()
+            .admit_render_resource(old, true)
+            .unwrap()
+            .unwrap();
+        let mut dom = dom.borrow_mut();
+        let fragment = dom.create_fragment();
+        let group = dom.create_element("div");
+        let link = dom.create_element("link");
+        dom.set_attribute(link, "rel", "expect").unwrap();
+        dom.set_attribute(link, "href", "#target").unwrap();
+        dom.set_attribute(link, "blocking", "render").unwrap();
+        dom.append_child(group, link).unwrap();
+        dom.append_child(fragment, group).unwrap();
+        dom.replace_dom_children(head, fragment).unwrap();
+        assert!(!dom.render_blocking.resources.contains_key(&old));
+        assert_eq!(dom.render_blocking.expects.get(&link), Some(&document));
+        // Unchanged links still observe a newly inserted target through the
+        // expect-link refresh, even though their parent is no longer rescanned.
+        let target = dom.create_element("span");
+        dom.set_attribute(target, "id", "target").unwrap();
+        dom.insert_dom_node(head, target, None).unwrap();
+        assert!(!dom.render_blocking.expects.contains_key(&link));
+        dom.set_attribute(target, "id", "changed").unwrap();
+        assert!(!dom.render_blocking.expects.contains_key(&link));
+        drop(lease);
     }
     #[test]
     fn literal_fragment_precedes_decoded_fragment_and_empty_href_unblocks() {

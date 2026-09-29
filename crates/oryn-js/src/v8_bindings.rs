@@ -43673,6 +43673,13 @@ fn validate_pre_insertion(
     } else {
         vec![child]
     };
+    if !matches!(dom.arena().get(parent)?.kind, NodeKind::Document) {
+        // Element/fragment children have no sibling-count or doctype-order
+        // constraints. Validate every incoming fragment child, but do not
+        // revalidate the unchanged siblings on each append. Document insertion
+        // still checks the complete proposed sequence below.
+        return validate_child_sequence(dom, parent, &inserted);
+    }
     let mut proposed = Vec::new();
     for current in light_children(dom, parent)? {
         if Some(current) == reference {
@@ -59922,6 +59929,18 @@ target.srcdoc='raw';
             reject(() => document.insertBefore(document.createComment('x'), host), 'NotFoundError');
             reject(() => document.appendChild(document.createTextNode('x')), 'HierarchyRequestError');
             reject(() => host.firstChild.appendChild(document.createElement('x')), 'HierarchyRequestError');
+            const sequence = document.createElement('section');
+            for (let i = 0; i < 128; ++i) sequence.appendChild(document.createElement('i'));
+            const anchor = sequence.childNodes[64];
+            const incoming = document.createDocumentFragment();
+            const incomingText = document.createTextNode('new'), incomingElement = document.createElement('b');
+            incoming.appendChild(incomingText); incoming.appendChild(incomingElement);
+            sequence.insertBefore(incoming, anchor);
+            check(incoming.childNodes.length === 0 && sequence.childNodes[64] === incomingText && sequence.childNodes[65] === incomingElement && sequence.childNodes[66] === anchor, 'fragment insertion preserves sibling order');
+            const unrelated = document.createElement('aside');
+            reject(() => sequence.insertBefore(incoming, unrelated), 'NotFoundError');
+            reject(() => incomingElement.appendChild(sequence), 'HierarchyRequestError');
+            check(sequence.childNodes.length === 130 && incomingElement.parentNode === sequence, 'cycle rejection preserves existing siblings');
             const detached = document.createTextNode('abcd');
             const detachedRange = document.createRange();
             detachedRange.setStart(detached, 1); detachedRange.setEnd(detached, 3);
