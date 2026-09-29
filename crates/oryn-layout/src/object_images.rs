@@ -4,10 +4,23 @@
 use super::*;
 /// Apply natural dimensions from the SVG root's computed geometry, before any
 /// used percentage sizes are resolved against the embedding object's viewport.
-pub(super) fn project_styled(
-    input: &LayoutInput,
+pub(super) fn project_styled<'a>(
+    input: &'a LayoutInput,
     styles: &ComputedStyles,
-) -> (LayoutInput, BTreeSet<u64>) {
+) -> (Cow<'a, LayoutInput>, BTreeSet<u64>) {
+    let needs_projection = input.nodes.iter().any(|node| {
+        (node.image_intrinsics.is_some()
+            && node
+                .image_document_root
+                .is_some_and(|root| styles.contains_key(&root)))
+            || (node.namespace == "http://www.w3.org/1999/xhtml"
+                && (node.tag == "embed"
+                    || (node.tag == "object"
+                        && (node.intrinsic_image_size.is_some() || node.document_replaced))))
+    });
+    if !needs_projection {
+        return (Cow::Borrowed(input), BTreeSet::new());
+    }
     let mut input = input.clone();
     for node in &mut input.nodes {
         let Some(root) = node.image_document_root else {
@@ -30,7 +43,8 @@ pub(super) fn project_styled(
         node.image_intrinsics = Some(intrinsics);
         node.intrinsic_image_size = Some(intrinsics.default_size());
     }
-    project(&input)
+    let (projected, hidden) = project(&input);
+    (Cow::Owned(projected), hidden)
 }
 pub(super) fn project(input: &LayoutInput) -> (LayoutInput, BTreeSet<u64>) {
     let by_id = input
@@ -183,5 +197,36 @@ pub(super) fn finish(output: &mut LayoutOutput, hidden: &BTreeSet<u64>) {
         output.paint_projections.remove(id);
         output.text_fragments.remove(id);
         output.backdrops.remove(id);
+    }
+}
+
+#[cfg(test)]
+mod projection_tests {
+    use super::*;
+
+    #[test]
+    fn ordinary_and_fallback_documents_borrow_but_empty_embeds_project() {
+        let mut input: LayoutInput = serde_json::from_value(serde_json::json!({
+            "nodes": [{"id": 1, "parent": null, "tag": "object", "text": "fallback"}],
+            "stylesheets": [],
+            "viewport": {"width": 800., "height": 600., "device_pixel_ratio": 1.},
+            "scroll": ScrollState::default()
+        }))
+        .unwrap();
+        let styles = ComputedStyles::new();
+        for tag in ["body", "object"] {
+            input.nodes[0].tag = tag.into();
+            let (projected, hidden) = project_styled(&input, &styles);
+            assert!(matches!(projected, Cow::Borrowed(_)));
+            assert!(std::ptr::eq(projected.as_ref(), &input));
+            assert!(hidden.is_empty());
+            assert_eq!(projected.nodes[0].text, "fallback");
+        }
+        input.nodes[0].tag = "embed".into();
+        let (projected, hidden) = project_styled(&input, &styles);
+        assert!(matches!(projected, Cow::Owned(_)));
+        assert!(hidden.contains(&1));
+        assert!(projected.nodes.is_empty());
+        assert_eq!(input.nodes.len(), 1);
     }
 }

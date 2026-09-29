@@ -198,7 +198,7 @@ pub fn compute_with_style_sample(
     let (mut styles, mut author_whitespace, mut pseudo_styles) =
         stylo_computed_values_for_media_with_sample(&capture_input, true, sample)?;
     let (projected, mut object_hidden) = object_images::project_styled(&capture_input, &styles);
-    print_input = projected;
+    print_input = projected.into_owned();
     if options.shrink_to_fit {
         let probe = compute_with_styles(&print_input, limits, styles.clone())?;
         let nodes = print_input
@@ -231,7 +231,7 @@ pub fn compute_with_style_sample(
             author_whitespace = refreshed.1;
             pseudo_styles = refreshed.2;
             let refreshed = object_images::project_styled(&capture_input, &styles);
-            print_input = refreshed.0;
+            print_input = refreshed.0.into_owned();
             object_hidden = refreshed.1;
         }
     }

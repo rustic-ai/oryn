@@ -310,7 +310,10 @@ pub(super) fn measure(input: &LayoutInput, styles: &mut ComputedStyles, engine: 
         styles.insert(node.id, Arc::new(style));
     }
 }
-pub(super) fn project(input: &LayoutInput) -> LayoutInput {
+pub(super) fn project(input: &LayoutInput) -> Cow<'_, LayoutInput> {
+    if !input.nodes.iter().any(supported) {
+        return Cow::Borrowed(input);
+    }
     let mut projected = input.clone();
     let languages = effective_languages(input);
     let by_id = input
@@ -412,13 +415,24 @@ pub(super) fn project(input: &LayoutInput) -> LayoutInput {
             tree.insert(node.id, node.content.clone().unwrap());
         }
     }
-    projected
+    Cow::Owned(projected)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     fn input() -> LayoutInput {
         serde_json::from_value(serde_json::json!({"nodes":[{"id":1,"parent":null,"tag":"body","children":[2],"attributes":{"lang":"en"}},{"id":2,"parent":1,"tag":"usermedia","children":[3],"attributes":{"style":"font-size:10px;width:auto;height:auto;min-height:1px;max-height:100px;padding:1000px;background-image:url(bad.png);filter:blur(5px);transform:scale(2);font-weight:100;letter-spacing:9px"}},{"id":3,"parent":2,"tag":"div","text":"AUTHOR CONTENT","attributes":{"style":"background:red"}}],"stylesheets":["usermedia::before{content:'AUTHOR PSEUDO'}"],"viewport":ViewportState{width:800.,height:600.,device_pixel_ratio:1.},"scroll":ScrollState::default()})).unwrap()
+    }
+    #[test]
+    fn ordinary_documents_borrow_the_unmodified_input() {
+        let mut input = input();
+        assert!(matches!(project(&input), Cow::Owned(_)));
+        input.nodes[1].tag = "div".into();
+        let Cow::Borrowed(projected) = project(&input) else {
+            panic!("ordinary layout must not duplicate the input");
+        };
+        assert!(std::ptr::eq(projected, &input));
+        assert_eq!(projected.nodes[2].text, "AUTHOR CONTENT");
     }
     #[test]
     fn install_and_camera_share_locked_layout_but_keep_distinct_private_labels() {

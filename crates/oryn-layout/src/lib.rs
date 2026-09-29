@@ -713,10 +713,17 @@ impl StyleEngine {
             &self.effects,
             Some(&mut self.samples),
         )?;
-        let native_input = permission_controls::project(input);
-        let (native_input, object_hidden) =
-            object_images::project_styled(&native_input, &computed_styles);
-        let generated = generated::materialize(&native_input, computed_styles, &pseudo_styles)?;
+        // Preparation owns copies only for controls or replaced content. Release
+        // those intermediates before the materialized tree enters layout.
+        let (generated, object_hidden) = {
+            let native_input = permission_controls::project(input);
+            let (native_input, hidden) =
+                object_images::project_styled(&native_input, &computed_styles);
+            (
+                generated::materialize(&native_input, computed_styles, &pseudo_styles)?,
+                hidden,
+            )
+        };
         let mut output = compute_with_styles(&generated.input, limits, generated.styles.clone())?;
         output.author_whitespace = author_whitespace;
         output.pseudo_styles = pseudo_styles;
@@ -3004,12 +3011,17 @@ pub fn compute_subtree_with_styles_and_pseudos(
     limits: &LayoutLimits,
 ) -> Result<LayoutOutput, LayoutError> {
     validate(input, limits)?;
-    let native_input = permission_controls::project(input);
-    let (native_input, object_hidden) = object_images::project_styled(&native_input, styles);
-    let mut native_styles = styles.clone();
-    let mut native_pseudos = pseudos.clone();
-    permission_controls::adjust(input, &mut native_styles, &mut native_pseudos);
-    let generated = generated::materialize(&native_input, native_styles, &native_pseudos)?;
+    let (generated, object_hidden) = {
+        let native_input = permission_controls::project(input);
+        let (native_input, hidden) = object_images::project_styled(&native_input, styles);
+        let mut native_styles = styles.clone();
+        let mut native_pseudos = pseudos.clone();
+        permission_controls::adjust(input, &mut native_styles, &mut native_pseudos);
+        (
+            generated::materialize(&native_input, native_styles, &native_pseudos)?,
+            hidden,
+        )
+    };
     let input = &generated.input;
     let styles = &generated.styles;
     let language = effective_languages(input).get(&root).cloned().flatten();
@@ -3510,8 +3522,14 @@ pub fn compute_print_viewport_with_style_sample(
     let capture_input = input.clone();
     let (styles, whitespace, pseudos) =
         stylo_computed_values_for_media_with_sample(&input, true, sample)?;
-    let (input, object_hidden) = object_images::project_styled(&input, &styles);
-    let generated = generated::materialize_for_media(&input, styles, &pseudos, true)?;
+    let (generated, object_hidden) = {
+        let (projected, hidden) = object_images::project_styled(&input, &styles);
+        (
+            generated::materialize_for_media(&projected, styles, &pseudos, true)?,
+            hidden,
+        )
+    };
+    drop(input);
     let mut output = compute_with_styles(&generated.input, limits, generated.styles.clone())?;
     generated::finish(&generated, &mut output);
     output.author_whitespace = whitespace;
