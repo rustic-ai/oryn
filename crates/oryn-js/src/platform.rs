@@ -557,6 +557,12 @@ pub struct PlatformHostCompletion {
 /// cancellation). A failed HttpRead must close its stream before completing.
 /// Retirement revokes the endpoint and may discard outstanding completions.
 pub trait PlatformHost {
+    /// Whether this endpoint provides an image resource backend. This reports
+    /// availability only; individual requests still pass admission and policy.
+    /// Transform-only endpoints must not be selected for CSS image demand.
+    fn supports_image_requests(&self) -> bool {
+        true
+    }
     fn submit(
         &self,
         operation_id: HostOperationId,

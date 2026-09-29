@@ -223,6 +223,9 @@ fn request_bytes(request: &PlatformHostRequest, limit: usize) -> Result<usize, S
 }
 
 impl PlatformHost for AdmissionHost {
+    fn supports_image_requests(&self) -> bool {
+        self.host.supports_image_requests()
+    }
     fn abandon_websocket(&self, socket: u64) {
         self.host.abandon_websocket(socket);
     }

@@ -1865,6 +1865,7 @@ pub(super) fn install_transform_only(scope: &mut v8::PinScope, state: &Rc<V8Bind
     state.set_platform_host(Rc::new(TransformOnlyHost::new()));
 }
 impl PlatformHost for TransformOnlyHost {
+    fn supports_image_requests(&self) -> bool { false }
     fn submit(&self,id:HostOperationId,request:PlatformHostRequest)->Result<(),String> {
         if self.retired.load(Ordering::Acquire) {return Err("standalone XSLT endpoint retired".into());}
         let PlatformHostRequest::XsltTransform{request}=request else {return Err("standalone XSLT endpoint has no resource authority".into());};
@@ -1906,6 +1907,7 @@ mod transform_only_tests {
     #[test]
     fn transform_only_endpoint_rejects_network_and_cancels_owned_pending_work() {
         let host=TransformOnlyHost::new();
+        assert!(!host.supports_image_requests());
         assert!(host.submit(HostOperationId(1),PlatformHostRequest::HttpRead{stream_id:99,max_bytes:1}).is_err());
         assert!(host.pending.borrow().is_empty());
         let cancelled=Arc::new(AtomicBool::new(false));

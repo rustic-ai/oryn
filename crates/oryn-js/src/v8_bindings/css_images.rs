@@ -285,7 +285,12 @@ fn pump(state: &V8BindingState) -> Result<(), V8BindingError> {
     if state.execution_retired() {
         return Ok(());
     }
-    if state.platform_host.borrow().is_none() {
+    if state
+        .platform_host
+        .borrow()
+        .as_ref()
+        .is_none_or(|host| !host.supports_image_requests())
+    {
         let mut images = state.css_images.borrow_mut();
         if !images.backend_finalized {
             return Ok(());
@@ -638,11 +643,15 @@ mod tests {
     #[derive(Default)]
     struct Host {
         requests: RefCell<Vec<PlatformHostRequest>>,
+        reject_images: Cell<bool>,
         reject_reads: Cell<bool>,
         reject_aborts: Cell<bool>,
         abandoned: RefCell<Vec<u64>>,
     }
     impl PlatformHost for Host {
+        fn supports_image_requests(&self) -> bool {
+            !self.reject_images.get()
+        }
         fn submit(&self, _: HostOperationId, request: PlatformHostRequest) -> Result<(), String> {
             if self.reject_reads.get() && matches!(request, PlatformHostRequest::HttpRead { .. }) {
                 return Err("closed native transport".into());
@@ -695,6 +704,13 @@ mod tests {
     }
     #[test]
     fn completed_backend_selection_fails_unhosted_demand_without_reviving_it_on_later_install() {
+        check_unhosted_demand(false);
+    }
+    #[test]
+    fn transform_only_backend_does_not_receive_css_image_requests() {
+        check_unhosted_demand(true);
+    }
+    fn check_unhosted_demand(transform_only: bool) {
         super::super::tests::initialize_v8();
         let mut isolate = v8::Isolate::new(Default::default());
         v8::scope!(let scope,&mut isolate);
@@ -704,6 +720,11 @@ mod tests {
             html::parse("<body></body>").into_runtime().unwrap(),
         ));
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let unavailable = Rc::new(Host::default());
+        unavailable.reject_images.set(true);
+        if transform_only {
+            state.set_platform_host(unavailable.clone());
+        }
         let before = "https://example.test/before.svg".to_owned();
         let absent = "https://example.test/absent.svg".to_owned();
         let later = "https://example.test/later.svg".to_owned();
@@ -719,6 +740,7 @@ mod tests {
         schedule(&state, [before.clone(), absent.clone()]).unwrap();
         assert!(!pending(&state));
         assert!(state.pending_platform_operations.borrow().is_empty());
+        assert!(unavailable.requests.borrow().is_empty());
         let host = Rc::new(Host::default());
         state.set_platform_host(host.clone());
         state.finalize_css_image_backend().unwrap();
