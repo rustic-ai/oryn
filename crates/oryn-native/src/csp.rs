@@ -28,6 +28,7 @@ pub enum CspDestination {
     Prefetch,
     Script,
     ScriptAttribute,
+    JavascriptNavigation,
     Style,
     StyleAttribute,
     Image,
@@ -1349,7 +1350,9 @@ fn split_policy_list(value: &str) -> impl Iterator<Item = &str> {
 
 fn source_directives(destination: CspDestination) -> &'static [&'static str] {
     match destination {
-        CspDestination::Script => &["script-src-elem", "script-src", "default-src"],
+        CspDestination::Script | CspDestination::JavascriptNavigation => {
+            &["script-src-elem", "script-src", "default-src"]
+        }
         CspDestination::ScriptAttribute => &["script-src-attr", "script-src", "default-src"],
         CspDestination::Style => &["style-src-elem", "style-src", "default-src"],
         CspDestination::StyleAttribute => &["style-src-attr", "style-src", "default-src"],
@@ -1465,7 +1468,9 @@ fn source_list_allows_redirect(
                 (source == "'strict-dynamic'"
                     && matches!(
                         request.destination,
-                        CspDestination::Script | CspDestination::ScriptAttribute
+                        CspDestination::Script
+                            | CspDestination::ScriptAttribute
+                            | CspDestination::JavascriptNavigation
                     ))
                     || nonce_or_hash_source(source)
             })
@@ -1482,7 +1487,9 @@ fn source_list_allows_redirect(
             })
         }) && !matches!(
             request.destination,
-            CspDestination::ScriptAttribute | CspDestination::StyleAttribute
+            CspDestination::ScriptAttribute
+                | CspDestination::StyleAttribute
+                | CspDestination::JavascriptNavigation
         ) {
             return true;
         }
@@ -1494,7 +1501,9 @@ fn source_list_allows_redirect(
         return hash_allowed
             && (!matches!(
                 request.destination,
-                CspDestination::ScriptAttribute | CspDestination::StyleAttribute
+                CspDestination::ScriptAttribute
+                    | CspDestination::StyleAttribute
+                    | CspDestination::JavascriptNavigation
             ) || sources.iter().any(|source| source == "'unsafe-hashes'"));
     }
     if request.nonce.as_ref().is_some_and(|nonce| {
@@ -3340,7 +3349,9 @@ mod effective_directive_matrix_tests {
                     policy.install(&original, disposition, "header");
                     let inline = matches!(
                         destination,
-                        CspDestination::ScriptAttribute | CspDestination::StyleAttribute
+                        CspDestination::ScriptAttribute
+                            | CspDestination::StyleAttribute
+                            | CspDestination::JavascriptNavigation
                     );
                     let request = CspRequest {
                         destination,
@@ -3825,5 +3836,61 @@ mod native_meta_origin_snapshot_tests {
                 assert!(!roundtrip.authorize(&request).allowed);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod javascript_navigation_tests {
+    use super::*;
+    #[test]
+    fn javascript_navigation_hashes_require_unsafe_hashes_and_cannot_use_nonces() {
+        let source = "javascript:opener.postMessage('pass', '*')";
+        let hash = BASE64.encode(Sha256::digest(source.as_bytes()));
+        let request = CspRequest {
+            destination: CspDestination::JavascriptNavigation,
+            url: source.into(),
+            inline_source: Some(source.into()),
+            nonce: Some("abc".into()),
+            parser_inserted: false,
+            initiated_by_trusted_script: true,
+        };
+        for (policy, allowed) in [
+            ("script-src 'nonce-abc'".to_owned(), false),
+            (format!("script-src 'sha256-{hash}'"), false),
+            (format!("script-src 'unsafe-hashes' 'sha256-{hash}'"), true),
+            ("script-src 'unsafe-inline'".to_owned(), true),
+            (
+                "script-src 'unsafe-inline' 'strict-dynamic'".to_owned(),
+                false,
+            ),
+            (
+                format!("script-src 'unsafe-hashes' 'sha256-{hash}'; script-src-elem 'none'"),
+                false,
+            ),
+        ] {
+            let csp = CspPolicySet::from_headers(
+                "https://source.test/",
+                &[("content-security-policy".into(), policy.clone())],
+            );
+            let decision = csp.authorize(&request);
+            assert_eq!(decision.allowed, allowed, "{policy}");
+            if !allowed {
+                assert_eq!(
+                    decision.violations[0].effective_directive,
+                    "script-src-elem"
+                );
+                assert_eq!(decision.violations[0].blocked_uri, "inline");
+            }
+        }
+        let csp = CspPolicySet::from_headers(
+            "https://source.test/",
+            &[(
+                "content-security-policy-report-only".into(),
+                "script-src 'none'".into(),
+            )],
+        );
+        let result = csp.authorize(&request);
+        assert!(result.allowed);
+        assert_eq!(result.violations.len(), 1);
     }
 }

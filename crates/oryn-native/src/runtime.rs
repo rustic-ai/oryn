@@ -1062,6 +1062,13 @@ struct InitialPopupPolicy {
     permissions: Vec<(String, String)>,
 }
 
+enum LocalDocumentKind {
+    Blank,
+    Blob,
+    Data,
+    Javascript(String),
+}
+
 #[derive(Clone)]
 struct PreparedLocalDocument {
     load_html_digest: Option<String>,
@@ -8769,7 +8776,19 @@ impl BrowserContext {
         blob: bool,
         blank: bool,
     ) -> Result<WorkerScriptResponse, RuntimeError> {
-        self.prepare_local_document_with_source(page, creator, url, blob, blank, None)
+        self.prepare_local_document_with_source(
+            page,
+            creator,
+            url,
+            if blank {
+                LocalDocumentKind::Blank
+            } else if blob {
+                LocalDocumentKind::Blob
+            } else {
+                LocalDocumentKind::Data
+            },
+            None,
+        )
     }
     pub(crate) fn prepare_service_local_navigation(
         &self,
@@ -8788,18 +8807,58 @@ impl BrowserContext {
             page,
             admission.target,
             url,
-            blob,
-            false,
+            if blob {
+                LocalDocumentKind::Blob
+            } else {
+                LocalDocumentKind::Data
+            },
             Some(source),
         )
     }
+    pub(crate) fn prepare_javascript_navigation(
+        &self,
+        page: PageId,
+        admission: oryn_js::navigation::ScriptNavigationAdmission,
+        javascript_url: &str,
+        url: &str,
+        html: String,
+    ) -> Result<PartitionedWorkerScriptResponse, RuntimeError> {
+        let origin = self.javascript_navigation_origin(page, &admission, javascript_url)?;
+        let oryn_js::worker_wire::Creator::Window {
+            target,
+            document_generation,
+            stream_epoch,
+        } = &admission.target
+        else {
+            return Err(RuntimeError::NavigationCancelled);
+        };
+        let policy =
+            self.window_worker_policy(page, target, *document_generation, *stream_epoch)?;
+        if url != policy.url {
+            return Err(RuntimeError::NavigationCancelled);
+        }
+        let base = if url == "about:blank" {
+            policy.policy_self_url.as_deref().unwrap_or(url)
+        } else {
+            url
+        }
+        .to_string();
+        let (token, bytes, media, headers, origin) = self.prepare_local_document_with_source(
+            page,
+            admission.target,
+            url,
+            LocalDocumentKind::Javascript(html),
+            Some((origin, policy)),
+        )?;
+        Ok((token, bytes, media, headers, origin, base))
+    }
+
     fn prepare_local_document_with_source(
         &self,
         page: PageId,
         creator: oryn_js::worker_wire::Creator,
         url: &str,
-        blob: bool,
-        blank: bool,
+        kind: LocalDocumentKind,
         source: Option<(
             oryn_js::worker_wire::AgentOrigin,
             oryn_js::worker_wire::AgentPolicy,
@@ -8832,63 +8891,83 @@ impl BrowserContext {
         let (initiator_origin, initiator_policy) =
             source.unwrap_or((initiator_origin, initiator_policy));
         let parsed = Url::parse(url).map_err(|error| RuntimeError::Network(error.to_string()))?;
-        let (bytes, media_type, mut headers, base_policy, origin) = if blank {
-            if parsed.scheme() != "about" || parsed.path() != "blank" || parsed.query().is_some() {
-                return Err(RuntimeError::ProtocolViolation(
-                    "blank preparation requires about:blank".into(),
-                ));
-            }
-            let origin = SecurityOrigin::from_broker_authority(
-                &initiator_origin.serialized,
-                &initiator_origin.authority,
-            )
-            .map_err(|error| RuntimeError::ProtocolViolation(error.into()))?;
-            (
-                b"<!doctype html><html><head></head><body></body></html>".to_vec(),
-                "text/html".into(),
-                initiator_policy.headers.clone(),
-                initiator_policy,
-                origin,
-            )
-        } else if blob {
-            if parsed.scheme() != "blob" {
-                return Err(RuntimeError::ProtocolViolation(
-                    "blob preparation requires blob URL".into(),
-                ));
-            }
-            let mut key = parsed.clone();
-            key.set_fragment(None);
-            let resource = self
-                .resolve_native_blob(&owner, key.as_str())
-                .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
-            let origin = SecurityOrigin::from_broker_authority(
-                &resource.origin.serialized,
-                &resource.origin.authority,
-            )
-            .map_err(|error| RuntimeError::ProtocolViolation(error.into()))?;
-            (
-                resource.bytes,
-                resource.media_type,
-                resource.policy.headers.clone(),
-                resource.policy,
-                origin,
-            )
-        } else {
-            if parsed.scheme() != "data" {
-                return Err(RuntimeError::ProtocolViolation(
-                    "data preparation requires data URL".into(),
-                ));
-            }
-            let (media_type, bytes) = crate::network::decode_data_url(&parsed)
-                .map_err(|error| RuntimeError::Network(error.to_string()))?;
-            (
-                bytes,
-                media_type.unwrap_or_else(|| "text/plain;charset=US-ASCII".into()),
-                initiator_policy.headers.clone(),
-                initiator_policy,
-                SecurityOrigin::opaque(),
-            )
-        };
+        let blank = matches!(&kind, LocalDocumentKind::Blank);
+        let blob = matches!(&kind, LocalDocumentKind::Blob);
+        let javascript = matches!(&kind, LocalDocumentKind::Javascript(_));
+        let (bytes, media_type, mut headers, base_policy, origin) =
+            if let LocalDocumentKind::Javascript(html) = kind {
+                let origin = SecurityOrigin::from_broker_authority(
+                    &initiator_origin.serialized,
+                    &initiator_origin.authority,
+                )
+                .map_err(|error| RuntimeError::ProtocolViolation(error.into()))?;
+                (
+                    html.into_bytes(),
+                    "text/html;charset=UTF-8".into(),
+                    initiator_policy.headers.clone(),
+                    initiator_policy,
+                    origin,
+                )
+            } else if blank {
+                if parsed.scheme() != "about"
+                    || parsed.path() != "blank"
+                    || parsed.query().is_some()
+                {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "blank preparation requires about:blank".into(),
+                    ));
+                }
+                let origin = SecurityOrigin::from_broker_authority(
+                    &initiator_origin.serialized,
+                    &initiator_origin.authority,
+                )
+                .map_err(|error| RuntimeError::ProtocolViolation(error.into()))?;
+                (
+                    b"<!doctype html><html><head></head><body></body></html>".to_vec(),
+                    "text/html".into(),
+                    initiator_policy.headers.clone(),
+                    initiator_policy,
+                    origin,
+                )
+            } else if blob {
+                if parsed.scheme() != "blob" {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "blob preparation requires blob URL".into(),
+                    ));
+                }
+                let mut key = parsed.clone();
+                key.set_fragment(None);
+                let resource = self
+                    .resolve_native_blob(&owner, key.as_str())
+                    .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+                let origin = SecurityOrigin::from_broker_authority(
+                    &resource.origin.serialized,
+                    &resource.origin.authority,
+                )
+                .map_err(|error| RuntimeError::ProtocolViolation(error.into()))?;
+                (
+                    resource.bytes,
+                    resource.media_type,
+                    resource.policy.headers.clone(),
+                    resource.policy,
+                    origin,
+                )
+            } else {
+                if parsed.scheme() != "data" {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "data preparation requires data URL".into(),
+                    ));
+                }
+                let (media_type, bytes) = crate::network::decode_data_url(&parsed)
+                    .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                (
+                    bytes,
+                    media_type.unwrap_or_else(|| "text/plain;charset=US-ASCII".into()),
+                    initiator_policy.headers.clone(),
+                    initiator_policy,
+                    SecurityOrigin::opaque(),
+                )
+            };
         if bytes.len() > 8 * 1024 * 1024 {
             return Err(RuntimeError::WorkerLimitExceeded {
                 resource: "local document bytes".into(),
@@ -8896,9 +8975,10 @@ impl BrowserContext {
         }
         let mut policy = crate::csp::CspPolicySet::from_agent_policy(&base_policy);
         policy.rebase_document(url);
-        let origin = if policy
-            .sandbox()
-            .is_some_and(|sandbox| !sandbox.allow_same_origin)
+        let origin = if !javascript
+            && policy
+                .sandbox()
+                .is_some_and(|sandbox| !sandbox.allow_same_origin)
         {
             SecurityOrigin::opaque()
         } else {
@@ -9838,7 +9918,7 @@ impl BrowserContext {
         target: &str,
     ) -> Result<(), RuntimeError> {
         let url = self.resolve_navigation_url(source_page_id, target)?;
-        if !matches!(url.scheme(), "http" | "https" | "about") {
+        if !matches!(url.scheme(), "http" | "https" | "about" | "javascript") {
             return Err(RuntimeError::ContextService(format!(
                 "page navigation scheme {:?} is not permitted",
                 url.scheme()
@@ -46141,3 +46221,7 @@ mod crashed_page_cleanup_tests {
 #[cfg(all(test, feature = "v8-host"))]
 #[path = "navigation_settlement_error_tests.rs"]
 mod navigation_settlement_error_tests;
+
+#[cfg(all(test, unix, feature = "v8-host", feature = "in-process-probe"))]
+#[path = "javascript_navigation_tests.rs"]
+mod javascript_navigation_regressions;

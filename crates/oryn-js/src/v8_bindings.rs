@@ -666,6 +666,7 @@ struct RangeRecord {
 struct RangeWrapper {
     handle: v8::Weak<v8::Object>,
     selection_root: Option<v8::Global<v8::Object>>,
+    traced_endpoints: Cell<Option<[oryn_dom::NodeRef; 2]>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2240,6 +2241,10 @@ pub type NativeTimeoutScheduler = for<'s, 'i> fn(
 ) -> Result<(), V8BindingError>;
 /// Parent-owned permission check for script-initiated Location navigation.
 pub trait LocationNavigationBackend: Send + Sync {
+    /// Native browsing-context identity; never sourced from a Window property.
+    fn target_page(&self) -> Option<u64> {
+        None
+    }
     fn authorize_selected(
         &self,
         source: crate::worker_wire::Creator,
@@ -19394,6 +19399,7 @@ fn track_range_wrapper(
         id,
         RangeWrapper {
             handle: v8::Weak::new(scope, object),
+            traced_endpoints: Cell::new(None),
             selection_root: selected_range_ids(state)
                 .contains(&id)
                 .then(|| v8::Global::new(scope, object)),

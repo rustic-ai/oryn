@@ -287,6 +287,38 @@ pub(super) fn refresh_native_registry_roots(
         return Ok(());
     }
     traced_native_roots::refresh_range_endpoints(scope, &states)?;
+    // A global registry associated with its live owner's Document has an
+    // independent root regardless of any Range, iterator or detached subtree.
+    // Prove that directly before constructing the full native-lease ledger.
+    // Scoped registries and retired/rebound owners retain the general path.
+    let registries = scope
+        .get_slot::<RegistryPool>()
+        .map(|pool| pool.scopes.values().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    if registries.iter().all(|registry| {
+        !registry.scoped.get()
+            && registry.owner.borrow().upgrade().is_some_and(|owner| {
+                !owner.execution_retired()
+                    && owner
+                        .dom
+                        .borrow()
+                        .arena()
+                        .get(owner.document_root())
+                        .is_ok_and(|node| {
+                            node.custom_element_registry.flatten() == Some(registry.id.get())
+                        })
+            })
+    }) {
+        let mut roots = BTreeMap::new();
+        for registry in registries {
+            let object = registry_object(scope, &registry)?;
+            roots.insert(registry.id.get(), v8::Global::new(scope, object));
+        }
+        if let Some(pool) = scope.get_slot_mut::<RegistryPool>() {
+            pool.native_roots = roots;
+        }
+        return Ok(());
+    }
     let roots = traced_native_roots::Snapshot::capture(&states)?;
     let mut runtimes: BTreeMap<usize, (SharedDomRuntime, Vec<Rc<V8BindingState>>)> =
         BTreeMap::new();

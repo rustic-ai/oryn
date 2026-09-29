@@ -26,7 +26,8 @@ impl PendingLocal {
             ContextServiceRequest as Request, ContextServiceResponse as Response,
         };
         let (blob, blank) = match &request {
-            Request::PrepareBlankNavigation { .. } => (false, true),
+            Request::PrepareBlankNavigation { .. }
+            | Request::PrepareJavascriptNavigation { .. } => (false, true),
             Request::PrepareBlobNavigation { .. } => (true, false),
             Request::PrepareLocalDataNavigation { .. } => (false, false),
             Request::PrepareInitialLocalNavigation { blob, .. }

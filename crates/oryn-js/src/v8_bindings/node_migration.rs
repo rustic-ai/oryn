@@ -644,6 +644,7 @@ fn migrate_ranges(
         source.ranges.borrow_mut().remove(&old);
         destination.ranges.borrow_mut().insert(new, migrated);
         if let Some(wrapper) = source.range_objects.borrow_mut().remove(&old) {
+            wrapper.traced_endpoints.set(None);
             if let Some(object) = wrapper.handle.to_local(scope) {
                 object.set_internal_field(0, v8::Number::new(scope, new as f64).into());
                 object.set_internal_field(

@@ -93,6 +93,11 @@ fn publish(
     range: RangeRecord,
 ) -> Result<(), V8BindingError> {
     let owner = traced_native_roots::prepare_range_owner(scope, destination, object, &range)?;
+    // Publishing a holder changes its traced endpoints independently of the
+    // next refresh. Invalidate before a native mutation can return to old ends.
+    if let Some(wrapper) = source.range_objects.borrow().get(&id) {
+        wrapper.traced_endpoints.set(None);
+    }
     if Rc::ptr_eq(&source.dom, &destination.dom) {
         let native = LiveRange::from(&range);
         source

@@ -4701,6 +4701,27 @@ mod raw_v8 {
             resource_name: &str,
             muted_errors: bool,
         ) -> Result<(), HostError> {
+            self.execute_classic_script(source, resource_name, muted_errors, false)
+                .map(|_| ())
+        }
+
+        /// Preserve the native completion type; objects are never stringified.
+        pub fn execute_classic_script_completion(
+            &mut self,
+            source: &str,
+            resource_name: &str,
+            muted_errors: bool,
+        ) -> Result<Option<String>, HostError> {
+            self.execute_classic_script(source, resource_name, muted_errors, true)
+        }
+
+        fn execute_classic_script(
+            &mut self,
+            source: &str,
+            resource_name: &str,
+            muted_errors: bool,
+            capture_string: bool,
+        ) -> Result<Option<String>, HostError> {
             self.ensure_standalone_author_task()?;
             self.publish_native_resource_timings();
             let deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
@@ -4731,9 +4752,21 @@ mod raw_v8 {
                 None,
             );
             queue_mutation_observer_microtask(scope);
-            let completed = v8::Script::compile(scope, source, Some(&origin))
-                .and_then(|script| script.run(scope))
-                .is_some();
+            let completion = v8::Script::compile(scope, source, Some(&origin))
+                .and_then(|script| script.run(scope));
+            let completed = completion.is_some();
+            let string = completion
+                .filter(|_| capture_string)
+                .and_then(|value| value.try_cast::<v8::String>().ok())
+                .map(|value| {
+                    if value.utf8_length(scope) > 8 * 1024 * 1024 {
+                        return Err(HostError::LimitExceeded {
+                            resource: "JavaScript navigation response bytes".into(),
+                        });
+                    }
+                    Ok(value.to_rust_string_lossy(scope))
+                })
+                .transpose()?;
             if deadline.expired() || scope.is_execution_terminating() {
                 scope.cancel_terminate_execution();
                 reset_mutation_observer_microtask_after_termination(scope);
@@ -4741,7 +4774,7 @@ mod raw_v8 {
                     resource: "wall time".into(),
                 });
             }
-            let mut result = Ok(());
+            let mut result = Ok(string);
             if !completed {
                 // Preserve even thrown null/undefined, and capture source metadata before reset.
                 let exception = scope.exception();
@@ -18324,6 +18357,50 @@ mod raw_v8 {
                 Url::parse("https://example.test/").unwrap(),
                 256 * 1024 * 1024,
             )
+        }
+
+        #[test]
+        fn native_classic_completion_bounds_response_without_copying_ignored_parser_results() {
+            let mut host = host();
+            let source = "'x'.repeat(8*1024*1024+1)";
+            assert!(matches!(
+                host.execute_classic_script_completion(source, "https://example.test/", false),
+                Err(HostError::LimitExceeded { .. })
+            ));
+            host.execute_parser_script(source, "https://example.test/", false)
+                .unwrap();
+        }
+
+        #[test]
+        fn native_classic_completion_ignores_eval_and_does_not_stringify_objects() {
+            let mut host = host();
+            host.execute(
+                "globalThis.eval=()=>{throw Error('author eval')};globalThis.converted=false",
+            )
+            .unwrap();
+            assert_eq!(
+                host.execute_classic_script_completion("'native'", "https://example.test/", false)
+                    .unwrap(),
+                Some("native".into())
+            );
+            assert_eq!(
+                host.execute_classic_script_completion(
+                    "({toString(){converted=true;return 'wrong'}})",
+                    "https://example.test/",
+                    false
+                )
+                .unwrap(),
+                None
+            );
+            assert_eq!(host.evaluate_string("converted").unwrap(), "false");
+            assert!(
+                host.execute_classic_script_completion(
+                    "throw null",
+                    "https://example.test/",
+                    false
+                )
+                .is_err()
+            );
         }
 
         #[cfg(unix)]

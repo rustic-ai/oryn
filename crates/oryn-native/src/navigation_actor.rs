@@ -37,6 +37,7 @@ struct NavigationTransaction {
     default_referrer: crate::referrer::ReferrerPolicy,
     referrer_override: Option<String>,
     script_source: bool,
+    script_authority: Option<oryn_js::navigation::ScriptNavigationAdmission>,
     deadline: Instant,
     emitter: Option<crate::navigation_control::NavigationEmitter>,
     reply: Option<NavigationReply>,
@@ -539,6 +540,7 @@ impl PageState {
             default_referrer: self.referrer_policy,
             referrer_override: referrer_policy,
             script_source: script_authority.is_some(),
+            script_authority,
             deadline,
             emitter: self.active_navigation.clone(),
             reply: None,
@@ -589,6 +591,12 @@ impl PageState {
         &mut self,
         transaction: &mut NavigationTransaction,
     ) -> Result<Option<NavigationResult>, RuntimeError> {
+        if transaction.current.scheme() == "javascript" {
+            #[cfg(unix)]
+            return self.launch_javascript_navigation(transaction);
+            #[cfg(not(unix))]
+            return Err(RuntimeError::NavigationCancelled);
+        }
         let requested_url = transaction.requested_url.clone();
         let current = transaction.current.clone();
         let post = transaction.post.clone();
@@ -2738,6 +2746,75 @@ impl PageState {
 
 #[cfg(all(feature = "v8-host", unix))]
 impl PageState {
+    fn launch_javascript_navigation(
+        &mut self,
+        transaction: &mut NavigationTransaction,
+    ) -> Result<Option<NavigationResult>, RuntimeError> {
+        let admission = transaction
+            .script_authority
+            .clone()
+            .ok_or(RuntimeError::NavigationCancelled)?;
+        if transaction.network_source.is_none()
+            || transaction.post.is_some()
+            || transaction.download.is_some()
+        {
+            return Err(RuntimeError::NavigationCancelled);
+        }
+        let completion = self
+            .executable
+            .as_mut()
+            .ok_or(RuntimeError::NavigationCancelled)?
+            .run_javascript_navigation(transaction.current.as_str())
+            .map_err(map_host_error)?;
+        self.navigation_transaction_live(transaction)?;
+        self.sync_executable_semantics()?;
+        let Some(html) = completion else {
+            return self.with_navigation_transaction(transaction, |state, transaction| {
+                state
+                    .finish_navigation_without_commit(transaction.requested_url.clone(), 200)
+                    .map(Some)
+            });
+        };
+        if html.len() > 8 * 1024 * 1024 {
+            return Err(RuntimeError::WorkerLimitExceeded {
+                resource: "JavaScript navigation response bytes".into(),
+            });
+        }
+        let executable = self
+            .executable
+            .as_mut()
+            .ok_or(RuntimeError::NavigationCancelled)?;
+        if !executable
+            .dispatch_before_unload()
+            .map_err(map_host_error)?
+        {
+            return Err(RuntimeError::NavigationCancelled);
+        }
+        self.navigation_transaction_live(transaction)?;
+        let url = self.url.clone();
+        let javascript_url = transaction.current.to_string();
+        transaction.current =
+            Url::parse(&url).map_err(|error| RuntimeError::Network(error.to_string()))?;
+        transaction.history = HistoryUpdate::Replace;
+        transaction.destination = None;
+        transaction.phase =
+            NavigationTransactionPhase::Local(navigation_local::PendingLocal::start(
+                self.context_client
+                    .clone()
+                    .ok_or(RuntimeError::NavigationCancelled)?,
+                self.page_id,
+                crate::context_service::ContextServiceRequest::PrepareJavascriptNavigation {
+                    page_id: self.page_id,
+                    admission,
+                    javascript_url,
+                    url,
+                    html,
+                },
+                transaction.deadline,
+            )?);
+        Ok(None)
+    }
+
     fn start_local_navigation_transaction(
         &mut self,
         transaction: &mut NavigationTransaction,

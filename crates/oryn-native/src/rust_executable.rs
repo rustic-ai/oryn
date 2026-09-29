@@ -9811,6 +9811,29 @@ impl RustExecutableDocument {
         self.apply_action(node, SemanticAction::Type, Some(value))
     }
 
+    pub(crate) fn run_javascript_navigation(
+        &mut self,
+        url: &str,
+    ) -> Result<Option<String>, HostError> {
+        self.agent.host.activate_realm(self.top_realm)?;
+        let source = decode_javascript_navigation_source(url)?;
+        let resource = self.agent.host.location_url()?;
+        let completion = match self
+            .agent
+            .host
+            .execute_classic_script_completion(&source, &resource, false)
+        {
+            Ok(value) => value,
+            Err(error @ HostError::Execution(_)) => {
+                self.diagnostics.push(script_diagnostic(error));
+                None
+            }
+            Err(error) => return Err(error),
+        };
+        self.checkpoint()?;
+        Ok(completion)
+    }
+
     pub fn location(&mut self) -> Result<String, HostError> {
         self.agent.host.location_url()
     }
@@ -18217,6 +18240,33 @@ fn configure_frame_context(host: &mut RawV8Host, page_id: u64) -> Result<(), Hos
     ))
 }
 
+fn decode_javascript_navigation_source(url: &str) -> Result<String, HostError> {
+    let source = url
+        .split_once(':')
+        .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("javascript"))
+        .map(|(_, source)| source)
+        .ok_or_else(|| HostError::Execution("invalid JavaScript navigation URL".into()))?;
+    let input = source.as_bytes();
+    let mut bytes = Vec::with_capacity(input.len());
+    let mut index = 0;
+    while index < input.len() {
+        if input[index] == b'%'
+            && index + 2 < input.len()
+            && let (Some(a), Some(b)) = (
+                (input[index + 1] as char).to_digit(16),
+                (input[index + 2] as char).to_digit(16),
+            )
+        {
+            bytes.push((a * 16 + b) as u8);
+            index += 3;
+            continue;
+        }
+        bytes.push(input[index]);
+        index += 1;
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 fn execute_javascript_url(
     host: &mut RawV8Host,
     source: &str,
@@ -18278,6 +18328,19 @@ fn binding_rule_view(rule: oryn_layout::cssom::RuleView) -> oryn_js::v8_bindings
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn javascript_navigation_decodes_utf8_without_form_decoding() {
+        assert_eq!(
+            decode_javascript_navigation_source("JaVaScRiPt:'%E2%82%AC'+1#fragment?query").unwrap(),
+            "'€'+1#fragment?query"
+        );
+        assert_eq!(
+            decode_javascript_navigation_source("javascript:%XX%FF").unwrap(),
+            "%XX�"
+        );
+        assert!(decode_javascript_navigation_source("https://example.test/").is_err());
+    }
 
     #[test]
     fn parser_lifecycle_probe_restores_nested_error_and_unwind_scopes() {

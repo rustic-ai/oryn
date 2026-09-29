@@ -161,7 +161,7 @@ use crate::{
 #[path = "context_inventory_wire.rs"]
 mod inventory_wire;
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 56;
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 57;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NavigationNetworkAuthority {
@@ -440,6 +440,13 @@ pub enum ContextServiceRequest {
     DiscardInitialDocument {
         page_id: PageId,
         token: oryn_js::message_wire::ParkedDocumentToken,
+    },
+    PrepareJavascriptNavigation {
+        page_id: PageId,
+        admission: oryn_js::navigation::ScriptNavigationAdmission,
+        javascript_url: String,
+        url: String,
+        html: String,
     },
     PrepareBlankNavigation {
         page_id: PageId,
@@ -1317,6 +1324,7 @@ impl ContextServiceRequest {
             Self::ParkInitialDocument { .. } => "ParkInitialDocument",
             Self::RestoreInitialDocument { .. } => "RestoreInitialDocument",
             Self::DiscardInitialDocument { .. } => "DiscardInitialDocument",
+            Self::PrepareJavascriptNavigation { .. } => "PrepareJavascriptNavigation",
             Self::PrepareBlankNavigation { .. } => "PrepareBlankNavigation",
             Self::PrepareServiceLocalNavigation { .. } => "PrepareServiceLocalNavigation",
             Self::PrepareInitialLocalNavigation { .. } => "PrepareInitialLocalNavigation",
@@ -2976,12 +2984,9 @@ impl SharedContextClient {
         if !admission.direct {
             return Ok(None);
         }
-        let endpoint = self.related_endpoint(admission)?;
-        let context = endpoint
-            .4
-            .as_ref()
-            .and_then(|direct| direct.context.upgrade())
-            .ok_or(RuntimeError::Closed)?;
+        // Inspect the admitted context without creating a second page service.
+        // Dropping a temporary service retires that page's navigation controller.
+        let context = self.direct_related_context(admission)?;
         Ok(context.shared_network_broker().map(|inner| {
             crate::network::SharedNetworkBroker::new(
                 crate::service_network::ServiceNavigationBroker {
@@ -3005,31 +3010,36 @@ impl SharedContextClient {
             }
             return Ok(self.for_route(admission.route.clone()));
         }
-        #[cfg(feature = "v8-host")]
-        {
-            let direct = self.4.as_ref().ok_or_else(|| {
-                RuntimeError::ProtocolViolation("direct admission on routed endpoint".into())
-            })?;
-            let context = direct.context.upgrade().ok_or(RuntimeError::Closed)?;
-            let page = PageId(admission.route.environment);
-            let expected = context.related_root_admission(page).ok_or_else(|| {
-                RuntimeError::ProtocolViolation("direct related page admission unavailable".into())
-            })?;
-            if direct.actor != admission.actor_route
-                || expected.route != admission.route
-                || expected.actor_route != admission.actor_route
-                || !expected.direct
-            {
-                return Err(RuntimeError::ProtocolViolation(
-                    "direct related actor capability mismatch".into(),
-                ));
-            }
-            Ok(Self::direct(context, page))
-        }
-        #[cfg(not(feature = "v8-host"))]
-        Err(RuntimeError::ProtocolViolation(
-            "direct actor requires native V8 host".into(),
+        Ok(Self::direct(
+            self.direct_related_context(admission)?,
+            PageId(admission.route.environment),
         ))
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn direct_related_context(
+        &self,
+        admission: &RelatedRootAdmission,
+    ) -> Result<BrowserContext, RuntimeError> {
+        let direct = self.4.as_ref().ok_or_else(|| {
+            RuntimeError::ProtocolViolation("direct admission on routed endpoint".into())
+        })?;
+        let context = direct.context.upgrade().ok_or(RuntimeError::Closed)?;
+        let page = PageId(admission.route.environment);
+        let expected = context.related_root_admission(page).ok_or_else(|| {
+            RuntimeError::ProtocolViolation("direct related page admission unavailable".into())
+        })?;
+        if !admission.direct
+            || direct.actor != admission.actor_route
+            || expected.route != admission.route
+            || expected.actor_route != admission.actor_route
+            || !expected.direct
+        {
+            return Err(RuntimeError::ProtocolViolation(
+                "direct related actor capability mismatch".into(),
+            ));
+        }
+        Ok(context)
     }
 
     #[cfg(feature = "v8-host")]
@@ -5860,6 +5870,35 @@ impl ParentContextService {
                 self.validate_socket_owner(page_id)?;
                 context_owner.finish_initial_document(page_id, token, false)?;
                 Ok(ContextServiceResponse::InitialDocumentDiscarded)
+            }
+            ContextServiceRequest::PrepareJavascriptNavigation {
+                page_id,
+                admission,
+                javascript_url,
+                url,
+                html,
+            } => {
+                self.validate_socket_owner(page_id)?;
+                let (token, body, media_type, headers, origin, base_url) = context_owner
+                    .prepare_javascript_navigation(
+                        page_id,
+                        admission,
+                        &javascript_url,
+                        &url,
+                        html,
+                    )?;
+                Ok(ContextServiceResponse::BlankNavigationPrepared {
+                    token,
+                    body_base64: base64::Engine::encode(
+                        &base64::engine::general_purpose::STANDARD,
+                        body,
+                    ),
+                    media_type,
+                    headers,
+                    serialized: origin.serialized,
+                    opaque_key: origin.opaque.then_some(origin.authority),
+                    base_url,
+                })
             }
             ContextServiceRequest::PrepareBlankNavigation {
                 page_id,
@@ -19171,6 +19210,9 @@ impl NativeLocationNavigationBackend {
 }
 #[cfg(feature = "v8-host")]
 impl oryn_js::v8_bindings::LocationNavigationBackend for NativeLocationNavigationBackend {
+    fn target_page(&self) -> Option<u64> {
+        Some(self.page_id.0)
+    }
     fn authorize_selected(
         &self,
         creator: oryn_js::worker_wire::Creator,

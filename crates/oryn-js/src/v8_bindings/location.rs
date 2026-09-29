@@ -273,16 +273,34 @@ fn navigate_impl(
     let script_authority = if let Some(backend) = backend {
         let source = caller.as_deref().ok_or_else(|| error("SecurityError"))?;
         let target = state.native_worker_creator()?;
-        let authority = backend
-            .authorize(
+        // A same-origin auxiliary can expose its real Location object to its
+        // opener. Authorize on the incumbent source's endpoint, not on the
+        // destination endpoint with a creator belonging to another page.
+        let source_backend = source
+            .location_navigation_backend
+            .borrow()
+            .clone()
+            .ok_or_else(|| error("SecurityError"))?;
+        let authority = if let Some(page) = backend.target_page() {
+            source_backend.authorize_selected(
+                source.native_worker_creator()?,
+                page,
+                target.clone(),
+                url.to_string(),
+                source.request_initiator_url()?,
+                source.document_referrer_policy(),
+            )
+        } else {
+            source_backend.authorize(
                 source.native_worker_creator()?,
                 target.clone(),
                 url.to_string(),
                 source.request_initiator_url()?,
                 source.document_referrer_policy(),
             )
-            .map_err(|_| error("SecurityError"))?
-            .ok_or_else(|| error("SecurityError"))?;
+        }
+        .map_err(|_| error("SecurityError"))?
+        .ok_or_else(|| error("SecurityError"))?;
         Some(crate::navigation::ScriptNavigationAdmission { authority, target })
     } else {
         None

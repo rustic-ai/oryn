@@ -242,18 +242,27 @@ pub(super) fn refresh_range_endpoints(
     let mut seen = BTreeSet::new();
     for state in states {
         let arena = state.dom.borrow().arena().id();
-        let objects = state
-            .range_objects
-            .borrow()
-            .iter()
-            .filter(|(id, _)| !state.static_ranges.borrow().contains(id))
-            .filter_map(|(id, record)| record.handle.to_local(scope).map(|object| (*id, object)))
-            .collect::<Vec<_>>();
-        for (id, object) in objects {
+        let mut objects = Vec::new();
+        for (id, record) in state.range_objects.borrow().iter() {
+            if state.static_ranges.borrow().contains(id) {
+                continue;
+            }
+            let range = state.dom.borrow().live_range(LiveRangeId(*id))?;
+            let endpoints = [range.start.container, range.end.container]
+                .map(|node| oryn_dom::NodeRef { arena, node });
+            // Offsets do not affect the traced graph. Native tree mutations
+            // and cross-arena adoption still compare the actual endpoints.
+            if record.traced_endpoints.get() == Some(endpoints) {
+                continue;
+            }
+            if let Some(object) = record.handle.to_local(scope) {
+                objects.push((*id, object, endpoints));
+            }
+        }
+        for (id, object, endpoints) in objects {
             if !seen.insert((arena, id)) {
                 continue;
             }
-            let range = state.dom.borrow().live_range(LiveRangeId(id))?;
             let key = owner_key(scope)?;
             let holder = object
                 .get_private(scope, key)
@@ -262,10 +271,8 @@ pub(super) fn refresh_range_endpoints(
             if holder.internal_field_count() != 3 {
                 return Err(V8BindingError::Allocation("Range owner holder shape"));
             }
-            for (index, node) in [range.start.container, range.end.container]
-                .into_iter()
-                .enumerate()
-            {
+            for (index, endpoint) in endpoints.into_iter().enumerate() {
+                let node = endpoint.node;
                 let wrapper = if let Some(wrapper) = wrappers.get(&(arena, node)) {
                     *wrapper
                 } else {
@@ -274,6 +281,9 @@ pub(super) fn refresh_range_endpoints(
                     wrapper
                 };
                 holder.set_internal_field(index + 1, wrapper.into());
+            }
+            if let Some(record) = state.range_objects.borrow().get(&id) {
+                record.traced_endpoints.set(Some(endpoints));
             }
         }
     }
@@ -436,6 +446,95 @@ mod tests {
             "only collectable JS-owned native leases remain"
         );
     }
+    #[test]
+    fn cached_range_endpoints_follow_native_tree_removal_and_direct_setters() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body><div id=old>text</div><p id=next>next</p></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(906), 1).unwrap();
+        eval(
+            scope,
+            "globalThis.r=document.createRange();r.selectNodeContents(document.body);r.collapse(true)",
+        );
+        refresh_range_endpoints(scope, std::slice::from_ref(&state)).unwrap();
+        refresh_range_endpoints(scope, std::slice::from_ref(&state)).unwrap();
+        // A setter publishes different endpoints, then native removal returns
+        // to the previously cached body before the next explicit refresh.
+        eval(
+            scope,
+            "r.selectNodeContents(document.getElementById('old'));r.collapse(true)",
+        );
+        let old = state
+            .dom
+            .borrow()
+            .query_selector(state.document_root(), "#old")
+            .unwrap()
+            .unwrap();
+        state.dom.borrow_mut().remove(old).unwrap();
+        refresh_range_endpoints(scope, std::slice::from_ref(&state)).unwrap();
+        assert!(
+            eval(
+                scope,
+                "r.startContainer===document.body&&r.endContainer===document.body"
+            )
+            .is_true()
+        );
+        let object = eval(scope, "r").try_cast::<v8::Object>().unwrap();
+        let key = owner_key(scope).unwrap();
+        let holder = object
+            .get_private(scope, key)
+            .unwrap()
+            .try_cast::<v8::Object>()
+            .unwrap();
+        let body = eval(scope, "document.body");
+        for index in [1, 2] {
+            assert!(
+                holder
+                    .get_internal_field(scope, index)
+                    .unwrap()
+                    .try_cast::<v8::Value>()
+                    .unwrap()
+                    .strict_equals(body)
+            );
+        }
+        eval(
+            scope,
+            "r.selectNodeContents(document.getElementById('next'));r.collapse(false)",
+        );
+        refresh_range_endpoints(scope, std::slice::from_ref(&state)).unwrap();
+        let range = eval(scope, "r").try_cast::<v8::Object>().unwrap();
+        let key = owner_key(scope).unwrap();
+        let holder = range
+            .get_private(scope, key)
+            .unwrap()
+            .try_cast::<v8::Object>()
+            .unwrap();
+        let next = eval(scope, "document.getElementById('next')");
+        assert!(
+            holder
+                .get_internal_field(scope, 1)
+                .unwrap()
+                .try_cast::<v8::Value>()
+                .unwrap()
+                .strict_equals(next)
+        );
+        assert!(
+            holder
+                .get_internal_field(scope, 2)
+                .unwrap()
+                .try_cast::<v8::Value>()
+                .unwrap()
+                .strict_equals(next)
+        );
+    }
+
     #[test]
     fn detached_scoped_range_endpoint_keeps_identity_until_its_last_traced_owner_dies() {
         super::super::tests::initialize_v8();

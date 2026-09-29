@@ -42,6 +42,10 @@ struct ScriptSnapshot {
     destination_url: String,
     #[serde(default)]
     service_source: Option<oryn_js::navigation::ServiceNavigationAuthority>,
+    #[serde(default)]
+    javascript_policy: Option<crate::csp::CspPolicySet>,
+    #[serde(default)]
+    javascript_origin: Option<String>,
     fetch: oryn_js::navigation::FormNavigationSource,
 }
 fn script_mac(key: &[u8; 32], payload: &[u8]) -> [u8; 32] {
@@ -113,7 +117,8 @@ impl BrowserContext {
             Some(referrer_policy),
             Some(source_url),
         )?;
-        let fetch = self.form_fetch_source(&metadata, source)?;
+        let metadata = self.open_form_authority(&metadata, source)?;
+        let javascript = destination_url.starts_with("javascript:");
         let snapshot = ScriptSnapshot {
             version: 1,
             context: self.inner.id,
@@ -122,7 +127,9 @@ impl BrowserContext {
             source_creator,
             target_creator,
             destination_url,
-            fetch,
+            javascript_policy: javascript.then_some(metadata.policy),
+            javascript_origin: javascript.then_some(metadata.origin),
+            fetch: metadata.fetch,
             service_source: None,
         };
         self.seal_script_navigation_authority(&snapshot)
@@ -167,6 +174,12 @@ impl BrowserContext {
             destination,
             source_creator: document.source.creator,
             target_creator,
+            javascript_policy: destination_url
+                .starts_with("javascript:")
+                .then_some(document.source.policy),
+            javascript_origin: destination_url
+                .starts_with("javascript:")
+                .then_some(document.source.origin),
             destination_url,
             fetch,
             service_source: None,
@@ -221,8 +234,95 @@ impl BrowserContext {
             target_creator,
             destination_url,
         )?;
+        self.check_javascript_navigation(&snapshot, destination, target_creator, true)?;
         Ok((snapshot.fetch, snapshot.service_source.is_some()))
     }
+    fn check_javascript_navigation(
+        &self,
+        snapshot: &ScriptSnapshot,
+        destination: PageId,
+        target_creator: &Creator,
+        report: bool,
+    ) -> Result<(), RuntimeError> {
+        if snapshot.destination_url.starts_with("javascript:") {
+            let Creator::Window {
+                target,
+                document_generation,
+                stream_epoch,
+            } = target_creator
+            else {
+                return Err(RuntimeError::NavigationCancelled);
+            };
+            let (owner, _, _) = self.window_worker_creator(
+                destination,
+                target,
+                *document_generation,
+                *stream_epoch,
+            )?;
+            let target_policy = self.window_worker_policy(
+                destination,
+                target,
+                *document_generation,
+                *stream_epoch,
+            )?;
+            let target_domain = self
+                .native_document_domain_identity(&owner)
+                .map_err(RuntimeError::ContextService)?;
+            if snapshot.fetch.source_domain_key.as_deref()
+                != Some(target_domain.security_token_key().as_str())
+                || crate::csp::CspPolicySet::from_agent_policy(&target_policy)
+                    .sandbox()
+                    .is_some_and(|flags| !flags.allow_scripts)
+            {
+                return Err(RuntimeError::NavigationCancelled);
+            }
+            let policy = snapshot
+                .javascript_policy
+                .as_ref()
+                .ok_or(RuntimeError::NavigationCancelled)?;
+            let decision = policy.authorize(&crate::csp::CspRequest {
+                destination: crate::csp::CspDestination::JavascriptNavigation,
+                url: snapshot.destination_url.clone(),
+                inline_source: Some(snapshot.destination_url.clone()),
+                nonce: None,
+                parser_inserted: false,
+                initiated_by_trusted_script: false,
+            });
+            if report {
+                self.handle_csp_violations_for_creator(
+                    snapshot.source,
+                    decision.violations,
+                    Some(policy),
+                    Some(snapshot.source_creator.clone()),
+                )?;
+            }
+            if !decision.allowed {
+                return Err(RuntimeError::NavigationCancelled);
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn javascript_navigation_origin(
+        &self,
+        page: PageId,
+        admission: &oryn_js::navigation::ScriptNavigationAdmission,
+        url: &str,
+    ) -> Result<oryn_js::worker_wire::AgentOrigin, RuntimeError> {
+        // The response grant is a fresh privileged effect. Revalidate the
+        // captured script policy and target domain before committing its bytes.
+        let snapshot =
+            self.open_script_navigation_source(&admission.authority, page, &admission.target, url)?;
+        self.check_javascript_navigation(&snapshot, page, &admission.target, false)?;
+        let serialized = snapshot
+            .javascript_origin
+            .ok_or(RuntimeError::NavigationCancelled)?;
+        Ok(oryn_js::worker_wire::AgentOrigin {
+            serialized,
+            opaque: snapshot.fetch.opaque_origin,
+            authority: snapshot.fetch.origin_key,
+        })
+    }
+
     fn open_script_navigation_source(
         &self,
         authority: &oryn_js::navigation::ScriptNavigationAuthority,
@@ -1360,6 +1460,8 @@ impl BrowserContext {
             destination_url: source.url,
             fetch: source.fetch,
             service_source: Some(admission.authority),
+            javascript_policy: None,
+            javascript_origin: None,
         };
         let payload = serde_json::to_vec(&snapshot)
             .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
