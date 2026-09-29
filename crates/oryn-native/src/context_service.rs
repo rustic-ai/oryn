@@ -2049,12 +2049,27 @@ fn write_response_receipt(
     writer: &mut UnixStream,
     receipt: &ResponseReceipt,
 ) -> Result<(), RuntimeError> {
-    serde_json::to_writer(&mut *writer, receipt)
-        .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
-    writer
-        .write_all(b"\n")
-        .and_then(|_| writer.flush())
-        .map_err(|error| RuntimeError::ContextService(error.to_string()))
+    write_context_json_line(writer, receipt)
+}
+
+/// Coalesce JSON tokens while the caller owns the transport write lock. Keep
+/// buffering bounded even for large requests, and never retry buffered bytes
+/// implicitly on drop after a serialization or transport failure.
+fn write_context_json_line(
+    writer: &mut impl Write,
+    value: &impl Serialize,
+) -> Result<(), RuntimeError> {
+    let mut buffered = std::io::BufWriter::with_capacity(8192, writer);
+    let result = (|| {
+        serde_json::to_writer(&mut buffered, value)
+            .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
+        buffered
+            .write_all(b"\n")
+            .and_then(|_| buffered.flush())
+            .map_err(|error| RuntimeError::ContextService(error.to_string()))
+    })();
+    let _ = buffered.into_parts();
+    result
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -2528,14 +2543,7 @@ impl ContextTransport for IpcContextTransport {
             message_id,
             request,
         };
-        let written = (|| {
-            serde_json::to_writer(&mut *writer, &envelope)
-                .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
-            writer
-                .write_all(b"\n")
-                .and_then(|_| writer.flush())
-                .map_err(|error| RuntimeError::ContextService(error.to_string()))
-        })();
+        let written = write_context_json_line(&mut *writer, &envelope);
         drop(writer);
         if let Err(error) = written {
             let _ = self.cancel.shutdown(Shutdown::Both);
@@ -16888,6 +16896,65 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn context_json_writes_coalesce_receipts_and_preserve_large_frames() {
+        #[derive(Default)]
+        struct Writes {
+            bytes: Vec<u8>,
+            calls: usize,
+        }
+        impl Write for Writes {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.calls += 1;
+                self.bytes.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let receipt = ResponseReceipt {
+            protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
+            route: Some(WorkerRoute::issue(7, 8, 9).unwrap()),
+            received_id: 42,
+            accepted: true,
+        };
+        let mut writer = Writes::default();
+        write_context_json_line(&mut writer, &receipt).unwrap();
+        assert_eq!(
+            writer.calls, 1,
+            "one receipt must not issue a write per JSON token"
+        );
+        let mut expected = serde_json::to_vec(&receipt).unwrap();
+        expected.push(b'\n');
+        assert_eq!(writer.bytes, expected);
+        let large = vec!["escaped\n\0\"".repeat(1024); 3];
+        write_context_json_line(&mut writer, &large).unwrap();
+        expected.extend(serde_json::to_vec(&large).unwrap());
+        expected.push(b'\n');
+        assert_eq!(writer.bytes, expected);
+    }
+
+    #[test]
+    fn context_json_write_failure_does_not_retry_on_drop() {
+        struct Failing(usize);
+        impl Write for Failing {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                self.0 += 1;
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "closed",
+                ))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut writer = Failing(0);
+        assert!(write_context_json_line(&mut writer, &"receipt").is_err());
+        assert_eq!(writer.0, 1);
     }
 
     #[test]

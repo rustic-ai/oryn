@@ -156,6 +156,7 @@ pub(crate) struct DescriptorReader {
     stream: UnixStream,
     buffer: Vec<u8>,
     position: usize,
+    filled: usize,
     descriptors: std::collections::VecDeque<OwnedFd>,
 }
 impl DescriptorReader {
@@ -164,6 +165,7 @@ impl DescriptorReader {
             stream,
             buffer: Vec::new(),
             position: 0,
+            filled: 0,
             descriptors: Default::default(),
         }
     }
@@ -185,8 +187,11 @@ impl DescriptorReader {
         })
     }
     fn refill(&mut self) -> io::Result<()> {
+        // Retain initialized storage across short socket reads. Truncating and
+        // resizing would zero nearly 64 KiB again for every small JSON fragment.
         self.buffer.resize(64 * 1024, 0);
         self.position = 0;
+        self.filled = 0;
         let mut vector = libc::iovec {
             iov_base: self.buffer.as_mut_ptr().cast(),
             iov_len: self.buffer.len(),
@@ -212,7 +217,6 @@ impl DescriptorReader {
                 return Err(error);
             }
         };
-        self.buffer.truncate(received);
         let mut incoming = Vec::new();
         let mut invalid = false;
         unsafe {
@@ -262,18 +266,19 @@ impl DescriptorReader {
             }
             self.descriptors.push_back(fd)
         }
+        self.filled = received;
         Ok(())
     }
 }
 impl io::BufRead for DescriptorReader {
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
-        if self.position == self.buffer.len() {
+        if self.position == self.filled {
             self.refill()?;
         }
-        Ok(&self.buffer[self.position..])
+        Ok(&self.buffer[self.position..self.filled])
     }
     fn consume(&mut self, amount: usize) {
-        self.position = (self.position + amount).min(self.buffer.len());
+        self.position = self.position.saturating_add(amount).min(self.filled);
     }
 }
 impl io::Read for DescriptorReader {
@@ -294,6 +299,22 @@ impl io::Read for DescriptorReader {
 mod buffered_tests {
     use super::*;
     use std::io::{BufRead, Write};
+    #[test]
+    fn short_refills_and_eof_never_expose_previous_bytes() {
+        use std::io::Read;
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut reader = DescriptorReader::new(receiver);
+        sender.write_all(&[b'x'; 4096]).unwrap();
+        let mut first = [0; 4096];
+        reader.read_exact(&mut first).unwrap();
+        assert_eq!(first, [b'x'; 4096]);
+        sender.write_all(b"y").unwrap();
+        assert_eq!(reader.fill_buf().unwrap(), b"y");
+        reader.consume(1);
+        sender.shutdown(std::net::Shutdown::Write).unwrap();
+        assert!(reader.fill_buf().unwrap().is_empty());
+        assert!(reader.fill_buf().unwrap().is_empty());
+    }
     #[test]
     fn buffered_json_read_ahead_preserves_correlated_descriptor() {
         let (mut a, b) = UnixStream::pair().unwrap();
