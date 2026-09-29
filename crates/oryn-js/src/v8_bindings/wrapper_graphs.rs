@@ -75,6 +75,7 @@ fn grow_detached_fragment(
     if state.execution_retired()
         || node_migration::has_publications(scope)
         || !state.wrapper_graph_new_nodes.borrow().is_empty()
+        || !state.wrapper_graph_registry_nodes.borrow().is_empty()
         || scope
             .get_slot::<BindingStateRegistry>()
             .is_some_and(|registry| registry.cross_realm_wrappers.get())
@@ -273,6 +274,7 @@ fn rebuild(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
     let revision = dom.mutation_cursor().0;
     if state.wrapper_graph_revision.get() == Some(revision)
         && state.wrapper_graph_new_nodes.borrow().is_empty()
+        && state.wrapper_graph_registry_nodes.borrow().is_empty()
     {
         return 0;
     }
@@ -288,7 +290,16 @@ fn rebuild(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
     let mut roots = BTreeMap::new();
     let mut complete_rebuild = state.wrapper_graph_revision.get().is_none();
     let new_nodes = state.wrapper_graph_new_nodes.borrow().clone();
+    let registry_nodes = state.wrapper_graph_registry_nodes.borrow().clone();
+    // Detached trees may inherit their registry through ownerDocument rather
+    // than retention_parent. A Document reassociation still needs every tree.
+    complete_rebuild |= registry_nodes.iter().any(|node| {
+        dom.arena()
+            .get(*node)
+            .map_or(true, |record| matches!(record.kind, NodeKind::Document))
+    });
     let mut changed = new_nodes.clone();
+    changed.extend(&registry_nodes);
     if let Some(previous) = state.wrapper_graph_revision.get() {
         let batch = dom.mutations_since(oryn_dom::MutationCursor(previous));
         complete_rebuild |= batch.truncated;
@@ -374,6 +385,7 @@ fn rebuild(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
         // and any intervening mutation must retain the general repair path.
         if state.wrapper_graph_revision.get() == Some(revision)
             && new_nodes.contains(&node)
+            && !registry_nodes.contains(&node)
             && retained_by_document(&dom, node)
             && !matches!(
                 dom.arena().get(node).map(|node| &node.kind),
@@ -432,6 +444,7 @@ fn rebuild(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
         }
     }
     state.wrapper_graph_new_nodes.borrow_mut().clear();
+    state.wrapper_graph_registry_nodes.borrow_mut().clear();
     state.wrapper_graph_revision.set(Some(revision));
     let mut owners = BTreeMap::new();
     let mut released = 0;
@@ -624,6 +637,7 @@ pub(super) fn attach_existing_component(
     if state.execution_retired()
         || node_migration::has_publications(scope)
         || !state.wrapper_graph_new_nodes.borrow().is_empty()
+        || !state.wrapper_graph_registry_nodes.borrow().is_empty()
         || scope
             .get_slot::<BindingStateRegistry>()
             .is_some_and(|registry| registry.cross_realm_wrappers.get())
@@ -744,6 +758,9 @@ pub(super) fn attach_new_leaf(
     node: NodeId,
     object: v8::Local<v8::Object>,
 ) -> bool {
+    if !state.wrapper_graph_registry_nodes.borrow().is_empty() {
+        return false;
+    }
     let Some(previous) = state.wrapper_graph_revision.get() else {
         return false;
     };
@@ -897,6 +914,59 @@ mod fragment_growth_tests {
         let field = object.get_internal_field(scope, 5).unwrap();
         let value = v8::Local::<v8::Value>::try_from(field).unwrap();
         v8::Local::<v8::Array>::try_from(value).unwrap()
+    }
+
+    #[test]
+    fn registry_stamping_after_insertion_only_refreshes_the_affected_component() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(312), 1).unwrap();
+        {
+            v8::scope!(let scope, scope);
+            let root = v8::Local::<v8::Object>::try_from(eval(scope, r#"
+                globalThis.root=document.createElement('section');
+                root.appendChild(document.createElement('b'));root.firstChild.saved=17;
+                globalThis.registry=new CustomElementRegistry();registry.saved=42;
+                globalThis.output=document.createElement('div',{customElementRegistry:registry});root
+            "#)).unwrap();
+            refresh(scope, &state);
+            let before = graph(scope, root);
+            for _ in 0..40 {
+                eval(
+                    scope,
+                    r#"
+                    (()=>{
+                        const row=document.createElement('div',{customElementRegistry:registry});
+                        row.appendChild(document.createTextNode('result'));
+                        output.appendChild(row);
+                    })()
+                "#,
+                );
+                refresh(scope, &state);
+                assert!(
+                    before.strict_equals(graph(scope, root).into()),
+                    "text registry stamping must not rebuild an unrelated detached graph"
+                );
+            }
+            eval(
+                scope,
+                "globalThis.held=output.firstChild;output=null;registry=null",
+            );
+        }
+        scope.low_memory_notification();
+        assert!(eval(scope, "root.firstChild.saved===17&&held.parentNode.childNodes.length===40&&held.customElementRegistry.saved===42&&held.firstChild.data==='result'").is_true());
+        eval(scope, "held.remove()");
+        refresh(scope, &state);
+        scope.low_memory_notification();
+        assert!(eval(scope, "held.parentNode===null&&held.customElementRegistry.saved===42&&root.firstChild.saved===17").is_true());
     }
 
     #[test]

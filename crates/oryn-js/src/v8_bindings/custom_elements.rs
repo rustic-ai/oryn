@@ -549,7 +549,9 @@ fn associate_registry(
     // wrapper edges. Unassigned and explicitly null remain distinct here.
     dom.set_custom_element_registry(node, registry)?;
     if previous != Some(registry) {
-        state.wrapper_graph_revision.set(None);
+        // Registry stamping after insertion can affect a detached component's
+        // edges, but cannot change every unrelated tree in the same realm.
+        state.wrapper_graph_registry_nodes.borrow_mut().insert(node);
     }
     Ok(())
 }
@@ -790,7 +792,7 @@ pub(super) fn initialize_created_element(
     // before wrapping the node or invoking a custom constructor. This fresh
     // node cannot change any existing wrapper's registry edge. Its insertion
     // journal and eventual wrapper publication establish the new edges; keep
-    // associate_registry's full invalidation for changes to existing nodes.
+    // associate_registry's component invalidation for changes to existing nodes.
     let mut dom = state.dom.borrow_mut();
     dom.set_custom_element_registry(node, registry)?;
     dom.arena_mut().get_mut(node)?.custom_element_is = options.is_value;

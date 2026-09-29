@@ -2388,6 +2388,7 @@ pub struct V8BindingState {
     objects: RefCell<BTreeMap<WrapperId, WrapperObject>>,
     wrapper_graph_revision: Cell<Option<u64>>,
     wrapper_graph_new_nodes: RefCell<BTreeSet<NodeId>>,
+    wrapper_graph_registry_nodes: RefCell<BTreeSet<NodeId>>,
     wrapper_graph_components: RefCell<BTreeMap<NodeId, BTreeSet<WrapperId>>>,
     instance_templates: RefCell<BTreeMap<&'static str, v8::Weak<v8::ObjectTemplate>>>,
     html_constructors: RefCell<BTreeMap<&'static str, v8::Weak<v8::Function>>>,

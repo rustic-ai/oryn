@@ -136,6 +136,7 @@ pub(super) fn create_state(
         objects: RefCell::new(BTreeMap::new()),
         wrapper_graph_revision: Cell::new(None),
         wrapper_graph_new_nodes: RefCell::new(BTreeSet::new()),
+        wrapper_graph_registry_nodes: RefCell::new(BTreeSet::new()),
         wrapper_graph_components: RefCell::new(BTreeMap::new()),
         instance_templates: RefCell::new(BTreeMap::new()),
         html_constructors: RefCell::new(BTreeMap::new()),
