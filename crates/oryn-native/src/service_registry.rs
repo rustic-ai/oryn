@@ -2310,7 +2310,9 @@ impl ServiceRegistry {
             reg.script_type = script_type;
             reg.snapshot.update_via_cache = cache;
             reg.snapshot.installing = None;
-            reg.snapshot.waiting.replace(snapshot)
+            let previous = reg.snapshot.waiting.replace(snapshot);
+            state.dirty_registrations.insert(registration);
+            previous
         };
         self.publish_version(agent)?;
         if let Some(previous) = previous_waiting {
@@ -4059,6 +4061,13 @@ impl ServiceRegistry {
                 .ok_or_else(|| error("profile waiting registration retired"))?;
             return owner.try_activate(registration);
         }
+        // Serialize entry into Activating with namespace restoration. Once
+        // published, restoration's locked recheck defers to this transition.
+        // Never hold this lock across process teardown or author callbacks.
+        let activation_publication = self
+            .persistence
+            .lock()
+            .map_err(|_| error("service persistence lock poisoned"))?;
         let candidate = {
             let mut state = self.state()?;
             self.watch_profile_activation(&mut state, id)?;
@@ -4129,6 +4138,7 @@ impl ServiceRegistry {
                 .snapshot = active.clone();
             (active.id, old, activation)
         };
+        drop(activation_publication);
         let mut old_reservation = None;
         if let Some(old) = candidate.1 {
             let result = (|| {
@@ -4178,6 +4188,9 @@ impl ServiceRegistry {
         let result = self.lifecycle(candidate.0, LifecycleEvent::Activate);
         {
             let mut state = self.state()?;
+            // Keep the completed native transition authoritative until its
+            // durable compare-and-replace has committed.
+            state.dirty_registrations.insert(id);
             if result.is_ok() {
                 // Publish active-work readiness before Activated becomes
                 // visible. The lease still excludes competing profile jobs
@@ -4307,7 +4320,11 @@ impl ServiceRegistry {
         };
         let mut failure = None;
         for agent in agents {
-            if let Err(error) = self.retire_version(agent) {
+            // This is an opportunistic sweep, not a teardown completion
+            // barrier. A competing owner keeps the Version and its receipt;
+            // it will finish retirement or leave the version retryable. Do not
+            // poison an unrelated service request merely because it is busy.
+            if let Err(error) = self.retire_version_if_idle(agent) {
                 failure.get_or_insert(error);
             }
         }
@@ -6958,6 +6975,32 @@ mod tests {
             })
         }
     }
+    fn settled_active(registry: &ServiceRegistry, partition: &str, origin: &str) -> WorkerSnapshot {
+        // update_job can leave activation/publication to an existing background
+        // owner. These fault-injection tests need a settled active baseline.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            registry.reap_jobs().unwrap();
+            let snapshots = registry.registration_snapshots(partition, origin).unwrap();
+            if let Some(active) = snapshots.first().and_then(|reg| reg.active.as_ref())
+                && active.state == WorkerState::Activated
+                && !registry.maintenance_running.load(Ordering::Acquire)
+                && registry
+                    .jobs
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(|job| job.is_finished())
+            {
+                return active.clone();
+            }
+            assert!(
+                Instant::now() < deadline,
+                "service baseline did not settle: {snapshots:?}"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
     #[test]
     fn rejected_install_removes_empty_registration_and_preserves_existing_active() {
         let network = SharedNetworkBroker::new(Scripts);
@@ -7011,10 +7054,7 @@ mod tests {
                 .is_empty()
         );
         register("/success.js", network).unwrap();
-        let before = registry
-            .registration_snapshots(&partition, &origin.authority)
-            .unwrap();
-        let active = before[0].active.clone().unwrap();
+        let active = settled_active(&registry, &partition, &origin.authority);
         assert_eq!(active.state, WorkerState::Activated);
         assert!(register("/failure.js", SharedNetworkBroker::new(RejectedInstall)).is_err());
         let after = registry
@@ -7083,12 +7123,7 @@ mod tests {
         );
         assert!(registry.state().unwrap().versions.is_empty());
         register("/active.js").unwrap();
-        let active = registry
-            .registration_snapshots(&partition, &origin.authority)
-            .unwrap()[0]
-            .active
-            .clone()
-            .unwrap();
+        let active = settled_active(&registry, &partition, &origin.authority);
         registry.restore_for_owner(&owner, network.clone()).unwrap();
         persistence::fail_next_publication();
         assert!(register("/replacement.js").is_err());
@@ -8419,6 +8454,46 @@ mod local_window_creation_tests {
         let agent = registration.active.unwrap().id;
         (context, registry, page, owner, agent)
     }
+    #[test]
+    fn concurrent_cleanup_sweeps_preserve_the_existing_retirement_owner() {
+        let (context, registry, _page, _owner, agent) = setup();
+        {
+            let mut state = registry.state().unwrap();
+            let version = state.versions.get_mut(&agent).unwrap();
+            version.retiring = true;
+            let registration = version.bootstrap.service_registration.unwrap();
+            state
+                .registrations
+                .get_mut(&registration)
+                .unwrap()
+                .snapshot
+                .active = None;
+        }
+        // Reproduce a request and a maintenance sweep arriving while the
+        // process teardown owner is outside the registry lock.
+        std::thread::scope(|threads| {
+            for _ in 0..2 {
+                let registry = registry.clone();
+                threads.spawn(move || registry.cleanup_unregistered().unwrap());
+            }
+        });
+        assert!(registry.state().unwrap().versions[&agent].retiring);
+        assert!(context.worker_bootstrap(agent).is_ok());
+        // A synchronous completion barrier still refuses to claim completion.
+        assert!(registry.retire_version(agent).is_err());
+        registry
+            .state()
+            .unwrap()
+            .versions
+            .get_mut(&agent)
+            .unwrap()
+            .retiring = false;
+        registry.cleanup_unregistered().unwrap();
+        assert!(!registry.state().unwrap().versions.contains_key(&agent));
+        assert!(context.worker_bootstrap(agent).is_err());
+        registry.retire().unwrap();
+    }
+
     #[test]
     fn native_window_stage_failure_preserves_original_error_and_closes_only_failed_target() {
         for stage in [

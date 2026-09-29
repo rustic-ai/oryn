@@ -559,6 +559,28 @@ impl ServiceRegistry {
             }
         }
     }
+    fn namespace_transition_pending(
+        &self,
+        partition: &str,
+        origin: &str,
+    ) -> Result<bool, WorkerError> {
+        let state = self.state()?;
+        Ok(state
+            .dirty_registrations
+            .iter()
+            .filter_map(|id| state.registrations.get(id))
+            .any(|registration| {
+                registration.partition == partition && registration.origin == origin
+            })
+            || state.versions.values().any(|version| {
+                version.bootstrap.partition == partition
+                    && version.bootstrap.origin.authority == origin
+                    && matches!(
+                        version.snapshot.state,
+                        WorkerState::Installing | WorkerState::Activating
+                    )
+            }))
+    }
     fn restore_namespace_once(
         &self,
         partition: String,
@@ -584,35 +606,21 @@ impl ServiceRegistry {
         {
             return Ok(());
         }
-        // Lifecycle callbacks observe the version currently installing/activating;
-        // restoring our own last durable snapshot would replace that native
-        // transition and recursively dispatch another activation.
-        {
-            let state = self.state()?;
-            if state
-                .dirty_registrations
-                .iter()
-                .filter_map(|id| state.registrations.get(id))
-                .any(|registration| {
-                    registration.partition == partition && registration.origin == origin.authority
-                })
-                || state.versions.values().any(|version| {
-                    version.bootstrap.partition == partition
-                        && version.bootstrap.origin.authority == origin.authority
-                        && matches!(
-                            version.snapshot.state,
-                            WorkerState::Installing | WorkerState::Activating
-                        )
-                })
-            {
-                return Ok(());
-            }
+        // Lifecycle callbacks must not restore an older durable transition.
+        if self.namespace_transition_pending(&partition, &origin.authority)? {
+            return Ok(());
         }
         let identity = (partition.clone(), origin.authority.clone());
         let serialization = self
             .persistence
             .lock()
             .map_err(|_| error("service persistence lock poisoned"))?;
+        // The lifecycle may have advanced while we waited for serialization.
+        // try_activate uses the same lock for its native publication, so this
+        // check also protects the remainder of this restoration transaction.
+        if self.namespace_transition_pending(&partition, &origin.authority)? {
+            return Ok(());
+        }
         let context = self.context()?;
         let stable = partition_key(&partition)?;
         let current = context
