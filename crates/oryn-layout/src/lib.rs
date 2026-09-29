@@ -1060,10 +1060,12 @@ impl Default for TextBrush {
     }
 }
 
+// Text ownership belongs to the span, not its shareable CSS declaration map.
 type StyledTextRange<'a> = (
     std::ops::Range<usize>,
     &'a BTreeMap<String, String>,
     Option<fontique::Language>,
+    u64,
 );
 
 struct TextEngine {
@@ -1491,10 +1493,7 @@ fn text_style_properties(
         background: style
             .get("-oryn-text-background")
             .and_then(|color| oryn_common::color::parse_color(color)),
-        owner: style
-            .get("-oryn-text-owner")
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(0),
+        owner: 0,
         decorations: text_decoration::read(style, font_size, viewport),
         color: oryn_common::color::parse_color(style_value(style, "color", "black"))
             .unwrap_or([0, 0, 0, 255]),
@@ -1621,6 +1620,32 @@ impl TextEngine {
         self.shape_source(&source, width, font_size, style, viewport, &BTreeMap::new())
     }
 
+    fn text_span_styles(
+        &self,
+        source: &text_source::TextSource,
+        styles: &ComputedStyles,
+        fallback: &BTreeMap<String, String>,
+    ) -> ComputedStyles {
+        let mut default = None;
+        source
+            .spans
+            .iter()
+            .map(|span| {
+                let style = self
+                    .decoration_styles
+                    .get(&span.owner)
+                    .or_else(|| styles.get(&span.owner))
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        default
+                            .get_or_insert_with(|| Arc::new(fallback.clone()))
+                            .clone()
+                    });
+                (span.owner, style)
+            })
+            .collect()
+    }
+
     fn shape_source(
         &mut self,
         source: &text_source::TextSource,
@@ -1665,21 +1690,7 @@ impl TextEngine {
                 ..TextLayout::default()
             };
         }
-        let owned_styles = source
-            .spans
-            .iter()
-            .map(|span| {
-                let mut local = self
-                    .decoration_styles
-                    .get(&span.owner)
-                    .or_else(|| styles.get(&span.owner))
-                    .map(|style| style.as_ref())
-                    .unwrap_or(style)
-                    .clone();
-                local.insert("-oryn-text-owner".into(), span.owner.to_string());
-                (span.owner, Arc::new(local))
-            })
-            .collect::<ComputedStyles>();
+        let owned_styles = self.text_span_styles(&source, styles, style);
         let ranges = source
             .spans
             .iter()
@@ -1692,6 +1703,7 @@ impl TextEngine {
                         span.bytes.clone(),
                         style.as_ref(),
                         self.languages.get(&span.owner).copied().flatten(),
+                        span.owner,
                     )
                 })
             })
@@ -1816,11 +1828,17 @@ impl TextEngine {
             let end = byte_offset + text.len();
             let paragraph_ranges = ranges
                 .iter()
-                .filter_map(|(range, style, language)| {
+                .filter_map(|(range, style, language, owner)| {
                     let first = range.start.max(byte_offset);
                     let last = range.end.min(end);
-                    (first < last)
-                        .then(|| (first - byte_offset..last - byte_offset, *style, *language))
+                    (first < last).then(|| {
+                        (
+                            first - byte_offset..last - byte_offset,
+                            *style,
+                            *language,
+                            *owner,
+                        )
+                    })
                 })
                 .collect::<Vec<_>>();
             self.active_inline_boxes = all_boxes
@@ -1950,7 +1968,7 @@ impl TextEngine {
         for property in text_style_properties(style, font_size, viewport) {
             builder.push_default(property);
         }
-        for (range, span_style, language) in ranges {
+        for (range, span_style, language, owner) in ranges {
             builder.push(StyleProperty::Locale(*language), range.clone());
             // Provenance-only ranges inherit the paragraph's already resolved
             // size. An absent declaration is not a new 16px initial value.
@@ -1958,7 +1976,10 @@ impl TextEngine {
                 .get("font-size")
                 .map(|value| length(value, font_size, font_size, viewport))
                 .unwrap_or(font_size);
-            for property in text_style_properties(span_style, size, viewport) {
+            for mut property in text_style_properties(span_style, size, viewport) {
+                if let StyleProperty::Brush(brush) = &mut property {
+                    brush.owner = *owner;
+                }
                 builder.push(property, range.clone());
             }
         }
@@ -1966,17 +1987,18 @@ impl TextEngine {
             let mut pending: Option<(usize, usize, String)> = None;
             use unicode_segmentation::UnicodeSegmentation;
             for (offset, cluster) in text.grapheme_indices(true) {
-                let current = ranges
+                let (current, owner) = ranges
                     .iter()
                     .rev()
-                    .find(|(range, _, _)| range.contains(&offset))
-                    .map(|(_, style, _)| *style)
-                    .unwrap_or(style);
+                    .find(|(range, _, _, _)| range.contains(&offset))
+                    .map(|(_, style, _, owner)| (*style, *owner))
+                    .unwrap_or((style, 0));
                 let family =
                     web_font_faces::families_for_cluster(&self.web_faces, current, cluster);
                 if web_font_faces::blocked_for_cluster(&self.web_faces, current, cluster) {
                     for property in text_style_properties(current, font_size, viewport) {
                         if let StyleProperty::Brush(mut brush) = property {
+                            brush.owner = owner;
                             brush.color[3] = 0;
                             brush.decorations.clear();
                             builder
@@ -2519,6 +2541,7 @@ impl TextEngine {
                         span.bytes.clone(),
                         style.as_ref(),
                         self.languages.get(&span.owner).copied().flatten(),
+                        span.owner,
                     )
                 })
             })
@@ -14729,7 +14752,7 @@ mod tests {
             16.,
             &small,
             ViewportState::default(),
-            &[(0..2, &small, None), (2..3, &large, None)],
+            &[(0..2, &small, None, 0), (2..3, &large, None, 0)],
         );
         assert!(ranged.width > letter.width);
         assert!((ranged.clusters.last().unwrap().rect.right() - ranged.width).abs() < 0.01);
@@ -15191,6 +15214,77 @@ mod tests {
     }
 
     #[test]
+    fn text_span_styles_share_maps_without_losing_decoration_or_fallback() {
+        let mut engine = TextEngine::new(&[]);
+        let shared = Arc::new(BTreeMap::from([("color".into(), "blue".into())]));
+        let decorated = Arc::new(BTreeMap::from([("color".into(), "red".into())]));
+        let mut source = text_source::TextSource::default();
+        let mut styles = ComputedStyles::new();
+        for owner in 1..=5000 {
+            source.append(owner, Some(owner + 10000), "x");
+            styles.insert(owner, shared.clone());
+        }
+        engine.decoration_styles.insert(1, decorated.clone());
+        source.append(6001, Some(16001), "a");
+        source.append(6002, Some(16002), "b");
+        let projected = engine.text_span_styles(&source, &styles, &shared);
+        assert!(Arc::ptr_eq(&projected[&1], &decorated));
+        assert!((2..=5000).all(|owner| Arc::ptr_eq(&projected[&owner], &shared)));
+        assert!(Arc::ptr_eq(&projected[&6001], &projected[&6002]));
+        assert_eq!(*projected[&6001], *shared);
+        assert_eq!(shared.len(), 1);
+    }
+
+    #[test]
+    fn text_shared_styles_preserve_owner_boundaries_in_horizontal_and_vertical_runs() {
+        for (mode, combine, text) in [
+            ("horizontal-tb", "none", "A\nB"),
+            ("vertical-rl", "none", "AB"),
+            ("vertical-rl", "all", "12"),
+            ("sideways-lr", "none", "AB"),
+        ] {
+            let mut engine = TextEngine::new(&[]);
+            let style = Arc::new(BTreeMap::from([
+                ("white-space".into(), "pre".into()),
+                ("writing-mode".into(), mode.into()),
+                ("text-combine-upright".into(), combine.into()),
+            ]));
+            let mut source = text_source::TextSource::default();
+            source.append(1, Some(11), &text[..1]);
+            source.append(2, Some(12), &text[1..]);
+            let styles = ComputedStyles::from([(1, style.clone()), (2, style.clone())]);
+            let shaped = engine.shape_source(
+                &source,
+                200.,
+                16.,
+                &style,
+                ViewportState::default(),
+                &styles,
+            );
+            let owners = shaped
+                .provenance
+                .iter()
+                .flatten()
+                .filter(|run| !run.bytes.is_empty())
+                .map(|run| run.owner)
+                .collect::<BTreeSet<_>>();
+            assert_eq!(owners, BTreeSet::from([1, 2]), "{mode} {combine}");
+            assert!(
+                shaped
+                    .source_clusters
+                    .iter()
+                    .any(|cluster| cluster.owner == 1 && cluster.text_node == 11)
+            );
+            assert!(
+                shaped
+                    .source_clusters
+                    .iter()
+                    .any(|cluster| cluster.owner == 2 && cluster.text_node == 12)
+            );
+        }
+    }
+
+    #[test]
     fn plaintext_resolves_each_preserved_paragraph_and_restores_source_offsets() {
         let mut engine = TextEngine::new(&[]);
         let style = BTreeMap::from([
@@ -15296,7 +15390,7 @@ mod tests {
             16.,
             &style,
             ViewportState::default(),
-            &[(0..3, &small, None), (3..5, &large, None)],
+            &[(0..3, &small, None, 0), (3..5, &large, None, 0)],
         );
         assert_eq!(ranged.lines.len(), 2);
         assert!(ranged.glyph_runs[0].iter().all(|run| run.font_size == 16.));

@@ -1784,7 +1784,6 @@ mod fragment_tests {
             ("font-size".into(), "20px".into()),
             ("writing-mode".into(), "vertical-rl".into()),
             ("text-orientation".into(), "upright".into()),
-            ("-oryn-text-owner".into(), "2".into()),
         ]);
         let mut larger = style.clone();
         larger.insert("font-size".into(), "24px".into());
@@ -1795,7 +1794,7 @@ mod fragment_tests {
             20.,
             &style,
             ViewportState::default(),
-            &[(0..1, &style, None), (1..3, &larger, None)],
+            &[(0..1, &style, None, 2), (1..3, &larger, None, 2)],
         );
         let fonts = shaped
             .glyph_runs

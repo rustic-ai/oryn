@@ -20,6 +20,7 @@ pub(crate) struct VerticalSegmentInputs<'a> {
     pub(crate) run: &'a parley::layout::Run<'a, TextBrush>,
     pub(crate) style: &'a BTreeMap<String, String>,
     pub(crate) language: Option<fontique::Language>,
+    pub(crate) owner: u64,
     pub(crate) orientation: PaintGlyphOrientation,
     pub(crate) font_key: String,
     pub(crate) rank: usize,
@@ -77,6 +78,7 @@ fn shape_segment(params: VerticalSegmentInputs<'_>) -> Vec<Cluster> {
         run,
         style,
         language,
+        owner,
         orientation,
         font_key,
         rank,
@@ -236,10 +238,7 @@ fn shape_segment(params: VerticalSegmentInputs<'_>) -> Vec<Cluster> {
         };
         result.push(Cluster {
             families: style_value(style, "font-family", DEFAULT_FONT_FAMILY).into(),
-            owner: style
-                .get("-oryn-text-owner")
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(0),
+            owner,
             atomic: None,
             bytes: start + offset..start + end,
             runs: vec![glyph_run],
@@ -339,15 +338,16 @@ fn shape_impl(params: VerticalParagraphInputs<'_>) -> TextLayout {
                 PaintGlyphOrientation,
                 &BTreeMap<String, String>,
                 Option<fontique::Language>,
+                u64,
             )>::new();
             for (offset, grapheme) in source.grapheme_indices(true) {
                 let start = range.start + offset;
-                let (segment_style, language) = ranges
+                let (segment_style, language, owner) = ranges
                     .iter()
                     .rev()
-                    .find(|(r, _, _)| r.contains(&start))
-                    .map(|(_, s, l)| (*s, *l))
-                    .unwrap_or((style, None));
+                    .find(|(r, _, _, _)| r.contains(&start))
+                    .map(|(_, s, l, owner)| (*s, *l, *owner))
+                    .unwrap_or((style, None, 0));
                 let orient = orientation(grapheme, segment_style);
                 if let Some(last) = segments.last_mut() {
                     let property = icu_properties::CodePointMapData::<
@@ -360,6 +360,7 @@ fn shape_impl(params: VerticalParagraphInputs<'_>) -> TextLayout {
                         && same_class
                         && std::ptr::eq(last.3, segment_style)
                         && last.4 == language
+                        && last.5 == owner
                     {
                         last.1 += grapheme.len();
                         continue;
@@ -371,18 +372,20 @@ fn shape_impl(params: VerticalParagraphInputs<'_>) -> TextLayout {
                     orient,
                     segment_style,
                     language,
+                    owner,
                 ));
             }
             if run.is_rtl() {
                 segments.reverse();
             }
-            for (start, end, orient, segment_style, language) in segments {
+            for (start, end, orient, segment_style, language, owner) in segments {
                 clusters.extend(shape_segment(VerticalSegmentInputs {
                     source: &text[start..end],
                     start,
                     run: &run,
                     style: segment_style,
                     language,
+                    owner,
                     orientation: orient,
                     font_key: key.clone(),
                     rank,
@@ -394,31 +397,32 @@ fn shape_impl(params: VerticalParagraphInputs<'_>) -> TextLayout {
     }
     // Combining is performed after full style/font itemization so fallback
     // boundaries do not split an element's one-em composition.
-    let mut combined = Vec::<(std::ops::Range<usize>, &BTreeMap<String, String>)>::new();
+    let mut combined = Vec::<(std::ops::Range<usize>, &BTreeMap<String, String>, u64)>::new();
     if !style_value(style, "writing-mode", "vertical-rl").starts_with("sideways") {
         for (offset, ch) in text.char_indices() {
-            let local = ranges
+            let (local, owner) = ranges
                 .iter()
                 .rev()
-                .find(|(range, _, _)| range.contains(&offset))
-                .map(|(_, s, _)| *s)
-                .unwrap_or(style);
+                .find(|(range, _, _, _)| range.contains(&offset))
+                .map(|(_, s, _, owner)| (*s, *owner))
+                .unwrap_or((style, 0));
             if style_value(local, "text-combine-upright", "none") != "all"
                 || matches!(ch, '\n' | '\u{2028}' | '\u{2029}')
             {
                 continue;
             }
-            if let Some((range, previous)) = combined.last_mut()
+            if let Some((range, previous, previous_owner)) = combined.last_mut()
                 && range.end == offset
                 && std::ptr::eq(*previous, local)
+                && *previous_owner == owner
             {
                 range.end += ch.len_utf8();
                 continue;
             }
-            combined.push((offset..offset + ch.len_utf8(), local));
+            combined.push((offset..offset + ch.len_utf8(), local, owner));
         }
     }
-    for (range, local) in combined {
+    for (range, local, owner) in combined {
         let mut horizontal = local.clone();
         horizontal.insert("writing-mode".into(), "horizontal-tb".into());
         horizontal.insert("text-combine-upright".into(), "none".into());
@@ -433,9 +437,9 @@ fn shape_impl(params: VerticalParagraphInputs<'_>) -> TextLayout {
             .unwrap_or(font_size);
         let language = ranges
             .iter()
-            .find(|(source, _, _)| source.contains(&range.start))
-            .and_then(|(_, _, language)| *language);
-        let local_range = [(0..range.len(), &horizontal, language)];
+            .find(|(source, _, _, _)| source.contains(&range.start))
+            .and_then(|(_, _, language, _)| *language);
+        let local_range = [(0..range.len(), &horizontal, language, owner)];
         let active_boxes = std::mem::take(&mut engine.active_inline_boxes);
         let saved_float_context = engine.float_context.take();
         let shaped = engine.shape_paragraph(crate::ParagraphShapeInputs {
@@ -475,10 +479,7 @@ fn shape_impl(params: VerticalParagraphInputs<'_>) -> TextLayout {
         clusters.retain(|c| c.bytes.start < range.start || c.bytes.end > range.end);
         clusters.push(Cluster {
             families: style_value(local, "font-family", DEFAULT_FONT_FAMILY).into(),
-            owner: local
-                .get("-oryn-text-owner")
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(0),
+            owner,
             atomic: None,
             bytes: range,
             runs,
@@ -690,10 +691,10 @@ fn shape_impl(params: VerticalParagraphInputs<'_>) -> TextLayout {
             let end = clusters[indices.end - 1].bytes.end;
             let line_ranges = ranges
                 .iter()
-                .filter_map(|(range, s, l)| {
+                .filter_map(|(range, s, l, owner)| {
                     let a = range.start.max(start);
                     let b = range.end.min(end);
-                    (a < b).then(|| (a - start..b - start, *s, *l))
+                    (a < b).then(|| (a - start..b - start, *s, *l, *owner))
                 })
                 .collect::<Vec<_>>();
             let included = indices
@@ -1134,7 +1135,7 @@ mod tests {
                     size,
                     &style,
                     ViewportState::default(),
-                    &[(0..2, &explicit, None)],
+                    &[(0..2, &explicit, None, 0)],
                 );
                 assert!(
                     override_run

@@ -511,6 +511,7 @@ type OwnedRange = (
     std::ops::Range<usize>,
     BTreeMap<String, String>,
     Option<fontique::Language>,
+    u64,
 );
 fn ranges(
     text: &str,
@@ -522,7 +523,7 @@ fn ranges(
     viewport: ViewportState,
 ) -> Vec<OwnedRange> {
     let mut boundaries = BTreeSet::from([0, text.len(), line_end.min(text.len())]);
-    for (range, _, _) in source {
+    for (range, _, _, _) in source {
         boundaries.insert(range.start);
         boundaries.insert(range.end);
     }
@@ -537,12 +538,12 @@ fn ranges(
         if range.is_empty() {
             continue;
         }
-        let (base, language) = source
+        let (base, language, owner) = source
             .iter()
             .rev()
-            .find(|(source, _, _)| source.contains(&range.start))
-            .map(|(_, style, language)| (*style, *language))
-            .unwrap_or((style, None));
+            .find(|(source, _, _, _)| source.contains(&range.start))
+            .map(|(_, style, language, owner)| (*style, *language, *owner))
+            .unwrap_or((style, None, 0));
         let span = read(base);
         let mut resolved = base.clone();
         if range.start < line_end
@@ -576,9 +577,6 @@ fn ranges(
             }
             .into(),
         );
-        if let Some(owner) = base.get("-oryn-text-owner") {
-            resolved.insert("-oryn-text-owner".into(), owner.clone());
-        }
         // Pseudo background belongs to the formatted text fragments, not the
         // enclosing block background. Ordinary inline backgrounds paint as boxes.
         if range.start < line_end
@@ -613,14 +611,14 @@ fn ranges(
             }
         }
         resolved.remove(KEY);
-        output.push((range, resolved, language));
+        output.push((range, resolved, language, owner));
     }
     output
 }
 fn refs(ranges: &[OwnedRange]) -> Vec<StyledTextRange<'_>> {
     ranges
         .iter()
-        .map(|(range, style, language)| (range.clone(), style, *language))
+        .map(|(range, style, language, owner)| (range.clone(), style, *language, *owner))
         .collect()
 }
 
@@ -740,12 +738,8 @@ pub(super) fn shape(
         local.insert("float".into(), "none".into());
         let owner = source
             .iter()
-            .find(|(span, _, _)| span.contains(&range.start))
-            .and_then(|(_, style, _)| style.get("-oryn-text-owner"))
-            .cloned();
-        if let Some(owner) = owner {
-            local.insert("-oryn-text-owner".into(), owner);
-        }
+            .find(|(span, _, _, _)| span.contains(&range.start))
+            .map_or(0, |(_, _, _, owner)| *owner);
         let font = length(
             style_value(&local, "font-size", "16px"),
             font_size,
@@ -760,7 +754,7 @@ pub(super) fn shape(
             font_size: font,
             style: &local,
             viewport,
-            ranges: &[],
+            ranges: &[(0..range.len(), &local, None, owner)],
             first_paragraph: true,
         });
         engine.float_context = old_context;
@@ -1284,6 +1278,7 @@ pub(super) fn transform_source(
                         .map(|style| style.as_ref())
                         .unwrap_or(style),
                     engine.languages.get(&span.owner).copied().flatten(),
+                    span.owner,
                 )
             })
             .collect::<Vec<_>>();
