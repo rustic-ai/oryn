@@ -35,6 +35,22 @@ fn no_window() -> CommandError {
     }
 }
 
+fn crashed_window(page: PageId, events: &[oryn_common::v3::PageLifecycleEvent]) -> CommandError {
+    let detail = events.iter().rev().find_map(|event| match event {
+        oryn_common::v3::PageLifecycleEvent::Crashed { page_id, detail } if *page_id == page => {
+            Some(detail.as_str())
+        }
+        _ => None,
+    });
+    CommandError {
+        code: "no such window",
+        message: detail.map_or_else(
+            || "native page crashed".into(),
+            |detail| format!("native page crashed: {detail}"),
+        ),
+    }
+}
+
 fn runtime_error(error: oryn_native::RuntimeError) -> CommandError {
     let code = match &error {
         oryn_native::RuntimeError::Upload(_) => "invalid argument",
@@ -178,14 +194,17 @@ impl Session {
     pub fn current_page(&self) -> Result<PageHandle, CommandError> {
         let context = self.context()?;
         let page = self.current.as_ref().ok_or_else(no_window)?;
-        if !context.pages().iter().any(|item| {
-            item.page.page_id == page.page_id()
-                && matches!(
-                    item.status,
-                    PageStatus::Open | PageStatus::AttentionRequired
-                )
-        }) {
-            return Err(no_window());
+        match context
+            .pages()
+            .iter()
+            .find(|item| item.page.page_id == page.page_id())
+            .map(|item| &item.status)
+        {
+            Some(PageStatus::Open | PageStatus::AttentionRequired) => {}
+            Some(PageStatus::Crashed) => {
+                return Err(crashed_window(page.page_id(), &context.page_events()));
+            }
+            _ => return Err(no_window()),
         }
         Ok(page.clone())
     }
@@ -952,6 +971,31 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn crashed_window_preserves_only_its_own_latest_native_failure() {
+        use oryn_common::v3::{PageId, PageLifecycleEvent};
+        let events = vec![
+            PageLifecycleEvent::Crashed {
+                page_id: PageId(1),
+                detail: "first".into(),
+            },
+            PageLifecycleEvent::Crashed {
+                page_id: PageId(1),
+                detail: "worker resource limit".into(),
+            },
+            PageLifecycleEvent::Crashed {
+                page_id: PageId(2),
+                detail: "unrelated page failure".into(),
+            },
+        ];
+        let error = super::crashed_window(PageId(1), &events);
+        assert_eq!(error.code, "no such window");
+        assert_eq!(error.message, "native page crashed: worker resource limit");
+        assert_eq!(
+            super::crashed_window(PageId(3), &events).message,
+            "native page crashed"
+        );
+    }
     #[test]
     fn upload_and_closed_lifetime_errors_keep_webdriver_status() {
         assert_eq!(
