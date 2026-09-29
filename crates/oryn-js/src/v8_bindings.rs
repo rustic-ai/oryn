@@ -563,6 +563,8 @@ pub enum V8BindingError {
     Dom(#[from] DomError),
     #[error("generated binding {interface}.{member} is not implemented")]
     Unsupported { interface: String, member: String },
+    #[error("native service {name}: {message}")]
+    NativeService { name: String, message: String },
     #[error("script preparation exceeded {resource}")]
     ScriptPreparationCapacity { resource: &'static str },
     #[error("{0}")]
@@ -2424,6 +2426,7 @@ pub struct V8BindingState {
     static_ranges: Rc<RefCell<BTreeSet<u64>>>,
     static_range_custody: Rc<RefCell<BTreeMap<u64, static_range_custody::Record>>>,
     range_objects: Rc<RefCell<BTreeMap<u64, RangeWrapper>>>,
+    traced_range_revision: Cell<Option<u64>>,
     opaque_range_objects: RefCell<BTreeMap<u64, v8::Weak<v8::Object>>>,
     range_memory_delta: Rc<Cell<i64>>,
     node_lists: node_lists::Store,
@@ -19395,6 +19398,7 @@ fn track_range_wrapper(
         traced_native_roots::initialize_range_owner(scope, state, object, id)?;
     }
     object.set_internal_field(1, v8::BigInt::new_from_u64(scope, state.instance_id).into());
+    state.traced_range_revision.set(None);
     state.range_objects.borrow_mut().insert(
         id,
         RangeWrapper {
@@ -46071,9 +46075,13 @@ fn throw_binding_error(scope: &mut v8::PinScope, error: &V8BindingError) {
     if matches!(error, V8BindingError::JavaScriptException) {
         return;
     }
-    let V8BindingError::Unsupported { member, .. } = error else {
-        throw_type_error(scope, &error.to_string());
-        return;
+    let member = match error {
+        V8BindingError::Unsupported { member, .. } => member,
+        V8BindingError::NativeService { name, .. } => name,
+        _ => {
+            throw_type_error(scope, &error.to_string());
+            return;
+        }
     };
     if member == "TypeError" {
         throw_type_error(scope, &error.to_string());

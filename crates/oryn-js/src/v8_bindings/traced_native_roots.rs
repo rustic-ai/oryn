@@ -241,6 +241,10 @@ pub(super) fn refresh_range_endpoints(
     let mut wrappers = BTreeMap::new();
     let mut seen = BTreeSet::new();
     for state in states {
+        let revision = state.dom.borrow().range_endpoint_revision();
+        if revision.is_some() && state.traced_range_revision.get() == revision {
+            continue;
+        }
         let arena = state.dom.borrow().arena().id();
         let mut objects = Vec::new();
         for (id, record) in state.range_objects.borrow().iter() {
@@ -286,6 +290,7 @@ pub(super) fn refresh_range_endpoints(
                 record.traced_endpoints.set(Some(endpoints));
             }
         }
+        state.traced_range_revision.set(revision);
     }
     Ok(())
 }
@@ -535,6 +540,63 @@ mod tests {
         );
     }
 
+    #[test]
+    fn native_range_set_without_tree_mutation_refreshes_traced_endpoints() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body><p>next</p>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(907), 1).unwrap();
+        let object = eval(
+            scope,
+            "globalThis.r=document.createRange();r.selectNodeContents(document.body);r",
+        )
+        .try_cast::<v8::Object>()
+        .unwrap();
+        refresh_range_endpoints(scope, std::slice::from_ref(&state)).unwrap();
+        let id = *state.range_objects.borrow().keys().next().unwrap();
+        let node = state
+            .dom
+            .borrow()
+            .query_selector(state.document_root(), "p")
+            .unwrap()
+            .unwrap();
+        let cursor = state.dom.borrow().mutation_cursor();
+        let point = BoundaryPoint {
+            container: node,
+            offset: 0,
+        };
+        state
+            .dom
+            .borrow_mut()
+            .set_live_range(LiveRangeId(id), point, point)
+            .unwrap();
+        assert_eq!(state.dom.borrow().mutation_cursor(), cursor);
+        refresh_range_endpoints(scope, std::slice::from_ref(&state)).unwrap();
+        let key = owner_key(scope).unwrap();
+        let holder = object
+            .get_private(scope, key)
+            .unwrap()
+            .try_cast::<v8::Object>()
+            .unwrap();
+        let expected = eval(scope, "document.querySelector('p')");
+        for index in [1, 2] {
+            assert!(
+                holder
+                    .get_internal_field(scope, index)
+                    .unwrap()
+                    .try_cast::<v8::Value>()
+                    .unwrap()
+                    .strict_equals(expected)
+            );
+        }
+    }
     #[test]
     fn detached_scoped_range_endpoint_keeps_identity_until_its_last_traced_owner_dies() {
         super::super::tests::initialize_v8();

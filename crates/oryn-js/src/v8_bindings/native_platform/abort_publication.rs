@@ -237,8 +237,12 @@ impl Target {
             // callbacks, and handed directly to the host before event delivery.
             let streams = {
                 let objects = owner.platform_objects.borrow();
-                objects
-                    .values()
+                owner
+                    .platform_edges
+                    .borrow()
+                    .response_candidates
+                    .iter()
+                    .filter_map(|id| objects.get(id))
                     .filter_map(|record| match record {
                         PlatformObjectRecord::Response(response)
                             if response.signal_id == Some(self.id) =>

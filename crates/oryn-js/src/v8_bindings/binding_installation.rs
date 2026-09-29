@@ -199,6 +199,7 @@ pub(super) fn create_state(
             || Rc::new(Cell::new(0)),
             |owner| owner.range_memory_delta.clone(),
         ),
+        traced_range_revision: Cell::new(None),
         opaque_range_objects: RefCell::new(BTreeMap::new()),
         node_lists: node_lists::Store::default(),
         selection_range,

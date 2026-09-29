@@ -647,6 +647,8 @@ impl DomRuntime {
             }
         }
         let mut ranges = BTreeMap::new();
+        source.note_range_endpoint_change();
+        destination.note_range_endpoint_change();
         for id in moved_ranges {
             let mut range = source
                 .ranges

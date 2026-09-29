@@ -9,9 +9,33 @@ pub(super) struct Edges {
     outgoing: BTreeMap<u64, BTreeSet<u64>>,
     incoming: BTreeMap<u64, BTreeSet<u64>>,
     activity_candidates: BTreeSet<u64>,
+    pub(super) media_candidates: BTreeSet<u64>,
+    pub(super) response_candidates: BTreeSet<u64>,
 }
 impl Edges {
     pub(super) fn registered(&mut self, id: u64, record: &PlatformObjectRecord) {
+        for (set, selected) in [
+            (
+                &mut self.media_candidates,
+                matches!(
+                    record,
+                    PlatformObjectRecord::TextTrackCue(_)
+                        | PlatformObjectRecord::TextTrackList(_)
+                        | PlatformObjectRecord::MediaTrack(_)
+                        | PlatformObjectRecord::MediaTrackList { .. }
+                ),
+            ),
+            (
+                &mut self.response_candidates,
+                matches!(record, PlatformObjectRecord::Response(_)),
+            ),
+        ] {
+            if selected {
+                set.insert(id);
+            } else {
+                set.remove(&id);
+            }
+        }
         if matches!(
             record,
             PlatformObjectRecord::XMLHttpRequest(_)

@@ -1581,6 +1581,7 @@ pub struct DomRuntime {
     focus_ring_suppressed: bool,
     next_range: u64,
     ranges: BTreeMap<LiveRangeId, LiveRange>,
+    range_endpoint_revision: u64,
     composed_selection_ranges: BTreeSet<LiveRangeId>,
     range_shadow_removals: BTreeMap<LiveRangeId, u64>,
     next_iterator: u64,
@@ -1657,6 +1658,7 @@ impl DomRuntime {
         self.focused = None;
         self.focus_ring_suppressed = false;
         self.next_range = 0;
+        self.note_range_endpoint_change();
         self.ranges.clear();
         self.composed_selection_ranges.clear();
         self.range_shadow_removals.clear();
@@ -3755,6 +3757,7 @@ impl DomRuntime {
                         target_offset: length,
                     });
                 let mut root_changes = Vec::new();
+                self.note_range_endpoint_change();
                 for range in self.ranges.values_mut() {
                     for boundary in [&mut range.start, &mut range.end] {
                         if boundary.container == *sibling {
@@ -3815,6 +3818,7 @@ impl DomRuntime {
                     target_offset: length,
                 });
             let mut roots = Vec::new();
+            self.note_range_endpoint_change();
             for range in self.ranges.values_mut() {
                 for boundary in [&mut range.start, &mut range.end] {
                     if boundary.container == *sibling {
@@ -3895,6 +3899,7 @@ impl DomRuntime {
                 inserted: inserted_length,
             });
         let removed_end = offset.saturating_add(removed_length);
+        self.note_range_endpoint_change();
         for range in self.ranges.values_mut() {
             for boundary in [&mut range.start, &mut range.end] {
                 if boundary.container != node || boundary.offset <= offset {
@@ -4171,6 +4176,7 @@ impl DomRuntime {
         }
         self.retain_native(start.container)?;
         self.retain_native(end.container)?;
+        self.note_range_endpoint_change();
         self.ranges.insert(id, LiveRange { start, end });
         self.next_range = next;
         Ok(id)
@@ -4184,6 +4190,14 @@ impl DomRuntime {
     pub fn range_shadow_removal_revision(&self, id: LiveRangeId) -> u64 {
         self.range_shadow_removals.get(&id).copied().unwrap_or(0)
     }
+    // An exhausted revision disables caching instead of reusing an old token.
+    pub fn range_endpoint_revision(&self) -> Option<u64> {
+        (self.range_endpoint_revision != u64::MAX).then_some(self.range_endpoint_revision)
+    }
+    fn note_range_endpoint_change(&mut self) {
+        self.range_endpoint_revision = self.range_endpoint_revision.saturating_add(1);
+    }
+
     pub fn live_range(&self, id: LiveRangeId) -> Result<LiveRange, DomError> {
         self.ranges
             .get(&id)
@@ -4202,6 +4216,7 @@ impl DomRuntime {
         let previous = self.live_range(id)?;
         self.retain_native(start.container)?;
         self.retain_native(end.container)?;
+        self.note_range_endpoint_change();
         self.ranges.insert(id, LiveRange { start, end });
         self.release_native(previous.start.container)?;
         self.release_native(previous.end.container)
@@ -4209,6 +4224,7 @@ impl DomRuntime {
 
     pub fn drop_live_range(&mut self, id: LiveRangeId) -> Result<(), DomError> {
         let range = self.ranges.remove(&id).ok_or(DomError::UnknownRange(id))?;
+        self.note_range_endpoint_change();
         self.composed_selection_ranges.remove(&id);
         self.range_shadow_removals.remove(&id);
         self.release_native(range.start.container)?;
@@ -4257,6 +4273,7 @@ impl DomRuntime {
                 index,
                 count,
             });
+        self.note_range_endpoint_change();
         for range in self.ranges.values_mut() {
             for boundary in [&mut range.start, &mut range.end] {
                 if boundary.container == parent && boundary.offset > index {

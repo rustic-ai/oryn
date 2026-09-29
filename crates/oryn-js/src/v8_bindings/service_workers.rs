@@ -104,7 +104,10 @@ fn request(
         .ok_or_else(|| failure("InvalidStateError"))?;
     match transport.request(AgentServiceRequest::Service(request)) {
         Ok(AgentServiceResponse::Service(response)) => Ok(response),
-        Err(error) => Err(failure(&error.name)),
+        Err(error) => Err(V8BindingError::NativeService {
+            name: error.name,
+            message: error.message,
+        }),
         _ => Err(failure("InvalidStateError")),
     }
 }
@@ -612,6 +615,7 @@ fn begin<'s>(
         Err(error) => {
             let name = match error {
                 V8BindingError::Unsupported { member, .. } => member,
+                V8BindingError::NativeService { name, .. } => name,
                 _ => "InvalidStateError".into(),
             };
             let value = dom_exception_value(scope, &name)?;
@@ -2017,6 +2021,43 @@ mod publication_tests {
             waiting: None,
             active: None,
         }
+    }
+    #[test]
+    fn service_transport_failure_preserves_native_name_and_detail() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_worker_transport(transport(), Some(Creator::Agent(AgentId(1))), None);
+        let error = request(
+            &state,
+            ServiceRequest::Poll {
+                creator: Creator::Agent(AgentId(1)),
+                operation: 99,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "native service InvalidStateError: result already consumed"
+        );
+        v8::tc_scope!(let scope, scope);
+        throw_binding_error(scope, &error);
+        let exception = scope.exception().unwrap().try_cast::<v8::Object>().unwrap();
+        scope.reset();
+        let name = v8::String::new(scope, "name").unwrap();
+        assert_eq!(
+            exception
+                .get(scope, name.into())
+                .unwrap()
+                .to_rust_string_lossy(scope),
+            "InvalidStateError"
+        );
     }
     #[test]
     fn completed_service_operations_survive_wrapper_preparation_failure_without_repoll() {

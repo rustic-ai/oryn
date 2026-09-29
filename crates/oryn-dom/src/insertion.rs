@@ -942,6 +942,7 @@ impl RangeRemoval {
             if old.container != new.container {
                 dom.retain_native(new.container)?;
             }
+            dom.note_range_endpoint_change();
             let range = dom
                 .ranges
                 .get_mut(&id)

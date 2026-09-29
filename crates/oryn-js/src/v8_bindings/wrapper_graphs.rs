@@ -296,7 +296,11 @@ fn rebuild(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
             match mutation {
                 Mutation::Inserted { node, parent, .. } => {
                     changed.insert(node);
-                    changed.extend(parent);
+                    // Connected wrappers have independent roots. Inserting a
+                    // detached subtree cannot change its existing siblings.
+                    changed.extend(parent.filter(|parent| {
+                        state.execution_retired() || !retained_by_document(&dom, *parent)
+                    }));
                 }
                 Mutation::Removed {
                     node,
@@ -309,8 +313,21 @@ fn rebuild(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
                 Mutation::ShadowAttached { host, root, .. } => {
                     changed.extend([host, root]);
                 }
-                Mutation::Attribute { node, .. } => {
-                    changed.insert(node);
+                Mutation::Attribute {
+                    node,
+                    namespace,
+                    new_value,
+                    ..
+                } => {
+                    // Plain value writes without native Attr identities do
+                    // not change the wrapper graph. Removal/replacement and
+                    // namespace-backed Attr records retain the general path.
+                    if namespace.is_some()
+                        || new_value.is_none()
+                        || !dom.arena().attribute_node_ids(node).is_empty()
+                    {
+                        changed.insert(node);
+                    }
                 }
                 Mutation::HostedDocument { .. } => complete_rebuild = true,
                 Mutation::DocumentOwnership { node, .. } => {
@@ -395,7 +412,9 @@ fn rebuild(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
                 pending.extend(dom.arena().attribute_node_ids(descendant));
             }
         }
-        affected.extend(native_root(&dom, node, &mut roots));
+        if state.execution_retired() || !retained_by_document(&dom, node) {
+            affected.extend(native_root(&dom, node, &mut roots));
+        }
     }
     let mut components = state.wrapper_graph_components.borrow_mut();
     let mut selected = BTreeSet::new();
@@ -732,12 +751,13 @@ pub(super) fn attach_new_leaf(
         return false;
     };
     let revision = dom.mutation_cursor().0;
-    if previous.checked_add(1) != Some(revision) {
-        return false;
-    }
     let batch = dom.mutations_since(oryn_dom::MutationCursor(previous));
     if batch.truncated
-        || !matches!(batch.mutations.as_slice(), [Mutation::Inserted { node: inserted, parent: None, .. }] if *inserted == node)
+        || !matches!(batch.mutations.first(), Some(Mutation::Inserted { node: inserted, parent: None, .. }) if *inserted == node)
+        || !batch.mutations.iter().skip(1).all(|mutation| {
+            matches!(mutation,
+            Mutation::DocumentOwnership { node: assigned, .. } if *assigned == node)
+        })
     {
         return false;
     }
@@ -877,6 +897,58 @@ mod fragment_growth_tests {
         let field = object.get_internal_field(scope, 5).unwrap();
         let value = v8::Local::<v8::Value>::try_from(field).unwrap();
         v8::Local::<v8::Array>::try_from(value).unwrap()
+    }
+
+    #[test]
+    fn connected_insertions_and_attribute_replacement_keep_exact_wrapper_ownership() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body><i id=existing></i>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(310), 1).unwrap();
+        eval(
+            scope,
+            r#"
+            globalThis.kept=document.getElementById('existing');kept.saved=7;
+            for(let i=0;i<80;i++) {
+                const row=document.createElementNS('http://www.w3.org/1999/xhtml','section');
+                row.id='row'+i;row.className='result';row.saved=i;
+                const child=document.createTextNode('value');child.saved=i+1;row.appendChild(child);
+                document.body.appendChild(row);
+            }
+            globalThis.last=document.getElementById('row79');
+            globalThis.old=last.getAttributeNode('id');old.saved='attribute';
+            globalThis.replacement=document.createAttribute('id');replacement.value='changed';
+            last.setAttributeNode(replacement);last.remove();
+        "#,
+        );
+        refresh(scope, &state);
+        scope.low_memory_notification();
+        assert!(
+            eval(
+                scope,
+                r#"
+            kept===document.getElementById('existing')&&kept.saved===7&&
+            last.saved===79&&last.firstChild.saved===80&&last.parentNode===null&&
+            old.ownerElement===null&&old.saved==='attribute'&&
+            replacement.ownerElement===last&&last.ownerDocument===document
+        "#
+            )
+            .is_true()
+        );
+        eval(
+            scope,
+            "document.body.appendChild(last);last.removeAttributeNode(replacement)",
+        );
+        refresh(scope, &state);
+        scope.low_memory_notification();
+        assert!(eval(scope, "last.parentNode===document.body&&replacement.ownerElement===null&&last.firstChild.saved===80").is_true());
     }
 
     #[test]

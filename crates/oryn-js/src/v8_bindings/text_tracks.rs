@@ -2311,7 +2311,11 @@ pub(super) fn refresh_gc_edges(
     }
     {
         let objects = state.platform_objects.borrow();
-        for (id, record) in objects.iter() {
+        let candidates = state.platform_edges.borrow();
+        for id in &candidates.media_candidates {
+            let Some(record) = objects.get(id) else {
+                continue;
+            };
             if state.text_tracks.borrow().forward.contains_key(id) {
                 continue;
             }
