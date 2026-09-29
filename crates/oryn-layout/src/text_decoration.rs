@@ -81,6 +81,9 @@ pub(super) fn propagate(input: &LayoutInput, styles: &ComputedStyles) -> Compute
         .map(|node| (node.id, node))
         .collect::<BTreeMap<_, _>>();
     let mut result = ComputedStyles::new();
+    // One immutable source style can acquire different decoration stacks from
+    // different ancestors. Share only when both source and used stack match.
+    let mut projected = BTreeMap::<(usize, String), ComputedStyle>::new();
     // Explicit ancestor stack handles snapshots whose records are not in tree order.
     for node in &input.nodes {
         let mut chain = Vec::new();
@@ -128,12 +131,23 @@ pub(super) fn propagate(input: &LayoutInput, styles: &ComputedStyles) -> Compute
                     .unwrap_or_default()
             };
             decorations.extend(own(style, 16., input.viewport));
-            let mut private = style.as_ref().clone();
-            private.insert(
-                PRIVATE.into(),
-                serde_json::to_string(&decorations).expect("finite decoration metadata"),
-            );
-            result.insert(id, Arc::new(private));
+            if decorations.is_empty() && !style.contains_key(PRIVATE) {
+                result.insert(id, style.clone());
+                continue;
+            }
+            let serialized =
+                serde_json::to_string(&decorations).expect("finite decoration metadata");
+            if style.get(PRIVATE) == Some(&serialized) {
+                result.insert(id, style.clone());
+                continue;
+            }
+            let key = (Arc::as_ptr(style) as usize, serialized);
+            let value = projected.entry(key).or_insert_with_key(|(_, serialized)| {
+                let mut private = style.as_ref().clone();
+                private.insert(PRIVATE.into(), serialized.clone());
+                Arc::new(private)
+            });
+            result.insert(id, value.clone());
         }
     }
     result
@@ -141,6 +155,63 @@ pub(super) fn propagate(input: &LayoutInput, styles: &ComputedStyles) -> Compute
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sharing_preserves_ancestor_decorations_and_atomic_boundaries() {
+        use crate::tests::{column_fixture, node};
+        let mut atomic = node(4, Some(1), "span", "");
+        atomic.children = vec![5];
+        let mut input = column_fixture(
+            "",
+            vec![
+                node(2, Some(1), "span", "a"),
+                node(3, Some(1), "span", "b"),
+                atomic,
+                node(5, Some(4), "span", "c"),
+            ],
+        );
+        input.nodes[0].children = vec![2, 3, 4];
+        let root = Arc::new(BTreeMap::from([
+            ("display".into(), "block".into()),
+            ("text-decoration-line".into(), "underline".into()),
+            ("color".into(), "red".into()),
+            ("font-size".into(), "20px".into()),
+        ]));
+        let plain = Arc::new(BTreeMap::from([
+            ("display".into(), "inline".into()),
+            ("text-decoration-line".into(), "none".into()),
+            ("color".into(), "blue".into()),
+            ("font-size".into(), "20px".into()),
+        ]));
+        let mut barrier = (*plain).clone();
+        barrier.insert("display".into(), "inline-block".into());
+        let mut styles = BTreeMap::from([
+            (1, root),
+            (2, plain.clone()),
+            (3, plain.clone()),
+            (4, Arc::new(barrier)),
+            (5, plain.clone()),
+        ]);
+        let first = propagate(&input, &styles);
+        assert!(Arc::ptr_eq(&first[&2], &first[&3]));
+        assert!(Arc::ptr_eq(&first[&5], &plain));
+        assert_eq!(
+            read(&first[&2], 16., input.viewport)[0].color,
+            [255, 0, 0, 255]
+        );
+        assert!(read(&first[&5], 16., input.viewport).is_empty());
+        assert!(!plain.contains_key(PRIVATE));
+        Arc::make_mut(styles.get_mut(&1).unwrap()).insert("color".into(), "green".into());
+        let second = propagate(&input, &styles);
+        assert_eq!(
+            read(&second[&2], 16., input.viewport)[0].color,
+            [0, 128, 0, 255]
+        );
+        assert_eq!(
+            read(&first[&2], 16., input.viewport)[0].color,
+            [255, 0, 0, 255]
+        );
+    }
+
     #[test]
     fn none_does_not_erase_ancestor_and_owner_color_is_preserved() {
         let mut outer = BTreeMap::from([

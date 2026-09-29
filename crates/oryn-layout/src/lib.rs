@@ -15785,11 +15785,62 @@ mod tests {
             reduced_motion: false,
             web_fonts: Vec::new(),
         };
-        for anchored in [false, true] {
-            if anchored {
-                input.stylesheets.push("html{anchor-name:--report}".into());
+        // Native snapshots carry text in ordered content, not LayoutNode entries.
+        let text_nodes = input
+            .nodes
+            .iter()
+            .filter(|node| node.tag == "#text")
+            .map(|node| (node.id, node.text.clone()))
+            .collect::<BTreeMap<_, _>>();
+        input.nodes.retain(|node| node.tag != "#text");
+        for node in &mut input.nodes {
+            node.content = Some(
+                node.children
+                    .iter()
+                    .map(|id| match text_nodes.get(id) {
+                        Some(text) => LayoutContent::Text {
+                            node_id: *id,
+                            text: text.clone(),
+                        },
+                        None => LayoutContent::Element(*id),
+                    })
+                    .collect(),
+            );
+            node.children.retain(|id| !text_nodes.contains_key(id));
+            node.attributes
+                .insert("data-oryn-effective-dir".into(), "ltr".into());
+        }
+        for mode in ["ordinary", "anchor", "hidden", "decorated"] {
+            input.stylesheets.truncate(1);
+            match mode {
+                "anchor" => input.stylesheets.push("html{anchor-name:--report}".into()),
+                "hidden" => input.stylesheets.push("html{display:none}".into()),
+                "decorated" => input
+                    .stylesheets
+                    .push("html{text-decoration:underline red}".into()),
+                _ => (),
             }
-            let styles = stylo_computed_values(&input).unwrap();
+            input.rendered_tree = Some(
+                input
+                    .nodes
+                    .iter()
+                    .map(|node| (node.id, node.content.clone().unwrap_or_default()))
+                    .collect(),
+            );
+            let output = StyleEngine::default()
+                .compute(&input, &LayoutLimits::default())
+                .unwrap();
+            let styles = output.computed_styles;
+            let decorations = text_decoration::propagate(&input, &styles);
+            let decoration_maps = decorations
+                .values()
+                .map(Arc::as_ptr)
+                .collect::<BTreeSet<_>>()
+                .len();
+            assert!(
+                decoration_maps < 64,
+                "{decoration_maps} duplicate decoration maps"
+            );
             let identities = styles.values().map(Arc::as_ptr).collect::<BTreeSet<_>>();
             assert!(
                 identities.len() < 64,
@@ -15797,7 +15848,7 @@ mod tests {
                 identities.len()
             );
             for row in 1..1000 {
-                for offset in 0..8 {
+                for offset in [0, 1, 3, 4, 5] {
                     assert!(Arc::ptr_eq(
                         &styles[&(3 + offset)],
                         &styles[&(3 + row * 8 + offset)]
