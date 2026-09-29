@@ -261,6 +261,22 @@ fn retain_registry_from_node(
     Ok(())
 }
 
+fn live_document_registry_ids(states: &[Rc<V8BindingState>]) -> BTreeSet<u64> {
+    states
+        .iter()
+        .filter(|state| !state.execution_retired())
+        .filter_map(|state| {
+            state
+                .dom
+                .borrow()
+                .arena()
+                .get(state.document_root())
+                .ok()
+                .and_then(|document| document.custom_element_registry.flatten())
+        })
+        .collect()
+}
+
 pub(super) fn refresh_native_registry_roots(
     scope: &mut v8::PinScope,
 ) -> Result<(), V8BindingError> {
@@ -287,28 +303,19 @@ pub(super) fn refresh_native_registry_roots(
         return Ok(());
     }
     traced_native_roots::refresh_range_endpoints(scope, &states)?;
-    // A global registry associated with its live owner's Document has an
-    // independent root regardless of any Range, iterator or detached subtree.
-    // Prove that directly before constructing the full native-lease ledger.
-    // Scoped registries and retired/rebound owners retain the general path.
+    // A live Document independently roots its explicit registry, even when
+    // the registry was created by a now-retired binding before replacement.
+    // The current document association is authoritative; Registry.owner is a
+    // construction/reaction owner, not a complete native reachability test.
+    let mut ids = live_document_registry_ids(&states);
     let registries = scope
         .get_slot::<RegistryPool>()
         .map(|pool| pool.scopes.values().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
-    if registries.iter().all(|registry| {
-        !registry.scoped.get()
-            && registry.owner.borrow().upgrade().is_some_and(|owner| {
-                !owner.execution_retired()
-                    && owner
-                        .dom
-                        .borrow()
-                        .arena()
-                        .get(owner.document_root())
-                        .is_ok_and(|node| {
-                            node.custom_element_registry.flatten() == Some(registry.id.get())
-                        })
-            })
-    }) {
+    if registries
+        .iter()
+        .all(|registry| ids.contains(&registry.id.get()))
+    {
         let mut roots = BTreeMap::new();
         for registry in registries {
             let object = registry_object(scope, &registry)?;
@@ -329,7 +336,6 @@ pub(super) fn refresh_native_registry_roots(
             .1
             .push(state);
     }
-    let mut ids = BTreeSet::new();
     for (_, (runtime, states)) in runtimes {
         let Ok(dom) = runtime.try_borrow() else {
             return Ok(());
@@ -338,9 +344,16 @@ pub(super) fn refresh_native_registry_roots(
         // document replacement cannot make an old reachability result valid.
         roots.validate(&dom)?;
         let mut memo = BTreeMap::new();
+        // Parsed/result trees commonly carry one registry on long runs of
+        // adjacent nodes. Once retained, that existential proof is stable for
+        // this borrow; avoid repeating the ordered-set lookup for every node.
+        let mut last_retained = None;
         for (node, record) in dom.arena().iter() {
-            if let Some(id) = record.custom_element_registry.flatten() {
+            if let Some(id) = record.custom_element_registry.flatten()
+                && last_retained != Some(id)
+            {
                 retain_registry_from_node(&dom, &roots, node, id, &mut ids, &mut memo)?;
+                last_retained = ids.contains(&id).then_some(id);
             }
         }
         for state in states {
@@ -4801,6 +4814,72 @@ mod form_associated_regressions {
         finish(scope, &state).unwrap();
         assert!(eval(scope, "log.join()==='then,a,b'").is_true());
     }
+    #[test]
+    fn replacement_document_roots_registry_after_original_binding_retirement() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let document = dom.borrow().document();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let first = v8::Context::new(scope, Default::default());
+        let second = v8::Context::new(scope, Default::default());
+        let a = {
+            let scope = &mut v8::ContextScope::new(scope, first);
+            install_generated_bindings_with_root(
+                scope,
+                first,
+                dom.clone(),
+                RealmId(801),
+                1,
+                document,
+            )
+            .unwrap()
+        };
+        let b = {
+            let scope = &mut v8::ContextScope::new(scope, second);
+            install_generated_bindings_with_root(
+                scope,
+                second,
+                dom.clone(),
+                RealmId(802),
+                2,
+                document,
+            )
+            .unwrap()
+        };
+        let id = a.custom_elements.id.get();
+        dom.borrow_mut()
+            .set_custom_element_registry(document, Some(id))
+            .unwrap();
+        a.retire_execution();
+        let states = vec![a.clone(), b.clone()];
+        assert!(live_document_registry_ids(&states).contains(&id));
+        let scope = &mut v8::ContextScope::new(scope, second);
+        refresh_native_registry_roots(scope).unwrap();
+        assert!(
+            scope
+                .get_slot::<RegistryPool>()
+                .unwrap()
+                .native_roots
+                .contains_key(&id)
+        );
+        // An explicit null association and then retirement each revoke the
+        // direct Document proof, regardless of the old construction owner.
+        dom.borrow_mut()
+            .set_custom_element_registry(document, None)
+            .unwrap();
+        assert!(!live_document_registry_ids(&states).contains(&id));
+        dom.borrow_mut()
+            .set_custom_element_registry(document, Some(id))
+            .unwrap();
+        b.retire_execution();
+        assert!(!live_document_registry_ids(&states).contains(&id));
+    }
+
     #[test]
     fn registry_document_owner_prefers_live_exact_binding_and_never_falls_back_from_retirement() {
         super::super::tests::initialize_v8();
