@@ -542,11 +542,15 @@ fn associate_registry(
     node: NodeId,
     registry: Option<u64>,
 ) -> Result<(), V8BindingError> {
-    state
-        .dom
-        .borrow_mut()
-        .set_custom_element_registry(node, registry)?;
-    state.wrapper_graph_revision.set(None);
+    let mut dom = state.dom.borrow_mut();
+    let previous = dom.arena().get(node)?.custom_element_registry;
+    // Repeated definition lookup records the same explicit association. Keep
+    // native document-order bookkeeping current without rebuilding unchanged
+    // wrapper edges. Unassigned and explicitly null remain distinct here.
+    dom.set_custom_element_registry(node, registry)?;
+    if previous != Some(registry) {
+        state.wrapper_graph_revision.set(None);
+    }
     Ok(())
 }
 struct AssociationAdmission<'a> {
@@ -782,13 +786,14 @@ pub(super) fn initialize_created_element(
         Some(registry) => registry,
         None => node_registry_id(state, document)?,
     };
-    associate_registry(state, node, registry)?;
-    state
-        .dom
-        .borrow_mut()
-        .arena_mut()
-        .get_mut(node)?
-        .custom_element_is = options.is_value;
+    // Both Document factories call this immediately after native allocation,
+    // before wrapping the node or invoking a custom constructor. This fresh
+    // node cannot change any existing wrapper's registry edge. Its insertion
+    // journal and eventual wrapper publication establish the new edges; keep
+    // associate_registry's full invalidation for changes to existing nodes.
+    let mut dom = state.dom.borrow_mut();
+    dom.set_custom_element_registry(node, registry)?;
+    dom.arena_mut().get_mut(node)?.custom_element_is = options.is_value;
     Ok(())
 }
 pub(super) fn initialize_shadow_registry(

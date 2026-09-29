@@ -900,6 +900,54 @@ mod fragment_growth_tests {
     }
 
     #[test]
+    fn fresh_element_registries_preserve_unrelated_graphs_and_remain_traced() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(311), 1).unwrap();
+        {
+            v8::scope!(let scope, scope);
+            let root = v8::Local::<v8::Object>::try_from(eval(
+                scope,
+                r#"
+                globalThis.registry=new CustomElementRegistry();registry.saved=42;
+                globalThis.root=document.createElement('section');
+                root.appendChild(document.createElement('b'));root.firstChild.saved=7;root
+            "#,
+            ))
+            .unwrap();
+            refresh(scope, &state);
+            let before = graph(scope, root);
+            for source in [
+                "globalThis.plain=document.createElement('div')",
+                "globalThis.namespaced=document.createElementNS('http://www.w3.org/1999/xhtml','span')",
+                "globalThis.scoped=document.createElement('x-fresh',{customElementRegistry:registry})",
+                "globalThis.empty=document.createElement('i',{customElementRegistry:null})",
+            ] {
+                eval(scope, source);
+                refresh(scope, &state);
+                assert!(
+                    before.strict_equals(graph(scope, root).into()),
+                    "fresh registry assignment rebuilt an unrelated detached component: {source}"
+                );
+            }
+            assert!(eval(scope, "plain.customElementRegistry===customElements&&namespaced.customElementRegistry===customElements&&scoped.customElementRegistry===registry&&empty.customElementRegistry===null").is_true());
+            eval(scope, "registry=null");
+        }
+        scope.low_memory_notification();
+        assert!(eval(scope,
+            "scoped.customElementRegistry.saved===42&&root.firstChild.saved===7&&scoped.ownerDocument===document"
+        ).is_true());
+    }
+
+    #[test]
     fn connected_insertions_and_attribute_replacement_keep_exact_wrapper_ownership() {
         super::super::tests::initialize_v8();
         let mut isolate = v8::Isolate::new(Default::default());
