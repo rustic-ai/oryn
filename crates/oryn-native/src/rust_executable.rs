@@ -16199,6 +16199,11 @@ impl RustExecutableDocument {
                         let supplied=resource_completion.as_ref().and_then(|completion|match &completion.response{Ok(crate::frame_resource_response::FrameResourceResponse::PageResource{native_origin,..})=>native_origin.as_ref(),_=>None});
                         let origin = if opaque_sandbox || failed {
                             oryn_js::origin::Origin::opaque()
+                        } else if let Some(origin) = standalone_response_policy
+                            .as_ref()
+                            .and_then(|policy| policy.origin.as_ref())
+                        {
+                            origin.clone()
                         } else if let Some(origin) = supplied {
                             native_frame_response_origin(origin)?
                         } else if srcdoc.is_some() {
@@ -16604,6 +16609,11 @@ impl RustExecutableDocument {
                         .clone()
                 } else if opaque_sandbox || navigation_failed {
                     oryn_js::origin::Origin::opaque()
+                } else if let Some(origin) = standalone_response_policy
+                    .as_ref()
+                    .and_then(|policy| policy.origin.as_ref())
+                {
+                    origin.clone()
                 } else if let Some(origin) = response_native_origin.as_ref() {
                     native_frame_response_origin(origin)?
                 } else if is_srcdoc || inherited_about_blank {

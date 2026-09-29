@@ -258,6 +258,7 @@ pub(super) fn create_state(
         headers_iterator_prototype: RefCell::new(None),
         request_constructor: RefCell::new(None),
         platform_wrappers: RefCell::new(BTreeMap::new()),
+        platform_edges: RefCell::new(Default::default()),
         platform_host: RefCell::new(None),
         next_platform_operation_id: Cell::new(1),
         pending_platform_operations: RefCell::new(BTreeMap::new()),

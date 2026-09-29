@@ -1,6 +1,55 @@
 //! JS targets trace listeners. Native dispatch records carry only weak handles,
 //! so a callback closing over its own target is an ordinary collectible JS cycle.
 use super::*;
+
+/// Reverse native references between materialized platform wrappers. These IDs
+/// are not GC roots: the private JavaScript edges below retain the objects.
+#[derive(Default)]
+pub(super) struct Edges {
+    outgoing: BTreeMap<u64, BTreeSet<u64>>,
+    incoming: BTreeMap<u64, BTreeSet<u64>>,
+    activity_candidates: BTreeSet<u64>,
+}
+impl Edges {
+    pub(super) fn registered(&mut self, id: u64, record: &PlatformObjectRecord) {
+        if matches!(
+            record,
+            PlatformObjectRecord::XMLHttpRequest(_)
+                | PlatformObjectRecord::IdbTransaction(_)
+                | PlatformObjectRecord::EventTarget
+                | PlatformObjectRecord::MediaQueryList { .. }
+                | PlatformObjectRecord::WebSocket(_)
+                | PlatformObjectRecord::Worker(_)
+                | PlatformObjectRecord::MessagePort(_)
+                | PlatformObjectRecord::BroadcastChannel(_)
+        ) {
+            self.activity_candidates.insert(id);
+        } else {
+            self.activity_candidates.remove(&id);
+        }
+    }
+    pub(super) fn add(&mut self, owner: u64, target: u64) {
+        self.outgoing.entry(owner).or_default().insert(target);
+        self.incoming.entry(target).or_default().insert(owner);
+    }
+    fn replace(&mut self, owner: u64, targets: BTreeSet<u64>) {
+        let old = self.outgoing.remove(&owner).unwrap_or_default();
+        for target in old.difference(&targets) {
+            if let Some(parents) = self.incoming.get_mut(target) {
+                parents.remove(&owner);
+                if parents.is_empty() {
+                    self.incoming.remove(target);
+                }
+            }
+        }
+        for target in targets.difference(&old) {
+            self.incoming.entry(*target).or_default().insert(owner);
+        }
+        if !targets.is_empty() {
+            self.outgoing.insert(owner, targets);
+        }
+    }
+}
 #[derive(Clone, Default)]
 pub(super) struct Callback(Option<Rc<v8::Weak<v8::Object>>>);
 impl Callback {
@@ -72,6 +121,42 @@ fn refresh_edges(
     let Some(target) = target else {
         return Ok(());
     };
+    let related = {
+        let objects = state.platform_objects.borrow();
+        match objects.get(&id) {
+            Some(PlatformObjectRecord::AbortSignal(signal)) => signal.followers.clone(),
+            Some(PlatformObjectRecord::AbortController { signal_id }) => vec![*signal_id],
+            Some(PlatformObjectRecord::Request(request)) => {
+                vec![request.signal_id, request.headers_id]
+            }
+            Some(PlatformObjectRecord::MessageChannel { port1_id, port2_id }) => {
+                vec![*port1_id, *port2_id]
+            }
+            Some(PlatformObjectRecord::Worker(client)) => {
+                client.borrow().port.into_iter().collect()
+            }
+            Some(PlatformObjectRecord::AudioWorklet(object)) => audio_worklet::related(object),
+            Some(PlatformObjectRecord::XMLHttpRequest(xhr)) => vec![xhr.upload_id],
+            Some(PlatformObjectRecord::IdbRequest(request)) => request
+                .transaction_id
+                .into_iter()
+                .chain(request.source_id)
+                .collect(),
+            Some(PlatformObjectRecord::IdbTransaction(transaction)) => {
+                vec![transaction.database_id]
+            }
+            Some(PlatformObjectRecord::IdbObjectStore(store)) => vec![store.transaction_id],
+            Some(PlatformObjectRecord::IdbIndex(index)) => vec![index.object_store_id],
+            Some(PlatformObjectRecord::IdbCursor(cursor)) => {
+                vec![cursor.request_id, cursor.source_id]
+            }
+            _ => Vec::new(),
+        }
+    };
+    state
+        .platform_edges
+        .borrow_mut()
+        .replace(id, related.into_iter().collect());
     let mut values = Vec::new();
     {
         let listeners = state.platform_listeners.borrow();
@@ -255,42 +340,13 @@ pub(super) fn materialized(
         stream_graph::refresh(scope, state)?;
     }
     refresh_edges(scope, state, id)?;
-    let parents = {
-        let objects = state.platform_objects.borrow();
-        objects
-            .iter()
-            .filter_map(|(parent, record)| {
-                let references = match record {
-                    PlatformObjectRecord::AbortSignal(signal) => signal.followers.contains(&id),
-                    PlatformObjectRecord::AbortController { signal_id } => *signal_id == id,
-                    PlatformObjectRecord::Request(request) => {
-                        request.signal_id == id || request.headers_id == id
-                    }
-                    PlatformObjectRecord::MessageChannel { port1_id, port2_id } => {
-                        *port1_id == id || *port2_id == id
-                    }
-                    PlatformObjectRecord::Worker(client) => client.borrow().port == Some(id),
-                    PlatformObjectRecord::AudioWorklet(object) => {
-                        audio_worklet::related(object).contains(&id)
-                    }
-                    PlatformObjectRecord::XMLHttpRequest(xhr) => xhr.upload_id == id,
-                    PlatformObjectRecord::IdbRequest(request) => {
-                        request.transaction_id == Some(id) || request.source_id == Some(id)
-                    }
-                    PlatformObjectRecord::IdbTransaction(transaction) => {
-                        transaction.database_id == id
-                    }
-                    PlatformObjectRecord::IdbObjectStore(store) => store.transaction_id == id,
-                    PlatformObjectRecord::IdbIndex(index) => index.object_store_id == id,
-                    PlatformObjectRecord::IdbCursor(cursor) => {
-                        cursor.request_id == id || cursor.source_id == id
-                    }
-                    _ => false,
-                };
-                references.then_some(*parent)
-            })
-            .collect::<Vec<_>>()
-    };
+    let parents = state
+        .platform_edges
+        .borrow()
+        .incoming
+        .get(&id)
+        .cloned()
+        .unwrap_or_default();
     for parent in parents {
         refresh_edges(scope, state, parent)?;
     }
@@ -492,6 +548,10 @@ pub(super) fn reclaim(state: &V8BindingState) {
         {
             state.platform_listener_watchers.borrow_mut().remove(&id);
             state
+                .platform_edges
+                .borrow_mut()
+                .replace(id, BTreeSet::new());
+            state
                 .platform_listeners
                 .borrow_mut()
                 .retain(|(target, _), _| *target != id);
@@ -572,7 +632,10 @@ pub(super) fn reconcile_activity(scope: &mut v8::PinScope, state: &V8BindingStat
                 .any(|((target, _), entries)| *target == id && !entries.is_empty())
                 || handlers.keys().any(|(target, _)| *target == id)
         };
-        for (id, object) in objects.iter() {
+        for id in &state.platform_edges.borrow().activity_candidates {
+            let Some(object) = objects.get(id) else {
+                continue;
+            };
             match object {
                 PlatformObjectRecord::XMLHttpRequest(xhr) if xhr.send_invoked => {
                     active.extend([*id, xhr.upload_id]);
@@ -787,15 +850,21 @@ mod tests {
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         eval(
             scope,
-            "for(let i=0;i<64;i++){const c=new AbortController(),signal=c.signal;c.abort({signal})}globalThis.controller=new AbortController();controller.abort({controller});true",
+            "for(let i=0;i<64;i++){const c=new AbortController(),signal=c.signal;c.abort({signal})}globalThis.controller=new AbortController();controller.abort({controller});globalThis.lazyController=new AbortController();lazyController.abort({marker:'lazy'});globalThis.request=new Request('https://example.test/');request.signal.marker='signal';request.headers.marker='headers';true",
         );
         scope.low_memory_notification();
         state.process_weak_releases().unwrap();
         assert_eq!(
-            eval(scope, "controller.signal.reason.controller===controller"),
+            eval(
+                scope,
+                "controller.signal.reason.controller===controller && lazyController.signal.reason.marker==='lazy' && request.signal.marker==='signal' && request.headers.marker==='headers'"
+            ),
             "true"
         );
-        eval(scope, "controller=null;true");
+        eval(
+            scope,
+            "controller=null;lazyController=null;request=null;true",
+        );
         scope.low_memory_notification();
         state.process_weak_releases().unwrap();
         assert!(state.platform_objects.borrow().values().all(|record| {

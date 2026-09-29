@@ -475,6 +475,7 @@ impl Loader {
                         reason: "no-content".into(),
                     },
                     crate::standalone_document_policy::FramePolicy {
+                        origin: None,
                         csp: response_policy,
                         document: self.document_policy.clone(),
                     },
@@ -488,6 +489,7 @@ impl Loader {
                         reason: "download requires parent quarantine".into(),
                     },
                     crate::standalone_document_policy::FramePolicy {
+                        origin: None,
                         csp: response_policy,
                         document: self.document_policy.clone(),
                     },
@@ -521,6 +523,7 @@ impl Loader {
                         return Ok((
                             FrameResourceResponse::EmbeddedResourceUnavailable,
                             crate::standalone_document_policy::FramePolicy {
+                                origin: None,
                                 csp: self.policy.clone().unwrap_or_else(|| {
                                     crate::csp::CspPolicySet::from_headers(url.as_str(), &[])
                                 }),
@@ -566,6 +569,7 @@ impl Loader {
                         reason: "binary document requires parent quarantine".into(),
                     },
                     crate::standalone_document_policy::FramePolicy {
+                        origin: None,
                         csp: response_policy,
                         document: self.document_policy.clone(),
                     },
@@ -728,6 +732,7 @@ impl Loader {
                     worker_policy_token: None,
                 },
                 crate::standalone_document_policy::FramePolicy {
+                    origin: Some(origin),
                     csp: response_policy,
                     document: document_policy,
                 },

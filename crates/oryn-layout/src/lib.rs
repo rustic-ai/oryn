@@ -8957,6 +8957,8 @@ fn layout_node(
         let text_x = rect.x + border.left + padding.left;
         let text_y = rect.y + border.top + padding.top;
         inline_formatting::inline_geometry(crate::inline_formatting::InlineGeometryInputs {
+            content_width,
+            content_height,
             paragraph,
             layout: &text_layout,
             root: id,
@@ -13263,6 +13265,51 @@ mod tests {
             } else {
                 assert!((rect(2).y - rect(1).y - 30.).abs() < 0.01, "{decoration}");
                 assert!((rect(4).y - rect(2).y).abs() < 0.01, "{decoration}");
+            }
+        }
+    }
+
+    #[test]
+    fn empty_inline_anchors_retain_positions_without_adding_line_height() {
+        for mode in ["horizontal-tb", "vertical-lr", "vertical-rl"] {
+            let mut root = node(1, None, "main", "");
+            root.children = vec![2, 3, 4];
+            root.content = Some(vec![
+                LayoutContent::Element(2),
+                LayoutContent::Element(3),
+                LayoutContent::Element(4),
+            ]);
+            let mut input = column_fixture(
+                &format!(
+                    "main {{writing-mode:{mode};width:200px;height:200px}} div {{block-size:50px}} a {{display:inline}}"
+                ),
+                Vec::new(),
+            );
+            input.nodes = vec![
+                root,
+                node(2, Some(1), "div", ""),
+                node(3, Some(1), "a", ""),
+                node(4, Some(1), "div", ""),
+            ];
+            let output = compute(&input, &LayoutLimits::default()).unwrap();
+            let rect = |id| output.geometry[&id].box_model.as_ref().unwrap().border_box;
+            let (before, anchor, after) = (rect(2), rect(3), rect(4));
+            assert_eq!((anchor.width, anchor.height), (0., 0.), "{mode}");
+            if mode == "horizontal-tb" {
+                assert!(
+                    (anchor.y - before.bottom()).abs() < 0.01,
+                    "{mode}: {anchor:?}"
+                );
+                assert!((after.y - anchor.y).abs() < 0.01, "{mode}");
+            } else if mode == "vertical-lr" {
+                assert!(
+                    (anchor.x - before.right()).abs() < 0.01,
+                    "{mode}: {anchor:?}"
+                );
+                assert!((after.x - anchor.x).abs() < 0.01, "{mode}");
+            } else {
+                assert!((anchor.x - before.x).abs() < 0.01, "{mode}: {anchor:?}");
+                assert!((after.right() - anchor.x).abs() < 0.01, "{mode}");
             }
         }
     }

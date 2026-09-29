@@ -19722,6 +19722,9 @@ mod raw_v8 {
                     .unwrap(),
                 "true"
             );
+            host.activate_realm(child).unwrap();
+            assert_eq!(host.evaluate_string("frameElement===null").unwrap(), "true");
+            host.activate_realm(RealmId(0)).unwrap();
             let original = {
                 let parent = host.contexts[&RealmId(0)].clone();
                 let child = host.contexts[&child].clone();
@@ -19737,12 +19740,28 @@ mod raw_v8 {
                     .unwrap(),
                 "foreign"
             );
+            assert_eq!(
+                host.evaluate_string("frame.contentWindow.frameElement===frame")
+                    .unwrap(),
+                "true"
+            );
+            host.activate_realm(child).unwrap();
+            host.execute("Object.defineProperty(globalThis,'parent',{value:{},configurable:true})")
+                .unwrap();
+            assert_eq!(
+                host.evaluate_string("frameElement.tagName").unwrap(),
+                "IFRAME"
+            );
+            host.activate_realm(RealmId(0)).unwrap();
             {
                 let child = host.contexts[&child].clone();
                 v8::scope!(let scope, &mut host.isolate);
                 let child = v8::Local::new(scope, child);
                 child.set_security_token(v8::Local::new(scope, original));
             }
+            host.activate_realm(child).unwrap();
+            assert_eq!(host.evaluate_string("frameElement===null").unwrap(), "true");
+            host.activate_realm(RealmId(0)).unwrap();
             assert_eq!(
                 host.evaluate_string("frame.contentDocument===null")
                     .unwrap(),

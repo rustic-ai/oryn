@@ -23,6 +23,8 @@ pub(crate) struct InlineFlowInputs<'a> {
 }
 /// Inputs for inline geometry.
 pub(crate) struct InlineGeometryInputs<'a> {
+    pub(crate) content_width: f64,
+    pub(crate) content_height: f64,
     pub(crate) paragraph: &'a Paragraph,
     pub(crate) layout: &'a TextLayout,
     pub(crate) root: u64,
@@ -42,6 +44,8 @@ pub(super) struct Paragraph {
     pub inline_nodes: BTreeSet<u64>,
     pub atomic: BTreeSet<u64>,
     pub boundaries: BTreeMap<u64, (u64, bool)>,
+    // Suppressed empty lines still give inline boxes a scroll/geometry position.
+    pub empty_positions: BTreeMap<u64, f64>,
 }
 #[derive(Debug)]
 pub(super) enum FlowItem {
@@ -497,6 +501,8 @@ fn union(a: CssRect, b: CssRect) -> CssRect {
 
 pub(super) fn inline_geometry(params: InlineGeometryInputs<'_>) {
     let InlineGeometryInputs {
+        content_width,
+        content_height,
         paragraph,
         layout,
         root,
@@ -610,7 +616,39 @@ pub(super) fn inline_geometry(params: InlineGeometryInputs<'_>) {
         let Some(style) = styles.get(id) else {
             continue;
         };
-        let Some(lines) = rectangles.remove(id) else {
+        let lines = rectangles.remove(id).or_else(|| {
+            let block = *paragraph.empty_positions.get(id)?;
+            if style_value(style, "display", "inline") == "contents" {
+                return None;
+            }
+            let root_style = styles.get(&root)?;
+            let axes = writing_mode::Axes::new(
+                style_value(root_style, "writing-mode", "horizontal-tb"),
+                style_value(root_style, "direction", "ltr") == "rtl",
+            );
+            let (inline_x, inline_y) = if axes.vertical {
+                (
+                    if axes.x_reverse {
+                        content_width - block
+                    } else {
+                        block
+                    },
+                    if axes.y_reverse { content_height } else { 0. },
+                )
+            } else {
+                (if axes.x_reverse { content_width } else { 0. }, block)
+            };
+            Some(BTreeMap::from([(
+                0,
+                CssRect {
+                    x: x + inline_x,
+                    y: y + inline_y,
+                    width: 0.,
+                    height: 0.,
+                },
+            )]))
+        });
+        let Some(lines) = lines else {
             continue;
         };
         let font = length(style_value(style, "font-size", "16px"), 16., 16., viewport);
@@ -1573,6 +1611,9 @@ pub(super) fn layout_flow(params: InlineFlowInputs<'_>) -> (Paragraph, TextLayou
                 let mut layout = if paragraph.atomic.is_empty()
                     && !paragraph_forms_line(&paragraph, styles, style, inline, input.viewport)
                 {
+                    context
+                        .empty_positions
+                        .extend(paragraph.inline_nodes.iter().map(|id| (*id, cursor)));
                     TextLayout::default()
                 } else {
                     {

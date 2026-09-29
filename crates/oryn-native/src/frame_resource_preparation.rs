@@ -1133,6 +1133,7 @@ mod tests {
         let mut origin = String::with_capacity(8192);
         origin.push_str("https://example.test");
         let policy = crate::standalone_document_policy::FramePolicy {
+            origin: None,
             csp: crate::csp::CspPolicySet::new("https://example.test/"),
             document: crate::standalone_document_policy::DocumentPolicy::root(origin, &[]),
         };

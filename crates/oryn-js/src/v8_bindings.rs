@@ -2471,6 +2471,7 @@ pub struct V8BindingState {
     headers_iterator_prototype: RefCell<Option<v8::Weak<v8::Object>>>,
     request_constructor: RefCell<Option<v8::Weak<v8::Function>>>,
     platform_wrappers: RefCell<BTreeMap<u64, v8::Weak<v8::Object>>>,
+    platform_edges: RefCell<platform_listener_graph::Edges>,
     platform_host: RefCell<Option<Rc<dyn PlatformHost>>>,
     next_platform_operation_id: Cell<u64>,
     pending_platform_operations: RefCell<BTreeMap<HostOperationId, PendingPlatformOperation>>,
@@ -11806,6 +11807,7 @@ fn register_platform_object(state: &V8BindingState, record: PlatformObjectRecord
     state
         .next_platform_object_id
         .set(id.saturating_add(1).max(1));
+    state.platform_edges.borrow_mut().registered(id, &record);
     state.platform_objects.borrow_mut().insert(id, record);
     id
 }
@@ -11819,6 +11821,7 @@ fn reserve_platform_object_id(state: &V8BindingState) -> u64 {
 }
 
 fn insert_platform_object(state: &V8BindingState, id: u64, record: PlatformObjectRecord) {
+    state.platform_edges.borrow_mut().registered(id, &record);
     state.platform_objects.borrow_mut().insert(id, record);
 }
 
@@ -13714,6 +13717,7 @@ fn request_following_signal(
         && let PlatformObjectRecord::AbortSignal(signal) = &mut *platform_object_mut(state, source)?
     {
         signal.followers.push(id);
+        state.platform_edges.borrow_mut().add(source, id);
     }
     Ok(id)
 }

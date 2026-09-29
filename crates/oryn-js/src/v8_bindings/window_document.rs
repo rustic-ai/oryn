@@ -283,11 +283,21 @@ fn get_frame_element(
         return;
     }
     if !state.execution_retired() {
-        let key = frame_key(scope);
-        if let Some(frame) = args.this().get_private(scope, key)
-            && frame.is_object()
+        let window = v8::Local::new(scope, args.this());
+        // The container is a native private edge even when its document was
+        // initially cross-origin. Domain relaxation can change access after
+        // commit, so compare the Window and container documents now.
+        if let Some(frame) = native_frame(scope, window)
+            && let Some(parent) = native_parent(scope, window).get_creation_context(scope)
+            && let Some(child) = window.get_creation_context(scope)
+            && parent
+                .get_slot::<V8BindingState>()
+                .is_some_and(|parent| !parent.execution_retired())
+            && parent
+                .get_security_token(scope)
+                .strict_equals(child.get_security_token(scope))
         {
-            rv.set(frame);
+            rv.set(frame.into());
             return;
         }
     }

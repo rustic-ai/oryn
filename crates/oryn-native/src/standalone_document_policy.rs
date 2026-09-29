@@ -21,6 +21,8 @@ pub(crate) struct DocumentPolicy {
 #[cfg(feature = "v8-host")]
 #[derive(Clone, Debug)]
 pub(crate) struct FramePolicy {
+    /// Exact process-local identity; never reconstructed from serialized null.
+    pub(crate) origin: Option<oryn_js::origin::Origin>,
     pub(crate) csp: CspPolicySet,
     pub(crate) document: DocumentPolicy,
 }
@@ -269,7 +271,13 @@ impl FramePolicy {
     pub(crate) fn retained_bytes(&self) -> Result<usize, String> {
         self.csp
             .retained_bytes()?
-            .checked_add(self.document.retained_bytes()?)
+            .checked_add(
+                self.origin
+                    .as_ref()
+                    .map_or(Some(0), |origin| origin.retained_bytes())
+                    .ok_or("frame origin size overflow")?,
+            )
+            .and_then(|size| size.checked_add(self.document.retained_bytes().ok()?))
             .ok_or_else(|| "frame policy retained bytes overflow".into())
     }
 }

@@ -7573,6 +7573,119 @@ mod html_encoding_restart_regressions {
             .unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn sandboxed_creator_blob_frame_preserves_inherited_origin_isolation() {
+        let context = crate::Browser::in_process_with_config(Default::default()).new_context();
+        let handle = context.new_page();
+        let url = Url::parse("https://example.test/root.html").unwrap();
+        context
+            .install_document_security(handle.page_id(), url.to_string(), &[])
+            .unwrap();
+        let client = crate::context_service::SharedContextClient::direct(context, handle.page_id());
+        let mut page = RustExecutableDocument::load_with_context_and_limits(
+            r#"<body><iframe sandbox="allow-scripts" srcdoc="<body>creator</body>"></iframe>"#,
+            &BTreeMap::new(),
+            None,
+            Some(url),
+            256 * 1024 * 1024,
+            (client, handle.page_id(), None),
+        )
+        .unwrap();
+        let creator = *page.frame_realms.keys().next().unwrap();
+        page.agent.host.activate_realm(creator).unwrap();
+        page.agent
+            .host
+            .execute(
+                r#"
+            globalThis.result='pending';
+            globalThis.blobFrame=document.createElement('iframe');
+            blobFrame.src=URL.createObjectURL(new Blob([
+                '<script>window.test_result="blob-frame-ok";</script>'
+            ],{type:'text/html'}));
+            blobFrame.onload=()=>{try {result=blobFrame.contentWindow.test_result}
+                catch(e){result=e.name+':'+e.message}};
+            document.body.append(blobFrame);
+        "#,
+            )
+            .unwrap();
+        page.agent.host.activate_realm(page.top_realm).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let result = loop {
+            page.checkpoint().unwrap();
+            page.agent.host.activate_realm(creator).unwrap();
+            let result = page.agent.host.evaluate_string("result").unwrap();
+            page.agent.host.activate_realm(page.top_realm).unwrap();
+            if result != "pending" {
+                break result;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Blob frame did not load: {:?}",
+                page.diagnostics
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        // HTML's sandboxing flag set includes the container document's flags.
+        // Determining the origin checks the sandboxed-origin flag before the
+        // Blob URL origin, so this descendant must remain inaccessible.
+        assert_eq!(result, "SecurityError:SecurityError");
+    }
+
+    #[test]
+    fn initial_blob_fragment_scrolls_and_notifies_retained_window_handler() {
+        for url in [None, Some(Url::parse("https://example.test/root").unwrap())] {
+            let mut page = RustExecutableDocument::load_with_environment(
+                "<!doctype html><body>",
+                &BTreeMap::new(),
+                None,
+                url,
+            )
+            .unwrap();
+            page.agent
+                .host
+                .execute(
+                    r#"
+            globalThis.frame=document.createElement('iframe');
+            frame.src=URL.createObjectURL(new Blob([
+                '<!doctype html><style>body{margin:0}.block{height:5000px}</style>' +
+                '<body><div class=block></div><a id=target></a><div class=block></div>'
+            ],{type:'text/html'}))+'#target';
+            document.body.append(frame);
+            globalThis.events=[];
+            frame.contentWindow.onscroll=()=>events.push('scroll:'+frame.contentWindow.scrollY);
+            frame.onload=()=>{
+                events.push('load:'+frame.contentWindow.scrollY);
+                try { const w=frame.contentWindow,t=w.document.getElementById('target');
+                globalThis.detail=[w.location.href, JSON.stringify(t.getBoundingClientRect()), w.document.documentElement.scrollHeight,w.innerHeight,typeof w.onscroll].join('|');
+                } catch(e){ globalThis.detail=e.name+':'+e.message+':'+frame.contentWindow.document.body.innerHTML; }
+            };
+        "#,
+                )
+                .unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            let result = loop {
+                page.checkpoint().unwrap();
+                let result = page.agent.host.evaluate_string("events.join(',')").unwrap();
+                if result.contains("load:") && result.contains("scroll:") {
+                    break result;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "fragment events: {result}; detail: {}; diagnostics: {:?}",
+                    page.agent
+                        .host
+                        .evaluate_string("globalThis.detail")
+                        .unwrap(),
+                    page.diagnostics
+                );
+                std::thread::sleep(Duration::from_millis(1));
+            };
+            assert!(result.contains("load:5000"), "{result}");
+            assert!(result.contains("scroll:5000"), "{result}");
+        }
+    }
+
     #[test]
     fn encoding_policy_retry_keeps_decoder_bytes_and_event_before_commit() {
         let mut page = RustExecutableDocument::load("<head></head>").unwrap();
