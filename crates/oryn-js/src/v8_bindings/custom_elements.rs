@@ -344,16 +344,19 @@ pub(super) fn refresh_native_registry_roots(
         // document replacement cannot make an old reachability result valid.
         roots.validate(&dom)?;
         let mut memo = BTreeMap::new();
-        // Parsed/result trees commonly carry one registry on long runs of
-        // adjacent nodes. Once retained, that existential proof is stable for
-        // this borrow; avoid repeating the ordered-set lookup for every node.
-        let mut last_retained = None;
-        for (node, record) in dom.arena().iter() {
-            if let Some(id) = record.custom_element_registry.flatten()
-                && last_retained != Some(id)
-            {
+        // Visit only associations whose registry still needs an independent
+        // native retention proof. Membership is indexed, reachability is not:
+        // root release, adoption and document replacement remain observable.
+        for registry in &registries {
+            let id = registry.id.get();
+            if ids.contains(&id) {
+                continue;
+            }
+            for node in dom.arena().custom_registry_nodes(id) {
                 retain_registry_from_node(&dom, &roots, node, id, &mut ids, &mut memo)?;
-                last_retained = ids.contains(&id).then_some(id);
+                if ids.contains(&id) {
+                    break;
+                }
             }
         }
         for state in states {

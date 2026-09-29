@@ -243,6 +243,10 @@ impl DomRuntime {
                 return Err(DomError::NativeRootUnderflow(*old));
             }
         }
+        // Bulk publication writes slots directly instead of going through
+        // get_mut. Both arenas must rebuild their derived membership index.
+        source.arena.invalidate_registry_index();
+        destination.arena.invalidate_registry_index();
         let mut nodes = BTreeMap::new();
         for old in &plan.nodes {
             let new = if let Some(slot) = destination.arena.free.pop() {

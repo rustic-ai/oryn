@@ -38,6 +38,8 @@ pub use submit_behavior::SubmitButtonBehavior;
 pub mod boundary_journal;
 pub mod directionality;
 mod document_scope;
+mod registry_index;
+use registry_index::RegistryIndex;
 pub mod dom_string;
 use attributes::AttributeKey;
 pub use attributes::{AttributeList, ContentAttribute};
@@ -523,6 +525,7 @@ pub struct DomArena {
     id: ArenaId,
     allocation_document: Option<NodeId>,
     slots: Vec<Slot>,
+    registry_index: std::sync::Mutex<RegistryIndex>,
     free: Vec<u32>,
     attribute_nodes: BTreeMap<(NodeId, AttributeKey), NodeId>,
     stylesheet_revisions: BTreeMap<NodeId, u64>,
@@ -541,6 +544,7 @@ pub struct DomArena {
 impl Default for DomArena {
     fn default() -> Self {
         Self {
+            registry_index: Default::default(),
             id: ArenaId::fresh(),
             allocation_document: None,
             slots: Vec::new(),
@@ -573,6 +577,7 @@ impl Clone for DomArena {
             }
         }
         Self {
+            registry_index: Default::default(),
             id,
             allocation_document: self.allocation_document,
             slots,
@@ -727,6 +732,7 @@ impl DomArena {
             accessibility_computed_visibility: BTreeMap::new(),
             accessibility_computed_text_style: BTreeMap::new(),
             form_associated_custom_elements: BTreeSet::new(),
+            registry_index: Default::default(),
             id: ArenaId::fresh(),
             allocation_document: None,
             slots: previous
@@ -1191,9 +1197,17 @@ impl DomArena {
             .filter(|slot| slot.generation == id.generation)
     }
     fn slot_mut(&mut self, id: NodeId) -> Option<&mut Slot> {
-        self.slots
-            .get_mut(id.slot as usize)
-            .filter(|slot| slot.generation == id.generation)
+        let slot = self.slots.get_mut(id.slot as usize)?;
+        if slot.generation != id.generation {
+            return None;
+        }
+        // Node fields are public: every mutable borrow can change a registry,
+        // even when it did not originate in set_custom_element_registry.
+        self.registry_index
+            .get_mut()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .mark_dirty(id);
+        Some(slot)
     }
 }
 

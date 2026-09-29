@@ -119,6 +119,7 @@ impl DomArena {
             })
             .collect();
         Ok(Self {
+            registry_index: Default::default(),
             id: ArenaId::fresh(),
             allocation_document: Some(root),
             slots,
