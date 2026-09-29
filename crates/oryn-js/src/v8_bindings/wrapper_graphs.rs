@@ -62,10 +62,10 @@ pub(super) fn retained_by_document(dom: &DomRuntime, node: NodeId) -> bool {
     dom.is_connected(owner).unwrap_or(false)
 }
 
-// A complete insertion-only journal can join an isolated wrapped leaf to an
-// existing detached fragment without rewriting every edge in that component.
+// A complete insertion-only journal can join two detached wrapper components
+// by publishing the source members once, without rewriting the destination.
 // All other mutations retain the general former/current-component rebuild.
-fn grow_detached_fragment(
+fn join_detached_components(
     scope: &mut v8::PinScope,
     state: &V8BindingState,
 ) -> Result<bool, V8BindingError> {
@@ -118,32 +118,26 @@ fn grow_detached_fragment(
         }
         _ => return Ok(false),
     };
-    let (Ok(leaf), Ok(fragment)) = (dom.arena().get(node), dom.arena().get(parent)) else {
+    let Some(root) = native_root(&dom, parent, &mut BTreeMap::new()) else {
         return Ok(false);
     };
-    if !matches!(fragment.kind, NodeKind::DocumentFragment)
-        || fragment.parent.is_some()
-        || fragment.template_host.is_some()
-        || leaf.parent != Some(parent)
-        || !leaf.children.is_empty()
-        || leaf.template_content.is_some()
-        || leaf.template_host.is_some()
-        || !dom.arena().attribute_node_ids(node).is_empty()
-        || dom.arena().hosted_document(node).is_some()
-        || leaf.owner_document.is_none()
-        || leaf.owner_document != fragment.owner_document
+    let (Ok(inserted), Ok(target)) = (dom.arena().get(node), dom.arena().get(root)) else {
+        return Ok(false);
+    };
+    if root == node
+        || retained_by_document(&dom, parent)
         || !matches!(
-            leaf.kind,
-            NodeKind::Element { .. }
-                | NodeKind::Text { .. }
-                | NodeKind::Comment { .. }
-                | NodeKind::CDataSection { .. }
-                | NodeKind::ProcessingInstruction { .. }
+            target.kind,
+            NodeKind::Element { .. } | NodeKind::DocumentFragment
         )
+        || target.template_host.is_some()
+        || inserted.parent != Some(parent)
+        || inserted.owner_document.is_none()
+        || inserted.owner_document != target.owner_document
     {
         return Ok(false);
     }
-    let (leaf_id, leaf_object, array, expected_length) = {
+    let (target_object, old_array, owner, members, expected_length) = {
         let (Ok(wrappers), Ok(objects), Ok(components)) = (
             state.wrappers.try_borrow(),
             state.objects.try_borrow(),
@@ -151,97 +145,125 @@ fn grow_detached_fragment(
         ) else {
             return Ok(false);
         };
-        let Some(leaf_id) = wrappers.lookup(dom.arena().id(), state.realm, node) else {
-            return Ok(false);
-        };
         let Some(parent_id) = wrappers.lookup(dom.arena().id(), state.realm, parent) else {
             return Ok(false);
         };
-        let (Some(leaf), Some(fragment)) = (objects.get(&leaf_id), objects.get(&parent_id)) else {
+        let Some(parent_wrapper) = objects.get(&parent_id) else {
             return Ok(false);
         };
-        let (Some(old_members), Some(members)) = (components.get(&node), components.get(&parent))
+        let (Some(source_members), Some(target_members)) =
+            (components.get(&node), components.get(&root))
         else {
             return Ok(false);
         };
-        if leaf.retention_component != Some(node)
-            || fragment.retention_component != Some(parent)
-            || leaf.connected_root.is_some()
-            || fragment.connected_root.is_some()
-            || old_members.len() != 1
-            || !old_members.contains(&leaf_id)
-            || !members.contains(&parent_id)
-            || members.contains(&leaf_id)
+        if parent_wrapper.retention_component != Some(root)
+            || parent_wrapper.connected_root.is_some()
+            || !target_members.contains(&parent_id)
+            || source_members.is_empty()
         {
             return Ok(false);
         }
-        let (Some(leaf_object), Some(parent_object)) =
-            (leaf.handle.to_local(scope), fragment.handle.to_local(scope))
+        let Some(target_object) = parent_wrapper.handle.to_local(scope) else {
+            return Ok(false);
+        };
+        let Some(owner) = wrappers
+            .lookup(
+                dom.arena().id(),
+                state.realm,
+                target.owner_document.unwrap(),
+            )
+            .and_then(|id| objects.get(&id))
+            .and_then(|object| object.handle.to_local(scope))
         else {
             return Ok(false);
         };
-        if leaf_object.internal_field_count() <= 5 {
+        if target_object.internal_field_count() <= 5 {
             return Ok(false);
         }
-        let Some(array) = parent_object
+        let Some(field) = target_object
             .get_internal_field(scope, 5)
             .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
-            .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())
         else {
             return Ok(false);
         };
-        // The completed prior rebuild has one entry per wrapper plus its
-        // common ownerDocument. Refuse stale/dead or more complex owner sets.
-        let Some(expected_length) = members
-            .len()
-            .checked_add(1)
+        let expected_length = target_members.len().checked_add(1);
+        let Some(expected_length) = expected_length
+            .filter(|length| {
+                length
+                    .checked_add(source_members.len())
+                    .is_some_and(|n| n < u32::MAX as usize)
+            })
             .and_then(|length| u32::try_from(length).ok())
-            .filter(|length| *length < u32::MAX)
         else {
             return Ok(false);
         };
-        if array.length() != expected_length {
+        let old_array = if let Ok(array) = v8::Local::<v8::Array>::try_from(field) {
+            if array.length() != expected_length {
+                return Ok(false);
+            }
+            Some(array)
+        } else if target_members.len() == 1 && field.strict_equals(owner.into()) {
+            None
+        } else {
             return Ok(false);
+        };
+        let mut members = Vec::new();
+        let mut roots = BTreeMap::new();
+        for id in source_members {
+            let (Some(metadata), Some(object)) = (wrappers.metadata(*id), objects.get(id)) else {
+                return Ok(false);
+            };
+            if target_members.contains(id)
+                || object.retention_component != Some(node)
+                || object.connected_root.is_some()
+                || dom.arena().node_document(metadata.node).ok().flatten() != target.owner_document
+                || native_root(&dom, metadata.node, &mut roots) != Some(root)
+            {
+                return Ok(false);
+            }
+            let Some(local) = object.handle.to_local(scope) else {
+                return Ok(false);
+            };
+            if local.internal_field_count() <= 5 {
+                return Ok(false);
+            }
+            members.push((*id, local));
         }
-        (leaf_id, leaf_object, array, expected_length)
+        (target_object, old_array, owner, members, expected_length)
     };
     drop(dom);
-    // Refresh only the new leaf's registry edge. Existing members retain their
-    // component-registry edges, including registries on unwrapped descendants.
-    // Mutual reachability through the shared array retains the union of both.
-    custom_elements::trace_node_registry(scope, state, node, leaf_object)?;
-    custom_elements::trace_component_registries(scope, state, &[node], &[(node, leaf_object)])?;
-    let Some(key) = v8::String::new(scope, &expected_length.to_string()) else {
-        return Ok(false);
-    };
+    // Each completed source graph already traces its registry union, including
+    // unwrapped descendants. Joining the arrays preserves those directed edges.
+    // A later split uses the general rebuild and recomputes exact components.
+    let array = old_array.unwrap_or_else(|| {
+        v8::Array::new_with_elements(scope, &[target_object.into(), owner.into()])
+    });
+    for (offset, (_, object)) in members.iter().enumerate() {
+        let Some(key) = v8::String::new(scope, &(expected_length + offset as u32).to_string())
+        else {
+            return Ok(false);
+        };
+        // Bypass author indexed setters. If publication fails, leave the journal
+        // unconsumed so the general rebuild repairs both former components.
+        if array.create_data_property(scope, key.into(), (*object).into()) != Some(true) {
+            return Ok(false);
+        }
+    }
     let (Ok(mut objects), Ok(mut components)) = (
         state.objects.try_borrow_mut(),
         state.wrapper_graph_components.try_borrow_mut(),
     ) else {
         return Ok(false);
     };
-    let (Some(leaf), Some(members)) = (objects.get_mut(&leaf_id), components.get_mut(&parent))
-    else {
+    let Some(target_members) = components.get_mut(&root) else {
         return Ok(false);
     };
-    // Prepare the only allocating native index update before V8 publication.
-    // No wrapper-registry borrow survives allocation: weak finalizers may queue
-    // releases there. Locals keep the new leaf and existing component alive.
-    if !members.insert(leaf_id) {
-        return Ok(false);
+    target_members.extend(members.iter().map(|(id, _)| *id));
+    target_object.set_internal_field(5, array.into());
+    for (id, local) in members {
+        local.set_internal_field(5, array.into());
+        objects.get_mut(&id).unwrap().retention_component = Some(root);
     }
-    // CreateDataProperty bypasses indexed Array.prototype setters. This private
-    // ordinary array cannot execute authored code, so our checked internal field
-    // and the native bookkeeping remain valid across allocation/GC.
-    if array.create_data_property(scope, key.into(), leaf_object.into()) != Some(true) {
-        members.remove(&leaf_id);
-        // Do not consume the journal. The general rebuild repairs even a
-        // partially published edge; it is only tracing, never native authority.
-        return Ok(false);
-    }
-    // The prechecked SetInternalField has no allocating or fallible branch.
-    leaf_object.set_internal_field(5, array.into());
-    leaf.retention_component = Some(parent);
     components.remove(&node);
     state.wrapper_graph_revision.set(Some(revision));
     Ok(true)
@@ -249,7 +271,7 @@ fn grow_detached_fragment(
 
 pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
     v8::scope!(let scope, scope);
-    match grow_detached_fragment(scope, state) {
+    match join_detached_components(scope, state) {
         Ok(true) => 0,
         Ok(false) => rebuild(scope, state),
         Err(error) => {
@@ -917,6 +939,85 @@ mod fragment_growth_tests {
     }
 
     #[test]
+    fn detached_subtree_joins_preserve_destination_graph_and_split_gc() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(313), 1).unwrap();
+        let weak = {
+            v8::scope!(let scope, scope);
+            let root = v8::Local::<v8::Object>::try_from(eval(
+                scope,
+                r#"
+                globalThis.root=document.createElement('section');root.saved=17;
+                root.appendChild(document.createElement('b'));
+                globalThis.registry=new CustomElementRegistry();registry.saved=42;root
+            "#,
+            ))
+            .unwrap();
+            refresh(scope, &state);
+            let before = graph(scope, root);
+            let length = before.length();
+            eval(
+                scope,
+                &format!(
+                    "globalThis.setterCalls=0;Object.defineProperty(Array.prototype,'{length}',{{configurable:true,set(){{setterCalls++}}}})"
+                ),
+            );
+            for _ in 0..40 {
+                eval(
+                    scope,
+                    r#"(()=>{
+                    const row=document.createElement('div',{customElementRegistry:registry});
+                    row.appendChild(document.createTextNode('result'));root.appendChild(row);
+                })()"#,
+                );
+                refresh(scope, &state);
+                assert!(
+                    before.strict_equals(graph(scope, root).into()),
+                    "joining a complete subtree must preserve the destination array"
+                );
+            }
+            assert_eq!(before.length(), length + 80);
+            assert!(eval(scope, "setterCalls===0").is_true());
+            eval(scope, &format!("delete Array.prototype['{length}']"));
+            assert_eq!(
+                before.set_integrity_level(scope, v8::IntegrityLevel::Frozen),
+                Some(true)
+            );
+            eval(
+                scope,
+                "(()=>{const row=document.createElement('i');row.appendChild(document.createTextNode('fallback'));root.appendChild(row)})()",
+            );
+            refresh(scope, &state);
+            assert!(!before.strict_equals(graph(scope, root).into()));
+            eval(
+                scope,
+                "globalThis.held=root.children[1];root=null;registry=null",
+            );
+            v8::Weak::new(scope, root)
+        };
+        scope.low_memory_notification();
+        {
+            v8::scope!(let scope, scope);
+            assert!(weak.to_local(scope).is_some());
+            assert!(eval(scope, "held.parentNode.saved===17&&held.parentNode.childNodes.length===42&&held.customElementRegistry.saved===42&&held.firstChild.data==='result'").is_true());
+            eval(scope, "held.remove()");
+            refresh(scope, &state);
+        }
+        scope.low_memory_notification();
+        assert!(weak.is_empty());
+        assert!(eval(scope, "held.parentNode===null&&held.customElementRegistry.saved===42&&held.firstChild.data==='result'").is_true());
+    }
+
+    #[test]
     fn registry_stamping_after_insertion_only_refreshes_the_affected_component() {
         super::super::tests::initialize_v8();
         let mut isolate = v8::Isolate::new(Default::default());
@@ -1205,7 +1306,7 @@ mod fragment_growth_tests {
                 .borrow_mut()
                 .insert_dom_node(parent, node, None)
                 .unwrap();
-            assert!(grow_detached_fragment(scope, &state).unwrap());
+            assert!(join_detached_components(scope, &state).unwrap());
             let after = graph(scope, leaf);
             assert!(before.strict_equals(after.into()));
             assert_eq!(after.length(), length + 1);
@@ -1274,7 +1375,7 @@ mod fragment_growth_tests {
             .borrow_mut()
             .insert_dom_node(parent, node, None)
             .unwrap();
-        assert!(!grow_detached_fragment(scope, &state).unwrap());
+        assert!(!join_detached_components(scope, &state).unwrap());
         assert_eq!(state.wrapper_graph_revision.get(), previous);
         let id = state
             .wrappers
@@ -1348,7 +1449,7 @@ mod fragment_growth_tests {
                 .borrow_mut()
                 .insert_dom_node(parent, node, None)
                 .unwrap();
-            assert!(grow_detached_fragment(scope, &state).unwrap());
+            assert!(join_detached_components(scope, &state).unwrap());
             let current = graph(scope, leaf);
             assert!(old.strict_equals(current.into()));
             eval(scope, "fragment=null");
