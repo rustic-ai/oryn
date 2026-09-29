@@ -11,6 +11,7 @@ pub(super) struct Edges {
     activity_candidates: BTreeSet<u64>,
     pub(super) media_candidates: BTreeSet<u64>,
     pub(super) response_candidates: BTreeSet<u64>,
+    pub(super) native_lease_candidates: BTreeSet<u64>,
 }
 impl Edges {
     pub(super) fn registered(&mut self, id: u64, record: &PlatformObjectRecord) {
@@ -28,6 +29,14 @@ impl Edges {
             (
                 &mut self.response_candidates,
                 matches!(record, PlatformObjectRecord::Response(_)),
+            ),
+            (
+                &mut self.native_lease_candidates,
+                matches!(
+                    record,
+                    PlatformObjectRecord::SubmitButtonBehavior(_)
+                        | PlatformObjectRecord::MediaTrackList { .. }
+                ),
             ),
         ] {
             if selected {

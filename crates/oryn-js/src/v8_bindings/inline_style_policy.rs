@@ -145,6 +145,22 @@ impl V8BindingState {
                     .get_mut(node)?
                     .stylesheet_parser_ready = true;
             }
+            {
+                let dom = self.dom.borrow();
+                let record = dom.arena().get(node)?;
+                let sheet = matches!(&record.kind, NodeKind::Element { name }
+                    if name.local.as_ref() == "style" && matches!(name.ns.as_ref(), "http://www.w3.org/1999/xhtml" | "http://www.w3.org/2000/svg"));
+                if !sheet
+                    && !record.attributes.contains_null("style")
+                    && record.cryptographic_nonce.is_none()
+                    && !record.attributes.contains_null("nonce")
+                {
+                    // Plain markup has no CSS policy input. Snapshot readiness
+                    // above and removal of obsolete decisions below still run.
+                    // Keep nonce-bearing nodes on the bounded validation path.
+                    continue;
+                }
+            }
             let inputs = (|| {
                 let dom = self.dom.borrow();
                 let record = dom.arena().get(node)?;
@@ -267,5 +283,96 @@ impl V8BindingState {
     }
     pub fn has_pending_native_csp_event(&self) -> bool {
         !self.execution_retired() && !self.native_csp_tasks.borrow().is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_markup_fast_path_preserves_style_transitions_and_nonce_limits() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            html::parse("<head><style id=s>p{color:red}</style></head><body><p id=p></p></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state =
+            install_generated_bindings(scope, context, dom.clone(), RealmId(940), 1).unwrap();
+        let plain = dom.borrow().find_by_id("p").unwrap();
+        let sheet = dom.borrow().find_by_id("s").unwrap();
+        let calls = Rc::new(Cell::new(0));
+        let allowed = Rc::new(Cell::new(false));
+        state.set_inline_style_policy(Rc::new({
+            let calls = calls.clone();
+            let allowed = allowed.clone();
+            move |_, _, _, _| {
+                calls.set(calls.get() + 1);
+                Ok(allowed.get())
+            }
+        }));
+        state.reconcile_inline_style_policy().unwrap();
+        assert!(
+            !dom.borrow()
+                .arena()
+                .get(sheet)
+                .unwrap()
+                .stylesheet_policy_allowed
+        );
+        state.stage_snapshot_inline_styles(&[plain]).unwrap();
+        state.reconcile_inline_style_policy().unwrap();
+        assert!(state.snapshot_inline_styles.borrow().contains_key(&plain));
+        dom.borrow_mut()
+            .set_attribute(plain, "style", "color:blue")
+            .unwrap();
+        state.reconcile_inline_style_policy().unwrap();
+        assert!(!state.snapshot_inline_styles.borrow().contains_key(&plain));
+        assert!(
+            !dom.borrow()
+                .arena()
+                .get(plain)
+                .unwrap()
+                .style_attribute_policy_allowed
+        );
+        let before = calls.get();
+        allowed.set(true);
+        state.reconcile_inline_style_policy().unwrap();
+        assert_eq!(
+            calls.get(),
+            before,
+            "unchanged source retains its policy decision"
+        );
+        dom.borrow_mut().remove_attribute(plain, "style").unwrap();
+        state.reconcile_inline_style_policy().unwrap();
+        assert!(
+            !state
+                .inline_style_checks
+                .borrow()
+                .contains_key(&(plain, true))
+        );
+        dom.borrow_mut()
+            .set_attribute(plain, "style", "color:green")
+            .unwrap();
+        state.reconcile_inline_style_policy().unwrap();
+        assert!(
+            dom.borrow()
+                .arena()
+                .get(plain)
+                .unwrap()
+                .style_attribute_policy_allowed
+        );
+        dom.borrow_mut().remove_attribute(plain, "style").unwrap();
+        dom.borrow_mut()
+            .set_element_nonce(plain, "x".repeat(4097))
+            .unwrap();
+        assert!(matches!(
+            state.reconcile_inline_style_policy(),
+            Err(V8BindingError::Allocation("inline style policy input size"))
+        ));
     }
 }

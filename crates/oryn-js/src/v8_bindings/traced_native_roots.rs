@@ -76,7 +76,19 @@ impl Snapshot {
             node_lists::owned_native_roots(state, &mut roots)?;
             node_iterators::owned_native_roots(state, &mut roots, &mut iterators)?;
             text_tracks::owned_native_roots(state, &mut roots)?;
-            for record in state.platform_objects.borrow().values() {
+            let objects = state.platform_objects.borrow();
+            let mut edges = state.platform_edges.borrow_mut();
+            // Only these platform record kinds own native DOM leases. The
+            // identities are candidates, not roots, and collection can remove
+            // records between snapshots. Preserve exact lease multiplicity.
+            edges
+                .native_lease_candidates
+                .retain(|id| objects.contains_key(id));
+            for record in edges
+                .native_lease_candidates
+                .iter()
+                .filter_map(|id| objects.get(id))
+            {
                 match record {
                     PlatformObjectRecord::SubmitButtonBehavior(record) => {
                         if let Some(lease) = submit_behavior::owned_native_root(&record.borrow()) {
@@ -355,6 +367,51 @@ mod tests {
         ));
         dom.drop_live_range(id).unwrap();
         assert_eq!(dom.native_root_count(body).unwrap(), 0);
+    }
+    #[test]
+    fn platform_lease_candidates_follow_registration_replacement_and_collection() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(DomRuntime::new()));
+        let state = install_generated_bindings(scope, context, dom, RealmId(941), 1).unwrap();
+        for _ in 0..128 {
+            register_platform_object(&state, PlatformObjectRecord::EventTarget);
+        }
+        let id = register_platform_object(
+            &state,
+            PlatformObjectRecord::SubmitButtonBehavior(Default::default()),
+        );
+        Snapshot::capture(std::slice::from_ref(&state)).unwrap();
+        assert_eq!(
+            state.platform_edges.borrow().native_lease_candidates,
+            BTreeSet::from([id])
+        );
+        insert_platform_object(&state, id, PlatformObjectRecord::EventTarget);
+        Snapshot::capture(std::slice::from_ref(&state)).unwrap();
+        assert!(
+            state
+                .platform_edges
+                .borrow()
+                .native_lease_candidates
+                .is_empty()
+        );
+        insert_platform_object(
+            &state,
+            id,
+            PlatformObjectRecord::SubmitButtonBehavior(Default::default()),
+        );
+        state.platform_objects.borrow_mut().remove(&id);
+        Snapshot::capture(std::slice::from_ref(&state)).unwrap();
+        assert!(
+            state
+                .platform_edges
+                .borrow()
+                .native_lease_candidates
+                .is_empty()
+        );
     }
     #[test]
     fn retired_graph_preserves_original_constructor_and_extra_endpoint_custody_then_collects() {
