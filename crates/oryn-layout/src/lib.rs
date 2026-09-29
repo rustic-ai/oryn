@@ -6450,7 +6450,7 @@ fn stylo_computed_values_with_instances(
         &mut pseudo_styles,
     );
     permission_controls::adjust(input, &mut output, &mut pseudo_styles);
-    anchor_positioning::cascade(&document, input, &mirror_ids, &mut output)?;
+    anchor_positioning::cascade(&document, input, &mirror_ids, &mut output, &pseudo_styles)?;
     // Native post-cascade adjustments may copy maps. Restore sharing by value
     // after those final changes, without merging distinct metadata or values.
     for value in output.values_mut().chain(
@@ -15678,6 +15678,92 @@ mod tests {
     }
 
     #[test]
+    fn repeated_report_rows_share_style_storage() {
+        let mut root = node(1, None, "html", "");
+        root.children = vec![2];
+        let mut table = node(2, Some(1), "table", "");
+        let mut nodes = Vec::new();
+        for row in 0..1000 {
+            let id = 3 + row * 8;
+            table.children.push(id);
+            let mut tr = node(id, Some(2), "tr", "");
+            tr.children = vec![id + 1, id + 3];
+            let mut td = node(id + 1, Some(id), "td", "");
+            td.attributes.insert("class".into(), "pass".into());
+            td.children = vec![id + 2];
+            let text = node(id + 2, Some(id + 1), "#text", "PASS");
+            let mut other = node(id + 3, Some(id), "td", "");
+            other.children = vec![id + 4];
+            let mut pre = node(id + 4, Some(id + 3), "pre", "");
+            pre.children = vec![id + 5, id + 7];
+            let mut strong = node(id + 5, Some(id + 4), "strong", "");
+            strong.children = vec![id + 6];
+            nodes.extend([
+                tr,
+                td,
+                text,
+                other,
+                pre,
+                strong,
+                node(id + 6, Some(id + 5), "#text", "assert_not_equals"),
+                node(
+                    id + 7,
+                    Some(id + 4),
+                    "#text",
+                    &format!("blob:https://example.org/{row}"),
+                ),
+            ]);
+        }
+        nodes.insert(0, table);
+        nodes.insert(0, root);
+        let input = LayoutInput {
+            svg_clip_resources: Vec::new(),
+            legacy_background_urls: Default::default(),
+            registered_custom_properties: Vec::new(),
+            document_language: None,
+            document_base_url: "https://oryn.invalid/".into(),
+            image_intrinsics: Default::default(),
+            control_states: Default::default(),
+            temporal_pickers: Default::default(),
+            permission_prompts: Default::default(),
+            top_layer: Vec::new(),
+            scrollbar_width: 0.,
+            element_scrolls: BTreeMap::new(),
+            rendered_tree: None,
+            nodes,
+            stylesheets: vec!["td{padding:1em} .pass{color:green} pre{white-space:pre}".into()],
+            stylesheet_media: BTreeMap::new(),
+            selector_states: Default::default(),
+            shadow_trees: Default::default(),
+            stylesheet_base_urls: Default::default(),
+            stylesheet_scope_roots: BTreeMap::new(),
+            custom_states: BTreeMap::new(),
+            focused_node: None,
+            focus_visible: false,
+            viewport: ViewportState::default(),
+            scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light,
+            reduced_motion: false,
+            web_fonts: Vec::new(),
+        };
+        let styles = stylo_computed_values(&input).unwrap();
+        let identities = styles.values().map(Arc::as_ptr).collect::<BTreeSet<_>>();
+        assert!(
+            identities.len() < 64,
+            "{} distinct styles",
+            identities.len()
+        );
+        for row in 1..1000 {
+            for offset in 0..8 {
+                assert!(Arc::ptr_eq(
+                    &styles[&(3 + offset)],
+                    &styles[&(3 + row * 8 + offset)]
+                ));
+            }
+        }
+    }
+
+    #[test]
     fn ordered_layout_content_preserves_mixed_text_and_native_identity() {
         let mut root = node(1, None, "span", "beforeafter");
         root.children = vec![2];
@@ -16810,7 +16896,11 @@ mod tests {
         input.nodes[0].children = vec![2];
         input.nodes[0].content = Some(vec![LayoutContent::Element(2)]);
         let output = compute(&input, &LayoutLimits::default()).unwrap();
-        assert!(!output.geometry.contains_key(&2));
+        // Empty inline anchors retain a position for fragment navigation,
+        // while contributing no area or hit target of their own.
+        let wrapper = output.geometry[&2].box_model.as_ref().unwrap().border_box;
+        assert_eq!((wrapper.width, wrapper.height), (0., 0.));
+        assert!(!output.geometry[&2].interactable);
         assert!(output.geometry[&4].in_viewport);
         assert!(output.geometry[&4].interactable);
         input.nodes[2]

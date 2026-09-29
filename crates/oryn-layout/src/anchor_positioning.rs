@@ -35,7 +35,10 @@ pub(super) fn needed(style: &BTreeMap<String, String>) -> bool {
         .values()
         .any(|value| value.contains("anchor(") || value.contains("anchor-size("))
         || style_value(style, "position-area", "none") != "none"
-        || style_value(style, "position-visibility", "always") != "always"
+        || (matches!(
+            style_value(style, "position", "static"),
+            "absolute" | "fixed"
+        ) && style_value(style, "position-visibility", "always") != "always")
         || style_value(style, "position-try-fallbacks", "none") != "none"
         || ["align-self", "justify-self"]
             .iter()
@@ -1111,8 +1114,33 @@ pub(super) fn cascade(
     input: &LayoutInput,
     mirrors: &BTreeMap<u64, blitz_traits::node_id::NodeId>,
     styles: &mut ComputedStyles,
+    pseudos: &BTreeMap<u64, BTreeMap<String, ComputedStyle>>,
 ) -> Result<(), LayoutError> {
+    // Original-parent metadata distinguishes otherwise identical style maps.
+    // Only anchor layout consumes it; ordinary trees retain shared CSS values.
+    // Include generated pseudos and top-layer implicit anchors before deciding
+    // that no anchor projection is needed. SVG instance projection retains its
+    // explicit native cascade and remapping path below.
+    if input.top_layer.is_empty()
+        && !styles
+            .values()
+            .chain(pseudos.values().flat_map(|values| values.values()))
+            .any(|style| participates(style))
+    {
+        return Ok(());
+    }
     cascade_with_native(document, input, mirrors, styles, NativeValues::default())
+}
+
+fn participates(style: &BTreeMap<String, String>) -> bool {
+    needed(style)
+        || style_value(style, "anchor-name", "none") != "none"
+        || style_value(style, "anchor-scope", "none") != "none"
+        || !matches!(
+            style_value(style, "position-anchor", "auto"),
+            "auto" | "normal"
+        )
+        || style.contains_key("-oryn-implicit-anchor")
 }
 
 pub(super) fn cascade_with_native(
