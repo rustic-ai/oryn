@@ -75,7 +75,11 @@ impl Context<'_> {
         {
             return value.parse().ok();
         }
-        self.nodes.get(&id).and_then(|node| node.parent)
+        self.input
+            .anchor_parents
+            .get(&id)
+            .copied()
+            .unwrap_or_else(|| self.nodes.get(&id).and_then(|node| node.parent))
     }
     fn scope(&self, id: u64, name: &str, tree: Option<&String>) -> Option<u64> {
         let mut current = Some(id);
@@ -1129,7 +1133,14 @@ pub(super) fn cascade(
     {
         return Ok(());
     }
-    cascade_with_native(document, input, mirrors, styles, NativeValues::default())
+    cascade_projection(
+        document,
+        input,
+        mirrors,
+        styles,
+        NativeValues::default(),
+        false,
+    )
 }
 
 fn participates(style: &BTreeMap<String, String>) -> bool {
@@ -1150,14 +1161,26 @@ pub(super) fn cascade_with_native(
     styles: &mut ComputedStyles,
     native: NativeValues<'_>,
 ) -> Result<(), LayoutError> {
+    cascade_projection(document, input, mirrors, styles, native, true)
+}
+
+fn cascade_projection(
+    document: &blitz_dom::BaseDocument,
+    input: &LayoutInput,
+    mirrors: &BTreeMap<u64, blitz_traits::node_id::NodeId>,
+    styles: &mut ComputedStyles,
+    native: NativeValues<'_>,
+    instance_parents: bool,
+) -> Result<(), LayoutError> {
     use style_traits::ToCss;
     let nodes = input
         .nodes
         .iter()
         .map(|node| (node.id, node))
         .collect::<BTreeMap<_, _>>();
+    let mut pool = BTreeSet::new();
     for node in &input.nodes {
-        if let Some(style) = styles.get_mut(&node.id) {
+        if instance_parents && let Some(style) = styles.get_mut(&node.id) {
             Arc::make_mut(style).insert(
                 "-oryn-anchor-parent".into(),
                 node.parent
@@ -1165,8 +1188,6 @@ pub(super) fn cascade_with_native(
                     .unwrap_or_else(|| "none".into()),
             );
         }
-    }
-    for node in &input.nodes {
         let Some(style) = styles.get(&node.id).cloned() else {
             continue;
         };
@@ -1185,6 +1206,7 @@ pub(super) fn cascade_with_native(
             );
         }
         if !needed(&style) {
+            intern_at(styles, node.id, &mut pool);
             continue;
         }
         let fixed = style_value(&style, "position", "static") == "fixed";
@@ -1218,6 +1240,7 @@ pub(super) fn cascade_with_native(
         Arc::make_mut(styles.get_mut(&node.id).unwrap())
             .insert("-oryn-position-area".into(), physical);
         if style_value(&style, "position-try-fallbacks", "none") == "none" {
+            intern_at(styles, node.id, &mut pool);
             continue;
         }
         let mut candidates = Vec::new();
@@ -1268,8 +1291,19 @@ pub(super) fn cascade_with_native(
         }
         Arc::make_mut(styles.get_mut(&node.id).unwrap())
             .insert("-oryn-position-tries".into(), value);
+        intern_at(styles, node.id, &mut pool);
     }
     Ok(())
+}
+
+fn intern_at(styles: &mut ComputedStyles, id: u64, pool: &mut BTreeSet<ComputedStyle>) {
+    if let Some(value) = styles.get_mut(&id) {
+        if let Some(shared) = pool.get(value.as_ref()) {
+            *value = shared.clone();
+        } else {
+            pool.insert(value.clone());
+        }
+    }
 }
 
 /// Conditional visibility preserves CSSOM boxes and the computed visibility

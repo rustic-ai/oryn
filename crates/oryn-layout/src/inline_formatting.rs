@@ -972,6 +972,7 @@ pub(super) fn measure_paragraph(
         top_layer: Vec::new(),
         scrollbar_width: 0.,
         element_scrolls: BTreeMap::new(),
+        anchor_parents: Default::default(),
         rendered_tree: None,
         nodes: Vec::new(),
         stylesheets: Vec::new(),

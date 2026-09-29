@@ -25417,6 +25417,7 @@ pub(crate) fn layout_input(
         top_layer: Vec::new(),
         scrollbar_width: 0.,
         element_scrolls: BTreeMap::new(),
+        anchor_parents: Default::default(),
         rendered_tree: None,
         nodes,
         stylesheets,
