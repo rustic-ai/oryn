@@ -724,35 +724,31 @@ impl LiveLayoutProvider {
         ),
         String,
     > {
-        let (dom, _) = self.dom.borrow().snapshot();
         let document = document.unwrap_or(self.document);
-        let parsed = ParsedDocument {
-            dom,
-            document,
-            errors: Vec::new(),
-            quirks_mode: html5ever::interface::QuirksMode::NoQuirks,
-            events: Vec::new(),
+        let mut input = {
+            let dom = self.dom.borrow();
+            crate::runtime::layout_input_from_dom(
+                dom.arena(),
+                document,
+                self.viewport.get(),
+                oryn_common::v4::ScrollState {
+                    x: scroll.0,
+                    y: scroll.1,
+                    ..Default::default()
+                },
+                if self.native_media.get().0 {
+                    oryn_common::v4::PreferredColorScheme::Dark
+                } else {
+                    oryn_common::v4::PreferredColorScheme::Light
+                },
+                if self.native_media.get().1 {
+                    oryn_common::v4::ReducedMotion::Reduce
+                } else {
+                    oryn_common::v4::ReducedMotion::NoPreference
+                },
+                &[],
+            )
         };
-        let mut input = crate::runtime::layout_input(
-            &parsed,
-            self.viewport.get(),
-            oryn_common::v4::ScrollState {
-                x: scroll.0,
-                y: scroll.1,
-                ..Default::default()
-            },
-            if self.native_media.get().0 {
-                oryn_common::v4::PreferredColorScheme::Dark
-            } else {
-                oryn_common::v4::PreferredColorScheme::Light
-            },
-            if self.native_media.get().1 {
-                oryn_common::v4::ReducedMotion::Reduce
-            } else {
-                oryn_common::v4::ReducedMotion::NoPreference
-            },
-            &[],
-        );
         {
             let dom = self.dom.borrow();
             let mut fonts = self.fonts.borrow_mut();

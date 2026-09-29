@@ -24902,10 +24902,12 @@ fn native_top_layer_paint_membership(
 }
 
 #[cfg(any(feature = "v8-host", test))]
-fn layout_document_base_url(document: &ParsedDocument) -> String {
-    let metadata = document
-        .dom
-        .get(document.document)
+fn layout_document_base_url(
+    dom: &crate::dom::DomArena,
+    document_root: crate::dom::NodeId,
+) -> String {
+    let metadata = dom
+        .get(document_root)
         .ok()
         .and_then(|node| node.document_metadata.as_deref());
     let url = metadata
@@ -24918,9 +24920,7 @@ fn layout_document_base_url(document: &ParsedDocument) -> String {
     } else {
         url
     };
-    document
-        .dom
-        .resolve_document_base(document.document, fallback, true)
+    dom.resolve_document_base(document_root, fallback, true)
         .unwrap_or_else(|_| fallback.to_owned())
 }
 
@@ -24989,21 +24989,45 @@ pub(crate) fn layout_input(
     reduced_motion: ReducedMotion,
     web_fonts: &[oryn_layout::WebFont],
 ) -> oryn_layout::LayoutInput {
+    layout_input_from_dom(
+        &document.dom,
+        document.document,
+        viewport,
+        scroll,
+        color_scheme,
+        reduced_motion,
+        web_fonts,
+    )
+}
+
+// Project only this document into owned layout data. Live actor callers borrow
+// the arena synchronously and release it before style/layout or callbacks run;
+// cloning the shared arena would also copy unrelated frames and detached nodes.
+#[cfg(any(feature = "v8-host", test))]
+pub(crate) fn layout_input_from_dom(
+    dom: &crate::dom::DomArena,
+    document_root: crate::dom::NodeId,
+    viewport: ViewportState,
+    scroll: ScrollState,
+    color_scheme: PreferredColorScheme,
+    reduced_motion: ReducedMotion,
+    web_fonts: &[oryn_layout::WebFont],
+) -> oryn_layout::LayoutInput {
     use crate::dom::NodeKind;
 
-    let elements = layout_element_tree(&document.dom, document.document);
+    let elements = layout_element_tree(dom, document_root);
     // Keep native shadow ownership even for closed roots. Selector ancestry
     // must not be inferred from the flattened rendering projection.
     let mut shadow_trees = oryn_layout::ShadowTrees::default();
     for (id, _) in &elements {
-        if let Some(root) = layout_shadow_root(&document.dom, *id)
-            && let Ok(record) = document.dom.get(root)
+        if let Some(root) = layout_shadow_root(dom, *id)
+            && let Ok(record) = dom.get(root)
         {
             let content = record
                 .children
                 .iter()
                 .filter_map(|child| {
-                    let node = document.dom.get(*child).ok()?;
+                    let node = dom.get(*child).ok()?;
                     match &node.kind {
                         NodeKind::Element { .. } => {
                             Some(oryn_layout::LayoutContent::Element(pack_node_id(*child)))
@@ -25024,10 +25048,10 @@ pub(crate) fn layout_input(
                 },
             );
         }
-        let mut current = document.dom.get(*id).ok().and_then(|node| node.parent);
+        let mut current = dom.get(*id).ok().and_then(|node| node.parent);
         let mut visited = BTreeSet::new();
         while let Some(parent) = current.filter(|parent| visited.insert(*parent)) {
-            let Ok(record) = document.dom.get(parent) else {
+            let Ok(record) = dom.get(parent) else {
                 break;
             };
             if matches!(record.kind, NodeKind::ShadowRoot { .. }) {
@@ -25041,18 +25065,17 @@ pub(crate) fn layout_input(
             }
             current = record.parent;
         }
-        if let Some(slot) = layout_named_slot(&document.dom, *id) {
+        if let Some(slot) = layout_named_slot(dom, *id) {
             shadow_trees
                 .assigned_slots
                 .insert(pack_node_id(*id), pack_node_id(slot));
         }
-        if let Ok(record) = document.dom.get(*id) {
+        if let Ok(record) = dom.get(*id) {
             for child in &record.children {
-                if document
-                    .dom
+                if dom
                     .get(*child)
                     .is_ok_and(|node| matches!(node.kind, NodeKind::Text { .. }))
-                    && let Some(slot) = layout_named_slot(&document.dom, *child)
+                    && let Some(slot) = layout_named_slot(dom, *child)
                 {
                     shadow_trees
                         .assigned_slots
@@ -25073,7 +25096,7 @@ pub(crate) fn layout_input(
     let nodes = elements
         .iter()
         .filter_map(|(id, parent)| {
-            let node = document.dom.get(*id).ok()?;
+            let node = dom.get(*id).ok()?;
             let NodeKind::Element { name } = &node.kind else {
                 return None;
             };
@@ -25085,7 +25108,7 @@ pub(crate) fn layout_input(
             let text = node
                 .children
                 .iter()
-                .filter_map(|child| document.dom.get(*child).ok())
+                .filter_map(|child| dom.get(*child).ok())
                 .filter_map(|child| match &child.kind {
                     NodeKind::Text { data } => Some(data.as_str()),
                     _ => None,
@@ -25096,7 +25119,7 @@ pub(crate) fn layout_input(
                 .children
                 .iter()
                 .filter_map(|child_id| {
-                    let child = document.dom.get(*child_id).ok()?;
+                    let child = dom.get(*child_id).ok()?;
                     match &child.kind {
                         NodeKind::Text { data } => Some(oryn_layout::LayoutContent::Text {
                             node_id: pack_node_id(*child_id),
@@ -25135,7 +25158,7 @@ pub(crate) fn layout_input(
                 .collect();
             attributes.insert(
                 "data-oryn-effective-dir".into(),
-                oryn_layout::directionality::directionality(&document.dom, *id).into(),
+                oryn_layout::directionality::directionality(dom, *id).into(),
             );
             if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
                 && name.local.as_ref() == "img"
@@ -25164,15 +25187,11 @@ pub(crate) fn layout_input(
             // Same-arena child SVG mutations must be visible to a synchronous
             // parent geometry read, before the next resource checkpoint.
             let image_intrinsics = if node.embedded_document_active {
-                document
-                    .dom
-                    .hosted_document(*id)
-                    .and_then(|root| document.dom.get(root).ok())
+                dom.hosted_document(*id)
+                    .and_then(|root| dom.get(root).ok())
                     .and_then(|root| {
                         root.children.iter().find_map(|id| {
-                            document
-                                .dom
-                                .get(*id)
+                            dom.get(*id)
                                 .ok()
                                 .filter(|node| matches!(&node.kind, NodeKind::Element { .. }))
                         })
@@ -25236,12 +25255,12 @@ pub(crate) fn layout_input(
                 image_intrinsics,
                 image_document_root: node
                     .embedded_document_active
-                    .then(|| document.dom.hosted_document(*id))
+                    .then(|| dom.hosted_document(*id))
                     .flatten()
-                    .and_then(|root| document.dom.get(root).ok())
+                    .and_then(|root| dom.get(root).ok())
                     .and_then(|root| {
                         root.children.iter().copied().find(|id| {
-                            document.dom.get(*id).is_ok_and(|node| {
+                            dom.get(*id).is_ok_and(|node| {
                                 oryn_dom::ImageIntrinsics::from_svg(node).is_some()
                             })
                         })
@@ -25259,25 +25278,24 @@ pub(crate) fn layout_input(
     let mut sheets = elements
         .iter()
         .filter_map(|(id, _)| {
-            let node = document.dom.get(*id).ok()?;
+            let node = dom.get(*id).ok()?;
             let NodeKind::Element { name } = &node.kind else {
                 return None;
             };
-            (document.dom.is_css_stylesheet_owner(*id).ok()?
+            (dom.is_css_stylesheet_owner(*id).ok()?
                 && (name.local.as_ref() == "style" || node.stylesheet_override.is_some())
-                && !document.dom.stylesheet_disabled(*id).ok()?)
+                && !dom.stylesheet_disabled(*id).ok()?)
             .then_some(*id)
         })
         .collect::<Vec<_>>();
-    if let Ok(root) = document.dom.get(document.document) {
+    if let Ok(root) = dom.get(document_root) {
         let mut prolog = root
             .children
             .iter()
             .copied()
             .filter(|node| {
-                document.dom.xml_stylesheet(*node).ok().flatten().is_some()
-                    && document
-                        .dom
+                dom.xml_stylesheet(*node).ok().flatten().is_some()
+                    && dom
                         .get(*node)
                         .is_ok_and(|node| node.stylesheet_override.is_some())
             })
@@ -25292,7 +25310,7 @@ pub(crate) fn layout_input(
             (sheet, scope, false)
         })
         .collect::<Vec<_>>();
-    if let Ok(root) = document.dom.get(document.document) {
+    if let Ok(root) = dom.get(document_root) {
         sheets.extend(
             root.adopted_stylesheets
                 .iter()
@@ -25300,8 +25318,8 @@ pub(crate) fn layout_input(
         );
     }
     for (host, _) in &elements {
-        if let Some(root) = layout_shadow_root(&document.dom, *host)
-            && let Ok(record) = document.dom.get(root)
+        if let Some(root) = layout_shadow_root(dom, *host)
+            && let Ok(record) = dom.get(root)
         {
             sheets.extend(
                 record
@@ -25316,16 +25334,16 @@ pub(crate) fn layout_input(
     let mut stylesheet_scope_roots = BTreeMap::new();
     let mut stylesheet_base_urls = BTreeMap::new();
     for (sheet, tree_scope, constructed) in sheets {
-        if document.dom.stylesheet_disabled(sheet).unwrap_or(true) {
+        if dom.stylesheet_disabled(sheet).unwrap_or(true) {
             continue;
         }
-        if let Ok(source) = document.dom.stylesheet_text(sheet) {
+        if let Ok(source) = dom.stylesheet_text(sheet) {
             if let Some(scope) = tree_scope {
                 shadow_trees
                     .stylesheet_scopes
                     .insert(stylesheets.len(), scope);
             }
-            if let Ok(record) = document.dom.get(sheet)
+            if let Ok(record) = dom.get(sheet)
                 && let Some(base) = &record.stylesheet_base_url
             {
                 stylesheet_base_urls.insert(stylesheets.len(), base.clone());
@@ -25341,16 +25359,15 @@ pub(crate) fn layout_input(
                     .unwrap_or(oryn_layout::StylesheetScopeRoot::DocumentElement)
             };
             stylesheet_scope_roots.insert(stylesheets.len(), scope);
-            if let Ok(media) = document.dom.stylesheet_media(sheet) {
+            if let Ok(media) = dom.stylesheet_media(sheet) {
                 stylesheet_media.insert(stylesheets.len(), media);
             }
             stylesheets.push(source);
         }
     }
-    let base = Url::parse(&layout_document_base_url(document)).ok();
-    let encoding = document
-        .dom
-        .get(document.document)
+    let base = Url::parse(&layout_document_base_url(dom, document_root)).ok();
+    let encoding = dom
+        .get(document_root)
         .ok()
         .and_then(|node| node.document_metadata.as_ref())
         .map(|metadata| metadata.encoding.as_str())
@@ -25358,7 +25375,7 @@ pub(crate) fn layout_input(
     let legacy_background_urls = elements
         .iter()
         .filter_map(|(id, _)| {
-            let node = document.dom.get(*id).ok()?;
+            let node = dom.get(*id).ok()?;
             let NodeKind::Element { name } = &node.kind else {
                 return None;
             };
@@ -25380,33 +25397,29 @@ pub(crate) fn layout_input(
         })
         .collect();
     oryn_layout::LayoutInput {
-        svg_clip_resources: document
-            .dom
-            .get(document.document)
+        svg_clip_resources: dom
+            .get(document_root)
             .ok()
             .and_then(|node| node.document_metadata.as_ref())
             .map(|metadata| metadata.css_svg_resources.clone())
             .unwrap_or_default(),
         legacy_background_urls,
-        registered_custom_properties: document
-            .dom
-            .get(document.document)
+        registered_custom_properties: dom
+            .get(document_root)
             .ok()
             .and_then(|node| node.document_metadata.as_ref())
             .map(|metadata| metadata.registered_custom_properties.clone())
             .unwrap_or_default(),
-        document_language: document
-            .dom
-            .document_default_language(document.document)
+        document_language: dom
+            .document_default_language(document_root)
             .ok()
             .flatten()
             .map(str::to_owned),
         selector_states: Default::default(),
         shadow_trees,
-        document_base_url: layout_document_base_url(document),
-        image_intrinsics: document
-            .dom
-            .get(document.document)
+        document_base_url: layout_document_base_url(dom, document_root),
+        image_intrinsics: dom
+            .get(document_root)
             .ok()
             .and_then(|node| node.document_metadata.as_ref())
             .map(|metadata| metadata.css_image_intrinsics.clone())
@@ -26622,6 +26635,66 @@ mod tests {
                 )
                 .is_err()
         );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn native_layout_input_borrows_shared_arena_but_owns_document_projection() {
+        use crate::dom::NodeKind;
+        let mut parsed = crate::html::parse(
+            "<main id=parent>parent</main><section id=child><base href='https://child.test/assets/'><style>section{color:red}</style><span>before</span></section>",
+        );
+        let child = parsed
+            .dom
+            .iter()
+            .find_map(|(id, node)| {
+                (node.attributes.get_null("id").map(String::as_str) == Some("child")).then_some(id)
+            })
+            .unwrap();
+        let child_document = parsed.dom.insert(NodeKind::Document);
+        parsed.dom.append_child(child_document, child).unwrap();
+        let project = |dom: &crate::dom::DomArena, root| {
+            super::layout_input_from_dom(
+                dom,
+                root,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                &[],
+            )
+        };
+        let parent_input = project(&parsed.dom, parsed.document);
+        let child_input = project(&parsed.dom, child_document);
+        assert_eq!(parent_input.document_base_url, "about:blank");
+        assert!(parent_input.stylesheets.is_empty());
+        assert!(parent_input.nodes.iter().all(|node| node.tag != "section"));
+        assert_eq!(child_input.document_base_url, "https://child.test/assets/");
+        assert_eq!(child_input.stylesheets, vec!["section{color:red}"]);
+        assert!(child_input.nodes.iter().all(|node| node.tag != "main"));
+        let text = parsed
+            .dom
+            .descendants_inclusive(child)
+            .unwrap()
+            .into_iter()
+            .find(|id| matches!(&parsed.dom.get(*id).unwrap().kind, NodeKind::Text { data } if data == "before"))
+            .unwrap();
+        if let NodeKind::Text { data } = &mut parsed.dom.get_mut(text).unwrap().kind {
+            *data = "after".into();
+        }
+        let updated = project(&parsed.dom, child_document);
+        drop(parsed);
+        let span_text = |input: &oryn_layout::LayoutInput| {
+            input
+                .nodes
+                .iter()
+                .find(|node| node.tag == "span")
+                .unwrap()
+                .text
+                .clone()
+        };
+        assert_eq!(span_text(&child_input), "before");
+        assert_eq!(span_text(&updated), "after");
     }
 
     #[cfg(feature = "v8-host")]
