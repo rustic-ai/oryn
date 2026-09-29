@@ -56607,6 +56607,27 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(20316172),
+        name: "statusText",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+        static_member: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("ByteString"),
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        exposed: &[],
+        put_forwards: None,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(20316173),
         name: "responseURL",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -56627,7 +56648,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(20316173),
+        id: GeneratedMemberId(20316174),
         name: "responseText",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -56648,7 +56669,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(20316174),
+        id: GeneratedMemberId(20316175),
         name: "response",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -56669,7 +56690,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(20316175),
+        id: GeneratedMemberId(20316176),
         name: "onreadystatechange",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -56690,7 +56711,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(20316176),
+        id: GeneratedMemberId(20316177),
         name: "open",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -56711,7 +56732,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(20316177),
+        id: GeneratedMemberId(20316178),
         name: "setRequestHeader",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -56732,7 +56753,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(20316178),
+        id: GeneratedMemberId(20316179),
         name: "getResponseHeader",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -56753,7 +56774,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(20316179),
+        id: GeneratedMemberId(20316180),
         name: "getAllResponseHeaders",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -56774,7 +56795,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(20316180),
+        id: GeneratedMemberId(20316181),
         name: "send",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -56795,7 +56816,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(20316181),
+        id: GeneratedMemberId(20316182),
         name: "abort",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -56816,7 +56837,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(20316182),
+        id: GeneratedMemberId(20316183),
         name: "overrideMimeType",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -56837,7 +56858,7 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(20316183),
+        id: GeneratedMemberId(20316184),
         name: "responseXML",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,

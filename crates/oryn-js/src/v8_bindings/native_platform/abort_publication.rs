@@ -149,7 +149,10 @@ impl Target {
         let scope = &mut v8::ContextScope::new(scope, context);
         let wrapper = v8::Local::new(scope, &self.wrapper);
         if self.stage == 0 {
-            platform_listener_graph::refresh_all(scope, &owner)?;
+            // The whole dependent set is already marked and retained by this
+            // batch. Only this signal's edges (and its incoming owners) changed;
+            // rebuilding every platform target for every abort is quadratic.
+            platform_listener_graph::refresh(scope, &owner, self.id)?;
             node_event_listeners::abort(scope, &owner, self.id)?;
             self.stage = 1;
         }

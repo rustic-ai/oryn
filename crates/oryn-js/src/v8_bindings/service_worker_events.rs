@@ -328,6 +328,7 @@ pub fn begin(
         let request_id = register_platform_object(
             state,
             PlatformObjectRecord::Request(RequestRecord {
+                blob_entry: None,
                 keepalive: request.keepalive,
                 body_source_known: true,
                 privileged_range: request.privileged_range,

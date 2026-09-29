@@ -1003,6 +1003,8 @@ impl BodyStreamLease {
 }
 
 struct RequestRecord {
+    // URL parsing retains the Blob entry even after URL.revokeObjectURL().
+    blob_entry: Option<Rc<BlobRecord>>,
     keepalive: bool,
     body_source_known: bool,
     privileged_range: bool,
@@ -1042,6 +1044,8 @@ struct ResponseRecord {
 }
 
 struct XhrRecord {
+    blob_entry: Option<Rc<BlobRecord>>,
+    status_text: String,
     synchronous: bool,
     upload_id: u64,
     upload_events: bool,
@@ -1586,7 +1590,7 @@ enum DeferredPlatformTask {
         generation: u64,
         xhr_id: u64,
         url: String,
-        blob: BlobRecord,
+        blob: Option<Rc<BlobRecord>>,
     },
     FinalizeIdbTransaction {
         transaction_id: u64,
@@ -3905,6 +3909,7 @@ impl V8BindingState {
                 xhr.ready_state = 4;
                 xhr.send_invoked = false;
                 xhr.status = 0;
+                xhr.status_text.clear();
                 xhr.generation = xhr.generation.wrapping_add(1);
                 xhr.response_bytes.clear();
                 xhr.response_total = None;
@@ -3952,13 +3957,54 @@ impl V8BindingState {
         Ok(())
     }
 
+    fn fail_xhr(
+        self: &Rc<Self>,
+        scope: &mut v8::PinScope,
+        xhr_id: u64,
+        generation: u64,
+    ) -> Result<(), V8BindingError> {
+        if !xhr_current_generation(self, xhr_id, generation) {
+            return Ok(());
+        }
+        if let PlatformObjectRecord::XMLHttpRequest(xhr) = &mut *platform_object_mut(self, xhr_id)?
+        {
+            xhr.ready_state = 4;
+            xhr.send_invoked = false;
+            xhr.status = 0;
+            xhr.status_text.clear();
+            xhr.response_bytes.clear();
+            xhr.response_total = None;
+            xhr.response_headers.clear();
+            xhr.response_url.clear();
+            xhr.response_object = None;
+            xhr.stream_id = None;
+            xhr.active_operation = None;
+            xhr.deadline = None;
+            xhr.send_started = None;
+        }
+        dispatch_platform_event(scope, self, xhr_id, "readystatechange", None)?;
+        if !xhr_current_generation(self, xhr_id, generation) {
+            return Ok(());
+        }
+        xhr_upload_failure(scope, self, xhr_id, generation, "error")?;
+        if !xhr_current_generation(self, xhr_id, generation) {
+            return Ok(());
+        }
+        dispatch_platform_event(scope, self, xhr_id, "error", None)?;
+        if !xhr_current_generation(self, xhr_id, generation) {
+            return Ok(());
+        }
+        dispatch_platform_event(scope, self, xhr_id, "loadend", None)?;
+        Ok(())
+    }
+
     fn complete_blob_xhr(
         self: &Rc<Self>,
         scope: &mut v8::PinScope,
         xhr_id: u64,
         generation: u64,
         url: String,
-        blob: BlobRecord,
+        blob: Option<Rc<BlobRecord>>,
     ) -> Result<(), V8BindingError> {
         let current = || {
             platform_object(self, xhr_id).is_ok_and(|record|
@@ -3967,18 +4013,22 @@ impl V8BindingState {
         if !current() || !platform_object(self, xhr_id).is_ok_and(|record|
             matches!(&*record, PlatformObjectRecord::XMLHttpRequest(xhr) if xhr.send_invoked)) { return Ok(()); }
 
+        let Some(blob) = blob else {
+            return self.fail_xhr(scope, xhr_id, generation);
+        };
         {
             let mut record = platform_object_mut(self, xhr_id)?;
             let PlatformObjectRecord::XMLHttpRequest(xhr) = &mut *record else {
                 return Err(V8BindingError::Allocation("XHR record"));
             };
             xhr.status = 200;
+            xhr.status_text = "OK".into();
             xhr.response_total = Some(blob.bytes.len() as u64);
             xhr.response_url = url;
             xhr.response_headers = if blob.media_type.is_empty() {
                 Vec::new()
             } else {
-                vec![("content-type".into(), blob.media_type)]
+                vec![("content-type".into(), blob.media_type.clone())]
             };
             xhr.ready_state = 2;
         }
@@ -3991,7 +4041,7 @@ impl V8BindingState {
             let PlatformObjectRecord::XMLHttpRequest(xhr) = &mut *record else {
                 return Err(V8BindingError::Allocation("XHR record"));
             };
-            xhr.response_bytes = blob.bytes;
+            xhr.response_bytes = blob.bytes.clone();
             xhr.ready_state = 3;
         }
         dispatch_platform_event(scope, self, xhr_id, "readystatechange", None)?;
@@ -5023,39 +5073,7 @@ impl V8BindingState {
                 if let PendingPlatformOperation::XhrStart { xhr_id, generation }
                 | PendingPlatformOperation::XhrRead { xhr_id, generation } = &pending
                 {
-                    if !xhr_current_generation(self, *xhr_id, *generation) {
-                        return Ok(());
-                    }
-                    if let PlatformObjectRecord::XMLHttpRequest(xhr) =
-                        &mut *platform_object_mut(self, *xhr_id)?
-                    {
-                        xhr.ready_state = 4;
-                        xhr.send_invoked = false;
-                        xhr.status = 0;
-                        xhr.response_bytes.clear();
-                        xhr.response_total = None;
-                        xhr.response_headers.clear();
-                        xhr.response_url.clear();
-                        xhr.response_object = None;
-                        xhr.stream_id = None;
-                        xhr.active_operation = None;
-                        xhr.deadline = None;
-                        xhr.send_started = None;
-                    }
-                    dispatch_platform_event(scope, self, *xhr_id, "readystatechange", None)?;
-                    if !xhr_current_generation(self, *xhr_id, *generation) {
-                        return Ok(());
-                    }
-                    xhr_upload_failure(scope, self, *xhr_id, *generation, "error")?;
-                    if !xhr_current_generation(self, *xhr_id, *generation) {
-                        return Ok(());
-                    }
-                    dispatch_platform_event(scope, self, *xhr_id, "error", None)?;
-                    if !xhr_current_generation(self, *xhr_id, *generation) {
-                        return Ok(());
-                    }
-                    dispatch_platform_event(scope, self, *xhr_id, "loadend", None)?;
-                    return Ok(());
+                    return self.fail_xhr(scope, *xhr_id, *generation);
                 }
                 if let PendingPlatformOperation::WebSocketPoll { websocket_id } = &pending {
                     // A concurrent poll can observe native close ownership being
@@ -12830,6 +12848,7 @@ fn initialize_platform_constructor<'s>(
                         request.privileged_range,
                         request.body_source_known,
                         request.keepalive,
+                        request.blob_entry.clone(),
                     )),
                     _ => None,
                 }
@@ -13269,9 +13288,17 @@ fn initialize_platform_constructor<'s>(
                 None,
             )
         };
+        let blob_entry = if let Some(source) = &inherited {
+            source.21.clone()
+        } else if parsed.scheme() == "blob" {
+            blob_url_record(state, &url).map(Rc::new)
+        } else {
+            None
+        };
         let id = register_platform_object(
             state,
             PlatformObjectRecord::Request(RequestRecord {
+                blob_entry,
                 keepalive,
                 body_source_known,
                 privileged_range: !init_present
@@ -13363,6 +13390,8 @@ fn initialize_platform_constructor<'s>(
         let id = register_platform_object(
             state,
             PlatformObjectRecord::XMLHttpRequest(XhrRecord {
+                blob_entry: None,
+                status_text: String::new(),
                 synchronous: false,
                 upload_id,
                 upload_events: false,
@@ -24418,6 +24447,9 @@ fn get_platform_attribute<'s>(
         (PlatformObjectRecord::XMLHttpRequest(xhr), "XMLHttpRequest", "status") => {
             Ok(v8::Integer::new_from_unsigned(scope, xhr.status.into()).into())
         }
+        (PlatformObjectRecord::XMLHttpRequest(xhr), "XMLHttpRequest", "statusText") => {
+            v8_string(scope, &xhr.status_text)
+        }
         (PlatformObjectRecord::XMLHttpRequest(xhr), "XMLHttpRequest", "responseURL") => {
             v8_string(scope, &xhr.response_url)
         }
@@ -25122,6 +25154,7 @@ fn platform_fetch_callback(
             referrer,
             request_policy,
             fetch,
+            blob_entry,
         ) = {
             let mut record = platform_object_mut(&state, request_id)?;
             let PlatformObjectRecord::Request(request) = &mut *record else {
@@ -25144,6 +25177,7 @@ fn platform_fetch_callback(
                     redirect: request.redirect.clone(),
                     integrity: request.integrity.clone(),
                 },
+                request.blob_entry.clone(),
             )
         };
         let aborted_reason = {
@@ -25168,7 +25202,13 @@ fn platform_fetch_callback(
                 interface: "fetch".into(),
                 member: message.into(),
             })?;
-        if let Some(blob) = blob_url_record(&state, &url) {
+        if url.starts_with("blob:") {
+            let blob = blob_entry.filter(|_| method == "GET").ok_or_else(|| {
+                V8BindingError::Unsupported {
+                    interface: "fetch".into(),
+                    member: "Blob URL fetch requires GET and a valid Blob entry".into(),
+                }
+            })?;
             crate::integrity::verify(&fetch.integrity, &blob.bytes, true).map_err(|error| {
                 V8BindingError::Unsupported {
                     interface: "fetch".into(),
@@ -25185,7 +25225,7 @@ fn platform_fetch_callback(
                     entries: if blob.media_type.is_empty() {
                         Vec::new()
                     } else {
-                        vec![("content-type".into(), blob.media_type)]
+                        vec![("content-type".into(), blob.media_type.clone())]
                     },
                 }),
             );
@@ -25197,13 +25237,13 @@ fn platform_fetch_callback(
                     internal_response: None,
                     body_owner: None,
                     response_type: "basic",
-                    status_text: String::new(),
+                    status_text: "OK".into(),
                     redirected: false,
                     status: 200,
                     url,
                     headers_id,
                     body_stream_id,
-                    bytes: blob.bytes,
+                    bytes: blob.bytes.clone(),
                     body_used: false,
                     signal_id: Some(signal_id),
                 }),
@@ -27386,6 +27426,7 @@ fn call_platform_operation<'s>(
                 keepalive,
                 body_source_known,
                 privileged_range,
+                blob_entry,
             ) = {
                 let record = platform_object(state, id)?;
                 let PlatformObjectRecord::Request(request) = &*record else {
@@ -27421,6 +27462,7 @@ fn call_platform_operation<'s>(
                     request.keepalive,
                     request.body_source_known,
                     request.privileged_range,
+                    request.blob_entry.clone(),
                 )
             };
             let owner = body_owner(state, &foreign_body)?;
@@ -27442,6 +27484,7 @@ fn call_platform_operation<'s>(
             // Snapshot all source fields before registering headers or signals: those
             // operations mutate the same platform-object registry.
             let clone = RequestRecord {
+                blob_entry,
                 keepalive,
                 body_source_known,
                 privileged_range,
@@ -27636,6 +27679,11 @@ fn call_platform_operation<'s>(
                 let _ = parsed_url.set_password(Some(&password));
             }
             let url = parsed_url.to_string();
+            let blob_entry = if parsed_url.scheme() == "blob" {
+                blob_url_record(state, &url).map(Rc::new)
+            } else {
+                None
+            };
             let synchronous = !args.get(2).is_undefined() && !args.get(2).boolean_value(scope);
             let mut record = platform_object_mut(state, id)?;
             let PlatformObjectRecord::XMLHttpRequest(xhr) = &mut *record else {
@@ -27647,6 +27695,7 @@ fn call_platform_operation<'s>(
             {
                 return Err(xhr_sync::exception("InvalidAccessError"));
             }
+            xhr.blob_entry = blob_entry;
             xhr.synchronous = synchronous;
             let changed_state = xhr.ready_state != 1;
             xhr.method = method;
@@ -27663,6 +27712,7 @@ fn call_platform_operation<'s>(
             xhr.response_url.clear();
             xhr.request_headers.clear();
             xhr.status = 0;
+            xhr.status_text.clear();
             xhr.deadline = None;
             xhr.send_started = None;
             let operation = xhr.active_operation.take();
@@ -27974,7 +28024,13 @@ fn call_platform_operation<'s>(
                     return Ok(None);
                 }
             }
-            if let Some(blob) = blob_url_record(state, &request.url) {
+            if request.url.starts_with("blob:") {
+                let blob = match &*platform_object(state, id)? {
+                    PlatformObjectRecord::XMLHttpRequest(xhr) if request.method == "GET" => {
+                        xhr.blob_entry.clone()
+                    }
+                    _ => None,
+                };
                 state.deferred_platform_tasks.borrow_mut().push_back(
                     DeferredPlatformTask::CompleteBlobXhr {
                         generation,
@@ -28012,6 +28068,7 @@ fn call_platform_operation<'s>(
                     xhr.ready_state = 0;
                 }
                 xhr.status = 0;
+                xhr.status_text.clear();
                 xhr.response_bytes.clear();
                 xhr.response_total = None;
                 xhr.response_headers.clear();
@@ -33044,6 +33101,18 @@ fn get_attribute_value<'s>(
         let state = frame_document_state(scope, state, node);
         if let Some(window) = state.frame_committed_windows.borrow().get(&node) {
             let window = v8::Local::new(scope, window);
+            let Some(child) = window.get_creation_context(scope) else {
+                return Ok(v8::null(scope).into());
+            };
+            // Native domain relaxation updates these tokens. Check at access
+            // time, not only when the frame originally committed.
+            if !scope
+                .get_current_context()
+                .get_security_token(scope)
+                .strict_equals(child.get_security_token(scope))
+            {
+                return Ok(v8::null(scope).into());
+            }
             let key = v8::String::new(scope, "document")
                 .ok_or(V8BindingError::Allocation("frame document key"))?;
             if let Some(document) = window.get(scope, key.into())
@@ -53118,6 +53187,99 @@ mod tests {
             b"oryn"
         );
         assert!(blob_url_record(&state, &format!("{url}?changed#part")).is_none());
+    }
+
+    #[test]
+    fn blob_requests_retain_entries_and_reject_non_get_without_network() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/").unwrap();
+        let source = v8::String::new(scope, r#"
+            let result = 'pending';
+            const check = (v, m) => { if (!v) throw Error(m); };
+            const rejected = async (value, label) => {
+                try { await value; } catch (error) {
+                    check(error instanceof TypeError, label + ': TypeError'); return;
+                }
+                throw Error(label + ': unexpectedly resolved');
+            };
+            (async () => {
+                const url = URL.createObjectURL(new Blob(['retained'], {type:'text/plain'}));
+                const request = new Request(url + '#fragment');
+                const xhr = new XMLHttpRequest(); xhr.open('GET', url);
+                const sync = new XMLHttpRequest(); sync.open('GET', url, false);
+                const loaded = new Promise((resolve, reject) => {
+                    xhr.onload = () => { try {
+                        check(xhr.status === 200 && xhr.statusText === 'OK', 'XHR status');
+                        check(xhr.responseText === 'retained', 'XHR body'); resolve();
+                    } catch (e) { reject(e); } };
+                    xhr.onerror = () => reject(Error('XHR error'));
+                });
+                URL.revokeObjectURL(url);
+                const clone = request.clone(), copied = new Request(request);
+                xhr.send(); sync.send();
+                check(sync.responseText === 'retained' && sync.statusText === 'OK', 'sync retention');
+                for (const req of [request, clone, copied]) {
+                    const response = await fetch(req);
+                    check(response.statusText === 'OK' && await response.text() === 'retained', 'Request retention');
+                }
+                await loaded;
+                await rejected(fetch(url), 'revoked URL');
+                const live = URL.createObjectURL(new Blob(['live']));
+                await rejected(fetch(live + '?different'), 'query differs');
+                for (const method of ['HEAD', 'POST', 'DELETE', 'OPTIONS', 'PUT', 'CUSTOM']) {
+                    await rejected(fetch(live, {method}), method);
+                    const events = [];
+                    await new Promise((resolve, reject) => {
+                        const bad = new XMLHttpRequest(); bad.open(method, live);
+                        bad.onreadystatechange = () => {
+                            if (bad.readyState === 4) events.push('done:' + bad.status + ':' + bad.statusText);
+                        };
+                        bad.onerror = () => events.push('error');
+                        bad.onload = () => reject(Error(method + ': unexpected load'));
+                        bad.onloadend = resolve;
+                        bad.send(); check(bad.readyState === 1, 'asynchronous Blob failure');
+                    });
+                    check(events.join('|') === 'done:0:|error', method + ': error order');
+                }
+                const badSync = new XMLHttpRequest(); badSync.open('POST', live, false);
+                let syncError; try { badSync.send(); } catch (error) { syncError = error.name; }
+                check(syncError === 'NetworkError' && badSync.status === 0, 'sync non-GET');
+                // Reopening replaces both the captured entry and the pending generation.
+                const reopened = new XMLHttpRequest(); reopened.open('GET', live); reopened.send();
+                reopened.open('GET', url);
+                let staleLoad = false; reopened.onload = () => { staleLoad = true; };
+                await new Promise(resolve => {
+                    reopened.onerror = resolve; reopened.send();
+                });
+                check(!staleLoad && reopened.status === 0, 'reopened revoked entry');
+                result = 'ok';
+            })().catch(error => result = String(error));
+        "#).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        for _ in 0..128 {
+            state.drain_platform_completions(scope, 16).unwrap();
+            scope.perform_microtask_checkpoint();
+        }
+        let source = v8::String::new(scope, "result").unwrap();
+        assert_eq!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .to_rust_string_lossy(scope),
+            "ok"
+        );
     }
 
     #[test]

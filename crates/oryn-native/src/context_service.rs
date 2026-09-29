@@ -10565,7 +10565,7 @@ impl ParentContextService {
             enforce_mixed_content(&source_origin, &url)
                 .map_err(|error| ScriptLoadFailure::Fetch(error.to_string()))?;
             if !cors
-                && url.scheme() != "data"
+                && !matches!(url.scheme(), "data" | "blob")
                 && (source_opaque || url.origin().ascii_serialization() != source_origin)
             {
                 integrity_eligible = false;
@@ -10602,9 +10602,21 @@ impl ParentContextService {
                     "dynamic script blocked by Content-Security-Policy script-src".into(),
                 ));
             }
-            if url.scheme() == "data" {
-                let (media_type, body) = crate::network::decode_data_url(&url)
-                    .map_err(|error| ScriptLoadFailure::Fetch(error.to_string()))?;
+            if matches!(url.scheme(), "data" | "blob") {
+                let (media_type, body) = if url.scheme() == "blob" {
+                    let creator = creator.ok_or_else(|| {
+                        ScriptLoadFailure::Fetch("Blob script requires native creator".into())
+                    })?;
+                    let owner = self.script_document_owner(page_id, creator)?;
+                    let blob = self
+                        .context_owner()?
+                        .resolve_native_blob(&owner, url.as_str())
+                        .map_err(|error| ScriptLoadFailure::Fetch(error.to_string()))?;
+                    (Some(blob.media_type), blob.bytes)
+                } else {
+                    crate::network::decode_data_url(&url)
+                        .map_err(|error| ScriptLoadFailure::Fetch(error.to_string()))?
+                };
                 if body.len() > MAX_PAGE_SCRIPT_BYTES {
                     return Err(ScriptLoadFailure::Capacity(
                         "decoded dynamic script data URL".into(),
@@ -15646,6 +15658,100 @@ mod tests {
             target: oryn_js::message_wire::WindowTarget::Root,
             document_generation: 1,
             stream_epoch: 0,
+        }
+    }
+
+    #[test]
+    fn blob_script_loading_uses_native_store_and_preserves_policy_and_integrity() {
+        struct NoNetwork;
+        impl NetworkBroker for NoNetwork {
+            fn send(&self, _: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                panic!("Blob script must not enter the network broker")
+            }
+        }
+        for blocked in [false, true] {
+            let context = Browser::in_process_probe().new_context();
+            let page = context.new_page();
+            let page_id = page.page_id();
+            context
+                .commit_page_url(page_id, "https://source.test/".into())
+                .unwrap();
+            let headers = if blocked {
+                vec![("content-security-policy".into(), "script-src 'none'".into())]
+            } else {
+                vec![]
+            };
+            context
+                .install_document_security(page_id, "https://source.test/".into(), &headers)
+                .unwrap();
+            let service = ParentContextService::new_with_network(
+                context,
+                page_id,
+                Some(SharedNetworkBroker::new(NoNetwork)),
+            );
+            let creator = script_test_creator(&service, page_id);
+            let context = service.context_owner().unwrap();
+            let owner = service.script_document_owner(page_id, &creator).unwrap();
+            let url = context
+                .register_native_blob(
+                    owner.clone(),
+                    b"globalThis.loaded = true".to_vec(),
+                    String::new(),
+                )
+                .unwrap();
+            let request = |url: String, module, integrity| ContextServiceRequest::LoadScript {
+                fallback_encoding: None,
+                parser_inserted: false,
+                script_policy: None,
+                page_id,
+                creator: creator.clone(),
+                url,
+                module,
+                nonce: None,
+                integrity,
+                cross_origin: None,
+                initiator_url: None,
+                referrer_policy: None,
+                referrer_source: None,
+            };
+            for address in [url.clone(), format!("{url}#part")] {
+                let response = service.handle(request(address, false, None)).unwrap();
+                assert_eq!(
+                    matches!(&response, ContextServiceResponse::ScriptSource { source, muted_errors: false, .. } if source == "globalThis.loaded = true"),
+                    !blocked,
+                    "{response:?}"
+                );
+            }
+            if blocked {
+                continue;
+            }
+            assert!(matches!(
+                service.handle(request(url.clone(), true, None)).unwrap(),
+                ContextServiceResponse::ScriptLoadFailed { .. }
+            ));
+            assert!(matches!(
+                service
+                    .handle(request(
+                        url.clone(),
+                        false,
+                        Some("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".into())
+                    ))
+                    .unwrap(),
+                ContextServiceResponse::ScriptLoadFailed {
+                    failure: crate::script_load_failure::ScriptLoadFailure::Integrity(_)
+                }
+            ));
+            assert!(matches!(
+                service
+                    .handle(request(format!("{url}?different"), false, None))
+                    .unwrap(),
+                ContextServiceResponse::ScriptLoadFailed { .. }
+            ));
+            context.revoke_native_blob(&owner, &url).unwrap();
+            assert!(matches!(
+                service.handle(request(url, false, None)).unwrap(),
+                ContextServiceResponse::ScriptLoadFailed { .. }
+            ));
         }
     }
 

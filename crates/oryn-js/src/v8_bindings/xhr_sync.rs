@@ -268,16 +268,21 @@ pub(super) fn send(
     let result = (|| {
         // Blob URLs are realm-owned capabilities, using the same lookup as the
         // asynchronous path. No host request is needed for their immutable data.
-        if let Some(blob) = blob_url_record(state, &request.url) {
+        if request.url.starts_with("blob:") {
+            let blob = match &*platform_object(state, id)? {
+                PlatformObjectRecord::XMLHttpRequest(xhr) => xhr.blob_entry.clone(),
+                _ => None,
+            }
+            .ok_or_else(|| exception("NetworkError"))?;
             if request.method != "GET" || blob.bytes.len() > 16 * 1024 * 1024 {
                 return Err(exception("NetworkError"));
             }
-            let headers = vec![("content-type".into(), blob.media_type)];
+            let headers = vec![("content-type".into(), blob.media_type.clone())];
             return Ok(Response {
                 status: 200,
                 url: request.url,
                 headers,
-                body: blob.bytes,
+                body: blob.bytes.clone(),
             });
         }
         // Match the native broker's existing collected-response limit. No
@@ -304,6 +309,11 @@ pub(super) fn send(
                 body,
             }) => {
                 xhr.status = status;
+                xhr.status_text = if url.starts_with("blob:") {
+                    "OK".into()
+                } else {
+                    String::new()
+                };
                 xhr.response_url = url;
                 xhr.response_total = headers
                     .iter()
@@ -314,6 +324,7 @@ pub(super) fn send(
             }
             Err(error) => {
                 xhr.status = 0;
+                xhr.status_text.clear();
                 xhr.response_url.clear();
                 xhr.response_headers.clear();
                 xhr.response_bytes.clear();
@@ -594,7 +605,7 @@ mod tests {
         );
     }
     #[test]
-    fn collected_body_limit_and_mid_read_termination_transfer_custody() {
+    fn collected_body_limit_and_termination_do_not_leak_streams() {
         for terminate in [false, true] {
             super::super::tests::initialize_v8();
             let parsed = html::parse("");
@@ -620,34 +631,59 @@ mod tests {
                 ..Default::default()
             });
             state.set_platform_host(host.clone());
-            let request = PlatformHttpRequest {
-                upgrade_mixed_image: false,
-                fetch: None,
-                use_cors_preflight: false,
-                method: "GET".into(),
-                url: "https://example.test/".into(),
-                headers: vec![],
-                body: vec![],
-                credentials: "same-origin".into(),
-                initiator_url: Some("https://example.test/".into()),
-                referrer_policy: None,
-            };
-            let result = fetch(
-                scope,
-                &state,
-                request,
-                Some(Instant::now() + Duration::from_secs(1)),
-                5,
-            );
-            assert!(
-                matches!(result, Err(V8BindingError::Unsupported { member, .. })
-                if member == if terminate { "AbortError" } else { "NetworkError" })
-            );
             if terminate {
-                scope.cancel_terminate_execution();
+                // Exercise termination inside an executing isolate, as real
+                // synchronous XHR does. A termination request made while V8
+                // is idle is only observed on its next JavaScript entry.
+                state.commit_location("https://example.test/").unwrap();
+                let source = v8::String::new(scope,
+                    "const xhr=new XMLHttpRequest(); xhr.open('GET','/data',false); xhr.send(); throw Error('send returned');"
+                ).unwrap();
+                let script = v8::Script::compile(scope, source, None).unwrap();
+                v8::tc_scope!(let tc, scope);
+                assert!(script.run(tc).is_none());
+                assert!(tc.has_terminated());
+                tc.cancel_terminate_execution();
+            } else {
+                let request = PlatformHttpRequest {
+                    upgrade_mixed_image: false,
+                    fetch: None,
+                    use_cors_preflight: false,
+                    method: "GET".into(),
+                    url: "https://example.test/".into(),
+                    headers: vec![],
+                    body: vec![],
+                    credentials: "same-origin".into(),
+                    initiator_url: Some("https://example.test/".into()),
+                    referrer_policy: None,
+                };
+                let result = fetch(
+                    scope,
+                    &state,
+                    request,
+                    Some(Instant::now() + Duration::from_secs(1)),
+                    5,
+                );
+                assert!(
+                    matches!(result, Err(V8BindingError::Unsupported { member, .. }) if member == "NetworkError")
+                );
             }
-            assert_eq!(*host.abandoned.borrow(), vec![7]);
-            assert_eq!(host.cancelled.borrow().len(), usize::from(terminate));
+            if terminate {
+                // The ready terminal chunk is consumed inside the native call
+                // before V8 observes termination at its next safepoint. The
+                // stream completed normally and must not be abandoned twice.
+                assert!(host.abandoned.borrow().is_empty());
+                assert_eq!(host.acknowledged.borrow().len(), 2);
+                assert!(
+                    host.acknowledged
+                        .borrow()
+                        .iter()
+                        .all(|(_, accepted)| *accepted)
+                );
+            } else {
+                assert_eq!(*host.abandoned.borrow(), vec![7]);
+            }
+            assert!(host.cancelled.borrow().is_empty());
             assert!(state.pending_platform_operations.borrow().is_empty());
         }
     }

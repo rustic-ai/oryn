@@ -6426,10 +6426,13 @@ mod raw_v8 {
             }
             if same_origin && let Some(document) = document {
                 state.set_frame_document(frame, document);
-                state.set_frame_committed_window(frame, window);
             } else {
                 state.clear_frame_document(frame);
             }
+            // Keep the native committed identity even while inaccessible. The
+            // contentDocument getter checks current security tokens so later
+            // document.domain relaxation can grant (or revoke) access.
+            state.set_frame_committed_window(frame, window);
             bind_native_frame_lifetime(scope, parent, child, frame)?;
             Ok(())
         }
@@ -19682,6 +19685,74 @@ mod raw_v8 {
             assert_eq!(
                 host.resolve_submission_target(&transaction.navigation_target),
                 Some(committed)
+            );
+        }
+
+        #[test]
+        fn frame_content_document_rechecks_native_security_tokens_after_commit() {
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+            ));
+            host.install_dom(dom.clone(), 1).unwrap();
+            host.execute(
+                "globalThis.frame=document.createElement('iframe');document.body.append(frame)",
+            )
+            .unwrap();
+            host.adopt_created_realms();
+            let frame = dom
+                .borrow()
+                .query_selector(dom.borrow().document(), "iframe")
+                .unwrap()
+                .unwrap();
+            let foreign = oryn_dom::html::parse("<p>foreign</p>")
+                .into_runtime()
+                .unwrap();
+            let document = foreign.document();
+            let child = host
+                .commit_frame_document(
+                    frame,
+                    Origin::from_url("https://foreign.test/"),
+                    Rc::new(RefCell::new(foreign)),
+                    document,
+                )
+                .unwrap();
+            assert_eq!(
+                host.evaluate_string("frame.contentDocument===null")
+                    .unwrap(),
+                "true"
+            );
+            let original = {
+                let parent = host.contexts[&RealmId(0)].clone();
+                let child = host.contexts[&child].clone();
+                v8::scope!(let scope, &mut host.isolate);
+                let parent = v8::Local::new(scope, parent);
+                let child = v8::Local::new(scope, child);
+                let original = v8::Global::new(scope, child.get_security_token(scope));
+                child.set_security_token(parent.get_security_token(scope));
+                original
+            };
+            assert_eq!(
+                host.evaluate_string("frame.contentDocument.body.textContent")
+                    .unwrap(),
+                "foreign"
+            );
+            {
+                let child = host.contexts[&child].clone();
+                v8::scope!(let scope, &mut host.isolate);
+                let child = v8::Local::new(scope, child);
+                child.set_security_token(v8::Local::new(scope, original));
+            }
+            assert_eq!(
+                host.evaluate_string("frame.contentDocument===null")
+                    .unwrap(),
+                "true"
+            );
+            host.execute("frame.remove()").unwrap();
+            assert_eq!(
+                host.evaluate_string("frame.contentDocument===null")
+                    .unwrap(),
+                "true"
             );
         }
 

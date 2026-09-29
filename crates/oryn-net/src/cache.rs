@@ -102,7 +102,7 @@ impl MemoryCache {
             || entry.body.len() > self.max_entry_bytes
             || self.max_entries == 0
             || self.max_bytes == 0
-            || !cacheable_status(entry.status)
+            || !cacheable_status(entry.status, &entry.headers)
             || has_directive(&entry.headers, "no-store")
             || entry.vary.iter().any(|(name, _)| name == "*")
         {
@@ -157,11 +157,26 @@ fn has_directive(headers: &[(String, String)], directive: &str) -> bool {
     })
 }
 
-const fn cacheable_status(status: u16) -> bool {
+fn cacheable_status(status: u16, headers: &[(String, String)]) -> bool {
+    if !(200..=599).contains(&status) || status == 304 {
+        return false;
+    }
+    // The default status list grants heuristic caching, not an exclusive
+    // whitelist. Explicit freshness or public permits other final statuses.
     matches!(
         status,
-        200 | 203 | 204 | 206 | 300 | 301 | 404 | 405 | 410 | 414 | 501
-    )
+        200 | 203 | 204 | 206 | 300 | 301 | 308 | 404 | 405 | 410 | 414 | 501
+    ) || has_directive(headers, "public")
+        || headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("expires")
+                || (name.eq_ignore_ascii_case("cache-control")
+                    && value.split(',').any(|part| {
+                        part.trim().split_once('=').is_some_and(|(name, value)| {
+                            name.eq_ignore_ascii_case("max-age")
+                                && value.trim().trim_matches('"').parse::<u64>().is_ok()
+                        })
+                    }))
+        })
 }
 
 #[cfg(test)]
@@ -186,6 +201,38 @@ mod tests {
             stored_at_ms: 100,
             freshness_lifetime_ms: 1_000,
             vary: vec![],
+        }
+    }
+
+    #[test]
+    fn explicit_cache_permission_extends_default_statuses_without_overriding_no_store() {
+        for status in [204, 299, 400, 499, 500, 502, 503, 504, 599] {
+            for permission in ["max-age=3600", "public"] {
+                let mut cache = MemoryCache::default();
+                let mut value = entry(b"cached");
+                value.status = status;
+                value.headers = vec![("Cache-Control".into(), permission.into())];
+                assert!(
+                    cache.insert(key("https://a.test/status"), value.clone()),
+                    "{status} {permission}"
+                );
+                value
+                    .headers
+                    .push(("cache-control".into(), "no-store".into()));
+                assert!(!cache.insert(key("https://a.test/denied"), value));
+            }
+        }
+        for (status, permission) in [
+            (299, ""),
+            (500, "max-age=invalid"),
+            (101, "public"),
+            (304, "max-age=3600"),
+        ] {
+            let mut cache = MemoryCache::default();
+            let mut value = entry(b"denied");
+            value.status = status;
+            value.headers = vec![("cache-control".into(), permission.into())];
+            assert!(!cache.insert(key("https://a.test/denied"), value));
         }
     }
 

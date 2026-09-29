@@ -296,6 +296,37 @@ struct ParentQueue {
     max_messages: usize,
     max_bytes: usize,
 }
+// The ordered reader owns at most one already-bounded IPC frame while the
+// consumer catches up. Queue saturation is transport backpressure, not an
+// author-visible worker failure. Stop always wakes a blocked producer.
+fn enqueue_received_events<'a>(
+    queue: &'a ParentQueue,
+    mut state: std::sync::MutexGuard<'a, ParentState>,
+    events: Vec<(AgentEvent, usize)>,
+) -> std::sync::MutexGuard<'a, ParentState> {
+    for (event, bytes) in events {
+        while !state.stopping
+            && (state.events.len() >= queue.max_messages
+                || state
+                    .event_bytes
+                    .checked_add(bytes)
+                    .is_none_or(|total| total > queue.max_bytes))
+        {
+            state = queue
+                .changed
+                .wait(state)
+                .unwrap_or_else(|error| error.into_inner());
+        }
+        if state.stopping {
+            break;
+        }
+        state.event_bytes += bytes;
+        state.closed |= matches!(event, AgentEvent::Closed);
+        state.events.push_back((event, bytes));
+        queue.changed.notify_all();
+    }
+    state
+}
 pub struct AgentChildProcess {
     placement: crate::execution_placement::ExecutionPlacement,
     child: Option<std::process::Child>,
@@ -557,26 +588,7 @@ impl AgentChildProcess {
                                     .collect::<Result<Vec<_>, _>>();
                                 match staged {
                                     Ok(events) => {
-                                        let bytes = events
-                                            .iter()
-                                            .try_fold(state.event_bytes, |sum, (_, bytes)| {
-                                                sum.checked_add(*bytes)
-                                            });
-                                        if state.events.len().saturating_add(events.len())
-                                            > queue.max_messages
-                                            || bytes.is_none_or(|bytes| bytes > queue.max_bytes)
-                                        {
-                                            state.failure = Some(WorkerError::new(
-                                                "QuotaExceededError",
-                                                "agent event mailbox full",
-                                            ));
-                                        } else {
-                                            state.event_bytes = bytes.unwrap();
-                                            for (event, bytes) in events {
-                                                state.closed |= matches!(event, AgentEvent::Closed);
-                                                state.events.push_back((event, bytes));
-                                            }
-                                        }
+                                        state = enqueue_received_events(&queue, state, events);
                                     }
                                     Err(error) => state.failure = Some(error),
                                 }
@@ -751,6 +763,9 @@ impl AgentProcess for AgentChildProcess {
             state.event_bytes -= bytes;
             events.push(event);
         }
+        if !events.is_empty() {
+            self.queue.changed.notify_all();
+        }
         Ok(events)
     }
     fn terminate(&mut self) -> Result<(), WorkerError> {
@@ -858,6 +873,104 @@ mod tests {
         fn request(&self, _: AgentServiceRequest) -> Result<AgentServiceResponse, WorkerError> {
             Ok(AgentServiceResponse::Done)
         }
+    }
+    fn bounded_event_test_process() -> AgentChildProcess {
+        let (control, _) = UnixStream::pair().unwrap();
+        let (services, _) = UnixStream::pair().unwrap();
+        AgentChildProcess {
+            placement: crate::execution_placement::ExecutionPlacement::thread(),
+            child: None,
+            control,
+            services,
+            backend: Arc::new(Backend),
+            threads: Vec::new(),
+            queue: Arc::new(ParentQueue {
+                state: Mutex::new(ParentState {
+                    commands: Default::default(),
+                    command_bytes: 0,
+                    events: Default::default(),
+                    event_bytes: 0,
+                    admitted: true,
+                    stopping: false,
+                    closed: false,
+                    failure: None,
+                    suspension_epoch: 0,
+                    suspend_requested: false,
+                    suspend_acknowledged: false,
+                    suspension_control: None,
+                }),
+                changed: std::sync::Condvar::new(),
+                max_messages: 2,
+                max_bytes: 4096,
+            }),
+        }
+    }
+    #[test]
+    fn event_backpressure_preserves_large_batch_order_and_wakes_after_poll() {
+        let mut process = bounded_event_test_process();
+        let queue = process.queue.clone();
+        let producer = std::thread::spawn(move || {
+            let events = (0..200)
+                .map(|line| {
+                    (
+                        AgentEvent::Error {
+                            message: vec![],
+                            filename: String::new(),
+                            line,
+                            column: 0,
+                        },
+                        64,
+                    )
+                })
+                .collect();
+            let state = enqueue_received_events(&queue, queue.state.lock().unwrap(), events);
+            assert!(state.failure.is_none());
+        });
+        for line in 0..200 {
+            let (state, timeout) = process
+                .queue
+                .changed
+                .wait_timeout_while(
+                    process.queue.state.lock().unwrap(),
+                    Duration::from_secs(2),
+                    |s| s.events.is_empty(),
+                )
+                .unwrap();
+            assert!(!timeout.timed_out());
+            assert!(state.events.len() <= 2 && state.event_bytes <= 4096);
+            drop(state);
+            assert!(
+                matches!(process.poll(1).unwrap().as_slice(), [AgentEvent::Error { line: actual, .. }] if *actual == line)
+            );
+        }
+        producer.join().unwrap();
+        assert_eq!(process.queue.state.lock().unwrap().event_bytes, 0);
+        process.terminate().unwrap();
+    }
+    #[test]
+    fn stop_wakes_backpressured_event_reader() {
+        let mut process = bounded_event_test_process();
+        let queue = process.queue.clone();
+        let (done, received) = std::sync::mpsc::channel();
+        let producer = std::thread::spawn(move || {
+            let events = (0..3).map(|_| (AgentEvent::Closed, 64)).collect();
+            let state = enqueue_received_events(&queue, queue.state.lock().unwrap(), events);
+            done.send(state.stopping).unwrap();
+        });
+        let (state, timeout) = process
+            .queue
+            .changed
+            .wait_timeout_while(
+                process.queue.state.lock().unwrap(),
+                Duration::from_secs(2),
+                |s| s.events.len() < 2,
+            )
+            .unwrap();
+        assert!(!timeout.timed_out());
+        drop(state);
+        process.terminate().unwrap();
+        assert!(received.recv_timeout(Duration::from_secs(2)).unwrap());
+        producer.join().unwrap();
     }
     #[test]
     fn terminal_child_failure_follows_received_error_frames() {

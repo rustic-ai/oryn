@@ -3021,6 +3021,7 @@ interface XMLHttpRequest : XMLHttpRequestEventTarget {
   attribute boolean withCredentials;
   attribute DOMString responseType;
   readonly attribute unsigned short status;
+  readonly attribute ByteString statusText;
   readonly attribute DOMString responseURL;
   readonly attribute DOMString responseText;
   readonly attribute any response;

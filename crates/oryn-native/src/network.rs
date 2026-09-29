@@ -2225,6 +2225,15 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
                                     })
                                 });
                         }
+                        // A null-body response is complete at its headers. The
+                        // Fetch consumer need not request a body chunk/EOF.
+                        if matches!(*status, 204 | 205)
+                            && let Some(mut entry) = candidate.take()
+                            && let Ok(mut cache) = cache.lock()
+                        {
+                            entry.encoded_body_size = Some(0);
+                            cache.insert(key.clone(), entry);
+                        }
                     }
                     NetworkEvent::Chunk { bytes, .. } => {
                         if let Some(entry) = &mut candidate {
@@ -2437,6 +2446,12 @@ impl<B: NetworkBroker> NetworkBroker for PersistentCachingBroker<B> {
                                         vary,
                                     })
                                 });
+                        }
+                        if matches!(*status, 204 | 205)
+                            && let Some(mut entry) = candidate.take()
+                        {
+                            entry.encoded_body_size = Some(0);
+                            let _ = store.insert(key.clone(), entry);
                         }
                     }
                     NetworkEvent::Chunk { bytes, .. } => {
@@ -5832,6 +5847,77 @@ mod tests {
             None
         );
     }
+    #[test]
+    fn null_body_cache_response_is_stored_before_any_body_read() {
+        struct HeadersOnly(u16);
+        impl NetworkBroker for HeadersOnly {
+            fn send(&self, _: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                panic!("second request must use cache")
+            }
+            fn start_operation(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkOperation, NetworkError> {
+                let (sender, events) = tokio::sync::mpsc::channel(1);
+                sender
+                    .try_send(NetworkEvent::Headers {
+                        response_policy: None,
+                        timing: None,
+                        request_id: request.request_id,
+                        status: self.0,
+                        headers: vec![("cache-control".into(), "max-age=3600".into())],
+                        content_length: Some(0),
+                        upload: None,
+                    })
+                    .unwrap();
+                // No body event is needed to complete a 204/205 response.
+                Ok(NetworkOperation {
+                    body_demand_pending: Default::default(),
+                    prefetched: Default::default(),
+                    request_id: request.request_id,
+                    events,
+                    demand: None,
+                })
+            }
+        }
+        for status in [204, 205] {
+            let input = request("https://example.test/empty");
+            let broker = MemoryCachingBroker::new(HeadersOnly(status), "empty", 8, 8192, 1024);
+            let mut operation = broker.start_operation(input.clone()).unwrap();
+            assert!(matches!(
+                operation.blocking_event(),
+                Some(NetworkEvent::Headers { .. })
+            ));
+            drop(operation);
+            assert_eq!(broker.send(input.clone()).unwrap().status, status);
+            let directory = std::env::temp_dir().join(format!(
+                "oryn-null-body-cache-{}-{status}-{}",
+                std::process::id(),
+                unix_time_ms()
+            ));
+            std::fs::create_dir_all(&directory).unwrap();
+            {
+                let persistent = PersistentCachingBroker::open(
+                    HeadersOnly(status),
+                    &directory,
+                    "empty",
+                    8,
+                    8192,
+                    1024,
+                )
+                .unwrap();
+                let mut operation = persistent.start_operation(input.clone()).unwrap();
+                assert!(matches!(
+                    operation.blocking_event(),
+                    Some(NetworkEvent::Headers { .. })
+                ));
+                drop(operation);
+                assert_eq!(persistent.send(input).unwrap().status, status);
+            }
+            std::fs::remove_dir_all(directory).unwrap();
+        }
+    }
+
     #[test]
     fn native_fetch_cache_modes_revalidate_and_replay_body_with_backpressure() {
         use oryn_js::platform::FetchCacheMode as Mode;
