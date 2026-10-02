@@ -5,6 +5,59 @@ entry-point API. Target revision: `719d5e38fdd0903a18ed9007aba816c98cc491e0`.
 It imports the actual upstream testharness, reftest, crashtest and print-reftest
 executors. It does not copy their readiness, comparison or result algorithms.
 
+## Current development and recovery
+
+The native driver and adapter are operational for developer runs. Use
+`python3 scripts/oryn-validate.py wpt-dev --help` from the repository root,
+with the pinned WPT Python environment and an existing developer configuration.
+See [the development workflow](../../docs/development/WORKFLOW.md).
+Successful regression tests do not qualify the browser or establish complete
+Core coverage; retain the 15,985 automated URLs and 752 separate assessments.
+
+`recovery.manager_recovery()` wraps the upstream manager only for the Oryn run.
+The pinned upstream files, selection, executor algorithms and result recording
+are unchanged. A protocol teardown exception is recorded and propagated. The
+manager can replace that generation only after the old runner exits and the
+observed driver process tree settles. It preserves the prefetched test and the
+remaining queue, and creates fresh queues and a fresh stop flag. Parent
+cancellation is never cleared. Three consecutive failed generations without
+completed-test progress stop the lane with its remaining selection reported.
+
+Native terminal cleanup distinguishes a verified ResetReady from a reaped
+process. ResetReady still requires all grants to have been released by the
+child. After a checked process exit and broker drain, the parent reclaims that
+process's page-owned navigation grants, using normal cancellation for retained
+prerenders. It preserves unrelated live pages and refuses unfinished transfers
+into a live destination. Errors and failed protocol custody remain failures in
+the original evidence, even if later tests complete through a replacement.
+
+Page-owned timer drains check terminal cancellation between complete tasks,
+including the context-event poll entry point. Nonwaiting timer batches yield
+after an 8 ms task budget; an already admitted callback and its microtasks
+complete together. This does not interrupt a single long-running callback or
+native operation. Idle interest polling avoids synchronous layout when there
+is no hover/focus interest input or retained interest state. Full deep-tree
+rendering remains subject to the separate counter-style ancestry limit.
+
+Process observation uses the existing descendant supervisor and retained birth
+identities; it cannot prove the absence of a child that escaped before being
+observed. The observer does not kill processes or infer success from a missing
+receipt. Native and upstream shutdown retain termination ownership.
+
+The adapter regression suite is `tools/wptrunner-oryn/tests`. Load the pinned
+WPT `localpaths` before unittest discovery. `test_recovery.py` exercises the
+actual upstream manager/child loop with injected protocol exceptions, including
+six managers processing all 30 selected fault slots while preserving every
+error. A separate real-process test verifies that a retained orphan blocks
+replacement. These fault fixtures test recovery, not browser conformance.
+
+## Historical generation notes
+
+The sections below describe the original September 15 generation state and its
+integration obligations. Their statements about unimplemented or untested
+source are historical; current execution state and receipts live in the
+configured data root.
+
 ## Implementation state
 
 **Source generated; not installed, built or tested. Not operational yet.**

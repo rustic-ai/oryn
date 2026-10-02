@@ -4396,6 +4396,18 @@ pub(crate) struct NavigationResourceCleanup {
     streams: Arc<Mutex<BTreeMap<u64, Arc<HttpStreamEntry>>>>,
 }
 impl NavigationResourceCleanup {
+    pub(crate) fn retire_reaped(&self, reaped_pages: &[PageId]) -> Result<(), RuntimeError> {
+        // Stream cancellation/drain belongs to unbind, not grant reclamation.
+        if self.streams.lock().map_err(|_| RuntimeError::ContextService(
+            "HTTP stream registry poisoned".into()))?.values().any(|entry| entry.page_id == self.page) {
+            return Err(RuntimeError::ContextService(format!(
+                "reaped page {} retains HTTP streams", self.page.0)));
+        }
+        if let Some(context) = self.context.upgrade() {
+            context.retire_reaped_navigation_resources(self.page, reaped_pages)?;
+        }
+        Ok(())
+    }
     pub(crate) fn acknowledge_blank_prerender(
         &self,
         activation: &BlankPrerenderActivation,

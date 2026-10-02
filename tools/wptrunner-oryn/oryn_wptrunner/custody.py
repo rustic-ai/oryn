@@ -4,6 +4,10 @@ import os
 import secrets
 import stat
 
+# Shared with the exact runner generation, for a terminal failure record if
+# that process exits before its own finally block. Never reused by a successor.
+runner_session = None
+
 
 def _private(descriptor):
     metadata = os.fstat(descriptor)
@@ -44,9 +48,24 @@ def append(session, phase, error=None):
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+    if runner_session is not None and phase in ('teardown', 'connect-failed'):
+        if runner_session.value == session.encode('ascii'):
+            runner_session.value = b''
 
 
 def begin():
     identity = secrets.token_hex(16)
+    if runner_session is not None:
+        runner_session.value = identity.encode('ascii')
     append(identity, 'connect')
     return identity
+
+
+def finish_abandoned(session):
+    # Only called after the exact runner has exited. Resolve the write/clear
+    # race without manufacturing a second terminal record or a connection.
+    with open(os.environ['ORYN_WPT_PROTOCOL_CUSTODY']) as stream:
+        phases = [row['phase'] for line in stream
+                  if (row := json.loads(line)).get('session') == session]
+    if phases == ['connect']:
+        append(session, 'teardown', RuntimeError('runner exited without protocol teardown'))

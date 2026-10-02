@@ -2617,6 +2617,74 @@ impl BrowserContext {
             && !policies.prepared.values().any(|(owner,_,_)|*owner==page)
             && !policies.local_documents.values().any(|entry|matches!(&entry.owner,crate::agent_registry::AgentOwner::Window{page:owner,..} if *owner==page)))
     }
+
+    /// Only the reaped-process cleanup path may reclaim grants whose child can
+    /// no longer send release messages. Broker admission and in-flight requests
+    /// must already be drained. Do not clear unrelated page policy or live peers.
+    pub(crate) fn retire_reaped_navigation_resources(
+        &self,
+        page: PageId,
+        reaped_pages: &[PageId],
+    ) -> Result<(), RuntimeError> {
+        #[cfg(unix)]
+        {
+            let pending = self
+                .inner
+                .worker_policies
+                .lock()
+                .map_err(|_| {
+                    RuntimeError::ContextService("navigation cleanup registry poisoned".into())
+                })?
+                .prerenders
+                .iter()
+                .filter(|((owner, _, _), scope)| {
+                    *owner == page
+                        || scope
+                            .blank_source
+                            .as_ref()
+                            .is_some_and(|(source, _)| *source == page)
+                })
+                .map(|((owner, _, _), scope)| (*owner, scope.token.clone(), scope.lifetime))
+                .collect::<Vec<_>>();
+            for (owner, token, lifetime) in pending {
+                // Use the normal, retryable cancellation to settle agents,
+                // sockets and transactions before discarding the scope.
+                if owner == page {
+                    self.cancel_native_prerender(owner, &token, lifetime)?;
+                } else {
+                    self.cancel_blank_prerender(page, owner, &token, lifetime.0, lifetime.1)?;
+                }
+            }
+        }
+        let mut policies = self.inner.worker_policies.lock().map_err(|_| {
+            RuntimeError::ContextService("navigation cleanup registry poisoned".into())
+        })?;
+        #[cfg(unix)]
+        for ((owner, _, _), record) in policies.blank_activations.iter_mut() {
+            if reaped_pages.contains(owner) {
+                record.destroy();
+            } else if record.source == page {
+                record.retire_reaped_source()?;
+            }
+        }
+        policies.local_documents.retain(
+            |_, entry| !matches!(&entry.owner, AgentOwner::Window { page: owner, .. } if *owner == page));
+        policies.parser_encoding.retain(
+            |_, entry| !matches!(&entry.owner, AgentOwner::Window { page: owner, .. } if *owner == page));
+        let tokens = policies
+            .prepared
+            .iter()
+            .filter(|(_, (owner, _, _))| *owner == page)
+            .map(|(token, _)| token.clone())
+            .collect::<Vec<_>>();
+        for token in tokens {
+            policies.prepared.remove(&token);
+            policies.prepared_origins.remove(&token);
+            policies.prepared_isolation.remove(&token);
+            policies.prepared_security_epochs.remove(&token);
+        }
+        Ok(())
+    }
     pub(crate) fn discard_prepared_frame_policy(
         &self,
         page: PageId,

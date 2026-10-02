@@ -13100,7 +13100,7 @@ impl RustExecutableDocument {
         {
             let _close_phase =
                 crate::ipc_progress::close_admission::phase("timers_and_control_tasks");
-            self.agent.host.drain_scheduled_timers(false)?;
+            self.agent.host.drain_scheduled_timers_with_terminal_control(false, terminal_control)?;
         }
         if Self::page_task_retired(terminal_control)
             || self.agent.host.standalone_root_discarded(self.top_realm)
@@ -13137,7 +13137,8 @@ impl RustExecutableDocument {
         let _parser_turn = self.parser_turn.enter();
         // Native document events have independent custody and must be pumped
         // before invoking the remaining author-visible compatibility hook.
-        self.agent.host.drain_scheduled_timers(false)?;
+        let owner = self.page_terminal_control.clone();
+        self.agent.host.drain_scheduled_timers_with_terminal_control(false, owner.as_deref())?;
         if self.terminal_retired() {
             return Ok(());
         }

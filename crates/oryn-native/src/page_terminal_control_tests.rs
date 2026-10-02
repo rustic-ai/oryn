@@ -1,6 +1,52 @@
 // Included alongside the real actor tests. Phase hooks observe actual production
 // boundaries; no sleeping, fabricated completion, or replacement task loop.
 #[test]
+fn page_close_stops_timer_batch_at_task_boundary() {
+    for context_poll in [false, true] {
+        let (mut root, _sender) = timer_root(814 + u64::from(context_poll));
+        let control = close_yield_control(&mut root);
+        close_yield_script(
+            &mut root,
+            "globalThis.batchOrder=[];for(let i=0;i<30;i++)setTimeout(()=>{batchOrder.push(i);Promise.resolve().then(()=>batchOrder.push('micro'))},0);'armed'",
+        );
+        let owner = root.state.page_task_terminal_control.clone();
+        let admissions = std::rc::Rc::new(std::cell::Cell::new(0));
+        let seen = admissions.clone();
+        let page = root.state.executable.as_mut().unwrap();
+        let (result, _) = crate::ipc_progress::close_admission::capture_test_phase_labels_with_hook(
+            || {
+                if context_poll {
+                    page.poll_context_events()
+                } else {
+                    page.drain_page_tasks(Some(&owner))
+                }
+            },
+            move |label| {
+                if label == "timer_task_admission" {
+                    seen.set(seen.get() + 1);
+                    if seen.get() == 3 {
+                        control.retire();
+                    }
+                }
+            },
+        );
+        result.unwrap();
+        assert_eq!(admissions.get(), 3);
+        // No callbacks after retirement; every admitted callback retained its
+        // microtask checkpoint. The fixture may also have one baseline timer.
+        let order = close_yield_script(&mut root, "JSON.stringify(batchOrder)");
+        let values: serde_json::Value = serde_json::from_str(&order).unwrap();
+        let values = values.as_array().unwrap();
+        assert!(!values.is_empty() && values.len() <= 4);
+        assert!(
+            values
+                .chunks(2)
+                .all(|pair| pair.len() == 2 && pair[1] == "micro")
+        );
+    }
+}
+
+#[test]
 fn page_owner_layout_inherits_terminal_control_and_keeps_admitted_microtasks() {
     let (mut root, _sender) = timer_root(810);
     let control = close_yield_control(&mut root);
@@ -775,4 +821,55 @@ fn terminal_history_publication_keeps_next_stage_and_later_job_after_completed_c
             );
         }
     }
+}
+
+#[test]
+fn deep_shadow_timer_poll_remains_cancellable() {
+    let (mut root, _sender) = timer_root(815);
+    let control = close_yield_control(&mut root);
+    close_yield_script(
+        &mut root,
+        "globalThis.deepRoot=document.createElement('div');let inner=deepRoot;for(let i=0;i<999;i++){let child=document.createElement('div');inner.appendChild(child);inner=child.attachShadow({mode:'open'});}document.body.appendChild(deepRoot);inner.appendChild(document.createTextNode('Hello'));globalThis.deepInner=inner;'built'",
+    );
+    let owner = root.state.page_task_terminal_control.clone();
+    for iteration in 0..2 {
+        let started = std::time::Instant::now();
+        let page = root.state.executable.as_mut().unwrap();
+        let mut host = page.take_agent_host().unwrap();
+        let result = host.drain_scheduled_timers_with_terminal_control(false, Some(&owner));
+        assert!(matches!(page.return_agent_host_after_turn(host), Ok(None)));
+        eprintln!(
+            "deep_shadow_timer_poll iteration={iteration} elapsed={:?} result={result:?}",
+            started.elapsed()
+        );
+        result.unwrap();
+    }
+    assert_eq!(
+        close_yield_script(&mut root, "deepInner.textContent"),
+        "Hello"
+    );
+    // A close arriving during this drain must be admitted before the later
+    // animation-frame layout. That renderer still has a separate depth limit.
+    let started = std::time::Instant::now();
+    let (_, labels) = crate::ipc_progress::close_admission::capture_test_phase_labels_with_hook(
+        || {
+            root.state
+                .executable
+                .as_mut()
+                .unwrap()
+                .drain_page_tasks(Some(&owner))
+                .unwrap()
+        },
+        move |label| {
+            if label == "timer_task_admission" {
+                control.retire();
+            }
+        },
+    );
+    eprintln!(
+        "deep_shadow_close_admission elapsed={:?}",
+        started.elapsed()
+    );
+    assert!(labels.contains(&"timer_task_admission"));
+    assert!(!labels.contains(&"animation_frame"));
 }

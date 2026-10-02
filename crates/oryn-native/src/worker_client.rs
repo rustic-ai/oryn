@@ -1365,14 +1365,14 @@ impl WorkerBrokerRouter {
     /// realm and acknowledged its cleanup queue. Ordinary revocation cannot
     /// discard these scopes because late cleanup receipts still need them.
     fn finish_acknowledged_reset(&self) -> Result<(), RuntimeError> {
-        self.finish_unbound_cleanup()
+        self.finish_unbound_cleanup(false)
     }
 
     // The caller must own either ResetReady or a checked, reaped child. Revoking
     // routes alone does not prove that retained script/network work has stopped.
-    fn finish_unbound_cleanup(&self) -> Result<(), RuntimeError> {
-        let retired = {
-            let mut routes = self
+    fn finish_unbound_cleanup(&self, reaped: bool) -> Result<(), RuntimeError> {
+        let scopes = {
+            let routes = self
                 .route
                 .lock()
                 .map_err(|_| RuntimeError::ContextService("worker router lock poisoned".into()))?;
@@ -1382,34 +1382,48 @@ impl WorkerBrokerRouter {
                     "terminal cleanup requires fully unbound process".into(),
                 ));
             }
-            for (_, registry, sockets, navigation, resources) in routes.script_cleanup.values() {
-                if !sockets.is_drained()? {
-                    return Err(RuntimeError::ProtocolViolation(
-                        "terminal cleanup has outstanding network custody".into(),
-                    ));
-                }
-                if !resources.is_drained()? {
-                    return Err(RuntimeError::ProtocolViolation(
-                        "terminal cleanup has outstanding navigation resources".into(),
-                    ));
-                }
-                if !registry.is_drained()? {
-                    return Err(RuntimeError::ProtocolViolation(
-                        "terminal cleanup has outstanding script authority".into(),
-                    ));
-                }
-                if let Some(control) = navigation
-                    && !control
-                        .cleanup_is_drained()
-                        .map_err(|error| RuntimeError::ContextService(error.to_string()))?
-                {
-                    return Err(RuntimeError::ProtocolViolation(
-                        "terminal cleanup has outstanding navigation authority".into(),
-                    ));
-                }
-            }
-            std::mem::take(&mut routes.script_cleanup)
+            routes.script_cleanup.values().cloned().collect::<Vec<_>>()
         };
+        // Cancellation can call the broker and agent registries. Do not hold
+        // the router mutex while waiting for their retained work to settle.
+        let reaped_pages = scopes.iter().map(|(page, ..)| *page).collect::<Vec<_>>();
+        for (page, registry, sockets, navigation, resources) in &scopes {
+            if !sockets.is_drained()? {
+                return Err(RuntimeError::ProtocolViolation(
+                    "terminal cleanup has outstanding network custody".into(),
+                ));
+            }
+            if !registry.is_drained()? {
+                return Err(RuntimeError::ProtocolViolation(
+                    "terminal cleanup has outstanding script authority".into(),
+                ));
+            }
+            if let Some(control) = navigation
+                && !control
+                    .cleanup_is_drained()
+                    .map_err(|error| RuntimeError::ContextService(error.to_string()))?
+            {
+                return Err(RuntimeError::ProtocolViolation(
+                    "terminal cleanup has outstanding navigation authority".into(),
+                ));
+            }
+            if reaped {
+                resources.retire_reaped(&reaped_pages)?;
+            }
+            if !resources.is_drained()? {
+                return Err(RuntimeError::ProtocolViolation(format!(
+                    "terminal cleanup has outstanding navigation resources for page {}",
+                    page.0,
+                )));
+            }
+        }
+        let retired = std::mem::take(
+            &mut self
+                .route
+                .lock()
+                .map_err(|_| RuntimeError::ContextService("worker router lock poisoned".into()))?
+                .script_cleanup,
+        );
         drop(retired);
         Ok(())
     }
@@ -2329,7 +2343,7 @@ impl WorkerClient {
     pub(crate) fn checked_terminal_cleanup(&mut self) -> Result<serde_json::Value, RuntimeError> {
         let mut evidence = self.checked_exit_evidence()?;
         self.router.unbind()?;
-        self.router.finish_unbound_cleanup()?;
+        self.router.finish_unbound_cleanup(true)?;
         // The exact process is reaped and all retained routes are settled. Drop
         // must not issue another IPC operation to a dead transport.
         self.attached = false;
@@ -6481,6 +6495,44 @@ mod tests {
         assert!(client.checked_terminal_cleanup().is_err());
         assert!(client.router.route.lock().unwrap().closing);
         assert_eq!(probe.next_message_id(), 1);
+    }
+
+    #[test]
+    fn reaped_worker_reclaims_navigation_grants_but_preserves_live_sibling() {
+        let context = crate::Browser::in_process_with_config(Default::default()).new_context();
+        let mut route = fixture_worker_route(&context);
+        let sibling = context.new_page();
+        let dead = route.network.page_id;
+        context.prepare_frame_worker_policy(dead, "https://dead.test/", &[], "").unwrap();
+        let sibling_token = context.prepare_frame_worker_policy(
+            sibling.page_id(), "https://live.test/", &[], "").unwrap();
+        let (mut client, probe) = protocol_fixture::responder(dead, Vec::new());
+        route.identity = client.route_identity.clone();
+        client.router.bind(route).unwrap();
+        assert!(client.checked_terminal_cleanup().is_err());
+        assert!(!context.navigation_resource_grants_drained(dead).unwrap());
+        client.kill();
+        assert!(!probe.process_alive());
+        client.checked_terminal_cleanup().unwrap();
+        client.checked_terminal_cleanup().unwrap();
+        assert!(context.navigation_resource_grants_drained(dead).unwrap());
+        assert!(!context.navigation_resource_grants_drained(sibling.page_id()).unwrap());
+        context.discard_prepared_frame_policy(sibling.page_id(), &sibling_token).unwrap();
+        assert!(context.navigation_resource_grants_drained(sibling.page_id()).unwrap());
+    }
+
+    #[test]
+    fn reset_ack_does_not_reclaim_unreleased_navigation_grants() {
+        let context = crate::Browser::in_process_with_config(Default::default()).new_context();
+        let route = fixture_worker_route(&context);
+        let page = route.network.page_id;
+        let token = context.prepare_frame_worker_policy(page, "https://pending.test/", &[], "").unwrap();
+        let router = WorkerBrokerRouter::default();
+        router.bind(route).unwrap();
+        router.unbind().unwrap();
+        assert!(router.finish_acknowledged_reset().is_err());
+        context.discard_prepared_frame_policy(page, &token).unwrap();
+        router.finish_acknowledged_reset().unwrap();
     }
 
     #[test]

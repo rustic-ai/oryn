@@ -378,17 +378,35 @@ impl RawV8Host {
             .is_some_and(|agent| agent.closing.load(Ordering::Acquire))
     }
     pub fn drain_scheduled_timers(&mut self, wait: bool) -> Result<usize, HostError> {
+        self.drain_scheduled_timers_with_terminal_control(wait, None)
+    }
+
+    pub(crate) fn drain_scheduled_timers_with_terminal_control(
+        &mut self,
+        wait: bool,
+        terminal: Option<&crate::page_terminal_control::PageTerminalControl>,
+    ) -> Result<usize, HostError> {
         let _stage = crate::native_timing::stage("host.timers");
-        if self.worker_tasks_stopped() {
+        let retired = || terminal.is_some_and(|control| control.retired());
+        if self.worker_tasks_stopped() || retired() {
             return Ok(0);
         }
-        let closed = self.poll_standalone_script_closes()?;
+        let closed = {
+            let _stage = crate::native_timing::stage("host.timers.script_closes");
+            self.poll_standalone_script_closes()?
+        };
         if closed != 0 {
             return Ok(closed);
         }
-        self.drain_background_script_reports()?;
+        {
+            let _stage = crate::native_timing::stage("host.timers.background_reports");
+            self.drain_background_script_reports()?
+        };
         #[cfg(unix)]
-        let external_delivered = self.poll_remote_message_tasks()?;
+        let external_delivered = {
+            let _stage = crate::native_timing::stage("host.timers.remote_messages");
+            self.poll_remote_message_tasks()?
+        };
         #[cfg(not(unix))]
         let external_delivered = 0;
         if wait
@@ -414,6 +432,10 @@ impl RawV8Host {
             .map(|(_, state)| state)
             .filter(|state| !state.is_unloading())
         {
+            let _phase = crate::ipc_progress::close_admission::phase("timer_input_defaults");
+            if retired() {
+                return Ok(delivered);
+            }
             delivered += oryn_js::v8_bindings::poll_native_input_defaults(state, Instant::now())
                 .map_err(|error| HostError::Execution(error.to_string()))?;
         }
@@ -424,24 +446,50 @@ impl RawV8Host {
             .map(|(realm, state)| (*realm, state.clone()))
             .collect::<Vec<_>>();
         for (realm, state) in selection_realms {
+            let _phase = crate::ipc_progress::close_admission::phase("timer_platform_defaults");
+            if retired() {
+                return Ok(delivered);
+            }
             let Some(context) = self.contexts.get(&realm).cloned() else {
                 continue;
             };
             v8::scope!(let handles,&mut self.isolate);
             let context = v8::Local::new(handles, &context);
             let scope = &mut v8::ContextScope::new(handles, context);
-            delivered +=
+            delivered += {
+                let _stage = crate::native_timing::stage("host.timers.selection");
                 oryn_js::v8_bindings::poll_native_selection_defaults(scope, &state, Instant::now())
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-            delivered += oryn_js::v8_bindings::poll_native_media_queries(scope, &state)
-                .map_err(|error| HostError::Execution(error.to_string()))?;
-            delivered += oryn_js::v8_bindings::poll_native_visual_viewport(scope, &state)
-                .map_err(|error| HostError::Execution(error.to_string()))?;
-            delivered += oryn_js::v8_bindings::poll_native_platform(scope, &state)
-                .map_err(|error| HostError::Execution(error.to_string()))?;
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+            };
+            delivered += {
+                let _stage = crate::native_timing::stage("host.timers.media_queries");
+                oryn_js::v8_bindings::poll_native_media_queries(scope, &state)
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+            };
+            delivered += {
+                let _stage = crate::native_timing::stage("host.timers.visual_viewport");
+                oryn_js::v8_bindings::poll_native_visual_viewport(scope, &state)
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+            };
+            delivered += {
+                let _stage = crate::native_timing::stage("host.timers.platform");
+                oryn_js::v8_bindings::poll_native_platform(scope, &state)
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+            };
         }
+        let batch_started = Instant::now();
+        let batch_delivered = delivered;
         while delivered < 1024 {
-            if self.worker_tasks_stopped() {
+            let _phase = crate::ipc_progress::close_admission::phase("timer_task_admission");
+            // Yield only between complete tasks/microtask checkpoints. An
+            // actor turn must not drain hundreds of callbacks ahead of Close.
+            if self.worker_tasks_stopped()
+                || retired()
+                || (terminal.is_some()
+                    && !wait
+                    && delivered > batch_delivered
+                    && batch_started.elapsed() >= Duration::from_millis(8))
+            {
                 break;
             }
             let control_state = self
@@ -460,6 +508,7 @@ impl RawV8Host {
                 })
                 .map(|(realm, state)| (*realm, state.clone()));
             if let Some((realm, state)) = control_state {
+                let _phase = crate::ipc_progress::close_admission::phase("timer_control_event");
                 let Some(context) = self.contexts.get(&realm).cloned() else {
                     break;
                 };
@@ -527,6 +576,7 @@ impl RawV8Host {
                 registry.callbacks.remove(&timer_id);
             }
             {
+                let _phase = crate::ipc_progress::close_admission::phase("timer_callback");
                 let nesting_state = self
                     .isolate
                     .get_slot::<TimerRegistry>()
@@ -1144,6 +1194,37 @@ mod tests {
         ));
         host.install_dom(dom, 1).unwrap();
         host
+    }
+
+    #[test]
+    fn idle_timer_poll_skips_layout_but_interest_focus_refreshes_it() {
+        struct LayoutCalls(std::cell::Cell<usize>);
+        impl oryn_js::v8_bindings::BindingLayoutProvider for LayoutCalls {
+            fn compute_layout(
+                &self,
+                _: &std::collections::BTreeMap<oryn_dom::NodeId, BTreeSet<String>>,
+            ) -> Result<oryn_js::v8_bindings::BindingLayout, String> {
+                self.0.set(self.0.get() + 1);
+                Ok(Default::default())
+            }
+        }
+        let mut host = document_host();
+        host.execute("document.body.innerHTML='<button id=source interestfor=target>show</button><div id=target>target</div>'").unwrap();
+        let provider = Rc::new(LayoutCalls(std::cell::Cell::new(0)));
+        host.install_layout_provider(provider.clone()).unwrap();
+        provider.0.set(0);
+        for _ in 0..3 {
+            host.drain_scheduled_timers(false).unwrap();
+        }
+        assert_eq!(provider.0.get(), 0, "idle polling must not ask for layout");
+        let dom = host.binding_states[&host.active_realm].dom();
+        let source = dom.borrow().find_by_id("source").unwrap();
+        dom.borrow_mut().focus(Some(source)).unwrap();
+        host.drain_scheduled_timers(false).unwrap();
+        assert!(
+            provider.0.get() > 0,
+            "interest focus still samples computed delays"
+        );
     }
 
     #[test]

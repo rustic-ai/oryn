@@ -137,6 +137,9 @@ class InitializationBudgetTests(unittest.TestCase):
         stack.enter_context(patch.object(environment.time, 'sleep', self.clock.advance))
         stack.enter_context(patch.object(testrunner.threading, 'Timer', self.clock.timer))
         stack.enter_context(patch.object(base.mozprocess, 'ProcessHandler', Process))
+        # Process above has synthetic PIDs; kernel custody has separate real
+        # process tests and must not inspect unrelated host PIDs here.
+        stack.enter_context(patch('oryn_wptrunner.recovery.ProcessSettlement'))
         stack.enter_context(patch.object(environment.socket, 'socket', Socket))
         stack.enter_context(patch.object(product, 'Collector', Collector))
         self.validate = stack.enter_context(patch.object(product, 'load_contract', side_effect=validate))

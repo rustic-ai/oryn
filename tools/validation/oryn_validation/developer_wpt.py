@@ -173,13 +173,14 @@ def child(config_path, expected_sha256):
     from oryn_wptrunner import product, provenance
     from oryn_validation.typed_provenance import _project
     from wptrunner import wptcommandline, wptrunner
+    from oryn_wptrunner.recovery import manager_recovery
     from unittest.mock import patch
     contract = _project(bound, selected)
     contract.update(developer_only=True, qualification='not-evaluated')
     lookup = DeveloperLookup(bound, contract)
     try:
         with patch.object(product, 'load_contract', side_effect=lookup), \
-             patch.object(provenance, 'load_run_contract', side_effect=lookup):
+             patch.object(provenance, 'load_run_contract', side_effect=lookup), manager_recovery():
             sys.argv = [str(Path(__file__)), *argv]
             kwargs = wptcommandline.parse_args()
             if kwargs['prefs_root'] is None:

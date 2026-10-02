@@ -19,7 +19,9 @@ def run_upstream(main, remaining, admission, gate_path):
         admission.check()
         with run_admission(selected.oryn_run_contract, gate_path,
                            selected.binary, selected.webdriver_binary):
-            return main()
+            from oryn_wptrunner.recovery import manager_recovery
+            with manager_recovery():
+                return main()
 
 
 def process_exit(main):

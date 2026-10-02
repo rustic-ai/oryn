@@ -701,10 +701,12 @@ def upstream(argv=None):
         sys.path.insert(0, str(bound['assets']['wpt_checkout'] / 'tools'))
         import localpaths  # noqa: F401 -- pinned upstream path registration
         from wptrunner import wptrunner
+        from oryn_wptrunner.recovery import manager_recovery
         from oryn_wptrunner.registration import verify_registration
         verify_registration(SOURCE_ROOT)
         sys.argv = [sys.argv[0], *remaining]
-        return wptrunner.main()
+        with manager_recovery():
+            return wptrunner.main()
 
 
 

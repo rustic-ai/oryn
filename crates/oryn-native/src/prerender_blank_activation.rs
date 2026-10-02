@@ -15,6 +15,17 @@ pub(super) struct Record {
     busy: bool,
 }
 impl Record {
+    pub(super) fn retire_reaped_source(&mut self) -> Result<(), RuntimeError> {
+        if self.busy || (!self.published && !self.destroyed) {
+            return Err(RuntimeError::ContextService(
+                "reaped source retains an unfinished blank activation in a live destination".into(),
+            ));
+        }
+        // Publication already transferred the actor. Losing its source ACK
+        // must not destroy the live destination or undo the transfer.
+        self.acknowledged = true;
+        Ok(())
+    }
     pub(super) fn destroy(&mut self) {
         self.destroyed = true;
         self.acknowledged = true;

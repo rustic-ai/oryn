@@ -246,6 +246,10 @@ class NativeCollectorTests(unittest.TestCase):
 
 
 class NativeLaunchTimingTests(unittest.TestCase):
+    def setUp(self):
+        # These hook tests publish synthetic PID 71, not an owned process.
+        self.enterContext(patch('oryn_wptrunner.recovery.ProcessSettlement'))
+
     def browser(self):
         browser = object.__new__(product.OrynBrowser)
         browser.logger = SimpleNamespace(info=lambda _: None, debug=lambda _: None)

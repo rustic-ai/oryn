@@ -90,6 +90,8 @@ class OrynBrowser(WebDriverBrowser):
             token_file.write(self._driver_token)
 
     def start(self, group_metadata, **kwargs):
+        self._recovery_settled = False
+        self._process_settlement = None
         self._timing_identity = None
         self._spawn_span = self._ready_span = None
         with span(getattr(self, "logger", None), "browser.start") as measured:
@@ -136,7 +138,10 @@ class OrynBrowser(WebDriverBrowser):
                 browser._ready_span = span(browser.logger, "driver.tcp_ready_wait",
                     identity=browser._timing_identity, service=collector.service)
                 browser._ready_span.__enter__()
-                return super().after_process_start(pid)
+                result = super().after_process_start(pid)
+                from .recovery import ProcessSettlement
+                browser._process_settlement = ProcessSettlement(pid)
+                return result
 
         with span(self.logger, "driver.spawn_slot_wait",
                   identity=self._timing_identity, service=collector.service):
@@ -152,12 +157,36 @@ class OrynBrowser(WebDriverBrowser):
 
     def stop(self, force=False):
         # Upstream owns every kill/wait and the actual return value.
+        observer = getattr(self, '_process_settlement', None)
+        failure = None
         try:
-            return super().stop(force=force)
+            if observer is not None:
+                observer.observe()
+        except BaseException as error:
+            failure = error
+        try:
+            result = super().stop(force=force)
+        except BaseException as error:
+            if failure is None:
+                failure = error
+            else:
+                failure.add_note('upstream process stop failed: ' + type(error).__name__)
         finally:
+            try:
+                if observer is not None:
+                    observer.finish()
+                    self._recovery_settled = not WebDriverBrowser.is_alive(self)
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+                else:
+                    failure.add_note('process settlement failed: ' + type(error).__name__)
             collector = getattr(self, "_native_timing", None)
             if collector is not None:
                 collector.finish(process_stopped=not WebDriverBrowser.is_alive(self))
+        if failure is not None:
+            raise failure
+        return result
 
     def make_command(self):
         with span(getattr(self, "logger", None), "browser.make_command") as measured:

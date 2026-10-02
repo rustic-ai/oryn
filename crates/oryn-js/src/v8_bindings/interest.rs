@@ -96,6 +96,14 @@ fn reconcile(state: &Rc<V8BindingState>) -> Result<(), V8BindingError> {
             cursor = dom.flat_tree_parent(node).ok().flatten();
         }
     }
+    // Polling an idle document must not synchronously lay out its whole tree.
+    // Only real interest inputs or retained interest state need computed delays.
+    // Release the DOM borrow before layout, which may reconcile native state.
+    drop(dom);
+    if !inputs.is_empty() || !active.is_empty() || !sticky.is_empty() {
+        refresh_layout(state)?;
+    }
+    let dom = state.dom.borrow();
     let mut registry = state.interests.borrow_mut();
     registry
         .input_targets
@@ -588,7 +596,6 @@ pub(super) fn poll(
         retire(state);
     }
     state.interests.borrow_mut().epoch = Some(epoch);
-    refresh_layout(state)?;
     reconcile(state)?;
     if state
         .interests

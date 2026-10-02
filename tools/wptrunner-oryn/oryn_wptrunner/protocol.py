@@ -318,6 +318,9 @@ class OrynProtocol(WebDriverProtocol):
                 if identity is not None:
                     try:
                         append(identity, 'teardown', failure)
+                        if isinstance(failure, Exception):
+                            from .recovery import teardown_failed
+                            teardown_failed()
                     except BaseException as error:
                         if failure is None:
                             raise
