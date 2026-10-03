@@ -64,9 +64,9 @@ impl Registry {
         let mut current = scope;
         let mut visited = BTreeSet::new();
         while let Some(root) = current {
-            if !visited.insert(root) || chain.len() >= 128 {
+            if !visited.insert(root) {
                 return Err(LayoutError::StyleTraversal(
-                    "counter style scope ancestry exceeds native bound".into(),
+                    "counter style scope ancestry contains a cycle".into(),
                 ));
             }
             chain.push(root);
@@ -77,12 +77,33 @@ impl Registry {
             current = input.shadow_trees.node_scopes.get(&tree.host).copied();
         }
         let mut registry = Arc::new(Self::read(input, print)?);
+        let stylesheet_scopes: BTreeSet<_> = input
+            .shadow_trees
+            .stylesheet_scopes
+            .values()
+            .copied()
+            .collect();
         for root in chain.into_iter().rev() {
+            // Empty scopes inherit the same registry. Do not construct a Stylo
+            // document or retain another parent link for every shadow ancestor.
+            if !stylesheet_scopes.contains(&root) {
+                continue;
+            }
             let mut child = Self::read_tree(input, print, Some(root))?;
             child.parent = Some(registry);
             registry = Arc::new(child);
         }
         Ok(registry)
+    }
+    fn owner(&self, name: &str) -> &Self {
+        let mut owner = self;
+        while !owner.rules.contains_key(name) {
+            match &owner.parent {
+                Some(parent) => owner = parent,
+                None => break,
+            }
+        }
+        owner
     }
     fn read_tree(
         input: &LayoutInput,
@@ -164,11 +185,10 @@ impl Registry {
         if visited.len() >= 32 || !visited.insert(name.into()) {
             return None;
         }
-        if !self.rules.contains_key(name)
-            && let Some(parent) = &self.parent
-        {
+        let owner = self.owner(name);
+        if !std::ptr::eq(owner, self) {
             visited.remove(name);
-            return parent.resolved(name, visited);
+            return owner.resolved(name, visited);
         }
         let mut value = self
             .rules
@@ -198,10 +218,9 @@ impl Registry {
         self.special_at(name, &mut BTreeSet::new())
     }
     fn special_at(&self, name: &str, visited: &mut BTreeSet<String>) -> Option<String> {
-        if !self.rules.contains_key(name)
-            && let Some(parent) = &self.parent
-        {
-            return parent.special_at(name, visited);
+        let owner = self.owner(name);
+        if !std::ptr::eq(owner, self) {
+            return owner.special_at(name, visited);
         }
         if visited.len() >= 32 || !visited.insert(name.into()) {
             return None;
@@ -224,10 +243,9 @@ impl Registry {
         .then(|| name.to_owned())
     }
     fn fallback_owner<'a>(&'a self, name: &str, visited: &mut BTreeSet<String>) -> &'a Self {
-        if !self.rules.contains_key(name)
-            && let Some(parent) = &self.parent
-        {
-            return parent.fallback_owner(name, visited);
+        let owner = self.owner(name);
+        if !std::ptr::eq(owner, self) {
+            return owner.fallback_owner(name, visited);
         }
         if visited.len() >= 32 || !visited.insert(name.into()) {
             return self;
@@ -243,10 +261,9 @@ impl Registry {
         self
     }
     pub(super) fn marker(&self, value: i64, name: &str) -> String {
-        if !self.rules.contains_key(name)
-            && let Some(parent) = &self.parent
-        {
-            return parent.marker(value, name);
+        let owner = self.owner(name);
+        if !std::ptr::eq(owner, self) {
+            return owner.marker(value, name);
         }
         if name == "none" {
             return String::new();
@@ -283,10 +300,9 @@ impl Registry {
         self.format_inner(value, name, &mut BTreeSet::new())
     }
     fn format_inner(&self, value: i64, name: &str, fallbacks: &mut BTreeSet<String>) -> String {
-        if !self.rules.contains_key(name)
-            && let Some(parent) = &self.parent
-        {
-            return parent.format_inner(value, name, fallbacks);
+        let owner = self.owner(name);
+        if !std::ptr::eq(owner, self) {
+            return owner.format_inner(value, name, fallbacks);
         }
         if fallbacks.len() >= 32 || !fallbacks.insert(name.into()) {
             return super::generated::format_counter(value, "decimal");

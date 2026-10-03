@@ -11257,6 +11257,36 @@ mod tests {
     }
 
     #[test]
+    fn counter_style_scope_handles_deep_ancestry_and_rejects_cycles() {
+        let mut input = column_fixture(
+            "@counter-style inherited{system:cyclic;symbols:'root'}",
+            vec![node(2, Some(1), "p", "Body")],
+        );
+        for root in 1..=999_u64 {
+            let host = 10_000 + root;
+            input.shadow_trees.roots.insert(
+                root,
+                ShadowTree {
+                    host,
+                    content: vec![],
+                },
+            );
+            if root > 1 {
+                input.shadow_trees.node_scopes.insert(host, root - 1);
+            }
+        }
+        let registry =
+            generated_counter_styles::Registry::read_for_scope(&input, false, Some(999)).unwrap();
+        assert_eq!(registry.format(1, "inherited"), "root");
+        assert_eq!(registry.marker(1, "inherited"), "root. ");
+        input.shadow_trees.node_scopes.insert(10_001, 999);
+        let error = generated_counter_styles::Registry::read_for_scope(&input, false, Some(999))
+            .err()
+            .expect("cyclic scope ancestry must fail");
+        assert!(error.to_string().contains("cycle"));
+    }
+
+    #[test]
     fn author_counter_systems_flow_through_generated_layout_and_media() {
         let css = r#"@counter-style binary{system:numeric;symbols:'0' '1'}
             @counter-style padded{system:extends decimal;pad:4 '0';negative:'(' ')'}
