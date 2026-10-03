@@ -45,6 +45,24 @@ class FaultExecutor:
             webdriver=SimpleNamespace(end=fail), _custody_session=self.session))
 
 
+class SentinelExecutor(FaultExecutor):
+    """Alternate failed retirement with a healthy fresh-generation control."""
+
+    def run_test(self, test):
+        self.failed = test.id.startswith('/fault/')
+        result = SimpleNamespace(status='ERROR' if self.failed else 'OK',
+                                 expected='OK', known_intermittent=[],
+                                 message='injected test error' if self.failed else None,
+                                 extra={}, stack=None)
+        self.runner.send_message('test_ended', test, (result, []))
+
+    def teardown(self):
+        if getattr(self, 'failed', False):
+            return super().teardown()
+        OrynProtocol._teardown(SimpleNamespace(
+            webdriver=SimpleNamespace(end=lambda: None), _custody_session=self.session))
+
+
 @dataclass
 class FixtureTest:
     id: str
@@ -228,6 +246,56 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(len(teardown_errors), total)
         rows = [json.loads(line) for line in self.path.read_text().splitlines()]
         self.assertEqual(sum(row['phase'] == 'teardown' and not row['success'] for row in rows), total)
+
+    def test_failed_teardown_then_healthy_sentinel_serial_and_six_managers(self):
+        for workers in (1, 6):
+            with self.subTest(workers=workers):
+                suite = 'oryn-recovery-sentinels-%d' % workers
+                logger = upstream.structuredlog.StructuredLogger(suite)
+                events = []
+                logger.add_handler(events.append)
+                lanes = [[FixtureTest('/%s/%d/%d' % (kind, lane, case), restart_after=True)
+                          for case in range(4) for kind in ('fault', 'sentinel')]
+                         for lane in range(workers)]
+                selected = [test.id for lane in lanes for test in lane]
+                logger.suite_start(selected)
+                stop = upstream.StopFlag(workers)
+                managers = []
+                impl = upstream.TestImplementation(
+                    SentinelExecutor, {'timeout_multiplier': 1}, FixtureBrowser, {})
+                before = len(self.path.read_text().splitlines())
+                for index, tests in enumerate(lanes):
+                    queue = ReadQueue()
+                    queue.put(SimpleNamespace(name=str(index), subsuite='',
+                        test_type='testharness', metadata={}, test_queue=deque(tests)))
+                    manager = recovery.OrynTestRunnerManager(suite, index, queue,
+                        {('', 'testharness'): impl}, stop, recording=Recording())
+                    managers.append(manager)
+                    manager.start()
+                try:
+                    stop.wait_for_all_managers_done(timeout=45)
+                finally:
+                    stop.stop()
+                    for manager in managers:
+                        manager.join(5)
+                    logger.suite_end()
+                self.assertTrue(all(not manager.is_alive() for manager in managers))
+                starts = [row['test'] for row in events if row['action'] == 'test_start']
+                ends = [row for row in events if row['action'] == 'test_end']
+                self.assertCountEqual(starts, selected)
+                self.assertCountEqual([row['test'] for row in ends], selected)
+                for row in ends:
+                    self.assertEqual(row['status'],
+                                     'ERROR' if row['test'].startswith('/fault/') else 'OK')
+                rows = [json.loads(line) for line in
+                        self.path.read_text().splitlines()[before:]]
+                connections = [row for row in rows if row['phase'] == 'connect']
+                retirements = [row for row in rows if row['phase'] == 'teardown']
+                self.assertEqual(len(connections), len(selected))
+                self.assertCountEqual([row['session'] for row in retirements],
+                                      [row['session'] for row in connections])
+                self.assertEqual(sum(not row['success'] for row in retirements), 4 * workers)
+                self.assertEqual(sum(row['success'] for row in retirements), 4 * workers)
 
     def test_abandoned_session_is_failed_once_and_never_fabricated(self):
         identity = custody.begin()
