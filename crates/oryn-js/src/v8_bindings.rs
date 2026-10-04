@@ -33657,7 +33657,20 @@ fn get_attribute_value<'s>(
                 .get_null("class")
                 .map_or("", String::as_str),
         )?,
-        ("HTMLElement", "title" | "lang" | "dir") | ("HTMLSlotElement", "name") => v8_string(
+        ("HTMLElement", "dir") => {
+            let raw = record.attributes.get_null("dir").map_or("", String::as_str);
+            let canonical = if raw.eq_ignore_ascii_case("ltr") {
+                "ltr"
+            } else if raw.eq_ignore_ascii_case("rtl") {
+                "rtl"
+            } else if raw.eq_ignore_ascii_case("auto") {
+                "auto"
+            } else {
+                ""
+            };
+            v8_string(scope, canonical)?
+        }
+        ("HTMLElement", "title" | "lang") | ("HTMLSlotElement", "name") => v8_string(
             scope,
             record
                 .attributes
@@ -52069,6 +52082,35 @@ mod tests {
         let scope = &mut v8::ContextScope::new(scope, context);
         let fresh = crate::pattern_service::for_isolate(scope).unwrap();
         assert_eq!(fresh.matches("x", "x").unwrap(), Some(true));
+    }
+
+    #[test]
+    fn html_dir_reflection_canonicalizes_getter_without_mutating_attribute() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            for(const tag of ['div','input','table','meter','progress']) {
+                const element=document.createElement(tag);
+                if(element.dir!=='')throw Error('missing default '+tag);
+                for(const [raw,expected] of [['LTR','ltr'],['rTl','rtl'],['AUTO','auto'],[' rtl',''],['rtl ',''],['invalid',''],['','']]) {
+                    element.setAttribute('dir',raw);
+                    if(element.dir!==expected||element.getAttribute('dir')!==raw)throw Error('attribute '+tag+raw);
+                    element.dir=raw;
+                    if(element.dir!==expected||element.getAttribute('dir')!==raw)throw Error('setter '+tag+raw);
+                }
+                for(const value of [null,undefined,7]) {
+                    element.dir=value;
+                    if(element.dir!==''||element.getAttribute('dir')!==String(value))throw Error('conversion '+tag);
+                }
+            }
+            true
+        "#).unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
     }
 
     #[test]
