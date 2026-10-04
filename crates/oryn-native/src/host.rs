@@ -3887,6 +3887,23 @@ mod raw_v8 {
             .create_data_property(scope, name.into(), value.into());
     }
 
+    /// Diagnostic-only phase measurements; no URLs or author values are retained.
+    fn record_realm_memory(isolate: &mut v8::Isolate, phase: &'static str, realm: RealmId) {
+        if !crate::native_timing::enabled() {
+            return;
+        }
+        let heap = isolate.get_heap_statistics();
+        crate::native_timing::point(phase, serde_json::json!({
+            "realm_id": realm.0,
+            "v8_used_heap_bytes": heap.used_heap_size(),
+            "v8_total_heap_bytes": heap.total_heap_size(),
+            "v8_external_bytes": heap.external_memory(),
+            "v8_global_handles_bytes": heap.used_global_handles_size(),
+            "v8_native_contexts": heap.number_of_native_contexts(),
+            "v8_detached_contexts": heap.number_of_detached_contexts(),
+        }));
+    }
+
     /// The shared realm factory works inside a running native callback. No
     /// author code runs here and no borrow of isolate-owned state crosses a V8
     /// allocation. Realm and environment identities remain monotonic on failure.
@@ -3975,6 +3992,7 @@ mod raw_v8 {
             .insert(realm, (environment, endpoints));
         install_native_window_lifecycle(scope, context)?;
         install_host_functions!(scope, context);
+        record_realm_memory(scope, "realm_context_created_memory", realm);
         let weak_context = v8::Weak::new(scope, context);
         scope
             .get_slot_mut::<NativeRealmIdentities>()
@@ -4154,6 +4172,7 @@ mod raw_v8 {
             document,
         )
         .map_err(|error| HostError::Execution(error.to_string()))?;
+        record_realm_memory(scope, "document_bindings_installed_memory", realm);
         // Generated global-interface bindings install their own name/opener
         // descriptors. Native browser-context accessors must be installed last
         // for roots, frames and auxiliaries, including replacement Documents.
