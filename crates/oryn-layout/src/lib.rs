@@ -7327,38 +7327,32 @@ fn layout_node(
         .get("visibility")
         .is_some_and(|value| value == "hidden" || value == "collapse");
     if no_box {
-        if let Some(content) = &node.content {
-            for item in content {
-                match item {
-                    LayoutContent::Text { node_id, .. }
-                    | LayoutContent::StyledText {
-                        node_id: Some(node_id),
-                        ..
-                    } => {
-                        text_engine.source_geometry.remove(node_id);
+        let mut pending = vec![id];
+        let mut visited = BTreeSet::new();
+        while let Some(hidden_id) = pending.pop() {
+            if !visited.insert(hidden_id) {
+                continue;
+            }
+            let Some(node) = by_id.get(&hidden_id).copied() else {
+                continue;
+            };
+            if let Some(content) = &node.content {
+                for item in content {
+                    match item {
+                        LayoutContent::Text { node_id, .. }
+                        | LayoutContent::StyledText {
+                            node_id: Some(node_id),
+                            ..
+                        } => {
+                            text_engine.source_geometry.remove(node_id);
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
-        }
-        geometry.insert(id, hidden_geometry());
-        offset_dimensions.insert(id, (0.0, 0.0));
-        for child in &node.children {
-            layout_node(
-                *child,
-                containing,
-                by_id,
-                styles,
-                geometry,
-                offset_dimensions,
-                resolved_values,
-                text_fragments,
-                input,
-                true,
-                diagnostics,
-                text_engine,
-                None,
-            );
+            geometry.insert(hidden_id, hidden_geometry());
+            offset_dimensions.insert(hidden_id, (0.0, 0.0));
+            pending.extend(node.children.iter().rev().copied());
         }
         return 0.0;
     }
@@ -11295,6 +11289,23 @@ mod tests {
             .err()
             .expect("cyclic scope ancestry must fail");
         assert!(error.to_string().contains("cycle"));
+    }
+
+    #[test]
+    fn hidden_layout_handles_deep_descendants_without_recursive_frames() {
+        let mut input = column_fixture("#n2 { display: none }", vec![node(2, Some(1), "div", "")]);
+        input.nodes.iter_mut().find(|node| node.id == 2).unwrap()
+            .attributes.insert("id".into(), "n2".into());
+        for id in 3..=1001 {
+            let parent = input.nodes.iter_mut().find(|node| node.id == id - 1).unwrap();
+            parent.children.push(id);
+            parent.content = Some(vec![LayoutContent::Element(id)]);
+            input.nodes.push(node(id, Some(id - 1), "div", ""));
+        }
+        let output = compute(&input, &LayoutLimits::default()).unwrap();
+        for id in 2..=1001 {
+            assert_eq!(output.geometry[&id].availability, GeometryAvailability::Hidden);
+        }
     }
 
     #[test]
