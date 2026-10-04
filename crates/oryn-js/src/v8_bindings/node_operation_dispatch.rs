@@ -703,6 +703,10 @@ pub(super) fn dispatch_document_createevent<'s>(
             "UIEvent"
         } else if requested == "focusevent" {
             "FocusEvent"
+        } else if matches!(requested.as_str(), "mouseevent" | "mouseevents") {
+            "MouseEvent"
+        } else if requested == "keyboardevent" {
+            "KeyboardEvent"
         } else if matches!(requested.as_str(), "event" | "events" | "htmlevents" | "svgevents") {
             "Event"
         } else {
@@ -711,7 +715,39 @@ pub(super) fn dispatch_document_createevent<'s>(
                 member: "NotSupportedError".into(),
             });
         };
-        let event = create_event_object_with_interface(scope, state, interface, "", false, false)?;
+        let event = if matches!(interface, "MouseEvent" | "KeyboardEvent") {
+            let mut fields = Vec::new();
+            for name in ["ctrlKey", "shiftKey", "altKey", "metaKey", "modifierAltGraph", "modifierCapsLock"] {
+                fields.push((name, NativeInputValue::Bool(false)));
+            }
+            if interface == "KeyboardEvent" {
+                for name in ["repeat", "isComposing"] {
+                    fields.push((name, NativeInputValue::Bool(false)));
+                }
+                for name in ["location", "keyCode", "charCode", "which"] {
+                    fields.push((name, NativeInputValue::Number(0.0)));
+                }
+                for name in ["key", "code"] {
+                    fields.push((name, NativeInputValue::String(&[])));
+                }
+            } else {
+                for name in ["screenX", "screenY", "clientX", "clientY", "movementX", "movementY", "button", "buttons", "which"] {
+                    fields.push((name, NativeInputValue::Number(0.0)));
+                }
+            }
+            let event = create_native_input_event(scope, state, NativeInputEventInputs {
+                interface, event_type: "", bubbles: false, cancelable: false,
+                composed: false, detail: 0, related: None, fields: &fields,
+            })?;
+            let payload = event.get_internal_field(scope, 2)
+                .and_then(|value| value.try_cast::<v8::Array>().ok())
+                .ok_or(V8BindingError::Allocation("legacy input event payload"))?;
+            let null = v8::null(scope);
+            payload.set_index(scope, 0, null.into());
+            event
+        } else {
+            create_event_object_with_interface(scope, state, interface, "", false, false)?
+        };
         if interface == "MessageEvent" {
             message_events::initialize_empty(scope, state, event)
                 .ok_or(V8BindingError::Allocation("MessageEvent payload"))?;
@@ -729,7 +765,10 @@ pub(super) fn dispatch_document_createevent<'s>(
             tag_ui_event_object(scope, state, event);
         }
         let id = event_id(scope, event)?;
-        state.events.borrow_mut().get_mut(&id).unwrap().initialized = false;
+        let mut events = state.events.borrow_mut();
+        let record = events.get_mut(&id).unwrap();
+        record.initialized = false;
+        record.is_trusted = false;
         Ok(Some(event.into()))
     }
 }

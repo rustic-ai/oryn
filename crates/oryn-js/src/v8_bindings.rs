@@ -64206,6 +64206,18 @@ target.srcdoc='raw';
             const throws=(fn,label)=>{try{fn();errors.push(label)}catch(e){check(e instanceof TypeError,label+':type')}};
             const target=document.getElementById('target');
             const basic=new UIEvent('basic');
+            for(const name of ['MouseEvent','MouseEvents','mouseevents','KeyboardEvent','KEYBOARDEVENT']) {
+                const legacy=document.createEvent(name);
+                const keyboard=name.toLowerCase()==='keyboardevent';
+                check(Object.getPrototypeOf(legacy)===(keyboard?KeyboardEvent:MouseEvent).prototype,'input prototype '+name);
+                check(legacy.view===null&&legacy.detail===0&&!legacy.isTrusted&&legacy.type==='','input defaults '+name);
+                check(!legacy.ctrlKey&&!legacy.shiftKey&&!legacy.getModifierState('Alt'),'input modifiers '+name);
+                check(keyboard?legacy.key===''&&legacy.code===''&&legacy.location===0:legacy.clientX===0&&legacy.button===0&&legacy.relatedTarget===null,'input payload '+name);
+                try{target.dispatchEvent(legacy);errors.push('input uninitialized '+name)}
+                catch(e){check(e.name==='InvalidStateError','input dispatch error '+name)}
+                legacy.initEvent('ready',true,false);
+                check(target.dispatchEvent(legacy),'input initialized '+name);
+            }
             for(const name of ['Event','Events','HTMLEvents','SVGEvents','eVeNtS']) {
                 const legacy=document.createEvent(name);
                 check(Object.getPrototypeOf(legacy)===Event.prototype&&legacy.type==='','Event alias '+name);
