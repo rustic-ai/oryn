@@ -118,23 +118,23 @@ pub(super) fn collect(
 ) -> Vec<FlowItem> {
     let mut result = Vec::new();
     let mut paragraph = Paragraph::default();
-    let mut used = nodes.keys().copied().collect::<BTreeSet<_>>();
-    for node in nodes.values() {
-        if let Some(content) = &node.content {
-            for item in content {
-                if let LayoutContent::Text { node_id, .. }
-                | LayoutContent::StyledText {
-                    node_id: Some(node_id),
-                    ..
-                } = item
-                {
-                    used.insert(*node_id);
-                }
-            }
-        }
-    }
+    // Block-only collections never allocate synthetic inline identities. Do
+    // not scan the entire document for each nested block's local collection.
+    let mut used = None::<BTreeSet<u64>>;
     let mut next = u64::MAX;
     let mut allocate = || {
+        let used = used.get_or_insert_with(|| {
+            let mut identities = nodes.keys().copied().collect::<BTreeSet<_>>();
+            for node in nodes.values() {
+                for item in node.content.iter().flatten() {
+                    if let LayoutContent::Text { node_id, .. }
+                    | LayoutContent::StyledText { node_id: Some(node_id), .. } = item {
+                        identities.insert(*node_id);
+                    }
+                }
+            }
+            identities
+        });
         while used.contains(&next) {
             next = next
                 .checked_sub(1)
@@ -257,6 +257,28 @@ mod tests {
             content: None,
         }
     }
+    #[test]
+    fn lazy_boundary_ids_avoid_document_and_text_identity_collisions() {
+        let mut root = node(1, None, "div", "");
+        root.children = vec![2];
+        let span = node(2, Some(1), "span", "text");
+        let mut other = node(u64::MAX, None, "div", "");
+        other.content = Some(vec![LayoutContent::Text {
+            node_id: u64::MAX - 1,
+            text: "outside this paragraph".into(),
+        }]);
+        let nodes = BTreeMap::from([(1, &root), (2, &span), (u64::MAX, &other)]);
+        let styles = BTreeMap::from([
+            (1, Arc::new(BTreeMap::from([("display".into(), "block".into())]))),
+            (2, Arc::new(BTreeMap::from([("display".into(), "inline".into())]))),
+        ]);
+        let flow = collect(&root, &nodes, &styles);
+        let FlowItem::Paragraph(paragraph) = &flow[0] else { panic!("paragraph") };
+        assert_eq!(paragraph.boundaries.len(), 2);
+        assert!(paragraph.boundaries.keys().all(|id| *id < u64::MAX - 1));
+        assert_eq!(paragraph.source.text, "text");
+    }
+
     #[test]
     fn nested_text_and_atomic_boxes_keep_one_ordered_paragraph() {
         let mut root = node(1, None, "div", "");
