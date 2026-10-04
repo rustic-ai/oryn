@@ -1311,6 +1311,8 @@ interface HTMLElement : Element {
   [CEReactions] attribute DOMString lang;
   [CEReactions] attribute DOMString dir;
   [CEReactions] attribute DOMString accessKey;
+  [CEReactions] attribute boolean translate;
+  [CEReactions] attribute boolean spellcheck;
   [CEReactions] attribute boolean hidden;
   [CEReactions] attribute boolean inert;
   [CEReactions] attribute DOMString innerText;
@@ -2718,6 +2720,8 @@ interface ShadowRoot : DocumentFragment {
 
 [Exposed=Window]
 interface CharacterData : Node {
+  readonly attribute Element? previousElementSibling;
+  readonly attribute Element? nextElementSibling;
   WritableStream streamBeforeHTML(optional SetHTMLOptions options = {});
   WritableStream streamBeforeHTMLUnsafe(optional (TrustedParserOptions or SetHTMLUnsafeOptions) options = {});
   WritableStream streamAfterHTML(optional SetHTMLOptions options = {});

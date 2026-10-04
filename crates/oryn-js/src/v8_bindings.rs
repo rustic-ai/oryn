@@ -18496,9 +18496,7 @@ fn stateful_id(
     object: v8::Local<v8::Object>,
 ) -> Result<u64, V8BindingError> {
     if opaque_ranges::id(scope, object).is_some() {
-        return Err(V8BindingError::Allocation(
-            "incompatible opaque range receiver",
-        ));
+        return Err(V8BindingError::Message("TypeError: incompatible opaque range receiver".into()));
     }
     object
         .get_internal_field(scope, 0)
@@ -18506,7 +18504,7 @@ fn stateful_id(
         .and_then(|value| value.integer_value(scope))
         .filter(|value| *value >= 1)
         .map(|value| value as u64)
-        .ok_or(V8BindingError::Allocation("stateful interface identity"))
+        .ok_or_else(|| V8BindingError::Message("TypeError: incompatible stateful interface receiver".into()))
 }
 
 fn new_stateful_object<'s>(
@@ -29257,9 +29255,8 @@ fn call_stateful_operation<'s>(
         return tree_walkers::operation(scope, state, object, member);
     }
     if interface == "OpaqueRange" {
-        let id = opaque_ranges::id(scope, object).ok_or(V8BindingError::Allocation(
-            "incompatible opaque range receiver",
-        ))?;
+        let id = opaque_ranges::id(scope, object).ok_or_else(||
+            V8BindingError::Message("TypeError: incompatible opaque range receiver".into()))?;
         if member == "disconnect" {
             state.dom.borrow_mut().disconnect_opaque_range(id)?;
             return Ok(None);
@@ -33670,6 +33667,33 @@ fn get_attribute_value<'s>(
             };
             v8_string(scope, canonical)?
         }
+        ("HTMLElement", "translate" | "spellcheck") => {
+            let mut current = Some(node);
+            let mut enabled = true;
+            while let Some(candidate) = current {
+                let candidate = dom.arena().get(candidate)?;
+                if !matches!(&candidate.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml") {
+                    current = candidate.parent;
+                    continue;
+                }
+                if let Some(raw) = candidate.attributes.get_null(member) {
+                    if (member == "translate" && raw.eq_ignore_ascii_case("no"))
+                        || (member == "spellcheck" && raw.eq_ignore_ascii_case("false"))
+                    {
+                        enabled = false;
+                        break;
+                    }
+                    if raw.is_empty()
+                        || (member == "translate" && raw.eq_ignore_ascii_case("yes"))
+                        || (member == "spellcheck" && raw.eq_ignore_ascii_case("true"))
+                    {
+                        break;
+                    }
+                }
+                current = candidate.parent;
+            }
+            v8::Boolean::new(scope, enabled).into()
+        }
         ("HTMLElement", "accessKey") => v8_string(
             scope,
             record.attributes.get_null("accesskey").map_or("", String::as_str),
@@ -34552,6 +34576,17 @@ fn set_attribute_value<'s>(
         let (owner, node) = node_identity::argument(scope, original.into())?
             .ok_or(DomError::StaleNode(node))?;
         owner.dom.borrow_mut().set_attribute(node, "accesskey", value)?;
+        return Ok(());
+    }
+    if interface == "HTMLElement" && matches!(member, "translate" | "spellcheck") {
+        let enabled = value.boolean_value(scope);
+        let value = match (member, enabled) {
+            ("translate", true) => "yes",
+            ("translate", false) => "no",
+            (_, true) => "true",
+            (_, false) => "false",
+        };
+        state.dom.borrow_mut().set_attribute(node, member, value)?;
         return Ok(());
     }
     if hyperlinks::handles(interface, member) {
@@ -52109,14 +52144,31 @@ mod tests {
         let source = v8::String::new(scope, r#"
             const reactions=[];
             customElements.define('access-key-control',class extends HTMLElement {
-                static get observedAttributes(){return ['accesskey']}
+                static get observedAttributes(){return ['accesskey','translate','spellcheck']}
                 attributeChangedCallback(name,oldValue,newValue){reactions.push([name,oldValue,newValue])}
             });
             const custom=document.createElement('access-key-control');
             custom.accessKey='A';
             if(reactions.length!==1||reactions[0].join('|')!=='accesskey||A')throw Error('accessKey reactions');
+            custom.translate=false;custom.spellcheck=true;
+            if(reactions.length!==3||reactions[1].join('|')!=='translate||no'||reactions[2].join('|')!=='spellcheck||true')throw Error('boolean reflection reactions');
             for(const tag of ['div','input','table','meter','progress']) {
                 const element=document.createElement(tag);
+                for(const member of ['translate','spellcheck']) {
+                    for(const value of [false,true,0,1,'false',{},null,undefined]) {
+                        element[member]=value;
+                        if(element[member]!==Boolean(value))throw Error('boolean reflection '+member);
+                        const expected=member==='translate'?(value?'yes':'no'):(value?'true':'false');
+                        if(element.getAttribute(member)!==expected)throw Error('boolean attribute '+member);
+                    }
+                    const parent=document.createElement('div');parent[member]=false;
+                    parent.append(element);element.removeAttribute(member);
+                    if(element[member]!==false)throw Error('inherited reflection '+member);
+                    element.setAttribute(member,'invalid');
+                    if(element[member]!==false)throw Error('invalid inheritance '+member);
+                    element[member]=true;
+                    if(element[member]!==true)throw Error('explicit override '+member);
+                }
                 if(element.accessKey!=='')throw Error('accessKey missing default');
                 for(const value of ['A b','',null,undefined,7,'\uD800']) {
                     element.accessKey=value;
@@ -53389,6 +53441,75 @@ mod tests {
                 .to_rust_string_lossy(scope),
             "ok"
         );
+    }
+
+    #[test]
+    fn character_data_element_siblings_skip_non_elements_and_follow_mutations() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            for(const node of [document.createTextNode('text'),document.createComment('comment'),document.createProcessingInstruction('target','data')]) {
+                const parent=document.createElement('div');
+                const before=document.createElement('b'),after=document.createElement('i');
+                parent.append(before,document.createComment('skip'),node,document.createTextNode('skip'),after);
+                if(node.previousElementSibling!==before||node.nextElementSibling!==after)throw Error('mixed sibling traversal');
+                before.remove();after.remove();
+                if(node.previousElementSibling!==null||node.nextElementSibling!==null)throw Error('live sibling traversal');
+                node.remove();
+                if(node.previousElementSibling!==null||node.nextElementSibling!==null)throw Error('detached siblings');
+            }
+            let rejected=false;
+            try{Object.getOwnPropertyDescriptor(CharacterData.prototype,'nextElementSibling').get.call({})}catch(error){rejected=error instanceof TypeError}
+            if(!rejected)throw Error('sibling receiver brand');
+            let receiverError;
+            try{Blob.prototype.slice.call({})}catch(error){receiverError=error}
+            if(!(receiverError instanceof TypeError)||String(receiverError).includes('allocate'))throw Error('stateful receiver diagnostic');
+            true
+        "#).unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+    }
+
+    #[test]
+    fn byob_replacement_preserves_capacity_after_author_transfer() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            globalThis.result='pending';
+            (async()=>{
+                for(const closed of [false,true]) {
+                    let controller;
+                    const stream=new ReadableStream({type:'bytes',start(c){controller=c}});
+                    const reader=stream.getReader({mode:'byob'});
+                    const pending=reader.read(new Uint8Array([4,5,6]));
+                    const request=controller.byobRequest;
+                    const original=request.view.buffer;
+                    const replacement=original.transfer();
+                    if(original.byteLength!==0)throw Error('original not detached');
+                    if(closed)controller.close();
+                    else new Uint8Array(replacement)[0]=42;
+                    request.respondWithNewView(new Uint8Array(replacement,0,closed?0:1));
+                    const value=await pending;
+                    if(value.done!==closed||value.value.buffer.byteLength!==3||value.value.byteLength!==(closed?0:1))throw Error('replacement shape');
+                    if(!closed&&value.value[0]!==42)throw Error('replacement bytes');
+                    if(request.view!==null)throw Error('request invalidation');
+                }
+                result='ok';
+            })().catch(error=>result=String(error));
+        "#).unwrap();
+        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        for _ in 0..32 { scope.perform_microtask_checkpoint(); }
+        let source = v8::String::new(scope, "result").unwrap();
+        assert_eq!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().to_rust_string_lossy(scope), "ok");
     }
 
     #[test]

@@ -301,6 +301,12 @@ impl NativeAgentRuntime {
             host.contexts.insert(realm, global);
             host.binding_states.insert(realm, state);
         }
+        if bootstrap.kind != AgentKind::AudioWorklet {
+            // Independent agents bypass the Window runtime bootstrap. Install
+            // once in the new worker realm, before author script evaluation.
+            host.execute(crate::observable::OBSERVABLE_GLOBALS)
+                .map_err(agent_error)?;
+        }
         let policy_url = if bootstrap.policy.url.is_empty() {
             bootstrap.script_url.as_str()
         } else {
@@ -1800,6 +1806,30 @@ mod agent_runtime_tests {
             verify(values.remove(0), "received==='microtask'");
             assert!(process.poll(32).unwrap().is_empty());
             process.terminate().unwrap();
+        }
+    }
+
+    #[test]
+    fn observable_is_installed_in_each_worker_global() {
+        for kind in [AgentKind::Dedicated, AgentKind::Shared, AgentKind::Service] {
+            let backend = Arc::new(Backend {
+                blobs: Default::default(),
+                hub: Arc::new(Mutex::new(Default::default())),
+                scripts: BTreeMap::new(),
+            });
+            let mut runtime = NativeAgentRuntime::create(
+                bootstrap("", kind, ScriptType::Classic), backend,
+            ).unwrap();
+            runtime.start().unwrap();
+            runtime.host.execute(r#"
+                const values=[];
+                const observable=new Observable(subscriber=>{
+                    subscriber.addTeardown(()=>values.push('teardown'));
+                    subscriber.next(7);subscriber.complete();subscriber.next(8);
+                });
+                observable.subscribe({next:value=>values.push(value),complete:()=>values.push('complete')});
+                if(values.join(',')!=='7,teardown,complete')throw Error('worker Observable lifecycle');
+            "#).unwrap();
         }
     }
 

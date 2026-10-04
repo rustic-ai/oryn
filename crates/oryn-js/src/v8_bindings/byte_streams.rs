@@ -9,6 +9,8 @@ pub(super) struct State {
 }
 pub(super) struct PullInto {
     pub(super) buffer: stream_graph::Owned<v8::ArrayBuffer>,
+    // The pull-into capacity survives author transfer of the current buffer.
+    buffer_byte_length: usize,
     pub(super) resolver: Option<stream_graph::Owned<v8::PromiseResolver>>,
     orphan: bool,
     default_read: bool,
@@ -209,6 +211,7 @@ fn read_into<'s>(
                 .pending
                 .is_empty();
             record.bytes.as_mut().unwrap().pending.push_back(PullInto {
+                buffer_byte_length: buffer.byte_length(),
                 buffer: stream_graph::Owned::new(scope, buffer),
                 resolver: Some(stream_graph::Owned::new(scope, resolver)),
                 orphan: false,
@@ -730,7 +733,7 @@ pub(super) fn respond(
                 .buffer(scope)
                 .ok_or_else(|| type_error("replacement buffer missing"))?;
             if view.byte_offset() != descriptor.offset + descriptor.filled
-                || buffer.byte_length() != old.byte_length()
+                || buffer.byte_length() != descriptor.buffer_byte_length
             {
                 return Err(type_error(
                     "replacement view does not match pull-into descriptor",
@@ -1085,6 +1088,7 @@ pub(super) fn prepare_tee_pull(
     }
     let buffer = v8::ArrayBuffer::new(scope, size);
     bytes.pending.push_back(PullInto {
+        buffer_byte_length: size,
         buffer: stream_graph::Owned::new(scope, buffer),
         resolver: None,
         orphan: false,

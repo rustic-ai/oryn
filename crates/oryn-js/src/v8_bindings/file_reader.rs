@@ -187,6 +187,17 @@ impl Delivery {
                 } else if let Some(callback) = keepalive {
                     global_events::invoke(scope, callback, receiver.into(), &[event.into()]);
                 }
+                // Cleaning up an asynchronously invoked callback checkpoints
+                // when the JavaScript stack is empty. In particular, an await
+                // resumed by load must run before loadend in the same task.
+                // abort() invoked by author script retains its synchronous
+                // stack and must not run those microtasks prematurely.
+                if !scope.is_execution_terminating()
+                    && v8::StackTrace::current_stack_trace(scope, 1)
+                        .is_some_and(|trace| trace.get_frame_count() == 0)
+                {
+                    scope.perform_microtask_checkpoint();
+                }
                 let stopped = {
                     let mut events = state.events.borrow_mut();
                     let record = events.get_mut(&self.event_id).unwrap();
@@ -553,6 +564,13 @@ mod native_tests {
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source=v8::String::new(scope,r#"
           const check=(v,m)=>{if(!v)throw Error(m)};const events=[];const r=new FileReader();
+          const awaited=[];const watcher=new FileReader();
+          let waitLoad;
+          const loaded=new Promise(resolve=>waitLoad=resolve);
+          watcher.addEventListener('load',()=>{awaited.push('load');waitLoad()});
+          loaded.then(()=>awaited.push('microtask'));
+          watcher.addEventListener('loadend',()=>awaited.push('end'));
+          watcher.readAsText(new Blob([]));
           r.onabort=()=>events.push('abort');r.onloadend=()=>events.push('end');r.abort();
           check(r.readyState===0&&events.length===0,'empty abort');
           r.onloadstart=e=>{check(e instanceof ProgressEvent&&e.isTrusted&&!e.bubbles&&!e.cancelable,'progress brand');check(r.result===null,'loading result');events.push('start')};
@@ -573,6 +591,7 @@ mod native_tests {
             scope,
             r#"
           check(events.join(',')==='start,progress,load,end','ordered tasks');
+          check(awaited.join(',')==='load,microtask,end','callback microtask boundary');
           check(r.result.length===3&&r.result.charCodeAt(2)===255&&r.readyState===2,'binary data');
           events.length=0;r.readAsText(new Blob(['old']));r.abort();
           check(events.join(',')==='abort,end'&&r.result===null,'synchronous abort');
