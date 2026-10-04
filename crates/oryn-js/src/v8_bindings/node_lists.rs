@@ -464,6 +464,12 @@ fn sync_wrapper_roots(scope: &mut v8::PinScope, state: &V8BindingState, id: u64)
         if !list.roots_dirty {
             return;
         }
+        // Immutable indexed properties already trace every snapshot member.
+        // A second member array adds storage without extending any lifetime.
+        if matches!(&list.contents, Contents::Snapshot(_)) {
+            list.roots_dirty = false;
+            return;
+        }
         let Some(object) = list.handle.to_local(scope) else {
             return;
         };
@@ -802,10 +808,16 @@ fn create<'s>(
             }
         }
         wrappers.insert(*node, v8::Weak::new(scope, wrapper));
-        wrapper_roots.push(wrapper.into());
+        if !matches!(&value, Contents::Snapshot(_)) {
+            wrapper_roots.push(wrapper.into());
+        }
     }
-    let traced_roots = v8::Array::new_with_elements(scope, &wrapper_roots);
-    object.set_internal_field(3, traced_roots.into());
+    if matches!(&value, Contents::Snapshot(_)) {
+        object.set_internal_field(3, v8::null(scope).into());
+    } else {
+        let traced_roots = v8::Array::new_with_elements(scope, &wrapper_roots);
+        object.set_internal_field(3, traced_roots.into());
+    }
     object.set_internal_field(
         4,
         v8::Boolean::new(scope, matches!(&value, Contents::Snapshot(_))).into(),
