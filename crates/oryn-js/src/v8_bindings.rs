@@ -64206,6 +64206,18 @@ target.srcdoc='raw';
             const throws=(fn,label)=>{try{fn();errors.push(label)}catch(e){check(e instanceof TypeError,label+':type')}};
             const target=document.getElementById('target');
             const basic=new UIEvent('basic');
+            for(const name of ['Event','Events','HTMLEvents','SVGEvents','eVeNtS']) {
+                const legacy=document.createEvent(name);
+                check(Object.getPrototypeOf(legacy)===Event.prototype&&legacy.type==='','Event alias '+name);
+                try{target.dispatchEvent(legacy);errors.push('uninitialized '+name)}
+                catch(e){check(e.name==='InvalidStateError','uninitialized error '+name)}
+                legacy.initEvent('ready',false,false);
+                check(target.dispatchEvent(legacy),'initialized '+name);
+            }
+            for(const name of ['','foo','CustomEvents','MessageEvents','FocusEvents','UIEventss','U\u0130Event',' Event']) {
+                try{document.createEvent(name);errors.push('unsupported '+name)}
+                catch(e){check(e.name==='NotSupportedError','unsupported error '+name)}
+            }
             check(basic.view===null&&basic.detail===0&&!basic.isTrusted,'UI defaults');
             const focus=new FocusEvent('focus');
             check(focus instanceof UIEvent&&focus instanceof Event&&focus.relatedTarget===null,'Focus defaults');

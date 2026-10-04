@@ -695,7 +695,7 @@ pub(super) fn dispatch_document_createevent<'s>(
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     {
         let requested = required_string(scope, args, 0)?.to_ascii_lowercase();
-        let interface = if matches!(requested.as_str(), "customevent" | "customevents") {
+        let interface = if requested == "customevent" {
             "CustomEvent"
         } else if requested == "messageevent" {
             "MessageEvent"
@@ -703,8 +703,13 @@ pub(super) fn dispatch_document_createevent<'s>(
             "UIEvent"
         } else if requested == "focusevent" {
             "FocusEvent"
-        } else {
+        } else if matches!(requested.as_str(), "event" | "events" | "htmlevents" | "svgevents") {
             "Event"
+        } else {
+            return Err(V8BindingError::Unsupported {
+                interface: "Document".into(),
+                member: "NotSupportedError".into(),
+            });
         };
         let event = create_event_object_with_interface(scope, state, interface, "", false, false)?;
         if interface == "MessageEvent" {
