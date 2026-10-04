@@ -11279,6 +11279,17 @@ mod tests {
             generated_counter_styles::Registry::read_for_scope(&input, false, Some(999)).unwrap();
         assert_eq!(registry.format(1, "inherited"), "root");
         assert_eq!(registry.marker(1, "inherited"), "root. ");
+        let mut cache = BTreeMap::new();
+        let cached = generated_counter_styles::Registry::read_for_scope_cached(
+            &input, false, Some(999), &mut cache,
+        ).unwrap();
+        assert_eq!(cache.len(), 1000);
+        for root in 1..=999_u64 {
+            let ancestor = generated_counter_styles::Registry::read_for_scope_cached(
+                &input, false, Some(root), &mut cache,
+            ).unwrap();
+            assert!(Arc::ptr_eq(&cached, &ancestor));
+        }
         input.shadow_trees.node_scopes.insert(10_001, 999);
         let error = generated_counter_styles::Registry::read_for_scope(&input, false, Some(999))
             .err()

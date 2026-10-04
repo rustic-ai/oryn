@@ -60,10 +60,29 @@ impl Registry {
         print: bool,
         scope: Option<u64>,
     ) -> Result<Arc<Self>, LayoutError> {
+        Self::read_for_scope_cached(input, print, scope, &mut BTreeMap::new())
+    }
+    /// Reuse validated ancestry within one immutable layout input. Empty
+    /// shadow scopes share their parent's registry rather than reparsing the
+    /// document stylesheets for every node's scope.
+    pub(super) fn read_for_scope_cached(
+        input: &LayoutInput,
+        print: bool,
+        scope: Option<u64>,
+        cache: &mut BTreeMap<Option<u64>, Arc<Self>>,
+    ) -> Result<Arc<Self>, LayoutError> {
         let mut chain = Vec::new();
         let mut current = scope;
         let mut visited = BTreeSet::new();
-        while let Some(root) = current {
+        let inherited = loop {
+            if let Some(registry) = cache.get(&current) {
+                break registry.clone();
+            }
+            let Some(root) = current else {
+                let registry = Arc::new(Self::read(input, print)?);
+                cache.insert(None, registry.clone());
+                break registry;
+            };
             if !visited.insert(root) {
                 return Err(LayoutError::StyleTraversal(
                     "counter style scope ancestry contains a cycle".into(),
@@ -75,8 +94,8 @@ impl Registry {
                     LayoutError::StyleTraversal("unknown counter style scope".into())
                 })?;
             current = input.shadow_trees.node_scopes.get(&tree.host).copied();
-        }
-        let mut registry = Arc::new(Self::read(input, print)?);
+        };
+        let mut registry = inherited;
         let stylesheet_scopes: BTreeSet<_> = input
             .shadow_trees
             .stylesheet_scopes
@@ -87,11 +106,13 @@ impl Registry {
             // Empty scopes inherit the same registry. Do not construct a Stylo
             // document or retain another parent link for every shadow ancestor.
             if !stylesheet_scopes.contains(&root) {
+                cache.insert(Some(root), registry.clone());
                 continue;
             }
             let mut child = Self::read_tree(input, print, Some(root))?;
             child.parent = Some(registry);
             registry = Arc::new(child);
+            cache.insert(Some(root), registry.clone());
         }
         Ok(registry)
     }

@@ -429,11 +429,9 @@ pub(super) fn materialize_for_media(
             }
         }
         let scope = input.shadow_trees.node_scopes.get(&id).copied();
-        if let std::collections::btree_map::Entry::Vacant(e) = counter_registries.entry(scope) {
-            e.insert(generated_counter_styles::Registry::read_for_scope(
-                input, print, scope,
-            )?);
-        }
+        generated_counter_styles::Registry::read_for_scope_cached(
+            input, print, scope, &mut counter_registries,
+        )?;
         counters.styles = counter_registries[&scope].clone();
         let marker_fallback = style.clone();
         for name in names {
@@ -454,15 +452,9 @@ pub(super) fn materialize_for_media(
                 })?),
                 None => scope,
             };
-            if let std::collections::btree_map::Entry::Vacant(e) =
-                counter_registries.entry(content_scope)
-            {
-                e.insert(generated_counter_styles::Registry::read_for_scope(
-                    input,
-                    print,
-                    content_scope,
-                )?);
-            }
+            generated_counter_styles::Registry::read_for_scope_cached(
+                input, print, content_scope, &mut counter_registries,
+            )?;
             counters.styles = counter_registries[&content_scope].clone();
             counters.values = counter_states.get(&(id, name)).cloned().unwrap_or_default();
             let pairs = quote_pairs(style_value(style, "quotes", "auto"))?;
@@ -478,13 +470,9 @@ pub(super) fn materialize_for_media(
                     })?),
                     None => scope,
                 };
-                if let std::collections::btree_map::Entry::Vacant(e) =
-                    counter_registries.entry(list_scope)
-                {
-                    e.insert(generated_counter_styles::Registry::read_for_scope(
-                        input, print, list_scope,
-                    )?);
-                }
+                generated_counter_styles::Registry::read_for_scope_cached(
+                    input, print, list_scope, &mut counter_registries,
+                )?;
                 let text = counter_registries[&list_scope].marker(
                     counters
                         .values
