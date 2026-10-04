@@ -6806,6 +6806,11 @@ pub fn install_generated_bindings_with_root_for_global(
     document: NodeId,
     binding_global: BindingGlobal,
 ) -> Result<Rc<V8BindingState>, V8BindingError> {
+    // A single author script can synchronously create many frame realms.
+    // State creation and publication allocate temporary handles too, not just
+    // interface installation. Keep all of those handles out of the caller's
+    // script scope; returned state holds traced weak caches or explicit roots.
+    v8::scope!(let scope, scope);
     let state = binding_installation::create_state(
         scope,
         context,
