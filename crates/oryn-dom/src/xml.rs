@@ -521,6 +521,43 @@ impl XmlDocumentParser {
                     self.sink.record_xml_pi_stylesheet(node);
                 }
                 XmlEvent::Doctype { .. } => {
+                    let named_entities = self.reader.doctype_ids().is_some_and(|ids| {
+                        matches!(
+                            ids.public_id(),
+                            Some(
+                                "-//W3C//DTD XHTML 1.0 Transitional//EN"
+                                    | "-//W3C//DTD XHTML 1.0 Strict//EN"
+                                    | "-//W3C//DTD XHTML 1.0 Frameset//EN"
+                                    | "-//W3C//DTD XHTML 1.1//EN"
+                                    | "-//W3C//DTD XHTML Basic 1.0//EN"
+                                    | "-//W3C//DTD XHTML Basic 1.1//EN"
+                                    | "-//W3C//DTD XHTML 1.1 plus MathML 2.0//EN"
+                                    | "-//W3C//DTD XHTML 1.1 plus MathML 2.0 plus SVG 1.1//EN"
+                                    | "-//W3C//DTD MathML 2.0//EN"
+                                    | "-//WAPFORUM//DTD XHTML Mobile 1.0//EN"
+                                    | "-//WAPFORUM//DTD XHTML Mobile 1.1//EN"
+                                    | "-//WAPFORUM//DTD XHTML Mobile 1.2//EN"
+                            )
+                        )
+                    });
+                    if named_entities {
+                        // Only complete, semicolon-terminated names belong to
+                        // XML. HTML's prefix and legacy no-semicolon entries do
+                        // not. The reader enforces standalone and expansion
+                        // constraints; no external DTD is fetched.
+                        let entities = markup5ever::data::NAMED_ENTITIES.entries().filter_map(
+                            |(name, &(first, second))| {
+                                let name = name.strip_suffix(';')?;
+                                let mut value = String::new();
+                                value.push(char::from_u32(first)?);
+                                if second != 0 {
+                                    value.push(char::from_u32(second)?);
+                                }
+                                Some((name.to_owned(), value))
+                            },
+                        );
+                        let _ = self.reader.add_entities(entities);
+                    }
                     if let Some(ids) = self.reader.doctype_ids() {
                         self.sink.append_doctype_to_document(
                             ids.name().into(),
@@ -578,6 +615,52 @@ fn error_document(content_type: &str, error: String) -> ParsedDocument {
 mod tests {
     use super::*;
     use crate::NodeKind;
+
+    #[test]
+    fn recognized_xml_doctypes_install_complete_named_entities() {
+        for public in [
+            "-//W3C//DTD XHTML 1.0 Strict//EN",
+            "-//W3C//DTD XHTML 1.0 Transitional//EN",
+            "-//W3C//DTD XHTML 1.1 plus MathML 2.0//EN",
+            "-//W3C//DTD XHTML 1.1 plus MathML 2.0 plus SVG 1.1//EN",
+        ] {
+            let source = format!(
+                "<!DOCTYPE html PUBLIC '{public}' 'foo'><html>&nbsp;&NotEqualTilde;&amp;</html>"
+            );
+            let parsed = parse(&source, "application/xhtml+xml");
+            assert!(parsed.errors.is_empty(), "{public}: {:?}", parsed.errors);
+            assert_eq!(
+                parsed.dom.text_content(parsed.document).unwrap(),
+                "\u{a0}\u{2242}\u{338}&"
+            );
+        }
+    }
+
+    #[test]
+    fn xml_named_entity_defaults_preserve_internal_declarations_and_standalone() {
+        let declaration = "<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Strict//EN' 'foo'";
+        let parsed = parse(
+            &format!("{declaration} [<!ENTITY nbsp 'internal'>]><html a='&nbsp;'>&nbsp;</html>"),
+            "application/xhtml+xml",
+        );
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+        assert_eq!(
+            parsed.dom.text_content(parsed.document).unwrap(),
+            "internal"
+        );
+        for source in [
+            "<html>&nbsp;</html>".to_owned(),
+            "<!DOCTYPE html SYSTEM 'foo'><html>&nbsp;</html>".to_owned(),
+            format!("<?xml version='1.0' standalone='yes'?>{declaration}><html>&nbsp;</html>"),
+            format!("{declaration}><html>&nbsp</html>"),
+            format!("{declaration}><html>&notAnEntity;</html>"),
+        ] {
+            assert!(
+                !parse(&source, "application/xhtml+xml").errors.is_empty(),
+                "{source}"
+            );
+        }
+    }
 
     #[test]
     fn streaming_xml_resumes_every_scalar_split_without_premature_eof() {

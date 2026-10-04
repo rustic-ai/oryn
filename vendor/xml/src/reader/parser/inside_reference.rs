@@ -33,8 +33,6 @@ impl PullParser {
                 };
                 if let Some(c) = c {
                     self.buf.push(c);
-                } else if let Some(v) = self.config.extra_entities.get(&name) {
-                    self.buf.push_str(v);
                 } else if let Some(v) = self.entities.get(&name) {
                     if self.state_after_reference == State::OutsideTag {
                         // an entity can expand to *elements*, so outside of a tag it needs a full reparse
@@ -46,6 +44,10 @@ impl PullParser {
                         // so it can't be fed to the lexer
                         self.buf.push_str(v);
                     }
+                } else if let Some(v) = self.config.extra_entities.get(&name) {
+                    // Internal-subset declarations take precedence over the
+                    // externally supplied default entity table.
+                    self.buf.push_str(v);
                 } else {
                     return Some(self.error(SyntaxError::UnexpectedEntity(name.into())));
                 }
