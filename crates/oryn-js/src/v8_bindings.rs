@@ -13568,9 +13568,18 @@ fn initialize_platform_constructor<'s>(
             ));
         }
 
-        let start = option_function(scope, source, "start").map(Into::into);
-        let pull = option_function(scope, source, "pull").map(Into::into);
-        let cancel = option_function(scope, source, "cancel").map(Into::into);
+        let mut callbacks = Vec::new();
+        for member in ["start", "pull", "cancel"] {
+            let value = checked_dictionary_member(scope, source, member)?;
+            callbacks.push(value.map(|value| {
+                value.try_cast::<v8::Function>()
+                    .map(|function| v8::Global::new(scope, function).into())
+                    .map_err(|_| V8BindingError::Message(format!("TypeError: underlying source {member} must be callable")))
+            }).transpose()?);
+        }
+        let start = callbacks.remove(0);
+        let pull = callbacks.remove(0);
+        let cancel = callbacks.remove(0);
         insert_platform_object(
             state,
             controller_id,
@@ -53528,6 +53537,13 @@ mod tests {
             const bytes=new ByteLengthQueuingStrategy({highWaterMark:1}).size;
             check(bytes.length===1&&bytes({byteLength:'raw'})==='raw'&&bytes('x')===undefined,'byte size');
             let error;try{bytes(null)}catch(value){error=value}check(error instanceof TypeError,'null chunk');
+            for(const member of ['start','pull','cancel']) {
+                let caught;try{new ReadableStream({type:'bytes',[member]:'not callable'})}catch(error){caught=error}
+                check(caught instanceof TypeError,'source callback conversion '+member);
+                const failure={};caught=undefined;
+                try{new ReadableStream({type:'bytes',get [member](){throw failure}})}catch(error){caught=error}
+                check(caught===failure,'source getter exception '+member);
+            }
             true
         "#).unwrap();
         assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
@@ -53576,6 +53592,12 @@ mod tests {
         let source = v8::String::new(scope, r#"
             globalThis.result='pending';
             (async()=>{
+                const queued=new ReadableStream({type:'bytes',start(c){
+                    const first=new Uint8Array(16);first[15]=123;c.enqueue(first);
+                    const second=new Uint8Array(8);second[7]=111;c.enqueue(second);
+                }});
+                const all=await queued.getReader({mode:'byob'}).read(new Uint8Array(24));
+                if(all.value.byteLength!==24||all.value[15]!==123||all.value[23]!==111)throw Error('queued chunks not consumed together');
                 for(const closed of [false,true]) {
                     let controller;
                     const stream=new ReadableStream({type:'bytes',start(c){controller=c}});

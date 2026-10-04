@@ -283,10 +283,7 @@ pub(super) fn drain(
             let Some(mut descriptor) = bytes.pending.pop_front() else {
                 return Ok(());
             };
-            while descriptor.filled < descriptor.length
-                && !(descriptor.filled >= descriptor.minimum
-                    && descriptor.filled % descriptor.kind.size() == 0)
-            {
+            while descriptor.filled < descriptor.length {
                 let Some(chunk) = record.queue.pop_front() else {
                     break;
                 };
@@ -300,6 +297,10 @@ pub(super) fn drain(
                     amount = (descriptor.filled + amount) / descriptor.kind.size()
                         * descriptor.kind.size()
                         - descriptor.filled;
+                }
+                if amount == 0 {
+                    record.queue.push_front(stream_graph::Owned::new(scope, chunk));
+                    break;
                 }
                 let mut data = vec![0; amount];
                 view.copy_contents(&mut data);
@@ -335,9 +336,6 @@ pub(super) fn drain(
                         scope,
                         v8::Local::<v8::Value>::from(remainder),
                     ));
-                }
-                if descriptor.filled >= descriptor.minimum {
-                    break;
                 }
             }
             if descriptor.filled >= descriptor.minimum && !descriptor.orphan {
