@@ -466,6 +466,34 @@ mod tests {
         })()"#).is_true());
     }
     #[test]
+    fn scalar_reflection_runs_reentrant_custom_element_reactions() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const log=[];
+            customElements.define('aria-reaction-control',class extends HTMLElement {
+                static observedAttributes=['aria-label','role'];
+                attributeChangedCallback(name,oldValue,newValue) {
+                    log.push([name,oldValue,newValue]);
+                    if(name==='aria-label'&&newValue==='first')this.role='button';
+                }
+            });
+            const element=document.createElement('aria-reaction-control');
+            element.ariaLabel='first';
+            if(log.length!==2||log[0].join('|')!=='aria-label||first'||log[1].join('|')!=='role||button')throw Error('reaction order');
+            element.ariaLabel=null;
+            if(log.length!==3||log[2][1]!=='first'||log[2][2]!==null||element.hasAttribute('aria-label'))throw Error('removal reaction');
+            true
+        "#).unwrap();
+        assert!(v8::Script::compile(scope,source,None).unwrap().run(scope).unwrap().is_true());
+    }
+
+    #[test]
     fn internals_defaults_reflect_without_attributes_and_relations_keep_identity() {
         super::super::tests::initialize_v8();
         let dom = Rc::new(RefCell::new(

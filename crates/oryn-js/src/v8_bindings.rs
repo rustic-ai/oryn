@@ -33670,6 +33670,10 @@ fn get_attribute_value<'s>(
             };
             v8_string(scope, canonical)?
         }
+        ("HTMLElement", "accessKey") => v8_string(
+            scope,
+            record.attributes.get_null("accesskey").map_or("", String::as_str),
+        )?,
         ("HTMLElement", "title" | "lang") | ("HTMLSlotElement", "name") => v8_string(
             scope,
             record
@@ -34540,6 +34544,15 @@ fn set_attribute_value<'s>(
     }
     if aria::handles(interface, member) {
         return aria::set(scope, state, node, interface, member, value);
+    }
+    if interface == "HTMLElement" && member == "accessKey" {
+        let original = wrap_node(scope, state, node)?;
+        let value = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let value = rust_string_preserving_utf16(scope, value)?;
+        let (owner, node) = node_identity::argument(scope, original.into())?
+            .ok_or(DomError::StaleNode(node))?;
+        owner.dom.borrow_mut().set_attribute(node, "accesskey", value)?;
+        return Ok(());
     }
     if hyperlinks::handles(interface, member) {
         return hyperlinks::set(scope, state, node, member, value);
@@ -52094,8 +52107,23 @@ mod tests {
         let scope = &mut v8::ContextScope::new(scope, context);
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(scope, r#"
+            const reactions=[];
+            customElements.define('access-key-control',class extends HTMLElement {
+                static get observedAttributes(){return ['accesskey']}
+                attributeChangedCallback(name,oldValue,newValue){reactions.push([name,oldValue,newValue])}
+            });
+            const custom=document.createElement('access-key-control');
+            custom.accessKey='A';
+            if(reactions.length!==1||reactions[0].join('|')!=='accesskey||A')throw Error('accessKey reactions');
             for(const tag of ['div','input','table','meter','progress']) {
                 const element=document.createElement(tag);
+                if(element.accessKey!=='')throw Error('accessKey missing default');
+                for(const value of ['A b','',null,undefined,7,'\uD800']) {
+                    element.accessKey=value;
+                    if(element.accessKey!==String(value)||element.getAttribute('accesskey')!==String(value))throw Error('accessKey setter '+tag);
+                }
+                element.setAttribute('accesskey','Mixed CASE');
+                if(element.accessKey!=='Mixed CASE')throw Error('accessKey raw reflection');
                 if(element.dir!=='')throw Error('missing default '+tag);
                 for(const [raw,expected] of [['LTR','ltr'],['rTl','rtl'],['AUTO','auto'],[' rtl',''],['rtl ',''],['invalid',''],['','']]) {
                     element.setAttribute('dir',raw);
