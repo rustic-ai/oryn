@@ -33,12 +33,14 @@ fn retain_in_context(
     };
     let name = v8::String::new(scope, &format!("oryn.context.intrinsic.{name}"))
         .ok_or(V8BindingError::Allocation("context intrinsic key"))?;
-    let key = v8::Private::for_api(scope, Some(name));
+    // The holder is not author-visible and has a null prototype. Ordinary
+    // own keys stay in its collectible graph; Private::for_api would intern
+    // every document-specific owner name for the lifetime of the isolate.
     #[cfg(test)]
     if FAIL_RETAIN_PUBLICATION.with(|fail| fail.replace(false)) {
         return Err(V8BindingError::Allocation("context intrinsic publication"));
     }
-    if holder.set_private(scope, key, value) != Some(true) {
+    if holder.create_data_property(scope, name.into(), value) != Some(true) {
         return Err(V8BindingError::JavaScriptException);
     }
     if !initialized {
@@ -123,8 +125,7 @@ pub(super) fn release_object_for(
         &format!("oryn.context.intrinsic.owner-{}-{name}", state.instance_id),
     )
     .ok_or(V8BindingError::Allocation("context intrinsic key"))?;
-    let key = v8::Private::for_api(scope, Some(name));
-    if holder.delete_private(scope, key) != Some(true) {
+    if holder.delete(scope, name.into()) != Some(true) {
         return Err(V8BindingError::JavaScriptException);
     }
     Ok(())
@@ -466,10 +467,9 @@ mod exact_context_retention_tests {
             .try_cast::<v8::Object>()
             .unwrap();
         let name = v8::String::new(scope, "oryn.context.intrinsic.atomic").unwrap();
-        let key = v8::Private::for_api(scope, Some(name));
         assert!(
             holder
-                .get_private(scope, key)
+                .get(scope, name.into())
                 .unwrap()
                 .strict_equals(original.into())
         );
@@ -517,10 +517,9 @@ mod exact_context_retention_tests {
             ),
         )
         .unwrap();
-        let key = v8::Private::for_api(scope, Some(name));
         assert!(
             holder
-                .get_private(scope, key)
+                .get(scope, name.into())
                 .unwrap()
                 .strict_equals(value.into())
         );
