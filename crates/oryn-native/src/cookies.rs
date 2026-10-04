@@ -524,6 +524,12 @@ impl ContextCookieStore {
         for value in values {
             // Invalid individual headers are ignored, not a reason to abort
             // response processing or lose later valid Set-Cookie headers.
+            // Check the original field before parsing/whitespace trimming.
+            // RFC 6265bis excludes CTLs other than horizontal tab, including
+            // controls in attributes, on both HTTP and document-cookie paths.
+            if value.bytes().any(|byte| byte <= 0x08 || (0x0a..=0x1f).contains(&byte) || byte == 0x7f) {
+                continue;
+            }
             let Ok(parsed) = Cookie::parse(value.clone()) else {
                 continue;
             };
@@ -1207,6 +1213,29 @@ mod tests {
             .store_document_cookie(&url, "forged=three; HttpOnly".into())
             .unwrap();
         assert!(!store.header(&url, &context).0.unwrap().contains("forged="));
+    }
+
+    #[test]
+    fn forbidden_cookie_controls_are_rejected_on_both_admission_paths() {
+        let url = Url::parse("https://app.example/").unwrap();
+        let context = CookieRequestContext::navigation(Some(url.to_string()));
+        for byte in (0u8..=0x1f).chain(std::iter::once(0x7f)).filter(|byte| *byte != b'\t') {
+            for value in [
+                format!("bad{}name=one", char::from(byte)),
+                format!("bad=one{}two", char::from(byte)),
+                format!("bad=one; Path=/{}", char::from(byte)),
+            ] {
+                let store = ContextCookieStore::memory();
+                store.store_response(&url, &context, [value.clone(), "good=two".into()]).unwrap();
+                assert_eq!(store.document_header(&url).as_deref(), Some("good=two"), "HTTP {byte}: {value:?}");
+                let store = ContextCookieStore::memory();
+                store.store_document_cookie(&url, value.clone()).unwrap();
+                assert!(store.document_header(&url).is_none(), "document {byte}: {value:?}");
+            }
+        }
+        let store = ContextCookieStore::memory();
+        store.store_document_cookie(&url, "\tgood=two;\tPath=/".into()).unwrap();
+        assert_eq!(store.document_header(&url).as_deref(), Some("good=two"));
     }
     #[test]
     fn webdriver_cookie_scope_includes_http_only_and_deletes_only_associated_cookies() {
