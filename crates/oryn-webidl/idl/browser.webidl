@@ -2856,6 +2856,24 @@ interface AbortController {
 };
 
 [Exposed=(Window,Worker)]
+interface CountQueuingStrategy {
+  constructor(QueuingStrategyInit init);
+  readonly attribute unrestricted double highWaterMark;
+  readonly attribute any size;
+};
+
+[Exposed=(Window,Worker)]
+interface ByteLengthQueuingStrategy {
+  constructor(QueuingStrategyInit init);
+  readonly attribute unrestricted double highWaterMark;
+  readonly attribute any size;
+};
+
+dictionary QueuingStrategyInit {
+  required unrestricted double highWaterMark;
+};
+
+[Exposed=(Window,Worker)]
 interface ReadableStream {
   constructor(optional any underlyingSource = null, optional any strategy = null);
   readonly attribute boolean locked;

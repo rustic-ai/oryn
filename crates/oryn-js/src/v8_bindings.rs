@@ -1172,6 +1172,7 @@ struct IdbKeyRangeRecord {
 }
 
 enum PlatformObjectRecord {
+    QueuingStrategy { byte_length: bool, high_water_mark: f64 },
     Sanitizer(Rc<RefCell<oryn_dom::sanitizer::Config>>),
     ImageBitmap(image_bitmap::Backing),
     AudioData(audio_data::Backing),
@@ -11783,6 +11784,8 @@ fn is_platform_interface(interface: &str) -> bool {
             | "Worker"
             | "SharedWorker"
             | "ReadableStream"
+            | "CountQueuingStrategy"
+            | "ByteLengthQueuingStrategy"
             | "ReadableStreamDefaultReader"
             | "ReadableStreamBYOBReader"
             | "ReadableStreamBYOBRequest"
@@ -12514,6 +12517,16 @@ fn writer_stream_id(
         return Err(V8BindingError::Allocation("WritableStream writer"));
     };
     Ok(*stream_id)
+}
+
+fn queuing_strategy_size(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut result: v8::ReturnValue) {
+    if !args.data().boolean_value(scope) {
+        result.set(v8::Integer::new(scope, 1).into());
+        return;
+    }
+    let Some(object) = args.get(0).to_object(scope) else { return; };
+    let name = v8::String::new(scope, "byteLength").unwrap();
+    if let Some(value) = object.get(scope, name.into()) { result.set(value); }
 }
 
 fn initialize_platform_constructor<'s>(
@@ -13483,6 +13496,21 @@ fn initialize_platform_constructor<'s>(
             readable_streams::acquire(scope, state, stream)?
         };
         bind_platform_object(scope, state, reader, args.this());
+        return Ok(true);
+    }
+    if matches!(name, "CountQueuingStrategy" | "ByteLengthQueuingStrategy") {
+        let init = args.get(0);
+        if !init.is_object() {
+            return Err(V8BindingError::Message("TypeError: strategy init must be a dictionary".into()));
+        }
+        let value = checked_dictionary_member(scope, init, "highWaterMark")?
+            .ok_or_else(|| V8BindingError::Message("TypeError: highWaterMark is required".into()))?;
+        let high_water_mark = value.number_value(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let id = reserve_platform_object_id(state);
+        state.platform_objects.borrow_mut().insert(id, PlatformObjectRecord::QueuingStrategy {
+            byte_length: name == "ByteLengthQueuingStrategy", high_water_mark,
+        });
+        bind_platform_object(scope, state, id, args.this());
         return Ok(true);
     }
     if name == "ReadableStream" {
@@ -24672,6 +24700,28 @@ fn get_platform_attribute<'s>(
             id,
             &member[2..],
         )),
+        (PlatformObjectRecord::QueuingStrategy { byte_length, high_water_mark }, interface, member)
+            if interface == if *byte_length { "ByteLengthQueuingStrategy" } else { "CountQueuingStrategy" } => {
+            if member == "highWaterMark" {
+                return Ok(v8::Number::new(scope, *high_water_mark).into());
+            }
+            let context = scope.get_current_context();
+            let name = v8::String::new(scope, if *byte_length { "oryn.byteLengthStrategySize" } else { "oryn.countStrategySize" })
+                .ok_or(V8BindingError::Allocation("strategy size key"))?;
+            let key = v8::Private::for_api(scope, Some(name));
+            let global = context.global(scope);
+            if let Some(function) = global.get_private(scope, key).filter(|value| value.is_function()) {
+                return Ok(function);
+            }
+            let data = v8::Boolean::new(scope, *byte_length);
+            let template = v8::FunctionTemplate::builder(queuing_strategy_size)
+                .data(data.into()).length(if *byte_length { 1 } else { 0 })
+                .constructor_behavior(v8::ConstructorBehavior::Throw).build(scope);
+            let function = template.get_function(scope).ok_or(V8BindingError::Allocation("strategy size function"))?;
+            function.set_name(v8::String::new(scope, "size").unwrap());
+            global.set_private(scope, key, function.into());
+            Ok(function.into())
+        }
         (PlatformObjectRecord::ReadableStream(stream), "ReadableStream", "locked") => {
             Ok(v8::Boolean::new(scope, stream.locked).into())
         }
@@ -53441,6 +53491,46 @@ mod tests {
                 .to_rust_string_lossy(scope),
             "ok"
         );
+    }
+
+    #[test]
+    fn queuing_strategies_convert_brand_and_share_realm_size_functions() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const check=(value,message)=>{if(!value)throw Error(message)};
+            for(const Type of [CountQueuingStrategy,ByteLengthQueuingStrategy]) {
+                for(const [raw,expected] of [[-Infinity,-Infinity],[-5,-5],[false,0],[true,1],['foo',NaN],['0',0],[{},NaN]])
+                    check(Object.is(new Type({highWaterMark:raw}).highWaterMark,expected),'unrestricted conversion');
+                for(const raw of [undefined,null,true,5,{}, {highWaterMark:undefined}]) {
+                    let error;try{new Type(raw)}catch(value){error=value}check(error instanceof TypeError,'required dictionary');
+                }
+                const error={};let caught;
+                try{new Type({get highWaterMark(){throw error}})}catch(value){caught=value}
+                check(caught===error,'getter exception');
+                const a=new Type({highWaterMark:3}),b=new Type({highWaterMark:7});
+                check(a.size===b.size&&a.size.name==='size'&&!('prototype' in a.size),'shared size function');
+                let bad;try{new a.size()}catch(error){bad=error}check(bad instanceof TypeError,'nonconstructor size');
+                for(const member of ['size','highWaterMark']) {
+                    let bad;try{Object.getOwnPropertyDescriptor(Type.prototype,member).get.call({})}catch(error){bad=error}
+                    check(bad instanceof TypeError,'receiver brand');
+                }
+                class Child extends Type {size(){return 2}}
+                check(new Child({highWaterMark:4}).size()===2,'subclass override');
+            }
+            const count=new CountQueuingStrategy({highWaterMark:1}).size;
+            check(count.length===0&&count({get byteLength(){throw Error('unused')}})===1,'count size');
+            const bytes=new ByteLengthQueuingStrategy({highWaterMark:1}).size;
+            check(bytes.length===1&&bytes({byteLength:'raw'})==='raw'&&bytes('x')===undefined,'byte size');
+            let error;try{bytes(null)}catch(value){error=value}check(error instanceof TypeError,'null chunk');
+            true
+        "#).unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
     }
 
     #[test]
