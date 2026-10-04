@@ -476,6 +476,11 @@ pub(super) fn install_interfaces(
     state: &Rc<V8BindingState>,
     binding_global: BindingGlobal,
 ) -> Result<BTreeMap<&'static str, v8::Global<v8::Function>>, V8BindingError> {
+    // Installation creates thousands of temporary template/member handles.
+    // Do not retain them in the caller's script scope: a script can create
+    // hundreds of iframe realms before that scope returns. Published objects
+    // are owned by the context graph and the returned constructors are Globals.
+    v8::scope!(let scope, scope);
     let mut templates = BTreeMap::<&'static str, v8::Global<v8::FunctionTemplate>>::new();
     let mut constructors = BTreeMap::<&'static str, v8::Global<v8::Function>>::new();
     let mut unforgeable_getters = BTreeMap::<u32, v8::Global<v8::FunctionTemplate>>::new();
