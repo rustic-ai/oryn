@@ -1,10 +1,24 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
-from oryn_wptrunner.protocol import CheckedSession
+from oryn_wptrunner.protocol import CheckedSession, OrynProtocol
 
 
 class WindowCommandTimingTests(unittest.TestCase):
+    def test_health_uses_authoritative_session_receipt_with_unchanged_deadline(self):
+        protocol = object.__new__(OrynProtocol)
+        protocol.webdriver = Mock(session_id='owned')
+        send = protocol.webdriver.send_session_command
+        send.return_value = {'schema_version': 1, 'session_id': 'owned', 'live_pages': 1}
+        self.assertTrue(protocol.is_alive())
+        send.assert_called_once_with('GET', 'oryn/diagnostics/health', timeout=2)
+        for receipt in [None, {'schema_version': 1, 'session_id': 'foreign', 'live_pages': 1},
+                        {'schema_version': 1, 'session_id': 'owned', 'live_pages': 0}]:
+            send.return_value = receipt
+            self.assertFalse(protocol.is_alive())
+        send.side_effect = TimeoutError('unresponsive driver')
+        self.assertFalse(protocol.is_alive())
+
     def test_command_instrumentation_preserves_request_result_and_exception(self):
         session = CheckedSession('127.0.0.1', 1234)
         session.session_id = 'example'

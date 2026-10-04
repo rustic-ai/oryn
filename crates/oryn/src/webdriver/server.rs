@@ -223,6 +223,9 @@ impl Driver {
         if method == "GET" && tail == ["oryn", "diagnostics", "retirement"] {
             return self.sessions.retirement(id).map(ScriptValue::from);
         }
+        if method == "GET" && tail == ["oryn", "diagnostics", "health"] {
+            return self.sessions.health(id).map(ScriptValue::from);
+        }
         let mut session = self.sessions.acquire(id).await?;
         if tail == ["alert", "text"] {
             let page = session.current_page()?;

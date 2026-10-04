@@ -14,6 +14,7 @@ use tokio::sync::{OwnedMutexGuard, OwnedSemaphorePermit, Semaphore};
 
 struct Entry {
     session: Arc<tokio::sync::Mutex<Session>>,
+    health_context: oryn_native::BrowserContext,
     revoked: AtomicBool,
     cancellation: Arc<SessionCancellation>,
     _permit: OwnedSemaphorePermit,
@@ -144,6 +145,7 @@ impl Registry {
                 entries.insert(
                     id.clone(),
                     Arc::new(Entry {
+                        health_context: session.context()?.clone(),
                         session: Arc::new(tokio::sync::Mutex::new(session)),
                         revoked: AtomicBool::new(false),
                         cancellation: Arc::new(SessionCancellation::default()),
@@ -188,6 +190,28 @@ impl Registry {
             guard,
             _entry: entry,
         })
+    }
+
+    /// A liveness observation must not queue behind a suspended author command.
+    /// The native context roster, not cached WebDriver handles, is authoritative.
+    pub fn health(&self, id: &str) -> Result<Value, CommandError> {
+        let entry = self.entries.lock().expect("WebDriver registry lock")
+            .get(id).cloned().ok_or_else(invalid_session)?;
+        if entry.revoked.load(Ordering::Acquire) {
+            return Err(invalid_session());
+        }
+        let pages = entry.health_context.pages();
+        if entry.revoked.load(Ordering::Acquire) {
+            return Err(invalid_session());
+        }
+        Ok(serde_json::json!({
+            "schema_version": 1,
+            "session_id": id,
+            "live_pages": pages.iter().filter(|page| matches!(
+                page.status,
+                oryn_common::v3::PageStatus::Open | oryn_common::v3::PageStatus::AttentionRequired
+            )).count(),
+        }))
     }
 
     fn begin_retirement(&self, id: &str) {
@@ -380,6 +404,9 @@ mod tests {
             .await
             .unwrap();
         let held = registry.acquire(&id).await.unwrap();
+        let health = registry.health(&id).unwrap();
+        assert_eq!(health["session_id"], id);
+        assert_eq!(health["live_pages"], 1);
         let mut queued = Box::pin(registry.acquire(&id));
         assert!(
             poll_fn(|cx| Poll::Ready(queued.as_mut().poll(cx)))
@@ -393,6 +420,7 @@ mod tests {
                 .is_pending()
         );
         assert!(!registry.entries.lock().unwrap().contains_key(&id));
+        assert_eq!(registry.health(&id).unwrap_err().code, "invalid session id");
         drop(held);
         // Tokio's mutex gives the already queued request its turn first. It
         // must observe revocation and release the lock without running a command.

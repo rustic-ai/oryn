@@ -3,7 +3,7 @@ import asyncio
 import threading
 from urllib.parse import urljoin, urlsplit
 from webdriver.client import Session, WebWindow, WebFrame
-from webdriver.error import InvalidSessionIdException
+from webdriver.error import InvalidSessionIdException, WebDriverException
 from wptrunner.executors.executorwebdriver import (
     WebDriverProtocol, WebDriverTestharnessExecutor, WebDriverRefTestExecutor,
     WebDriverCrashtestExecutor, WebDriverPrintRefTestExecutor, WebDriverSelectorProtocolPart, WebDriverAccessibilityProtocolPart,
@@ -235,6 +235,20 @@ class OrynProtocol(WebDriverProtocol):
         self._token = browser.oryn_driver_token
         self._timing_identity = getattr(browser, 'oryn_timing_identity', None)
         self._timing_service = getattr(browser, 'oryn_timing_service', None)
+
+    def is_alive(self):
+        if not self.webdriver:
+            return False
+        try:
+            receipt = self.webdriver.send_session_command(
+                'GET', 'oryn/diagnostics/health', timeout=2)
+            return (isinstance(receipt, dict)
+                    and receipt.get('schema_version') == 1
+                    and receipt.get('session_id') == self.webdriver.session_id
+                    and isinstance(receipt.get('live_pages'), int)
+                    and receipt['live_pages'] > 0)
+        except (OSError, WebDriverException, TransportRetiredError):
+            return False
 
     def connect(self):
         with span(getattr(self, 'logger', None), 'session.connect',
