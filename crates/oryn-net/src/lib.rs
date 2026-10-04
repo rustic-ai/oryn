@@ -575,7 +575,10 @@ impl HttpTransport for RustlsTransport {
                     item = source.next() => Ok(item),
                 }?;
                 let Some(item) = item else { break; };
-                let chunk = item.map_err(|error| TransportError::Failed(error.to_string()))?;
+                let chunk = item.map_err(|error| TransportError::Failed(format!(
+                    "response body operation={operation_id} received={received}: {}",
+                    bounded_error_chain(&error.without_url())
+                )))?;
                 received = received.saturating_add(chunk.len());
                 if received > limit {
                     Err(TransportError::Failed(format!("response exceeded {limit} bytes")))?;
@@ -2060,6 +2063,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn truncated_http_body_rejects_with_bounded_correlated_diagnostics() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut request = [0; 4096];
+            socket.read(&mut request).unwrap();
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nshort",
+                )
+                .unwrap();
+        });
+        let transport = RustlsTransport::new(Duration::from_secs(2), 1024).unwrap();
+        let mut response = transport
+            .start(HttpRequest {
+                dns_timing: None,
+                operation_id: 71,
+                method: "GET".into(),
+                url: format!("http://{address}/private?token=secret"),
+                headers: vec![],
+                body: vec![],
+                resolved_addrs: vec![address],
+            })
+            .await
+            .unwrap();
+        let mut failure = None;
+        while let Some(chunk) = response.body.next().await {
+            if let Err(error) = chunk {
+                failure = Some(error.to_string());
+                break;
+            }
+        }
+        server.join().unwrap();
+        let failure = failure.expect("truncated body must not complete successfully");
+        assert!(failure.contains("operation=71"));
+        assert!(failure.contains("received="));
+        assert!(failure.contains("caused by"));
+        assert!(!failure.contains("token=secret"));
+        assert!(failure.chars().count() < 2200);
+    }
+
+    #[tokio::test]
     async fn http1_transport_emits_browser_connection_header() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
@@ -2483,8 +2532,49 @@ mod document_kind_encoding_tests {
 fn request_error(error: reqwest::Error) -> TransportError {
     match certificate_rejection(&error, 32) {
         Some(detail) => TransportError::CertificateRejected(detail),
-        None => TransportError::Failed(error.to_string()),
+        None => TransportError::Failed(bounded_error_chain(&error.without_url())),
     }
+}
+
+/// Bound diagnostics by both depth and characters. Request URLs (including
+/// credentials and query strings) are removed from reqwest errors by callers.
+fn bounded_error_chain(error: &(dyn std::error::Error + 'static)) -> String {
+    use std::fmt::Write;
+    struct Bounded {
+        text: String,
+        remaining: usize,
+    }
+    impl std::fmt::Write for Bounded {
+        fn write_str(&mut self, value: &str) -> std::fmt::Result {
+            for character in value.chars().take(self.remaining) {
+                self.text.push(character);
+                self.remaining -= 1;
+            }
+            Ok(())
+        }
+    }
+    let mut output = Bounded {
+        text: String::new(),
+        remaining: 2048,
+    };
+    let mut current = Some(error);
+    for depth in 0..8 {
+        let Some(error) = current else { break };
+        if output.remaining == 0 {
+            break;
+        }
+        if depth > 0 {
+            let _ = write!(output, ": caused by: ");
+        }
+        let _ = write!(output, "{error}");
+        // io::Error may expose its inner error without exposing it as source.
+        current = error.source().or_else(|| {
+            error
+                .downcast_ref::<std::io::Error>()
+                .and_then(|error| error.get_ref().map(|inner| inner as &dyn std::error::Error))
+        });
+    }
+    output.text
 }
 
 fn certificate_rejection(
@@ -2517,6 +2607,26 @@ fn certificate_rejection(
 #[cfg(test)]
 mod certificate_error_tests {
     use super::*;
+    #[test]
+    fn transport_diagnostics_preserve_causes_and_bound_unicode_output() {
+        let error = std::io::Error::other(std::io::Error::other("truncated HTTP body"));
+        assert!(bounded_error_chain(&error).contains("truncated HTTP body"));
+        let error = std::io::Error::other("界".repeat(4096));
+        assert_eq!(bounded_error_chain(&error).chars().count(), 2048);
+        #[derive(Debug)]
+        struct Cycle;
+        impl std::fmt::Display for Cycle {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("cycle")
+            }
+        }
+        impl std::error::Error for Cycle {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(self)
+            }
+        }
+        assert_eq!(bounded_error_chain(&Cycle).matches("cycle").count(), 8);
+    }
     #[test]
     fn certificate_rejection_preserves_verifier_causes_through_io_wrapping() {
         for cause in [
