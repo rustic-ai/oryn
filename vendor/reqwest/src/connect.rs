@@ -1669,6 +1669,10 @@ mod native_tls_conn {
 }
 
 #[cfg(feature = "__rustls")]
+#[path = "http_tls_eof.rs"]
+mod http_tls_eof;
+
+#[cfg(feature = "__rustls")]
 mod rustls_tls_conn {
     use super::TlsInfoFactory;
     use hyper::rt::{Read, ReadBufCursor, Write};
@@ -1684,6 +1688,8 @@ mod rustls_tls_conn {
     use tokio::io::{AsyncRead, AsyncWrite};
     use tokio::net::TcpStream;
     use tokio_rustls::client::TlsStream;
+
+    use super::http_tls_eof::http_tls_read_result;
 
     pin_project! {
         pub(super) struct RustlsTlsConn<T> {
@@ -1803,7 +1809,7 @@ mod rustls_tls_conn {
             buf: ReadBufCursor<'_>,
         ) -> Poll<tokio::io::Result<()>> {
             let this = self.project();
-            Read::poll_read(this.inner, cx, buf)
+            http_tls_read_result(Read::poll_read(this.inner, cx, buf))
         }
     }
 
