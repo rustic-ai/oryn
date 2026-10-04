@@ -29339,6 +29339,14 @@ fn call_stateful_operation<'s>(
             TrustedKind::Html,
             "DOMParser parseFromString",
         )?;
+        // The lossless DOMString storage marker is not XML source text.
+        // XML receives Unicode scalars: replace lone surrogates only at this
+        // parser boundary, after Trusted Types processing and coercion.
+        let markup = if media_type == "text/html" {
+            markup
+        } else {
+            String::from_utf16_lossy(&oryn_dom::dom_string::units(&markup))
+        };
         return Ok(Some(
             parse_dom_parser_document(scope, state, &markup, &media_type)?.into(),
         ));
@@ -56728,6 +56736,11 @@ target.srcdoc='raw';
         let source = v8::String::new(scope, r#"
             const check=(value,message)=>{if(!value)throw Error(message)};
             const parser=new DOMParser();const parse=DOMParser.prototype.parseFromString;
+            for(const type of ['text/xml','application/xml','application/xhtml+xml','image/svg+xml']) {
+                const doc=parser.parseFromString('<rss><title><![CDATA[broken \uD83C and \uD83D\uDD25]]></title></rss>',type);
+                check(doc.documentElement.localName==='rss','surrogate XML parse '+type);
+                check(doc.querySelector('title').textContent==='broken \uFFFD and \uD83D\uDD25','surrogate scalar conversion '+type);
+            }
             const reason={identity:true};const order=[];
             const result=parser.parseFromString({toString(){order.push('input');return '<root/>'}},
                 {toString(){order.push('type');return 'application/xml'}});
