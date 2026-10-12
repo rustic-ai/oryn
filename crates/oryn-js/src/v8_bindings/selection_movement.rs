@@ -934,6 +934,10 @@ pub(super) fn drop_caret(
 fn pointer_word_span(text: &str, offset: usize) -> (usize, usize) {
     let text = segmentation_text(text);
     let text = text.as_ref();
+    pointer_word_span_normalized(text, offset)
+}
+
+fn pointer_word_span_normalized(text: &str, offset: usize) -> (usize, usize) {
     let mut start = 0;
     let mut last = (0, 0);
     for segment in text.split_word_bounds() {
@@ -945,6 +949,116 @@ fn pointer_word_span(text: &str, offset: usize) -> (usize, usize) {
         start = end;
     }
     last
+}
+
+// Collect only the selected paragraph's run, with fallible scratch allocation.
+// Shared caret, gesture and activation transport remain unchanged.
+fn pointer_word_run(
+    state: &V8BindingState,
+    point: BoundaryPoint,
+    root: NodeId,
+) -> Result<Option<TextRun>, V8BindingError> {
+    let dom = state.dom.borrow();
+    let layout = state.layout.borrow();
+    let paragraph = paragraph_for(&dom, &layout, point.container, root)?;
+    let host = editing_host_for_node(
+        &dom,
+        Some(point.container),
+        state.design_mode_enabled(),
+        state.document_root(),
+    )?;
+    let mut pending = Vec::new();
+    pending
+        .try_reserve_exact(1)
+        .map_err(|_| V8BindingError::Allocation("pointer word traversal admission"))?;
+    pending.push(paragraph);
+    let mut run = TextRun::default();
+    let mut found = false;
+    while let Some(node) = pending.pop() {
+        let record = dom.arena().get(node)?;
+        let foreign = host.is_some()
+            && editing_host_for_node(
+                &dom,
+                Some(node),
+                state.design_mode_enabled(),
+                state.document_root(),
+            )? != host;
+        let barrier = foreign
+            || dom.is_element(node, "http://www.w3.org/1999/xhtml", "br")
+            || (node != paragraph && paragraph_for(&dom, &layout, node, paragraph)? == node);
+        if barrier {
+            if found {
+                break;
+            }
+            run = TextRun::default();
+            continue;
+        }
+        if let NodeKind::Text { data } | NodeKind::CDataSection { data } = &record.kind {
+            if !selectable_text(&dom, &layout, node)? {
+                continue;
+            }
+            // Decode with a fallible canonical WTF-16 adapter.
+            let source = oryn_dom::dom_string::try_units(data, usize::MAX)
+                .map_err(V8BindingError::Allocation)?;
+            let length = source.len();
+            let end = run
+                .length
+                .checked_add(length)
+                .ok_or(V8BindingError::Allocation("pointer word source limit"))?;
+            run.units
+                .try_reserve_exact(length)
+                .map_err(|_| V8BindingError::Allocation("pointer word units admission"))?;
+            run.spans
+                .try_reserve_exact(1)
+                .map_err(|_| V8BindingError::Allocation("pointer word spans admission"))?;
+            run.spans.push((node, run.length, end));
+            run.units.extend_from_slice(&source);
+            run.length = end;
+            found |= node == point.container;
+        } else {
+            // Existing tree-root movement semantics are retained. Flat-tree
+            // source mapping is a separate shared Selection contract.
+            pending
+                .len()
+                .checked_add(record.children.len())
+                .ok_or(V8BindingError::Allocation(
+                    "pointer word traversal overflow",
+                ))?;
+            pending
+                .try_reserve_exact(record.children.len())
+                .map_err(|_| V8BindingError::Allocation("pointer word traversal admission"))?;
+            for child in record.children.iter().rev().copied() {
+                if !matches!(
+                    dom.arena().get(child)?.kind,
+                    NodeKind::Document | NodeKind::ShadowRoot { .. }
+                ) {
+                    pending.push(child);
+                }
+            }
+        }
+    }
+    if !found {
+        return Ok(None);
+    }
+    // Bound decoded storage before the canonical DOM-string conversion.
+    let bytes = run
+        .units
+        .len()
+        .checked_mul(3)
+        .ok_or(V8BindingError::Allocation("pointer word text admission"))?;
+    // Three bytes per source unit also covers replacement scalars for lone
+    // surrogates; supplementary pairs require four bytes for two units.
+    run.text
+        .try_reserve_exact(bytes)
+        .map_err(|_| V8BindingError::Allocation("pointer word segmentation admission"))?;
+    // Identical normalization to segmentation_text: opaque lone surrogates
+    // become one replacement scalar (one UTF-16 unit), without an envelope
+    // serialization followed by a second infallible decode/collect.
+    for scalar in char::decode_utf16(run.units.iter().copied()) {
+        run.text.push(scalar.unwrap_or(char::REPLACEMENT_CHARACTER));
+    }
+    run.paragraph = Some(paragraph);
+    Ok(Some(run))
 }
 
 /// Multi-click units remain native UTF-16 ranges, including words spanning
@@ -976,11 +1090,11 @@ pub(super) fn pointer_unit(
         let Some(root) = scope_root(state, point)? else {
             return Ok(None);
         };
-        for run in text_runs(state, root)? {
-            if let Some(offset) = run.focus_offset(point) {
-                let (start, end) = pointer_word_span(&run.text, offset);
-                return Ok(run.boundary(start, true).zip(run.boundary(end, false)));
-            }
+        if let Some(run) = pointer_word_run(state, point, root)?
+            && let Some(offset) = run.focus_offset(point)
+        {
+            let (start, end) = pointer_word_span_normalized(&run.text, offset);
+            return Ok(run.boundary(start, true).zip(run.boundary(end, false)));
         }
         return Ok(None);
     }
@@ -2795,5 +2909,63 @@ mod projection_input_tests {
         let mut invalid = matrix;
         invalid[5] = f64::INFINITY;
         assert_eq!(super::projected(2., 4., invalid), None);
+    }
+}
+
+#[cfg(test)]
+mod bounded_pointer_word_tests {
+    use super::*;
+    #[test]
+    fn pointer_word_context_preserves_existing_break_and_utf16_semantics() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<div id=p>one<br>two<img>three<b>word</b></div>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(91), 1).unwrap();
+        let parent = state.dom.borrow().find_by_id("p").unwrap();
+        let children = state.dom.borrow().children(parent).unwrap().to_vec();
+        let point = BoundaryPoint {
+            container: children[4],
+            offset: 2,
+        };
+        let run = pointer_word_run(&state, point, parent).unwrap().unwrap();
+        assert_eq!(run.text, "twothreeword");
+        assert_eq!(run.focus_offset(point), Some(5));
+        // A normal HTML div is an allowed shadow host; use the paragraph
+        // itself so its separate attached root cannot enter light traversal.
+        let code = v8::String::new(
+            scope,
+            "document.getElementById('p').attachShadow({mode:'open'}).textContent='FOREIGN';",
+        )
+        .unwrap();
+        v8::Script::compile(scope, code, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let run = pointer_word_run(&state, point, parent).unwrap().unwrap();
+        assert_eq!(run.text, "twothreeword");
+        let text = children[4];
+        state
+            .dom
+            .borrow_mut()
+            .set_text(text, "x".repeat(1_048_577))
+            .unwrap();
+        let before = (state.selection_anchor.get(), state.selection_focus.get());
+        assert!(pointer_word_run(&state, point, parent).is_ok());
+        assert_eq!(
+            (state.selection_anchor.get(), state.selection_focus.get()),
+            before
+        );
+        let units = oryn_dom::dom_string::from_units(&[0xd800, 65]);
+        state.dom.borrow_mut().set_text(text, units).unwrap();
+        let run = pointer_word_run(&state, point, parent).unwrap().unwrap();
+        assert!(run.text.starts_with("two\u{fffd}A"));
+        assert_eq!(run.focus_offset(point), Some(5));
     }
 }

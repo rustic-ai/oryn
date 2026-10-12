@@ -19,6 +19,55 @@ pub fn units(value: &str) -> Vec<u16> {
     value.encode_utf16().collect()
 }
 
+/// Decode canonical DOM storage with checked caller-owned scratch demand.
+/// No callback is run and no partially decoded value escapes on failure.
+pub fn try_units(value: &str, max_units: usize) -> Result<Vec<u16>, &'static str> {
+    let body = value
+        .strip_prefix(PREFIX)
+        .and_then(|v| v.strip_prefix('['))
+        .and_then(|v| v.strip_suffix(']'));
+    if let Some(body) = body {
+        let count = if body.is_empty() {
+            0
+        } else {
+            body.split(',').count()
+        };
+        if count > max_units {
+            return Err("DOMString unit limit");
+        }
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(count)
+            .map_err(|_| "DOMString unit allocation")?;
+        let mut valid = true;
+        if !body.is_empty() {
+            for part in body.split(',') {
+                match part.trim().parse::<u16>() {
+                    Ok(unit) => output.push(unit),
+                    Err(_) => {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+        }
+        if valid {
+            return Ok(output);
+        }
+        // Malformed reserved-prefix text is ordinary Unicode, as in units().
+    }
+    let count = value.encode_utf16().count();
+    if count > max_units {
+        return Err("DOMString unit limit");
+    }
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(count)
+        .map_err(|_| "DOMString unit allocation")?;
+    output.extend(value.encode_utf16());
+    Ok(output)
+}
+
 pub fn from_units(units: &[u16]) -> String {
     if let Ok(value) = String::from_utf16(units)
         && !value.starts_with(PREFIX)
@@ -229,6 +278,31 @@ mod ascii_case_tests {
                 .to_ascii_uppercase()
                 .encode_utf16()
                 .collect::<Vec<_>>()
+        );
+    }
+}
+
+#[cfg(test)]
+mod pointer_word_admission_tests {
+    use super::*;
+    #[test]
+    fn admitted_dom_strings_match_canonical_surrogates_and_prefix_collision() {
+        for units in [
+            vec![],
+            vec![65, 0xd83d, 0xde00],
+            vec![0xd800, 65],
+            PREFIX.encode_utf16().collect(),
+        ] {
+            let source = from_units(&units);
+            assert_eq!(try_units(&source, units.len()).unwrap(), units);
+            if !units.is_empty() {
+                assert!(try_units(&source, units.len() - 1).is_err());
+            }
+        }
+        let malformed = format!("{PREFIX}[not-a-unit]");
+        assert_eq!(
+            try_units(&malformed, malformed.len()).unwrap(),
+            units(&malformed)
         );
     }
 }

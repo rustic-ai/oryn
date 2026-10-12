@@ -172,6 +172,11 @@ mod tests {
             install_generated_bindings(scope, second, dom, RealmId(2), 1).unwrap()
         };
         let scope = &mut v8::ContextScope::new(scope, first);
+        // Borrowing a constructor across page realms requires same-origin
+        // access, represented by the shared native token, not relaxed checks.
+        let token = v8::String::new(scope, "https://same-origin.test").unwrap();
+        first.set_security_token(token.into());
+        second.set_security_token(token.into());
         let other = second.global(scope);
         let name = v8::String::new(scope, "other").unwrap();
         first.global(scope).set(scope, name.into(), other.into());

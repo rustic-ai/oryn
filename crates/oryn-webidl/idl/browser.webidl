@@ -2031,6 +2031,12 @@ interface HTMLScriptElement : HTMLElement {
 };
 
 [Exposed=Window]
+interface HTMLTableElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [SameObject] readonly attribute HTMLCollection rows;
+};
+
+[Exposed=Window]
 interface HTMLDetailsElement : HTMLElement {
   [HTMLConstructor] constructor();
   [CEReactions] attribute boolean open;

@@ -12347,6 +12347,11 @@ fn rejected_body_promise<'s>(
     Ok(promise)
 }
 
+#[cfg(test)]
+thread_local! {
+    static FAIL_DEFAULT_CLOSE_RESULT_AFTER: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
 fn read_result<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &V8BindingState,
@@ -12354,6 +12359,16 @@ fn read_result<'s>(
     done: bool,
     value: v8::Local<'s, v8::Value>,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    #[cfg(test)]
+    if done && FAIL_DEFAULT_CLOSE_RESULT_AFTER.with(|remaining| {
+        match remaining.get() {
+            Some(0) => { remaining.set(None); true }
+            Some(count) => { remaining.set(Some(count - 1)); false }
+            None => false,
+        }
+    }) {
+        return Err(V8BindingError::Allocation("injected close result preparation"));
+    }
     let context = match &*platform_object(state, stream_id)? {
         PlatformObjectRecord::ReadableStream(stream) => stream.creation_context.to_local(scope),
         _ => None,
@@ -12366,8 +12381,12 @@ fn read_result<'s>(
     let value_name =
         v8::String::new(scope, "value").ok_or(V8BindingError::Allocation("stream result value"))?;
     let done_value = v8::Boolean::new(scope, done);
-    result.create_data_property(scope, done_name.into(), done_value.into());
-    result.create_data_property(scope, value_name.into(), value);
+    if result.create_data_property(scope, done_name.into(), done_value.into()) != Some(true) {
+        return Err(V8BindingError::Allocation("stream result done property"));
+    }
+    if result.create_data_property(scope, value_name.into(), value) != Some(true) {
+        return Err(V8BindingError::Allocation("stream result value property"));
+    }
     Ok(result)
 }
 
@@ -12485,22 +12504,76 @@ fn readable_close_default(
         *stream_id
     };
     let waiters = {
-        let mut record = platform_object_mut(state, stream_id)?;
-        let PlatformObjectRecord::ReadableStream(stream) = &mut *record else {
+        let record = platform_object(state, stream_id)?;
+        let PlatformObjectRecord::ReadableStream(stream) = &*record else {
             return Err(V8BindingError::Allocation("ReadableStream record"));
         };
         if stream.closed || stream.error.is_some() {
             return Ok(());
         }
-        stream.closed = true;
-        stream.waiting.drain(..).collect::<Vec<_>>()
+        let mut waiters = Vec::new();
+        waiters.try_reserve_exact(stream.waiting.len())
+            .map_err(|_| V8BindingError::Allocation("close waiter scratch admission"))?;
+        waiters.extend(stream.waiting.iter().cloned());
+        waiters
     };
-    readable_streams::settle_closed(scope, state, stream_id)?;
+    // Keep pending requests owned by the stream while all result allocations
+    // are prepared. Failure cannot close the stream and strand drained reads.
+    let mut prepared = Vec::new();
+    prepared.try_reserve_exact(waiters.len())
+        .map_err(|_| V8BindingError::Allocation("close result scratch admission"))?;
     for waiter in waiters {
-        let waiter = stream_graph::local(scope, waiter);
         let undefined = v8::undefined(scope).into();
         let result = read_result(scope, state, stream_id, true, undefined)?;
+        let resolver = stream_graph::local(scope, &waiter);
+        prepared.push((waiter, resolver, result));
+    }
+    let reader_closed = {
+        let record = platform_object(state, stream_id)?;
+        let PlatformObjectRecord::ReadableStream(stream) = &*record else {
+            return Err(V8BindingError::Allocation("ReadableStream record"));
+        };
+        if stream.queue.is_empty() { stream.reader_id } else { None }
+    };
+    let reader_closed = if let Some(reader) = reader_closed {
+        let record = platform_object(state, reader)?;
+        match &*record {
+            PlatformObjectRecord::ReadableReader { closed, released: false, .. } => Some(closed.clone()),
+            _ => None,
+        }
+    } else { None };
+    let reader_closed = reader_closed.as_ref().map(|closed| stream_graph::local(scope, closed));
+    {
+        let mut record = platform_object_mut(state, stream_id)?;
+        let PlatformObjectRecord::ReadableStream(stream) = &mut *record else {
+            return Err(V8BindingError::Allocation("ReadableStream record"));
+        };
+        stream.closed = true;
+    }
+    if let Some(resolver) = reader_closed {
+        let undefined = v8::undefined(scope).into();
+        resolver.resolve(scope, undefined);
+    }
+    for (owner, waiter, result) in prepared {
+        let retired = {
+            let mut record = platform_object_mut(state, stream_id)?;
+            let PlatformObjectRecord::ReadableStream(stream) = &mut *record else {
+                return Err(V8BindingError::Allocation("ReadableStream record"));
+            };
+            if stream.waiting.front().is_some_and(|entry| entry.same_occurrence(&owner)) {
+                stream.waiting.pop_front()
+            } else {
+                stream.waiting.iter().position(|entry| entry.same_occurrence(&owner))
+                    .and_then(|index| stream.waiting.remove(index))
+            }
+        };
+        // Retire the prepared occurrence before resolving: inherited then
+        // accessors may synchronously mutate the stream or release its reader.
+        // A reentrant operation may already have consumed/cancelled a later
+        // prepared occurrence. Never publish that cancelled occurrence again.
+        if retired.is_none() { continue; }
         waiter.resolve(scope, result.into());
+        drop(retired);
     }
     pump_response_body(scope, state, stream_id)?;
     byte_streams::close_default_reads(scope, state, stream_id)?;
@@ -29738,6 +29811,7 @@ fn validate_interface_node(
         "HTMLMicrophoneElement" => Some("microphone"),
         "HTMLInstallElement" => Some("install"),
         "HTMLFormElement" => Some("form"),
+        "HTMLTableElement" => Some("table"),
         "HTMLFieldSetElement" => Some("fieldset"),
         "HTMLLabelElement" => Some("label"),
         "HTMLMeterElement" => Some("meter"),
@@ -29977,6 +30051,7 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "microphone" => "HTMLMicrophoneElement",
             "install" => "HTMLInstallElement",
             "form" => "HTMLFormElement",
+            "table" => "HTMLTableElement",
             "fieldset" => "HTMLFieldSetElement",
             "label" => "HTMLLabelElement",
             "meter" => "HTMLMeterElement",
@@ -33319,6 +33394,9 @@ fn get_attribute_value<'s>(
     if interface == "HTMLLabelElement" && member == "control" {
         let control = state.dom.borrow().label_control(node)?;
         return optional_node(scope, state, control);
+    }
+    if interface == "HTMLTableElement" && member == "rows" {
+        return node_lists::elements(scope, state, node, node_lists::ElementFilter::TableRows);
     }
     if interface == "HTMLFormElement" && member == "elements" {
         return node_lists::form_elements(scope, state, node);
@@ -72409,5 +72487,124 @@ mod executable_checkpoint_pending_tests {
         state.closed_document_stream.set(Some((3, 4)));
         assert!(state.has_pending_executable_checkpoint_work(true));
         assert_eq!(state.take_closed_document_stream(), Some((3, 4)));
+    }
+
+    #[test]
+    fn default_close_allocation_failure_retains_each_pending_read_and_retry_order() {
+        tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            globalThis.closedOrder=[];
+            globalThis.reader=new ReadableStream().getReader();
+            reader.read().then(r=>{closedOrder.push('first:'+r.done);return reader.read()})
+                .then(r=>closedOrder.push('reentrant:'+r.done));
+            reader.read().then(r=>closedOrder.push('second:'+r.done));
+            true
+        "#).unwrap();
+        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        let (id, controller) = state.platform_objects.borrow().iter().find_map(|(id, record)| {
+            if let PlatformObjectRecord::ReadableStream(stream) = record {
+                Some((*id, stream.controller_id))
+            } else { None }
+        }).unwrap();
+        assert_eq!(match &*platform_object(&state, id).unwrap() {
+            PlatformObjectRecord::ReadableStream(stream) => stream.waiting.len(),
+            _ => unreachable!(),
+        }, 2);
+        FAIL_DEFAULT_CLOSE_RESULT_AFTER.with(|remaining| remaining.set(Some(1)));
+        assert!(matches!(readable_close_default(scope, &state, controller),
+            Err(V8BindingError::Allocation(_))));
+        if let PlatformObjectRecord::ReadableStream(stream) =
+            &*platform_object(&state, id).unwrap()
+        {
+            assert!(!stream.closed);
+            assert_eq!(stream.waiting.len(), 2);
+        }
+        readable_close_default(scope, &state, controller).unwrap();
+        scope.perform_microtask_checkpoint();
+        let source = v8::String::new(scope, "closedOrder.join('|')").unwrap();
+        let actual = v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        assert_eq!(actual.to_rust_string_lossy(scope),
+            "first:true|second:true|reentrant:true");
+    }
+
+    #[test]
+    fn default_close_retires_occurrence_before_reentrant_then_getter() {
+        tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            globalThis.order=[];globalThis.reader=new ReadableStream().getReader();
+            reader.read().then(r=>order.push('first:'+r.done));
+            reader.read().then(r=>order.push('second:'+r.done));
+            globalThis.accesses=0;
+            Object.defineProperty(Object.prototype,'then',{configurable:true,get(){
+                if(this.done===true&&++accesses===1){
+                    reader.read().then(r=>order.push('getter:'+r.done));
+                }
+                return undefined;
+            }});true
+        "#).unwrap();
+        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        let controller = state.platform_objects.borrow().values().find_map(|record| {
+            if let PlatformObjectRecord::ReadableStream(stream) = record { Some(stream.controller_id) } else { None }
+        }).unwrap();
+        readable_close_default(scope, &state, controller).unwrap();
+        scope.perform_microtask_checkpoint();
+        let source = v8::String::new(scope, "delete Object.prototype.then;order.sort().join('|')").unwrap();
+        let actual = v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        assert_eq!(actual.to_rust_string_lossy(scope), "first:true|getter:true|second:true");
+    }
+
+    #[test]
+    fn default_close_then_getter_release_preserves_replacement_reader() {
+        tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            globalThis.order=[];globalThis.stream=new ReadableStream();
+            globalThis.reader=stream.getReader();
+            reader.closed.catch(()=>{});
+            reader.read().then(r=>order.push('first:'+r.done));
+            reader.read().then(r=>order.push('second:'+r.done),e=>order.push('cancelled:'+e.name));
+            globalThis.accesses=0;
+            Object.defineProperty(Object.prototype,'then',{configurable:true,get(){
+                if(this.done===true&&++accesses===1){
+                    reader.releaseLock();globalThis.replacement=stream.getReader();
+                    replacement.read().then(r=>order.push('getter:'+r.done));
+                }
+                return undefined;
+            }});true
+        "#).unwrap();
+        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        let (id, controller) = state.platform_objects.borrow().iter().find_map(|(id, record)| {
+            if let PlatformObjectRecord::ReadableStream(stream) = record { Some((*id, stream.controller_id)) } else { None }
+        }).unwrap();
+        readable_close_default(scope, &state, controller).unwrap();
+        scope.perform_microtask_checkpoint();
+        let source = v8::String::new(scope, "delete Object.prototype.then;order.sort().join('|')").unwrap();
+        let actual = v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        assert_eq!(actual.to_rust_string_lossy(scope), "cancelled:TypeError|first:true|getter:true");
+        let record = platform_object(&state, id).unwrap();
+        let PlatformObjectRecord::ReadableStream(stream) = &*record else { panic!("stream record") };
+        assert!(stream.waiting.is_empty());
     }
 }

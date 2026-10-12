@@ -25,6 +25,9 @@ impl<T> From<v8::Global<T>> for Owned<T> {
     }
 }
 impl<T> Owned<T> {
+    pub(super) fn same_occurrence(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
     pub(super) fn new(scope: &mut v8::PinScope, value: impl v8::Handle<Data = T>) -> Self {
         v8::Global::new(scope, value).into()
     }

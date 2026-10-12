@@ -1027,4 +1027,31 @@ mod family_tests {
         })()"#,
         );
     }
+    #[test]
+    fn native_table_rows_are_live_ordered_and_exclude_nested_tables() {
+        super::tests::run(r#"(async()=>{
+            const table=document.createElement('table');document.body.append(table);
+            const section=tag=>{const n=document.createElement(tag);table.append(n);return n};
+            const row=(parent,id)=>{const r=document.createElement('tr');r.id=id;parent.append(r);return r};
+            const foot=section('tfoot'),f=row(foot,'f');
+            const body=section('tbody'),b=row(body,'b');
+            const direct=row(table,'d'),head=section('thead'),h=row(head,'h');
+            const nested=document.createElement('table'),cell=document.createElement('td');
+            b.append(cell);cell.append(nested);row(nested,'nested');
+            const rows=table.rows;
+            const ids=()=>Array.from(rows,r=>r.id).join('|');
+            if(!(table instanceof HTMLTableElement)||!(rows instanceof HTMLCollection)||rows!==table.rows)throw Error('rows brand/identity');
+            if(ids()!=='h|b|d|f'||rows.namedItem('nested')!==null)throw Error('rows order/nested');
+            head.append(b);if(ids()!=='h|b|d|f')throw Error('move to head');
+            body.append(h);if(ids()!=='b|h|d|f')throw Error('live section move');
+            table.remove();if(rows!==table.rows||ids()!=='b|h|d|f')throw Error('detached table');
+            foot.remove();if(ids()!=='b|h|d')throw Error('section detach');
+            h.remove();if(ids()!=='b|d')throw Error('row detach');
+            const foreign=document.implementation.createHTMLDocument('');
+            foreign.body.append(foreign.adoptNode(table));
+            if(table.rows!==rows||ids()!=='b|d'||rows[0]!==b)throw Error('adopted collection');
+            row(table,'new');if(ids()!=='b|d|new')throw Error('adopted live update');
+            return true;
+        })()"#);
+    }
 }
