@@ -13100,7 +13100,9 @@ impl RustExecutableDocument {
         {
             let _close_phase =
                 crate::ipc_progress::close_admission::phase("timers_and_control_tasks");
-            self.agent.host.drain_scheduled_timers_with_terminal_control(false, terminal_control)?;
+            self.agent
+                .host
+                .drain_scheduled_timers_with_terminal_control(false, terminal_control)?;
         }
         if Self::page_task_retired(terminal_control)
             || self.agent.host.standalone_root_discarded(self.top_realm)
@@ -13138,7 +13140,9 @@ impl RustExecutableDocument {
         // Native document events have independent custody and must be pumped
         // before invoking the remaining author-visible compatibility hook.
         let owner = self.page_terminal_control.clone();
-        self.agent.host.drain_scheduled_timers_with_terminal_control(false, owner.as_deref())?;
+        self.agent
+            .host
+            .drain_scheduled_timers_with_terminal_control(false, owner.as_deref())?;
         if self.terminal_retired() {
             return Ok(());
         }
@@ -26594,6 +26598,81 @@ mod tests {
                 .set_historical_input_authority(true)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn native_doubleclick_word_default_preserves_phase_cancel_and_inline_source() {
+        use oryn_js::v8_bindings::{NativePointerAction, NativePointerInput};
+        let mut page =
+            RustExecutableDocument::load("<!doctype html><p id=word>First <b>item</b></p>")
+                .unwrap();
+        page.execute(r#"
+            globalThis.trace=[];
+            const word=document.getElementById('word'),selection=getSelection();
+            for(const type of ['mousedown','mouseup','dblclick'])word.addEventListener(type,event=>trace.push([type,event.detail,event.isTrusted,selection.toString()]));
+        "#).unwrap();
+        let root = page
+            .automation_realms()
+            .into_iter()
+            .find(|entry| entry.parent_realm.is_none())
+            .unwrap();
+        let x: f64 = page
+            .evaluate("String(document.getElementById('word').getBoundingClientRect().x+18)")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let y: f64=page.evaluate("String(document.getElementById('word').getBoundingClientRect().y+document.getElementById('word').getBoundingClientRect().height/2)").unwrap().parse().unwrap();
+        for id in 100..104 {
+            page.execute("getSelection().removeAllRanges();trace.length=0")
+                .unwrap();
+            if id == 101 {
+                page.execute("document.getElementById('word').addEventListener('dblclick',event=>event.preventDefault(),{once:true})").unwrap();
+            }
+            if id == 102 {
+                page.execute("globalThis.cancelWordDown=event=>event.preventDefault();document.getElementById('word').addEventListener('mousedown',cancelWordDown)").unwrap();
+            }
+            if id == 103 {
+                page.execute("document.getElementById('word').removeEventListener('mousedown',cancelWordDown);document.getElementById('word').innerHTML='ca<b>fe\u{301}</b> next'").unwrap();
+            }
+            let mut input = NativePointerInput {
+                id,
+                x,
+                y,
+                ..Default::default()
+            };
+            page.dispatch_webdriver_pointer_in_context(&root, &input, NativePointerAction::Move)
+                .unwrap();
+            for _ in 0..2 {
+                input.button = 0;
+                input.buttons = 1;
+                input.pressure = 0.5;
+                page.dispatch_webdriver_pointer_in_context(
+                    &root,
+                    &input,
+                    NativePointerAction::Down,
+                )
+                .unwrap();
+                input.buttons = 0;
+                input.pressure = 0.;
+                page.dispatch_webdriver_pointer_in_context(&root, &input, NativePointerAction::Up)
+                    .unwrap();
+            }
+            let expected = if id == 102 {
+                ""
+            } else if id == 103 {
+                "cafe\u{301}"
+            } else {
+                "First"
+            };
+            assert_eq!(
+                page.evaluate("getSelection().toString()").unwrap(),
+                expected,
+                "typed pointer scenario {id}"
+            );
+            if id == 100 {
+                assert_eq!(page.evaluate("String(trace.some(row=>row[0]==='mouseup'&&row[1]===2&&row[3]==='First')&&trace.every(row=>row[2]))").unwrap(),"true");
+            }
+        }
     }
 
     #[cfg(feature = "historical-test-input")]
