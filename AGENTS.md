@@ -1,5 +1,14 @@
 # Repository Guidelines
 
+## Durable patch custody
+
+This is the only active integration checkout. The sibling `oryn` is recovery-only
+until its preserved changes are reconciled. Stage drafts, patches and diagnostics
+under `../.local-patches/<batch>/<lane>/`, not `/tmp`, `/private/tmp` or `target`.
+Follow the local patch custody section in docs/development/WORKFLOW.md. Retain
+patches until reviewed, regression checked and committed; archive their manifest
+before exact-file cleanup. Never overwrite this checkout from the older tree.
+
 ## Core and OIL delivery work
 
 The user approved consolidation implementation on September 27. Follow the active [development process](docs/development/WORKFLOW.md) and [validation migration runbook](docs/validation/CONSOLIDATION.md). Use the existing Cargo workspace and Git commits; do not create another permanent candidate/helper checkout. Focused developer tests are allowed during iteration. Use `wpt-dev` for ordinary WPT testing; source exports, generation/review gates, native equivalence proofs and recursive input audits are not prerequisites for developer runs. Reuse existing native output for Python-only edits. Complete, review, and commit the repair batch before official validation.
