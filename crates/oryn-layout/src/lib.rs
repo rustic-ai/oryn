@@ -1311,6 +1311,15 @@ fn effective_languages(input: &LayoutInput) -> BTreeMap<u64, Option<String>> {
     resolved
 }
 
+fn resolved_publication_bytes(
+    lengths: impl IntoIterator<Item = (usize, usize, usize)>,
+) -> Option<usize> {
+    lengths.into_iter().try_fold(0usize, |bytes, (text, spans, aliases)| {
+        let provenance = spans.checked_add(aliases)?.checked_mul(64)?;
+        bytes.checked_add(text)?.checked_add(provenance)
+    })
+}
+
 fn has_text_line_content(
     source: &text_source::TextSource,
     styles: &ComputedStyles,
@@ -4486,24 +4495,22 @@ fn compute_with_scrollbar_gutters(
     if let Some(error) = text_engine.font_demand_error {
         return Err(error);
     }
-    let resolved_text = text_engine
-        .resolved_text
-        .into_values()
-        .flatten()
-        .collect::<Vec<_>>();
-    if resolved_text
-        .iter()
-        .try_fold(0usize, |bytes, run| {
-            bytes.checked_add(run.text.len()).and_then(|bytes| {
-                bytes.checked_add((run.spans.len() + run.aliases.len()).saturating_mul(64))
-            })
-        })
+    // Reject before allocating the flattened publication vector. Existing run
+    // ownership stays in the engine until the complete preflight succeeds.
+    if resolved_publication_bytes(text_engine.resolved_text.values().flatten().map(|run| {
+        (run.text.len(), run.spans.len(), run.aliases.len())
+    }))
         .is_none_or(|bytes| bytes > 64 * 1024 * 1024)
     {
         return Err(LayoutError::StyleTraversal(
             "resolved text provenance exceeds native 64-MiB bound".into(),
         ));
     }
+    let resolved_text = text_engine
+        .resolved_text
+        .into_values()
+        .flatten()
+        .collect::<Vec<_>>();
     let mut font_demands = BTreeMap::<String, BTreeSet<u32>>::new();
     for demands in text_engine.font_demands.values() {
         for (family, characters) in demands {
@@ -10409,6 +10416,21 @@ fn length(value: &str, basis: f64, font_size: f64, viewport: ViewportState) -> f
 mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
+
+    #[test]
+    fn resolved_publication_preflight_checks_all_arithmetic_and_preserves_bound() {
+        assert_eq!(resolved_publication_bytes([]), Some(0));
+        assert_eq!(resolved_publication_bytes([(3, 1, 1), (5, 0, 1)]), Some(200));
+        assert_eq!(resolved_publication_bytes([(0, usize::MAX, 1)]), None);
+        assert_eq!(resolved_publication_bytes([(0, usize::MAX / 64 + 1, 0)]), None);
+        assert_eq!(resolved_publication_bytes([(usize::MAX, 1, 0)]), None);
+        assert_eq!(resolved_publication_bytes([(usize::MAX, 0, 0), (1, 0, 0)]), None);
+        let limit = 64 * 1024 * 1024;
+        assert!(!resolved_publication_bytes([(limit, 0, 0)])
+            .is_none_or(|bytes| bytes > limit));
+        assert!(resolved_publication_bytes([(limit, 0, 0), (1, 0, 0)])
+            .is_none_or(|bytes| bytes > limit));
+    }
 
     #[test]
     fn native_paint_clusters_retain_line_local_utf8_ranges_in_both_axes() {
