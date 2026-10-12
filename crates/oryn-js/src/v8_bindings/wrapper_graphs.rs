@@ -118,8 +118,35 @@ fn join_detached_components(
         }
         _ => return Ok(false),
     };
-    let Some(root) = native_root(&dom, parent, &mut BTreeMap::new()) else {
-        return Ok(false);
+    // The complete insertion-only journal cannot have moved the destination
+    // or any ancestor. Its last published wrapper component is authoritative.
+    // Resolve this before reading the target; every absent/stale cache still
+    // falls through to the general graph rebuild.
+    let root = {
+        let (Ok(wrappers), Ok(objects), Ok(components)) = (
+            state.wrappers.try_borrow(),
+            state.objects.try_borrow(),
+            state.wrapper_graph_components.try_borrow(),
+        ) else {
+            return Ok(false);
+        };
+        let Some(parent_id) = wrappers.lookup(dom.arena().id(), state.realm, parent) else {
+            return Ok(false);
+        };
+        let Some(wrapper) = objects.get(&parent_id) else {
+            return Ok(false);
+        };
+        let Some(root) = wrapper.retention_component else {
+            return Ok(false);
+        };
+        if wrapper.connected_root.is_some()
+            || !components
+                .get(&root)
+                .is_some_and(|members| members.contains(&parent_id))
+        {
+            return Ok(false);
+        }
+        root
     };
     let (Ok(inserted), Ok(target)) = (dom.arena().get(node), dom.arena().get(root)) else {
         return Ok(false);
@@ -920,6 +947,58 @@ mod component_traversal_tests {
 #[cfg(test)]
 mod fragment_growth_tests {
     use super::*;
+
+    #[test]
+    fn deep_detached_shadow_construction_preserves_wrappers_after_connection_and_gc() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body><div id=X></div></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let _state = install_generated_bindings(scope, context, dom, RealmId(319), 1).unwrap();
+        assert!(
+            eval(
+                scope,
+                r#"
+            globalThis.detachedRoot=document.createElement('div');
+            let currentContainer=detachedRoot;
+            for(let i=0;i<999;i++) {
+                const childHost=document.createElement('div');
+                const childShadow=childHost.attachShadow({mode:'open'});
+                childHost.saved=i;
+                currentContainer.appendChild(childHost);
+                currentContainer=childShadow;
+            }
+            globalThis.deepest=currentContainer;
+            document.getElementById('X').appendChild(detachedRoot);
+            deepest.appendChild(document.createTextNode('Hello!'));
+            deepest.textContent==='Hello!'
+        "#
+            )
+            .is_true()
+        );
+        scope.low_memory_notification();
+        assert!(
+            eval(
+                scope,
+                r#"
+            let container=detachedRoot;
+            for(let i=0;i<999;i++) {
+                const host=container.firstChild;
+                if(host.saved!==i)throw Error('wrapper identity lost');
+                container=host.shadowRoot;
+            }
+            container===deepest&&container.textContent==='Hello!'
+        "#
+            )
+            .is_true()
+        );
+    }
 
     fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, source: &str) -> v8::Local<'s, v8::Value> {
         let source = v8::String::new(scope, source).unwrap();
