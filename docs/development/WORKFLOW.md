@@ -10,6 +10,28 @@ The preservation commit `96b7fd349baff7a5d8e4e19ba61132067762e7ae` records the p
 
 ## Change process
 
+### Local patch custody
+
+Use the sibling workspace `.local-patches/<batch>/<lane>/` for unfinished
+patches, source fragments, review notes and diagnostics. Do not stage development
+work in `/tmp`, `/private/tmp` or `target`. This local, untracked directory is not
+an external backup. Record the integration base commit, lane owner, affected
+paths, SHA-256 hashes and state (`draft`, `reviewed`, `applied`, `verified`,
+`committed`, `archived`). Stop a lane before changing its base.
+
+Apply only reviewed patches to `oryn-roadmap-next`; preserve overlapping dirty
+files first. Applying a patch is not completion. Retain it through regression
+checks and a recorded integration commit. Archive the manifest and unresolved
+evidence before deleting exact applied staging files. Never bulk-delete pending
+patches, raw failures or recovery snapshots. Do not execute imported draft scripts
+without review, and keep secrets out of source and patch inventories.
+
+`scripts/preserve-development-work.py` is a one-time recovery helper for the
+existing split checkout incident. It copies and verifies temporary regular files,
+archives both checkout sources and preserves Git history without altering either
+index. Its receipts are recovery evidence, not qualification. Ignored effective
+build inputs and nested repositories require separate reconciliation.
+
 1. Identify the component, callers, features, generated inputs, and meaningful regression coverage. See [the component inventory](COMPONENTS.md).
 2. Implement and run focused developer checks while iterating. Use `cargo test -p <package>` and the existing feature/test serialization rules where applicable. A development result is not official qualification.
 3. Review the integrated batch, generated output, source ownership, and cross-feature effects. Commit before official validation. Account explicitly for ignored effective build inputs, especially the prepared V8 checkout; a clean top-level status alone is insufficient.
