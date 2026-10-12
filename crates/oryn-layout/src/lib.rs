@@ -7308,6 +7308,154 @@ fn resolve_value(
     resolved
 }
 
+/// Sibling placement state survives while a child is being measured. Keeping
+/// this separate from the sizing frame permits explicit child continuations.
+struct BlockFlowCursor {
+    cursor: f64,
+    height: f64,
+    preceding: Option<inline_formatting::MarginStrut>,
+}
+
+struct BlockChildPlacement {
+    id: u64,
+    containing: FlowBox,
+    collapse: bool,
+    incoming: inline_formatting::MarginStrut,
+}
+
+/// Dimensions needed after child measurement, independent of recursive frames.
+struct ContentHeightInputs {
+    specified: Option<f64>,
+    text: f64,
+    children: f64,
+    width: f64,
+    horizontal_edges: f64,
+    vertical_edges: f64,
+    vertical: bool,
+}
+
+impl ContentHeightInputs {
+    fn resolve(&self, node: &LayoutNode, style: &BTreeMap<String, String>) -> f64 {
+        self.specified.unwrap_or_else(|| {
+            node.intrinsic_image_size.or(node.document_replaced.then_some((300, 150)))
+                .map_or(
+                    if self.vertical { self.text.max(self.children) }
+                    else { self.text + self.children },
+                    |(_, height)| preferred_ratio(node, style)
+                        .map(|ratio| ratio.content_height(self.width,
+                            self.horizontal_edges, self.vertical_edges))
+                        .unwrap_or(f64::from(height)),
+                )
+        }).max(0.)
+    }
+}
+
+impl BlockFlowCursor {
+    fn new(y: f64) -> Self {
+        Self { cursor: y, height: 0., preceding: None }
+    }
+
+    fn enter(&mut self, top: inline_formatting::MarginStrut) -> inline_formatting::MarginStrut {
+        let previous = self.preceding.take().unwrap_or_default();
+        let incoming = previous.merge(top);
+        self.advance(incoming.value() - previous.value() - top.value());
+        incoming
+    }
+
+    fn advance(&mut self, amount: f64) {
+        self.cursor += amount;
+        self.height += amount;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_child(
+        &mut self,
+        id: u64,
+        containing: FlowBox,
+        parent_display: &str,
+        vertical: bool,
+        nodes: &BTreeMap<u64, &LayoutNode>,
+        styles: &ComputedStyles,
+        input: &LayoutInput,
+        engine: &TextEngine,
+    ) -> BlockChildPlacement {
+        let style = &styles[&id];
+        let collapse = !parent_display.starts_with("table") && !vertical
+            && matches!(style_value(style, "display", "block"),
+                "block" | "flow-root" | "list-item" | "flex" | "grid")
+            && !matches!(style_value(style, "position", "static"), "absolute" | "fixed");
+        let incoming = if collapse {
+            let top = margin_collapse::outer_edge(id, false, containing.width,
+                nodes, styles, input.viewport, margin_collapse::clear_obstacles(
+                    engine.float_context.as_ref(), engine.float_block_offset));
+            self.enter(top)
+        } else {
+            inline_formatting::MarginStrut::default()
+        };
+        BlockChildPlacement {
+            id,
+            containing: FlowBox { y: self.cursor, ..containing },
+            collapse,
+            incoming,
+        }
+    }
+
+    fn resume_child(
+        &mut self,
+        child: BlockChildPlacement,
+        height: f64,
+        styles: &ComputedStyles,
+        geometry: &BTreeMap<u64, NodeGeometry>,
+        engine: &TextEngine,
+    ) {
+        self.leave(child.id, height, child.collapse, child.incoming,
+            &styles[&child.id], geometry, engine);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn leave(
+        &mut self,
+        child: u64,
+        height: f64,
+        collapse: bool,
+        incoming: inline_formatting::MarginStrut,
+        style: &BTreeMap<String, String>,
+        geometry: &BTreeMap<u64, NodeGeometry>,
+        engine: &TextEngine,
+    ) {
+        self.advance(height);
+        if collapse {
+            if let Some(model) = geometry.get(&child).and_then(|value| value.box_model.as_ref()) {
+                let through = engine.absorbed_margins.get(&child)
+                    .is_none_or(|value| *value == [0.; 2])
+                    && model.border_box.height == 0.
+                    && model.border.top == 0. && model.border.bottom == 0.
+                    && model.padding.top == 0. && model.padding.bottom == 0.
+                    && !inline_formatting::establishes_bfc(style)
+                    && !engine.clearance_nodes.contains(&child);
+                if through {
+                    let joined = incoming.append(model.margin.bottom);
+                    self.advance(joined.value() - incoming.value() - model.margin.bottom);
+                    self.preceding = Some(joined);
+                } else {
+                    self.preceding = Some(
+                        if engine.absorbed_margins.get(&child).is_some_and(|value| value[1] != 0.) {
+                            inline_formatting::MarginStrut::default()
+                        } else {
+                            inline_formatting::MarginStrut::default().append(model.margin.bottom)
+                        }
+                    );
+                }
+            }
+        } else if height != 0. {
+            self.preceding = None;
+        }
+    }
+}
+
+mod post_child_production;
+mod layout_driver;
+
 #[allow(clippy::too_many_arguments)]
 fn layout_node(
     id: u64,
@@ -7324,1818 +7472,17 @@ fn layout_node(
     text_engine: &mut TextEngine,
     allocated: Option<TaffySize<f64>>,
 ) -> f64 {
-    let Some(node) = by_id.get(&id).copied() else {
-        return 0.0;
+    let mut executor=layout_driver::BlockExecutor {
+        nodes:by_id,styles,geometry,offsets:offset_dimensions,resolved:resolved_values,
+        text:text_fragments,input,diagnostics,engine:text_engine,
     };
-    let formatting_style = tables::formatting_style(id, by_id, styles);
-    let style = formatting_style.as_ref().unwrap_or(styles[&id].as_ref());
-    let no_box = ancestor_hidden || style.get("display").is_some_and(|value| value == "none");
-    let invisible = style
-        .get("visibility")
-        .is_some_and(|value| value == "hidden" || value == "collapse");
-    if no_box {
-        let mut pending = vec![id];
-        let mut visited = BTreeSet::new();
-        while let Some(hidden_id) = pending.pop() {
-            if !visited.insert(hidden_id) {
-                continue;
-            }
-            let Some(node) = by_id.get(&hidden_id).copied() else {
-                continue;
-            };
-            if let Some(content) = &node.content {
-                for item in content {
-                    match item {
-                        LayoutContent::Text { node_id, .. }
-                        | LayoutContent::StyledText {
-                            node_id: Some(node_id),
-                            ..
-                        } => {
-                            text_engine.source_geometry.remove(node_id);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            geometry.insert(hidden_id, hidden_geometry());
-            offset_dimensions.insert(hidden_id, (0.0, 0.0));
-            pending.extend(node.children.iter().rev().copied());
-        }
-        return 0.0;
-    }
-    let containing = if let Some((root, inline)) = text_engine
-        .column_context
-        .filter(|(root, _)| columns::eligible_spanner(*root, id, by_id, styles))
-    {
-        let vertical =
-            style_value(&styles[&root], "writing-mode", "horizontal-tb") != "horizontal-tb";
-        if vertical {
-            FlowBox {
-                height: Some(inline),
-                ..containing
-            }
-        } else {
-            FlowBox {
-                width: inline,
-                ..containing
-            }
-        }
-    } else {
-        containing
-    };
-    let out_of_flow = matches!(
-        style_value(style, "position", "static"),
-        "absolute" | "fixed"
-    );
-    if out_of_flow && text_engine.active_out_of_flow != Some(id) {
-        text_engine.out_of_flow.push((id, containing));
-        return 0.;
-    }
-    let font_size = length(
-        style_value(style, "font-size", "16px"),
-        16.0,
-        16.0,
-        input.viewport,
-    );
-    let parent_vertical = node.parent.and_then(|id| styles.get(&id)).is_some_and(|s| {
-        if matches!(
-            style_value(s, "display", "block"),
-            "table-row" | "table-row-group" | "table-header-group" | "table-footer-group"
-        ) {
-            tables::containing_axes(id, by_id, styles).vertical
-        } else {
-            writing_mode::Axes::new(style_value(s, "writing-mode", "horizontal-tb"), false).vertical
-        }
-    });
-    let edge_basis = if parent_vertical {
-        containing.height.unwrap_or(input.viewport.height)
-    } else {
-        containing.width
-    };
-    let mut margin = edge(style, "margin", edge_basis, font_size, input.viewport);
-    let padding = edge(style, "padding", edge_basis, font_size, input.viewport);
-    let border = text_engine
-        .table_borders
-        .get(&id)
-        .copied()
-        .unwrap_or_else(|| border_edge(style, containing.width, font_size, input.viewport));
-    let resolve_inset = |name, basis| {
-        optional_length(
-            style_value(style, name, "auto"),
-            basis,
-            font_size,
-            input.viewport,
-        )
-    };
-    let left = out_of_flow
-        .then(|| resolve_inset("left", containing.width))
-        .flatten();
-    let right = out_of_flow
-        .then(|| resolve_inset("right", containing.width))
-        .flatten();
-    let available = text_engine
-        .bfc_available_width
-        .filter(|(owner, _)| *owner == id && !parent_vertical)
-        .map(|(_, width)| width)
-        .unwrap_or(
-            containing.width
-                - margin.left
-                - margin.right
-                - left.unwrap_or(0.)
-                - right.unwrap_or(0.),
-        )
-        .max(0.0);
-    let width_value = style_value(style, "width", "auto");
-    let mut specified_width = (!is_intrinsic_width(width_value))
-        .then(|| optional_length(width_value, containing.width, font_size, input.viewport))
-        .flatten();
-    let height_basis = containing.height;
-    let mut specified_height = block_height_length(
-        style_value(style, "height", "auto"),
-        height_basis,
-        font_size,
-        input.viewport,
-    );
-    let border_box_sizing = style_value(style, "box-sizing", "content-box") == "border-box";
-    if style_value(style, "height", "auto") == "auto"
-        && writing_mode::Axes::new(style_value(style, "writing-mode", "horizontal-tb"), false)
-            .vertical
-        && !is_inline(style)
-        && !is_replaced_box(node)
-        && !out_of_flow
-    {
-        specified_height = Some(
-            (text_engine
-                .bfc_available_width
-                .filter(|(owner, _)| *owner == id && parent_vertical)
-                .map(|(_, width)| width)
-                .unwrap_or(
-                    containing.height.unwrap_or(input.viewport.height) - margin.top - margin.bottom,
-                )
-                - if border_box_sizing {
-                    0.
-                } else {
-                    padding.top + padding.bottom + border.top + border.bottom
-                })
-            .max(0.),
-        );
-    }
-    if out_of_flow && !is_replaced_box(node) {
-        if width_value == "auto" && left.is_some() && right.is_some() {
-            specified_width = Some(
-                (available
-                    - if border_box_sizing {
-                        0.
-                    } else {
-                        padding.left + padding.right + border.left + border.right
-                    })
-                .max(0.),
-            );
-        }
-        if style_value(style, "height", "auto") == "auto"
-            && let Some((top, bottom)) = resolve_inset("top", height_basis.unwrap_or(0.))
-                .zip(resolve_inset("bottom", height_basis.unwrap_or(0.)))
-        {
-            specified_height = height_basis.map(|height| {
-                (height
-                    - top
-                    - bottom
-                    - margin.top
-                    - margin.bottom
-                    - if border_box_sizing {
-                        0.
-                    } else {
-                        padding.top + padding.bottom + border.top + border.bottom
-                    })
-                .max(0.)
-            });
-        }
-    }
-    let descendant_source = (node.text.is_empty()
-        && is_inline(style)
-        && !matches!(node.tag.as_str(), "input" | "button" | "option"))
-    .then(|| text_source::TextSource::collect_visible(node, by_id, false, Some(styles)));
-    let direct_source = text_source::TextSource::direct_with_breaks(node, by_id, styles);
-    let intrinsic_text =
-        if node.text.is_empty() && matches!(node.tag.as_str(), "input" | "button" | "option") {
-            node.attributes.get("value").cloned().unwrap_or_default()
-        } else if let Some(source) = &descendant_source {
-            source.text.clone()
-        } else {
-            direct_source.text.clone()
-        };
-    let shaped_source = descendant_source
-        .or(Some(direct_source))
-        // Control values do not describe DOM text
-        // ranges. Keep those synthetic runs separate from native provenance.
-        .filter(|source| source.text == intrinsic_text);
-    let horizontal_edges = padding.left + padding.right + border.left + border.right;
-    let needs_intrinsic = [
-        width_value,
-        style_value(style, "min-width", "auto"),
-        style_value(style, "max-width", "none"),
-    ]
-    .iter()
-    .any(|value| is_intrinsic_width(value))
-        || ((is_inline(style) || out_of_flow || style_value(style, "float", "none") != "none")
-            && specified_width.is_none());
-    let intrinsic_widths = needs_intrinsic.then(|| {
-        if let Some((width, _)) = text_engine.select_sizes.get(&node.id) {
-            return (*width, *width);
-        }
-        if let Some((width, _)) = node
-            .intrinsic_image_size
-            .or(node.document_replaced.then_some((300, 150)))
-        {
-            return (f64::from(width), f64::from(width));
-        }
-        if !node.children.is_empty() {
-            return text_engine.intrinsic_node(
-                node,
-                by_id,
-                styles,
-                input.viewport,
-                &mut BTreeSet::new(),
-            );
-        }
-        let synthetic;
-        let source = if let Some(source) = &shaped_source {
-            source
-        } else {
-            synthetic = text_source::TextSource::synthetic(&intrinsic_text);
-            &synthetic
-        };
-        text_engine.intrinsic_source(source, font_size, style, input.viewport, styles)
-    });
-    let intrinsic_width = intrinsic_widths.and_then(|widths| {
-        resolve_intrinsic_width(
-            width_value,
-            (available - horizontal_edges).max(0.),
-            widths,
-            font_size,
-            input.viewport,
-        )
-    });
-    let mut content_width = intrinsic_width.or(specified_width).unwrap_or_else(|| {
-        if let Some((width, _)) = node
-            .intrinsic_image_size
-            .or(node.document_replaced.then_some((300, 150)))
-        {
-            if let Some((specified_height, ratio)) =
-                specified_height.zip(preferred_ratio(node, style))
-            {
-                let content_height = if border_box_sizing {
-                    (specified_height - padding.top - padding.bottom - border.top - border.bottom)
-                        .max(0.0)
-                } else {
-                    specified_height.max(0.0)
-                };
-                ratio.content_width(
-                    content_height,
-                    horizontal_edges,
-                    padding.top + padding.bottom + border.top + border.bottom,
-                )
-            } else {
-                f64::from(width)
-            }
-        } else if is_inline(style) || out_of_flow || style_value(style, "float", "none") != "none" {
-            let (min, max) = intrinsic_widths.unwrap_or_default();
-            max.min((available - horizontal_edges).max(min))
-        } else {
-            (available - padding.left - padding.right - border.left - border.right).max(0.0)
-        }
-    });
-    if border_box_sizing && specified_width.is_some() && intrinsic_width.is_none() {
-        content_width =
-            (content_width - padding.left - padding.right - border.left - border.right).max(0.0);
-    }
-    let bound = |property, default| {
-        let value = style_value(style, property, default);
-        if is_intrinsic_width(value) {
-            intrinsic_widths.and_then(|widths| {
-                resolve_intrinsic_width(
-                    value,
-                    (available - horizontal_edges).max(0.),
-                    widths,
-                    font_size,
-                    input.viewport,
-                )
-            })
-        } else {
-            optional_length(value, containing.width, font_size, input.viewport).map(|value| {
-                if border_box_sizing {
-                    (value - horizontal_edges).max(0.)
-                } else {
-                    value.max(0.)
-                }
-            })
-        }
-    };
-    // CSS resolves a conflicting minimum in favor of min-width.
-    if let Some(max) = bound("max-width", "none") {
-        content_width = content_width.min(max);
-    }
-    if let Some(min) = bound("min-width", "auto") {
-        content_width = content_width.max(min);
-    }
-    if node
-        .intrinsic_image_size
-        .or(node.document_replaced.then_some((300, 150)))
-        .is_some()
-        && width_value == "auto"
-        && specified_height.is_none()
-        && let Some(ratio) = preferred_ratio(node, style)
-    {
-        let vertical = padding.top + padding.bottom + border.top + border.bottom;
-        let tentative_height = ratio.content_height(content_width, horizontal_edges, vertical);
-        let constrained_height = clamp_content_height(
-            style,
-            tentative_height,
-            height_basis,
-            font_size,
-            input.viewport,
-            vertical,
-        );
-        // Transfer the height constraint back through the ratio, then
-        // reapply width constraints. Incompatible axis bounds necessarily
-        // break the ratio; final height clamping below honors those bounds.
-        content_width = ratio.content_width(constrained_height, horizontal_edges, vertical);
-        if let Some(maximum) = bound("max-width", "none") {
-            content_width = content_width.min(maximum);
-        }
-        if let Some(minimum) = bound("min-width", "auto") {
-            content_width = content_width.max(minimum);
-        }
-    }
-    if let Some(size) = allocated {
-        content_width = (size.width - horizontal_edges).max(0.);
-    }
-    if matches!(
-        style_value(style, "display", "block"),
-        "table" | "inline-table"
-    ) {
-        let vertical =
-            writing_mode::Axes::new(style_value(style, "writing-mode", "horizontal-tb"), false)
-                .vertical;
-        let table_inline = if vertical {
-            specified_height.unwrap_or(containing.height.unwrap_or(input.viewport.height))
-        } else {
-            content_width
-        };
-        tables::prepare(
-            node,
-            table_inline,
-            by_id,
-            styles,
-            input.viewport,
-            text_engine,
-        );
-        if vertical {
-            specified_height = Some(
-                text_engine
-                    .table_widths
-                    .get(&id)
-                    .copied()
-                    .unwrap_or(table_inline),
-            );
-            if width_value == "auto" {
-                content_width = text_engine
-                    .table_block_sizes
-                    .get(&id)
-                    .copied()
-                    .unwrap_or(content_width);
-            }
-        } else {
-            content_width = text_engine
-                .table_widths
-                .get(&id)
-                .copied()
-                .unwrap_or(content_width);
-        }
-    }
-    if let Some(row) = text_engine.table_rows.get(&id).filter(|row| row.vertical) {
-        content_width = row.height;
-        specified_height = Some(row.inline_size);
-    }
-    let scrollbar_gutter = text_engine
-        .scrollbar_gutters
-        .get(&id)
-        .copied()
-        .unwrap_or_default();
-    let authored_padding = padding;
-    content_width = (content_width - scrollbar_gutter.left - scrollbar_gutter.right).max(0.);
-    let dimension_bound = bound;
-    let bound = |property, default| {
-        dimension_bound(property, default)
-            .map(|value| (value - scrollbar_gutter.left - scrollbar_gutter.right).max(0.))
-    };
-    if !border_box_sizing {
-        specified_height = specified_height
-            .map(|height| (height - scrollbar_gutter.top - scrollbar_gutter.bottom).max(0.));
-    }
-    let padding = EdgeSizes {
-        left: padding.left + scrollbar_gutter.left,
-        right: padding.right + scrollbar_gutter.right,
-        top: padding.top + scrollbar_gutter.top,
-        bottom: padding.bottom + scrollbar_gutter.bottom,
-    };
-    let mut outer_width = content_width + padding.left + padding.right + border.left + border.right;
-    let position = style_value(style, "position", "static");
-    let containing_rtl = node
-        .parent
-        .and_then(|id| styles.get(&id))
-        .is_some_and(|parent| style_value(parent, "direction", "ltr") == "rtl");
-    if allocated.is_none()
-        && !matches!(position, "absolute" | "fixed")
-        && !writing_mode::Axes::new(style_value(style, "writing-mode", "horizontal-tb"), false)
-            .vertical
-        && style_value(style, "float", "none") == "none"
-        && matches!(
-            style_value(style, "display", "block"),
-            "block" | "flow-root" | "flex" | "grid" | "list-item"
-        )
-    {
-        let margin_space = text_engine
-            .bfc_available_width
-            .filter(|(owner, _)| *owner == id)
-            .map(|(_, width)| width + margin.left + margin.right)
-            .unwrap_or(containing.width);
-        let (left, right) = block_inline_margins(
-            margin_space,
-            outer_width,
-            margin.left,
-            margin.right,
-            style_value(style, "margin-left", "0px") == "auto",
-            style_value(style, "margin-right", "0px") == "auto",
-            containing_rtl,
-        );
-        margin.left = left;
-        margin.right = right;
-    }
-    if allocated.is_none() && !out_of_flow {
-        for child in &node.children {
-            text_engine.clearance_nodes.remove(child);
-            text_engine.absorbed_margins.remove(child);
-            text_engine.absorbed_vertical_margins.remove(child);
-        }
-        if let Some((child, strut)) =
-            margin_collapse::child_edge(crate::margin_collapse::ChildMarginEdgeInputs {
-                id,
-                bottom: false,
-                width: content_width,
-                nodes: by_id,
-                styles,
-                viewport: input.viewport,
-                clear_obstacles: margin_collapse::clear_obstacles(
-                    text_engine.float_context.as_ref(),
-                    text_engine.float_block_offset,
-                ),
-                own_margin: margin.top,
-            })
-        {
-            margin.top = strut.append(margin.top).value();
-            text_engine.absorbed_margins.entry(child).or_insert([0.; 2])[0] = strut.value();
-        }
-        // Trailing margins use actual child clearance after native placement.
-        let axes =
-            writing_mode::Axes::new(style_value(style, "writing-mode", "horizontal-tb"), false);
-        if axes.vertical {
-            let inline = specified_height
-                .map(|value| {
-                    (value
-                        - if border_box_sizing {
-                            padding.top + padding.bottom + border.top + border.bottom
-                        } else {
-                            0.
-                        })
-                    .max(0.)
-                })
-                .or(containing.height)
-                .unwrap_or(input.viewport.height);
-            for after in [false] {
-                if let Some((child, strut)) = margin_collapse::vertical_child_edge(
-                    crate::margin_collapse::VerticalChildMarginInputs {
-                        id,
-                        after,
-                        reverse: axes.x_reverse,
-                        basis: inline,
-                        nodes: by_id,
-                        styles,
-                        viewport: input.viewport,
-                        clear_obstacles: margin_collapse::clear_obstacles(
-                            text_engine.float_context.as_ref(),
-                            text_engine.float_block_offset,
-                        ),
-                        own_margin: if after == axes.x_reverse {
-                            margin.left
-                        } else {
-                            margin.right
-                        },
-                    },
-                ) {
-                    let left = after == axes.x_reverse;
-                    if left {
-                        margin.left = strut.append(margin.left).value();
-                    } else {
-                        margin.right = strut.append(margin.right).value();
-                    }
-                    text_engine
-                        .absorbed_vertical_margins
-                        .entry(child)
-                        .or_insert([0.; 2])[if left { 0 } else { 1 }] = strut.value();
-                }
-            }
-        }
-    }
-    let absorbed = text_engine
-        .absorbed_margins
-        .get(&id)
-        .copied()
-        .unwrap_or([0.; 2]);
-    let absorbed_vertical = text_engine
-        .absorbed_vertical_margins
-        .get(&id)
-        .copied()
-        .unwrap_or([0.; 2]);
-    let mut x = containing.x
-        + if allocated.is_none() {
-            margin.left - absorbed_vertical[0]
-        } else {
+    match executor.run_block(layout_driver::LayoutRequest{id,containing,allocated,ancestor_hidden}) {
+        Ok(used)=>used,
+        Err(error)=>{
+            executor.diagnostics.push(format!("node {id}: {error}"));
+            mark_unsupported_subtree(id,"native layout continuation failed",executor.nodes,executor.geometry);
             0.
-        };
-    let mut y = containing.y
-        + if allocated.is_none() {
-            margin.top - absorbed[0]
-        } else {
-            0.
-        };
-    if position == "fixed" {
-        x = margin.left
-            + optional_length(
-                style_value(style, "left", "auto"),
-                input.viewport.width,
-                font_size,
-                input.viewport,
-            )
-            .unwrap_or(0.0);
-        y = margin.top
-            + optional_length(
-                style_value(style, "top", "auto"),
-                input.viewport.height,
-                font_size,
-                input.viewport,
-            )
-            .unwrap_or(0.0);
-    } else if position == "relative" {
-        let (dx, dy) = relative_position_offset(
-            style,
-            containing.width,
-            containing.height,
-            containing_rtl,
-            node.parent
-                .and_then(|id| styles.get(&id))
-                .map(|s| style_value(s, "writing-mode", "horizontal-tb"))
-                .unwrap_or("horizontal-tb"),
-            font_size,
-            input.viewport,
-        );
-        x += dx;
-        y += dy;
-    } else if position == "absolute" {
-        x += optional_length(
-            style_value(style, "left", "auto"),
-            containing.width,
-            font_size,
-            input.viewport,
-        )
-        .unwrap_or(0.0);
-        y += optional_length(
-            style_value(style, "top", "auto"),
-            input.viewport.height,
-            font_size,
-            input.viewport,
-        )
-        .unwrap_or(0.0);
-    }
-
-    let axes = writing_mode::Axes::new(
-        style_value(style, "writing-mode", "horizontal-tb"),
-        style_value(style, "direction", "ltr") == "rtl",
-    );
-    let inline_size = if axes.vertical {
-        allocated
-            .map(|size| {
-                (size.height - padding.top - padding.bottom - border.top - border.bottom).max(0.)
-            })
-            .or_else(|| {
-                specified_height.map(|h| {
-                    (h - if border_box_sizing {
-                        padding.top + padding.bottom + border.top + border.bottom
-                    } else {
-                        0.
-                    })
-                    .max(0.)
-                })
-            })
-            .or_else(|| text_engine.select_sizes.get(&node.id).map(|size| size.1))
-            .or(containing.height)
-            .unwrap_or(input.viewport.height)
-    } else {
-        content_width
-    };
-    let column_limit = if axes.vertical {
-        specified_width.map(|value| {
-            (value
-                - if border_box_sizing {
-                    horizontal_edges
-                } else {
-                    0.
-                })
-            .max(0.)
-        })
-    } else {
-        specified_height.map(|value| {
-            (value
-                - if border_box_sizing {
-                    padding.top + padding.bottom + border.top + border.bottom
-                } else {
-                    0.
-                })
-            .max(0.)
-        })
-    };
-    let column_format = match columns::Columns::resolve(
-        style,
-        inline_size,
-        column_limit,
-        font_size,
-        input.viewport,
-    ) {
-        Ok(columns) => columns,
-        Err(error) => {
-            diagnostics.push(format!("node {id}: {error}"));
-            None
         }
-    };
-    let text_inline = column_format
-        .map(|columns| columns.inline)
-        .unwrap_or(inline_size);
-    let float_scope = inline_formatting::enter_float_scope(
-        text_engine,
-        style,
-        text_inline,
-        if axes.vertical {
-            y + border.top + padding.top
-        } else {
-            x + border.left + padding.left
-        },
-        if axes.vertical {
-            if axes.x_reverse {
-                margin.right + border.right + padding.right
-            } else {
-                x + border.left + padding.left
-            }
-        } else {
-            y + border.top + padding.top
-        },
-        node.parent.is_none() || column_format.is_some(),
-        axes.vertical,
-    );
-    let column_has_floats = column_format.is_some()
-        && inline_formatting::has_flow_floats(
-            id,
-            by_id,
-            styles,
-            &mut text_engine.float_descendants,
-        );
-    let column_float_height = if column_has_floats {
-        text_engine
-            .column_float_trials
-            .get(&id)
-            .copied()
-            .or_else(|| {
-                column_format
-                    .filter(|columns| !columns.balance)
-                    .and_then(|columns| columns.limit)
-            })
-    } else {
-        None
-    };
-    let column_deferred_start = text_engine.out_of_flow.len();
-    if let Some(height) = column_float_height {
-        text_engine.float_fragment = Some((height, 0.));
-        text_engine.column_float_heights.insert(id, height);
-    } else {
-        text_engine.column_float_heights.remove(&id);
-        text_engine.column_float_section_heights.remove(&id);
-        text_engine.column_float_section_counts.remove(&id);
-        text_engine.column_float_section_sizes.remove(&id);
-    }
-    let mut inline_context = None;
-    let mut prepared_inline = None;
-    let mut column_block_flow = false;
-    let mut ruby_baseline = None;
-    if matches!(
-        style_value(style, "display", "block"),
-        "ruby" | "block ruby"
-    ) {
-        let (context, layout, baseline) =
-            ruby::layout(node, by_id, styles, font_size, input.viewport, text_engine);
-        inline_context = Some(context);
-        prepared_inline = Some(layout);
-        ruby_baseline = Some(baseline);
-    }
-    if ruby_baseline.is_none()
-        && !matches!(
-            style_value(style, "display", "block"),
-            "flex"
-                | "inline-flex"
-                | "grid"
-                | "inline-grid"
-                | "table"
-                | "inline-table"
-                | "table-row"
-                | "ruby"
-                | "block ruby"
-        )
-    {
-        let flow = inline_formatting::collect(node, by_id, styles);
-        let active=(axes.vertical&&matches!(style_value(style,"display","block"),"block"|"flow-root"|"list-item")&&!flow.is_empty())||text_engine.float_context.as_ref().is_some_and(|context|context.has_floats())||inline_formatting::has_flow_floats(id,by_id,styles,&mut text_engine.float_descendants)||column_format.is_some()&&!flow.is_empty()||flow.iter().any(|item|matches!(item,inline_formatting::FlowItem::Paragraph(paragraph) if !paragraph.inline_nodes.is_empty()||!paragraph.atomic.is_empty()))
-            ||flow.iter().any(|item|matches!(item,inline_formatting::FlowItem::Block(child) if styles.get(child).is_some_and(|style|style_value(style,"clear","none")!="none")))
-            ||(flow.len()>1&&flow.iter().any(|item|matches!(item,inline_formatting::FlowItem::Paragraph(paragraph) if has_text_line_content(&paragraph.source,styles,style))));
-        if active {
-            let previous_columns = text_engine.column_context;
-            if column_format.is_some() {
-                text_engine.column_context = Some((id, inline_size));
-                text_engine.column_float_section_index.insert(id, 0);
-            }
-            let (context, layout, has_blocks) =
-                inline_formatting::layout_flow(crate::inline_formatting::InlineFlowInputs {
-                    flow,
-                    style,
-                    inline: text_inline,
-                    full_inline: inline_size,
-                    block_available: content_width,
-                    block_limit: specified_height,
-                    font_size,
-                    nodes: by_id,
-                    styles,
-                    input,
-                    geometry,
-                    offsets: offset_dimensions,
-                    resolved: resolved_values,
-                    paint: text_fragments,
-                    diagnostics,
-                    engine: text_engine,
-                });
-            text_engine.column_context = previous_columns;
-            inline_context = Some(context);
-            prepared_inline = Some(layout);
-            column_block_flow = has_blocks || column_has_floats;
-        }
-    }
-    let mut text_layout = if let Some(layout) = prepared_inline {
-        layout
-    } else if let Some(source) = &shaped_source {
-        text_engine.shape_source(
-            source,
-            text_inline.max(1.0),
-            font_size,
-            style,
-            input.viewport,
-            styles,
-        )
-    } else {
-        text_engine.shape_styled(
-            &intrinsic_text,
-            text_inline.max(1.0),
-            font_size,
-            style,
-            input.viewport,
-        )
-    };
-    let float_bfc_extent = inline_formatting::leave_float_scope(text_engine, float_scope);
-    if column_has_floats {
-        text_layout.height = text_layout.height.max(float_bfc_extent.unwrap_or(0.));
-        text_engine
-            .column_float_extents
-            .insert(id, text_layout.height);
-    }
-    if let Some(columns) = column_format.filter(|columns| {
-        (columns.balance || columns.limit.is_none())
-            && column_has_floats
-            && column_float_height.is_none()
-    }) {
-        let natural = text_layout.height;
-        // First replay establishes the complete set partition from positioned
-        // native geometry, including eligible spanners nested in ordinary blocks.
-        let mut high = vec![natural.max(0.01)];
-        let mut low = high.clone();
-        // Every candidate is freshly formatted against its fragment boundaries.
-        // Bound total replay work across nested multicol contexts as well as
-        // each binary search; exhaustion is an explicit incomplete layout.
-        for pass in 0..16 {
-            if text_engine.column_balance_work >= 128 {
-                diagnostics.push(format!(
-                    "node {id}: native float column balance exceeds 128 re-layout work budget"
-                ));
-                mark_unsupported_subtree(id, "float column balance work budget", by_id, geometry);
-                return 0.;
-            }
-            text_engine.column_balance_work += 1;
-            let targets = low
-                .iter()
-                .zip(&high)
-                .map(|(low, high)| if pass == 15 { *high } else { (low + high) / 2. })
-                .collect::<Vec<_>>();
-            let target = targets[0];
-            text_engine.out_of_flow.truncate(column_deferred_start);
-            text_engine.column_float_trials.insert(id, target);
-            text_engine
-                .column_float_section_heights
-                .insert(id, targets.clone());
-            let used = layout_node(
-                id,
-                containing,
-                by_id,
-                styles,
-                geometry,
-                offset_dimensions,
-                resolved_values,
-                text_fragments,
-                input,
-                ancestor_hidden,
-                diagnostics,
-                text_engine,
-                allocated,
-            );
-            text_engine.column_float_trials.remove(&id);
-            if pass == 15 {
-                return used;
-            }
-            if pass == 0 {
-                let sizes = text_engine
-                    .column_float_section_sizes
-                    .get(&id)
-                    .cloned()
-                    .unwrap_or_else(|| vec![natural]);
-                high = sizes
-                    .iter()
-                    .map(|size| {
-                        columns
-                            .limit
-                            .map(|limit| size.min(limit))
-                            .unwrap_or(*size)
-                            .max(0.01)
-                    })
-                    .collect();
-                low = sizes
-                    .iter()
-                    .zip(&high)
-                    .map(|(size, high)| (size / columns.count as f64).max(0.01).min(*high))
-                    .collect();
-                continue;
-            }
-            let counts = text_engine.column_float_section_counts.get(&id);
-            for (index, target) in targets.into_iter().enumerate() {
-                let fits = counts
-                    .and_then(|counts| counts.get(index))
-                    .is_some_and(|count| *count <= columns.count);
-                if fits {
-                    high[index] = target
-                } else {
-                    low[index] = target;
-                }
-            }
-        }
-    }
-    if ruby_baseline.is_some() && width_value == "auto" && allocated.is_none() {
-        content_width = if axes.vertical {
-            text_layout.height
-        } else {
-            text_layout.width
-        };
-        if let Some(max) = bound("max-width", "none") {
-            content_width = content_width.min(max);
-        }
-        if let Some(min) = bound("min-width", "auto") {
-            content_width = content_width.max(min);
-        }
-        outer_width =
-            content_width + horizontal_edges + scrollbar_gutter.left + scrollbar_gutter.right;
-    }
-    if let Some(columns) = column_format.filter(|_| !column_block_flow) {
-        columns.place(&mut text_layout);
-        let step = (columns.inline + columns.gap).max(1.);
-        let count = text_layout
-            .lines
-            .iter()
-            .map(|line| {
-                ((if columns.reverse {
-                    columns.available - columns.inline - line.4
-                } else {
-                    line.4
-                }) / step)
-                    .round()
-                    .max(0.) as usize
-                    + 1
-            })
-            .max()
-            .unwrap_or(0);
-        text_engine.column_runs.insert(
-            id,
-            vec![columns::ColumnRun {
-                columns,
-                count,
-                start: 0.,
-                block: text_layout.height,
-            }],
-        );
-    }
-    if axes.vertical {
-        if allocated.is_none()
-            && !out_of_flow
-            && inline_context.is_some()
-            && let Some((child, value)) = margin_collapse::used_child_vertical_end(
-                crate::margin_collapse::VerticalChildEndInputs {
-                    id,
-                    reverse: axes.x_reverse,
-                    basis: inline_size,
-                    nodes: by_id,
-                    styles,
-                    viewport: input.viewport,
-                    geometry,
-                    clearance: &text_engine.clearance_nodes,
-                },
-            )
-        {
-            text_layout.height = (text_layout.height - value).max(0.);
-            for item in &mut text_layout.inline_boxes {
-                if item.node == child {
-                    item.rect.height = (item.rect.height - value).max(0.);
-                }
-            }
-            if axes.x_reverse {
-                let previous = margin.left;
-                margin.left = inline_formatting::MarginStrut::default()
-                    .append(previous)
-                    .append(value)
-                    .value();
-                x += margin.left - previous;
-            } else {
-                margin.right = inline_formatting::MarginStrut::default()
-                    .append(margin.right)
-                    .append(value)
-                    .value();
-            }
-            text_engine
-                .absorbed_vertical_margins
-                .entry(child)
-                .or_insert([0.; 2])[if axes.x_reverse { 0 } else { 1 }] = value;
-        }
-        if width_value == "auto"
-            && allocated.is_none()
-            && (node.children.is_empty() || inline_context.is_some())
-            && specified_width.is_none()
-        {
-            content_width = text_layout.height.max(float_bfc_extent.unwrap_or(0.));
-            if let Some(max) = bound("max-width", "none") {
-                content_width = content_width.min(max);
-            }
-            if let Some(min) = bound("min-width", "auto") {
-                content_width = content_width.max(min);
-            }
-            outer_width =
-                content_width + horizontal_edges + scrollbar_gutter.left + scrollbar_gutter.right;
-        }
-        vertical_text::physicalize(
-            &mut text_layout,
-            content_width,
-            inline_size,
-            style_value(style, "writing-mode", "horizontal-tb"),
-        );
-    }
-    let mut resolved = text_layout.resolved_text.clone();
-    for run in &mut resolved {
-        run.layout_node = id;
-    }
-    text_engine.resolved_text.insert(id, resolved);
-    if text_engine.font_demand_error.is_none() {
-        match text_pseudos::font_demands(&text_layout) {
-            Ok(demands) => {
-                let old = text_engine
-                    .font_demands
-                    .get(&id)
-                    .map(text_pseudos::demand_bytes)
-                    .unwrap_or(0);
-                let bytes = text_engine
-                    .font_demand_bytes
-                    .saturating_sub(old)
-                    .saturating_add(text_pseudos::demand_bytes(&demands));
-                if bytes > 64 * 1024 * 1024 {
-                    text_engine.font_demand_error = Some(LayoutError::StyleTraversal(
-                        "page font demand exceeds native 64-MiB bound".into(),
-                    ));
-                } else {
-                    text_engine.font_demand_bytes = bytes;
-                    text_engine.font_demands.insert(id, demands);
-                }
-            }
-            Err(error) => text_engine.font_demand_error = Some(error),
-        }
-    }
-    for line_break in &text_layout.breaks {
-        let mut line_break = line_break.clone();
-        line_break.layout_node = id;
-        let shift = |rect: &mut CssRect| {
-            rect.x += x + border.left + padding.left
-                - if position == "fixed" {
-                    0.
-                } else {
-                    input.scroll.x
-                };
-            rect.y += y + border.top + padding.top
-                - if position == "fixed" {
-                    0.
-                } else {
-                    input.scroll.y
-                };
-        };
-        shift(&mut line_break.before);
-        if let Some(after) = &mut line_break.after {
-            shift(after);
-        }
-        text_engine.break_boxes.insert(line_break.node, line_break);
-    }
-    let mut source_geometry = BTreeMap::<u64, Vec<oryn_common::v4::TextClusterGeometry>>::new();
-    for cluster in &text_layout.source_clusters {
-        let rect = CssRect {
-            x: x + border.left + padding.left + cluster.rect.x
-                - if position == "fixed" {
-                    0.
-                } else {
-                    input.scroll.x
-                },
-            y: y + border.top + padding.top + cluster.rect.y
-                - if position == "fixed" {
-                    0.
-                } else {
-                    input.scroll.y
-                },
-            ..cluster.rect
-        };
-        source_geometry.entry(cluster.text_node).or_default().push(
-            oryn_common::v4::TextClusterGeometry {
-                layout_node: if inline_context
-                    .as_ref()
-                    .is_some_and(|paragraph| paragraph.inline_nodes.contains(&cluster.owner))
-                {
-                    cluster.owner
-                } else {
-                    id
-                },
-                start: cluster.utf16.start,
-                end: cluster.utf16.end,
-                rect,
-                matrix: transforms::Projection::IDENTITY.matrix(),
-                line: cluster.line,
-                rtl: cluster.rtl,
-            },
-        );
-    }
-    // Deeper direct-text layout supersedes ancestor aggregate measurements.
-    text_engine.source_geometry.extend(source_geometry);
-    let mut intrinsic_text_height = text_layout.height;
-    let display = style_value(style, "display", "block");
-    let vertical_edges = padding.top + padding.bottom + border.top + border.bottom;
-    let clamp_height = |value| {
-        let gutter = scrollbar_gutter.top + scrollbar_gutter.bottom;
-        (clamp_content_height(
-            style,
-            value + gutter,
-            height_basis,
-            font_size,
-            input.viewport,
-            vertical_edges - gutter,
-        ) - gutter)
-            .max(0.)
-    };
-    // An auto height remains indefinite even when min-height gives the box a
-    // used height. Percentage descendants must not use that minimum as a basis.
-    let definite_content_height = allocated
-        .map(|size| (size.height - vertical_edges).max(0.))
-        .or_else(|| {
-            specified_height.map(|value| {
-                clamp_height(
-                    (value
-                        - if border_box_sizing {
-                            vertical_edges
-                        } else {
-                            0.
-                        })
-                    .max(0.),
-                )
-            })
-        });
-    let child_x = x + border.left + padding.left;
-    let child_y = y
-        + border.top
-        + padding.top
-        + if axes.vertical {
-            0.
-        } else {
-            intrinsic_text_height
-        };
-    let mut children_height: f64 = 0.0;
-    let has_float_or_clear = node.children.iter().any(|child| {
-        styles.get(child).is_some_and(|child_style| {
-            style_value(child_style, "float", "none") != "none"
-                || style_value(child_style, "clear", "none") != "none"
-        })
-    });
-    if let Some(paragraph) = &inline_context {
-        for item in &text_layout.inline_boxes {
-            let target_x = x + border.left + padding.left + item.rect.x
-                - if position == "fixed" {
-                    0.
-                } else {
-                    input.scroll.x
-                };
-            let target_y = y + border.top + padding.top + item.rect.y
-                - if position == "fixed" {
-                    0.
-                } else {
-                    input.scroll.y
-                };
-            if let Some(model) = geometry
-                .get(&item.node)
-                .and_then(|value| value.box_model.clone())
-            {
-                positioning::translate_subtree(
-                    item.node,
-                    target_x
-                        - (model.border_box.x - model.margin.left
-                            + text_engine
-                                .absorbed_vertical_margins
-                                .get(&item.node)
-                                .map(|value| value[0])
-                                .unwrap_or(0.)),
-                    target_y
-                        - (model.border_box.y - model.margin.top
-                            + text_engine
-                                .absorbed_margins
-                                .get(&item.node)
-                                .map(|value| value[0])
-                                .unwrap_or(0.)),
-                    by_id,
-                    geometry,
-                    text_fragments,
-                    text_engine,
-                );
-            }
-            for (child, containing) in &mut text_engine.out_of_flow {
-                if *child == item.node {
-                    containing.x = target_x + input.scroll.x;
-                    containing.y = target_y + input.scroll.y;
-                }
-            }
-        }
-        for child in paragraph.atomic.iter().chain(paragraph.boundaries.keys()) {
-            text_engine.inline_sizes.remove(child);
-        }
-    } else if matches!(
-        display,
-        "flex" | "inline-flex" | "grid" | "inline-grid" | "table-row"
-    ) || has_float_or_clear
-    {
-        let container_height = definite_content_height;
-        let Some(placements) = taffy_child_placements(ChildPlacementInputs {
-            node,
-            parent_style: style,
-            styles,
-            width: content_width,
-            height: container_height,
-            viewport: input.viewport,
-            nodes: by_id,
-            text_engine,
-        }) else {
-            let diagnostic = "layout computation failed for this flex/grid/float subtree; geometry is unavailable";
-            diagnostics.push(format!("node {id}: {diagnostic}"));
-            mark_unsupported_subtree(id, diagnostic, by_id, geometry);
-            return 0.0;
-        };
-        for (child, placement) in node.children.iter().zip(placements) {
-            let child_height = layout_node(
-                *child,
-                FlowBox {
-                    x: child_x + placement.x,
-                    y: child_y + placement.y,
-                    width: content_width,
-                    height: definite_content_height,
-                },
-                by_id,
-                styles,
-                geometry,
-                offset_dimensions,
-                resolved_values,
-                text_fragments,
-                input,
-                false,
-                diagnostics,
-                text_engine,
-                Some(TaffySize {
-                    width: placement.width,
-                    height: placement.height,
-                }),
-            );
-            if !styles.get(child).is_some_and(|s| {
-                matches!(style_value(s, "position", "static"), "absolute" | "fixed")
-            }) {
-                children_height = children_height.max(placement.y + child_height);
-            }
-        }
-    } else if axes.vertical {
-        let mut block_cursor = if axes.x_reverse {
-            x + border.left + padding.left + content_width - text_layout.width
-        } else {
-            x + border.left + padding.left + text_layout.width
-        };
-        let mut block_extent = text_layout.width;
-        for child in &tables::ordered_children(node, styles) {
-            layout_node(
-                *child,
-                FlowBox {
-                    x: block_cursor,
-                    y: y + border.top + padding.top,
-                    width: content_width,
-                    height: Some(inline_size),
-                },
-                by_id,
-                styles,
-                geometry,
-                offset_dimensions,
-                resolved_values,
-                text_fragments,
-                input,
-                false,
-                diagnostics,
-                text_engine,
-                None,
-            );
-            if styles.get(child).is_some_and(|s| {
-                matches!(style_value(s, "position", "static"), "absolute" | "fixed")
-            }) {
-                continue;
-            }
-            let Some(model) = geometry.get(child).and_then(|g| g.box_model.clone()) else {
-                continue;
-            };
-            let extent = model.margin.left + model.border_box.width + model.margin.right;
-            if axes.x_reverse {
-                positioning::translate_subtree(
-                    *child,
-                    -extent,
-                    0.,
-                    by_id,
-                    geometry,
-                    text_fragments,
-                    text_engine,
-                );
-                block_cursor -= extent;
-            } else {
-                block_cursor += extent;
-            }
-            block_extent += extent;
-            children_height = children_height
-                .max(model.border_box.height + model.margin.top + model.margin.bottom);
-        }
-        block_extent += text_engine
-            .table_end_spacing
-            .get(&id)
-            .copied()
-            .unwrap_or(0.);
-        if width_value == "auto" && allocated.is_none() && specified_width.is_none() {
-            let previous = content_width;
-            content_width = block_extent.max(0.);
-            if let Some(max) = bound("max-width", "none") {
-                content_width = content_width.min(max);
-            }
-            if let Some(min) = bound("min-width", "auto") {
-                content_width = content_width.max(min);
-            }
-            outer_width =
-                content_width + horizontal_edges + scrollbar_gutter.left + scrollbar_gutter.right;
-            if axes.x_reverse {
-                let dx = content_width - previous;
-                for child in &node.children {
-                    positioning::translate_subtree(
-                        *child,
-                        dx,
-                        0.,
-                        by_id,
-                        geometry,
-                        text_fragments,
-                        text_engine,
-                    );
-                }
-                for line in &mut text_layout.lines {
-                    line.4 += dx;
-                }
-                for clusters in text_engine.source_geometry.values_mut() {
-                    for cluster in clusters {
-                        if cluster.layout_node == id {
-                            cluster.rect.x += dx;
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        let mut cursor = child_y;
-        let mut preceding_margin: Option<inline_formatting::MarginStrut> = None;
-        for child in &tables::ordered_children(node, styles) {
-            let child_style = &styles[child];
-            let collapse = !display.starts_with("table")
-                && !axes.vertical
-                && matches!(
-                    style_value(child_style, "display", "block"),
-                    "block" | "flow-root" | "list-item" | "flex" | "grid"
-                )
-                && !matches!(
-                    style_value(child_style, "position", "static"),
-                    "absolute" | "fixed"
-                );
-            let mut incoming = inline_formatting::MarginStrut::default();
-            if collapse {
-                let top = margin_collapse::outer_edge(
-                    *child,
-                    false,
-                    content_width,
-                    by_id,
-                    styles,
-                    input.viewport,
-                    margin_collapse::clear_obstacles(
-                        text_engine.float_context.as_ref(),
-                        text_engine.float_block_offset,
-                    ),
-                );
-                let previous = preceding_margin.take().unwrap_or_default();
-                incoming = previous.merge(top);
-                let delta = incoming.value() - previous.value() - top.value();
-                cursor += delta;
-                children_height += delta;
-            }
-            let child_height = layout_node(
-                *child,
-                FlowBox {
-                    x: child_x,
-                    y: cursor,
-                    width: content_width,
-                    height: definite_content_height,
-                },
-                by_id,
-                styles,
-                geometry,
-                offset_dimensions,
-                resolved_values,
-                text_fragments,
-                input,
-                false,
-                diagnostics,
-                text_engine,
-                None,
-            );
-            cursor += child_height;
-            children_height += child_height;
-            if collapse {
-                if let Some(model) = geometry
-                    .get(child)
-                    .and_then(|value| value.box_model.as_ref())
-                {
-                    let through = text_engine
-                        .absorbed_margins
-                        .get(child)
-                        .is_none_or(|value| *value == [0.; 2])
-                        && model.border_box.height == 0.
-                        && model.border.top == 0.
-                        && model.border.bottom == 0.
-                        && model.padding.top == 0.
-                        && model.padding.bottom == 0.
-                        && !inline_formatting::establishes_bfc(child_style)
-                        && !text_engine.clearance_nodes.contains(child);
-                    if through {
-                        let joined = incoming.append(model.margin.bottom);
-                        let delta = joined.value() - incoming.value() - model.margin.bottom;
-                        cursor += delta;
-                        children_height += delta;
-                        preceding_margin = Some(joined);
-                    } else {
-                        preceding_margin = Some(
-                            if text_engine
-                                .absorbed_margins
-                                .get(child)
-                                .is_some_and(|value| value[1] != 0.)
-                            {
-                                inline_formatting::MarginStrut::default()
-                            } else {
-                                inline_formatting::MarginStrut::default()
-                                    .append(model.margin.bottom)
-                            },
-                        );
-                    }
-                }
-            } else if child_height != 0. {
-                preceding_margin = None;
-            }
-        }
-    }
-    if let Some(columns) = column_format.filter(|_| column_block_flow) {
-        let origin = (
-            x + border.left + padding.left
-                - if position == "fixed" {
-                    0.
-                } else {
-                    input.scroll.x
-                },
-            y + border.top + padding.top
-                - if position == "fixed" {
-                    0.
-                } else {
-                    input.scroll.y
-                },
-        );
-        match columns::fragment_flow(crate::columns::ColumnFragmentFlow {
-            columns,
-            root: id,
-            origin,
-            scroll: (input.scroll.x, input.scroll.y),
-            block_extent: content_width,
-            mode: style_value(style, "writing-mode", "horizontal-tb"),
-            nodes: by_id,
-            styles,
-            geometry,
-            offsets: offset_dimensions,
-            text: text_fragments,
-            layout: &mut text_layout,
-            engine: text_engine,
-        }) {
-            Ok(frame) => {
-                intrinsic_text_height = text_layout.height;
-                if axes.vertical
-                    && width_value == "auto"
-                    && allocated.is_none()
-                    && specified_width.is_none()
-                {
-                    content_width = frame;
-                    if let Some(max) = bound("max-width", "none") {
-                        content_width = content_width.min(max);
-                    }
-                    if let Some(min) = bound("min-width", "auto") {
-                        content_width = content_width.max(min);
-                    }
-                    outer_width = content_width
-                        + horizontal_edges
-                        + scrollbar_gutter.left
-                        + scrollbar_gutter.right;
-                }
-            }
-            Err(error) => diagnostics.push(format!("node {id}: {error}")),
-        }
-    }
-    if let Some(row) = text_engine.table_rows.get(&id) {
-        children_height = if row.vertical {
-            row.inline_size
-        } else {
-            row.height
-        };
-    }
-    if !axes.vertical {
-        children_height += text_engine
-            .table_end_spacing
-            .get(&id)
-            .copied()
-            .unwrap_or(0.);
-    }
-    let mut content_height = specified_height
-        .unwrap_or_else(|| {
-            node.intrinsic_image_size
-                .or(node.document_replaced.then_some((300, 150)))
-                .map_or(
-                    if axes.vertical {
-                        intrinsic_text_height.max(children_height)
-                    } else {
-                        intrinsic_text_height + children_height
-                    },
-                    |(_, height)| {
-                        preferred_ratio(node, style)
-                            .map(|ratio| {
-                                ratio.content_height(
-                                    content_width,
-                                    horizontal_edges,
-                                    vertical_edges,
-                                )
-                            })
-                            .unwrap_or(f64::from(height))
-                    },
-                )
-        })
-        .max(0.0);
-    if border_box_sizing && specified_height.is_some() {
-        content_height =
-            (content_height - padding.top - padding.bottom - border.top - border.bottom).max(0.0);
-    }
-    if column_float_height.is_none()
-        && !axes.vertical
-        && specified_height.is_none()
-        && let Some(extent) = float_bfc_extent
-    {
-        content_height = content_height.max(extent);
-    }
-    if specified_height.is_none()
-        && let Some(context) = inline_context.as_ref()
-        && !axes.vertical
-        && (node.parent.is_none()
-            || matches!(
-                display,
-                "flow-root" | "inline-block" | "inline-flex" | "inline-grid"
-            )
-            || out_of_flow
-            || style_value(style, "float", "none") != "none"
-            || ["overflow-x", "overflow-y"]
-                .iter()
-                .any(|key| !matches!(style_value(style, key, "visible"), "visible" | "clip")))
-    {
-        for child in &context.atomic {
-            if style_value(&styles[child], "float", "none") != "none"
-                && let Some(model) = geometry
-                    .get(child)
-                    .and_then(|value| value.box_model.as_ref())
-            {
-                content_height = content_height.max(
-                    model.border_box.bottom() + model.margin.bottom
-                        - (y + border.top + padding.top
-                            - if position == "fixed" {
-                                0.
-                            } else {
-                                input.scroll.y
-                            }),
-                );
-            }
-        }
-    }
-    if allocated.is_none()
-        && !out_of_flow
-        && !axes.vertical
-        && let Some((child, value)) = margin_collapse::used_child_bottom(
-            id,
-            content_width,
-            by_id,
-            styles,
-            input.viewport,
-            geometry,
-            &text_engine.clearance_nodes,
-        )
-    {
-        content_height = (content_height - value).max(0.);
-        margin.bottom = inline_formatting::MarginStrut::default()
-            .append(margin.bottom)
-            .append(value)
-            .value();
-        text_engine.absorbed_margins.entry(child).or_insert([0.; 2])[1] = value;
-    }
-    content_height = clamp_height(content_height);
-    if let Some(size) = allocated {
-        content_height = (size.height - vertical_edges).max(0.);
-    }
-    let border_width = outer_width.max(0.0);
-    let border_height = content_height + padding.top + padding.bottom + border.top + border.bottom;
-    offset_dimensions.insert(id, (border_width, border_height));
-    if let Some(baseline) = ruby_baseline {
-        text_engine
-            .ruby_baselines
-            .insert(id, margin.top + border.top + padding.top + baseline);
-    }
-    // CSSOM resolves dimensions before transforms. Visibility suppresses paint,
-    // not layout boxes. Non-replaced inline boxes have no used width/height.
-    let replaced = is_replaced_box(node);
-    if !matches!(display, "none" | "contents") && (display != "inline" || replaced) {
-        let mut values = BTreeMap::new();
-        if !matches!(
-            display,
-            "table-row" | "table-row-group" | "table-header-group" | "table-footer-group"
-        ) {
-            let width = if border_box_sizing {
-                border_width
-            } else {
-                content_width + scrollbar_gutter.left + scrollbar_gutter.right
-            };
-            values.insert("width".into(), format!("{width}px"));
-        }
-        if !matches!(display, "table-column" | "table-column-group") {
-            let height = if border_box_sizing {
-                border_height
-            } else {
-                content_height + scrollbar_gutter.top + scrollbar_gutter.bottom
-            };
-            values.insert("height".into(), format!("{height}px"));
-        }
-        resolved_values.insert(id, values);
-    }
-
-    let reference_rect = CssRect {
-        x,
-        y,
-        width: border_width,
-        height: border_height,
-    };
-    let to_viewport = |fragment: CssRect| {
-        let document_rect = fragment;
-        CssRect {
-            x: document_rect.x
-                - if position == "fixed" {
-                    0.0
-                } else {
-                    input.scroll.x
-                },
-            y: document_rect.y
-                - if position == "fixed" {
-                    0.0
-                } else {
-                    input.scroll.y
-                },
-            ..document_rect
-        }
-    };
-    if let (Some(baseline), Some(line)) = (text_layout.baselines.first(), text_layout.lines.first())
-    {
-        text_engine.first_line_baselines.insert(
-            id,
-            if axes.vertical {
-                line.4 + baseline
-            } else {
-                line.3 + baseline
-            },
-        );
-    } else {
-        text_engine.first_line_baselines.remove(&id);
-    }
-    let rect = to_viewport(reference_rect);
-    let viewport_rect = CssRect {
-        x: 0.0,
-        y: 0.0,
-        width: input.viewport.width,
-        height: input.viewport.height,
-    };
-    let opacity = style_value(style, "opacity", "1")
-        .parse::<f64>()
-        .unwrap_or(1.0);
-    let pointer_events = style_value(style, "pointer-events", "auto");
-    let in_viewport = rect.intersects(viewport_rect);
-    let client_rects =
-        if intrinsic_text.is_empty() || style_value(style, "display", "block") != "inline" {
-            // Atomic/block boxes contribute their border box, including zero-sized
-            // boxes. Text paint lines inside them are not element client fragments.
-            vec![rect]
-        } else {
-            text_layout
-                .lines
-                .iter()
-                .map(|(_, width, height, top, left)| {
-                    to_viewport(CssRect {
-                        x: x + border.left + padding.left + left,
-                        y: y + border.top + padding.top + top,
-                        width: (*width).min(content_width),
-                        height: *height,
-                    })
-                })
-                .collect()
-        };
-    if let Some(paragraph) = &inline_context {
-        let text_x = rect.x + border.left + padding.left;
-        let text_y = rect.y + border.top + padding.top;
-        inline_formatting::inline_geometry(crate::inline_formatting::InlineGeometryInputs {
-            content_width,
-            content_height,
-            paragraph,
-            layout: &text_layout,
-            root: id,
-            x: text_x,
-            y: text_y,
-            nodes: by_id,
-            styles,
-            viewport: input.viewport,
-            inline_basis: text_inline,
-            geometry,
-            offsets: offset_dimensions,
-        });
-        for (owner, fragments) in
-            inline_formatting::paint_fragments(&text_layout, id, text_x, text_y, styles)
-        {
-            text_fragments.entry(owner).or_default().extend(fragments);
-        }
-        for child in &paragraph.inline_nodes {
-            if let Some(style) = styles.get(child)
-                && style_value(style, "position", "static") == "relative"
-            {
-                let (dx, dy) = relative_position_offset(
-                    style,
-                    content_width,
-                    definite_content_height,
-                    style_value(style, "direction", "ltr") == "rtl",
-                    style_value(style, "writing-mode", "horizontal-tb"),
-                    font_size,
-                    input.viewport,
-                );
-                positioning::translate_subtree(
-                    *child,
-                    dx,
-                    dy,
-                    by_id,
-                    geometry,
-                    text_fragments,
-                    text_engine,
-                );
-            }
-        }
-    } else if !intrinsic_text.is_empty() && !invisible {
-        let color = style_value(style, "color", "#000000").to_string();
-        let font_family = style_value(style, "font-family", DEFAULT_FONT_FAMILY).to_string();
-        let fragments = text_layout
-            .lines
-            .iter()
-            .enumerate()
-            .map(
-                |(line, (text, width, height, top, left))| PaintTextFragment {
-                    flow_line: Some(line),
-                    flow_rect: Some({
-                        let mut flow = text_layout
-                            .flow_rect(line, style_value(style, "writing-mode", "horizontal-tb"));
-                        flow.x += rect.x + border.left + padding.left;
-                        flow.y += rect.y + border.top + padding.top;
-                        flow
-                    }),
-                    clusters: text_layout.paint_clusters(
-                        line,
-                        rect.x + border.left + padding.left,
-                        rect.y + border.top + padding.top,
-                    ),
-                    text: text.clone(),
-                    glyph_runs: text_layout.paint_runs(line),
-                    rect: CssRect {
-                        x: rect.x + border.left + padding.left + left,
-                        y: rect.y + border.top + padding.top + top,
-                        width: *width,
-                        height: *height,
-                    },
-                    font_family: font_family.clone(),
-                    font_size,
-                    color: color.clone(),
-                },
-            )
-            .collect::<Vec<_>>();
-        text_fragments.insert(id, fragments);
-    }
-    geometry.insert(
-        id,
-        NodeGeometry {
-            availability: GeometryAvailability::Available,
-            box_model: Some(BoxModel {
-                border_box: rect,
-                padding_box: to_viewport(inset(reference_rect, border)),
-                content_box: to_viewport(inset(inset(reference_rect, border), padding)),
-                margin,
-                border,
-                padding: authored_padding,
-            }),
-            client_rects,
-            in_viewport,
-            interactable: in_viewport
-                && rect.width > 0.0
-                && rect.height > 0.0
-                && opacity > 0.0
-                && pointer_events != "none",
-            diagnostic: None,
-        },
-    );
-    if invisible {
-        // Hidden visibility retains layout boxes for CSSOM. Keep the semantic
-        // and painting availability hidden, unlike display:none's absent box.
-        if let Some(value) = geometry.get_mut(&id) {
-            value.availability = GeometryAvailability::Hidden;
-            value.in_viewport = false;
-            value.interactable = false;
-        }
-    }
-    if matches!(position, "absolute" | "fixed") {
-        0.0
-    } else {
-        (if allocated.is_none() {
-            margin.top - absorbed[0]
-        } else {
-            0.
-        }) + border_height
-            + margin.bottom
-            - absorbed[1]
     }
 }
 
@@ -10102,21 +8449,16 @@ fn mark_unsupported_subtree(
     by_id: &BTreeMap<u64, &LayoutNode>,
     geometry: &mut BTreeMap<u64, NodeGeometry>,
 ) {
-    geometry.insert(
-        id,
-        NodeGeometry {
-            availability: GeometryAvailability::Unsupported,
-            box_model: None,
-            client_rects: Vec::new(),
-            in_viewport: false,
-            interactable: false,
-            diagnostic: Some(diagnostic.into()),
-        },
-    );
-    if let Some(node) = by_id.get(&id) {
-        for child in &node.children {
-            mark_unsupported_subtree(*child, diagnostic, by_id, geometry);
-        }
+    let mut pending=vec![id];
+    let mut visited=BTreeSet::new();
+    while let Some(id)=pending.pop() {
+        if !visited.insert(id) {continue;}
+        geometry.insert(id,NodeGeometry {
+            availability:GeometryAvailability::Unsupported,box_model:None,
+            client_rects:Vec::new(),in_viewport:false,interactable:false,
+            diagnostic:Some(diagnostic.into()),
+        });
+        if let Some(node)=by_id.get(&id) {pending.extend(node.children.iter().rev().copied());}
     }
 }
 
@@ -11327,6 +9669,120 @@ mod tests {
         let output = compute(&input, &LayoutLimits::default()).unwrap();
         for id in 2..=1001 {
             assert_eq!(output.geometry[&id].availability, GeometryAvailability::Hidden);
+        }
+    }
+
+    #[test]
+    fn block_flow_cursor_preserves_signed_margin_and_sibling_advance() {
+        let mut cursor = BlockFlowCursor::new(100.);
+        cursor.preceding = Some(inline_formatting::MarginStrut::default().append(20.));
+        let incoming = cursor.enter(inline_formatting::MarginStrut::default().append(-5.));
+        assert_eq!(incoming.value(), 15.);
+        assert_eq!(cursor.cursor, 100.);
+        assert_eq!(cursor.height, 0.);
+        cursor.advance(30.);
+        cursor.preceding = Some(incoming.append(10.));
+        let incoming = cursor.enter(inline_formatting::MarginStrut::default().append(40.));
+        assert_eq!(incoming.value(), 35.);
+        assert_eq!(cursor.cursor, 110.);
+        assert_eq!(cursor.height, 10.);
+    }
+
+    #[test]
+    fn block_child_placement_preserves_containing_box_and_noncollapsing_reset() {
+        let input = column_fixture("", vec![node(2, Some(1), "div", "")]);
+        let nodes = input.nodes.iter().map(|node| (node.id, node)).collect();
+        let mut style = BTreeMap::new();
+        style.insert("display".into(), "block".into());
+        style.insert("margin-top".into(), "40px".into());
+        style.insert("position".into(), "absolute".into());
+        let styles = BTreeMap::from([(2, Arc::new(style))]);
+        let engine = TextEngine::new(&[]);
+        let mut cursor = BlockFlowCursor::new(100.);
+        cursor.preceding = Some(inline_formatting::MarginStrut::default().append(20.));
+        let child = cursor.prepare_child(2, FlowBox {
+            x: 17., y: 0., width: 300., height: Some(80.),
+        }, "block", false, &nodes, &styles, &input, &engine);
+        assert!(!child.collapse);
+        assert_eq!(child.containing.x, 17.);
+        assert_eq!(child.containing.y, 100.);
+        assert_eq!(child.containing.width, 300.);
+        assert_eq!(child.containing.height, Some(80.));
+        cursor.resume_child(child, 0., &styles, &BTreeMap::new(), &engine);
+        assert_eq!(cursor.preceding.unwrap().value(), 20.);
+        let child = cursor.prepare_child(2, FlowBox {
+            x: 17., y: 0., width: 300., height: None,
+        }, "block", false, &nodes, &styles, &input, &engine);
+        cursor.resume_child(child, 10., &styles, &BTreeMap::new(), &engine);
+        assert!(cursor.preceding.is_none());
+        assert_eq!(cursor.cursor, 110.);
+        assert_eq!(cursor.height, 10.);
+    }
+
+    #[test]
+    fn post_child_content_height_preserves_axes_and_specified_precedence() {
+        let node = node(2, None, "div", "");
+        let style = BTreeMap::new();
+        let mut inputs = ContentHeightInputs {
+            specified: None, text: 12., children: 30., width: 100.,
+            horizontal_edges: 0., vertical_edges: 0., vertical: false,
+        };
+        assert_eq!(inputs.resolve(&node, &style), 42.);
+        inputs.vertical = true;
+        assert_eq!(inputs.resolve(&node, &style), 30.);
+        inputs.specified = Some(7.);
+        assert_eq!(inputs.resolve(&node, &style), 7.);
+        inputs.specified = Some(-7.);
+        assert_eq!(inputs.resolve(&node, &style), 0.);
+    }
+
+    #[test]
+    fn full_layout_handles_999_nested_shadow_scopes() {
+        let mut input = column_fixture("", vec![node(2, Some(1), "div", "")]);
+        for depth in 0..999_u64 {
+            let host = 2 + depth;
+            let child = host + 1;
+            let root = 10_000 + depth;
+            // Selector ancestry stops at a shadow root. Rendering obtains
+            // this edge from root content, not the selector parent.
+            input.nodes.push(node(child, None, "div", if depth == 998 { "Hello!" } else { "" }));
+            input.shadow_trees.roots.insert(root, ShadowTree {
+                host,
+                content: vec![LayoutContent::Element(child)],
+            });
+            input.shadow_trees.node_scopes.insert(child, root);
+        }
+        let output = compute(&input, &LayoutLimits::default()).unwrap();
+        assert!(output.geometry.contains_key(&1001));
+    }
+
+    #[test]
+    fn iterative_layout_preserves_mixed_inline_placed_vertical_and_column_children() {
+        let mut input=column_fixture(
+            "#flex{display:flex;width:180px}#grid{display:grid;grid-template-columns:80px 80px}             #vertical{writing-mode:vertical-rl;width:70px;height:120px}             #columns{columns:2;column-gap:10px;width:180px}             #float{float:left;width:35px;height:20px}span{display:inline-block}",
+            vec![node(2,Some(1),"div",""),node(3,Some(2),"span","atomic"),
+                node(4,Some(2),"div","block"),node(5,Some(1),"div",""),
+                node(6,Some(5),"div","flex one"),node(7,Some(5),"div","flex two"),
+                node(8,Some(1),"div",""),node(9,Some(8),"div","grid one"),
+                node(10,Some(8),"div","grid two"),node(11,Some(1),"div",""),
+                node(12,Some(11),"div","vertical"),node(13,Some(1),"div",""),
+                node(14,Some(13),"div",""),node(15,Some(13),"p","wrapping column text")]);
+        for(id,name)in [(5,"flex"),(8,"grid"),(11,"vertical"),(13,"columns"),(14,"float")] {
+            input.nodes.iter_mut().find(|node|node.id==id).unwrap().attributes
+                .insert("id".into(),name.into());
+        }
+        for(id,children)in [(1,vec![2,5,8,11,13]),(2,vec![3,4]),(5,vec![6,7]),
+            (8,vec![9,10]),(11,vec![12]),(13,vec![14,15])] {
+            let node=input.nodes.iter_mut().find(|node|node.id==id).unwrap();
+            node.children=children.clone();
+            node.content=Some(children.into_iter().map(LayoutContent::Element).collect());
+        }
+        let output=compute(&input,&LayoutLimits::default()).unwrap();
+        for id in 2..=15 {
+            let geometry=&output.geometry[&id];
+            assert_ne!(geometry.availability,GeometryAvailability::Unsupported,"node {id}");
+            let rect=geometry.box_model.as_ref().unwrap().border_box;
+            assert!(rect.x.is_finite()&&rect.y.is_finite()&&rect.width.is_finite()&&rect.height.is_finite());
         }
     }
 

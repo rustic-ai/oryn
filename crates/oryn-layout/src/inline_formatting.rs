@@ -1885,7 +1885,7 @@ mod fragment_tests {
     }
 }
 
-fn atomic_baseline(
+pub(super) fn atomic_baseline(
     root: u64,
     height: f64,
     nodes: &BTreeMap<u64, &LayoutNode>,
