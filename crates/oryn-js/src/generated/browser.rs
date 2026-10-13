@@ -33851,7 +33851,7 @@ pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
         named_getter: false,
         value_iterable: false,
         constant_value: None,
-        type_name: Some("DOMString"),
+        type_name: Some("IDBTransactionMode"),
         same_object: false,
         new_object: false,
         ce_reactions: false,
@@ -33872,7 +33872,7 @@ pub const I_D_B_TRANSACTION_MEMBERS: &[GeneratedMember] = &[
         named_getter: false,
         value_iterable: false,
         constant_value: None,
-        type_name: Some("DOMString"),
+        type_name: Some("IDBTransactionDurability"),
         same_object: false,
         new_object: false,
         ce_reactions: false,
@@ -61955,6 +61955,15 @@ pub const GET_COMPOSED_RANGES_OPTIONS_DICTIONARY_MEMBERS: &[GeneratedDictionaryM
     },
 ];
 #[allow(dead_code)]
+pub const I_D_B_TRANSACTION_OPTIONS_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
+    GeneratedDictionaryMember {
+        name: "durability",
+        type_name: "IDBTransactionDurability",
+        required: false,
+        default: Some("\"default\""),
+    },
+];
+#[allow(dead_code)]
 pub const C_S_S_CONTAINER_CONDITION_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
     GeneratedDictionaryMember {
         name: "name",
@@ -63452,6 +63461,11 @@ pub const GENERATED_DICTIONARIES: &[GeneratedDictionary] = &[
         members: GET_COMPOSED_RANGES_OPTIONS_DICTIONARY_MEMBERS,
     },
     GeneratedDictionary {
+        name: "IDBTransactionOptions",
+        parent: None,
+        members: I_D_B_TRANSACTION_OPTIONS_DICTIONARY_MEMBERS,
+    },
+    GeneratedDictionary {
         name: "CSSContainerCondition",
         parent: None,
         members: C_S_S_CONTAINER_CONDITION_DICTIONARY_MEMBERS,
@@ -64007,6 +64021,14 @@ pub const GENERATED_ENUMS: &[GeneratedEnum] = &[
             "application/xhtml+xml",
             "image/svg+xml",
         ],
+    },
+    GeneratedEnum {
+        name: "IDBTransactionMode",
+        values: &["readonly", "readwrite", "versionchange"],
+    },
+    GeneratedEnum {
+        name: "IDBTransactionDurability",
+        values: &["default", "strict", "relaxed"],
     },
     GeneratedEnum {
         name: "PresentationStyle",

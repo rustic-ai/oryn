@@ -458,6 +458,9 @@ impl ConnectionUpdate {
                         dom.connected.insert(node);
                     } else {
                         self.was_connected = dom.connected.remove(&node);
+                        if !self.preserve_focus {
+                            dom.forget_pointer_hover_target(node);
+                        }
                     }
                     self.phase = 1;
                 }

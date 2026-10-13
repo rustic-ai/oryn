@@ -189,6 +189,14 @@ pub(super) fn dispatch_owned(
         return Ok(());
     }
     let new = new.filter(|node| state.dom.borrow().is_connected(*node).unwrap_or(false));
+    let hover_target = if input.device != NativePointerDevice::Touch {
+        state
+            .dom
+            .borrow()
+            .prepare_pointer_hover(state.document_root(), input.id, new)?
+    } else {
+        None
+    };
     let next = path(state, new)?;
     let previous = state
         .native_pointers
@@ -205,6 +213,13 @@ pub(super) fn dispatch_owned(
         )?,
     };
     if old == new && previous == next {
+        if input.device != NativePointerDevice::Touch {
+            state.dom.borrow_mut().commit_pointer_hover(
+                state.document_root(),
+                input.id,
+                hover_target,
+            );
+        }
         return Ok(());
     }
     let next_leases = next
@@ -266,6 +281,12 @@ pub(super) fn dispatch_owned(
             add(node, "mouseenter", false, old);
         }
     }
+    if input.device != NativePointerDevice::Touch {
+        state
+            .dom
+            .borrow_mut()
+            .commit_pointer_hover(state.document_root(), input.id, hover_target);
+    }
     state
         .native_pointers
         .borrow_mut()
@@ -299,6 +320,141 @@ mod tests {
             .unwrap()
             .run(scope)
             .unwrap()
+    }
+    #[test]
+    fn rejected_hover_admission_preserves_boundary_path_and_source_registry() {
+        super::super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<div id=a></div><div id=b></div>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let a = dom.borrow().find_by_id("a").unwrap();
+        let b = dom.borrow().find_by_id("b").unwrap();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        for id in 1..=oryn_common::MAX_NATIVE_POINTER_SOURCES as i32 {
+            transition_native_pointer_boundary(
+                scope,
+                &state,
+                &NativePointerInput {
+                    id,
+                    ..Default::default()
+                },
+                Some(a),
+            )
+            .unwrap();
+        }
+        let before = state
+            .native_pointers
+            .borrow()
+            .pointers
+            .iter()
+            .map(|(id, p)| (*id, p.boundary_path.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let hover = state
+            .dom
+            .borrow()
+            .pointer_hover_snapshot(state.document_root())
+            .unwrap();
+        assert!(
+            transition_native_pointer_boundary(
+                scope,
+                &state,
+                &NativePointerInput {
+                    id: 17,
+                    ..Default::default()
+                },
+                Some(b)
+            )
+            .is_err()
+        );
+        assert_eq!(
+            state
+                .native_pointers
+                .borrow()
+                .pointers
+                .iter()
+                .map(|(id, p)| (*id, p.boundary_path.clone()))
+                .collect::<BTreeMap<_, _>>(),
+            before
+        );
+        assert_eq!(
+            state
+                .dom
+                .borrow()
+                .pointer_hover_snapshot(state.document_root())
+                .unwrap(),
+            hover
+        );
+        assert!(
+            NativePointerDispatch::new(
+                &state,
+                &NativePointerInput {
+                    id: 17,
+                    ..Default::default()
+                },
+                NativePointerAction::Move
+            )
+            .is_err()
+        );
+        assert!(
+            NativePointerBoundary::new(
+                &state,
+                &NativePointerInput {
+                    id: 17,
+                    ..Default::default()
+                },
+                Some(b)
+            )
+            .is_err()
+        );
+        assert_eq!(
+            state
+                .native_pointers
+                .borrow()
+                .pointers
+                .iter()
+                .map(|(id, p)| (*id, p.boundary_path.clone()))
+                .collect::<BTreeMap<_, _>>(),
+            before
+        );
+        assert_eq!(
+            state
+                .dom
+                .borrow()
+                .pointer_hover_snapshot(state.document_root())
+                .unwrap(),
+            hover
+        );
+        assert_eq!(
+            state.native_pointers.borrow().pointers.len(),
+            oryn_common::MAX_NATIVE_POINTER_SOURCES
+        );
+        reset_native_pointer_sources(&state);
+        assert!(
+            state
+                .dom
+                .borrow()
+                .pointer_hover_snapshot(state.document_root())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(state.native_pointers.borrow().pointers.is_empty());
+        transition_native_pointer_boundary(
+            scope,
+            &state,
+            &NativePointerInput {
+                id: 17,
+                ..Default::default()
+            },
+            Some(b),
+        )
+        .unwrap();
+        assert!(state.dom.borrow().element_hovered(b).unwrap());
     }
     #[test]
     fn boundary_publication_retains_same_event_prefix_and_reset_cancels_dispatch() {

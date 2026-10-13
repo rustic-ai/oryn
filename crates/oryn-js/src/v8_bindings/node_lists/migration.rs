@@ -336,35 +336,49 @@ mod tests {
         v8::scope!(let scope, &mut isolate);
         let dom = Rc::new(RefCell::new(
             oryn_dom::html::parse("<div id=member></div>")
-                .into_runtime().unwrap(),
+                .into_runtime()
+                .unwrap(),
         ));
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(70), 1)
+        let state =
+            install_generated_bindings(scope, context, dom.clone(), RealmId(70), 1).unwrap();
+        let node = dom
+            .borrow()
+            .get_element_by_id(state.document.get(), "member")
+            .unwrap()
             .unwrap();
-        let node = dom.borrow().get_element_by_id(state.document.get(), "member")
-            .unwrap().unwrap();
         let (held, weak) = {
             v8::scope!(let scope, scope);
             let member = wrap_node(scope, &state, node).unwrap();
             let key = v8::String::new(scope, "saved").unwrap();
             let value = v8::Integer::new(scope, 42);
             assert_eq!(member.set(scope, key.into(), value.into()), Some(true));
-            let list = v8::Local::<v8::Object>::try_from(
-                snapshot(scope, &state, &[node]).unwrap()
-            ).unwrap();
+            let list = v8::Local::<v8::Object>::try_from(snapshot(scope, &state, &[node]).unwrap())
+                .unwrap();
             (v8::Global::new(scope, list), v8::Weak::new(scope, member))
         };
         scope.low_memory_notification();
         scope.low_memory_notification();
         let list = v8::Local::new(scope, &held);
-        assert!(v8::Local::<v8::Value>::try_from(
-            list.get_internal_field(scope, 3).unwrap()
-        ).unwrap().is_null());
-        let member = weak.to_local(scope).expect("indexed property retains member");
-        assert!(list.get_index(scope, 0).unwrap().strict_equals(member.into()));
+        assert!(
+            v8::Local::<v8::Value>::try_from(list.get_internal_field(scope, 3).unwrap())
+                .unwrap()
+                .is_null()
+        );
+        let member = weak
+            .to_local(scope)
+            .expect("indexed property retains member");
+        assert!(
+            list.get_index(scope, 0)
+                .unwrap()
+                .strict_equals(member.into())
+        );
         let key = v8::String::new(scope, "saved").unwrap();
-        assert_eq!(member.get(scope, key.into()).unwrap().int32_value(scope), Some(42));
+        assert_eq!(
+            member.get(scope, key.into()).unwrap().int32_value(scope),
+            Some(42)
+        );
     }
 
     #[test]
@@ -413,10 +427,17 @@ mod tests {
             v8::Local::<v8::Object>::try_from(snapshot(scope, &source, &[root, stays]).unwrap())
                 .unwrap();
         let static_id = identity(scope, &source, snapshot).unwrap();
-        assert!(v8::Local::<v8::Value>::try_from(
-            snapshot.get_internal_field(scope, 3).unwrap()
-        ).unwrap().is_null());
-        assert!(snapshot.get_index(scope, 0).unwrap().strict_equals(original.into()));
+        assert!(
+            v8::Local::<v8::Value>::try_from(snapshot.get_internal_field(scope, 3).unwrap())
+                .unwrap()
+                .is_null()
+        );
+        assert!(
+            snapshot
+                .get_index(scope, 0)
+                .unwrap()
+                .strict_equals(original.into())
+        );
         let mut native = DomRuntime::prepare_subtree_migration(
             &source_dom,
             &target_dom,
@@ -454,10 +475,17 @@ mod tests {
                 .strict_equals(original.into())
         );
         let members = native_snapshot(scope, &source, snapshot).unwrap().unwrap();
-        assert!(v8::Local::<v8::Value>::try_from(
-            snapshot.get_internal_field(scope, 3).unwrap()
-        ).unwrap().is_null());
-        assert!(snapshot.get_index(scope, 0).unwrap().strict_equals(original.into()));
+        assert!(
+            v8::Local::<v8::Value>::try_from(snapshot.get_internal_field(scope, 3).unwrap())
+                .unwrap()
+                .is_null()
+        );
+        assert!(
+            snapshot
+                .get_index(scope, 0)
+                .unwrap()
+                .strict_equals(original.into())
+        );
         assert!(Rc::ptr_eq(&members[0].0, &target));
         assert_eq!(members[0].1, map.root);
         assert!(Rc::ptr_eq(&members[1].0, &source));

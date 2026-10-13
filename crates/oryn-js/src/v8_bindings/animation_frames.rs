@@ -281,7 +281,10 @@ pub(super) fn run(
         }
     }
     let _rendering_clock = RenderingClockGuard(state);
-    web_animations::tick(scope, state, rendering_time)?;
+    {
+        let _profile = native_binding_stage(scope, "deep.web_animation_tick");
+        web_animations::tick(scope, state, rendering_time)?;
+    }
     // A callback registered by a callback waits for the next rendering step.
     // Keep each entry in the list until invocation so another callback can
     // cancel it after this snapshot has been taken.

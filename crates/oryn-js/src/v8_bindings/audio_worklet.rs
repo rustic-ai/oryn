@@ -464,6 +464,7 @@ pub(super) fn add_module<'s>(
             match context
                 .transport
                 .request(AgentServiceRequest::Create(AgentCreation {
+                    document_source: None,
                     kind: AgentKind::AudioWorklet,
                     url: url.to_string(),
                     options,

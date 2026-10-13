@@ -7,6 +7,7 @@ pub(super) enum Command {
         command: String,
         value: String,
         plaintext: bool,
+        invocation: Rc<Invocation>,
     },
     Text(String),
     ReplaceSelection(String),
@@ -19,6 +20,12 @@ pub(super) enum Command {
     Paragraph,
 }
 impl Command {
+    fn invocation(&self) -> Option<Rc<Invocation>> {
+        match self {
+            Self::Execute { invocation, .. } => Some(invocation.clone()),
+            _ => None,
+        }
+    }
     pub(super) fn build(
         self,
         context: Rc<editing_continuation::Context>,
@@ -69,6 +76,7 @@ impl Command {
                     command,
                     value,
                     plaintext,
+                    invocation: _invocation,
                 } => {
                     match command.as_str() {
                         "inserttext" => {
@@ -175,6 +183,54 @@ impl Command {
         })
     }
 }
+// An invocation belongs to a receiver document, not the process or current
+// focused editor. The retained state prevents arena identity reuse while live.
+pub(super) struct Invocation {
+    _owner: Rc<V8BindingState>,
+    _document: oryn_dom::TrackedNodeLease,
+}
+type InvocationKey = (usize, NodeId, Option<(u64, u64)>);
+pub(super) fn admit_invocation(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    document: NodeId,
+) -> Result<Option<Rc<Invocation>>, V8BindingError> {
+    let registry = state
+        .editing_continuations
+        .upgrade()
+        .ok_or(V8BindingError::Allocation("editing invocation registry"))?;
+    let owner = active_document_state_for_node(scope, state, document);
+    let generation = owner.as_ref().map(|owner| {
+        (
+            owner.document_generation(),
+            owner.document_authority_epoch(),
+        )
+    });
+    let key = (Rc::as_ptr(&state.dom) as usize, document, generation);
+    let mut registry = registry.borrow_mut();
+    registry
+        .invocations
+        .retain(|(_, owner)| owner.strong_count() != 0);
+    if registry
+        .invocations
+        .iter()
+        .any(|(current, _)| *current == key)
+    {
+        return Ok(None);
+    }
+    registry
+        .invocations
+        .try_reserve(1)
+        .map_err(|_| V8BindingError::Allocation("editing invocation admission"))?;
+    let lease = oryn_dom::TrackedNodeLease::new(&state.dom, document)?;
+    let invocation = Rc::new(Invocation {
+        _owner: owner.unwrap_or_else(|| state.clone()),
+        _document: lease,
+    });
+    registry.invocations.push((key, Rc::downgrade(&invocation)));
+    Ok(Some(invocation))
+}
+
 struct Queued {
     owner: u64,
     job: editing_continuation::Continuation,
@@ -184,6 +240,7 @@ struct Queued {
 pub(super) struct Registry {
     queue: VecDeque<Queued>,
     polling: bool,
+    invocations: Vec<(InvocationKey, RcWeak<Invocation>)>,
 }
 pub(super) fn registry(scope: &mut v8::PinScope) -> RcWeak<RefCell<Registry>> {
     if let Some(registry) = scope.get_slot::<Rc<RefCell<Registry>>>() {
@@ -230,6 +287,7 @@ pub(super) fn run(
             .try_reserve(1)
             .map_err(|_| V8BindingError::Allocation("native editing queue"))?;
     }
+    let invocation = command.invocation();
     let Some(mut job) = editing_continuation::Continuation::new(
         state_rc(scope, state)?,
         label.into(),
@@ -238,6 +296,7 @@ pub(super) fn run(
     else {
         return Ok(false);
     };
+    job.retain_invocation(invocation);
     match job.poll(scope) {
         Ok(Some(changed)) => Ok(changed),
         result => {
@@ -328,5 +387,100 @@ pub(super) fn retire(state: &V8BindingState) {
         registry
             .queue
             .retain(|queued| queued.owner != state.instance_id);
+    }
+}
+
+#[cfg(test)]
+mod invocation_tests {
+    use super::*;
+    #[test]
+    fn queued_retirement_releases_only_its_document_invocation() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse(
+                "<body><iframe id=child></iframe><div id=host contenteditable>x</div></body>",
+            )
+            .into_runtime()
+            .unwrap(),
+        ));
+        let document = {
+            let mut dom = dom.borrow_mut();
+            let child = dom.find_by_id("child").unwrap();
+            let document = dom.create(NodeKind::Document);
+            dom.arena_mut().get_mut(document).unwrap().document_metadata =
+                Some(Box::new(oryn_dom::DocumentMetadata::html()));
+            let editor = dom.create_element("div");
+            dom.set_attribute(editor, "contenteditable", "true")
+                .unwrap();
+            let text = dom.create_text("y");
+            dom.append_child(editor, text).unwrap();
+            dom.append_child(document, editor).unwrap();
+            dom.set_hosted_document(child, Some(document)).unwrap();
+            document
+        };
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let root_context = v8::Context::new(scope, Default::default());
+        let root = {
+            let scope = &mut v8::ContextScope::new(scope, root_context);
+            install_generated_bindings(scope, root_context, dom.clone(), RealmId(0), 1).unwrap()
+        };
+        let child_context = v8::Context::new(scope, Default::default());
+        let child = {
+            let scope = &mut v8::ContextScope::new(scope, child_context);
+            install_generated_bindings_with_root(
+                scope,
+                child_context,
+                dom.clone(),
+                RealmId(1),
+                1,
+                document,
+            )
+            .unwrap()
+        };
+        let scope = &mut v8::ContextScope::new(scope, root_context);
+        assert!(
+            super::super::test_eval::eval(
+                scope,
+                "getSelection().selectAllChildren(document.getElementById('host'));true"
+            )
+            .is_true()
+        );
+        let root_token = admit_invocation(scope, &root, root.document_root())
+            .unwrap()
+            .unwrap();
+        // Borrowed receiver and owner realm must resolve the identical admission key.
+        let child_token = admit_invocation(scope, &root, document).unwrap().unwrap();
+        assert!(admit_invocation(scope, &child, document).unwrap().is_none());
+        assert!(
+            admit_invocation(scope, &root, root.document_root())
+                .unwrap()
+                .is_none()
+        );
+        let weak = Rc::downgrade(&root_token);
+        let mut job =
+            editing_continuation::Continuation::new(root.clone(), "retire".into(), move |_| {
+                Box::pin(async { Ok(()) })
+            })
+            .unwrap()
+            .unwrap();
+        job.retain_invocation(Some(root_token));
+        let registry = root.editing_continuations.upgrade().unwrap();
+        registry.borrow_mut().queue.push_back(Queued {
+            owner: root.instance_id,
+            job,
+            retry: std::time::Instant::now(),
+        });
+        retire(&root);
+        assert!(weak.upgrade().is_none());
+        assert!(registry.borrow().queue.is_empty());
+        assert!(admit_invocation(scope, &child, document).unwrap().is_none());
+        drop(child_token);
+        assert!(admit_invocation(scope, &child, document).unwrap().is_some());
+        assert!(
+            admit_invocation(scope, &root, root.document_root())
+                .unwrap()
+                .is_some()
+        );
     }
 }

@@ -1822,7 +1822,10 @@ fn collect_css_events(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
 ) -> Result<(), V8BindingError> {
-    refresh_layout(state)?;
+    {
+        let _profile = native_binding_stage(scope, "deep.animation_layout_flush");
+        refresh_layout(state)?;
+    }
     let snapshots = state
         .layout_provider
         .borrow()

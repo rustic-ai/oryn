@@ -36,6 +36,20 @@ impl NativePointerBoundary {
         let skip = native_pointer_owns_routing(state, input.id);
         let old = {
             let mut registry = state.native_pointers.borrow_mut();
+            if !registry.pointers.contains_key(&input.id)
+                && registry.pointers.len() >= oryn_common::MAX_NATIVE_POINTER_SOURCES
+            {
+                return Err(V8BindingError::Allocation(
+                    "native pointer source capacity exceeded",
+                ));
+            }
+            if !skip && input.device != NativePointerDevice::Touch {
+                state.dom.borrow().prepare_pointer_hover(
+                    state.document_root(),
+                    input.id,
+                    target,
+                )?;
+            }
             let pointer = registry.pointers.entry(input.id).or_default();
             if pointer.boundary_claim.is_some() {
                 return Err(V8BindingError::Allocation("pointer boundary already owned"));

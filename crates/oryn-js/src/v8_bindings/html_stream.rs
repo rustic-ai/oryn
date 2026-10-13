@@ -1029,7 +1029,8 @@ mod family_tests {
     }
     #[test]
     fn native_table_rows_are_live_ordered_and_exclude_nested_tables() {
-        super::tests::run(r#"(async()=>{
+        super::tests::run(
+            r#"(async()=>{
             const table=document.createElement('table');document.body.append(table);
             const section=tag=>{const n=document.createElement(tag);table.append(n);return n};
             const row=(parent,id)=>{const r=document.createElement('tr');r.id=id;parent.append(r);return r};
@@ -1052,6 +1053,7 @@ mod family_tests {
             if(table.rows!==rows||ids()!=='b|d'||rows[0]!==b)throw Error('adopted collection');
             row(table,'new');if(ids()!=='b|d|new')throw Error('adopted live update');
             return true;
-        })()"#);
+        })()"#,
+        );
     }
 }

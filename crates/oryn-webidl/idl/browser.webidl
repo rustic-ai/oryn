@@ -2391,15 +2391,21 @@ interface IDBDatabase : EventTarget {
   attribute EventListener? onversionchange;
   IDBObjectStore createObjectStore(DOMString name, optional any options);
   undefined deleteObjectStore(DOMString name);
-  IDBTransaction transaction((DOMString or sequence<DOMString>) storeNames, optional DOMString mode = "readonly");
+  IDBTransaction transaction((DOMString or sequence<DOMString>) storeNames, optional IDBTransactionMode mode = "readonly", optional IDBTransactionOptions options = {});
   undefined close();
+};
+
+enum IDBTransactionMode { "readonly", "readwrite", "versionchange" };
+enum IDBTransactionDurability { "default", "strict", "relaxed" };
+dictionary IDBTransactionOptions {
+  IDBTransactionDurability durability = "default";
 };
 
 [Exposed=(Window,Worker)]
 interface IDBTransaction : EventTarget {
   readonly attribute IDBDatabase db;
-  readonly attribute DOMString mode;
-  readonly attribute DOMString durability;
+  readonly attribute IDBTransactionMode mode;
+  readonly attribute IDBTransactionDurability durability;
   readonly attribute any error;
   readonly attribute sequence<DOMString> objectStoreNames;
   attribute EventListener? onabort;

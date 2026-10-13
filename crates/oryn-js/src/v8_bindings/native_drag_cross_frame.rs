@@ -363,19 +363,51 @@ enum CrossPhase {
     Done,
 }
 enum CrossEdit {
-    Move(Move),
-    Copy(drop_default::DropDefault),
-    Control(control_move::ControlMove),
-    Rich(rich_move::RichMove),
+    Move(Vec<Move>),
+    Copy(Vec<drop_default::DropDefault>),
+    Control(Vec<control_move::ControlMove>),
+    Rich(Vec<rich_move::RichMove>),
     Rejected,
+}
+// Reserve the single owned job before its constructor can acquire input custody.
+fn owned_edit<T>(make: impl FnOnce() -> T) -> Result<Vec<T>, V8BindingError> {
+    let mut jobs = Vec::new();
+    jobs.try_reserve_exact(1)
+        .map_err(|_| V8BindingError::Allocation("cross-frame edit storage"))?;
+    jobs.push(make());
+    Ok(jobs)
+}
+fn optional_owned_edit<T>(
+    make: impl FnOnce() -> Result<Option<T>, V8BindingError>,
+) -> Result<Option<Vec<T>>, V8BindingError> {
+    let mut jobs = Vec::new();
+    jobs.try_reserve_exact(1)
+        .map_err(|_| V8BindingError::Allocation("cross-frame edit storage"))?;
+    let Some(job) = make()? else {
+        return Ok(None);
+    };
+    jobs.push(job);
+    Ok(Some(jobs))
 }
 impl CrossEdit {
     fn poll(&mut self, scope: &mut v8::PinScope) -> Result<Option<bool>, V8BindingError> {
         match self {
-            Self::Move(job) => job.poll(scope),
-            Self::Copy(job) => job.poll(scope),
-            Self::Control(job) => job.poll(scope),
-            Self::Rich(job) => job.poll(scope),
+            Self::Move(jobs) => jobs
+                .first_mut()
+                .ok_or(V8BindingError::Allocation("missing cross-frame edit"))?
+                .poll(scope),
+            Self::Copy(jobs) => jobs
+                .first_mut()
+                .ok_or(V8BindingError::Allocation("missing cross-frame edit"))?
+                .poll(scope),
+            Self::Control(jobs) => jobs
+                .first_mut()
+                .ok_or(V8BindingError::Allocation("missing cross-frame edit"))?
+                .poll(scope),
+            Self::Rich(jobs) => jobs
+                .first_mut()
+                .ok_or(V8BindingError::Allocation("missing cross-frame edit"))?
+                .poll(scope),
             Self::Rejected => Ok(Some(false)),
         }
     }
@@ -835,52 +867,69 @@ impl NativeCrossFrameDrag {
                                         if matches!(&selected.kind, SelectedKind::Control { .. })
                                             && realm.state.dom.borrow().is_text_control(node)
                                         {
-                                            CrossEdit::Control(control_move::ControlMove::new(
-                                                &realm.state,
-                                                selected,
-                                                node,
-                                                caret.offset,
-                                                &text,
-                                            ))
+                                            CrossEdit::Control(owned_edit(|| {
+                                                control_move::ControlMove::new(
+                                                    &realm.state,
+                                                    selected,
+                                                    node,
+                                                    caret.offset,
+                                                    &text,
+                                                )
+                                            })?)
                                         } else {
-                                            CrossEdit::Rich(rich_move::RichMove::new(
-                                                &realm.state,
-                                                selected,
-                                                node,
-                                                snapshot,
-                                                caret,
-                                                &text,
-                                            ))
+                                            CrossEdit::Rich(owned_edit(|| {
+                                                rich_move::RichMove::new(
+                                                    &realm.state,
+                                                    selected,
+                                                    node,
+                                                    snapshot,
+                                                    caret,
+                                                    &text,
+                                                )
+                                            })?)
                                         }
                                     } else {
                                         CrossEdit::Rejected
                                     }
                                 } else {
-                                    Move::new(
-                                        &self.source,
-                                        &realm,
-                                        node,
-                                        snapshot,
-                                        selected,
-                                        &self.target_init,
-                                    )?
+                                    optional_owned_edit(|| {
+                                        Move::new(
+                                            &self.source,
+                                            &realm,
+                                            node,
+                                            snapshot,
+                                            selected,
+                                            &self.target_init,
+                                        )
+                                    })?
                                     .map(CrossEdit::Move)
                                     .unwrap_or(CrossEdit::Rejected)
                                 }
                             } else {
-                                CrossEdit::Copy(drop_default::DropDefault::new(
-                                    &realm.state,
-                                    node,
-                                    snapshot,
-                                    self.target_init.client_x as f64,
-                                    self.target_init.client_y as f64,
-                                ))
+                                CrossEdit::Copy(owned_edit(|| {
+                                    drop_default::DropDefault::new(
+                                        &realm.state,
+                                        node,
+                                        snapshot,
+                                        self.target_init.client_x as f64,
+                                        self.target_init.client_y as f64,
+                                    )
+                                })?)
                             },
                         );
                         match self.edit.as_mut().unwrap() {
-                            CrossEdit::Copy(job) => job.set_input_owner(&self.source.state),
-                            CrossEdit::Control(job) => job.set_input_owner(&self.source.state),
-                            CrossEdit::Rich(job) => job.set_input_owner(&self.source.state),
+                            CrossEdit::Copy(jobs) => jobs
+                                .first_mut()
+                                .ok_or(V8BindingError::Allocation("missing cross-frame edit"))?
+                                .set_input_owner(&self.source.state),
+                            CrossEdit::Control(jobs) => jobs
+                                .first_mut()
+                                .ok_or(V8BindingError::Allocation("missing cross-frame edit"))?
+                                .set_input_owner(&self.source.state),
+                            CrossEdit::Rich(jobs) => jobs
+                                .first_mut()
+                                .ok_or(V8BindingError::Allocation("missing cross-frame edit"))?
+                                .set_input_owner(&self.source.state),
                             _ => {}
                         }
                     }

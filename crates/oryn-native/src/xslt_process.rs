@@ -90,10 +90,10 @@ fn validate_request(request: &XsltRequest) -> Result<(), String> {
 }
 
 fn validate_result(has_source: bool, result: XsltResult) -> Response {
-    if let Some((body, kind)) = &result.output {
-        if body.len() > MAX_OUTPUT_BYTES || !matches!(kind, 0..=2) {
-            return Err("XSLT helper returned an invalid output size or kind".into());
-        }
+    if let Some((body, kind)) = &result.output
+        && (body.len() > MAX_OUTPUT_BYTES || !matches!(kind, 0..=2))
+    {
+        return Err("XSLT helper returned an invalid output size or kind".into());
     }
     if (has_source && result.valid != result.output.is_some())
         || (!has_source && result.output.is_some())
@@ -457,10 +457,8 @@ mod process {
                 }
             };
             let mut kill_error = None;
-            if alive {
-                if let Err(error) = child.kill() {
-                    kill_error = Some(error);
-                }
+            if alive && let Err(error) = child.kill() {
+                kill_error = Some(error);
             }
             let waited = loop {
                 match child.wait() {

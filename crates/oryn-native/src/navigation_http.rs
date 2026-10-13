@@ -35,6 +35,7 @@ pub(super) struct HttpNavigation {
     max_redirects: usize,
     deadline: Option<Instant>,
     phase: Phase,
+    pending_headers: Option<PendingHeaders>,
     started: Option<(String, String)>,
     diagnostics: Option<HeaderDiagnostics>,
 }
@@ -44,7 +45,7 @@ enum Phase {
     #[cfg(unix)]
     SourcePolicy(PendingPolicy),
     Start,
-    Headers(PendingHeaders),
+    Headers,
     #[cfg(unix)]
     FormPolicy(PendingPolicy),
     #[cfg(unix)]
@@ -211,6 +212,7 @@ impl HttpNavigation {
             max_redirects,
             deadline,
             phase: Phase::Admission,
+            pending_headers: None,
             started: None,
             diagnostics: None,
         }
@@ -408,7 +410,7 @@ impl HttpNavigation {
                     },
                     resolved_addrs: Vec::new(),
                 };
-                self.phase = Phase::Headers(PendingHeaders::start(
+                self.pending_headers = Some(PendingHeaders::start(
                     self.broker.clone(),
                     request,
                     self.deadline,
@@ -418,194 +420,209 @@ impl HttpNavigation {
                         .as_ref()
                         .map(|diagnostics| diagnostics.for_request(request_id)),
                 )?);
+                self.phase = Phase::Headers;
                 self.started = Some((method, url));
                 Poll::Pending
             }
-            Phase::Headers(mut pending) => match pending.poll() {
-                Poll::Pending => {
-                    self.phase = Phase::Headers(pending);
-                    Poll::Pending
-                }
-                Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
-                Poll::Ready(Ok(headers)) => {
-                    #[cfg(unix)]
-                    let response_policy_cleanup = headers
-                        .response_policy
-                        .as_deref()
-                        .map(|token| {
-                            self.client
-                                .as_ref()
-                                .ok_or_else(|| {
-                                    RuntimeError::ProtocolViolation(
-                                        "navigation response grant requires a context client"
-                                            .into(),
-                                    )
-                                })?
-                                .retain_response_policy(self.page_id, token)
-                        })
-                        .transpose()?;
-                    if !matches!(headers.status, 301 | 302 | 303 | 307 | 308) {
-                        if let Some(start) =
-                            crate::network::native_worker_start(headers.timing.as_ref())
-                        {
-                            self.timing.worker_start(start);
-                        }
-                        let details = oryn_js::platform::ResourceTimingMetadata {
-                            server_timing: oryn_js::server_timing::parse(&headers.headers),
-                            response_end_micros: None,
-                            navigation_phases: None,
-                            producer_clock_micros: None,
-                            decoded_body_size: None,
-                            origin: self.current.origin().ascii_serialization(),
-                            hops: Vec::new(),
-                            transport: headers
-                                .timing
-                                .clone()
-                                .filter(|timing| timing.valid_snapshot()),
-                            allow_details: true,
-                            response_status: headers.status,
-                            response_start_micros: headers
-                                .timing
-                                .as_ref()
-                                .filter(|timing| timing.measured_response)
-                                .map_or_else(
-                                    || {
-                                        headers
-                                            .received
-                                            .saturating_duration_since(headers.started)
-                                            .as_micros()
-                                            .min(u128::from(u64::MAX))
-                                            as u64
-                                    },
-                                    |timing| timing.response_start,
-                                ),
-                            encoded_body_size: headers
-                                .timing
-                                .as_ref()
-                                .and_then(|timing| timing.encoded_body_size)
-                                .or_else(|| {
-                                    headers
-                                        .headers
-                                        .iter()
-                                        .find(|(name, _)| {
-                                            name.eq_ignore_ascii_case("content-length")
-                                        })
-                                        .and_then(|(_, value)| value.parse().ok())
-                                }),
-                            content_type: oryn_common::mime_type::MimeType::from_headers(
-                                &headers.headers,
-                            )
-                            .map(|mime| mime.essence().to_owned())
-                            .unwrap_or_default(),
-                        };
-                        self.timing
-                            .response(oryn_js::navigation_timing::NavigationResponse {
-                                url: self.current.to_string(),
-                                status: headers.status,
-                                headers: &headers.headers,
-                                fetch: headers.started,
-                                received: headers.received,
-                                details: Some(details),
-                                no_referrer: self.referrer_policy.as_str() == "no-referrer",
+            Phase::Headers => {
+                let mut pending = self.pending_headers.take().ok_or_else(|| {
+                    RuntimeError::ProtocolViolation(
+                        "navigation headers phase has no retained receiver".into(),
+                    )
+                })?;
+                match pending.poll() {
+                    Poll::Pending => {
+                        self.pending_headers = Some(pending);
+                        self.phase = Phase::Headers;
+                        Poll::Pending
+                    }
+                    Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+                    Poll::Ready(Ok(headers)) => {
+                        #[cfg(unix)]
+                        let response_policy_cleanup = headers
+                            .response_policy
+                            .as_deref()
+                            .map(|token| {
+                                self.client
+                                    .as_ref()
+                                    .ok_or_else(|| {
+                                        RuntimeError::ProtocolViolation(
+                                            "navigation response grant requires a context client"
+                                                .into(),
+                                        )
+                                    })?
+                                    .retain_response_policy(self.page_id, token)
                             })
-                            .map_err(RuntimeError::Network)?;
-                        return Poll::Ready(Ok(Response {
-                            #[cfg(unix)]
-                            response_policy_cleanup,
-                            timing: self.timing.clone(),
-                            request_state: NavigationRequestState {
-                                initiator_url: self
-                                    .cookie_context
-                                    .initiator_url
+                            .transpose()?;
+                        if !matches!(headers.status, 301 | 302 | 303 | 307 | 308) {
+                            if let Some(start) =
+                                crate::network::native_worker_start(headers.timing.as_ref())
+                            {
+                                self.timing.worker_start(start);
+                            }
+                            let details = oryn_js::platform::ResourceTimingMetadata {
+                                server_timing: oryn_js::server_timing::parse(&headers.headers),
+                                response_end_micros: None,
+                                navigation_phases: None,
+                                producer_clock_micros: None,
+                                decoded_body_size: None,
+                                origin: self.current.origin().ascii_serialization(),
+                                hops: Vec::new(),
+                                transport: headers
+                                    .timing
                                     .clone()
-                                    .filter(|value| Url::parse(value).is_ok()),
-                                opaque_initiator: self
-                                    .cookie_context
-                                    .fetch_metadata
-                                    .opaque_initiator,
-                                referrer: self.referrer_source.as_ref().map(ToString::to_string),
-                                referrer_policy: self.referrer_policy.as_str().into(),
-                            },
-                            broker: self.broker.clone(),
-                            current: self.current.clone(),
-                            post: self.post.take(),
-                            cross_origin_redirect: self.cross_origin_redirect,
-                            headers,
-                        }));
-                    }
-                    self.timing
-                        .redirect(
-                            self.current.to_string(),
-                            &headers.headers,
-                            headers.started,
-                            headers.received,
-                        )
-                        .map_err(RuntimeError::Network)?;
-                    self.referrer_policy = self.referrer_policy.after_response(&headers.headers);
-                    oryn_js::navigation::PostResource::redirect(&mut self.post, headers.status);
-                    let location = headers
-                        .headers
-                        .iter()
-                        .find(|(name, _)| name.eq_ignore_ascii_case("location"))
-                        .map(|(_, value)| value.clone())
-                        .ok_or_else(|| RuntimeError::Network("redirect omitted Location".into()))?;
-                    // Dropping this exact response starts retained cancellation;
-                    // no synchronous cancellation RPC blocks a page task.
-                    drop(headers);
-                    self.redirects = self
-                        .redirects
-                        .checked_add(1)
-                        .ok_or_else(|| RuntimeError::Network("redirect count exhausted".into()))?;
-                    if self.redirects > self.max_redirects {
-                        return Poll::Ready(Err(RuntimeError::Network(format!(
-                            "redirect limit ({}) exceeded",
-                            self.max_redirects
-                        ))));
-                    }
-                    let next = self.current.join(&location).map_err(|error| {
-                        RuntimeError::Network(format!("invalid redirect: {error}"))
-                    })?;
-                    if self.current.origin() != next.origin()
-                        && self
-                            .origin_source
+                                    .filter(|timing| timing.valid_snapshot()),
+                                allow_details: true,
+                                response_status: headers.status,
+                                response_start_micros: headers
+                                    .timing
+                                    .as_ref()
+                                    .filter(|timing| timing.measured_response)
+                                    .map_or_else(
+                                        || {
+                                            headers
+                                                .received
+                                                .saturating_duration_since(headers.started)
+                                                .as_micros()
+                                                .min(u128::from(u64::MAX))
+                                                as u64
+                                        },
+                                        |timing| timing.response_start,
+                                    ),
+                                encoded_body_size: headers
+                                    .timing
+                                    .as_ref()
+                                    .and_then(|timing| timing.encoded_body_size)
+                                    .or_else(|| {
+                                        headers
+                                            .headers
+                                            .iter()
+                                            .find(|(name, _)| {
+                                                name.eq_ignore_ascii_case("content-length")
+                                            })
+                                            .and_then(|(_, value)| value.parse().ok())
+                                    }),
+                                content_type: oryn_common::mime_type::MimeType::from_headers(
+                                    &headers.headers,
+                                )
+                                .map(|mime| mime.essence().to_owned())
+                                .unwrap_or_default(),
+                            };
+                            self.timing
+                                .response(oryn_js::navigation_timing::NavigationResponse {
+                                    url: self.current.to_string(),
+                                    status: headers.status,
+                                    headers: &headers.headers,
+                                    fetch: headers.started,
+                                    received: headers.received,
+                                    details: Some(details),
+                                    no_referrer: self.referrer_policy.as_str() == "no-referrer",
+                                })
+                                .map_err(RuntimeError::Network)?;
+                            return Poll::Ready(Ok(Response {
+                                #[cfg(unix)]
+                                response_policy_cleanup,
+                                timing: self.timing.clone(),
+                                request_state: NavigationRequestState {
+                                    initiator_url: self
+                                        .cookie_context
+                                        .initiator_url
+                                        .clone()
+                                        .filter(|value| Url::parse(value).is_ok()),
+                                    opaque_initiator: self
+                                        .cookie_context
+                                        .fetch_metadata
+                                        .opaque_initiator,
+                                    referrer: self
+                                        .referrer_source
+                                        .as_ref()
+                                        .map(ToString::to_string),
+                                    referrer_policy: self.referrer_policy.as_str().into(),
+                                },
+                                broker: self.broker.clone(),
+                                current: self.current.clone(),
+                                post: self.post.take(),
+                                cross_origin_redirect: self.cross_origin_redirect,
+                                headers,
+                            }));
+                        }
+                        self.timing
+                            .redirect(
+                                self.current.to_string(),
+                                &headers.headers,
+                                headers.started,
+                                headers.received,
+                            )
+                            .map_err(RuntimeError::Network)?;
+                        self.referrer_policy =
+                            self.referrer_policy.after_response(&headers.headers);
+                        oryn_js::navigation::PostResource::redirect(&mut self.post, headers.status);
+                        let location = headers
+                            .headers
+                            .iter()
+                            .find(|(name, _)| name.eq_ignore_ascii_case("location"))
+                            .map(|(_, value)| value.clone())
+                            .ok_or_else(|| {
+                                RuntimeError::Network("redirect omitted Location".into())
+                            })?;
+                        // Dropping this exact response starts retained cancellation;
+                        // no synchronous cancellation RPC blocks a page task.
+                        drop(headers);
+                        self.redirects = self.redirects.checked_add(1).ok_or_else(|| {
+                            RuntimeError::Network("redirect count exhausted".into())
+                        })?;
+                        if self.redirects > self.max_redirects {
+                            return Poll::Ready(Err(RuntimeError::Network(format!(
+                                "redirect limit ({}) exceeded",
+                                self.max_redirects
+                            ))));
+                        }
+                        let next = self.current.join(&location).map_err(|error| {
+                            RuntimeError::Network(format!("invalid redirect: {error}"))
+                        })?;
+                        if self.current.origin() != next.origin()
+                            && self
+                                .origin_source
+                                .as_ref()
+                                .is_none_or(|source| source.origin() != self.current.origin())
+                        {
+                            self.request_origin = "null".into();
+                        }
+                        self.current = next;
+                        if self.prerender && self.current.origin() != self.initial_origin {
+                            return Poll::Ready(Err(RuntimeError::ProtocolViolation(
+                                "prerender redirect left its admitted origin".into(),
+                            )));
+                        }
+                        if self
+                            .post
                             .as_ref()
-                            .is_none_or(|source| source.origin() != self.current.origin())
-                    {
-                        self.request_origin = "null".into();
-                    }
-                    self.current = next;
-                    if self.prerender && self.current.origin() != self.initial_origin {
-                        return Poll::Ready(Err(RuntimeError::ProtocolViolation(
-                            "prerender redirect left its admitted origin".into(),
-                        )));
-                    }
-                    if self
-                        .post
-                        .as_ref()
-                        .is_some_and(|post| !post.valid_for(&self.current))
-                    {
-                        return Poll::Ready(Err(RuntimeError::ProtocolViolation(
-                            "invalid redirected POST resource".into(),
-                        )));
-                    }
-                    self.redirect_cross_site |=
-                        crate::cookies::SchemefulSite::from_url(&self.current) != self.initial_site;
-                    self.cross_origin_redirect |= self.current.origin() != self.initial_origin;
-                    #[cfg(unix)]
-                    if let Some(client) = self.client.clone() {
-                        if self.form_navigation {
-                            self.phase=Phase::FormPolicy(PendingPolicy::start(client,crate::context_service::ContextServiceRequest::AuthorizeFormSubmission{report_source:Some(self.original_url.clone()),
+                            .is_some_and(|post| !post.valid_for(&self.current))
+                        {
+                            return Poll::Ready(Err(RuntimeError::ProtocolViolation(
+                                "invalid redirected POST resource".into(),
+                            )));
+                        }
+                        self.redirect_cross_site |=
+                            crate::cookies::SchemefulSite::from_url(&self.current)
+                                != self.initial_site;
+                        self.cross_origin_redirect |= self.current.origin() != self.initial_origin;
+                        #[cfg(unix)]
+                        if let Some(client) = self.client.clone() {
+                            if self.form_navigation {
+                                self.phase=Phase::FormPolicy(PendingPolicy::start(client,crate::context_service::ContextServiceRequest::AuthorizeFormSubmission{report_source:Some(self.original_url.clone()),
                                 authority:self.form_authority.clone(),page_id:self.page_id,url:self.current.to_string(),method:if self.post.is_some(){"POST"}else{"GET"}.into(),
                             },self.deadline)?);
-                        } else {
-                            self.navigation_policy(client)?;
+                            } else {
+                                self.navigation_policy(client)?;
+                            }
+                            return Poll::Pending;
                         }
-                        return Poll::Pending;
+                        self.phase = Phase::Start;
+                        Poll::Pending
                     }
-                    self.phase = Phase::Start;
-                    Poll::Pending
                 }
-            },
+            }
             #[cfg(unix)]
             Phase::FormPolicy(mut pending) => match pending.poll() {
                 Poll::Pending => {
@@ -1046,7 +1063,7 @@ mod tests {
         );
         assert!(fetch.poll().is_pending());
         assert!(
-            matches!(fetch.phase, Phase::Headers(_)),
+            matches!(fetch.phase, Phase::Headers) && fetch.pending_headers.is_some(),
             "ready authorization must submit without another actor poll"
         );
         assert_eq!(
@@ -1089,7 +1106,7 @@ mod tests {
                 .is_ok()
         );
         assert!(fetch.poll().is_pending());
-        assert!(matches!(fetch.phase, Phase::Headers(_)));
+        assert!(matches!(fetch.phase, Phase::Headers) && fetch.pending_headers.is_some());
         finish(&mut fetch).unwrap();
         assert_eq!(requests.lock().unwrap().len(), 1);
     }
@@ -1180,7 +1197,7 @@ mod tests {
             // No-policy admission is likewise a local Start edge, not a reason
             // to spend another actor turn. Redirect body/method logic is original.
             assert!(fetch.poll().is_pending());
-            assert!(matches!(fetch.phase, Phase::Headers(_)));
+            assert!(matches!(fetch.phase, Phase::Headers) && fetch.pending_headers.is_some());
             fetch.take_started();
             let response = finish(&mut fetch).unwrap();
             assert_eq!(response.headers.operation.request_id, 2);
@@ -1242,7 +1259,7 @@ mod tests {
         )
         .with_diagnostics(trace.diagnostic_sink(Revision(1)), None, 72, 13);
         assert!(fetch.poll().is_pending());
-        assert!(matches!(fetch.phase, Phase::Headers(_)));
+        assert!(matches!(fetch.phase, Phase::Headers) && fetch.pending_headers.is_some());
         assert_eq!(
             fetch.take_started(),
             Some(("POST".into(), "https://first.test/start".into()))

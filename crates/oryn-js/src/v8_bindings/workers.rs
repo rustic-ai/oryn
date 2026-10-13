@@ -206,7 +206,18 @@ pub(super) fn construct<'s>(
     #[cfg(unix)]
     let _ = native_shared_policy::bind(scope, state);
     let creator = native_creator(state)?;
+    let document_source = if matches!(&creator, Creator::Window { .. }) {
+        Some(
+            (*state.document_provenance(state.document_root())?.ok_or(
+                V8BindingError::Allocation("worker Document source provenance"),
+            )?)
+            .clone(),
+        )
+    } else {
+        None
+    };
     let response = transport.request(AgentServiceRequest::Create(AgentCreation {
+        document_source,
         kind: if shared {
             AgentKind::Shared
         } else {
@@ -716,6 +727,17 @@ mod delivery_tests {
             }
         }
     }
+    fn install_fixture_source(state: &Rc<V8BindingState>) {
+        state.set_document_provenance_capture(Rc::new(|_, _, _| {
+            Ok(oryn_dom::DocumentProvenance {
+                capability: b"fixture-native-source".to_vec(),
+                origin: "https://example.test".into(),
+                origin_key: "fixture-origin".into(),
+                inert: false,
+            })
+        }));
+        state.refresh_document_provenance().unwrap();
+    }
     fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, source: &str) -> v8::Local<'s, v8::Value> {
         let source = v8::String::new(scope, source).unwrap();
         v8::Script::compile(scope, source, None)
@@ -753,6 +775,7 @@ mod delivery_tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        install_fixture_source(&state);
         let transport = transport();
         state.set_message_transport(Arc::new(Messages));
         state.set_worker_transport(
@@ -849,6 +872,7 @@ mod delivery_tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        install_fixture_source(&state);
         let transport = transport();
         state.set_message_transport(Arc::new(Messages));
         state.set_worker_transport(
@@ -893,6 +917,7 @@ mod delivery_tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        install_fixture_source(&state);
         let transport = transport();
         state.set_message_transport(Arc::new(Messages));
         state.set_worker_transport(

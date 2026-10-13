@@ -160,7 +160,7 @@ pub(super) fn operation<'s>(
             let index = values.iter().position(|(n, l, _)| n == &ns && l == &name);
             if member == "getParameter" {
                 return Ok(Some(match index {
-                    Some(index) => v8_string(scope, &values[index].2)?.into(),
+                    Some(index) => v8_string(scope, &values[index].2)?,
                     None => v8::null(scope).into(),
                 }));
             }

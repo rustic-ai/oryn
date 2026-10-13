@@ -760,6 +760,9 @@ impl PointerRegistry {
             state.document_stream_epoch(),
         );
         if self.identity != Some(identity) {
+            if let Some((document, _, _)) = self.identity {
+                state.dom.borrow_mut().clear_pointer_hover(document);
+            }
             self.pinch = None;
             self.pointers.clear();
             self.boundary_owner = Rc::new(());
@@ -772,6 +775,10 @@ impl PointerRegistry {
 /// Release Actions removes the input sources after dispatching their pending
 /// releases. Hover/capture history must not follow a reused pointer ID.
 pub fn reset_native_pointer_sources(state: &V8BindingState) {
+    state
+        .dom
+        .borrow_mut()
+        .clear_pointer_hover(state.document_root());
     speculation_registry::clear_interest(state);
     // Ordinary pending releases already dispatched drop/cancel and dragend.
     // A source may nevertheless have disappeared or retired during a listener.
@@ -1022,6 +1029,19 @@ pub fn transition_native_pointer_boundary(
         registry.synchronize(state);
         if target.is_none() && !registry.pointers.contains_key(&input.id) {
             return Ok(());
+        }
+        if !registry.pointers.contains_key(&input.id)
+            && registry.pointers.len() >= oryn_common::MAX_NATIVE_POINTER_SOURCES
+        {
+            return Err(V8BindingError::Allocation(
+                "native pointer source capacity exceeded",
+            ));
+        }
+        if input.device != NativePointerDevice::Touch {
+            state
+                .dom
+                .borrow()
+                .prepare_pointer_hover(state.document_root(), input.id, target)?;
         }
         let pointer = registry.pointers.entry(input.id).or_default();
         let old = pointer.target;

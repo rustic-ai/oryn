@@ -128,7 +128,11 @@ pub(super) fn collect(
             for node in nodes.values() {
                 for item in node.content.iter().flatten() {
                     if let LayoutContent::Text { node_id, .. }
-                    | LayoutContent::StyledText { node_id: Some(node_id), .. } = item {
+                    | LayoutContent::StyledText {
+                        node_id: Some(node_id),
+                        ..
+                    } = item
+                    {
                         identities.insert(*node_id);
                     }
                 }
@@ -269,11 +273,19 @@ mod tests {
         }]);
         let nodes = BTreeMap::from([(1, &root), (2, &span), (u64::MAX, &other)]);
         let styles = BTreeMap::from([
-            (1, Arc::new(BTreeMap::from([("display".into(), "block".into())]))),
-            (2, Arc::new(BTreeMap::from([("display".into(), "inline".into())]))),
+            (
+                1,
+                Arc::new(BTreeMap::from([("display".into(), "block".into())])),
+            ),
+            (
+                2,
+                Arc::new(BTreeMap::from([("display".into(), "inline".into())])),
+            ),
         ]);
         let flow = collect(&root, &nodes, &styles);
-        let FlowItem::Paragraph(paragraph) = &flow[0] else { panic!("paragraph") };
+        let FlowItem::Paragraph(paragraph) = &flow[0] else {
+            panic!("paragraph")
+        };
         assert_eq!(paragraph.boundaries.len(), 2);
         assert!(paragraph.boundaries.keys().all(|id| *id < u64::MAX - 1));
         assert_eq!(paragraph.source.text, "text");
@@ -1153,13 +1165,16 @@ pub(super) fn layout_flow(params: InlineFlowInputs<'_>) -> (Paragraph, TextLayou
                             node,
                             false,
                             inline,
-                            nodes,
-                            styles,
-                            input.viewport,
                             margin_collapse::clear_obstacles(
                                 engine.float_context.as_ref(),
                                 engine.float_block_offset,
                             ),
+                            margin_collapse::QueryContext {
+                                nodes,
+                                styles,
+                                viewport: input.viewport,
+                                cache: Some(&engine.margin_suffixes),
+                            },
                         )
                     };
                     let previous = preceding_margin.take().unwrap_or_default();

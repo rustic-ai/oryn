@@ -1268,10 +1268,8 @@ impl SinkOptions {
         })
     }
     pub(super) fn stream_configuration(&self, safe: bool) -> Result<Config> {
-        if safe {
-            if let PolicySource::Instance(config) = &self.source {
-                config.borrow_mut().remove_unsafe();
-            }
+        if safe && let PolicySource::Instance(config) = &self.source {
+            config.borrow_mut().remove_unsafe();
         }
         self.configuration(safe)
     }

@@ -430,7 +430,10 @@ pub(super) fn materialize_for_media(
         }
         let scope = input.shadow_trees.node_scopes.get(&id).copied();
         generated_counter_styles::Registry::read_for_scope_cached(
-            input, print, scope, &mut counter_registries,
+            input,
+            print,
+            scope,
+            &mut counter_registries,
         )?;
         counters.styles = counter_registries[&scope].clone();
         let marker_fallback = style.clone();
@@ -453,7 +456,10 @@ pub(super) fn materialize_for_media(
                 None => scope,
             };
             generated_counter_styles::Registry::read_for_scope_cached(
-                input, print, content_scope, &mut counter_registries,
+                input,
+                print,
+                content_scope,
+                &mut counter_registries,
             )?;
             counters.styles = counter_registries[&content_scope].clone();
             counters.values = counter_states.get(&(id, name)).cloned().unwrap_or_default();
@@ -471,7 +477,10 @@ pub(super) fn materialize_for_media(
                     None => scope,
                 };
                 generated_counter_styles::Registry::read_for_scope_cached(
-                    input, print, list_scope, &mut counter_registries,
+                    input,
+                    print,
+                    list_scope,
+                    &mut counter_registries,
                 )?;
                 let text = counter_registries[&list_scope].marker(
                     counters

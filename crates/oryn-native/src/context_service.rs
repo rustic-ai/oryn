@@ -161,7 +161,7 @@ use crate::{
 #[path = "context_inventory_wire.rs"]
 mod inventory_wire;
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 57;
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 58;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NavigationNetworkAuthority {
@@ -1022,6 +1022,11 @@ pub enum ContextServiceRequest {
         page_id: PageId,
         creator: oryn_js::worker_wire::Creator,
     },
+    CaptureScriptSourcePolicy {
+        page_id: PageId,
+        creator: oryn_js::worker_wire::Creator,
+        source: oryn_dom::DocumentProvenance,
+    },
     ReserveScriptLoad {
         page_id: PageId,
         creator: oryn_js::worker_wire::Creator,
@@ -1484,6 +1489,7 @@ impl ContextServiceRequest {
             Self::PollEvents { .. } => "PollEvents",
             Self::LoadWorkerScript { .. } => "LoadWorkerScript",
             Self::CaptureScriptPolicy { .. } => "CaptureScriptPolicy",
+            Self::CaptureScriptSourcePolicy { .. } => "CaptureScriptSourcePolicy",
             Self::ReserveScriptLoad { .. } => "ReserveScriptLoad",
             Self::CancelScriptLoad { .. } => "CancelScriptLoad",
             Self::ReleaseFrameResponseStream { .. } => "ReleaseFrameResponseStream",
@@ -4398,10 +4404,17 @@ pub(crate) struct NavigationResourceCleanup {
 impl NavigationResourceCleanup {
     pub(crate) fn retire_reaped(&self, reaped_pages: &[PageId]) -> Result<(), RuntimeError> {
         // Stream cancellation/drain belongs to unbind, not grant reclamation.
-        if self.streams.lock().map_err(|_| RuntimeError::ContextService(
-            "HTTP stream registry poisoned".into()))?.values().any(|entry| entry.page_id == self.page) {
+        if self
+            .streams
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("HTTP stream registry poisoned".into()))?
+            .values()
+            .any(|entry| entry.page_id == self.page)
+        {
             return Err(RuntimeError::ContextService(format!(
-                "reaped page {} retains HTTP streams", self.page.0)));
+                "reaped page {} retains HTTP streams",
+                self.page.0
+            )));
         }
         if let Some(context) = self.context.upgrade() {
             context.retire_reaped_navigation_resources(self.page, reaped_pages)?;
@@ -8149,6 +8162,31 @@ impl ParentContextService {
                     authority: self.script_policies.capture(owner, policy)?,
                 })
             }
+            ContextServiceRequest::CaptureScriptSourcePolicy {
+                page_id,
+                creator,
+                source,
+            } => {
+                self.validate_socket_owner(page_id)?;
+                let owner = self.script_document_owner(page_id, &creator)?;
+                let context = self.context_owner()?;
+                let fetch = context.live_document_fetch_source(page_id, &creator, &source)?;
+                let (_, _, policy) = context
+                    .native_worker_authority(&owner)
+                    .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+                // The sealed source supplies URL only. Current native authority
+                // still supplies CSP/isolation; preserving policy-self identity
+                // prevents history rewrites from changing CSP 'self'.
+                let document_self_url = policy.document_self_url.clone();
+                let mut policy = policy.with_document_url(fetch.url);
+                policy.document_self_url = document_self_url;
+                self.script_policies
+                    .retain_live(|owner| context.retained_worker_authority(owner).is_ok())?;
+                self.script_document_owner(page_id, &creator)?;
+                Ok(ContextServiceResponse::CapturedScriptPolicy {
+                    authority: self.script_policies.capture(owner, policy)?,
+                })
+            }
             ContextServiceRequest::ReserveScriptLoad { page_id, creator } => {
                 self.validate_socket_owner(page_id)?;
                 let owner = self.script_document_owner(page_id, &creator)?;
@@ -10565,8 +10603,15 @@ impl ParentContextService {
                 .map(Url::parse)
                 .transpose()
                 .map_err(|error| RuntimeError::Network(error.to_string()))?
+                .or(captured_policy
+                    .as_deref()
+                    .map(|policy| Url::parse(&policy.url))
+                    .transpose()
+                    .map_err(|error| RuntimeError::Network(error.to_string()))?)
                 .unwrap_or_else(|| source.clone()),
         );
+        // Captured Document URL is referrer provenance only. `source` remains
+        // the existing resolution base for requested_url and request security.
         let source_origin = native_origin
             .as_ref()
             .map(|origin| origin.serialized.clone())

@@ -57,9 +57,244 @@ pub(crate) struct ChildMarginEdgeInputs<'a> {
     pub(crate) viewport: ViewportState,
     pub(crate) clear_obstacles: [Option<f64>; 2],
     pub(crate) own_margin: f64,
+    pub(crate) cache: Option<&'a std::cell::RefCell<SuffixCache>>,
 }
 use super::*;
 use inline_formatting::{FlowItem, MarginStrut};
+
+#[cfg(test)]
+mod suffix_regressions {
+    use super::*;
+    // Private test-module additions for margin_collapse.rs. Base df73b463 plus
+    // coordinator dirty inputs; owner /root/range. Unrun; not production source.
+    fn margin_test_styles() -> ComputedStyles {
+        let style = |top: &str, width: &str| {
+            Arc::new(BTreeMap::from([
+                ("display".into(), "block".into()),
+                ("margin-top".into(), top.into()),
+                ("margin-bottom".into(), top.into()),
+                ("width".into(), width.into()),
+            ]))
+        };
+        BTreeMap::from([
+            (1, style("0px", "auto")),
+            (2, style("10%", "50%")),
+            (3, style("30%", "auto")),
+        ])
+    }
+
+    fn margin_test_tree() -> Vec<LayoutNode> {
+        let mut parent = crate::tests::node(1, Some(99), "div", "");
+        let mut child = crate::tests::node(2, Some(1), "div", "");
+        let leaf = crate::tests::node(3, Some(2), "div", "");
+        parent.children.push(2);
+        child.children.push(3);
+        vec![parent, child, leaf]
+    }
+
+    fn margin_test_query(
+        nodes: &[LayoutNode],
+        styles: &ComputedStyles,
+        width: f64,
+        bottom: bool,
+        obstacles: [Option<f64>; 2],
+        own: f64,
+    ) -> Option<(u64, f64)> {
+        margin_test_cached_query(nodes, styles, width, bottom, obstacles, own, None)
+    }
+
+    fn margin_test_cached_query(
+        nodes: &[LayoutNode],
+        styles: &ComputedStyles,
+        width: f64,
+        bottom: bool,
+        obstacles: [Option<f64>; 2],
+        own: f64,
+        cache: Option<&std::cell::RefCell<SuffixCache>>,
+    ) -> Option<(u64, f64)> {
+        let by_id = nodes.iter().map(|node| (node.id, node)).collect();
+        child_edge(ChildMarginEdgeInputs {
+            id: 1,
+            bottom,
+            width,
+            nodes: &by_id,
+            styles,
+            viewport: ViewportState::default(),
+            clear_obstacles: obstacles,
+            own_margin: own,
+            cache,
+        })
+        .map(|(id, strut)| (id, strut.value()))
+    }
+
+    #[test]
+    fn margin_suffix_percentage_basis_and_style_trials_remain_distinct() {
+        let nodes = margin_test_tree();
+        let styles = margin_test_styles();
+        let cache = std::cell::RefCell::new(SuffixCache::new());
+        // Child 2 contributes 10% of incoming width; child 3 contributes 30%
+        // of child 2's 50% width. Thus deepest margin wins at 15% of input.
+        for bottom in [false, true] {
+            assert_eq!(
+                margin_test_query(&nodes, &styles, 100., bottom, [None; 2], 0.),
+                Some((2, 15.))
+            );
+            assert_eq!(
+                margin_test_query(&nodes, &styles, 200., bottom, [None; 2], 0.),
+                Some((2, 30.))
+            );
+            assert_eq!(
+                margin_test_query(&nodes, &styles, 100., bottom, [None; 2], -80.),
+                Some((2, 15.))
+            );
+            for width in [100., 200., 100.] {
+                assert_eq!(
+                    margin_test_cached_query(
+                        &nodes,
+                        &styles,
+                        width,
+                        bottom,
+                        [None; 2],
+                        0.,
+                        Some(&cache)
+                    ),
+                    margin_test_query(&nodes, &styles, width, bottom, [None; 2], 0.)
+                );
+            }
+        }
+        let mut trial = styles.clone();
+        Arc::make_mut(trial.get_mut(&3).unwrap()).insert("margin-top".into(), "80px".into());
+        // Mirrors a new driver trial scope rather than reusing another style map's cache.
+        let trial_cache = std::cell::RefCell::new(SuffixCache::new());
+        assert_eq!(
+            margin_test_cached_query(
+                &nodes,
+                &trial,
+                100.,
+                false,
+                [None; 2],
+                0.,
+                Some(&trial_cache)
+            ),
+            Some((2, 80.))
+        );
+        assert_eq!(
+            margin_test_query(&nodes, &trial, 100., false, [None; 2], 0.),
+            Some((2, 80.))
+        );
+        assert_eq!(
+            margin_test_query(&nodes, &styles, 100., false, [None; 2], 0.),
+            Some((2, 15.))
+        );
+    }
+
+    #[test]
+    fn margin_suffix_float_requests_preserve_complete_chain_clearance() {
+        let nodes = margin_test_tree();
+        let mut styles = margin_test_styles();
+        let child = Arc::make_mut(styles.get_mut(&2).unwrap());
+        child.insert("clear".into(), "left".into());
+        child.insert("margin-top".into(), "20px".into());
+        Arc::make_mut(styles.get_mut(&3).unwrap()).insert("margin-top".into(), "100px".into());
+        let cache = std::cell::RefCell::new(SuffixCache::new());
+        for obstacles in [[Some(80.), None], [Some(120.), None]] {
+            assert_eq!(
+                margin_test_cached_query(
+                    &nodes,
+                    &styles,
+                    100.,
+                    false,
+                    obstacles,
+                    10.,
+                    Some(&cache)
+                ),
+                margin_test_query(&nodes, &styles, 100., false, obstacles, 10.)
+            );
+            assert!(
+                cache.borrow().is_empty(),
+                "float clearance must bypass suffix publication"
+            );
+        }
+        assert_eq!(
+            margin_test_query(&nodes, &styles, 100., false, [Some(80.), None], 10.),
+            Some((2, 100.))
+        );
+        assert_eq!(
+            margin_test_query(&nodes, &styles, 100., false, [Some(120.), None], 10.),
+            None
+        );
+        assert_eq!(
+            margin_test_query(&nodes, &styles, 100., false, [None; 2], 10.),
+            Some((2, 100.))
+        );
+    }
+
+    // Cache-scope adaptation needed by coordinator: execute both query tests inside
+    // one cache scope; additionally re-enter a different tree/style scope retaining
+    // ids and replacing child 2's children with an empty list (expected 10 at width
+    // 100). A cycle fixture must compare cached fallback with original guarded walk,
+    // not assume arbitrary cyclic graphs are valid layout inputs. Public collect()
+    // may itself recurse on a cyclic graph; test the cache builder's cycle handling
+    // with its direct next-edge seam rather than creating an infinite collect graph.
+}
+
+// Owned by one layout driver invocation, whose nodes/styles are immutable.
+// Reset on each driver invocation, including distinct synthetic tree trials.
+type SuffixKey = (u64, u64, bool);
+pub(super) type SuffixCache = BTreeMap<SuffixKey, MarginStrut>;
+fn suffix_key(id: u64, basis: f64, bottom: bool) -> SuffixKey {
+    (id, basis.to_bits(), bottom)
+}
+#[cfg(test)]
+#[derive(Default)]
+struct ChainProfile {
+    calls: u64,
+    visits: u64,
+    elapsed_ns: u128,
+}
+#[cfg(test)]
+thread_local! {
+    static CHAIN_PROFILE: std::cell::RefCell<ChainProfile> =
+        std::cell::RefCell::new(ChainProfile::default());
+}
+#[cfg(test)]
+struct ChainTimer(Option<std::time::Instant>);
+#[cfg(test)]
+impl ChainTimer {
+    fn start() -> Self {
+        let enabled = std::env::var_os("ORYN_DEEP_INPUT_DIRECTORY").is_some();
+        if enabled {
+            CHAIN_PROFILE.with(|profile| profile.borrow_mut().calls += 1);
+        }
+        Self(enabled.then(std::time::Instant::now))
+    }
+}
+#[cfg(test)]
+impl Drop for ChainTimer {
+    fn drop(&mut self) {
+        if let Some(started) = self.0 {
+            CHAIN_PROFILE.with(|profile| {
+                profile.borrow_mut().elapsed_ns += started.elapsed().as_nanos();
+            });
+        }
+    }
+}
+#[cfg(test)]
+pub(super) fn reset_chain_profile() {
+    CHAIN_PROFILE.with(|profile| *profile.borrow_mut() = ChainProfile::default());
+}
+#[cfg(test)]
+pub(super) fn report_chain_profile() {
+    if std::env::var_os("ORYN_DEEP_INPUT_DIRECTORY").is_some() {
+        CHAIN_PROFILE.with(|profile| {
+            let profile = profile.borrow();
+            eprintln!(
+                "deep_margin_chain calls={} visits={} elapsed_ns={}",
+                profile.calls, profile.visits, profile.elapsed_ns
+            );
+        });
+    }
+}
 
 pub(super) fn clear_obstacles(
     context: Option<&taffy::compute::FloatContext>,
@@ -143,6 +378,8 @@ fn content_inline(style: &BTreeMap<String, String>, basis: f64, viewport: Viewpo
 }
 
 pub(super) fn child_edge(params: ChildMarginEdgeInputs<'_>) -> Option<(u64, MarginStrut)> {
+    #[cfg(test)]
+    let _timer = ChainTimer::start();
     let ChildMarginEdgeInputs {
         id,
         bottom,
@@ -152,6 +389,7 @@ pub(super) fn child_edge(params: ChildMarginEdgeInputs<'_>) -> Option<(u64, Marg
         viewport,
         clear_obstacles,
         own_margin,
+        cache,
     } = params;
 
     fn edge_child(
@@ -220,11 +458,40 @@ pub(super) fn child_edge(params: ChildMarginEdgeInputs<'_>) -> Option<(u64, Marg
     let mut basis = width;
     let mut chain = Vec::new();
     let mut seen = BTreeSet::new();
+    // Without float obstacles, clear cannot truncate the adjoining chain and
+    // its summary is independent of the external parent's own margin.
+    let mut cache = cache.filter(|_| clear_obstacles == [None; 2] && width.is_finite());
+    let mut pending = Vec::new();
     while seen.insert(current) {
+        if !basis.is_finite() {
+            cache = None;
+        }
+        let key = suffix_key(current, basis, bottom);
+        let cached = cache.and_then(|cache| cache.borrow().get(&key).copied());
+        if let Some(mut suffix) = cached
+            && let Some(cache) = cache
+        {
+            let mut cache = cache.borrow_mut();
+            for (key, margin) in pending.into_iter().rev() {
+                suffix = suffix.append(margin);
+                cache.insert(key, suffix);
+            }
+            return Some((first, suffix));
+        }
+        #[cfg(test)]
+        if _timer.0.is_some() {
+            CHAIN_PROFILE.with(|profile| {
+                profile.borrow_mut().visits += 1;
+            });
+        }
         let style = styles.get(&current)?;
         let font = length(style_value(style, "font-size", "16px"), 16., 16., viewport);
         let margin = edge(style, "margin", basis, font, viewport);
-        chain.push((current, if bottom { margin.bottom } else { margin.top }));
+        let margin = if bottom { margin.bottom } else { margin.top };
+        chain.push((current, margin));
+        if cache.is_some() {
+            pending.push((key, margin));
+        }
         let next_basis = content_inline(style, basis, viewport);
         let Some(next) = edge_child(
             current,
@@ -235,6 +502,15 @@ pub(super) fn child_edge(params: ChildMarginEdgeInputs<'_>) -> Option<(u64, Marg
             viewport,
             clear_obstacles,
         ) else {
+            if let Some(cache) = cache {
+                let mut suffix = MarginStrut::default();
+                let mut cache = cache.borrow_mut();
+                for (key, margin) in pending.into_iter().rev() {
+                    suffix = suffix.append(margin);
+                    cache.insert(key, suffix);
+                }
+                return Some((first, suffix));
+            }
             break;
         };
         basis = next_basis;
@@ -245,15 +521,27 @@ pub(super) fn child_edge(params: ChildMarginEdgeInputs<'_>) -> Option<(u64, Marg
 
 /// Resolve the adjoining outer edge before sibling placement, including margins
 /// propagated through a first/last descendant chain.
+/// Immutable tree/style scope and its invocation-owned suffix memo.
+pub(super) struct QueryContext<'a> {
+    pub(super) nodes: &'a BTreeMap<u64, &'a LayoutNode>,
+    pub(super) styles: &'a ComputedStyles,
+    pub(super) viewport: ViewportState,
+    pub(super) cache: Option<&'a std::cell::RefCell<SuffixCache>>,
+}
+
 pub(super) fn outer_edge(
     id: u64,
     bottom: bool,
     basis: f64,
-    nodes: &BTreeMap<u64, &LayoutNode>,
-    styles: &ComputedStyles,
-    viewport: ViewportState,
     clear_obstacles: [Option<f64>; 2],
+    context: QueryContext<'_>,
 ) -> MarginStrut {
+    let QueryContext {
+        nodes,
+        styles,
+        viewport,
+        cache,
+    } = context;
     let Some(style) = styles.get(&id) else {
         return MarginStrut::default();
     };
@@ -269,6 +557,7 @@ pub(super) fn outer_edge(
         viewport,
         clear_obstacles,
         own_margin: if bottom { margin.bottom } else { margin.top },
+        cache,
     })
     .map(|(_, strut)| strut)
     .unwrap_or_default()
@@ -485,12 +774,16 @@ pub(super) fn vertical_edge(params: VerticalMarginEdgeInputs<'_>) -> MarginStrut
 pub(super) fn used_child_bottom(
     id: u64,
     width: f64,
-    nodes: &BTreeMap<u64, &LayoutNode>,
-    styles: &ComputedStyles,
-    viewport: ViewportState,
     geometry: &BTreeMap<u64, NodeGeometry>,
     clearance: &BTreeSet<u64>,
+    context: QueryContext<'_>,
 ) -> Option<(u64, f64)> {
+    let QueryContext {
+        nodes,
+        styles,
+        viewport,
+        cache,
+    } = context;
     let (child, _) = child_edge(ChildMarginEdgeInputs {
         id,
         bottom: true,
@@ -500,6 +793,7 @@ pub(super) fn used_child_bottom(
         viewport,
         clear_obstacles: [None; 2],
         own_margin: 0.,
+        cache,
     })?;
     let model = geometry.get(&child)?.box_model.as_ref()?;
     if clearance.contains(&child)

@@ -82,7 +82,8 @@ type AgentEventPublisher = Rc<dyn Fn(crate::worker_wire::AgentEvent) -> Result<(
 type TrustedPolicyCheck =
     Rc<dyn Fn(&V8BindingState, &crate::trusted_types::PolicyCheck) -> Result<bool, String>>;
 
-type ParserCreatorUrl = Rc<dyn Fn(crate::worker_wire::Creator) -> Result<String, String>>;
+type ParserCreatorUrl = Rc<dyn Fn(&V8BindingState) -> Result<String, String>>;
+type DocumentFocusAdmission = fn(&mut v8::PinScope, &Rc<V8BindingState>) -> bool;
 
 type ScriptPolicyProvider = Rc<dyn Fn() -> Result<std::sync::Arc<ScriptPolicySnapshot>, String>>;
 
@@ -1118,6 +1119,7 @@ struct IdbTransactionRecord {
     database_id: u64,
     request_id: Option<u64>,
     mode: String,
+    durability: String,
     object_stores: Vec<String>,
     aborted: bool,
     error: Option<String>,
@@ -1172,7 +1174,10 @@ struct IdbKeyRangeRecord {
 }
 
 enum PlatformObjectRecord {
-    QueuingStrategy { byte_length: bool, high_water_mark: f64 },
+    QueuingStrategy {
+        byte_length: bool,
+        high_water_mark: f64,
+    },
     Sanitizer(Rc<RefCell<oryn_dom::sanitizer::Config>>),
     ImageBitmap(image_bitmap::Backing),
     AudioData(audio_data::Backing),
@@ -2311,6 +2316,19 @@ pub struct ExecutableCheckpointIdentity {
     pub mutation_cursor: u64,
 }
 
+/// Optional native diagnostic stage; not an author or execution capability.
+/// A scope-local guard reports bounded timing through the embedding host.
+pub struct NativeBindingTimingHook(pub fn(&'static str) -> Box<dyn std::any::Any>);
+
+fn native_binding_stage(
+    scope: &mut v8::PinScope,
+    label: &'static str,
+) -> Option<Box<dyn std::any::Any>> {
+    let context = scope.get_current_context();
+    let hook = context.get_slot::<NativeBindingTimingHook>()?;
+    Some((hook.0)(label))
+}
+
 pub struct V8BindingState {
     document_provenance_capture: RefCell<Option<Rc<document_provenance::Capture>>>,
     animation_frames: RefCell<animation_frames::State>,
@@ -2515,7 +2533,7 @@ pub struct V8BindingState {
     layout_cache_key: RefCell<Option<LayoutCacheKey>>,
     layout_provider: RefCell<Option<Rc<dyn BindingLayoutProvider>>>,
     frame_viewport_parent: RefCell<Option<FrameViewportParent>>,
-    document_focus_admission: Cell<Option<fn(&mut v8::PinScope, &Rc<V8BindingState>) -> bool>>,
+    document_focus_admission: Cell<Option<DocumentFocusAdmission>>,
     paint_environment: RefCell<(Vec<u8>, u64)>,
     page_paint_environment: RefCell<(Vec<u8>, u64)>,
     frame_roots: RefCell<BTreeMap<NodeId, NodeId>>,
@@ -5800,10 +5818,7 @@ impl V8BindingState {
         child.set_native_layout_viewport(width, height, false)?;
         Ok(())
     }
-    pub fn set_document_focus_admission(
-        &self,
-        admission: fn(&mut v8::PinScope, &Rc<V8BindingState>) -> bool,
-    ) {
+    pub fn set_document_focus_admission(&self, admission: DocumentFocusAdmission) {
         self.document_focus_admission.set(Some(admission));
     }
 
@@ -12360,14 +12375,22 @@ fn read_result<'s>(
     value: v8::Local<'s, v8::Value>,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
     #[cfg(test)]
-    if done && FAIL_DEFAULT_CLOSE_RESULT_AFTER.with(|remaining| {
-        match remaining.get() {
-            Some(0) => { remaining.set(None); true }
-            Some(count) => { remaining.set(Some(count - 1)); false }
+    if done
+        && FAIL_DEFAULT_CLOSE_RESULT_AFTER.with(|remaining| match remaining.get() {
+            Some(0) => {
+                remaining.set(None);
+                true
+            }
+            Some(count) => {
+                remaining.set(Some(count - 1));
+                false
+            }
             None => false,
-        }
-    }) {
-        return Err(V8BindingError::Allocation("injected close result preparation"));
+        })
+    {
+        return Err(V8BindingError::Allocation(
+            "injected close result preparation",
+        ));
     }
     let context = match &*platform_object(state, stream_id)? {
         PlatformObjectRecord::ReadableStream(stream) => stream.creation_context.to_local(scope),
@@ -12512,7 +12535,8 @@ fn readable_close_default(
             return Ok(());
         }
         let mut waiters = Vec::new();
-        waiters.try_reserve_exact(stream.waiting.len())
+        waiters
+            .try_reserve_exact(stream.waiting.len())
             .map_err(|_| V8BindingError::Allocation("close waiter scratch admission"))?;
         waiters.extend(stream.waiting.iter().cloned());
         waiters
@@ -12520,7 +12544,8 @@ fn readable_close_default(
     // Keep pending requests owned by the stream while all result allocations
     // are prepared. Failure cannot close the stream and strand drained reads.
     let mut prepared = Vec::new();
-    prepared.try_reserve_exact(waiters.len())
+    prepared
+        .try_reserve_exact(waiters.len())
         .map_err(|_| V8BindingError::Allocation("close result scratch admission"))?;
     for waiter in waiters {
         let undefined = v8::undefined(scope).into();
@@ -12533,16 +12558,28 @@ fn readable_close_default(
         let PlatformObjectRecord::ReadableStream(stream) = &*record else {
             return Err(V8BindingError::Allocation("ReadableStream record"));
         };
-        if stream.queue.is_empty() { stream.reader_id } else { None }
+        if stream.queue.is_empty() {
+            stream.reader_id
+        } else {
+            None
+        }
     };
     let reader_closed = if let Some(reader) = reader_closed {
         let record = platform_object(state, reader)?;
         match &*record {
-            PlatformObjectRecord::ReadableReader { closed, released: false, .. } => Some(closed.clone()),
+            PlatformObjectRecord::ReadableReader {
+                closed,
+                released: false,
+                ..
+            } => Some(closed.clone()),
             _ => None,
         }
-    } else { None };
-    let reader_closed = reader_closed.as_ref().map(|closed| stream_graph::local(scope, closed));
+    } else {
+        None
+    };
+    let reader_closed = reader_closed
+        .as_ref()
+        .map(|closed| stream_graph::local(scope, closed));
     {
         let mut record = platform_object_mut(state, stream_id)?;
         let PlatformObjectRecord::ReadableStream(stream) = &mut *record else {
@@ -12560,10 +12597,17 @@ fn readable_close_default(
             let PlatformObjectRecord::ReadableStream(stream) = &mut *record else {
                 return Err(V8BindingError::Allocation("ReadableStream record"));
             };
-            if stream.waiting.front().is_some_and(|entry| entry.same_occurrence(&owner)) {
+            if stream
+                .waiting
+                .front()
+                .is_some_and(|entry| entry.same_occurrence(&owner))
+            {
                 stream.waiting.pop_front()
             } else {
-                stream.waiting.iter().position(|entry| entry.same_occurrence(&owner))
+                stream
+                    .waiting
+                    .iter()
+                    .position(|entry| entry.same_occurrence(&owner))
                     .and_then(|index| stream.waiting.remove(index))
             }
         };
@@ -12571,7 +12615,9 @@ fn readable_close_default(
         // accessors may synchronously mutate the stream or release its reader.
         // A reentrant operation may already have consumed/cancelled a later
         // prepared occurrence. Never publish that cancelled occurrence again.
-        if retired.is_none() { continue; }
+        if retired.is_none() {
+            continue;
+        }
         waiter.resolve(scope, result.into());
         drop(retired);
     }
@@ -12592,14 +12638,22 @@ fn writer_stream_id(
     Ok(*stream_id)
 }
 
-fn queuing_strategy_size(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut result: v8::ReturnValue) {
+fn queuing_strategy_size(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut result: v8::ReturnValue,
+) {
     if !args.data().boolean_value(scope) {
         result.set(v8::Integer::new(scope, 1).into());
         return;
     }
-    let Some(object) = args.get(0).to_object(scope) else { return; };
+    let Some(object) = args.get(0).to_object(scope) else {
+        return;
+    };
     let name = v8::String::new(scope, "byteLength").unwrap();
-    if let Some(value) = object.get(scope, name.into()) { result.set(value); }
+    if let Some(value) = object.get(scope, name.into()) {
+        result.set(value);
+    }
 }
 
 fn initialize_platform_constructor<'s>(
@@ -13209,9 +13263,15 @@ fn initialize_platform_constructor<'s>(
                             interface: "Request".into(),
                             member: "invalid referrer URL".into(),
                         })?;
-                    let source =
-                        request_initiator_url(scope).and_then(|value| Url::parse(&value).ok());
-                    if !source.is_some_and(|source| source.origin() == target.origin()) {
+                    // The client's origin is its native settings-object origin,
+                    // not the origin of its Document URL. Initial about:blank
+                    // and srcdoc inherit an origin while retaining opaque URLs.
+                    let source_origin = current_platform_origin(state);
+                    let target_origin = target.origin().ascii_serialization();
+                    if source_origin == "null"
+                        || target_origin == "null"
+                        || source_origin != target_origin
+                    {
                         return Err(V8BindingError::Unsupported {
                             interface: "Request".into(),
                             member: "referrer origin differs from client".into(),
@@ -13574,15 +13634,24 @@ fn initialize_platform_constructor<'s>(
     if matches!(name, "CountQueuingStrategy" | "ByteLengthQueuingStrategy") {
         let init = args.get(0);
         if !init.is_object() {
-            return Err(V8BindingError::Message("TypeError: strategy init must be a dictionary".into()));
+            return Err(V8BindingError::Message(
+                "TypeError: strategy init must be a dictionary".into(),
+            ));
         }
-        let value = checked_dictionary_member(scope, init, "highWaterMark")?
-            .ok_or_else(|| V8BindingError::Message("TypeError: highWaterMark is required".into()))?;
-        let high_water_mark = value.number_value(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let value = checked_dictionary_member(scope, init, "highWaterMark")?.ok_or_else(|| {
+            V8BindingError::Message("TypeError: highWaterMark is required".into())
+        })?;
+        let high_water_mark = value
+            .number_value(scope)
+            .ok_or(V8BindingError::JavaScriptException)?;
         let id = reserve_platform_object_id(state);
-        state.platform_objects.borrow_mut().insert(id, PlatformObjectRecord::QueuingStrategy {
-            byte_length: name == "ByteLengthQueuingStrategy", high_water_mark,
-        });
+        state.platform_objects.borrow_mut().insert(
+            id,
+            PlatformObjectRecord::QueuingStrategy {
+                byte_length: name == "ByteLengthQueuingStrategy",
+                high_water_mark,
+            },
+        );
         bind_platform_object(scope, state, id, args.this());
         return Ok(true);
     }
@@ -13644,11 +13713,20 @@ fn initialize_platform_constructor<'s>(
         let mut callbacks = Vec::new();
         for member in ["start", "pull", "cancel"] {
             let value = checked_dictionary_member(scope, source, member)?;
-            callbacks.push(value.map(|value| {
-                value.try_cast::<v8::Function>()
-                    .map(|function| v8::Global::new(scope, function).into())
-                    .map_err(|_| V8BindingError::Message(format!("TypeError: underlying source {member} must be callable")))
-            }).transpose()?);
+            callbacks.push(
+                value
+                    .map(|value| {
+                        value
+                            .try_cast::<v8::Function>()
+                            .map(|function| v8::Global::new(scope, function).into())
+                            .map_err(|_| {
+                                V8BindingError::Message(format!(
+                                    "TypeError: underlying source {member} must be callable"
+                                ))
+                            })
+                    })
+                    .transpose()?,
+            );
         }
         let start = callbacks.remove(0);
         let pull = callbacks.remove(0);
@@ -18606,7 +18684,9 @@ fn stateful_id(
     object: v8::Local<v8::Object>,
 ) -> Result<u64, V8BindingError> {
     if opaque_ranges::id(scope, object).is_some() {
-        return Err(V8BindingError::Message("TypeError: incompatible opaque range receiver".into()));
+        return Err(V8BindingError::Message(
+            "TypeError: incompatible opaque range receiver".into(),
+        ));
     }
     object
         .get_internal_field(scope, 0)
@@ -18614,7 +18694,9 @@ fn stateful_id(
         .and_then(|value| value.integer_value(scope))
         .filter(|value| *value >= 1)
         .map(|value| value as u64)
-        .ok_or_else(|| V8BindingError::Message("TypeError: incompatible stateful interface receiver".into()))
+        .ok_or_else(|| {
+            V8BindingError::Message("TypeError: incompatible stateful interface receiver".into())
+        })
 }
 
 fn new_stateful_object<'s>(
@@ -24672,8 +24754,8 @@ fn get_platform_attribute<'s>(
         (PlatformObjectRecord::IdbTransaction(transaction), "IDBTransaction", "db") => {
             Ok(new_platform_object(scope, state, "IDBDatabase", transaction.database_id)?.into())
         }
-        (PlatformObjectRecord::IdbTransaction(_), "IDBTransaction", "durability") => {
-            v8_string(scope, "default")
+        (PlatformObjectRecord::IdbTransaction(transaction), "IDBTransaction", "durability") => {
+            v8_string(scope, &transaction.durability)
         }
         (
             PlatformObjectRecord::IdbTransaction(transaction),
@@ -24782,24 +24864,50 @@ fn get_platform_attribute<'s>(
             id,
             &member[2..],
         )),
-        (PlatformObjectRecord::QueuingStrategy { byte_length, high_water_mark }, interface, member)
-            if interface == if *byte_length { "ByteLengthQueuingStrategy" } else { "CountQueuingStrategy" } => {
+        (
+            PlatformObjectRecord::QueuingStrategy {
+                byte_length,
+                high_water_mark,
+            },
+            interface,
+            member,
+        ) if interface
+            == if *byte_length {
+                "ByteLengthQueuingStrategy"
+            } else {
+                "CountQueuingStrategy"
+            } =>
+        {
             if member == "highWaterMark" {
                 return Ok(v8::Number::new(scope, *high_water_mark).into());
             }
             let context = scope.get_current_context();
-            let name = v8::String::new(scope, if *byte_length { "oryn.byteLengthStrategySize" } else { "oryn.countStrategySize" })
-                .ok_or(V8BindingError::Allocation("strategy size key"))?;
+            let name = v8::String::new(
+                scope,
+                if *byte_length {
+                    "oryn.byteLengthStrategySize"
+                } else {
+                    "oryn.countStrategySize"
+                },
+            )
+            .ok_or(V8BindingError::Allocation("strategy size key"))?;
             let key = v8::Private::for_api(scope, Some(name));
             let global = context.global(scope);
-            if let Some(function) = global.get_private(scope, key).filter(|value| value.is_function()) {
+            if let Some(function) = global
+                .get_private(scope, key)
+                .filter(|value| value.is_function())
+            {
                 return Ok(function);
             }
             let data = v8::Boolean::new(scope, *byte_length);
             let template = v8::FunctionTemplate::builder(queuing_strategy_size)
-                .data(data.into()).length(if *byte_length { 1 } else { 0 })
-                .constructor_behavior(v8::ConstructorBehavior::Throw).build(scope);
-            let function = template.get_function(scope).ok_or(V8BindingError::Allocation("strategy size function"))?;
+                .data(data.into())
+                .length(if *byte_length { 1 } else { 0 })
+                .constructor_behavior(v8::ConstructorBehavior::Throw)
+                .build(scope);
+            let function = template
+                .get_function(scope)
+                .ok_or(V8BindingError::Allocation("strategy size function"))?;
             function.set_name(v8::String::new(scope, "size").unwrap());
             global.set_private(scope, key, function.into());
             Ok(function.into())
@@ -26611,8 +26719,30 @@ fn call_platform_operation<'s>(
             let mode = if args.get(1).is_undefined() {
                 "readonly".into()
             } else {
-                args.get(1).to_rust_string_lossy(scope)
+                args.get(1)
+                    .to_string(scope)
+                    .ok_or(V8BindingError::JavaScriptException)?
+                    .to_rust_string_lossy(scope)
             };
+            if !matches!(mode.as_str(), "readonly" | "readwrite" | "versionchange") {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBDatabase".into(),
+                    member: "invalid transaction mode".into(),
+                });
+            }
+            let durability = match checked_dictionary_member(scope, args.get(2), "durability")? {
+                None => "default".to_string(),
+                Some(value) => value
+                    .to_string(scope)
+                    .ok_or(V8BindingError::JavaScriptException)?
+                    .to_rust_string_lossy(scope),
+            };
+            if !matches!(durability.as_str(), "default" | "strict" | "relaxed") {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBDatabase".into(),
+                    member: "invalid transaction durability".into(),
+                });
+            }
             let stores = {
                 let record = platform_object(state, id)?;
                 let PlatformObjectRecord::IdbDatabase(database) = &*record else {
@@ -26653,6 +26783,7 @@ fn call_platform_operation<'s>(
                     database_id: id,
                     request_id: None,
                     mode,
+                    durability,
                     object_stores: names,
                     aborted: false,
                     error: None,
@@ -29387,8 +29518,9 @@ fn call_stateful_operation<'s>(
         return tree_walkers::operation(scope, state, object, member);
     }
     if interface == "OpaqueRange" {
-        let id = opaque_ranges::id(scope, object).ok_or_else(||
-            V8BindingError::Message("TypeError: incompatible opaque range receiver".into()))?;
+        let id = opaque_ranges::id(scope, object).ok_or_else(|| {
+            V8BindingError::Message("TypeError: incompatible opaque range receiver".into())
+        })?;
         if member == "disconnect" {
             state.dom.borrow_mut().disconnect_opaque_range(id)?;
             return Ok(None);
@@ -33809,7 +33941,8 @@ fn get_attribute_value<'s>(
             let mut enabled = true;
             while let Some(candidate) = current {
                 let candidate = dom.arena().get(candidate)?;
-                if !matches!(&candidate.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml") {
+                if !matches!(&candidate.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml")
+                {
                     current = candidate.parent;
                     continue;
                 }
@@ -33833,7 +33966,10 @@ fn get_attribute_value<'s>(
         }
         ("HTMLElement", "accessKey") => v8_string(
             scope,
-            record.attributes.get_null("accesskey").map_or("", String::as_str),
+            record
+                .attributes
+                .get_null("accesskey")
+                .map_or("", String::as_str),
         )?,
         ("HTMLElement", "title" | "lang") | ("HTMLSlotElement", "name") => v8_string(
             scope,
@@ -34708,11 +34844,16 @@ fn set_attribute_value<'s>(
     }
     if interface == "HTMLElement" && member == "accessKey" {
         let original = wrap_node(scope, state, node)?;
-        let value = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let value = value
+            .to_string(scope)
+            .ok_or(V8BindingError::JavaScriptException)?;
         let value = rust_string_preserving_utf16(scope, value)?;
-        let (owner, node) = node_identity::argument(scope, original.into())?
-            .ok_or(DomError::StaleNode(node))?;
-        owner.dom.borrow_mut().set_attribute(node, "accesskey", value)?;
+        let (owner, node) =
+            node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
+        owner
+            .dom
+            .borrow_mut()
+            .set_attribute(node, "accesskey", value)?;
         return Ok(());
     }
     if interface == "HTMLElement" && matches!(member, "translate" | "spellcheck") {
@@ -52272,7 +52413,9 @@ mod tests {
     #[test]
     fn html_dir_reflection_canonicalizes_getter_without_mutating_attribute() {
         initialize_v8();
-        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
         let mut isolate = v8::Isolate::new(Default::default());
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
@@ -52327,7 +52470,13 @@ mod tests {
             }
             true
         "#).unwrap();
-        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
     }
 
     #[test]
@@ -53583,7 +53732,9 @@ mod tests {
     #[test]
     fn queuing_strategies_convert_brand_and_share_realm_size_functions() {
         initialize_v8();
-        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
         let mut isolate = v8::Isolate::new(Default::default());
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
@@ -53624,13 +53775,21 @@ mod tests {
             }
             true
         "#).unwrap();
-        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
     }
 
     #[test]
     fn character_data_element_siblings_skip_non_elements_and_follow_mutations() {
         initialize_v8();
-        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
         let mut isolate = v8::Isolate::new(Default::default());
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
@@ -53655,13 +53814,21 @@ mod tests {
             if(!(receiverError instanceof TypeError)||String(receiverError).includes('allocate'))throw Error('stateful receiver diagnostic');
             true
         "#).unwrap();
-        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
     }
 
     #[test]
     fn byob_replacement_preserves_capacity_after_author_transfer() {
         initialize_v8();
-        let dom = Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
         let mut isolate = v8::Isolate::new(Default::default());
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
@@ -53696,10 +53863,22 @@ mod tests {
                 result='ok';
             })().catch(error=>result=String(error));
         "#).unwrap();
-        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
-        for _ in 0..32 { scope.perform_microtask_checkpoint(); }
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        for _ in 0..32 {
+            scope.perform_microtask_checkpoint();
+        }
         let source = v8::String::new(scope, "result").unwrap();
-        assert_eq!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().to_rust_string_lossy(scope), "ok");
+        assert_eq!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .to_rust_string_lossy(scope),
+            "ok"
+        );
     }
 
     #[test]
@@ -54349,6 +54528,53 @@ mod tests {
                 .unwrap()
                 .to_rust_string_lossy(scope),
             "ok"
+        );
+    }
+
+    #[test]
+    fn request_referrers_use_inherited_settings_origin_not_blank_document_url() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        for document_url in ["about:blank", "about:srcdoc"] {
+            state.commit_location(document_url).unwrap();
+            state.set_security_origin("https://example.test".into());
+            let source = v8::String::new(scope, r#"
+                (() => {
+                    const request = new Request('https://example.test/data', {
+                        referrer: 'https://example.test/custom'
+                    });
+                    if (request.referrer !== 'https://example.test/custom') throw Error('inherited origin');
+                    for (const referrer of ['https://other.test/', 'http://example.test/', 'https://example.test:444/']) {
+                        let error; try { new Request('https://example.test/data', {referrer}) } catch (caught) { error=caught }
+                        if (!(error instanceof TypeError)) throw Error('foreign origin accepted');
+                    }
+                    return 'ok';
+                })()
+            "#).unwrap();
+            assert_eq!(
+                v8::Script::compile(scope, source, None)
+                    .unwrap()
+                    .run(scope)
+                    .unwrap()
+                    .to_rust_string_lossy(scope),
+                "ok"
+            );
+        }
+        state.set_security_origin("null".into());
+        let source = v8::String::new(scope, "(() => { try { new Request('https://example.test/data', {referrer:'https://example.test/custom'}); return false } catch (error) { return error instanceof TypeError } })()").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
         );
     }
 
@@ -58576,6 +58802,64 @@ target.srcdoc='raw';
     }
 
     #[test]
+    fn indexeddb_transaction_durability_options_are_converted_and_retained() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source=v8::String::new(scope,r#"
+          location.href='https://example.test/';
+          globalThis.results=[];
+          const request=indexedDB.open('durability',2);
+          request.onupgradeneeded=()=>request.result.createObjectStore('records');
+          request.onsuccess=()=>{
+            const db=request.result;
+            for(const option of [undefined,null,{}, {durability:'default'}, {durability:'strict'}, {durability:'relaxed'}])
+              results.push(db.transaction('records','readwrite',option).durability);
+            let reads=0;const marker={};
+            results.push(db.transaction('records','readonly',{get durability(){reads++;return 'strict'}}).durability);
+            results.push(reads);
+            try{db.transaction('records','readonly',{durability:'invalid'});results.push('accepted-invalid')}
+            catch(error){results.push(error instanceof TypeError)}
+            try{db.transaction('records','readonly',{get durability(){throw marker}})}
+            catch(error){results.push(error===marker)}
+            let invalidReads=0;
+            try{IDBDatabase.prototype.transaction.call({},'records','readonly',{get durability(){invalidReads++;throw marker}})}
+            catch(error){results.push(error instanceof TypeError)}
+            results.push(invalidReads);
+            try{db.transaction('records','invalid',{get durability(){throw marker}})}
+            catch(error){results.push(error instanceof TypeError)}
+            db.close();
+            try{db.transaction('records','readonly',{get durability(){throw marker}})}
+            catch(error){results.push(error===marker)}
+            try{db.transaction('records','readonly',{})}
+            catch(error){results.push(error.name==='InvalidStateError')}
+          };
+        "#).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        for _ in 0..64 {
+            state.drain_platform_completions(scope, 1).unwrap();
+            scope.perform_microtask_checkpoint();
+        }
+        let source = v8::String::new(scope, "results.join('|')").unwrap();
+        assert_eq!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .to_rust_string_lossy(scope),
+            "default|default|default|default|strict|relaxed|strict|1|true|true|true|0|true|true|true"
+        );
+    }
+
+    #[test]
     fn indexeddb_upgrade_abort_waits_for_callback_and_microtasks() {
         initialize_v8();
         let dom = Rc::new(RefCell::new(
@@ -58664,6 +58948,7 @@ target.srcdoc='raw';
                 database_id: database,
                 request_id: None,
                 mode: "readwrite".into(),
+                durability: "default".into(),
                 object_stores: vec![],
                 aborted: false,
                 error: None,
@@ -60267,6 +60552,97 @@ target.srcdoc='raw';
             result,
             r#"[["normal",true,true,true,true],["normal",true,true,true,true],["normal",true,true,true,true],["normal",true,true,true,true],["pre-line",true,true,true,true],["pre",true,true,true,true],["pre-wrap",true,true,true,true],["break-spaces",true,true,true,true],["inline",true,true,true,true],["break",true,true,true,true],["control",true],["control",true],["placeholder",true],["placeholder",true],["formatting-edge",true,true],["interior-nbsp",true],["explicit-nbsp",true],["empty",true,true]]"#
         );
+    }
+
+    #[test]
+    fn xml_documents_reject_all_native_editing_apis_with_invalid_state() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const methods=['execCommand','queryCommandEnabled','queryCommandIndeterm',
+                'queryCommandState','queryCommandSupported','queryCommandValue'];
+            let count=0;
+            for(const namespace of ['http://www.w3.org/1999/xlink',
+                'http://www.w3.org/1999/xhtml',null]) {
+                const xml=document.implementation.createDocument(namespace,'html',null);
+                for(const method of methods) {
+                    let exception;
+                    try { xml[method]('bold'); } catch(error) { exception=error; }
+                    if(!(exception instanceof DOMException) || exception instanceof TypeError ||
+                        exception.name!=='InvalidStateError' || exception.code!==11)
+                        throw Error('XML editing '+method+' '+namespace);
+                    count++;
+                }
+                for(const command of ['unknown-command','copy']) {
+                    let exception;
+                    try { xml.execCommand(command); } catch(error) { exception=error; }
+                    if(!(exception instanceof DOMException) || exception.name!=='InvalidStateError')
+                        throw Error('XML command '+command);
+                }
+                const marker={};let conversions=0;
+                for(const method of methods) {
+                    let exception;
+                    try { xml[method]({toString(){conversions++;throw marker}}); }
+                    catch(error) { exception=error; }
+                    if(exception!==marker)throw Error('command conversion '+method);
+                    exception=undefined;
+                    try { xml[method](); } catch(error) { exception=error; }
+                    if(!(exception instanceof TypeError))throw Error('required command '+method);
+                }
+                if(conversions!==6)throw Error('command conversion count');
+                // Explicit undefined is a DOMString value, unlike a missing argument.
+                let undefinedError;try { xml.execCommand(undefined); } catch(error) { undefinedError=error; }
+                if(undefinedError?.name!=='InvalidStateError')throw Error('undefined command');
+            }
+            if(!document.implementation.createHTMLDocument('').queryCommandSupported('bold'))
+                throw Error('HTML supported command');
+            'passed:'+count;
+        "#).unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert_eq!(result.to_rust_string_lossy(scope), "passed:18");
+    }
+
+    #[test]
+    fn recursive_native_exec_commands_reject_without_blocking_queries_or_next_command() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<div contenteditable><br></div>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source=v8::String::new(scope,r#"
+            const editor=document.querySelector('div');editor.focus();
+            let inputs=0,rejected=0;
+            editor.addEventListener('input',()=>{
+                inputs++;
+                if(!document.queryCommandSupported('insertText'))throw Error('query blocked');
+                if(document.execCommand('insertText',false,', '+inputs))throw Error('recursive accepted');
+                rejected++;
+            });
+            if(!document.execCommand('insertText',false,'0'))throw Error('outer rejected');
+            if(editor.textContent!=='0'||inputs!==1||rejected!==1)throw Error('recursive mutation');
+            if(!document.execCommand('insertText',false,'x'))throw Error('guard not released');
+            if(editor.textContent!=='0x'||inputs!==2||rejected!==2)throw Error('next mutation');
+            'passed';
+        "#).unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert_eq!(result.to_rust_string_lossy(scope), "passed");
     }
 
     #[test]
@@ -72501,29 +72877,47 @@ mod executable_checkpoint_pending_tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
-        let source = v8::String::new(scope, r#"
+        let source = v8::String::new(
+            scope,
+            r#"
             globalThis.closedOrder=[];
             globalThis.reader=new ReadableStream().getReader();
             reader.read().then(r=>{closedOrder.push('first:'+r.done);return reader.read()})
                 .then(r=>closedOrder.push('reentrant:'+r.done));
             reader.read().then(r=>closedOrder.push('second:'+r.done));
             true
-        "#).unwrap();
-        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
-        let (id, controller) = state.platform_objects.borrow().iter().find_map(|(id, record)| {
-            if let PlatformObjectRecord::ReadableStream(stream) = record {
-                Some((*id, stream.controller_id))
-            } else { None }
-        }).unwrap();
-        assert_eq!(match &*platform_object(&state, id).unwrap() {
-            PlatformObjectRecord::ReadableStream(stream) => stream.waiting.len(),
-            _ => unreachable!(),
-        }, 2);
+        "#,
+        )
+        .unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let (id, controller) = state
+            .platform_objects
+            .borrow()
+            .iter()
+            .find_map(|(id, record)| {
+                if let PlatformObjectRecord::ReadableStream(stream) = record {
+                    Some((*id, stream.controller_id))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert_eq!(
+            match &*platform_object(&state, id).unwrap() {
+                PlatformObjectRecord::ReadableStream(stream) => stream.waiting.len(),
+                _ => unreachable!(),
+            },
+            2
+        );
         FAIL_DEFAULT_CLOSE_RESULT_AFTER.with(|remaining| remaining.set(Some(1)));
-        assert!(matches!(readable_close_default(scope, &state, controller),
-            Err(V8BindingError::Allocation(_))));
-        if let PlatformObjectRecord::ReadableStream(stream) =
-            &*platform_object(&state, id).unwrap()
+        assert!(matches!(
+            readable_close_default(scope, &state, controller),
+            Err(V8BindingError::Allocation(_))
+        ));
+        if let PlatformObjectRecord::ReadableStream(stream) = &*platform_object(&state, id).unwrap()
         {
             assert!(!stream.closed);
             assert_eq!(stream.waiting.len(), 2);
@@ -72531,22 +72925,31 @@ mod executable_checkpoint_pending_tests {
         readable_close_default(scope, &state, controller).unwrap();
         scope.perform_microtask_checkpoint();
         let source = v8::String::new(scope, "closedOrder.join('|')").unwrap();
-        let actual = v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
-        assert_eq!(actual.to_rust_string_lossy(scope),
-            "first:true|second:true|reentrant:true");
+        let actual = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert_eq!(
+            actual.to_rust_string_lossy(scope),
+            "first:true|second:true|reentrant:true"
+        );
     }
 
     #[test]
     fn default_close_retires_occurrence_before_reentrant_then_getter() {
         tests::initialize_v8();
-        let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<body>").into_runtime().unwrap()));
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
         let mut isolate = v8::Isolate::new(Default::default());
         isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
-        let source = v8::String::new(scope, r#"
+        let source = v8::String::new(
+            scope,
+            r#"
             globalThis.order=[];globalThis.reader=new ReadableStream().getReader();
             reader.read().then(r=>order.push('first:'+r.done));
             reader.read().then(r=>order.push('second:'+r.done));
@@ -72557,29 +72960,54 @@ mod executable_checkpoint_pending_tests {
                 }
                 return undefined;
             }});true
-        "#).unwrap();
-        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
-        let controller = state.platform_objects.borrow().values().find_map(|record| {
-            if let PlatformObjectRecord::ReadableStream(stream) = record { Some(stream.controller_id) } else { None }
-        }).unwrap();
+        "#,
+        )
+        .unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let controller = state
+            .platform_objects
+            .borrow()
+            .values()
+            .find_map(|record| {
+                if let PlatformObjectRecord::ReadableStream(stream) = record {
+                    Some(stream.controller_id)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
         readable_close_default(scope, &state, controller).unwrap();
         scope.perform_microtask_checkpoint();
-        let source = v8::String::new(scope, "delete Object.prototype.then;order.sort().join('|')").unwrap();
-        let actual = v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
-        assert_eq!(actual.to_rust_string_lossy(scope), "first:true|getter:true|second:true");
+        let source =
+            v8::String::new(scope, "delete Object.prototype.then;order.sort().join('|')").unwrap();
+        let actual = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert_eq!(
+            actual.to_rust_string_lossy(scope),
+            "first:true|getter:true|second:true"
+        );
     }
 
     #[test]
     fn default_close_then_getter_release_preserves_replacement_reader() {
         tests::initialize_v8();
-        let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<body>").into_runtime().unwrap()));
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
         let mut isolate = v8::Isolate::new(Default::default());
         isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
-        let source = v8::String::new(scope, r#"
+        let source = v8::String::new(
+            scope,
+            r#"
             globalThis.order=[];globalThis.stream=new ReadableStream();
             globalThis.reader=stream.getReader();
             reader.closed.catch(()=>{});
@@ -72593,18 +73021,41 @@ mod executable_checkpoint_pending_tests {
                 }
                 return undefined;
             }});true
-        "#).unwrap();
-        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
-        let (id, controller) = state.platform_objects.borrow().iter().find_map(|(id, record)| {
-            if let PlatformObjectRecord::ReadableStream(stream) = record { Some((*id, stream.controller_id)) } else { None }
-        }).unwrap();
+        "#,
+        )
+        .unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let (id, controller) = state
+            .platform_objects
+            .borrow()
+            .iter()
+            .find_map(|(id, record)| {
+                if let PlatformObjectRecord::ReadableStream(stream) = record {
+                    Some((*id, stream.controller_id))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
         readable_close_default(scope, &state, controller).unwrap();
         scope.perform_microtask_checkpoint();
-        let source = v8::String::new(scope, "delete Object.prototype.then;order.sort().join('|')").unwrap();
-        let actual = v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
-        assert_eq!(actual.to_rust_string_lossy(scope), "cancelled:TypeError|first:true|getter:true");
+        let source =
+            v8::String::new(scope, "delete Object.prototype.then;order.sort().join('|')").unwrap();
+        let actual = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert_eq!(
+            actual.to_rust_string_lossy(scope),
+            "cancelled:TypeError|first:true|getter:true"
+        );
         let record = platform_object(&state, id).unwrap();
-        let PlatformObjectRecord::ReadableStream(stream) = &*record else { panic!("stream record") };
+        let PlatformObjectRecord::ReadableStream(stream) = &*record else {
+            panic!("stream record")
+        };
         assert!(stream.waiting.is_empty());
     }
 }

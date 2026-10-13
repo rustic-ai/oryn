@@ -173,6 +173,7 @@ mod tests {
                 database_id: database,
                 request_id: None,
                 mode: "readonly".into(),
+                durability: "default".into(),
                 object_stores: vec!["records".into()],
                 aborted: false,
                 error: None,

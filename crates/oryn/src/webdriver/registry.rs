@@ -195,8 +195,13 @@ impl Registry {
     /// A liveness observation must not queue behind a suspended author command.
     /// The native context roster, not cached WebDriver handles, is authoritative.
     pub fn health(&self, id: &str) -> Result<Value, CommandError> {
-        let entry = self.entries.lock().expect("WebDriver registry lock")
-            .get(id).cloned().ok_or_else(invalid_session)?;
+        let entry = self
+            .entries
+            .lock()
+            .expect("WebDriver registry lock")
+            .get(id)
+            .cloned()
+            .ok_or_else(invalid_session)?;
         if entry.revoked.load(Ordering::Acquire) {
             return Err(invalid_session());
         }

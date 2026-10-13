@@ -69,10 +69,8 @@ pub(super) fn acquire(
     safe: bool,
     sink: &str,
 ) -> Result<sanitizer::SinkOptions, V8BindingError> {
-    if !safe {
-        if let Some(options) = record(scope, value) {
-            return Ok(options);
-        }
+    if !safe && let Some(options) = record(scope, value) {
+        return Ok(options);
     }
     let input = sanitizer::options(scope, value, safe, true)?;
     if safe {
@@ -94,7 +92,7 @@ pub(super) fn acquire(
     if let Some(callback) = callback {
         let kind = v8_string(scope, "TrustedParserOptions")?;
         let sink = v8_string(scope, sink)?;
-        if let Some(mut result) = call(scope, callback, &input, &[kind.into(), sink.into()])? {
+        if let Some(mut result) = call(scope, callback, &input, &[kind, sink])? {
             // Default policy may disable requested script execution, never enable it.
             result.run_scripts &= input.run_scripts;
             return Ok(result);

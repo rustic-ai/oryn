@@ -533,6 +533,7 @@ impl DomRuntime {
             &nodes,
         );
         for (old, new) in &nodes {
+            source.forget_pointer_hover_target(*old);
             source.connected.remove(old);
             source.internal_targets.remove(old);
             source.slot_elements.remove(old);

@@ -72,6 +72,10 @@ pub struct AgentCreation {
     pub url: String,
     pub options: WorkerOptions,
     pub creator: Creator,
+    /// Native sealed Window source; never used as worker execution policy.
+    /// Worker-global constructors have no Window source and retain None.
+    #[serde(default)]
+    pub document_source: Option<oryn_dom::DocumentProvenance>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentLimits {

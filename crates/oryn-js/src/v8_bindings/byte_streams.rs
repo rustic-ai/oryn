@@ -299,7 +299,9 @@ pub(super) fn drain(
                         - descriptor.filled;
                 }
                 if amount == 0 {
-                    record.queue.push_front(stream_graph::Owned::new(scope, chunk));
+                    record
+                        .queue
+                        .push_front(stream_graph::Owned::new(scope, chunk));
                     break;
                 }
                 let mut data = vec![0; amount];

@@ -371,6 +371,8 @@ pub struct ShadowTree {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LayoutSelectorState {
     #[serde(default)]
+    pub hovered: bool,
+    #[serde(default)]
     pub interest_source: bool,
     #[serde(default)]
     pub media_state: u8,
@@ -705,6 +707,11 @@ impl StyleEngine {
         // A failed recomputation must not leave a result from an older native
         // style session eligible for reuse.
         self.static_layout = None;
+        #[cfg(test)]
+        let profile = std::env::var_os("ORYN_DEEP_INPUT_DIRECTORY").is_some();
+        #[cfg(test)]
+        let phase_started = std::time::Instant::now();
+
         let (computed_styles, author_whitespace, pseudo_styles) = stylo_computed_values_timed(
             input,
             false,
@@ -713,6 +720,17 @@ impl StyleEngine {
             &self.effects,
             Some(&mut self.samples),
         )?;
+        #[cfg(test)]
+        if profile {
+            eprintln!(
+                "deep_compute_phase stylo_ns={} nodes={}",
+                phase_started.elapsed().as_nanos(),
+                input.nodes.len()
+            );
+        }
+        #[cfg(test)]
+        let phase_started = std::time::Instant::now();
+
         // Preparation owns copies only for controls or replaced content. Release
         // those intermediates before the materialized tree enters layout.
         let (generated, object_hidden) = {
@@ -724,7 +742,25 @@ impl StyleEngine {
                 hidden,
             )
         };
+        #[cfg(test)]
+        if profile {
+            eprintln!(
+                "deep_compute_phase generated_ns={}",
+                phase_started.elapsed().as_nanos()
+            );
+        }
+        #[cfg(test)]
+        let phase_started = std::time::Instant::now();
+
         let mut output = compute_with_styles(&generated.input, limits, generated.styles.clone())?;
+        #[cfg(test)]
+        if profile {
+            eprintln!(
+                "deep_compute_phase layout_ns={}",
+                phase_started.elapsed().as_nanos()
+            );
+        }
+
         output.author_whitespace = author_whitespace;
         output.pseudo_styles = pseudo_styles;
         select_picker::append(&generated.input, limits, &mut output)?;
@@ -1099,6 +1135,7 @@ struct TextEngine {
     float_vertical: bool,
     float_fragment: Option<(f64, f64)>,
     absorbed_margins: BTreeMap<u64, [f64; 2]>,
+    margin_suffixes: std::cell::RefCell<margin_collapse::SuffixCache>,
     clearance_nodes: BTreeSet<u64>,
     absorbed_vertical_margins: BTreeMap<u64, [f64; 2]>,
     bfc_available_width: Option<(u64, f64)>,
@@ -1314,10 +1351,12 @@ fn effective_languages(input: &LayoutInput) -> BTreeMap<u64, Option<String>> {
 fn resolved_publication_bytes(
     lengths: impl IntoIterator<Item = (usize, usize, usize)>,
 ) -> Option<usize> {
-    lengths.into_iter().try_fold(0usize, |bytes, (text, spans, aliases)| {
-        let provenance = spans.checked_add(aliases)?.checked_mul(64)?;
-        bytes.checked_add(text)?.checked_add(provenance)
-    })
+    lengths
+        .into_iter()
+        .try_fold(0usize, |bytes, (text, spans, aliases)| {
+            let provenance = spans.checked_add(aliases)?.checked_mul(64)?;
+            bytes.checked_add(text)?.checked_add(provenance)
+        })
 }
 
 fn has_text_line_content(
@@ -1580,6 +1619,7 @@ impl TextEngine {
             float_vertical: false,
             float_fragment: None,
             absorbed_margins: BTreeMap::new(),
+            margin_suffixes: std::cell::RefCell::new(BTreeMap::new()),
             clearance_nodes: BTreeSet::new(),
             absorbed_vertical_margins: BTreeMap::new(),
             bfc_available_width: None,
@@ -3779,6 +3819,10 @@ fn compute_with_scrollbar_gutters(
     viewport_gutter: EdgeSizes,
 ) -> Result<LayoutOutput, LayoutError> {
     validate(input, limits)?;
+    #[cfg(test)]
+    let profile = std::env::var_os("ORYN_DEEP_INPUT_DIRECTORY").is_some();
+    #[cfg(test)]
+    let phase_started = std::time::Instant::now();
     let original_input = input;
     let projected;
     let mut anonymous_owners = BTreeMap::new();
@@ -3877,6 +3921,16 @@ fn compute_with_scrollbar_gutters(
     } else {
         input
     };
+    #[cfg(test)]
+    if profile {
+        eprintln!(
+            "deep_flow_phase rendered_ns={} nodes={}",
+            phase_started.elapsed().as_nanos(),
+            input.nodes.len()
+        );
+    }
+    #[cfg(test)]
+    let phase_started = std::time::Instant::now();
     let (web_fonts, loaded_fonts, mut diagnostics) = prepare_web_fonts(input, limits);
     let by_id = input
         .nodes
@@ -3950,6 +4004,15 @@ fn compute_with_scrollbar_gutters(
         .collect();
     permission_controls::measure(original_input, &mut computed_styles, &mut text_engine);
     control_state::measure_selects(original_input, &computed_styles, &mut text_engine);
+    #[cfg(test)]
+    if profile {
+        eprintln!(
+            "deep_flow_phase preparation_ns={}",
+            phase_started.elapsed().as_nanos()
+        );
+    }
+    #[cfg(test)]
+    let phase_started = std::time::Instant::now();
     let mut cursor_y = 0.0;
     for root in roots {
         let height = layout_node(
@@ -3999,6 +4062,15 @@ fn compute_with_scrollbar_gutters(
             cursor_y += height;
         }
     }
+    #[cfg(test)]
+    if profile {
+        eprintln!(
+            "deep_flow_phase driver_ns={}",
+            phase_started.elapsed().as_nanos()
+        );
+    }
+    #[cfg(test)]
+    let phase_started = std::time::Instant::now();
     // Out-of-flow descendants are formatted only after their ancestor used
     // padding boxes exist. This also prevents their sizes contributing to an
     // auto-height normal-flow ancestor. Nested positioned roots append here.
@@ -4363,6 +4435,15 @@ fn compute_with_scrollbar_gutters(
         }
     }
     let mut paint_projections = BTreeMap::new();
+    #[cfg(test)]
+    if profile {
+        eprintln!(
+            "deep_flow_phase positioning_ns={}",
+            phase_started.elapsed().as_nanos()
+        );
+    }
+    #[cfg(test)]
+    let phase_started = std::time::Instant::now();
     let viewport_scrollport = input
         .nodes
         .iter()
@@ -4390,6 +4471,13 @@ fn compute_with_scrollbar_gutters(
         viewport_scrollport,
         diagnostics: &mut diagnostics,
     });
+    #[cfg(test)]
+    if profile {
+        eprintln!(
+            "deep_flow_phase paint_ns={}",
+            phase_started.elapsed().as_nanos()
+        );
+    }
     anchor_positioning::visibility(
         input,
         &anchor_styles,
@@ -4497,10 +4585,14 @@ fn compute_with_scrollbar_gutters(
     }
     // Reject before allocating the flattened publication vector. Existing run
     // ownership stays in the engine until the complete preflight succeeds.
-    if resolved_publication_bytes(text_engine.resolved_text.values().flatten().map(|run| {
-        (run.text.len(), run.spans.len(), run.aliases.len())
-    }))
-        .is_none_or(|bytes| bytes > 64 * 1024 * 1024)
+    if resolved_publication_bytes(
+        text_engine
+            .resolved_text
+            .values()
+            .flatten()
+            .map(|run| (run.text.len(), run.spans.len(), run.aliases.len())),
+    )
+    .is_none_or(|bytes| bytes > 64 * 1024 * 1024)
     {
         return Err(LayoutError::StyleTraversal(
             "resolved text provenance exceeds native 64-MiB bound".into(),
@@ -5980,6 +6072,10 @@ fn stylo_computed_values_with_instances(
                         || !oryn_dom::valid_custom_element_name(&input_node.tag)
                 }),
             );
+            node.element_state_mut().set(
+                ElementState::HOVER,
+                selector.is_some_and(|state| state.hovered),
+            );
             node.native_permission_granted = selector.is_some_and(|state| state.permission_granted);
             node.native_fullscreen = selector.is_some_and(|state| state.fullscreen);
             node.native_legacy_background_url =
@@ -7336,23 +7432,40 @@ struct ContentHeightInputs {
 
 impl ContentHeightInputs {
     fn resolve(&self, node: &LayoutNode, style: &BTreeMap<String, String>) -> f64 {
-        self.specified.unwrap_or_else(|| {
-            node.intrinsic_image_size.or(node.document_replaced.then_some((300, 150)))
-                .map_or(
-                    if self.vertical { self.text.max(self.children) }
-                    else { self.text + self.children },
-                    |(_, height)| preferred_ratio(node, style)
-                        .map(|ratio| ratio.content_height(self.width,
-                            self.horizontal_edges, self.vertical_edges))
-                        .unwrap_or(f64::from(height)),
-                )
-        }).max(0.)
+        self.specified
+            .unwrap_or_else(|| {
+                node.intrinsic_image_size
+                    .or(node.document_replaced.then_some((300, 150)))
+                    .map_or(
+                        if self.vertical {
+                            self.text.max(self.children)
+                        } else {
+                            self.text + self.children
+                        },
+                        |(_, height)| {
+                            preferred_ratio(node, style)
+                                .map(|ratio| {
+                                    ratio.content_height(
+                                        self.width,
+                                        self.horizontal_edges,
+                                        self.vertical_edges,
+                                    )
+                                })
+                                .unwrap_or(f64::from(height))
+                        },
+                    )
+            })
+            .max(0.)
     }
 }
 
 impl BlockFlowCursor {
     fn new(y: f64) -> Self {
-        Self { cursor: y, height: 0., preceding: None }
+        Self {
+            cursor: y,
+            height: 0.,
+            preceding: None,
+        }
     }
 
     fn enter(&mut self, top: inline_formatting::MarginStrut) -> inline_formatting::MarginStrut {
@@ -7380,21 +7493,42 @@ impl BlockFlowCursor {
         engine: &TextEngine,
     ) -> BlockChildPlacement {
         let style = &styles[&id];
-        let collapse = !parent_display.starts_with("table") && !vertical
-            && matches!(style_value(style, "display", "block"),
-                "block" | "flow-root" | "list-item" | "flex" | "grid")
-            && !matches!(style_value(style, "position", "static"), "absolute" | "fixed");
+        let collapse = !parent_display.starts_with("table")
+            && !vertical
+            && matches!(
+                style_value(style, "display", "block"),
+                "block" | "flow-root" | "list-item" | "flex" | "grid"
+            )
+            && !matches!(
+                style_value(style, "position", "static"),
+                "absolute" | "fixed"
+            );
         let incoming = if collapse {
-            let top = margin_collapse::outer_edge(id, false, containing.width,
-                nodes, styles, input.viewport, margin_collapse::clear_obstacles(
-                    engine.float_context.as_ref(), engine.float_block_offset));
+            let top = margin_collapse::outer_edge(
+                id,
+                false,
+                containing.width,
+                margin_collapse::clear_obstacles(
+                    engine.float_context.as_ref(),
+                    engine.float_block_offset,
+                ),
+                margin_collapse::QueryContext {
+                    nodes,
+                    styles,
+                    viewport: input.viewport,
+                    cache: Some(&engine.margin_suffixes),
+                },
+            );
             self.enter(top)
         } else {
             inline_formatting::MarginStrut::default()
         };
         BlockChildPlacement {
             id,
-            containing: FlowBox { y: self.cursor, ..containing },
+            containing: FlowBox {
+                y: self.cursor,
+                ..containing
+            },
             collapse,
             incoming,
         }
@@ -7408,8 +7542,15 @@ impl BlockFlowCursor {
         geometry: &BTreeMap<u64, NodeGeometry>,
         engine: &TextEngine,
     ) {
-        self.leave(child.id, height, child.collapse, child.incoming,
-            &styles[&child.id], geometry, engine);
+        self.leave(
+            child.id,
+            height,
+            child.collapse,
+            child.incoming,
+            &styles[&child.id],
+            geometry,
+            engine,
+        );
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -7425,12 +7566,19 @@ impl BlockFlowCursor {
     ) {
         self.advance(height);
         if collapse {
-            if let Some(model) = geometry.get(&child).and_then(|value| value.box_model.as_ref()) {
-                let through = engine.absorbed_margins.get(&child)
+            if let Some(model) = geometry
+                .get(&child)
+                .and_then(|value| value.box_model.as_ref())
+            {
+                let through = engine
+                    .absorbed_margins
+                    .get(&child)
                     .is_none_or(|value| *value == [0.; 2])
                     && model.border_box.height == 0.
-                    && model.border.top == 0. && model.border.bottom == 0.
-                    && model.padding.top == 0. && model.padding.bottom == 0.
+                    && model.border.top == 0.
+                    && model.border.bottom == 0.
+                    && model.padding.top == 0.
+                    && model.padding.bottom == 0.
                     && !inline_formatting::establishes_bfc(style)
                     && !engine.clearance_nodes.contains(&child);
                 if through {
@@ -7439,11 +7587,15 @@ impl BlockFlowCursor {
                     self.preceding = Some(joined);
                 } else {
                     self.preceding = Some(
-                        if engine.absorbed_margins.get(&child).is_some_and(|value| value[1] != 0.) {
+                        if engine
+                            .absorbed_margins
+                            .get(&child)
+                            .is_some_and(|value| value[1] != 0.)
+                        {
                             inline_formatting::MarginStrut::default()
                         } else {
                             inline_formatting::MarginStrut::default().append(model.margin.bottom)
-                        }
+                        },
                     );
                 }
             }
@@ -7453,8 +7605,8 @@ impl BlockFlowCursor {
     }
 }
 
-mod post_child_production;
 mod layout_driver;
+mod post_child_production;
 
 #[allow(clippy::too_many_arguments)]
 fn layout_node(
@@ -7472,15 +7624,32 @@ fn layout_node(
     text_engine: &mut TextEngine,
     allocated: Option<TaffySize<f64>>,
 ) -> f64 {
-    let mut executor=layout_driver::BlockExecutor {
-        nodes:by_id,styles,geometry,offsets:offset_dimensions,resolved:resolved_values,
-        text:text_fragments,input,diagnostics,engine:text_engine,
+    let mut executor = layout_driver::BlockExecutor {
+        nodes: by_id,
+        styles,
+        geometry,
+        offsets: offset_dimensions,
+        resolved: resolved_values,
+        text: text_fragments,
+        input,
+        diagnostics,
+        engine: text_engine,
     };
-    match executor.run_block(layout_driver::LayoutRequest{id,containing,allocated,ancestor_hidden}) {
-        Ok(used)=>used,
-        Err(error)=>{
+    match executor.run_block(layout_driver::LayoutRequest {
+        id,
+        containing,
+        allocated,
+        ancestor_hidden,
+    }) {
+        Ok(used) => used,
+        Err(error) => {
             executor.diagnostics.push(format!("node {id}: {error}"));
-            mark_unsupported_subtree(id,"native layout continuation failed",executor.nodes,executor.geometry);
+            mark_unsupported_subtree(
+                id,
+                "native layout continuation failed",
+                executor.nodes,
+                executor.geometry,
+            );
             0.
         }
     }
@@ -8449,16 +8618,26 @@ fn mark_unsupported_subtree(
     by_id: &BTreeMap<u64, &LayoutNode>,
     geometry: &mut BTreeMap<u64, NodeGeometry>,
 ) {
-    let mut pending=vec![id];
-    let mut visited=BTreeSet::new();
-    while let Some(id)=pending.pop() {
-        if !visited.insert(id) {continue;}
-        geometry.insert(id,NodeGeometry {
-            availability:GeometryAvailability::Unsupported,box_model:None,
-            client_rects:Vec::new(),in_viewport:false,interactable:false,
-            diagnostic:Some(diagnostic.into()),
-        });
-        if let Some(node)=by_id.get(&id) {pending.extend(node.children.iter().rev().copied());}
+    let mut pending = vec![id];
+    let mut visited = BTreeSet::new();
+    while let Some(id) = pending.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        geometry.insert(
+            id,
+            NodeGeometry {
+                availability: GeometryAvailability::Unsupported,
+                box_model: None,
+                client_rects: Vec::new(),
+                in_viewport: false,
+                interactable: false,
+                diagnostic: Some(diagnostic.into()),
+            },
+        );
+        if let Some(node) = by_id.get(&id) {
+            pending.extend(node.children.iter().rev().copied());
+        }
     }
 }
 
@@ -8762,16 +8941,26 @@ mod tests {
     #[test]
     fn resolved_publication_preflight_checks_all_arithmetic_and_preserves_bound() {
         assert_eq!(resolved_publication_bytes([]), Some(0));
-        assert_eq!(resolved_publication_bytes([(3, 1, 1), (5, 0, 1)]), Some(200));
+        assert_eq!(
+            resolved_publication_bytes([(3, 1, 1), (5, 0, 1)]),
+            Some(200)
+        );
         assert_eq!(resolved_publication_bytes([(0, usize::MAX, 1)]), None);
-        assert_eq!(resolved_publication_bytes([(0, usize::MAX / 64 + 1, 0)]), None);
+        assert_eq!(
+            resolved_publication_bytes([(0, usize::MAX / 64 + 1, 0)]),
+            None
+        );
         assert_eq!(resolved_publication_bytes([(usize::MAX, 1, 0)]), None);
-        assert_eq!(resolved_publication_bytes([(usize::MAX, 0, 0), (1, 0, 0)]), None);
+        assert_eq!(
+            resolved_publication_bytes([(usize::MAX, 0, 0), (1, 0, 0)]),
+            None
+        );
         let limit = 64 * 1024 * 1024;
-        assert!(!resolved_publication_bytes([(limit, 0, 0)])
-            .is_none_or(|bytes| bytes > limit));
-        assert!(resolved_publication_bytes([(limit, 0, 0), (1, 0, 0)])
-            .is_none_or(|bytes| bytes > limit));
+        assert!(!resolved_publication_bytes([(limit, 0, 0)]).is_none_or(|bytes| bytes > limit));
+        assert!(
+            resolved_publication_bytes([(limit, 0, 0), (1, 0, 0)])
+                .is_none_or(|bytes| bytes > limit)
+        );
     }
 
     #[test]
@@ -9639,13 +9828,21 @@ mod tests {
         assert_eq!(registry.marker(1, "inherited"), "root. ");
         let mut cache = BTreeMap::new();
         let cached = generated_counter_styles::Registry::read_for_scope_cached(
-            &input, false, Some(999), &mut cache,
-        ).unwrap();
+            &input,
+            false,
+            Some(999),
+            &mut cache,
+        )
+        .unwrap();
         assert_eq!(cache.len(), 1000);
         for root in 1..=999_u64 {
             let ancestor = generated_counter_styles::Registry::read_for_scope_cached(
-                &input, false, Some(root), &mut cache,
-            ).unwrap();
+                &input,
+                false,
+                Some(root),
+                &mut cache,
+            )
+            .unwrap();
             assert!(Arc::ptr_eq(&cached, &ancestor));
         }
         input.shadow_trees.node_scopes.insert(10_001, 999);
@@ -9658,17 +9855,29 @@ mod tests {
     #[test]
     fn hidden_layout_handles_deep_descendants_without_recursive_frames() {
         let mut input = column_fixture("#n2 { display: none }", vec![node(2, Some(1), "div", "")]);
-        input.nodes.iter_mut().find(|node| node.id == 2).unwrap()
-            .attributes.insert("id".into(), "n2".into());
+        input
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == 2)
+            .unwrap()
+            .attributes
+            .insert("id".into(), "n2".into());
         for id in 3..=1001 {
-            let parent = input.nodes.iter_mut().find(|node| node.id == id - 1).unwrap();
+            let parent = input
+                .nodes
+                .iter_mut()
+                .find(|node| node.id == id - 1)
+                .unwrap();
             parent.children.push(id);
             parent.content = Some(vec![LayoutContent::Element(id)]);
             input.nodes.push(node(id, Some(id - 1), "div", ""));
         }
         let output = compute(&input, &LayoutLimits::default()).unwrap();
         for id in 2..=1001 {
-            assert_eq!(output.geometry[&id].availability, GeometryAvailability::Hidden);
+            assert_eq!(
+                output.geometry[&id].availability,
+                GeometryAvailability::Hidden
+            );
         }
     }
 
@@ -9700,9 +9909,21 @@ mod tests {
         let engine = TextEngine::new(&[]);
         let mut cursor = BlockFlowCursor::new(100.);
         cursor.preceding = Some(inline_formatting::MarginStrut::default().append(20.));
-        let child = cursor.prepare_child(2, FlowBox {
-            x: 17., y: 0., width: 300., height: Some(80.),
-        }, "block", false, &nodes, &styles, &input, &engine);
+        let child = cursor.prepare_child(
+            2,
+            FlowBox {
+                x: 17.,
+                y: 0.,
+                width: 300.,
+                height: Some(80.),
+            },
+            "block",
+            false,
+            &nodes,
+            &styles,
+            &input,
+            &engine,
+        );
         assert!(!child.collapse);
         assert_eq!(child.containing.x, 17.);
         assert_eq!(child.containing.y, 100.);
@@ -9710,9 +9931,21 @@ mod tests {
         assert_eq!(child.containing.height, Some(80.));
         cursor.resume_child(child, 0., &styles, &BTreeMap::new(), &engine);
         assert_eq!(cursor.preceding.unwrap().value(), 20.);
-        let child = cursor.prepare_child(2, FlowBox {
-            x: 17., y: 0., width: 300., height: None,
-        }, "block", false, &nodes, &styles, &input, &engine);
+        let child = cursor.prepare_child(
+            2,
+            FlowBox {
+                x: 17.,
+                y: 0.,
+                width: 300.,
+                height: None,
+            },
+            "block",
+            false,
+            &nodes,
+            &styles,
+            &input,
+            &engine,
+        );
         cursor.resume_child(child, 10., &styles, &BTreeMap::new(), &engine);
         assert!(cursor.preceding.is_none());
         assert_eq!(cursor.cursor, 110.);
@@ -9724,8 +9957,13 @@ mod tests {
         let node = node(2, None, "div", "");
         let style = BTreeMap::new();
         let mut inputs = ContentHeightInputs {
-            specified: None, text: 12., children: 30., width: 100.,
-            horizontal_edges: 0., vertical_edges: 0., vertical: false,
+            specified: None,
+            text: 12.,
+            children: 30.,
+            width: 100.,
+            horizontal_edges: 0.,
+            vertical_edges: 0.,
+            vertical: false,
         };
         assert_eq!(inputs.resolve(&node, &style), 42.);
         inputs.vertical = true;
@@ -9745,11 +9983,19 @@ mod tests {
             let root = 10_000 + depth;
             // Selector ancestry stops at a shadow root. Rendering obtains
             // this edge from root content, not the selector parent.
-            input.nodes.push(node(child, None, "div", if depth == 998 { "Hello!" } else { "" }));
-            input.shadow_trees.roots.insert(root, ShadowTree {
-                host,
-                content: vec![LayoutContent::Element(child)],
-            });
+            input.nodes.push(node(
+                child,
+                None,
+                "div",
+                if depth == 998 { "Hello!" } else { "" },
+            ));
+            input.shadow_trees.roots.insert(
+                root,
+                ShadowTree {
+                    host,
+                    content: vec![LayoutContent::Element(child)],
+                },
+            );
             input.shadow_trees.node_scopes.insert(child, root);
         }
         let output = compute(&input, &LayoutLimits::default()).unwrap();
@@ -9757,32 +10003,108 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires coordinator-captured native LayoutInput artifacts"]
+    fn replay_coordinator_deep_style_inputs_with_native_continuity() {
+        let directory = std::env::var_os("ORYN_DEEP_INPUT_DIRECTORY")
+            .expect("explicit replay requires coordinator capture directory");
+        let directory = std::path::PathBuf::from(directory);
+        assert!(directory.is_absolute());
+        let mut engine = StyleEngine::default();
+        let mut deep = 0;
+        let mut captures = 0;
+        for sequence in 0..8 {
+            let path = directory.join(format!("style-input-{sequence}.json"));
+            if !path.exists() {
+                break;
+            }
+            let input: LayoutInput = serde_json::from_reader(
+                std::fs::File::open(&path).expect("coordinator input artifact"),
+            )
+            .expect("exact captured LayoutInput");
+            let started = std::time::Instant::now();
+            let output = engine
+                .compute_at(&input, &LayoutLimits::default(), 0.)
+                .expect("captured input with retained native continuity");
+            eprintln!(
+                "deep_replay sequence={sequence} nodes={} roots={} elapsed_ns={} geometry={}",
+                input.nodes.len(),
+                input.shadow_trees.roots.len(),
+                started.elapsed().as_nanos(),
+                output.geometry.len()
+            );
+            if input.shadow_trees.roots.len() == 999 {
+                deep += 1;
+                assert!(!output.geometry.is_empty());
+            }
+            captures += 1;
+        }
+        assert!(captures > 0, "no captures: diagnostic replay did not run");
+        assert!(deep > 0, "no actual999 shadow input was replayed");
+    }
+
+    #[test]
     fn iterative_layout_preserves_mixed_inline_placed_vertical_and_column_children() {
-        let mut input=column_fixture(
+        let mut input = column_fixture(
             "#flex{display:flex;width:180px}#grid{display:grid;grid-template-columns:80px 80px}             #vertical{writing-mode:vertical-rl;width:70px;height:120px}             #columns{columns:2;column-gap:10px;width:180px}             #float{float:left;width:35px;height:20px}span{display:inline-block}",
-            vec![node(2,Some(1),"div",""),node(3,Some(2),"span","atomic"),
-                node(4,Some(2),"div","block"),node(5,Some(1),"div",""),
-                node(6,Some(5),"div","flex one"),node(7,Some(5),"div","flex two"),
-                node(8,Some(1),"div",""),node(9,Some(8),"div","grid one"),
-                node(10,Some(8),"div","grid two"),node(11,Some(1),"div",""),
-                node(12,Some(11),"div","vertical"),node(13,Some(1),"div",""),
-                node(14,Some(13),"div",""),node(15,Some(13),"p","wrapping column text")]);
-        for(id,name)in [(5,"flex"),(8,"grid"),(11,"vertical"),(13,"columns"),(14,"float")] {
-            input.nodes.iter_mut().find(|node|node.id==id).unwrap().attributes
-                .insert("id".into(),name.into());
+            vec![
+                node(2, Some(1), "div", ""),
+                node(3, Some(2), "span", "atomic"),
+                node(4, Some(2), "div", "block"),
+                node(5, Some(1), "div", ""),
+                node(6, Some(5), "div", "flex one"),
+                node(7, Some(5), "div", "flex two"),
+                node(8, Some(1), "div", ""),
+                node(9, Some(8), "div", "grid one"),
+                node(10, Some(8), "div", "grid two"),
+                node(11, Some(1), "div", ""),
+                node(12, Some(11), "div", "vertical"),
+                node(13, Some(1), "div", ""),
+                node(14, Some(13), "div", ""),
+                node(15, Some(13), "p", "wrapping column text"),
+            ],
+        );
+        for (id, name) in [
+            (5, "flex"),
+            (8, "grid"),
+            (11, "vertical"),
+            (13, "columns"),
+            (14, "float"),
+        ] {
+            input
+                .nodes
+                .iter_mut()
+                .find(|node| node.id == id)
+                .unwrap()
+                .attributes
+                .insert("id".into(), name.into());
         }
-        for(id,children)in [(1,vec![2,5,8,11,13]),(2,vec![3,4]),(5,vec![6,7]),
-            (8,vec![9,10]),(11,vec![12]),(13,vec![14,15])] {
-            let node=input.nodes.iter_mut().find(|node|node.id==id).unwrap();
-            node.children=children.clone();
-            node.content=Some(children.into_iter().map(LayoutContent::Element).collect());
+        for (id, children) in [
+            (1, vec![2, 5, 8, 11, 13]),
+            (2, vec![3, 4]),
+            (5, vec![6, 7]),
+            (8, vec![9, 10]),
+            (11, vec![12]),
+            (13, vec![14, 15]),
+        ] {
+            let node = input.nodes.iter_mut().find(|node| node.id == id).unwrap();
+            node.children = children.clone();
+            node.content = Some(children.into_iter().map(LayoutContent::Element).collect());
         }
-        let output=compute(&input,&LayoutLimits::default()).unwrap();
+        let output = compute(&input, &LayoutLimits::default()).unwrap();
         for id in 2..=15 {
-            let geometry=&output.geometry[&id];
-            assert_ne!(geometry.availability,GeometryAvailability::Unsupported,"node {id}");
-            let rect=geometry.box_model.as_ref().unwrap().border_box;
-            assert!(rect.x.is_finite()&&rect.y.is_finite()&&rect.width.is_finite()&&rect.height.is_finite());
+            let geometry = &output.geometry[&id];
+            assert_ne!(
+                geometry.availability,
+                GeometryAvailability::Unsupported,
+                "node {id}"
+            );
+            let rect = geometry.box_model.as_ref().unwrap().border_box;
+            assert!(
+                rect.x.is_finite()
+                    && rect.y.is_finite()
+                    && rect.width.is_finite()
+                    && rect.height.is_finite()
+            );
         }
     }
 
@@ -16210,6 +16532,45 @@ mod tests {
         assert_eq!(output.computed_styles[&2]["height"], "33px");
     }
 
+    #[test]
+    fn native_hover_scope_limit_toggles_without_pointer_dispatch() {
+        let mut root = node(1, None, "html", "");
+        root.children = vec![2];
+        let mut a = node(2, Some(1), "div", "");
+        a.children = vec![3];
+        a.attributes.insert("class".into(), "a".into());
+        let mut b = node(3, Some(2), "div", "");
+        b.attributes.insert("class".into(), "b".into());
+        let mut input=LayoutInput {
+            svg_clip_resources:Vec::new(), legacy_background_urls:Default::default(),
+            registered_custom_properties:Vec::new(),document_language:None,
+            document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),
+            control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),
+            top_layer:Vec::new(),scrollbar_width:0.,element_scrolls:Default::default(),anchor_parents:Default::default(),rendered_tree:None,
+            nodes:vec![root,a,b],stylesheets:vec!["@scope (.a:hover){:scope{z-index:1}} @scope (.a) to (.b:hover){.b{opacity:.5;z-index:7}}".into()],
+            stylesheet_media:Default::default(),selector_states:Default::default(),shadow_trees:Default::default(),stylesheet_base_urls:Default::default(),stylesheet_scope_roots:Default::default(),
+            custom_states:Default::default(),focused_node:None,focus_visible:false,viewport:Default::default(),scroll:Default::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new(),
+        };
+        let mut engine = StyleEngine::default();
+        for hovered in [false, true, false] {
+            for id in [2, 3] {
+                input.selector_states.insert(
+                    id,
+                    LayoutSelectorState {
+                        hovered,
+                        ..Default::default()
+                    },
+                );
+            }
+            let standalone = stylo_computed_values(&input).unwrap();
+            let retained = engine.compute(&input, &LayoutLimits::default()).unwrap();
+            for styles in [&standalone, &retained.computed_styles] {
+                assert_eq!(styles[&3]["opacity"], if hovered { "1" } else { "0.5" });
+                assert_eq!(styles[&3]["z-index"], if hovered { "auto" } else { "7" });
+                assert_eq!(styles[&2]["z-index"], if hovered { "1" } else { "auto" });
+            }
+        }
+    }
     #[test]
     fn computed_style_traversal_is_parent_order_independent_and_bridges_grid_values() {
         let mut parent = node(1, None, "main", "");

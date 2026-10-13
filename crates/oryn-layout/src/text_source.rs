@@ -1101,7 +1101,9 @@ mod tests {
         source.append(2, Some(11), "😀");
         let style = BTreeMap::from([("text-transform".into(), "uppercase full-width".into())]);
         let rendered = source.normalize(&BTreeMap::new(), &style).transform(
-            &BTreeMap::new(), &style, &BTreeMap::new(),
+            &BTreeMap::new(),
+            &style,
+            &BTreeMap::new(),
         );
         assert_eq!(rendered.text, "ＳＳ😀");
         assert_eq!(source.text, "ß😀");
@@ -1111,16 +1113,45 @@ mod tests {
         assert_eq!(rendered.byte_boundary(11, 1, false), Some(6));
         assert_eq!(rendered.byte_boundary(11, 1, true), Some(10));
         assert_eq!(rendered.byte_boundary(11, 2, true), Some(10));
-        let first = oryn_common::v4::CssRect { x: 0., y: 0., width: 8., height: 16. };
+        let first = oryn_common::v4::CssRect {
+            x: 0.,
+            y: 0.,
+            width: 8.,
+            height: 16.,
+        };
         let second = oryn_common::v4::CssRect { x: 8., ..first };
-        let emoji = oryn_common::v4::CssRect { x: 16., width: 16., ..first };
+        let emoji = oryn_common::v4::CssRect {
+            x: 16.,
+            width: 16.,
+            ..first
+        };
         let mapped = rendered.map_clusters(&[
-            TextCluster { bytes: 0..3, rect: first, line: 0, rtl: false },
-            TextCluster { bytes: 3..6, rect: second, line: 0, rtl: false },
-            TextCluster { bytes: 6..10, rect: emoji, line: 0, rtl: false },
+            TextCluster {
+                bytes: 0..3,
+                rect: first,
+                line: 0,
+                rtl: false,
+            },
+            TextCluster {
+                bytes: 3..6,
+                rect: second,
+                line: 0,
+                rtl: false,
+            },
+            TextCluster {
+                bytes: 6..10,
+                rect: emoji,
+                line: 0,
+                rtl: false,
+            },
         ]);
-        assert_eq!(mapped.iter().map(|span| (span.text_node, span.utf16.clone(), span.rect))
-            .collect::<Vec<_>>(), vec![(10, 0..1, first), (10, 0..1, second), (11, 0..2, emoji)]);
+        assert_eq!(
+            mapped
+                .iter()
+                .map(|span| (span.text_node, span.utf16.clone(), span.rect))
+                .collect::<Vec<_>>(),
+            vec![(10, 0..1, first), (10, 0..1, second), (11, 0..2, emoji)]
+        );
     }
 
     #[test]
@@ -1129,8 +1160,17 @@ mod tests {
         source.append(1, Some(10), "foo");
         source.append(2, Some(11), "bar baz");
         let styles = BTreeMap::from([
-            (1, std::sync::Arc::new(BTreeMap::from([("text-transform".into(), "none".into())]))),
-            (2, std::sync::Arc::new(BTreeMap::from([("text-transform".into(), "capitalize".into())]))),
+            (
+                1,
+                std::sync::Arc::new(BTreeMap::from([("text-transform".into(), "none".into())])),
+            ),
+            (
+                2,
+                std::sync::Arc::new(BTreeMap::from([(
+                    "text-transform".into(),
+                    "capitalize".into(),
+                )])),
+            ),
         ]);
         let rendered = source.transform(&styles, &BTreeMap::new(), &BTreeMap::new());
         assert_eq!(rendered.text, "foobar Baz");

@@ -1684,6 +1684,37 @@ impl BrowserContext {
             crate::referrer::ReferrerPolicy::default().as_str().into();
         self.seal_document_source(&snapshot)
     }
+    pub(crate) fn live_document_fetch_source(
+        &self,
+        page: PageId,
+        creator: &Creator,
+        provenance: &oryn_dom::DocumentProvenance,
+    ) -> Result<oryn_js::navigation::FormNavigationSource, RuntimeError> {
+        let snapshot = self.open_document_source(page, provenance)?;
+        if snapshot.inert || snapshot.source.source != page || &snapshot.source.creator != creator {
+            return Err(RuntimeError::ProtocolViolation(
+                "fetch source is not the current native Document".into(),
+            ));
+        }
+        let Creator::Window {
+            target,
+            document_generation,
+            stream_epoch,
+        } = creator
+        else {
+            return Err(RuntimeError::ProtocolViolation(
+                "fetch source requires Window".into(),
+            ));
+        };
+        let (_, _, origin) =
+            self.window_worker_creator(page, target, *document_generation, *stream_epoch)?;
+        if snapshot.origin_key != origin.authority {
+            return Err(RuntimeError::ProtocolViolation(
+                "fetch source origin identity changed".into(),
+            ));
+        }
+        Ok(snapshot.source.fetch)
+    }
     pub(crate) fn document_source_domain_identity(
         &self,
         page: PageId,
@@ -1979,6 +2010,73 @@ impl BrowserContext {
 mod document_provenance_tests {
     use super::*;
     use oryn_js::message_wire::{MessageRequest, WindowTarget};
+    #[test]
+    fn sealed_fetch_source_is_exact_live_owner_bound_and_does_not_publish_url() {
+        let context = Browser::new().new_context();
+        let page = context.new_page().page_id();
+        context
+            .install_document_security(page, "https://source.test/start".into(), &[])
+            .unwrap();
+        context
+            .handle_message_wire(
+                page,
+                MessageRequest::RegisterRootDocument {
+                    document_generation: 1,
+                    stream_epoch: 0,
+                },
+            )
+            .unwrap();
+        let creator = Creator::Window {
+            target: WindowTarget::Root,
+            document_generation: 1,
+            stream_epoch: 0,
+        };
+        let snapshot = context
+            .capture_document_source(page, creator.clone(), "https://source.test/next", "origin")
+            .unwrap();
+        let fetch = context
+            .live_document_fetch_source(page, &creator, &snapshot)
+            .unwrap();
+        assert_eq!(fetch.url, "https://source.test/next");
+        assert_eq!(
+            context
+                .window_worker_policy(page, &WindowTarget::Root, 1, 0)
+                .unwrap()
+                .url,
+            "https://source.test/start"
+        );
+        let stale = Creator::Window {
+            target: WindowTarget::Root,
+            document_generation: 2,
+            stream_epoch: 0,
+        };
+        assert!(
+            context
+                .live_document_fetch_source(page, &stale, &snapshot)
+                .is_err()
+        );
+        let foreign = context.new_page().page_id();
+        assert!(
+            context
+                .live_document_fetch_source(foreign, &creator, &snapshot)
+                .is_err()
+        );
+        let mut forged = snapshot.clone();
+        forged.capability[0] ^= 1;
+        assert!(
+            context
+                .live_document_fetch_source(page, &creator, &forged)
+                .is_err()
+        );
+        let inert = context
+            .derive_inert_document_source(page, &snapshot, "https://source.test/next")
+            .unwrap();
+        assert!(
+            context
+                .live_document_fetch_source(page, &creator, &inert)
+                .is_err()
+        );
+    }
     #[test]
     fn document_snapshot_does_not_freeze_activation_before_navigation_acceptance() {
         let context = Browser::new().new_context();

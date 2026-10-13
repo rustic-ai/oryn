@@ -3,7 +3,7 @@
 use crate::host::webdriver_script::{ELEMENT_KEY, ScriptError, ScriptValue};
 use serde::{Deserialize, Serialize};
 
-pub const MAX_SOURCES: usize = 16;
+pub const MAX_SOURCES: usize = oryn_common::MAX_NATIVE_POINTER_SOURCES;
 pub const MAX_ACTIONS_PER_SOURCE: usize = 4096;
 const MAX_SAFE: u64 = 9_007_199_254_740_991;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

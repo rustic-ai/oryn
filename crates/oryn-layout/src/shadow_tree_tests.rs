@@ -414,6 +414,7 @@ fn native_selector_state_changes_recompute_styles_without_authored_flags() {
     input.selector_states.insert(
         4,
         LayoutSelectorState {
+            hovered: false,
             fullscreen: false,
             media_state: 0,
             interest_source: false,
@@ -437,6 +438,7 @@ fn native_selector_state_changes_recompute_styles_without_authored_flags() {
     input.selector_states.insert(
         4,
         LayoutSelectorState {
+            hovered: false,
             fullscreen: false,
             media_state: 0,
             interest_source: false,
@@ -472,6 +474,7 @@ fn required_and_optional_state_changes_reach_style_cascade() {
     input.selector_states.insert(
         4,
         LayoutSelectorState {
+            hovered: false,
             required: Some(true),
             ..Default::default()
         },
@@ -499,6 +502,7 @@ fn range_states_use_distinct_inapplicable_and_in_range_cascade() {
     input.selector_states.insert(
         4,
         LayoutSelectorState {
+            hovered: false,
             in_range: Some(true),
             ..Default::default()
         },
@@ -520,6 +524,7 @@ fn default_control_state_reaches_cascade() {
     input.selector_states.insert(
         4,
         LayoutSelectorState {
+            hovered: false,
             default_control: true,
             ..Default::default()
         },
@@ -541,6 +546,7 @@ fn user_validity_state_changes_reach_native_style_and_reset() {
     input.selector_states.insert(
         4,
         LayoutSelectorState {
+            hovered: false,
             permission_granted: false,
             user_validity: Some(false),
             ..Default::default()
@@ -576,6 +582,7 @@ fn granted_selector_uses_native_permission_state_and_restyles_on_revocation() {
     input.selector_states.insert(
         4,
         LayoutSelectorState {
+            hovered: false,
             permission_granted: true,
             ..Default::default()
         },
@@ -698,6 +705,7 @@ fn denied_inline_declarations_preserve_style_attribute_selector_matching() {
     input.selector_states.insert(
         4,
         LayoutSelectorState {
+            hovered: false,
             fullscreen: false,
             media_state: 0,
             interest_source: false,

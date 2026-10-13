@@ -366,6 +366,37 @@ mod tests {
         assert!(source.control_bad_input(number).unwrap());
     }
     #[test]
+    fn repeated_document_clones_release_detached_payload_after_wrapper_custody() {
+        let mut dom = crate::html::parse(
+            "<!doctype html><div id=log>report</div><div contenteditable>case</div>",
+        )
+        .into_runtime()
+        .unwrap();
+        let document = dom.document.unwrap();
+        let source = dom
+            .arena
+            .get(document)
+            .unwrap()
+            .children
+            .iter()
+            .copied()
+            .find(|node| matches!(dom.arena.get(*node).unwrap().kind, NodeKind::Element { .. }))
+            .unwrap();
+        let baseline = dom.arena.iter().count();
+        for _ in 0..64 {
+            let cloned = dom.clone_node(source, true).unwrap();
+            assert_ne!(cloned, source);
+            assert_eq!(dom.native_root_count(cloned).unwrap(), 0);
+            dom.retain_wrapper(cloned).unwrap();
+            assert!(dom.arena.iter().count() > baseline);
+            assert_eq!(dom.arena.text_content(cloned).unwrap(), "reportcase");
+            dom.release_wrapper(cloned).unwrap();
+            assert!(dom.arena.get(cloned).is_err());
+            assert_eq!(dom.arena.iter().count(), baseline);
+            assert_eq!(dom.arena.text_content(source).unwrap(), "reportcase");
+        }
+    }
+    #[test]
     fn clone_rejects_malformed_graph_before_allocating_records() {
         let mut dom = DomRuntime::new();
         let root = dom.create_element("div");

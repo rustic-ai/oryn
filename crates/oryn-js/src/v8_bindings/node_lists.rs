@@ -365,38 +365,49 @@ fn contents(state: &V8BindingState, id: u64) -> Result<Vec<NodeId>, V8BindingErr
             root,
             filter: ElementFilter::WindowName { name },
         } => (root, window_named_nodes(&state.dom.borrow(), root, &name)?),
-        Contents::Elements { root, filter: ElementFilter::TableRows } => {
+        Contents::Elements {
+            root,
+            filter: ElementFilter::TableRows,
+        } => {
             let dom = state.dom.borrow();
-                let children = light_children(&dom, root)?;
-                let mut rows = Vec::new();
-                let count = children.iter().try_fold(children.len(), |count, child| {
-                    Ok::<_, V8BindingError>(count.saturating_add(light_children(&dom, *child)?.len()))
-                })?;
-                rows.try_reserve_exact(count).map_err(|_| V8BindingError::Allocation("table row scratch"))?;
-                // THEAD rows precede the table/TBODY rows; TFOOT rows follow
-                // them, regardless of section placement in the DOM tree.
-                for phase in 0..3 {
-                    for child in &children {
-                        let record = dom.arena().get(*child)?;
-                        let NodeKind::Element { name } = &record.kind else { continue };
-                        if name.ns.as_ref() != "http://www.w3.org/1999/xhtml" { continue }
-                        let local = name.local.as_ref();
-                        if phase == 1 && local == "tr" { rows.push(*child); }
-                        let section = match phase {
-                            0 => local == "thead",
-                            1 => local == "tbody",
-                            _ => local == "tfoot",
-                        };
-                        if section {
-                            for row in light_children(&dom, *child)? {
-                                if matches!(&dom.arena().get(row)?.kind,
-                                    NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "tr") {
-                                    rows.push(row);
-                                }
+            let children = light_children(&dom, root)?;
+            let mut rows = Vec::new();
+            let count = children.iter().try_fold(children.len(), |count, child| {
+                Ok::<_, V8BindingError>(count.saturating_add(light_children(&dom, *child)?.len()))
+            })?;
+            rows.try_reserve_exact(count)
+                .map_err(|_| V8BindingError::Allocation("table row scratch"))?;
+            // THEAD rows precede the table/TBODY rows; TFOOT rows follow
+            // them, regardless of section placement in the DOM tree.
+            for phase in 0..3 {
+                for child in &children {
+                    let record = dom.arena().get(*child)?;
+                    let NodeKind::Element { name } = &record.kind else {
+                        continue;
+                    };
+                    if name.ns.as_ref() != "http://www.w3.org/1999/xhtml" {
+                        continue;
+                    }
+                    let local = name.local.as_ref();
+                    if phase == 1 && local == "tr" {
+                        rows.push(*child);
+                    }
+                    let section = match phase {
+                        0 => local == "thead",
+                        1 => local == "tbody",
+                        _ => local == "tfoot",
+                    };
+                    if section {
+                        for row in light_children(&dom, *child)? {
+                            if matches!(&dom.arena().get(row)?.kind,
+                                    NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "tr")
+                            {
+                                rows.push(row);
                             }
                         }
                     }
                 }
+            }
             (root, rows)
         }
         Contents::Elements { root, filter } => {
@@ -655,7 +666,10 @@ pub(super) fn collect(state: &V8BindingState) -> Result<(), BindingError> {
                 state.node_lists.labels.borrow_mut().remove(root);
             }
         }
-        if let Contents::Elements { root, filter: ElementFilter::TableRows } = &list.contents
+        if let Contents::Elements {
+            root,
+            filter: ElementFilter::TableRows,
+        } = &list.contents
             && state.node_lists.table_rows.borrow().get(root).copied() == Some(id)
         {
             state.node_lists.table_rows.borrow_mut().remove(root);

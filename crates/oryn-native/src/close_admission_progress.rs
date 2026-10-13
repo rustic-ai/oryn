@@ -147,13 +147,12 @@ impl Drop for Registration {
     fn drop(&mut self) {
         self.0.retired.store(true, Ordering::Relaxed);
         self.0.profile.retire();
-        if let Ok(mut registry) = registry().try_lock() {
-            if registry
+        if let Ok(mut registry) = registry().try_lock()
+            && registry
                 .get(&self.0.key)
                 .is_some_and(|weak| weak.ptr_eq(&Arc::downgrade(&self.0)))
-            {
-                registry.remove(&self.0.key);
-            }
+        {
+            registry.remove(&self.0.key);
         }
     }
 }

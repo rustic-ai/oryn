@@ -660,6 +660,7 @@ mod pre_child_production {
                         text_engine.float_context.as_ref(),
                         text_engine.float_block_offset,
                     ),
+                    cache: Some(&text_engine.margin_suffixes),
                     own_margin: margin.top,
                 })
             {
@@ -2148,10 +2149,13 @@ impl InlineFlowFrame {
                 id,
                 false,
                 self.inline,
-                nodes,
-                styles,
-                input.viewport,
                 obstacles,
+                margin_collapse::QueryContext {
+                    nodes,
+                    styles,
+                    viewport: input.viewport,
+                    cache: Some(&engine.margin_suffixes),
+                },
             )
         };
         let previous = self.preceding_margin.take().unwrap_or_default();
@@ -3445,8 +3449,16 @@ impl BlockExecutor<'_> {
     }
 
     pub(super) fn run_block(&mut self, request: LayoutRequest) -> Result<f64, String> {
+        // Nested synthetic-tree invocations must not pollute an outer scope.
+        let previous_margin_suffixes =
+            std::mem::take(&mut *self.engine.margin_suffixes.borrow_mut());
+        #[cfg(test)]
+        margin_collapse::reset_chain_profile();
         let mut stack: Vec<SuspendedNode> = Vec::new();
         let result = self.run_inner(request, &mut stack);
+        *self.engine.margin_suffixes.borrow_mut() = previous_margin_suffixes;
+        #[cfg(test)]
+        margin_collapse::report_chain_profile();
         if result.is_err() {
             while let Some(frame) = stack.pop() {
                 match frame {

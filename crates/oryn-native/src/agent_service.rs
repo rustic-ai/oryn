@@ -881,6 +881,28 @@ fn create(
             "service agents require parent registration lifecycle authority",
         ));
     }
+    let document_source = match (&owner, creation.document_source.as_ref()) {
+        (AgentOwner::Window { page, .. }, Some(source)) => Some(
+            context
+                .live_document_fetch_source(*page, &creation.creator, source)
+                .map_err(error)?,
+        ),
+        (AgentOwner::Agent(_), Some(_)) => {
+            return Err(WorkerError::new(
+                "SecurityError",
+                "agent cannot claim Window Document source",
+            ));
+        }
+        (AgentOwner::Window { .. }, None)
+            if matches!(creation.kind, AgentKind::Dedicated | AgentKind::Shared) =>
+        {
+            return Err(WorkerError::new(
+                "SecurityError",
+                "Window worker Document source is required",
+            ));
+        }
+        (_, None) => None,
+    };
     let (partition, origin, policy, base, referrer, top) = match &owner {
         AgentOwner::Window {
             page,
@@ -921,6 +943,11 @@ fn create(
             )
         }
     };
+    let referrer = document_source
+        .as_ref()
+        .map(|source| source.referrer_policy.clone())
+        .unwrap_or(referrer);
+    // Source metadata affects referrer only; `base`, CSP and origin stay native.
     if creation.kind == AgentKind::AudioWorklet
         && creation
             .options
@@ -1008,7 +1035,7 @@ fn create(
                 coep_report: Some(&coep_report),
                 report: Some(&report),
                 cookie_ancestor_urls: &cookie_ancestor_urls,
-                referrer_source: None,
+                referrer_source: document_source.as_ref().map(|source| source.url.as_str()),
                 origin: &origin,
                 policy: &policy,
                 script_url: &base,
@@ -1159,6 +1186,156 @@ mod tests {
         time::{Duration, Instant},
     };
     #[test]
+    fn window_worker_entry_fetch_uses_sealed_rewritten_referrer_not_resolution_base() {
+        struct Fixture(Arc<Mutex<Vec<NetworkRequest>>>);
+        impl NetworkBroker for Fixture {
+            fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                assert_eq!(request.url, "https://example.test/assets/worker.js");
+                self.0.lock().unwrap().push(request.clone());
+                Ok(NetworkResponse {
+                    response_policy: None,
+                    timing: None,
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("content-type".into(), "text/javascript".into())],
+                    body: b"self.close()".to_vec(),
+                })
+            }
+        }
+        for (kind, script_type) in [
+            (AgentKind::Dedicated, ScriptType::Classic),
+            (AgentKind::Dedicated, ScriptType::Module),
+            (AgentKind::Shared, ScriptType::Classic),
+        ] {
+            let context = Browser::in_process_with_config(BrowserConfig::default()).new_context();
+            let page = context.new_page().page_id();
+            context
+                .commit_page_url(page, "https://example.test/start".into())
+                .unwrap();
+            context
+                .install_document_security(page, "https://example.test/start".into(), &[])
+                .unwrap();
+            context
+                .handle_message_wire(
+                    page,
+                    MessageRequest::RegisterRootDocument {
+                        document_generation: 1,
+                        stream_epoch: 0,
+                    },
+                )
+                .unwrap();
+            let creator = Creator::Window {
+                target: WindowTarget::Root,
+                document_generation: 1,
+                stream_epoch: 0,
+            };
+            let owner = context
+                .window_worker_creator(page, &WindowTarget::Root, 1, 0)
+                .unwrap()
+                .0;
+            publish_secure_context(&context, owner, creator.clone(), true).unwrap();
+            let rewritten = format!("https://example.test/{}", "a".repeat(4097));
+            let source = context
+                .capture_document_source(page, creator.clone(), &rewritten, "unsafe-url")
+                .unwrap();
+            let stale = Creator::Window {
+                target: WindowTarget::Root,
+                document_generation: 2,
+                stream_epoch: 0,
+            };
+            assert!(
+                context
+                    .live_document_fetch_source(page, &stale, &source)
+                    .is_err()
+            );
+            assert!(
+                context
+                    .live_document_fetch_source(context.new_page().page_id(), &creator, &source)
+                    .is_err()
+            );
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let network = SharedNetworkBroker::new(Fixture(requests.clone()));
+            let options = WorkerOptions {
+                script_type,
+                ..Default::default()
+            };
+            let missing = AgentServiceRequest::Create(AgentCreation {
+                kind,
+                url: "https://example.test/assets/worker.js".into(),
+                options: options.clone(),
+                creator: creator.clone(),
+                document_source: None,
+            });
+            assert!(
+                window_request(
+                    &context,
+                    page,
+                    missing,
+                    network.clone(),
+                    &AtomicBool::new(false)
+                )
+                .is_err()
+            );
+            assert!(requests.lock().unwrap().is_empty());
+            let make = |source| {
+                AgentServiceRequest::Create(AgentCreation {
+                    kind,
+                    url: "https://example.test/assets/worker.js".into(),
+                    options: options.clone(),
+                    creator: creator.clone(),
+                    document_source: Some(source),
+                })
+            };
+            let mut forged = source.clone();
+            forged.capability[0] ^= 1;
+            assert!(
+                window_request(
+                    &context,
+                    page,
+                    make(forged),
+                    network.clone(),
+                    &AtomicBool::new(false)
+                )
+                .is_err()
+            );
+            assert!(requests.lock().unwrap().is_empty());
+            let response = window_request(
+                &context,
+                page,
+                make(source),
+                network.clone(),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+            let AgentServiceResponse::Connected(connection) = response else {
+                panic!("expected native connection")
+            };
+            assert_eq!(
+                requests.lock().unwrap()[0]
+                    .headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("referer"))
+                    .map(|(_, value)| value.as_str()),
+                Some("https://example.test/")
+            );
+            assert_eq!(
+                context
+                    .window_worker_policy(page, &WindowTarget::Root, 1, 0)
+                    .unwrap()
+                    .url,
+                "https://example.test/start"
+            );
+            window_request(
+                &context,
+                page,
+                AgentServiceRequest::Release { connection },
+                network,
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        }
+    }
+    #[test]
     fn cancelled_blob_module_load_keeps_native_cancellation_before_authority_lookup() {
         let context = Browser::new().new_context();
         let policy =
@@ -1267,6 +1444,20 @@ mod tests {
             &context,
             page_id,
             AgentServiceRequest::Create(AgentCreation {
+                document_source: Some(
+                    context
+                        .capture_document_source(
+                            page_id,
+                            Creator::Window {
+                                target: WindowTarget::Root,
+                                document_generation: 1,
+                                stream_epoch: 0,
+                            },
+                            "https://example.test/app",
+                            "strict-origin-when-cross-origin",
+                        )
+                        .unwrap(),
+                ),
                 kind: AgentKind::Dedicated,
                 url: "/worker.js".into(),
                 options: Default::default(),
@@ -1379,6 +1570,20 @@ mod tests {
             &context,
             page_id,
             AgentServiceRequest::Create(AgentCreation {
+                document_source: Some(
+                    context
+                        .capture_document_source(
+                            page_id,
+                            Creator::Window {
+                                target: WindowTarget::Root,
+                                document_generation: 1,
+                                stream_epoch: 0,
+                            },
+                            "https://example.test/app",
+                            "strict-origin-when-cross-origin",
+                        )
+                        .unwrap(),
+                ),
                 kind: AgentKind::Dedicated,
                 url: "/worker.js".into(),
                 options: Default::default(),

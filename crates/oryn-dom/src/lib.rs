@@ -23,6 +23,7 @@ pub mod sanitizer;
 pub use render_blocking::RenderBlocker;
 mod embedded_content;
 mod frame_policy;
+mod hover_state;
 mod image_intrinsics;
 mod interest;
 pub mod language;
@@ -464,6 +465,10 @@ struct Slot {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum DomError {
+    #[error("native pointer source capacity exceeded")]
+    PointerSourceCapacity,
+    #[error("hover target belongs to another document")]
+    PointerHoverDocumentMismatch,
     #[error("native top-layer capacity exceeded")]
     TopLayerCapacity,
     #[error(
@@ -1591,6 +1596,7 @@ pub struct DomRuntime {
     internal_targets: BTreeSet<NodeId>,
     mutations: MutationJournal,
     xpath_revisions: BTreeMap<NodeId, Rc<()>>,
+    pointer_hover_targets: BTreeMap<(NodeId, i32), NodeId>,
     focused: Option<NodeId>,
     focus_ring_suppressed: bool,
     next_range: u64,
@@ -1669,6 +1675,7 @@ impl DomRuntime {
         self.internal_targets.clear();
         self.index_internal_targets();
         self.mutations.clear();
+        self.pointer_hover_targets.clear();
         self.focused = None;
         self.focus_ring_suppressed = false;
         self.next_range = 0;

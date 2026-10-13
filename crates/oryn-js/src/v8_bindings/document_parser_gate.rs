@@ -802,20 +802,15 @@ impl V8BindingState {
             })
             .transpose()
     }
-    pub fn set_script_policy_capture(
-        &self,
-        capture: Rc<dyn Fn(crate::worker_wire::Creator) -> Result<String, String>>,
-    ) {
+    pub fn set_script_policy_capture(&self, capture: ParserCreatorUrl) {
         *self.script_policy_capture.borrow_mut() = Some(capture);
     }
     pub fn capture_script_policy(&self) -> Result<Option<String>, V8BindingError> {
         let capture = self.script_policy_capture.borrow().clone();
         capture
             .map(|capture| {
-                capture(self.native_worker_creator()?).map_err(|_| {
-                    V8BindingError::DocumentWriteLimit {
-                        resource: "native script policy snapshot",
-                    }
+                capture(self).map_err(|_| V8BindingError::DocumentWriteLimit {
+                    resource: "native script policy snapshot",
                 })
             })
             .transpose()

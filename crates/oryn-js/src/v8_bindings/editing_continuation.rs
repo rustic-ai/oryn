@@ -700,6 +700,7 @@ pub(super) struct Continuation {
     completed: Option<Result<(), V8BindingError>>,
     terminal_recorded: bool,
     result: Option<bool>,
+    invocation: Option<Rc<editing_commands::Invocation>>,
 }
 impl Continuation {
     pub(super) fn new(
@@ -756,10 +757,17 @@ impl Continuation {
             completed: None,
             terminal_recorded: false,
             result: None,
+            invocation: None,
         }))
     }
     pub(super) fn refresh_baseline(&mut self) -> Result<(), V8BindingError> {
         self.baseline()
+    }
+    pub(super) fn retain_invocation(
+        &mut self,
+        invocation: Option<Rc<editing_commands::Invocation>>,
+    ) {
+        self.invocation = invocation;
     }
     pub(super) fn stop_unperformed(&mut self, error: V8BindingError) {
         self.future.take();
@@ -1390,6 +1398,245 @@ mod tests {
             scope,
             "calls===1&&tail.textContent==='C'&&document.querySelectorAll('#authored').length===1"
         ));
+    }
+    #[test]
+    fn exec_invocation_custody_survives_suspension_and_releases_on_terminal_owner_drop() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body><div id=host contenteditable>x</div></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        assert!(eval(
+            scope,
+            "getSelection().selectAllChildren(document.getElementById('host'));globalThis.other=document.implementation.createHTMLDocument('');true"
+        ));
+        let other = state.dom.borrow_mut().create(NodeKind::Document);
+        let token = editing_commands::admit_invocation(scope, &state, state.document_root())
+            .unwrap()
+            .unwrap();
+        assert!(
+            editing_commands::admit_invocation(scope, &state, state.document_root())
+                .unwrap()
+                .is_none()
+        );
+        let independent = editing_commands::admit_invocation(scope, &state, other)
+            .unwrap()
+            .unwrap();
+        drop(independent);
+        let mut job = Continuation::new(state.clone(), "invocation".into(), move |_| {
+            Box::pin(async { Ok(()) })
+        })
+        .unwrap()
+        .unwrap();
+        job.retain_invocation(Some(token.clone()));
+        drop(token);
+        assert!(job.current());
+        assert!(job.before.is_some());
+        assert!(job.result.is_none());
+        // Observe the termination request at a real V8 safepoint before
+        // checking native continuation suspension and retained baseline.
+        let interruption = v8::String::new(scope, "0").unwrap();
+        scope.terminate_execution();
+        {
+            v8::tc_scope!(let caught, scope);
+            let result = v8::Script::compile(caught, interruption, None)
+                .and_then(|script| script.run(caught));
+            assert!(result.is_none());
+            assert!(caught.has_terminated());
+            assert_eq!(job.poll(caught).unwrap(), None);
+            assert!(job.before.is_some());
+            assert!(job.result.is_none());
+        }
+        scope.cancel_terminate_execution();
+        assert!(
+            editing_commands::admit_invocation(scope, &state, state.document_root())
+                .unwrap()
+                .is_none()
+        );
+        job.cancel();
+        assert_eq!(job.poll(scope).unwrap(), Some(false));
+        // Cancelled owner's admission remains until exact owner is dropped.
+        drop(job);
+        let token = editing_commands::admit_invocation(scope, &state, state.document_root())
+            .unwrap()
+            .unwrap();
+        let generation = state.document_generation();
+        state.document_generation.set(generation + 1);
+        let replacement = editing_commands::admit_invocation(scope, &state, state.document_root())
+            .unwrap()
+            .unwrap();
+        drop(token);
+        assert!(
+            editing_commands::admit_invocation(scope, &state, state.document_root())
+                .unwrap()
+                .is_none()
+        );
+        drop(replacement);
+        state.document_generation.set(generation);
+        let token = editing_commands::admit_invocation(scope, &state, state.document_root())
+            .unwrap()
+            .unwrap();
+        let weak = Rc::downgrade(&token);
+        drop(token);
+        assert!(weak.upgrade().is_none());
+        // Retirement makes the continuation stale; exact owner drop releases it.
+        let token = editing_commands::admit_invocation(scope, &state, state.document_root())
+            .unwrap()
+            .unwrap();
+        let mut job = Continuation::new(state.clone(), "retire".into(), move |_| {
+            Box::pin(async { Ok(()) })
+        })
+        .unwrap()
+        .unwrap();
+        job.retain_invocation(Some(token.clone()));
+        drop(token);
+        state.retire_execution();
+        job.cancel();
+        assert_eq!(job.result, Some(false));
+        drop(job);
+    }
+    #[test]
+    fn exec_invocation_blocks_real_script_reentry_across_retry_and_navigation_retires_owner() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse(
+                "<body><div id=host contenteditable><span id=tail>B</span></div></body>",
+            )
+            .into_runtime()
+            .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        assert!(eval(
+            scope,
+            r#"
+            globalThis.calls=0;globalThis.rejected=0;
+            const host=document.getElementById('host');
+            globalThis.script=document.createElement('script');script.type='text/plain';
+            script.textContent="x calls++;if(document.execCommand('insertText',false,'bad'))throw Error('reentrant accepted');rejected++;";
+            host.append(script);script.type='text/javascript';
+            getSelection().collapse(document.getElementById('tail').firstChild,0);true
+        "#
+        ));
+        let (script, tail) = {
+            let dom = state.dom.borrow();
+            (
+                dom.arena()
+                    .get(dom.find_by_id("host").unwrap())
+                    .unwrap()
+                    .children[1],
+                dom.arena()
+                    .get(dom.find_by_id("tail").unwrap())
+                    .unwrap()
+                    .children[0],
+            )
+        };
+        let script_text = state.dom.borrow().arena().get(script).unwrap().children[0];
+        let invocation = editing_commands::admit_invocation(scope, &state, state.document_root())
+            .unwrap()
+            .unwrap();
+        let weak = Rc::downgrade(&invocation);
+        let mut job = Continuation::new(
+            state.clone(),
+            "callback-invocation".into(),
+            move |context| {
+                Box::pin(async move {
+                    context.text(script_text, 0, 1, "").await?;
+                    context.text(tail, 0, 1, "C").await?;
+                    Ok(())
+                })
+            },
+        )
+        .unwrap()
+        .unwrap();
+        job.retain_invocation(Some(invocation));
+        FAIL_BEFORE_PREPARATION.with(|flag| flag.set(true));
+        assert!(job.poll(scope).is_err());
+        assert!(eval(scope, "calls===0&&rejected===0"));
+        FAIL_AFTER_PREPARATION.with(|flag| flag.set(true));
+        assert!(job.poll(scope).is_err());
+        assert!(eval(
+            scope,
+            "calls===1&&rejected===1&&document.getElementById('tail').textContent==='B'"
+        ));
+        assert_eq!(job.poll(scope).unwrap(), Some(true));
+        assert!(weak.upgrade().is_some());
+        drop(job);
+        assert!(weak.upgrade().is_none());
+        assert!(eval(
+            scope,
+            "calls===1&&rejected===1&&document.execCommand('insertText',false,'z')"
+        ));
+        let invocation = editing_commands::admit_invocation(scope, &state, state.document_root())
+            .unwrap()
+            .unwrap();
+        let cancelled = Rc::downgrade(&invocation);
+        let mut cancelled_job =
+            Continuation::new(state.clone(), "cancel-callback".into(), move |context| {
+                Box::pin(async move {
+                    context.text(tail, 0, 1, "Q").await?;
+                    Ok(())
+                })
+            })
+            .unwrap()
+            .unwrap();
+        cancelled_job.retain_invocation(Some(invocation));
+        FAIL_BEFORE_PREPARATION.with(|flag| flag.set(true));
+        assert!(cancelled_job.poll(scope).is_err());
+        cancelled_job.cancel();
+        drop(cancelled_job);
+        assert!(cancelled.upgrade().is_none());
+        assert!(eval(scope, "calls===1&&rejected===1"));
+        // Retirement makes a retained continuation stale; cancellation drops its owner.
+        let invocation = editing_commands::admit_invocation(scope, &state, state.document_root())
+            .unwrap()
+            .unwrap();
+        let retired = Rc::downgrade(&invocation);
+        let mut retired_job =
+            Continuation::new(state.clone(), "retire-callback".into(), move |_| {
+                Box::pin(async { Ok(()) })
+            })
+            .unwrap()
+            .unwrap();
+        retired_job.retain_invocation(Some(invocation));
+        retired_job.cancel();
+        drop(retired_job);
+        assert!(retired.upgrade().is_none());
+        let invocation = editing_commands::admit_invocation(scope, &state, state.document_root())
+            .unwrap()
+            .unwrap();
+        let old = state.document_root();
+        let replacement = state.dom.borrow_mut().create(NodeKind::Document);
+        state
+            .dom
+            .borrow_mut()
+            .arena_mut()
+            .get_mut(replacement)
+            .unwrap()
+            .document_metadata = Some(Box::new(oryn_dom::DocumentMetadata::html()));
+        state
+            .replace_initial_document(replacement, state.document_generation() + 1)
+            .unwrap();
+        let new = editing_commands::admit_invocation(scope, &state, replacement)
+            .unwrap()
+            .unwrap();
+        drop(invocation);
+        assert!(
+            editing_commands::admit_invocation(scope, &state, replacement)
+                .unwrap()
+                .is_none()
+        );
+        assert_ne!(old, state.document_root());
+        drop(new);
     }
     #[test]
     fn cancellation_releases_suspended_operation_without_running_script() {

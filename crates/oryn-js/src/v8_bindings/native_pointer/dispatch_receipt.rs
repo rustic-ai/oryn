@@ -276,6 +276,13 @@ impl NativePointerDispatch {
         let claim = Rc::new(());
         {
             let mut registry = state.native_pointers.borrow_mut();
+            if !registry.pointers.contains_key(&input.id)
+                && registry.pointers.len() >= oryn_common::MAX_NATIVE_POINTER_SOURCES
+            {
+                return Err(V8BindingError::Allocation(
+                    "native pointer source capacity exceeded",
+                ));
+            }
             let pointer = registry.pointers.entry(input.id).or_default();
             if pointer.boundary_claim.is_some() {
                 return Err(V8BindingError::Allocation(
@@ -740,6 +747,13 @@ impl NativePointerDispatch {
                     self.phase = Phase::Boundary;
                 }
                 Phase::Boundary => {
+                    if action == NativePointerAction::Cancel {
+                        state.dom.borrow_mut().set_pointer_hover(
+                            state.document_root(),
+                            input.id,
+                            None,
+                        )?;
+                    }
                     if action != NativePointerAction::Cancel {
                         self.boundary(scope, self.previous, self.target)?;
                     }

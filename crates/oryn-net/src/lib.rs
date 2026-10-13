@@ -2592,12 +2592,11 @@ fn certificate_rejection(
             return Some(cause.to_string());
         }
         // io::Error's inner error is not guaranteed to appear as its source.
-        if let Some(io) = error.downcast_ref::<std::io::Error>() {
-            if let Some(inner) = io.get_ref() {
-                if let Some(cause) = visit(inner, budget) {
-                    return Some(cause);
-                }
-            }
+        if let Some(io) = error.downcast_ref::<std::io::Error>()
+            && let Some(inner) = io.get_ref()
+            && let Some(cause) = visit(inner, budget)
+        {
+            return Some(cause);
         }
         error.source().and_then(|source| visit(source, budget))
     }

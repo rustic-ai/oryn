@@ -1210,10 +1210,10 @@ impl Root {
             pending.reject(RuntimeError::Closed);
         }
         #[cfg(feature = "v8-host")]
-        if let Some(pending) = self.pending_webdriver.take() {
-            if let Some(cleanup) = pending.reject(&mut self.state, RuntimeError::Closed) {
-                self.terminal_cleanup.push(cleanup);
-            }
+        if let Some(pending) = self.pending_webdriver.take()
+            && let Some(cleanup) = pending.reject(&mut self.state, RuntimeError::Closed)
+        {
+            self.terminal_cleanup.push(cleanup);
         }
     }
     fn shutdown(&mut self) {

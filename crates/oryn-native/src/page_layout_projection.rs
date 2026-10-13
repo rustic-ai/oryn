@@ -14,6 +14,7 @@ impl PageState {
 
     #[cfg(feature = "v8-host")]
     pub(super) fn refresh_page_task_layout(&mut self) -> Result<bool, RuntimeError> {
+        let _profile = crate::native_timing::stage("deep.page_task_layout");
         let _close_phase = crate::ipc_progress::close_admission::phase("layout");
         if self.terminal_close_requested() {
             return Ok(false);
@@ -23,6 +24,7 @@ impl PageState {
         if !(self.presentation.building && self.frame_scope.is_some())
             && let Some(executable) = self.executable.as_mut()
         {
+            let _profile = crate::native_timing::stage("deep.animation_frame_phase");
             executable
                 .run_animation_frame_phase()
                 .map_err(map_host_error)?;
@@ -158,6 +160,7 @@ impl PageState {
         if self.executable.is_some() {
             {
                 let executable = self.executable.as_mut().expect("checked above");
+                let _profile = crate::native_timing::stage("deep.install_layout_media");
                 executable
                     .install_layout_with_task_checkpoint(&output, self.viewport, false)
                     .map_err(map_host_error)?;
@@ -174,7 +177,10 @@ impl PageState {
                     )
                     .map_err(map_host_error)?;
             }
-            self.sync_executable_semantics()?;
+            {
+                let _profile = crate::native_timing::stage("deep.semantics_after_install");
+                self.sync_executable_semantics()?;
+            }
         }
         self.trace.push(
             Revision(self.revision),
@@ -203,6 +209,7 @@ impl PageState {
             );
         }
         if let Some(document) = self.document.as_ref() {
+            let _profile = crate::native_timing::stage("deep.generated_visibility");
             self.semantic_graph
                 .apply_computed_visibility(&document.dom, &output.computed_styles);
             self.semantic_graph
@@ -210,7 +217,10 @@ impl PageState {
         }
         // Generated names can refresh native control nodes; reapply native
         // focus/inert/validation after that projection before publishing AX.
-        self.sync_executable_semantics()?;
+        {
+            let _profile = crate::native_timing::stage("deep.semantics_after_generated");
+            self.sync_executable_semantics()?;
+        }
         self.semantic_graph
             .apply_geometry_visibility(&output.geometry);
         // Empty geometry is not a reusable layout result. Computation failures

@@ -2272,11 +2272,11 @@ impl WorkerPage {
             WorkerLifecycle::IsolatedPrewarmed { .. } | WorkerLifecycle::Recycled { .. }
         ) {
             self.worker_pool.discard(active);
-            if outcome == WorkerCloseOutcome::Closed {
-                if let Err(error) = self.worker_pool.prepare(&self.config) {
-                    self.remember_protocol_close_failure(&error);
-                    return Err(error);
-                }
+            if outcome == WorkerCloseOutcome::Closed
+                && let Err(error) = self.worker_pool.prepare(&self.config)
+            {
+                self.remember_protocol_close_failure(&error);
+                return Err(error);
             }
         }
         Ok(outcome)
@@ -14985,7 +14985,7 @@ impl NavigationReply {
     fn complete(self, state: &mut PageState, result: Result<NavigationResult, RuntimeError>) {
         match self {
             Self::JointEvents(emitter, reply) => {
-                use crate::navigation_control::{NavigationEvent, NavigationStop};
+                use crate::navigation_control::NavigationEvent;
                 let publication = match &result {
                     Ok(result) => emitter
                         .publish(NavigationEvent::Committed {
@@ -15078,7 +15078,7 @@ impl JointNavigationPublication {
         &mut self,
         emitter: &crate::navigation_control::NavigationEmitter,
     ) -> std::task::Poll<Result<(), RuntimeError>> {
-        use crate::navigation_control::{NavigationEvent, NavigationStop};
+        use crate::navigation_control::NavigationEvent;
         loop {
             if let Some(ack) = &self.acknowledgement {
                 match ack.poll() {
@@ -36559,6 +36559,68 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn same_task_history_rewrite_is_used_by_script_referrer_before_checkpoint() {
+        struct Fixture(Arc<Mutex<Vec<NetworkRequest>>>);
+        impl NetworkBroker for Fixture {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                let path = Url::parse(&request.url).unwrap().path().to_owned();
+                let (mime, body) = if path == "/start" {
+                    (
+                        "text/html",
+                        "<!doctype html><base href='/assets/'><script>history.pushState(null,'','/');history.replaceState(null,'','A'.repeat(4097-location.href.length));const s=document.createElement('script');s.src='probe.js';document.head.appendChild(s)</script><body>root",
+                    )
+                } else if path == "/assets/probe.js" {
+                    ("text/javascript", "globalThis.probeLoaded=true")
+                } else {
+                    panic!("unexpected navigation {}", request.url)
+                };
+                let response = NetworkResponse {
+                    response_policy: None,
+                    timing: None,
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("content-type".into(), mime.into())],
+                    body: body.as_bytes().to_vec(),
+                };
+                self.0.lock().unwrap().push(request);
+                Ok(response)
+            }
+        }
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let context = Browser::new().new_context_with_broker(
+            ContextOptions::default(),
+            SharedNetworkBroker::new(Fixture(requests.clone())),
+        );
+        let page = context.new_page();
+        page.goto("https://referrer.example.test/start")
+            .await
+            .unwrap();
+        assert_eq!(page.evaluate("probeLoaded").await.unwrap(), "true");
+        let requests = requests.lock().unwrap();
+        let probe = requests
+            .iter()
+            .find(|request| request.url.ends_with("/assets/probe.js"))
+            .unwrap();
+        assert_eq!(
+            probe
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("referer"))
+                .map(|(_, value)| value.as_str()),
+            Some("https://referrer.example.test/")
+        );
+        assert_eq!(
+            requests.len(),
+            2,
+            "history rewrite must not fetch another Document"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn frame_history_updates_keep_document_and_update_navigation_referrer() {
         struct FrameHistoryFixture(Arc<Mutex<Vec<NetworkRequest>>>);
         impl NetworkBroker for FrameHistoryFixture {
@@ -39987,6 +40049,70 @@ mod tests {
             )
             .unwrap();
         assert!(resolution.selected.is_some());
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn deep_shadow_script_load_and_live_style_flush_preserve_text() {
+        // Test-only coordinator-created artifact; never create/truncate or
+        // follow a final-component symlink. Existing sink validates ownership,
+        // regular-file type, private mode, one link and append-only flags.
+        #[cfg(unix)]
+        if let Some(path) = std::env::var_os("ORYN_DEEP_PROFILE_PATH") {
+            use std::os::fd::AsRawFd;
+            use std::os::unix::fs::OpenOptionsExt;
+            let path = std::path::PathBuf::from(path);
+            assert!(path.is_absolute(), "profile artifact must be absolute");
+            let artifact = std::fs::OpenOptions::new()
+                .append(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+                .open(&path)
+                .expect("existing coordinator-created diagnostic artifact");
+            crate::native_timing::install_inherited(artifact.as_raw_fd())
+                .expect("private owned append-file diagnostic capability");
+            // install_inherited owns its validated duplicate; this local
+            // descriptor can close without invalidating subsequent actor logs.
+        }
+        let page = Browser::new().new_context().new_page();
+        // Match the pinned fixture's native Text node and parser-script entry,
+        // rather than synthesizing text directly on a LayoutNode.
+        page.load_html(
+            "https://deep.example.test/",
+            r#"<!doctype html>
+          <div id="X"></div><script>
+          const detachedRoot = document.createElement('div');
+          let currentContainer = detachedRoot;
+          for (let i = 0; i < 999; i++) {
+            const childHost = document.createElement('div');
+            const childShadow = childHost.attachShadow({mode:'open'});
+            currentContainer.appendChild(childHost);
+            currentContainer = childShadow;
+          }
+          document.getElementById('X').appendChild(detachedRoot);
+          currentContainer.appendChild(document.createTextNode('Hello!'));
+          if (currentContainer.textContent !== 'Hello!') throw Error('deep text');
+          globalThis.deepestHost = currentContainer.host;
+          globalThis.deepText = currentContainer;
+          </script>"#,
+        )
+        .await
+        .expect("native parser script and page checkpoints");
+        assert_eq!(
+            page.evaluate("deepText.textContent").await.unwrap(),
+            serde_json::json!("Hello!")
+        );
+        // Separately exercise actual LiveLayoutProvider/Stylo input projection.
+        // No elapsed-time assertion, enlarged stack, or modified worker limit.
+        assert_eq!(
+            page.evaluate("getComputedStyle(deepestHost).display")
+                .await
+                .unwrap(),
+            serde_json::json!("block")
+        );
+        assert_eq!(
+            page.evaluate("deepText.textContent").await.unwrap(),
+            serde_json::json!("Hello!")
+        );
     }
 
     #[cfg(feature = "v8-host")]

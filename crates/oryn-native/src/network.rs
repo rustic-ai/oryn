@@ -1940,7 +1940,9 @@ impl NetworkBroker for SharedNetworkBroker {
         if route.is_none() {
             return self.start_operation(request);
         }
-        self.inner.as_ref().expect("broker handle is live")
+        self.inner
+            .as_ref()
+            .expect("broker handle is live")
             .start_routed(route, request)
     }
     fn cancel_routed(
@@ -1951,7 +1953,9 @@ impl NetworkBroker for SharedNetworkBroker {
         if route.is_none() {
             return self.cancel_operation(request_id);
         }
-        self.inner.as_ref().expect("broker handle is live")
+        self.inner
+            .as_ref()
+            .expect("broker handle is live")
             .cancel_routed(route, request_id)
     }
     fn discard_response_policy_routed(
@@ -5556,19 +5560,29 @@ mod tests {
             fn send(&self, _: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Err(NetworkError::Unavailable)
             }
-            fn start_routed(&self, route: Option<&WorkerRoute>, request: NetworkRequest)
-                -> Result<NetworkOperation, NetworkError> {
+            fn start_routed(
+                &self,
+                route: Option<&WorkerRoute>,
+                request: NetworkRequest,
+            ) -> Result<NetworkOperation, NetworkError> {
                 if route != Some(&self.expected) {
                     return Err(NetworkError::Transport("foreign route".into()));
                 }
                 self.calls.lock().unwrap().push(request.request_id);
                 Ok(operation_from_response(NetworkResponse {
-                    response_policy: None, timing: None, request_id: request.request_id,
-                    status: 200, headers: vec![], body: vec![],
+                    response_policy: None,
+                    timing: None,
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![],
+                    body: vec![],
                 }))
             }
-            fn cancel_routed(&self, route: Option<&WorkerRoute>, id: u64)
-                -> Result<(), NetworkError> {
+            fn cancel_routed(
+                &self,
+                route: Option<&WorkerRoute>,
+                id: u64,
+            ) -> Result<(), NetworkError> {
                 if route != Some(&self.expected) {
                     return Err(NetworkError::Transport("foreign route".into()));
                 }
@@ -5579,10 +5593,19 @@ mod tests {
         let route = WorkerRoute::issue(1, 1, 0).unwrap();
         let foreign = WorkerRoute::issue(1, 2, 0).unwrap();
         let calls = Arc::new(Mutex::new(vec![]));
-        let broker = SharedNetworkBroker::new(Routed { expected: route.clone(), calls: calls.clone() });
+        let broker = SharedNetworkBroker::new(Routed {
+            expected: route.clone(),
+            calls: calls.clone(),
+        });
         let mut req = request("https://example.test/");
         req.request_id = 41;
-        assert_eq!(broker.start_routed(Some(&route), req.clone()).unwrap().request_id, 41);
+        assert_eq!(
+            broker
+                .start_routed(Some(&route), req.clone())
+                .unwrap()
+                .request_id,
+            41
+        );
         broker.cancel_routed(Some(&route), 41).unwrap();
         assert!(broker.start_routed(Some(&foreign), req).is_err());
         assert!(broker.cancel_routed(Some(&foreign), 41).is_err());

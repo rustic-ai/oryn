@@ -707,7 +707,10 @@ pub(super) fn dispatch_document_createevent<'s>(
             "MouseEvent"
         } else if requested == "keyboardevent" {
             "KeyboardEvent"
-        } else if matches!(requested.as_str(), "event" | "events" | "htmlevents" | "svgevents") {
+        } else if matches!(
+            requested.as_str(),
+            "event" | "events" | "htmlevents" | "svgevents"
+        ) {
             "Event"
         } else {
             return Err(V8BindingError::Unsupported {
@@ -717,7 +720,14 @@ pub(super) fn dispatch_document_createevent<'s>(
         };
         let event = if matches!(interface, "MouseEvent" | "KeyboardEvent") {
             let mut fields = Vec::new();
-            for name in ["ctrlKey", "shiftKey", "altKey", "metaKey", "modifierAltGraph", "modifierCapsLock"] {
+            for name in [
+                "ctrlKey",
+                "shiftKey",
+                "altKey",
+                "metaKey",
+                "modifierAltGraph",
+                "modifierCapsLock",
+            ] {
                 fields.push((name, NativeInputValue::Bool(false)));
             }
             if interface == "KeyboardEvent" {
@@ -731,15 +741,36 @@ pub(super) fn dispatch_document_createevent<'s>(
                     fields.push((name, NativeInputValue::String(&[])));
                 }
             } else {
-                for name in ["screenX", "screenY", "clientX", "clientY", "movementX", "movementY", "button", "buttons", "which"] {
+                for name in [
+                    "screenX",
+                    "screenY",
+                    "clientX",
+                    "clientY",
+                    "movementX",
+                    "movementY",
+                    "button",
+                    "buttons",
+                    "which",
+                ] {
                     fields.push((name, NativeInputValue::Number(0.0)));
                 }
             }
-            let event = create_native_input_event(scope, state, NativeInputEventInputs {
-                interface, event_type: "", bubbles: false, cancelable: false,
-                composed: false, detail: 0, related: None, fields: &fields,
-            })?;
-            let payload = event.get_internal_field(scope, 2)
+            let event = create_native_input_event(
+                scope,
+                state,
+                NativeInputEventInputs {
+                    interface,
+                    event_type: "",
+                    bubbles: false,
+                    cancelable: false,
+                    composed: false,
+                    detail: 0,
+                    related: None,
+                    fields: &fields,
+                },
+            )?;
+            let payload = event
+                .get_internal_field(scope, 2)
                 .and_then(|value| value.try_cast::<v8::Array>().ok())
                 .ok_or(V8BindingError::Allocation("legacy input event payload"))?;
             let null = v8::null(scope);
@@ -785,6 +816,28 @@ pub(super) fn dispatch_document_execcommand<'s>(
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     {
         let command = required_string(scope, args, 0)?.to_ascii_lowercase();
+        let html_document = state
+            .dom
+            .borrow()
+            .arena()
+            .get(node)?
+            .document_metadata
+            .as_ref()
+            .is_some_and(|metadata| metadata.is_html);
+        if !html_document {
+            return Err(V8BindingError::Unsupported {
+                interface: "Document".into(),
+                member: "InvalidStateError".into(),
+            });
+        }
+        let invocation = if member == "execCommand" {
+            let Some(invocation) = editing_commands::admit_invocation(scope, state, node)? else {
+                return Ok(Some(v8::Boolean::new(scope, false).into()));
+            };
+            Some(invocation)
+        } else {
+            None
+        };
         if matches!(command.as_str(), "copy" | "cut" | "paste") {
             let value = match member {
                 "queryCommandSupported" => true,
@@ -1132,6 +1185,7 @@ pub(super) fn dispatch_document_execcommand<'s>(
                         command: command.clone(),
                         value: value.clone(),
                         plaintext,
+                        invocation: invocation.as_ref().expect("exec invocation").clone(),
                     },
                 )?;
                 // These commands are accepted for an editable selection

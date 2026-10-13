@@ -3893,15 +3893,18 @@ mod raw_v8 {
             return;
         }
         let heap = isolate.get_heap_statistics();
-        crate::native_timing::point(phase, serde_json::json!({
-            "realm_id": realm.0,
-            "v8_used_heap_bytes": heap.used_heap_size(),
-            "v8_total_heap_bytes": heap.total_heap_size(),
-            "v8_external_bytes": heap.external_memory(),
-            "v8_global_handles_bytes": heap.used_global_handles_size(),
-            "v8_native_contexts": heap.number_of_native_contexts(),
-            "v8_detached_contexts": heap.number_of_detached_contexts(),
-        }));
+        crate::native_timing::point(
+            phase,
+            serde_json::json!({
+                "realm_id": realm.0,
+                "v8_used_heap_bytes": heap.used_heap_size(),
+                "v8_total_heap_bytes": heap.total_heap_size(),
+                "v8_external_bytes": heap.external_memory(),
+                "v8_global_handles_bytes": heap.used_global_handles_size(),
+                "v8_native_contexts": heap.number_of_native_contexts(),
+                "v8_detached_contexts": heap.number_of_detached_contexts(),
+            }),
+        );
     }
 
     /// The shared realm factory works inside a running native callback. No
@@ -4197,6 +4200,11 @@ mod raw_v8 {
         {
             state.inherit_prerender_loading();
         }
+        if crate::native_timing::enabled() {
+            context.set_slot(Rc::new(oryn_js::v8_bindings::NativeBindingTimingHook(
+                |label| Box::new(crate::native_timing::stage(label)),
+            )));
+        }
         context.set_slot(Rc::new(oryn_js::v8_bindings::NativeModulePreloadHook(
             capture_native_resource_preloads,
         )));
@@ -4306,11 +4314,19 @@ mod raw_v8 {
             {
                 let client = platform_context.client.clone();
                 let page_id = platform_context.page_id;
-                state.set_script_policy_capture(Rc::new(move |creator| {
+                state.set_script_policy_capture(Rc::new(move |state| {
+                    let creator = state
+                        .native_worker_creator()
+                        .map_err(|error| error.to_string())?;
+                    let source = state
+                        .document_provenance(state.document_root())
+                        .map_err(|error| error.to_string())?
+                        .ok_or_else(|| "native script source provenance missing".to_owned())?;
                     match client.request(
-                        crate::context_service::ContextServiceRequest::CaptureScriptPolicy {
+                        crate::context_service::ContextServiceRequest::CaptureScriptSourcePolicy {
                             page_id,
                             creator,
+                            source: (*source).clone(),
                         },
                     ) {
                         Ok(
@@ -8442,6 +8458,7 @@ mod raw_v8 {
             root: RealmId,
             rendering_time: Instant,
         ) -> Result<(), HostError> {
+            let _profile = crate::native_timing::stage("deep.animation_tree");
             let root_identity = self.automation_realm_identity(root);
             {
                 let _close_phase =
@@ -8464,6 +8481,7 @@ mod raw_v8 {
             root: RealmId,
             rendering_time: Instant,
         ) -> Result<(), HostError> {
+            let _profile = crate::native_timing::stage("deep.animation_publication");
             let _close_phase = crate::ipc_progress::close_admission::phase("animation_publication");
             // A later child callback can update an earlier parent's effects.
             // Revisit the current live tree without invoking callbacks again.
@@ -8487,6 +8505,7 @@ mod raw_v8 {
             realm: RealmId,
             rendering_time: Instant,
         ) -> Result<(), HostError> {
+            let _profile = crate::native_timing::stage("deep.document_frame_callbacks");
             let _close_phase =
                 crate::ipc_progress::close_admission::phase("animation_document_callbacks");
             let state = self.binding_states.get(&realm).cloned().ok_or_else(|| {
@@ -11332,10 +11351,13 @@ mod raw_v8 {
                     {
                         let client = platform_context.client.clone();
                         let page_id = platform_context.page_id;
-                        state.set_script_policy_capture(Rc::new(move|creator|match client.request(crate::context_service::ContextServiceRequest::CaptureScriptPolicy{page_id,creator}){
+                        state.set_script_policy_capture(Rc::new(move|state| {
+                            let creator=state.native_worker_creator().map_err(|error|error.to_string())?;
+                            let source=state.document_provenance(state.document_root()).map_err(|error|error.to_string())?.ok_or_else(||"native script source provenance missing".to_owned())?;
+                            match client.request(crate::context_service::ContextServiceRequest::CaptureScriptSourcePolicy{page_id,creator,source:(*source).clone()}){
                     Ok(crate::context_service::ContextServiceResponse::CapturedScriptPolicy{authority})=>Ok(authority),
                     Ok(_)=>Err("invalid script policy capture response".into()),Err(error)=>Err(error.to_string()),
-                }));
+                }}));
                     }
                     {
                         let client = platform_context.client.clone();

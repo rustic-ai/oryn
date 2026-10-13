@@ -267,11 +267,14 @@ pub(super) fn finish_node(params: PostChildInputs<'_>) -> f64 {
         && let Some((child, value)) = margin_collapse::used_child_bottom(
             id,
             content_width,
-            by_id,
-            styles,
-            input.viewport,
             geometry,
             &text_engine.clearance_nodes,
+            margin_collapse::QueryContext {
+                nodes: by_id,
+                styles,
+                viewport: input.viewport,
+                cache: Some(&text_engine.margin_suffixes),
+            },
         )
     {
         content_height = (content_height - value).max(0.);

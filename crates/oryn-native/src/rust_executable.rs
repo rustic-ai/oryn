@@ -59,6 +59,7 @@ pub(crate) struct PageDocumentLoadInput<'a> {
     pub(crate) terminal_control: Arc<crate::page_terminal_control::PageTerminalControl>,
 }
 /// Inputs retained together for load in agent.
+#[cfg(test)]
 pub(crate) struct AgentDocumentLoadInput<'a> {
     pub(crate) parsed: Option<ParsedDocument>,
     pub(crate) source: Option<DocumentStream>,
@@ -76,6 +77,7 @@ pub(crate) struct AgentDocumentLoadInput<'a> {
     pub(crate) recovery: &'a mut Option<RawV8Host>,
 }
 /// Inputs retained together for load with inherited origin.
+#[cfg(test)]
 pub(crate) struct InheritedOriginLoadInput<'a> {
     pub(crate) parsed: Option<ParsedDocument>,
     pub(crate) source: Option<DocumentStream>,
@@ -461,6 +463,7 @@ fn populate_validation_states_for_root(
         })
         .collect();
     input.selector_states.clear();
+    let hovered = dom.pointer_hover_snapshot(root)?;
     let target = dom.document_target(root)?;
     for node in &mut input.nodes {
         let id = NodeId {
@@ -485,6 +488,7 @@ fn populate_validation_states_for_root(
         input.selector_states.insert(
             node.id,
             oryn_layout::LayoutSelectorState {
+                hovered: hovered.contains(&id),
                 fullscreen: dom.is_fullscreen(id),
                 media_state: dom.media_selector_state(id)?,
                 interest_source: dom.element_interest_source(id)?,
@@ -678,6 +682,45 @@ impl LiveLayoutProvider {
         ),
         oryn_layout::LayoutError,
     > {
+        #[cfg(test)]
+        if let Some(directory) = std::env::var_os("ORYN_DEEP_INPUT_DIRECTORY") {
+            use std::io::Write;
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            static CAPTURES: AtomicUsize = AtomicUsize::new(0);
+            let sequence = CAPTURES.fetch_add(1, Ordering::Relaxed);
+            if sequence < 8 {
+                let directory = std::path::PathBuf::from(directory);
+                assert!(
+                    directory.is_absolute(),
+                    "capture directory must be absolute"
+                );
+                let path = directory.join(format!("style-input-{sequence}.json"));
+                let mut options = std::fs::OpenOptions::new();
+                options.write(true).create_new(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options
+                        .mode(0o600)
+                        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+                }
+                let mut file = options
+                    .open(path)
+                    .expect("fresh coordinator input artifact");
+                serde_json::to_writer(&mut file, input).expect("exact native LayoutInput capture");
+                file.write_all(b"\n").expect("input artifact completion");
+                eprintln!(
+                    "deep_style_input_capture sequence={sequence} nodes={} roots={} sheets={} rendered={} viewport={}x{}",
+                    input.nodes.len(),
+                    input.shadow_trees.roots.len(),
+                    input.stylesheets.len(),
+                    input.rendered_tree.is_some(),
+                    input.viewport.width,
+                    input.viewport.height
+                );
+            }
+        }
+        let _profile = crate::native_timing::stage("deep.live_style_compute");
         let mut engine = self.style_engine.borrow_mut();
         let active = engine.has_active_animations();
         let mut output = engine.compute_at(input, limits, self.animation_time.get() / 1000.)?;
@@ -724,6 +767,7 @@ impl LiveLayoutProvider {
         ),
         String,
     > {
+        let _profile = crate::native_timing::stage("deep.live_binding_layout");
         let document = document.unwrap_or(self.document);
         let mut input = {
             let dom = self.dom.borrow();
@@ -7628,6 +7672,7 @@ impl RustExecutableDocument {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn load_stream_with_limits(
         chunks: crate::host::DocumentStream,
         resources: &BTreeMap<String, String>,
@@ -7671,6 +7716,7 @@ impl RustExecutableDocument {
     }
 
     #[cfg(unix)]
+    #[cfg(test)]
     pub(crate) fn load_with_context_and_limits(
         html_source: &str,
         resources: &BTreeMap<String, String>,
@@ -7687,34 +7733,6 @@ impl RustExecutableDocument {
             DocumentLoad::Live(crate::host::DocumentStream::html(Box::new(
                 std::iter::once(Ok(html_source.to_owned())),
             ))),
-            resources,
-            broker,
-            base_url,
-            max_heap_bytes,
-            Some(context),
-        )
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn load_stream_with_context_and_limits(
-        chunks: crate::host::DocumentStream,
-        resources: &BTreeMap<String, String>,
-        broker: Option<SharedNetworkBroker>,
-        base_url: Option<Url>,
-        max_heap_bytes: usize,
-        scheduled: bool,
-        context: (
-            crate::context_service::SharedContextClient,
-            oryn_common::v3::PageId,
-            Option<oryn_common::v3::PageId>,
-        ),
-    ) -> Result<Self, HostError> {
-        Self::load_with_options(
-            if scheduled {
-                DocumentLoad::Scheduled(chunks)
-            } else {
-                DocumentLoad::Live(chunks)
-            },
             resources,
             broker,
             base_url,
@@ -7747,6 +7765,7 @@ impl RustExecutableDocument {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn load_parsed_with_schedule(
         parsed: ParsedDocument,
         resources: &BTreeMap<String, String>,
@@ -8487,6 +8506,7 @@ impl RustExecutableDocument {
 
     /// Construct against an already prepared root in the existing agent. On
     /// every error the unique host is returned through `recovery`.
+    #[cfg(test)]
     pub(crate) fn load_in_agent(params: AgentDocumentLoadInput<'_>) -> Result<Self, HostError> {
         let AgentDocumentLoadInput {
             parsed,
@@ -8522,6 +8542,7 @@ impl RustExecutableDocument {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn load_with_inherited_origin(
         params: InheritedOriginLoadInput<'_>,
     ) -> Result<Self, HostError> {
@@ -14646,10 +14667,9 @@ impl RustExecutableDocument {
                     && selected.realm == realm
                     && self.validate_automation_scope(selected).is_ok()
                     && let Some(capture) = &self.action_frame_navigation
+                    && let Some(observer) = &request.execution_observer
                 {
-                    if let Some(observer) = &request.execution_observer {
-                        capture.note_selected_handoff(selected, &href, observer);
-                    }
+                    capture.note_selected_handoff(selected, &href, observer);
                 }
                 navigations.push((
                     owner,
@@ -38851,6 +38871,90 @@ mod retained_pointer_route_tests {
             page.evaluate("trace.join()").unwrap(),
             "t-over,u-over,u-down"
         );
+    }
+    #[test]
+    fn native_hover_projects_scope_start_and_limits_before_boundary_handlers() {
+        let mut page = RustExecutableDocument::load(r#"<style>@scope (.a:hover){:scope{z-index:1}:scope .b{z-index:2}} @scope (.a) to (.b:hover){.b{opacity:.5}}</style><div class=a id=a><div class=b id=b>B</div></div>"#).unwrap();
+        page.execute("globalThis.seen=[]; b.onmouseover=()=>seen.push(getComputedStyle(a).zIndex+','+getComputedStyle(b).opacity)").unwrap();
+        let selected = page
+            .automation_realms()
+            .into_iter()
+            .find(|entry| entry.parent_realm.is_none())
+            .unwrap();
+        let target = page.agent.dom.borrow().find_by_id("b").unwrap();
+        assert_eq!(page.evaluate("getComputedStyle(a).zIndex").unwrap(), "auto");
+        eprintln!(
+            "hover initial opacity={}",
+            page.evaluate("getComputedStyle(b).opacity").unwrap()
+        );
+        let input = NativePointerInput {
+            id: 91,
+            x: 10.,
+            y: 10.,
+            ..Default::default()
+        };
+        let mut receipts = page
+            .admit_pointer_boundaries(vec![PointerBoundaryStep {
+                context: selected.clone(),
+                input: input.clone(),
+                target: Some(target),
+            }])
+            .unwrap();
+        assert!(
+            page.agent
+                .host
+                .poll_pointer_boundary(&mut receipts[0].1)
+                .unwrap()
+        );
+        assert_eq!(page.evaluate("getComputedStyle(a).zIndex").unwrap(), "1");
+        assert_eq!(page.evaluate("getComputedStyle(b).zIndex").unwrap(), "2");
+        assert_eq!(page.evaluate("getComputedStyle(b).opacity").unwrap(), "1");
+        assert_eq!(page.evaluate("seen.join('|')").unwrap(), "1,1");
+        // A None cross-document boundary does not retire the physical source:
+        // stationary checkpoints re-hit-test its last coordinates. Move outside
+        // the viewport so this is a real leave, not an inconsistent inside sample.
+        let input = NativePointerInput {
+            x: -1000.,
+            y: -1000.,
+            ..input
+        };
+        assert!(
+            page.agent
+                .host
+                .automation_pointer_physical_target(
+                    selected.realm,
+                    selected.document_generation,
+                    selected.stream_epoch,
+                    input.x,
+                    input.y
+                )
+                .unwrap()
+                .is_none()
+        );
+        let mut receipts = page
+            .admit_pointer_boundaries(vec![PointerBoundaryStep {
+                context: selected,
+                input,
+                target: None,
+            }])
+            .unwrap();
+        assert!(
+            page.agent
+                .host
+                .poll_pointer_boundary(&mut receipts[0].1)
+                .unwrap()
+        );
+        assert_eq!(page.evaluate("getComputedStyle(a).zIndex").unwrap(), "auto");
+        let hover_snapshot = {
+            let dom = page.agent.dom.borrow();
+            dom.pointer_hover_snapshot(dom.document()).unwrap()
+        };
+        eprintln!(
+            "hover final snapshot={:?}; opacity={}",
+            hover_snapshot,
+            page.evaluate("getComputedStyle(b).opacity").unwrap()
+        );
+        assert_eq!(page.evaluate("getComputedStyle(b).opacity").unwrap(), "0.5");
     }
     #[test]
     fn admitted_pointer_target_cannot_change_before_boundary_publication() {

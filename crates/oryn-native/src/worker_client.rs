@@ -6503,9 +6503,12 @@ mod tests {
         let mut route = fixture_worker_route(&context);
         let sibling = context.new_page();
         let dead = route.network.page_id;
-        context.prepare_frame_worker_policy(dead, "https://dead.test/", &[], "").unwrap();
-        let sibling_token = context.prepare_frame_worker_policy(
-            sibling.page_id(), "https://live.test/", &[], "").unwrap();
+        context
+            .prepare_frame_worker_policy(dead, "https://dead.test/", &[], "")
+            .unwrap();
+        let sibling_token = context
+            .prepare_frame_worker_policy(sibling.page_id(), "https://live.test/", &[], "")
+            .unwrap();
         let (mut client, probe) = protocol_fixture::responder(dead, Vec::new());
         route.identity = client.route_identity.clone();
         client.router.bind(route).unwrap();
@@ -6516,9 +6519,19 @@ mod tests {
         client.checked_terminal_cleanup().unwrap();
         client.checked_terminal_cleanup().unwrap();
         assert!(context.navigation_resource_grants_drained(dead).unwrap());
-        assert!(!context.navigation_resource_grants_drained(sibling.page_id()).unwrap());
-        context.discard_prepared_frame_policy(sibling.page_id(), &sibling_token).unwrap();
-        assert!(context.navigation_resource_grants_drained(sibling.page_id()).unwrap());
+        assert!(
+            !context
+                .navigation_resource_grants_drained(sibling.page_id())
+                .unwrap()
+        );
+        context
+            .discard_prepared_frame_policy(sibling.page_id(), &sibling_token)
+            .unwrap();
+        assert!(
+            context
+                .navigation_resource_grants_drained(sibling.page_id())
+                .unwrap()
+        );
     }
 
     #[test]
@@ -6526,7 +6539,9 @@ mod tests {
         let context = crate::Browser::in_process_with_config(Default::default()).new_context();
         let route = fixture_worker_route(&context);
         let page = route.network.page_id;
-        let token = context.prepare_frame_worker_policy(page, "https://pending.test/", &[], "").unwrap();
+        let token = context
+            .prepare_frame_worker_policy(page, "https://pending.test/", &[], "")
+            .unwrap();
         let router = WorkerBrokerRouter::default();
         router.bind(route).unwrap();
         router.unbind().unwrap();

@@ -1,3 +1,5 @@
+/// Shared trusted-input source admission bound.
+pub const MAX_NATIVE_POINTER_SOURCES: usize = 16;
 pub mod agent;
 pub mod basic_shape;
 pub mod box_shadow;
