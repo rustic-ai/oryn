@@ -3542,6 +3542,147 @@ mod tests {
     }
 
     #[test]
+    fn indexed_db_alternating_inline_auto_increment_keys_survive_transaction_commit() {
+        let origin = "https://example.test";
+        let mut databases = BTreeMap::new();
+        let mut transactions = BTreeMap::new();
+        execute_idb(
+            &mut databases,
+            origin,
+            IdbCommand::Open {
+                name: "alternating".into(),
+                version: 1,
+            },
+            usize::MAX,
+        )
+        .unwrap();
+        execute_idb(
+            &mut databases,
+            origin,
+            IdbCommand::CreateObjectStore {
+                database: "alternating".into(),
+                definition: ObjectStoreDefinition {
+                    name: "store".into(),
+                    key_path: Some("id".into()),
+                    auto_increment: true,
+                    indexes: Vec::new(),
+                },
+            },
+            usize::MAX,
+        )
+        .unwrap();
+        for (name, key_path) in [("by_name", "name"), ("by_id", "id")] {
+            execute_idb(
+                &mut databases,
+                origin,
+                IdbCommand::CreateIndex {
+                    database: "alternating".into(),
+                    store: "store".into(),
+                    definition: IndexDefinition {
+                        name: name.into(),
+                        key_path: key_path.into(),
+                        unique: true,
+                        multi_entry: false,
+                    },
+                },
+                usize::MAX,
+            )
+            .unwrap();
+        }
+        let write = |id| IdbCommand::Batch {
+            database: "alternating".into(),
+            writes: vec![IdbWrite {
+                store: "store".into(),
+                key: None,
+                add_only: false,
+                value: if id % 2 == 0 {
+                    serde_json::json!({"id":id,"name":format!("Object {id}")})
+                } else {
+                    serde_json::json!({"name":format!("Object {id}")})
+                },
+            }],
+        };
+        for id in 1..=16 {
+            assert_eq!(
+                execute_idb(&mut databases, origin, write(id), usize::MAX)
+                    .unwrap()
+                    .key,
+                Some(serde_json::json!(id))
+            );
+        }
+        execute_idb(
+            &mut databases,
+            origin,
+            IdbCommand::CommitUpgrade {
+                name: "alternating".into(),
+            },
+            usize::MAX,
+        )
+        .unwrap();
+        assert!(
+            !execute_idb_transactional(
+                &mut databases,
+                &mut transactions,
+                origin,
+                IdbCommand::BeginTransaction {
+                    token: "write".into(),
+                    database: "alternating".into(),
+                    scope: vec!["store".into()],
+                    mode: "readwrite".into(),
+                    connection: None
+                },
+                usize::MAX
+            )
+            .unwrap()
+            .transaction_blocked
+        );
+        for id in 17..=32 {
+            assert_eq!(
+                execute_idb_transactional(
+                    &mut databases,
+                    &mut transactions,
+                    origin,
+                    IdbCommand::Transaction {
+                        token: "write".into(),
+                        database: "alternating".into(),
+                        inner: Box::new(write(id))
+                    },
+                    usize::MAX
+                )
+                .unwrap()
+                .key,
+                Some(serde_json::json!(id))
+            );
+        }
+        execute_idb_transactional(
+            &mut databases,
+            &mut transactions,
+            origin,
+            IdbCommand::CommitTransaction {
+                token: "write".into(),
+                database: "alternating".into(),
+            },
+            usize::MAX,
+        )
+        .unwrap();
+        assert!(transactions.is_empty());
+        let data = &databases[&(origin.into(), "alternating".into())].stores["store"];
+        assert_eq!(data.records.len(), 32);
+        for id in 1..=32 {
+            let record = data
+                .records
+                .values()
+                .find(|record| record.key == serde_json::json!(id))
+                .unwrap();
+            assert_eq!(record.value["id"], serde_json::json!(id));
+            assert_eq!(
+                record.value["name"],
+                serde_json::json!(format!("Object {id}"))
+            );
+        }
+    }
+
+    #[test]
     fn indexed_db_explicit_numeric_keys_advance_the_auto_increment_generator() {
         let store = SharedContextStore::memory(StorageLimits::default());
         let origin = "https://example.test".to_string();

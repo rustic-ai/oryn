@@ -5,7 +5,7 @@ use oryn_js::{platform::*, worker_wire::*};
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::{
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread::JoinHandle,
@@ -45,6 +45,7 @@ pub trait AgentOperationExecutor: Send + Sync + 'static {
     }
 }
 struct State {
+    idb_order: VecDeque<HostOperationId>,
     keepalive: std::collections::BTreeSet<HostOperationId>,
     retired: bool,
     launching: usize,
@@ -54,7 +55,39 @@ struct State {
 }
 struct Shared {
     state: Mutex<State>,
+    idb_changed: Condvar,
     threads: Mutex<Vec<JoinHandle<()>>>,
+}
+struct IdbTurn(Option<(Arc<Shared>, HostOperationId)>);
+impl IdbTurn {
+    fn enter(shared: &Arc<Shared>, id: HostOperationId, indexed_db: bool) -> Self {
+        if !indexed_db {
+            return Self(None);
+        }
+        let mut state = shared
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        while state.idb_order.front() != Some(&id) {
+            state = shared
+                .idb_changed
+                .wait(state)
+                .unwrap_or_else(|error| error.into_inner());
+        }
+        Self(Some((shared.clone(), id)))
+    }
+}
+impl Drop for IdbTurn {
+    fn drop(&mut self) {
+        if let Some((shared, id)) = self.0.take() {
+            let mut state = shared
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            state.idb_order.retain(|candidate| *candidate != id);
+            shared.idb_changed.notify_all();
+        }
+    }
 }
 pub struct AgentPlatformService {
     driver: Arc<dyn AgentOperationExecutor>,
@@ -69,6 +102,7 @@ impl AgentPlatformService {
             driver,
             shared: Arc::new(Shared {
                 state: Mutex::new(State {
+                    idb_order: VecDeque::new(),
                     keepalive: Default::default(),
                     retired: false,
                     launching: 0,
@@ -77,6 +111,7 @@ impl AgentPlatformService {
                     ready_bytes: 0,
                 }),
                 threads: Mutex::new(Vec::new()),
+                idb_changed: Condvar::new(),
             }),
         }
     }
@@ -116,6 +151,7 @@ impl AgentPlatformService {
         self.reap_finished()?;
         crate::agent_thread::wire_size(&request, MAX_BYTES)?;
         let cancel = Arc::new(AtomicBool::new(false));
+        let indexed_db = matches!(&request, PlatformHostRequest::IndexedDb { .. });
         let keepalive = self.driver.retains_keepalive()
             && matches!(&request,PlatformHostRequest::HttpStart{request}if request.fetch.as_ref().is_some_and(|fetch|fetch.keepalive));
         {
@@ -140,6 +176,9 @@ impl AgentPlatformService {
                 state.keepalive.insert(id);
             }
             state.pending.insert(id, cancel.clone());
+            if indexed_db {
+                state.idb_order.push_back(id);
+            }
             state.launching += 1;
         }
         if let Err(failure) = self.driver.prepare(id, &request) {
@@ -151,6 +190,8 @@ impl AgentPlatformService {
             state.pending.remove(&id);
             state.keepalive.remove(&id);
             state.launching -= 1;
+            state.idb_order.retain(|candidate| *candidate != id);
+            self.shared.idb_changed.notify_all();
             return Err(error(failure));
         }
         let shared = self.shared.clone();
@@ -158,6 +199,11 @@ impl AgentPlatformService {
         let spawned = std::thread::Builder::new()
             .name("oryn-agent-platform-operation".into())
             .spawn(move || {
+                // Mutex acquisition inside execute is not a FIFO: record the
+                // admitted order before launching concurrent operation threads.
+                // Canceled work still takes/releases its turn, so no successor
+                // can overtake an earlier request or strand a retired queue.
+                let _turn = IdbTurn::enter(&shared, id, indexed_db);
                 let mut result = if cancel.load(Ordering::Acquire) {
                     Err("AbortError: agent operation cancelled".into())
                 } else {
@@ -272,6 +318,8 @@ impl AgentPlatformService {
                 state.launching -= 1;
                 state.pending.remove(&id);
                 state.keepalive.remove(&id);
+                state.idb_order.retain(|candidate| *candidate != id);
+                self.shared.idb_changed.notify_all();
                 drop(state);
                 self.driver.cancel(id);
                 Err(error(failure.to_string()))
@@ -448,6 +496,193 @@ impl AgentPlatformService {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn idb_turn_follows_admission_order_even_when_successor_runs_first() {
+        struct Noop;
+        impl AgentOperationExecutor for Noop {
+            fn execute(
+                &self,
+                _: HostOperationId,
+                _: PlatformHostRequest,
+                _: Arc<AtomicBool>,
+            ) -> Result<PlatformHostResult, String> {
+                Ok(PlatformHostResult::HttpAborted)
+            }
+            fn cancel(&self, _: HostOperationId) {}
+            fn dispose(&self, _: PlatformHostResult) {}
+            fn retire(&self) {}
+        }
+        let service = AgentPlatformService::new(Arc::new(Noop));
+        let first = HostOperationId(1);
+        let second = HostOperationId(2);
+        service
+            .shared
+            .state
+            .lock()
+            .unwrap()
+            .idb_order
+            .extend([first, second]);
+        let shared = service.shared.clone();
+        let (started, starting) = std::sync::mpsc::channel();
+        let (entered, received) = std::sync::mpsc::channel();
+        let successor = std::thread::spawn(move || {
+            started.send(()).unwrap();
+            let turn = IdbTurn::enter(&shared, second, true);
+            entered.send(second).unwrap();
+            drop(turn);
+        });
+        starting.recv_timeout(Duration::from_secs(2)).unwrap();
+        let predecessor = IdbTurn::enter(&service.shared, first, true);
+        assert!(matches!(
+            received.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+        // Non-IDB work remains independent of the held IDB head.
+        drop(IdbTurn::enter(&service.shared, HostOperationId(3), false));
+        drop(predecessor);
+        assert_eq!(
+            received.recv_timeout(Duration::from_secs(2)).unwrap(),
+            second
+        );
+        successor.join().unwrap();
+        assert!(service.shared.state.lock().unwrap().idb_order.is_empty());
+    }
+    #[test]
+    fn agent_idb_successor_waits_for_predecessor_terminal_disposal_and_publication() {
+        struct Publication {
+            executed: std::sync::mpsc::Sender<HostOperationId>,
+            execute_release: Mutex<std::sync::mpsc::Receiver<()>>,
+            disposing: std::sync::mpsc::Sender<()>,
+            dispose_release: Mutex<std::sync::mpsc::Receiver<()>>,
+        }
+        impl AgentOperationExecutor for Publication {
+            fn execute(
+                &self,
+                id: HostOperationId,
+                _: PlatformHostRequest,
+                _: Arc<AtomicBool>,
+            ) -> Result<PlatformHostResult, String> {
+                self.executed.send(id).unwrap();
+                if id == HostOperationId(1) {
+                    self.execute_release
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(2))
+                        .unwrap();
+                }
+                Ok(PlatformHostResult::IndexedDb {
+                    response: IdbHostResponse::default(),
+                })
+            }
+            fn cancel(&self, _: HostOperationId) {}
+            fn dispose(&self, _: PlatformHostResult) {}
+            fn dispose_canceled(&self, _: PlatformHostResult) {
+                self.disposing.send(()).unwrap();
+                self.dispose_release
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(2))
+                    .unwrap();
+            }
+            fn retire(&self) {}
+        }
+        let (executed, observed) = std::sync::mpsc::channel();
+        let (execute_release, execution) = std::sync::mpsc::channel();
+        let (disposing, disposal) = std::sync::mpsc::channel();
+        let (dispose_release, release) = std::sync::mpsc::channel();
+        let service = AgentPlatformService::new(Arc::new(Publication {
+            executed,
+            execute_release: Mutex::new(execution),
+            disposing,
+            dispose_release: Mutex::new(release),
+        }));
+        let request = || PlatformHostRequest::IndexedDb {
+            origin: "https://example.test".into(),
+            command: IdbHostCommand::ListDatabases,
+        };
+        service.submit(HostOperationId(1), request()).unwrap();
+        assert_eq!(
+            observed.recv_timeout(Duration::from_secs(2)).unwrap(),
+            HostOperationId(1)
+        );
+        service.submit(HostOperationId(2), request()).unwrap();
+        service.cancel(HostOperationId(1)).unwrap();
+        execute_release.send(()).unwrap();
+        disposal.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(matches!(
+            observed.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+        assert!(service.poll(32).unwrap().is_empty());
+        dispose_release.send(()).unwrap();
+        assert_eq!(
+            observed.recv_timeout(Duration::from_secs(2)).unwrap(),
+            HostOperationId(2)
+        );
+        // Successor executes only after predecessor's AbortError entered ready.
+        let first = service.poll(1).unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].operation_id, HostOperationId(1));
+        service.retire();
+        service.drain(Duration::from_secs(2)).unwrap();
+        assert!(service.shared.state.lock().unwrap().idb_order.is_empty());
+    }
+    #[test]
+    fn agent_idb_cancelled_waiter_releases_turn_and_retirement_joins() {
+        struct Blocking {
+            entered: std::sync::mpsc::Sender<HostOperationId>,
+            release: Mutex<std::sync::mpsc::Receiver<()>>,
+        }
+        impl AgentOperationExecutor for Blocking {
+            fn execute(
+                &self,
+                id: HostOperationId,
+                _: PlatformHostRequest,
+                _: Arc<AtomicBool>,
+            ) -> Result<PlatformHostResult, String> {
+                self.entered.send(id).unwrap();
+                if id == HostOperationId(1) {
+                    self.release
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(2))
+                        .unwrap();
+                }
+                Ok(PlatformHostResult::IndexedDb {
+                    response: IdbHostResponse::default(),
+                })
+            }
+            fn cancel(&self, _: HostOperationId) {}
+            fn dispose(&self, _: PlatformHostResult) {}
+            fn retire(&self) {}
+        }
+        let (entered, observed) = std::sync::mpsc::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        let service = AgentPlatformService::new(Arc::new(Blocking {
+            entered,
+            release: Mutex::new(wait),
+        }));
+        let request = || PlatformHostRequest::IndexedDb {
+            origin: "https://example.test".into(),
+            command: IdbHostCommand::ListDatabases,
+        };
+        service.submit(HostOperationId(1), request()).unwrap();
+        assert_eq!(
+            observed.recv_timeout(Duration::from_secs(2)).unwrap(),
+            HostOperationId(1)
+        );
+        service.submit(HostOperationId(2), request()).unwrap();
+        service.cancel(HostOperationId(2)).unwrap();
+        service.submit(HostOperationId(3), request()).unwrap();
+        release.send(()).unwrap();
+        assert_eq!(
+            observed.recv_timeout(Duration::from_secs(2)).unwrap(),
+            HostOperationId(3)
+        );
+        service.retire();
+        service.drain(Duration::from_secs(2)).unwrap();
+        assert!(service.shared.state.lock().unwrap().idb_order.is_empty());
+    }
     use super::*;
     struct Executor {
         release: Mutex<bool>,

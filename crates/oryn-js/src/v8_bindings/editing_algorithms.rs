@@ -46,53 +46,27 @@ pub(super) async fn apply_block_command_at_boundary(
             } else {
                 "ul"
             };
-            let list_node = insert_editing_element(context, list, &[]).await?;
+            let (list_node, custody) =
+                insert_editing_element_with_list_custody(context, list, &[]).await?;
             let children = light_children(&state.dom.borrow(), list_node)?;
             if !children
                 .iter()
                 .all(|child| element_local_name(&state.dom.borrow(), *child) == Some("li"))
             {
+                let Some(custody) = custody else {
+                    return Ok(());
+                };
                 let revision = state.selection_revision.get();
                 let backward = state.selection_backward.get();
-                let selected = list_node
-                    == state
-                        .selection_anchor
-                        .get()
-                        .map(|point| point.container)
-                        .unwrap_or(host);
-                let first = *children
-                    .first()
-                    .ok_or(V8BindingError::Allocation("list start"))?;
-                let last = *children
-                    .last()
-                    .ok_or(V8BindingError::Allocation("list end"))?;
+                let selected = custody.published;
+                let first = custody.first;
+                let last = custody.last;
                 context.lease(first)?;
                 context.lease(last)?;
                 let empty_start = boundary_length(&state.dom.borrow(), first)? == 0;
                 let empty_end = boundary_length(&state.dom.borrow(), last)? == 0;
-                let endpoint = |first: bool| -> Result<RangeRecord, V8BindingError> {
-                    let dom = state.dom.borrow();
-                    let node = if first {
-                        children.first()
-                    } else {
-                        children.last()
-                    }
-                    .copied()
-                    .ok_or(V8BindingError::Allocation("list fragment endpoint"))?;
-                    let offset = if first {
-                        0
-                    } else {
-                        boundary_length(&dom, node)?
-                    };
-                    Ok(RangeRecord {
-                        start_container: node,
-                        start_offset: offset,
-                        end_container: node,
-                        end_offset: offset,
-                    })
-                };
-                let start = context.marker(endpoint(true)?)?;
-                let end = context.marker(endpoint(false)?)?;
+                let start = custody.start;
+                let end = custody.end;
                 let item = state.dom.borrow_mut().create_element("li");
                 for child in children {
                     context
@@ -521,11 +495,38 @@ pub(super) async fn delete_selection_direction(
 // Editing decisions use the same resolved style snapshot as getComputedStyle.
 // Binding-only embedders without a layout provider retain an inherited fallback.
 
+struct ListFragmentCustody {
+    start: editing_continuation::Marker,
+    end: editing_continuation::Marker,
+    first: NodeId,
+    last: NodeId,
+    published: bool,
+}
+
 pub(super) async fn insert_editing_element(
     context: &Context,
     tag: &str,
     attributes: &[(&str, &str)],
 ) -> Result<NodeId, V8BindingError> {
+    Ok(
+        insert_editing_element_inner(context, tag, attributes, false)
+            .await?
+            .0,
+    )
+}
+async fn insert_editing_element_with_list_custody(
+    context: &Context,
+    tag: &str,
+    attributes: &[(&str, &str)],
+) -> Result<(NodeId, Option<ListFragmentCustody>), V8BindingError> {
+    insert_editing_element_inner(context, tag, attributes, true).await
+}
+async fn insert_editing_element_inner(
+    context: &Context,
+    tag: &str,
+    attributes: &[(&str, &str)],
+    list_custody: bool,
+) -> Result<(NodeId, Option<ListFragmentCustody>), V8BindingError> {
     let state: &V8BindingState = &context.state;
     let selection_revision = state.selection_revision.get();
     let backward = state.selection_backward.get();
@@ -555,8 +556,48 @@ pub(super) async fn insert_editing_element(
         context.attribute(element, None, *name, *value).await?;
     }
     let fragment_children = state.dom.borrow().children(fragment)?.to_vec();
+    let mut custody = if list_custody && !fragment_children.is_empty() {
+        let endpoint = |first: bool| -> Result<RangeRecord, V8BindingError> {
+            let node = *if first {
+                fragment_children.first()
+            } else {
+                fragment_children.last()
+            }
+            .ok_or(V8BindingError::Allocation("list source endpoint"))?;
+            let offset = if first {
+                0
+            } else {
+                boundary_length(&state.dom.borrow(), node)?
+            };
+            Ok(RangeRecord {
+                start_container: node,
+                start_offset: offset,
+                end_container: node,
+                end_offset: offset,
+            })
+        };
+        Some(ListFragmentCustody {
+            start: context.marker(endpoint(true)?)?,
+            end: context.marker(endpoint(false)?)?,
+            first: *fragment_children
+                .first()
+                .ok_or(V8BindingError::Allocation("list first"))?,
+            last: *fragment_children
+                .last()
+                .ok_or(V8BindingError::Allocation("list last"))?,
+            published: false,
+        })
+    } else {
+        None
+    };
     for child in fragment_children {
-        context.append(element, child, None).await?;
+        if let Some(custody) = &custody {
+            context
+                .append_with_endpoint_markers(element, child, &[&custody.start, &custody.end])
+                .await?;
+        } else {
+            context.append(element, child, None).await?;
+        }
     }
     context
         .insert_at_boundary(insertion.start_container, insertion.start_offset, element)
@@ -578,22 +619,76 @@ pub(super) async fn insert_editing_element(
                 )? == original_host
         };
         if valid {
-            let start = BoundaryPoint {
-                container: element,
-                offset: 0,
-            };
-            let end = BoundaryPoint {
-                container: element,
-                offset: end,
+            let (start, end) = if let Some(source) = &custody {
+                context.lease(source.first)?;
+                context.lease(source.last)?;
+                let a = source.start.range()?;
+                let b = source.end.range()?;
+                let dom = state.dom.borrow();
+                let start = if boundary_length(&dom, source.first)? == 0 {
+                    let (container, offset) = relative_boundary(&dom, source.first, false)?;
+                    BoundaryPoint { container, offset }
+                } else {
+                    BoundaryPoint {
+                        container: a.start_container,
+                        offset: a.start_offset,
+                    }
+                };
+                let end = if boundary_length(&dom, source.last)? == 0 {
+                    let (container, offset) = relative_boundary(&dom, source.last, true)?;
+                    BoundaryPoint { container, offset }
+                } else {
+                    BoundaryPoint {
+                        container: b.start_container,
+                        offset: b.start_offset,
+                    }
+                };
+                if !dom.is_connected(start.container)?
+                    || !dom.is_connected(end.container)?
+                    || editing_host_for_node(
+                        &dom,
+                        Some(start.container),
+                        state.design_mode_enabled(),
+                        state.document_root(),
+                    )? != original_host
+                    || editing_host_for_node(
+                        &dom,
+                        Some(end.container),
+                        state.design_mode_enabled(),
+                        state.document_root(),
+                    )? != original_host
+                    || compare_boundary_points(
+                        &dom,
+                        (start.container, start.offset),
+                        (end.container, end.offset),
+                    )? > 0
+                {
+                    return Ok((element, custody));
+                }
+                (start, end)
+            } else {
+                (
+                    BoundaryPoint {
+                        container: element,
+                        offset: 0,
+                    },
+                    BoundaryPoint {
+                        container: element,
+                        offset: end,
+                    },
+                )
             };
             set_selection_boundaries(
                 state,
                 if backward { end } else { start },
                 if backward { start } else { end },
             )?;
+            if let Some(source) = &mut custody {
+                source.published = true;
+            }
         }
     }
-    Ok(element)
+    Ok((element, custody))
 }
 
 pub(super) async fn insert_editing_line_break(context: &Context) -> Result<(), V8BindingError> {

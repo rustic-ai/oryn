@@ -1406,6 +1406,48 @@ mod tests {
         super::super::test_eval::eval(scope, code).is_true()
     }
     #[test]
+    fn list_fragment_markers_are_captured_before_connection_callbacks() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let realm = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, realm);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body><main id=host contenteditable></main></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let _state = install_generated_bindings(scope, realm, dom, RealmId(0), 1).unwrap();
+        assert!(eval(
+            scope,
+            r#"
+            globalThis.calls=0;globalThis.host=document.getElementById('host');
+            globalThis.authored=document.createTextNode('author');
+            class ListCallback extends HTMLElement {
+              connectedCallback(){if(this.parentNode.localName==='li'){calls++;this.parentNode.append(authored)}}
+            }
+            customElements.define('list-callback',ListCallback);
+            host.innerHTML='<list-callback>x</list-callback>';calls=0;
+            const r=document.createRange();r.selectNodeContents(host);getSelection().removeAllRanges();getSelection().addRange(r);true
+        "#
+        ));
+        assert!(eval(scope, "document.execCommand('insertOrderedList')"));
+        let diagnostic = v8::String::new(scope, "JSON.stringify({calls,connected:authored.isConnected,html:host.innerHTML,selection:getSelection().toString(),anchor:getSelection().anchorOffset,focus:getSelection().focusOffset})").unwrap();
+        let diagnostic = v8::Script::compile(scope, diagnostic, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert!(
+            eval(
+                scope,
+                "calls>=1&&authored.isConnected&&host.textContent.includes('author')&&getSelection().toString()==='x'"
+            ),
+            "{diagnostic}"
+        );
+    }
+
+    #[test]
     fn list_endpoint_markers_exclude_callback_added_content_and_leave_external_ranges_ordinary() {
         super::super::tests::initialize_v8();
         let mut isolate = v8::Isolate::new(Default::default());
