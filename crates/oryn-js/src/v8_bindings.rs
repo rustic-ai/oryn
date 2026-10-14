@@ -21633,7 +21633,7 @@ fn collect_document_root_editing_units(
     units: &mut Vec<NodeId>,
 ) -> Result<(), V8BindingError> {
     let tag = element_local_name(dom, node);
-    if is_editing_block(dom, node) {
+    if is_editing_block(dom, node) && tag != Some("body") {
         units.push(node);
         return Ok(());
     }
@@ -26983,6 +26983,24 @@ fn call_platform_operation<'s>(
                     return Err(V8BindingError::Allocation("IDBDatabase record"));
                 };
                 if database.closed {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "IDBDatabase".into(),
+                        member: "InvalidStateError".into(),
+                    });
+                }
+                // An upgrade transaction excludes creation of other
+                // transactions on this connection until it has finished.
+                // Use native database identity, not an origin/name match.
+                let upgrade_unfinished = database.upgrade_transaction_id
+                    .and_then(|transaction_id| {
+                        state.platform_objects.borrow().get(&transaction_id).map(|record| {
+                            matches!(record, PlatformObjectRecord::IdbTransaction(transaction)
+                                if transaction.database_id == id
+                                    && transaction.mode == "versionchange"
+                                    && !transaction.finished)
+                        })
+                    }).unwrap_or(false);
+                if upgrade_unfinished {
                     return Err(V8BindingError::Unsupported {
                         interface: "IDBDatabase".into(),
                         member: "InvalidStateError".into(),

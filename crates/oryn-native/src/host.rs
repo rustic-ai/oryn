@@ -16740,6 +16740,41 @@ mod raw_v8 {
             assert_eq!(host.evaluate_string("errors.length===0&&result!==null&&result.length===32&&result.every((value,index)=>value.id===index+1&&value.name==='Object '+(index+1))").unwrap(),"true");
         }
         #[test]
+        fn native_parent_upgrade_rejects_new_transactions_until_completion() {
+            let context = crate::Browser::new().new_context();
+            let page = context.new_page();
+            context.commit_page_url(page.page_id(), "https://example.test/".into()).unwrap();
+            context.install_document_security(page.page_id(), "https://example.test/".into(), &[]).unwrap();
+            let client = SharedContextClient::direct(context, page.page_id());
+            let mut host = RawV8Host::new_with_network_context_and_heap_limit(
+                Some(SharedNetworkBroker::new(crate::network::UnavailableBroker)),
+                Some(Url::parse("https://example.test/").unwrap()), client,
+                page.page_id(), 256 * 1024 * 1024,
+            ).unwrap();
+            host.install_dom(Rc::new(RefCell::new(oryn_dom::html::parse("").into_runtime().unwrap())), 1).unwrap();
+            host.execute(r#"
+                location.href='https://example.test/';globalThis.events=[];globalThis.finished=false;
+                const opening=indexedDB.open('upgrade-exclusion',1);
+                opening.onupgradeneeded=()=>{
+                    const db=opening.result;db.createObjectStore('store');
+                    for(const mode of ['readonly','readwrite']) {
+                        try{db.transaction('missing',mode);events.push('unexpected')}
+                        catch(error){events.push(error.name)}
+                    }
+                    const marker={};let reads=0;
+                    try{db.transaction('store','readonly',{get durability(){reads++;throw marker}})}
+                    catch(error){events.push(error===marker&&reads===1?'conversion-first':'wrong-conversion')}
+                    opening.transaction.oncomplete=()=>{
+                        const tx=db.transaction('store');events.push(tx.mode);
+                        tx.oncomplete=()=>events.push('post-complete');
+                    };
+                };
+                opening.onsuccess=()=>{finished=true};
+            "#).unwrap();
+            host.drain_async_fetches(true).unwrap();
+            assert_eq!(host.evaluate_string("finished&&events.join('|')==='InvalidStateError|InvalidStateError|conversion-first|readonly|post-complete'").unwrap(),"true");
+        }
+        #[test]
         fn native_idb_response_moves_payload_and_preserves_wire_semantics() {
             let mut response = crate::storage::IdbResponse::default();
             assert_eq!(

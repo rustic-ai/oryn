@@ -36819,6 +36819,81 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn editing_document_root_units_descend_into_body_paragraphs() {
+        let page=Browser::new().new_context().new_page();
+        page.load_html("https://editing.example.test/body-units",
+            "<!doctype html><html><head><title>iframe</title></head><body></body></html>").await.unwrap();
+        let result=page.evaluate(r#"(() => {
+          const s=getSelection(),html=document.documentElement;
+          const check=(ok,label)=>{if(!ok)throw Error(label)};
+          for(const design of [false,true]) for(const forward of [false,true]) {
+            document.designMode=design?'on':'off';
+            if(!design)html.setAttribute('contenteditable','');else html.removeAttribute('contenteditable');
+            for(const outsideBefore of [false,true]) {
+              document.body.innerHTML='<div>def</div>';
+              for(const extra of Array.from(html.children))if(extra!==document.head&&extra!==document.body)extra.remove();
+              const outside=document.createElement('div');outside.textContent='abc';
+              html.insertBefore(outside,outsideBefore?document.body:null);
+              const inside=document.body.firstChild;
+              const left=outsideBefore?outside:inside,right=outsideBefore?inside:outside;
+              const node=forward?left.firstChild:right.firstChild;
+              s.collapse(node,forward?node.length:0);
+              document.execCommand(forward?'forwardDelete':'delete');
+              check(document.body.textContent===(outsideBefore?'abcdef':'defabc'),'body paragraphs merged');
+              check(document.body.querySelectorAll('div').length===1,'one inner paragraph');
+              check(outside.parentNode!==html,'outside source removed or moved');
+              check(document.head.isConnected&&document.head.querySelector('title').textContent==='iframe','head preserved');
+            }
+          }
+          return 'passed';
+        })()"#).await.unwrap();
+        assert_eq!(result,"passed");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn editing_backward_boundary_before_body_preserves_invisible_head() {
+        let page=Browser::new().new_context().new_page();
+        page.load_html("https://editing.example.test/invisible-head",
+            "<!doctype html><html><head><title>iframe</title></head><body>def</body></html>").await.unwrap();
+        let result=page.evaluate(r#"(() => {
+          const html=document.documentElement,s=getSelection();
+          const check=(ok,label)=>{if(!ok)throw Error(label)};
+          for(const design of [false,true]) {
+            document.designMode=design?'on':'off';
+            if(!design)html.setAttribute('contenteditable','');else html.removeAttribute('contenteditable');
+            const outside=document.createElement('div');outside.textContent='abc';
+            html.insertBefore(outside,document.body);
+            const head=document.head,source=outside.firstChild,bodyText=document.body.firstChild;
+            s.collapse(source,0);
+            check(s.anchorNode===source&&s.anchorOffset===0,'pre-command authority');
+            document.execCommand('delete');
+            check(outside.isConnected&&outside.firstChild===source&&source.data==='abc','outside untouched at backward edge');
+            check(document.head===head&&head.querySelector('title').textContent==='iframe','head identity');
+            check(document.body.firstChild===bodyText&&bodyText.data==='def','body untouched');
+            document.body.innerHTML='<br>';
+            const preceding=document.createElement('div');preceding.textContent='123';
+            html.insertBefore(preceding,head);s.collapse(source,0);
+            document.execCommand('delete');
+            check(document.head===head&&head.isConnected,'intervening head retained');
+            const expected=[
+              '<div>123abc</div><head><title>iframe</title></head><body><br></body>',
+              '<div>123abc<br></div><head><title>iframe</title></head><body><br></body>',
+              '<head><title>iframe</title></head><div>123abc</div><body><br></body>',
+              '<head><title>iframe</title></head><div>123abc<br></div><body><br></body>'
+            ];
+            check(expected.includes(html.innerHTML),'exact around-head placement: '+html.innerHTML);
+            check(preceding.isConnected!==outside.isConnected,'exactly one source paragraph survives');
+            for(const child of Array.from(html.children))if(child!==document.head&&child!==document.body)child.remove();
+            document.body.innerHTML='def';
+          }
+          return 'passed';
+        })()"#).await.unwrap();
+        assert_eq!(result,"passed");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn editing_typing_consumes_terminal_placeholders_and_keeps_visible_breaks() {
         let page = Browser::new().new_context().new_page();
         page.load_html(

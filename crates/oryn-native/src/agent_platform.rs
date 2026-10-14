@@ -193,6 +193,45 @@ impl AgentPlatformHost {
     }
 }
 impl PlatformHost for AgentPlatformHost {
+    fn submit_owned_idb_admission(
+        &self,
+        operation_id: HostOperationId,
+        origin: String,
+        admission: oryn_js::idb_owned_admission::PreparedAdmission,
+    ) -> Result<(), OwnedIdbSubmitError> {
+        if self.retired.get() {
+            return Err(OwnedIdbSubmitError::Failure(
+                "agent platform endpoint retired".into(),
+            ));
+        }
+        // Busy is reported before consuming the independently admitted copy.
+        // The caller retains the original Admission for a later checkpoint.
+        {
+            let state = self.state.borrow();
+            if state.pending.contains(&operation_id)
+                || state.receipts.contains_key(&operation_id)
+                || state.ready.iter().any(|entry| entry.operation_id == operation_id)
+            {
+                return Err(OwnedIdbSubmitError::Failure(
+                    "agent platform operation identity is already admitted".into(),
+                ));
+            }
+            if state.pending.len() + state.ready.len() + state.receipts.len() >= ACTIVE {
+                return Err(OwnedIdbSubmitError::Busy);
+            }
+        }
+        let (command, custody) = admission.into_command();
+        // Reuse the authoritative worker route, origin overwrite, wire bound,
+        // cleanup reservation and correlation-before-transport publication.
+        // request() consumes the local DTO synchronously. Its custody cannot
+        // be released until that call returns, including transport errors.
+        let result = self.submit(
+            operation_id,
+            PlatformHostRequest::IndexedDb { origin, command },
+        );
+        drop(custody);
+        result.map_err(OwnedIdbSubmitError::Failure)
+    }
     fn submit(
         &self,
         operation_id: HostOperationId,
@@ -363,11 +402,103 @@ mod tests {
             Ok(AgentServiceResponse::Done)
         }
     }
+    fn owned(
+        ledger: &Arc<oryn_js::idb_owned_admission::Ledger>,
+    ) -> oryn_js::idb_owned_admission::PreparedAdmission {
+        use oryn_js::idb_owned_admission::{Admission, Scope};
+        let scope = Scope::copy_names(ledger, &["records".into()], 1024 * 1024, 0).unwrap();
+        let admission = Admission::new(
+            "transaction".into(), "database".into(), scope,
+            "readonly".into(), Some("connection".into()),
+        );
+        admission.prepare(ledger, 1024 * 1024, 0).unwrap()
+    }
+    #[test]
+    fn owned_idb_worker_admission_reaches_bound_parent_and_releases_local_custody() {
+        struct ConsumingParent {
+            seen: Mutex<bool>,
+            ledger: Arc<oryn_js::idb_owned_admission::Ledger>,
+        }
+        impl WorkerTransport for ConsumingParent {
+            fn request(&self, request: AgentServiceRequest) -> Result<AgentServiceResponse, WorkerError> {
+                if let AgentServiceRequest::PlatformSubmit { operation_id, request: PlatformHostRequest::IndexedDb { origin, command: IdbHostCommand::BeginTransaction { scope, .. } } } = &request {
+                    assert!(self.ledger.live_bytes() > 0);
+                    assert_eq!(*operation_id, HostOperationId(91));
+                    assert_eq!(origin, "https://bound.test");
+                    assert_eq!(scope, &["records".to_string()]);
+                    *self.seen.lock().unwrap() = true;
+                }
+                drop(request);
+                Ok(AgentServiceResponse::Done)
+            }
+        }
+        let ledger = Arc::new(oryn_js::idb_owned_admission::Ledger::default());
+        let parent = Arc::new(ConsumingParent { seen: Mutex::new(false), ledger: ledger.clone() });
+        let host = AgentPlatformHost::new(parent.clone(), "https://bound.test".into());
+        let admission = owned(&ledger);
+        assert!(ledger.live_bytes() > 0);
+        host.submit_owned_idb_admission(HostOperationId(91), "https://forged.test".into(), admission).unwrap();
+        assert_eq!(ledger.live_bytes(), 0);
+        assert!(host.state.borrow().pending.contains(&HostOperationId(91)));
+        assert!(*parent.seen.lock().unwrap());
+    }
+    #[test]
+    fn owned_idb_worker_busy_and_retired_do_not_publish_or_leak_custody() {
+        let parent = Arc::new(Parent::default());
+        let host = AgentPlatformHost::new(parent.clone(), "null".into());
+        let ledger = Arc::new(oryn_js::idb_owned_admission::Ledger::default());
+        for id in 0..ACTIVE {
+            host.state.borrow_mut().pending.insert(HostOperationId(id as u64));
+        }
+        assert!(matches!(host.submit_owned_idb_admission(HostOperationId(100), "null".into(), owned(&ledger)), Err(OwnedIdbSubmitError::Busy)));
+        assert_eq!(ledger.live_bytes(), 0);
+        assert!(parent.requests.lock().unwrap().is_empty());
+        host.retired.set(true);
+        assert!(matches!(host.submit_owned_idb_admission(HostOperationId(101), "null".into(), owned(&ledger)), Err(OwnedIdbSubmitError::Failure(_))));
+        assert_eq!(ledger.live_bytes(), 0);
+        assert!(parent.requests.lock().unwrap().is_empty());
+    }
     fn read() -> PlatformHostRequest {
         PlatformHostRequest::HttpRead {
             stream_id: 17,
             max_bytes: 64 * 1024,
         }
+    }
+    #[test]
+    fn owned_idb_worker_transport_failure_keeps_custody_until_request_consumption() {
+        struct RejectingParent {
+            ledger: Arc<oryn_js::idb_owned_admission::Ledger>,
+        }
+        impl WorkerTransport for RejectingParent {
+            fn request(&self, request: AgentServiceRequest) -> Result<AgentServiceResponse, WorkerError> {
+                if matches!(&request, AgentServiceRequest::PlatformSubmit { .. }) {
+                    assert!(self.ledger.live_bytes() > 0);
+                    drop(request);
+                    assert!(self.ledger.live_bytes() > 0);
+                    return Err(WorkerError::new("NetworkError", "transport rejected"));
+                }
+                Ok(AgentServiceResponse::Done)
+            }
+        }
+        let ledger = Arc::new(oryn_js::idb_owned_admission::Ledger::default());
+        let host = AgentPlatformHost::new(Arc::new(RejectingParent { ledger: ledger.clone() }), "null".into());
+        assert!(matches!(host.submit_owned_idb_admission(HostOperationId(102), "null".into(), owned(&ledger)), Err(OwnedIdbSubmitError::Failure(_))));
+        assert_eq!(ledger.live_bytes(), 0);
+        assert!(host.retired.get());
+        assert!(!host.state.borrow().pending.contains(&HostOperationId(102)));
+    }
+    #[test]
+    fn owned_idb_worker_duplicate_identity_is_terminal_not_busy() {
+        let parent = Arc::new(Parent::default());
+        let host = AgentPlatformHost::new(parent.clone(), "null".into());
+        let ledger = Arc::new(oryn_js::idb_owned_admission::Ledger::default());
+        host.state.borrow_mut().pending.insert(HostOperationId(103));
+        for id in 200..200 + ACTIVE - 1 {
+            host.state.borrow_mut().pending.insert(HostOperationId(id as u64));
+        }
+        assert!(matches!(host.submit_owned_idb_admission(HostOperationId(103), "null".into(), owned(&ledger)), Err(OwnedIdbSubmitError::Failure(_))));
+        assert_eq!(ledger.live_bytes(), 0);
+        assert!(parent.requests.lock().unwrap().is_empty());
     }
     #[test]
     fn parent_identity_is_bound_and_idb_origin_is_not_author_authority() {
