@@ -219,6 +219,7 @@ impl TryFrom<crate::context_service::ContextServiceResponse> for FrameResourceRe
                 destination,
             },
             Wire::PageResource {
+                stylesheet_response: None,
                 inherited_encoding,
                 response_headers,
                 raw_body_base64,
@@ -487,6 +488,7 @@ mod tests {
             opaque: true,
         };
         let response = FrameResourceResponse::try_from(Wire::PageResource {
+            stylesheet_response: None,
             inherited_encoding: Some("windows-1252".into()),
             response_headers: vec![("content-type".into(), "text/html".into())],
             raw_body_base64: Some("AP8D".into()),

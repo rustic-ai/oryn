@@ -1,6 +1,59 @@
 // Included alongside the real actor tests. Phase hooks observe actual production
 // boundaries; no sleeping, fabricated completion, or replacement task loop.
 #[test]
+fn prepared_semantics_cancelled_before_commit_retains_all_public_custody() {
+    let (mut root, _sender) = timer_root(1875);
+    let control = close_yield_control(&mut root);
+    close_yield_script(&mut root,
+        "document.body.appendChild(document.createElement('button'));'prepared'");
+    let page = &mut root.state;
+    let before_nodes = page.semantic_graph.nodes(ProjectionProfile::Full);
+    let before_revision = page.semantic_graph.semantic_revision();
+    let before_lifecycle = page.lifecycle.clone();
+    let before_trace = page.trace.snapshot();
+    let before_cursor = page.executable.as_ref().unwrap().semantic_mutations().next;
+    let prepared = page.prepare_executable_semantics().unwrap().unwrap();
+    control.retire();
+    assert!(matches!(page.commit_prepared_semantics(prepared), Err(RuntimeError::PageTaskYield)));
+    assert_eq!(page.semantic_graph.nodes(ProjectionProfile::Full), before_nodes);
+    assert_eq!(page.semantic_graph.semantic_revision(), before_revision);
+    assert_eq!(page.lifecycle, before_lifecycle);
+    assert_eq!(page.trace.snapshot(), before_trace);
+    assert_eq!(page.executable.as_ref().unwrap().semantic_mutations().next, before_cursor);
+}
+
+#[test]
+fn retired_semantic_projection_keeps_mutation_and_publication_custody() {
+    let (mut root, _sender) = timer_root(1873);
+    let control = close_yield_control(&mut root);
+    close_yield_script(&mut root, "document.body.appendChild(document.createElement('button'));'mutated'");
+    let page = &mut root.state;
+    let before_nodes = page.semantic_graph.nodes(ProjectionProfile::Full);
+    let before_revision = page.semantic_graph.semantic_revision();
+    let before_lifecycle = page.lifecycle.clone();
+    let before_trace = page.trace.snapshot();
+    let before_cursor = page.executable.as_ref().unwrap().semantic_mutations().next;
+    control.retire();
+    assert!(matches!(page.sync_executable_semantics(), Err(RuntimeError::PageTaskYield)));
+    assert_eq!(page.semantic_graph.nodes(ProjectionProfile::Full), before_nodes);
+    assert_eq!(page.semantic_graph.semantic_revision(), before_revision);
+    assert_eq!(page.lifecycle, before_lifecycle);
+    assert_eq!(page.trace.snapshot(), before_trace);
+    assert_eq!(page.executable.as_ref().unwrap().semantic_mutations().next, before_cursor);
+}
+
+#[test]
+fn semantic_snapshot_cancellation_is_exact_owner_not_sibling_retirement() {
+    let (mut root, _sender) = timer_root(1874);
+    let control = close_yield_control(&mut root);
+    let sibling = oryn_js::prompts::PromptController::new();
+    sibling.retire();
+    root.state.executable.as_ref().unwrap().semantic_snapshot().unwrap();
+    control.retire();
+    assert!(root.state.executable.as_ref().unwrap().semantic_snapshot().is_err());
+}
+
+#[test]
 fn page_close_stops_timer_batch_at_task_boundary() {
     for context_poll in [false, true] {
         let (mut root, _sender) = timer_root(814 + u64::from(context_poll));

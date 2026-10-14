@@ -55,6 +55,9 @@ impl<E: TElement> PreTraverseToken<E> {
 /// A DOM Traversal trait, that is used to generically implement styling for
 /// Gecko and Servo.
 pub trait DomTraversal<E: TElement>: Sync {
+    /// Cooperatively abandon a private traversal when its embedding owner retires.
+    /// Existing implementations retain their complete traversal behavior.
+    fn cancelled(&self) -> bool { false }
     /// Process `node` on the way down, before its children have been processed.
     ///
     /// The callback is invoked for each child node that should be processed by
@@ -109,6 +112,9 @@ pub trait DomTraversal<E: TElement>: Sync {
         if children_to_process == 0 {
             // We are a leaf. Walk up the chain.
             loop {
+                // Aborted mirrors are discarded after scoped workers join;
+                // their incomplete child counters are not a reusable result.
+                if self.cancelled() { return; }
                 self.process_postorder(context, node);
                 if node.opaque() == root {
                     break;

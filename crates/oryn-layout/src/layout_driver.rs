@@ -3478,6 +3478,10 @@ impl BlockExecutor<'_> {
     ) -> Result<f64, String> {
         let mut prepared = None;
         'enter: loop {
+            if self.engine.cancelled.as_ref().is_some_and(|check| check()) {
+                self.engine.font_demand_error = Some(LayoutError::Cancelled);
+                return Err("layout owner retired".into());
+            }
             let mut completed = match prepared.take().unwrap_or_else(|| self.prepare(request)) {
                 pre_child_production::PreChildResult::Complete(height) => height,
                 pre_child_production::PreChildResult::Failed(error) => return Err(error.into()),
@@ -3590,6 +3594,11 @@ impl BlockExecutor<'_> {
                 let Some(suspended) = stack.pop() else {
                     return Ok(completed);
                 };
+                if self.engine.cancelled.as_ref().is_some_and(|check| check()) {
+                    stack.push(suspended);
+                    self.engine.font_demand_error = Some(LayoutError::Cancelled);
+                    return Err("layout owner retired".into());
+                }
                 let mut suspended = match suspended {
                     SuspendedNode::Column(trial) => match trial.resume(
                         completed,

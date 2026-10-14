@@ -1014,6 +1014,7 @@ pub(super) fn measure_paragraph(
         selector_states: Default::default(),
         shadow_trees: Default::default(),
         stylesheet_base_urls: Default::default(),
+        stylesheet_owner_ids: Default::default(),
         stylesheet_scope_roots: BTreeMap::new(),
         custom_states: BTreeMap::new(),
         focused_node: None,

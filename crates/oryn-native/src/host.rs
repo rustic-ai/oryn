@@ -483,6 +483,16 @@ mod raw_v8 {
             }
         }
     }
+    pub struct NativeHistoryReceipt {
+        realm: RealmId,
+        receipt: oryn_js::navigation_api::NavigationHistoryReceipt,
+    }
+    impl NativeHistoryReceipt {
+        pub fn update(&self) -> &oryn_js::navigation_api::NavigationHistoryUpdate {
+            self.receipt.update()
+        }
+    }
+
     pub struct RawV8Host {
         agent_host_identity: Rc<()>,
         watchdog: ExecutionWatchdog,
@@ -827,6 +837,8 @@ mod raw_v8 {
     include!("module_reporting.rs");
     include!("module_preload.rs");
     include!("external_template_resource.rs");
+    include!("native_stylesheet_owner_capture.rs");
+    include!("native_retained_allocation_factory.rs");
     include!("usermedia_profile.rs");
     mod standalone_platform_http {
         include!("standalone_platform_http.rs");
@@ -8558,10 +8570,21 @@ mod raw_v8 {
                 if host.realm_is_parked(realm) {
                     return Ok(());
                 }
-                let Some(state) = host.binding_states.get(&realm) else {
+                let Some(state) = host.binding_states.get(&realm).cloned() else {
                     return Ok(());
                 };
-                oryn_js::v8_bindings::publish_native_animation_samples(state, rendering_time)
+                let context = host
+                    .contexts
+                    .get(&realm)
+                    .cloned()
+                    .ok_or(HostError::CachedAuthorityExpired)?;
+                v8::scope!(let handles, &mut host.isolate);
+                let context = v8::Local::new(handles, &context);
+                let scope = &mut v8::ContextScope::new(handles, context);
+                let _retained_scope = state
+                    .enter_retained_allocation(scope)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                oryn_js::v8_bindings::publish_native_animation_samples(&state, rendering_time)
                     .map_err(|error| HostError::Execution(error.to_string()))
             })
         }
@@ -9431,6 +9454,22 @@ mod raw_v8 {
                 .and_then(|state| state.take_navigation_history_update())
         }
 
+        pub fn peek_navigation_history_update(&self) -> Option<NativeHistoryReceipt> {
+            let realm = self.active_realm;
+            self.binding_states
+                .get(&realm)
+                .and_then(|state| state.peek_navigation_history_update())
+                .map(|receipt| NativeHistoryReceipt { realm, receipt })
+        }
+
+        pub fn commit_navigation_history_update(&self, receipt: &NativeHistoryReceipt) -> bool {
+            self.active_realm == receipt.realm
+                && self
+                    .binding_states
+                    .get(&receipt.realm)
+                    .is_some_and(|state| state.commit_navigation_history_update(&receipt.receipt))
+        }
+
         pub fn configure_trusted_types(
             &mut self,
             config: oryn_js::trusted_types::TrustedTypesConfig,
@@ -10133,6 +10172,20 @@ mod raw_v8 {
             provider.set_native_scrollbar_width(self.native_scrollbar_width);
             provider.set_native_media(self.native_media.0, self.native_media.1);
             provider.set_native_device_pixel_ratio(self.native_device_pixel_ratio);
+            let descriptor = self
+                .realm_descriptor(realm)
+                .ok_or_else(|| HostError::Execution("stylesheet owner realm unavailable".into()))?;
+            let owner = oryn_js::v8_bindings::BindingStylesheetDocumentOwner {
+                realm,
+                document: state.document_root(),
+                document_generation: descriptor.document_generation,
+                stream_epoch: self.document_stream_epoch(realm).ok_or_else(|| {
+                    HostError::Execution("stylesheet owner stream unavailable".into())
+                })?,
+            };
+            provider
+                .bind_stylesheet_document_owner(&state.dom().borrow(), owner)
+                .map_err(HostError::Execution)?;
             state.set_layout_provider(provider);
             let context = self
                 .contexts
@@ -16743,15 +16796,28 @@ mod raw_v8 {
         fn native_parent_upgrade_rejects_new_transactions_until_completion() {
             let context = crate::Browser::new().new_context();
             let page = context.new_page();
-            context.commit_page_url(page.page_id(), "https://example.test/".into()).unwrap();
-            context.install_document_security(page.page_id(), "https://example.test/".into(), &[]).unwrap();
+            context
+                .commit_page_url(page.page_id(), "https://example.test/".into())
+                .unwrap();
+            context
+                .install_document_security(page.page_id(), "https://example.test/".into(), &[])
+                .unwrap();
             let client = SharedContextClient::direct(context, page.page_id());
             let mut host = RawV8Host::new_with_network_context_and_heap_limit(
                 Some(SharedNetworkBroker::new(crate::network::UnavailableBroker)),
-                Some(Url::parse("https://example.test/").unwrap()), client,
-                page.page_id(), 256 * 1024 * 1024,
-            ).unwrap();
-            host.install_dom(Rc::new(RefCell::new(oryn_dom::html::parse("").into_runtime().unwrap())), 1).unwrap();
+                Some(Url::parse("https://example.test/").unwrap()),
+                client,
+                page.page_id(),
+                256 * 1024 * 1024,
+            )
+            .unwrap();
+            host.install_dom(
+                Rc::new(RefCell::new(
+                    oryn_dom::html::parse("").into_runtime().unwrap(),
+                )),
+                1,
+            )
+            .unwrap();
             host.execute(r#"
                 location.href='https://example.test/';globalThis.events=[];globalThis.finished=false;
                 const opening=indexedDB.open('upgrade-exclusion',1);
@@ -16773,6 +16839,57 @@ mod raw_v8 {
             "#).unwrap();
             host.drain_async_fetches(true).unwrap();
             assert_eq!(host.evaluate_string("finished&&events.join('|')==='InvalidStateError|InvalidStateError|conversion-first|readonly|post-complete'").unwrap(),"true");
+        }
+        #[test]
+        fn native_parent_idb_listeners_checkpoint_new_transactions_between_callbacks() {
+            let context = crate::Browser::new().new_context();
+            let page = context.new_page();
+            context
+                .commit_page_url(page.page_id(), "https://example.test/".into())
+                .unwrap();
+            context
+                .install_document_security(page.page_id(), "https://example.test/".into(), &[])
+                .unwrap();
+            let client = SharedContextClient::direct(context, page.page_id());
+            let mut host = RawV8Host::new_with_network_context_and_heap_limit(
+                Some(SharedNetworkBroker::new(crate::network::UnavailableBroker)),
+                Some(Url::parse("https://example.test/").unwrap()),
+                client,
+                page.page_id(),
+                256 * 1024 * 1024,
+            )
+            .unwrap();
+            host.install_dom(
+                Rc::new(RefCell::new(
+                    oryn_dom::html::parse("").into_runtime().unwrap(),
+                )),
+                1,
+            )
+            .unwrap();
+            host.execute(r#"
+                location.href='https://example.test/';globalThis.result=null;
+                const opening=indexedDB.open('callback-checkpoints',1);
+                opening.onupgradeneeded=()=>opening.result.createObjectStore('store');
+                opening.onsuccess=()=>{
+                    const db=opening.result,tx=db.transaction('store');let newer;const order=[];
+                    const active=t=>{try{t.objectStore('store').count();return true}catch(e){return false}};
+                    const request=tx.objectStore('store').count();
+                    request.addEventListener('success',()=>{
+                        order.push('first');newer=db.transaction('store');
+                        Promise.resolve().then(()=>order.push(active(newer)?'microtask-active':'bad-microtask'));
+                    });
+                    request.addEventListener('success',()=>{
+                        order.push(active(tx)?'dispatch-active':'bad-dispatch');
+                        order.push(active(newer)?'bad-newer':'newer-inactive');
+                        result=order.join('|');db.close();
+                    });
+                };
+            "#).unwrap();
+            host.drain_async_fetches(true).unwrap();
+            assert_eq!(
+                host.evaluate_string("result").unwrap(),
+                "first|microtask-active|dispatch-active|newer-inactive"
+            );
         }
         #[test]
         fn native_idb_response_moves_payload_and_preserves_wire_semantics() {
@@ -23057,7 +23174,7 @@ pub(crate) use raw_v8::{FrameTimingCommitInput, ModuleGraphErrorLease, ScriptEve
 pub(crate) use raw_v8::CreatedStandaloneRoot;
 #[cfg(feature = "v8-host")]
 pub use raw_v8::{
-    NativeAgentRuntime, NativePageTransition, NativeScriptClose, RawV8Host,
+    NativeAgentRuntime, NativeHistoryReceipt, NativePageTransition, NativeScriptClose, RawV8Host,
     STARTUP_EXTERNAL_REFERENCE_NAMES, install_startup_snapshot_globals,
     startup_external_references,
 };

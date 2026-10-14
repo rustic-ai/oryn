@@ -128,6 +128,9 @@ fn distribute_work<'a, 'scope, E, D>(
 {
     use std::iter::FromIterator;
     loop {
+        if traversal.cancelled() {
+            return;
+        }
         let chunk = VecDeque::from_iter(items.by_ref().take(work_unit_max));
         if chunk.is_empty() {
             return;
@@ -167,6 +170,9 @@ pub fn style_trees<'a, 'scope, E, D>(
 
     let mut nodes_remaining_at_current_depth = discovered.len();
     while let Some(node) = discovered.pop_front() {
+        if traversal.cancelled() {
+            return;
+        }
         let mut children_to_process = 0isize;
         traversal.process_preorder(&traversal_data, context, *node, |n| {
             children_to_process += 1;
@@ -174,6 +180,9 @@ pub fn style_trees<'a, 'scope, E, D>(
         });
 
         traversal.handle_postorder_traversal(context, traversal_root, *node, children_to_process);
+        if traversal.cancelled() {
+            return;
+        }
 
         nodes_remaining_at_current_depth -= 1;
 

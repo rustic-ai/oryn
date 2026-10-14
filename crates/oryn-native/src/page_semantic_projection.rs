@@ -2,59 +2,207 @@
 
 use super::*;
 
+#[cfg(feature = "v8-host")]
+pub(super) struct PreparedSemanticSync {
+    pub(super) graph: crate::semantic::SemanticGraph,
+    pub(super) document: ParsedDocument,
+    next: crate::dom::MutationCursor,
+    interactive: bool,
+    complete: bool,
+    history: Option<(
+        crate::host::NativeHistoryReceipt,
+        PreparedNavigationHistoryUpdate,
+    )>,
+}
+
+#[cfg(feature = "v8-host")]
+pub(super) struct RetiredSemanticPublication {
+    _cache: Option<RetiredNavigationHistoryCache>,
+    _navigation: Option<crate::navigation_control::NavigationEmitter>,
+    _graph: crate::semantic::SemanticGraph,
+    _document: Option<ParsedDocument>,
+}
+
 impl PageState {
     #[cfg(feature = "v8-host")]
     pub(super) fn sync_executable_semantics(&mut self) -> Result<(), RuntimeError> {
+        let Some(prepared) = self.prepare_executable_semantics()? else {
+            return Ok(());
+        };
+        self.commit_prepared_semantics(prepared)
+    }
+
+    /// Caller-owned semantic draft. Journal/history/diagnostic custody remains
+    /// with the executable until the complete projection is admitted.
+    #[cfg(feature = "v8-host")]
+    pub(super) fn prepare_executable_semantics(
+        &self,
+    ) -> Result<Option<PreparedSemanticSync>, RuntimeError> {
         let _timing = crate::native_timing::stage("page.semantic_sync");
         let _close_phase = crate::ipc_progress::close_admission::phase("semantic_projection");
+        if self.terminal_close_requested() {
+            return Err(RuntimeError::PageTaskYield);
+        }
         let Some(executable) = self.executable.as_ref() else {
-            return Ok(());
+            return Ok(None);
         };
         #[cfg(test)]
         semantic_sync_faults::check(semantic_sync_faults::Stage::Snapshot)?;
-        let document = {
-            let _timing = crate::native_timing::stage("page.semantic_snapshot");
-            let document = executable
-                .semantic_snapshot()
-                .map_err(|error| RuntimeError::Semantic(format!("snapshot: {error}")))?;
-            crate::native_timing::count("page.semantic_snapshot", 1);
-            document
+        let document = executable.semantic_snapshot().map_err(|error| {
+            if self.terminal_close_requested() {
+                RuntimeError::PageTaskYield
+            } else {
+                RuntimeError::Semantic(format!("snapshot: {error}"))
+            }
+        })?;
+        let owner = self.page_task_terminal_control.clone();
+        let mut check = || {
+            if crate::page_terminal_control::retired(Some(&owner)) {
+                Err(crate::dom::DomError::ProjectionCancelled)
+            } else {
+                Ok(())
+            }
         };
+        let map_error = |error| match error {
+            crate::dom::DomError::ProjectionCancelled => RuntimeError::PageTaskYield,
+            error => RuntimeError::Semantic(error.to_string()),
+        };
+        check().map_err(map_error)?;
         let batch = executable.semantic_mutations();
-        // Stage graph and delta journal together. A native control read may
-        // fail after visiting earlier nodes; none of that partial state can be
-        // published or consume the DOM journal on failure.
-        let mut graph = self.semantic_graph.clone();
+        let mut graph = self
+            .semantic_graph
+            .try_clone_with_checkpoint(&mut check)
+            .map_err(map_error)?;
         if batch.truncated {
-            graph.reset(&document.dom, self.document_generation);
+            graph
+                .reset_with_checkpoint(&document.dom, self.document_generation, &mut check)
+                .map_err(map_error)?;
         } else if !batch.mutations.is_empty() {
-            graph.apply_mutations(&document.dom, &batch.mutations);
+            graph
+                .apply_mutations_with_checkpoint(&document.dom, &batch.mutations, &mut check)
+                .map_err(map_error)?;
         }
         #[cfg(test)]
         semantic_sync_faults::check(semantic_sync_faults::Stage::Controls)?;
         executable
             .populate_semantic_control_state(&mut graph)
-            .map_err(|error| RuntimeError::Semantic(format!("native controls: {error}")))?;
-        let interactive = executable.document_interactive();
-        let complete = executable.document_load_complete();
-        if self.frame_scope.is_none()
-            && let Some(update) = executable.take_navigation_history_update()
-        {
-            self.apply_navigation_history_update(update)?;
+            .map_err(|error| {
+                if self.terminal_close_requested() {
+                    RuntimeError::PageTaskYield
+                } else {
+                    RuntimeError::Semantic(format!("native controls: {error}"))
+                }
+            })?;
+        check().map_err(map_error)?;
+        let history = if self.frame_scope.is_none() {
+            executable
+                .peek_navigation_history_update()
+                .map(|receipt| {
+                    self.prepare_navigation_history_update(receipt.update().clone())
+                        .map(|plan| (receipt, plan))
+                })
+                .transpose()?
+        } else {
+            None
+        };
+        check().map_err(map_error)?;
+        Ok(Some(PreparedSemanticSync {
+            graph,
+            document,
+            next: batch.next,
+            history,
+            interactive: executable.document_interactive(),
+            complete: executable.document_load_complete(),
+        }))
+    }
+
+    #[cfg(feature = "v8-host")]
+    pub(super) fn commit_prepared_semantics(
+        &mut self,
+        prepared: PreparedSemanticSync,
+    ) -> Result<(), RuntimeError> {
+        if self.terminal_close_requested() {
+            return Err(RuntimeError::PageTaskYield);
         }
-        if self.pending_navigation_response.is_none()
+        let owner = self.page_task_terminal_control.clone();
+        let controller = owner
+            .controller()
+            .cloned()
+            .ok_or(RuntimeError::PageTaskYield)?;
+        let mut prepared = Some(prepared);
+        let result = controller
+            .with_live_publication(|| self.commit_prepared_semantics_admitted(&mut prepared));
+        // A failed admission leaves the large draft owned here, outside the
+        // live-controller guard. Its destructor cannot delay retirement.
+        drop(prepared);
+        match result {
+            Ok(result) => {
+                let retired = result?;
+                drop(retired);
+                Ok(())
+            }
+            Err(_) => Err(RuntimeError::PageTaskYield),
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    pub(super) fn commit_prepared_semantics_admitted(
+        &mut self,
+        prepared: &mut Option<PreparedSemanticSync>,
+    ) -> Result<RetiredSemanticPublication, RuntimeError> {
+        // Exact owner is held live by the caller; never inspect its mutex here.
+        let draft = prepared.as_ref().expect("publication draft retained");
+        self.executable
+            .as_ref()
+            .ok_or(RuntimeError::EvaluationUnavailable)?;
+        let dom_ready = self.pending_navigation_response.is_none()
             && !self.lifecycle.contains(&LifecycleState::DomContentLoaded)
-            && interactive
+            && draft.interactive;
+        let load_ready = self.pending_navigation_response.is_none()
+            && (self.lifecycle.contains(&LifecycleState::DomContentLoaded) || dom_ready)
+            && !self.lifecycle.contains(&LifecycleState::Load)
+            && draft.complete;
+        // Both existing ordered external admissions precede local state.
+        // Remote delivery retains its prior acknowledgement/failure semantics.
+        if self.navigation_committed
+            && let Some(navigation) = &self.active_navigation
         {
-            if self.navigation_committed
-                && let Some(navigation) = &self.active_navigation
-            {
+            if dom_ready {
                 navigation
                     .publish(crate::navigation_control::NavigationEvent::Interactive {
                         document_generation: self.document_generation,
                     })
                     .map_err(|error| RuntimeError::Network(error.to_string()))?;
             }
+            if load_ready {
+                navigation
+                    .publish(crate::navigation_control::NavigationEvent::Complete {
+                        document_generation: self.document_generation,
+                    })
+                    .map_err(|error| RuntimeError::Network(error.to_string()))?;
+            }
+        }
+        if let Some((receipt, _)) = &draft.history
+            && !self
+                .executable
+                .as_ref()
+                .unwrap()
+                .commit_navigation_history_update(receipt)
+        {
+            return Err(RuntimeError::Semantic(
+                "history receipt changed during native publication".into(),
+            ));
+        }
+        // All fallible admissions have succeeded; only now move draft owners.
+        let PreparedSemanticSync {
+            graph,
+            document,
+            next,
+            history,
+            ..
+        } = prepared.take().unwrap();
+        let retired = history.map(|(_, plan)| self.commit_navigation_history_update(plan));
+        if dom_ready {
             self.lifecycle.push(LifecycleState::DomContentLoaded);
             self.trace.push(
                 Revision(self.revision),
@@ -64,20 +212,10 @@ impl PageState {
                 },
             );
         }
-        if self.pending_navigation_response.is_none()
-            && self.lifecycle.contains(&LifecycleState::DomContentLoaded)
-            && !self.lifecycle.contains(&LifecycleState::Load)
-            && complete
-        {
+        let mut retired_navigation = None;
+        if load_ready {
             if self.navigation_committed {
-                if let Some(navigation) = &self.active_navigation {
-                    navigation
-                        .publish(crate::navigation_control::NavigationEvent::Complete {
-                            document_generation: self.document_generation,
-                        })
-                        .map_err(|error| RuntimeError::Network(error.to_string()))?;
-                }
-                self.active_navigation.take();
+                retired_navigation = self.active_navigation.take();
                 self.navigation_committed = false;
             }
             self.lifecycle.push(LifecycleState::Load);
@@ -93,12 +231,12 @@ impl PageState {
         }
         self.executable
             .as_mut()
-            .ok_or(RuntimeError::EvaluationUnavailable)?
-            .commit_semantic_mutations(batch.next);
+            .expect("executable validated before publication")
+            .commit_semantic_mutations(next);
         self.semantic_publication_pending |=
             graph.semantic_revision() != self.semantic_graph.semantic_revision();
-        self.semantic_graph = graph;
-        self.document = Some(document);
+        let retired_graph = std::mem::replace(&mut self.semantic_graph, graph);
+        let retired_document = self.document.replace(document);
         // Publish asynchronous resource/script diagnostics only after the
         // fallible projection work commits. A retry must neither lose nor
         // duplicate these entries; capability inspection retains the full list.
@@ -118,7 +256,12 @@ impl PageState {
             );
         }
         crate::native_timing::count("page.semantic_sync", 1);
-        Ok(())
+        Ok(RetiredSemanticPublication {
+            _cache: retired,
+            _navigation: retired_navigation,
+            _graph: retired_graph,
+            _document: retired_document,
+        })
     }
 
     /// A failed background projection cannot turn the next read into a stale
@@ -126,9 +269,12 @@ impl PageState {
     pub(super) fn refresh_semantic_observation(&mut self) -> Result<(), RuntimeError> {
         #[cfg(feature = "v8-host")]
         {
-            self.sync_executable_semantics()?;
+            // Layout owns the complete fallible semantic draft. Do not publish
+            // an earlier semantic/history journal before geometry can fail or
+            // observe exact-owner retirement. The cache-hit path still stages
+            // and commits current native control/lifecycle custody once.
+            self.refresh_layout()?;
             if self.semantic_publication_pending {
-                self.refresh_layout()?;
                 self.revision = self.revision.checked_add(1).ok_or_else(|| {
                     RuntimeError::Semantic("observation revision exhausted".into())
                 })?;

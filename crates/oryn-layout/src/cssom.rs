@@ -1,4 +1,15 @@
 //! CSSOM declaration operations backed by the same Stylo parser as layout.
+pub mod native_import_graph;
+pub use native_import_graph::{
+    CompletionToken, ImportAdmission, ImportGraph, ImportState, NativeImport, NativeRule,
+    NativeSheet, OccurrenceId, PreparedNativeSheetDisabled, PreparedNativeSheetMedia,
+    RetainedHeapEstimate,
+};
+/// Shared native lock for retained CSSOM and cascade document construction.
+pub type NativeStyleLock = style::shared_lock::SharedRwLock;
+pub fn new_native_style_lock() -> NativeStyleLock {
+    NativeStyleLock::new()
+}
 mod font_faces;
 pub use font_faces::{
     FontFaceSource, font_face_sources, font_face_unicode_ranges, font_family_names,

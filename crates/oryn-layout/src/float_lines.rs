@@ -207,7 +207,15 @@ fn configure(
     state.set_line_max_advance(slot.width.max(0.).min((width - x).max(0.)));
     state.set_line_max_height(slot.height.max(0.));
 }
+#[cfg(test)]
 pub(super) fn break_layout(params: FloatLineInputs<'_>) -> Vec<InlinePlacement> {
+    break_layout_controlled(params, None)
+}
+
+pub(super) fn break_layout_controlled(
+    params: FloatLineInputs<'_>,
+    cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+) -> Vec<InlinePlacement> {
     let FloatLineInputs {
         layout,
         width,
@@ -245,6 +253,9 @@ pub(super) fn break_layout(params: FloatLineInputs<'_>) -> Vec<InlinePlacement> 
     );
     let mut checkpoint = breaker.state().clone();
     while let Some(yielded) = breaker.break_next() {
+        if cancelled.as_ref().is_some_and(|check| check()) {
+            return Vec::new();
+        }
         match yielded {
             parley::layout::YieldData::InlineBoxBreak(data) => {
                 if let Some(spec) = specs.get(&data.inline_box_id).copied()

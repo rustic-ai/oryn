@@ -510,6 +510,7 @@ fn dynamic_import<'s>(
     Some(promise)
 }
 struct NativeModuleGraphRetry(std::cell::Cell<Option<Instant>>);
+include!("native_owned_css_dependency_queue.rs");
 impl RawV8Host {
     pub(crate) fn schedule_module_graph_retry(&mut self, retry: Instant) {
         let Some(context) = self.contexts.get(&self.active_realm).cloned() else {

@@ -1300,7 +1300,7 @@ mod tests {
         root.children = vec![2, 3, 4];
         LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,nodes:vec![root,make(2,Some(1),"article"),make(3,Some(1),"article"),make(4,Some(1),"footer")],
             stylesheets:vec!["article {height:10px;background:red} @media print {article {height:60px;background:green;break-inside:avoid-page}} footer {position:fixed;left:1px;top:2px;width:5px;height:5px}".into()],
-            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,
+            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,
             custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,viewport:ViewportState::default(),scroll:ScrollState::default(),
             color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()}
     }

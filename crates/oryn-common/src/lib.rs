@@ -13,6 +13,7 @@ pub mod http_headers;
 pub mod mime_type;
 pub mod multipart;
 pub mod navigation_request;
+pub mod owned_stylesheet_text;
 pub mod paint_order;
 pub mod protocol;
 pub mod resolver;

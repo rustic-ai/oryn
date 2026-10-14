@@ -32,12 +32,24 @@ impl PageState {
         if self.terminal_close_requested() {
             return Ok(false);
         }
-        self.refresh_layout_geometry()?;
-        Ok(true)
+        match self.refresh_layout_geometry() {
+            Err(RuntimeError::PageTaskYield) => Ok(false),
+            result => result.map(|()| !self.terminal_close_requested()),
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn layout_terminal_checkpoint(&self) -> Result<(), RuntimeError> {
+        if self.terminal_close_requested() {
+            Err(RuntimeError::PageTaskYield)
+        } else {
+            Ok(())
+        }
     }
 
     #[cfg(feature = "v8-host")]
     pub(super) fn refresh_layout_geometry(&mut self) -> Result<(), RuntimeError> {
+        self.layout_terminal_checkpoint()?;
         let _timing = crate::native_timing::stage("page.layout_projection");
         let input_timing = crate::native_timing::stage("page.layout_input");
         // Geometry projection is not another task or rendering opportunity.
@@ -56,21 +68,23 @@ impl PageState {
             })
             .transpose()
             .map_err(map_host_error)?;
+        self.layout_terminal_checkpoint()?;
         let document = layout_document
             .as_ref()
             .or(self.document.as_ref())
             .ok_or_else(|| RuntimeError::LayoutUnavailable("page has no document".into()))?;
+        let mut sampled_scroll = self.scroll_state;
         if let Some(executable) = self.executable.as_ref() {
             let offset = executable
                 .document_scroll_offset()
                 .map_err(map_host_error)?;
-            self.scroll_state.x = offset.0;
-            self.scroll_state.y = offset.1;
+            sampled_scroll.x = offset.0;
+            sampled_scroll.y = offset.1;
         }
         let mut input = layout_input(
             document,
             self.viewport,
-            self.scroll_state,
+            sampled_scroll,
             self.color_scheme,
             self.reduced_motion,
             &self.web_fonts,
@@ -109,6 +123,7 @@ impl PageState {
             max_viewport_css_px: f64::from(self.config.max_viewport_css_px),
         };
         drop(input_timing);
+        self.layout_terminal_checkpoint()?;
         // Compare the complete native input, not just semantic revision: focus,
         // CSSOM, validation state, fonts, media, and viewport can affect layout
         // without changing an accessible name. Keep only one input per page.
@@ -133,9 +148,10 @@ impl PageState {
             // Equal layout input is not a lifecycle/control/diagnostic custody
             // token; this projection still requires semantic synchronization.
             self.sync_executable_semantics()?;
+            self.layout_terminal_checkpoint()?;
             return Ok(());
         }
-        let (output, style_sample) = checked_layout_computation(|| {
+        let computation = checked_layout_computation(|| {
             let _timing = crate::native_timing::stage("page.layout_compute");
             if let Some(executable) = self.executable.as_ref() {
                 executable.compute_native_layout(&input, &limits)
@@ -148,18 +164,16 @@ impl PageState {
                 })?;
                 Ok((output, sample))
             }
-        })?;
+        });
+        self.layout_terminal_checkpoint()?;
+        let (output, style_sample) = computation?;
         crate::native_timing::count("page.layout_compute", 1);
         let sampled_animation_revision = self
             .executable
             .as_ref()
             .map_or(0, |executable| executable.native_animation_revision());
-        self.style_revision = self.style_revision.saturating_add(1);
-        self.layout_revision = self.layout_revision.saturating_add(1);
-        self.scroll_state = output.scroll;
-        if self.executable.is_some() {
+        if let Some(executable) = self.executable.as_mut() {
             {
-                let executable = self.executable.as_mut().expect("checked above");
                 let _profile = crate::native_timing::stage("deep.install_layout_media");
                 executable
                     .install_layout_with_task_checkpoint(&output, self.viewport, false)
@@ -177,64 +191,122 @@ impl PageState {
                     )
                     .map_err(map_host_error)?;
             }
-            {
-                let _profile = crate::native_timing::stage("deep.semantics_after_install");
-                self.sync_executable_semantics()?;
-            }
         }
-        self.trace.push(
-            Revision(self.revision),
-            None,
-            TraceEventKind::StyleRecalculated {
-                revision: self.style_revision,
-                nodes: output.computed_styles.len(),
-            },
-        );
-        self.trace.push(
-            Revision(self.revision),
-            None,
-            TraceEventKind::LayoutCompleted {
-                revision: self.layout_revision,
-                nodes: output.geometry.len(),
-            },
-        );
-        for font in &output.loaded_fonts {
+        let mut prepared = self.prepare_executable_semantics()?;
+        let owner = self.page_task_terminal_control.clone();
+        let mut check = || {
+            if owner.retired() {
+                Err(crate::dom::DomError::ProjectionCancelled)
+            } else {
+                Ok(())
+            }
+        };
+        let map_projection = |error| match error {
+            crate::dom::DomError::ProjectionCancelled => RuntimeError::PageTaskYield,
+            error => RuntimeError::Semantic(error.to_string()),
+        };
+        if let Some(draft) = prepared.as_mut() {
+            draft
+                .graph
+                .apply_computed_visibility_with_checkpoint(
+                    &draft.document.dom,
+                    &output.computed_styles,
+                    &mut check,
+                )
+                .map_err(map_projection)?;
+            draft
+                .graph
+                .apply_generated_content_with_checkpoint(
+                    &draft.document.dom,
+                    &output.generated_content,
+                    &mut check,
+                )
+                .map_err(map_projection)?;
+            if let Some(executable) = self.executable.as_ref() {
+                executable
+                    .populate_semantic_control_state(&mut draft.graph)
+                    .map_err(|error| {
+                        if owner.retired() {
+                            RuntimeError::PageTaskYield
+                        } else {
+                            map_host_error(error)
+                        }
+                    })?;
+            }
+            draft
+                .graph
+                .apply_geometry_visibility_with_checkpoint(&output.geometry, &mut check)
+                .map_err(map_projection)?;
+        }
+        self.layout_terminal_checkpoint()?;
+        let controller = owner
+            .controller()
+            .cloned()
+            .ok_or(RuntimeError::PageTaskYield)?;
+        let mut cache_publication = Some((self.document_generation, input, style_sample));
+        let unused_cache = if output.geometry.is_empty() {
+            cache_publication.take()
+        } else {
+            None
+        };
+        let mut layout_publication = Some(output);
+        let admitted = controller.with_live_publication(|| {
+            let retired_semantics = if prepared.is_some() {
+                Some(self.commit_prepared_semantics_admitted(&mut prepared)?)
+            } else {
+                None
+            };
+            let output = layout_publication.take().expect("retained layout draft");
+            self.style_revision = self.style_revision.saturating_add(1);
+            self.layout_revision = self.layout_revision.saturating_add(1);
+            self.scroll_state = output.scroll;
             self.trace.push(
                 Revision(self.revision),
                 None,
-                TraceEventKind::FontLoaded {
-                    family: font.family.clone(),
-                    sha256: font.sha256.clone(),
+                TraceEventKind::StyleRecalculated {
+                    revision: self.style_revision,
+                    nodes: output.computed_styles.len(),
                 },
             );
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::LayoutCompleted {
+                    revision: self.layout_revision,
+                    nodes: output.geometry.len(),
+                },
+            );
+            for font in &output.loaded_fonts {
+                self.trace.push(
+                    Revision(self.revision),
+                    None,
+                    TraceEventKind::FontLoaded {
+                        family: font.family.clone(),
+                        sha256: font.sha256.clone(),
+                    },
+                );
+            }
+            // Empty geometry is not a reusable layout result. Computation failures
+            // returned above before any style/geometry revision was published.
+            let retired_cache =
+                std::mem::replace(&mut self.layout_input_cache, cache_publication.take());
+            // Capture after sampling, before observer callbacks during installation.
+            // A callback publishing a later effect must invalidate the next layout.
+            self.layout_animation_revision = sampled_animation_revision;
+            let retired_layout = self.layout.replace(output);
+            Ok::<_, RuntimeError>((retired_semantics, retired_cache, retired_layout))
+        });
+        drop(prepared);
+        drop(layout_publication);
+        drop(cache_publication);
+        drop(unused_cache);
+        match admitted {
+            Ok(result) => {
+                drop(result?);
+                Ok(())
+            }
+            Err(_) => Err(RuntimeError::PageTaskYield),
         }
-        if let Some(document) = self.document.as_ref() {
-            let _profile = crate::native_timing::stage("deep.generated_visibility");
-            self.semantic_graph
-                .apply_computed_visibility(&document.dom, &output.computed_styles);
-            self.semantic_graph
-                .apply_generated_content(&document.dom, &output.generated_content);
-        }
-        // Generated names can refresh native control nodes; reapply native
-        // focus/inert/validation after that projection before publishing AX.
-        {
-            let _profile = crate::native_timing::stage("deep.semantics_after_generated");
-            self.sync_executable_semantics()?;
-        }
-        self.semantic_graph
-            .apply_geometry_visibility(&output.geometry);
-        // Empty geometry is not a reusable layout result. Computation failures
-        // returned above before any style/geometry revision was published.
-        self.layout_input_cache = (!output.geometry.is_empty()).then_some((
-            self.document_generation,
-            input,
-            style_sample,
-        ));
-        // Capture after sampling, before observer callbacks during installation.
-        // A callback publishing a later effect must invalidate the next layout.
-        self.layout_animation_revision = sampled_animation_revision;
-        self.layout = Some(output);
-        Ok(())
     }
 
     #[cfg(not(feature = "v8-host"))]

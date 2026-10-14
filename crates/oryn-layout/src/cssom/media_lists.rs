@@ -13,7 +13,7 @@ pub struct MediaListMutation {
     pub not_found: bool,
 }
 
-fn edit_native_media_list(
+pub(super) fn edit_native_media_list(
     media: &mut style::media_queries::MediaList,
     context: &mut style::parser::ParserContext<'_>,
     edit: MediaListEdit<'_>,

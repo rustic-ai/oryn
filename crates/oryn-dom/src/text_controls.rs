@@ -74,8 +74,17 @@ impl DomRuntime {
     }
 
     pub fn textarea_default_value(&self, node: NodeId) -> Result<String, DomError> {
+        self.textarea_default_value_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn textarea_default_value_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<String, DomError> {
+        checkpoint()?;
         let mut units = Vec::new();
         for child in &self.arena.get(node)?.children {
+            checkpoint()?;
             if let super::NodeKind::Text { data } | super::NodeKind::CDataSection { data } =
                 &self.arena.get(*child)?.kind
             {
@@ -143,6 +152,14 @@ impl DomRuntime {
         self.control_value(node)
     }
     pub fn control_bad_input(&self, node: NodeId) -> Result<bool, DomError> {
+        self.control_bad_input_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn control_bad_input_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        checkpoint()?;
         let record = self.arena.get(node)?;
         if !record.user_edited_value
             || !self.is_element(node, "http://www.w3.org/1999/xhtml", "input")
@@ -154,7 +171,9 @@ impl DomRuntime {
             .unwrap_or("text");
         Ok(super::numeric_controls::numeric_kind(kind)
             && record.value.as_ref().is_some_and(|value| !value.is_empty())
-            && self.control_value(node)?.is_empty())
+            && self
+                .control_value_with_checkpoint(node, checkpoint)?
+                .is_empty())
     }
 
     pub fn control_length_limit(
@@ -177,11 +196,19 @@ impl DomRuntime {
 
     /// (tooShort, tooLong), measured in UTF-16 units, not Unicode scalars.
     pub fn control_length_validity(&self, node: NodeId) -> Result<(bool, bool), DomError> {
+        self.control_length_validity_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn control_length_validity_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<(bool, bool), DomError> {
+        checkpoint()?;
         let record = self.arena.get(node)?;
         if !self.is_text_control(node) || !record.dirty_value || !record.user_edited_value {
             return Ok((false, false));
         }
-        let length = dom_string::len(&self.control_value(node)?);
+        let length = dom_string::len(&self.control_value_with_checkpoint(node, checkpoint)?);
         Ok((
             length != 0
                 && self

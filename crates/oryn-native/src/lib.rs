@@ -103,6 +103,7 @@ mod script_load_lease;
 mod script_policy_snapshot;
 mod standalone_csp_reporting;
 mod standalone_document_policy;
+pub(crate) mod stylesheet_response_proof;
 pub use module_types::ModuleType;
 #[cfg(any(feature = "v8-host", test))]
 mod html_encoding_replay;

@@ -133,6 +133,22 @@ pub(crate) struct ResponseRequest {
 }
 impl ResponseRequest {
     pub(crate) fn capture(request: &ContextServiceRequest) -> Self {
+        let resource_creator = match request {
+            ContextServiceRequest::LoadPageResource { initiator, .. } => {
+                Some(initiator.creator.clone())
+            }
+            ContextServiceRequest::RunScriptLoad { request, .. }
+            | ContextServiceRequest::PreloadResource { request, .. } => {
+                return Self::capture(request);
+            }
+            _ => None,
+        };
+        if let Some(creator) = resource_creator {
+            return Self {
+                creator: Some(creator),
+                wait: None,
+            };
+        }
         let memory = match request {
             ContextServiceRequest::SharedMemory {
                 creator, request, ..
@@ -235,6 +251,21 @@ impl Drop for ScriptReservation {
         }
     }
 }
+struct StylesheetReservation {
+    registry: crate::script_load_lease::ScriptLoadRegistry,
+    owner: crate::agent_registry::AgentOwner,
+    id: u64,
+    armed: bool,
+}
+impl Drop for StylesheetReservation {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = self
+                .registry
+                .release_stylesheet_response(&self.owner, self.id);
+        }
+    }
+}
 struct KeepaliveReservation {
     registry: Arc<super::ordinary_keepalive::Registry>,
     token: String,
@@ -252,6 +283,7 @@ pub(crate) struct ResponseGuard {
     scope: Option<ResponseScope>,
     actions: Vec<ResponseCleanup>,
     script: Option<ScriptReservation>,
+    stylesheet: Option<StylesheetReservation>,
     socket: Option<SocketReservation>,
     http: Option<HttpReservation>,
 }
@@ -261,6 +293,41 @@ impl ResponseGuard {
         request: ResponseRequest,
         response: Option<&ContextServiceResponse>,
     ) -> Self {
+        // Preload replies retain the exact inner broker response. A failed
+        // outer receipt must release its stylesheet admission as well.
+        let mut stylesheet_response = response;
+        while let Some(ContextServiceResponse::PreloadedResource { response, .. }) =
+            stylesheet_response
+        {
+            stylesheet_response = Some(response.as_ref());
+        }
+        let stylesheet = match (
+            stylesheet_response,
+            scope.as_ref(),
+            request.creator.as_ref(),
+        ) {
+            (
+                Some(ContextServiceResponse::PageResource {
+                    stylesheet_response: Some(proof),
+                    ..
+                }),
+                Some(scope),
+                Some(creator),
+            ) => match scope.source {
+                ResponseSource::Window(page) => scope.scripts.clone().and_then(|registry| {
+                    crate::stylesheet_response_proof::issued_owner(page, creator)
+                        .ok()
+                        .map(|owner| StylesheetReservation {
+                            registry,
+                            owner,
+                            id: proof.id,
+                            armed: true,
+                        })
+                }),
+                ResponseSource::Agent(_) => None,
+            },
+            _ => None,
+        };
         let mut actions = Vec::new();
         if let Some(response) = response {
             match response {
@@ -380,11 +447,15 @@ impl ResponseGuard {
             scope,
             actions,
             script,
+            stylesheet,
             socket,
             http,
         }
     }
     pub(crate) fn commit(&mut self) {
+        if let Some(mut stylesheet) = self.stylesheet.take() {
+            stylesheet.armed = false;
+        }
         if let Some(mut keepalive) = self.keepalive.take() {
             keepalive.armed = false;
         }
@@ -416,6 +487,223 @@ impl Drop for ResponseGuard {
 mod tests {
     use super::*;
     use oryn_js::message_wire::MessageRequest;
+    #[test]
+    fn nested_preload_reply_receipt_transfers_or_releases_stylesheet_admission() {
+        for received in [false, true] {
+            let context = crate::Browser::in_process_probe().new_context();
+            let page = context.new_page();
+            let id = page.page_id();
+            let registry = crate::script_load_lease::ScriptLoadRegistry::default();
+            let creator = Creator::Window {
+                target: oryn_js::message_wire::WindowTarget::Root,
+                document_generation: 1,
+                stream_epoch: 0,
+            };
+            let owner = crate::stylesheet_response_proof::issued_owner(id, &creator).unwrap();
+            let token = registry.reserve_for(owner.clone()).unwrap();
+            let proof = registry
+                .claim_for(token, &owner)
+                .unwrap()
+                .publish_stylesheet("https://source.test/a.css", "p{}", true)
+                .unwrap();
+            let inner = ContextServiceRequest::LoadPageResource {
+                page_id: id,
+                url: "https://source.test/a.css".into(),
+                destination: "stylesheet".into(),
+                download: None,
+                script_authority: None,
+                initiator: Box::new(ResourceInitiator {
+                    embedded_type: None,
+                    request_state: None,
+                    navigation: Default::default(),
+                    stylesheet: None,
+                    creator: creator.clone(),
+                    prepared_policy: None,
+                }),
+                form_authority: None,
+                initiator_url: None,
+                referrer_policy: None,
+                parent_encoding: None,
+                post: None,
+            };
+            let request = ContextServiceRequest::PreloadResource {
+                page_id: id,
+                token,
+                request: Box::new(ContextServiceRequest::RunScriptLoad {
+                    page_id: id,
+                    token,
+                    render_blocking: false,
+                    request: Box::new(inner),
+                }),
+            };
+            let response = ContextServiceResponse::PageResource {
+                stylesheet_response: Some(proof.clone()),
+                inherited_encoding: None,
+                response_headers: Vec::new(),
+                raw_body_base64: None,
+                request_state: None,
+                content_language: None,
+                timing: None,
+                stream_id: None,
+                native_origin: None,
+                effective_post: None,
+                worker_policy_token: None,
+                url: "https://source.test/a.css".into(),
+                source: "p{}".into(),
+                encoding: "UTF-8".into(),
+                destination: "stylesheet".into(),
+                content_type: Some("text/css".into()),
+                modals_allowed: true,
+                document_referrer: String::new(),
+                referrer_policy: "no-referrer".into(),
+                refresh_url: None,
+            };
+            let response = ContextServiceResponse::PreloadedResource {
+                proof: None,
+                response: Box::new(ContextServiceResponse::PreloadedResource {
+                    proof: None,
+                    response: Box::new(response),
+                }),
+            };
+            let scope = ResponseScope {
+                keepalive: None,
+                context: context.downgrade(),
+                source: ResponseSource::Window(id),
+                scripts: Some(registry.clone()),
+                sockets: None,
+            };
+            let mut receipt = ResponseGuard::new(
+                Some(scope),
+                ResponseRequest::capture(&request),
+                Some(&response),
+            );
+            assert!(receipt.stylesheet.is_some());
+            if received {
+                receipt.commit();
+            }
+            drop(receipt);
+            assert_eq!(registry.is_drained().unwrap(), !received);
+            if received {
+                registry
+                    .release_stylesheet_response(&owner, proof.id)
+                    .unwrap();
+            }
+            assert!(registry.is_drained().unwrap());
+        }
+    }
+    #[test]
+    fn stylesheet_response_capture_receipt_transfers_or_rolls_back_actual_claimed_admission() {
+        for nested in [false, true] {
+            for received in [false, true] {
+                let context = crate::Browser::in_process_probe().new_context();
+                let page = context.new_page();
+                let id = page.page_id();
+                let registry = crate::script_load_lease::ScriptLoadRegistry::default();
+                let creator = Creator::Window {
+                    target: oryn_js::message_wire::WindowTarget::Root,
+                    document_generation: 1,
+                    stream_epoch: 0,
+                };
+                let owner = crate::stylesheet_response_proof::issued_owner(id, &creator).unwrap();
+                let token = registry.reserve_for(owner.clone()).unwrap();
+                let proof = registry
+                    .claim_for(token, &owner)
+                    .unwrap()
+                    .publish_stylesheet("https://source.test/a.css", "p{}", true)
+                    .unwrap();
+                let request = ContextServiceRequest::LoadPageResource {
+                    page_id: id,
+                    url: "https://source.test/a.css".into(),
+                    destination: "stylesheet".into(),
+                    download: None,
+                    script_authority: None,
+                    initiator: Box::new(ResourceInitiator {
+                        embedded_type: None,
+                        request_state: None,
+                        navigation: Default::default(),
+                        stylesheet: None,
+                        creator: creator.clone(),
+                        prepared_policy: None,
+                    }),
+                    form_authority: None,
+                    initiator_url: None,
+                    referrer_policy: None,
+                    parent_encoding: None,
+                    post: None,
+                };
+                let request = if nested {
+                    ContextServiceRequest::RunScriptLoad {
+                        page_id: id,
+                        token,
+                        render_blocking: false,
+                        request: Box::new(request),
+                    }
+                } else {
+                    request
+                };
+                let captured = ResponseRequest::capture(&request);
+                assert_eq!(captured.creator.as_ref(), Some(&creator));
+                let response = ContextServiceResponse::PageResource {
+                    stylesheet_response: Some(proof.clone()),
+                    inherited_encoding: None,
+                    response_headers: Vec::new(),
+                    raw_body_base64: None,
+                    request_state: None,
+                    content_language: None,
+                    timing: None,
+                    stream_id: None,
+                    native_origin: None,
+                    effective_post: None,
+                    worker_policy_token: None,
+                    url: "https://source.test/a.css".into(),
+                    source: "p{}".into(),
+                    encoding: "UTF-8".into(),
+                    destination: "stylesheet".into(),
+                    content_type: Some("text/css".into()),
+                    modals_allowed: true,
+                    document_referrer: String::new(),
+                    referrer_policy: "no-referrer".into(),
+                    refresh_url: None,
+                };
+                let scope = ResponseScope {
+                    keepalive: None,
+                    context: context.downgrade(),
+                    source: ResponseSource::Window(id),
+                    scripts: Some(registry.clone()),
+                    sockets: None,
+                };
+                let mut custody = ResponseGuard::new(Some(scope), captured, Some(&response));
+                assert!(custody.stylesheet.is_some());
+                if received {
+                    custody.commit();
+                }
+                drop(custody);
+                assert_eq!(
+                    registry.is_drained().unwrap(),
+                    !received,
+                    "nested={nested},received={received}"
+                );
+                if received {
+                    assert_eq!(
+                        registry
+                            .validate_stylesheet_response(
+                                &owner,
+                                proof.id,
+                                "https://source.test/a.css",
+                                &proof.body_sha256
+                            )
+                            .unwrap(),
+                        Some(true)
+                    );
+                    registry
+                        .release_stylesheet_response(&owner, proof.id)
+                        .unwrap();
+                }
+                assert!(registry.is_drained().unwrap());
+            }
+        }
+    }
+
     #[test]
     fn service_snapshot_messages_have_the_same_rejected_reply_custody_as_port_events() {
         use oryn_js::service_worker_wire::{
@@ -572,6 +860,7 @@ mod tests {
                 .prepare_frame_worker_policy(id, "https://child.test/", &[], "")
                 .unwrap();
             let response = ContextServiceResponse::PageResource {
+                stylesheet_response: None,
                 inherited_encoding: None,
                 response_headers: Vec::new(),
                 raw_body_base64: None,

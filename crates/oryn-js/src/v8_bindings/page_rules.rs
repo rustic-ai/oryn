@@ -135,6 +135,7 @@ pub(super) fn is_rule_interface(interface: &str) -> bool {
         interface,
         "CSSMediaRule"
             | "CSSStyleRule"
+            | "CSSImportRule"
             | "CSSNestedDeclarations"
             | "CSSFontFaceRule"
             | "CSSPageRule"
@@ -153,6 +154,7 @@ pub(super) fn is_rule_interface(interface: &str) -> bool {
 fn supports_interface(kind: u16, interface: &str) -> bool {
     match interface {
         "CSSRule" => true,
+        "CSSImportRule" => kind == 3,
         "CSSStyleRule" => kind == 1,
         "CSSNestedDeclarations" => kind == 24,
         "CSSFontFaceRule" => kind == 5,

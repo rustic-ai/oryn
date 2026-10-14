@@ -365,8 +365,25 @@ impl crate::document::BaseDocument {
     }
 
     pub fn resolve_stylist(&mut self, now: f64) {
+        let _ = self.resolve_stylist_controlled(now, None);
+    }
+
+    /// Returns false after all scoped workers join if the private traversal was
+    /// cancelled. An incomplete mirror must be discarded, never reused.
+    pub fn resolve_stylist_controlled(&mut self, now: f64, cancelled: Option<std::sync::Arc<dyn Fn() -> bool + Send + Sync>>) -> bool {
+        if cancelled.as_ref().is_some_and(|check| check()) { return false; }
         self.animation_sample_time=now;
         style::thread_state::enter(ThreadState::LAYOUT);
+        // Callback is Rust owner state only. Early returns release borrowed
+        // style/animation guards normally; this mirror is discarded.
+        macro_rules! terminal_checkpoint {
+            () => {
+                if cancelled.as_ref().is_some_and(|check| check()) {
+                    style::thread_state::exit(ThreadState::LAYOUT);
+                    return false;
+                }
+            };
+        }
 
         let guard = &self.guard;
         let guards = StylesheetGuards {
@@ -388,6 +405,7 @@ impl crate::document::BaseDocument {
         // Mark actively animating nodes as dirty
         let mut sets = self.animations.sets.write();
         for (key, set) in sets.iter_mut() {
+            terminal_checkpoint!();
             let node_id = NodeId::from_u64(key.node.id() as u64);
 
             // Drop animations belonging to nodes that are no longer in the
@@ -409,6 +427,7 @@ impl crate::document::BaseDocument {
             self.nodes[node_id].set_restyle_hint(RestyleHint::RESTYLE_SELF);
 
             for animation in set.animations.iter_mut() {
+                terminal_checkpoint!();
                 if animation.state == AnimationState::Pending && animation.started_at <= now {
                     animation.state = AnimationState::Running;
                 }
@@ -420,6 +439,7 @@ impl crate::document::BaseDocument {
             }
 
             for transition in set.transitions.iter_mut() {
+                terminal_checkpoint!();
                 if transition.state == AnimationState::Pending && transition.start_time <= now {
                     transition.state = AnimationState::Running;
                 }
@@ -452,18 +472,30 @@ impl crate::document::BaseDocument {
         if token.should_traverse() {
             // Style the elements, resolving their data
             let mut traverser = RecalcStyle::new(context);
+            traverser.cancelled = cancelled.clone();
             // `Sequential` bypasses Stylo's global pool. See `StyleThreading`.
             let pool_guard = matches!(self.style_threading, StyleThreading::Parallel)
                 .then(|| STYLE_THREAD_POOL.pool());
             let rayon_pool = pool_guard.as_ref().and_then(|g| g.as_ref());
             style::driver::traverse_dom(&traverser, token, rayon_pool);
+            // traverse_dom's scoped pool has joined; no worker can retain this
+            // private mirror after cancellation is returned to its owner.
+            if traverser.cancelled() {
+                style::thread_state::exit(ThreadState::LAYOUT);
+                return false;
+            }
             nodes_needing_style_image_flush =
                 std::mem::take(traverser.nodes_needing_style_image_flush.get_mut().unwrap());
+        }
+        if cancelled.as_ref().is_some_and(|check| check()) {
+            style::thread_state::exit(ThreadState::LAYOUT);
+            return false;
         }
         self.pending_style_image_nodes
             .extend(nodes_needing_style_image_flush);
 
         for opaque in self.snapshots.keys() {
+            terminal_checkpoint!();
             let id = NodeId::from_u64(opaque.id() as u64);
             if let Some(node) = self.nodes.get_mut(id) {
                 node.set_has_snapshot(false);
@@ -473,21 +505,66 @@ impl crate::document::BaseDocument {
 
         let mut sets = self.animations.sets.write();
         for set in sets.values_mut() {
-            set.clear_canceled_animations();
+            terminal_checkpoint!();
+            let mut kept = 0;
+            for index in 0..set.animations.len() {
+                terminal_checkpoint!();
+                if set.animations[index].state != AnimationState::Canceled {
+                    set.animations.swap(kept, index);
+                    kept += 1;
+                }
+            }
+            set.animations.truncate(kept);
+            let mut kept = 0;
+            for index in 0..set.transitions.len() {
+                terminal_checkpoint!();
+                if set.transitions[index].state != AnimationState::Canceled {
+                    set.transitions.swap(kept, index);
+                    kept += 1;
+                }
+            }
+            set.transitions.truncate(kept);
             for animation in set.animations.iter_mut() {
+                terminal_checkpoint!();
                 animation.is_new = false;
             }
             for transition in set.transitions.iter_mut() {
+                terminal_checkpoint!();
                 transition.is_new = false;
             }
         }
-        sets.retain(|_, state| !state.is_empty());
-        self.has_active_animations = sets.values().any(|state| state.needs_animation_ticks());
+        let mut empty = Vec::new();
+        for (key, state) in sets.iter() {
+            terminal_checkpoint!();
+            if state.is_empty() { empty.push(key.clone()); }
+        }
+        for key in empty {
+            terminal_checkpoint!();
+            sets.remove(&key);
+        }
+        let mut active = false;
+        for state in sets.values() {
+            terminal_checkpoint!();
+            for animation in &state.animations {
+                terminal_checkpoint!();
+                active |= matches!(animation.state, AnimationState::Running | AnimationState::Pending);
+            }
+            for transition in &state.transitions {
+                terminal_checkpoint!();
+                active |= matches!(transition.state, AnimationState::Running | AnimationState::Pending);
+            }
+        }
+        self.has_active_animations = active;
 
+        if cancelled.as_ref().is_some_and(|check| check()) {
+            style::thread_state::exit(ThreadState::LAYOUT);
+            return false;
+        }
         // Maybe run garbage collection. Stylo has internal to determine whether to run or not.
         self.stylist.rule_tree().maybe_gc();
 
         style::thread_state::exit(ThreadState::LAYOUT);
+        true
     }
 }
 
@@ -496,6 +573,37 @@ impl crate::document::BaseDocument {
 /// Since BlitzNodes are not persistent (IE we don't keep the pointers around between frames), we choose to just implement
 /// the tree structure in the nodes themselves, and temporarily give out pointers during the layout phase.
 type BlitzNode<'a> = &'a Node;
+
+#[cfg(test)]
+mod controlled_traversal_tests {
+    use super::*;
+    use crate::{QualName, Namespace, LocalName};
+    use std::sync::{Arc as StdArc, atomic::{AtomicUsize, Ordering}};
+    #[test]
+    fn parallel_controlled_resolve_joins_before_private_mirror_drop() {
+        let mut document = crate::BaseDocument::new(crate::DocumentConfig {
+            style_threading: crate::StyleThreading::Parallel,
+            ..Default::default()
+        });
+        {
+            let mut mutator = document.mutate();
+            let root = mutator.create_element(QualName::new(None, Namespace::from("http://www.w3.org/1999/xhtml"), LocalName::from("html")), Vec::new());
+            let parent = mutator.doc.root_node_id;
+            mutator.append_children(parent, &[root]);
+            for _ in 0..4096 {
+                let child = mutator.create_element(QualName::new(None, Namespace::from("http://www.w3.org/1999/xhtml"), LocalName::from("div")), Vec::new());
+                mutator.append_children(root, &[child]);
+            }
+        }
+        let calls = StdArc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        assert!(!document.resolve_stylist_controlled(0., Some(StdArc::new(move || seen.fetch_add(1, Ordering::Relaxed) >= 32))));
+        let joined_count = calls.load(Ordering::Relaxed);
+        drop(document);
+        assert_eq!(calls.load(Ordering::Relaxed), joined_count);
+        assert!(joined_count >= 33);
+    }
+}
 
 impl<'a> TDocument for BlitzNode<'a> {
     type ConcreteNode = BlitzNode<'a>;
@@ -1640,6 +1748,8 @@ impl RegisteredSpeculativePainters for RegisteredPaintersImpl {
 use style::traversal::recalc_style_at;
 
 pub struct RecalcStyle<'a> {
+    cancelled: Option<std::sync::Arc<dyn Fn() -> bool + Send + Sync>>,
+    cancellation_observed: std::sync::atomic::AtomicBool,
     context: SharedStyleContext<'a>,
     /// Nodes whose `background-image`/`mask-image` layers need flushing to
     /// dedicated storage on the node (see `flush_image_layers_from_style`)
@@ -1650,6 +1760,8 @@ pub struct RecalcStyle<'a> {
 impl<'a> RecalcStyle<'a> {
     pub fn new(context: SharedStyleContext<'a>) -> Self {
         RecalcStyle {
+            cancelled: None,
+            cancellation_observed: std::sync::atomic::AtomicBool::new(false),
             context,
             nodes_needing_style_image_flush: Mutex::new(Vec::new()),
         }
@@ -1658,6 +1770,15 @@ impl<'a> RecalcStyle<'a> {
 
 #[allow(unsafe_code)]
 impl<'dom> DomTraversal<BlitzNode<'dom>> for RecalcStyle<'_> {
+    fn cancelled(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        if self.cancellation_observed.load(Ordering::Acquire) { return true; }
+        if self.cancelled.as_ref().is_some_and(|check| check()) {
+            self.cancellation_observed.store(true, Ordering::Release);
+            return true;
+        }
+        false
+    }
     fn process_preorder<F: FnMut(BlitzNode<'dom>)>(
         &self,
         traversal_data: &PerLevelTraversalData,

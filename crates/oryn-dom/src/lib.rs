@@ -69,6 +69,8 @@ pub use temporal_edit::{TemporalAction, TemporalEdit, TemporalEditOutcome};
 pub use temporal_picker::{TemporalPicker, TemporalPickerItem};
 mod style_sets;
 mod xml_stylesheets;
+pub use style_sets::StylesheetOwnerStateInput;
+include!("owned_stylesheet_source.rs");
 pub use numeric_controls::NumericValidity;
 pub use pattern_controls::PatternMatcher;
 pub use xml_stylesheets::{
@@ -365,7 +367,7 @@ pub struct Node {
     /// Constructed stylesheets adopted by this document or shadow root, in cascade order.
     pub adopted_stylesheets: Vec<NodeId>,
     /// Native CSSOM source, independent of the owner's DOM text children.
-    pub stylesheet_override: Option<String>,
+    pub stylesheet_override: Option<OwnedNativeStylesheetSource>,
     /// Native CSSOM media text, independent of the owner element attribute.
     pub stylesheet_media: Option<String>,
     /// Explicit CSSOM disabled override, separate from owner attributes.
@@ -465,6 +467,8 @@ struct Slot {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum DomError {
+    #[error("native document projection cancelled by its owner")]
+    ProjectionCancelled,
     #[error("native pointer source capacity exceeded")]
     PointerSourceCapacity,
     #[error("hover target belongs to another document")]
@@ -1054,9 +1058,22 @@ impl DomArena {
     }
 
     pub fn ancestors(&self, id: NodeId) -> Result<Vec<NodeId>, DomError> {
+        self.ancestors_with_checkpoint(id, &mut || Ok(()))
+    }
+    pub fn ancestors_with_checkpoint(
+        &self,
+        id: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Vec<NodeId>, DomError> {
+        checkpoint()?;
         let mut result = Vec::new();
         let mut current = self.get(id)?.parent;
+        let mut seen = BTreeSet::from([id]);
         while let Some(node) = current {
+            checkpoint()?;
+            if !seen.insert(node) {
+                return Err(DomError::Cycle);
+            }
             result.push(node);
             current = self.get(node)?.parent;
         }
@@ -1086,6 +1103,36 @@ impl DomArena {
                 )
             })
         })
+    }
+
+    /// Advance a caller-owned native-slot cursor, checking omitted slots too.
+    /// No checkpoint borrow is retained, so nested work can use the same
+    /// caller authority. A failed check leaves that slot pending for retry.
+    pub fn next_with_checkpoint<'a>(
+        &'a self,
+        cursor: &mut usize,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<(NodeId, &'a Node)>, DomError> {
+        *cursor = (*cursor).min(self.slots.len());
+        loop {
+            checkpoint()?;
+            let index = *cursor;
+            let Some(slot) = self.slots.get(index) else {
+                return Ok(None);
+            };
+            // A valid slice index is strictly below len, hence increment
+            // cannot overflow usize even for an externally supplied cursor.
+            *cursor = index + 1;
+            if let Some(node) = &slot.node {
+                return Ok(Some((
+                    NodeId {
+                        slot: index as u32,
+                        generation: slot.generation,
+                    },
+                    node,
+                )));
+            }
+        }
     }
 
     /// Source eligibility, independent of connection, loading and disabled state.
@@ -1123,7 +1170,7 @@ impl DomArena {
     /// Effective source consumed by the style engine after CSSOM edits.
     pub fn stylesheet_text(&self, id: NodeId) -> Result<String, DomError> {
         match &self.get(id)?.stylesheet_override {
-            Some(source) => Ok(source.clone()),
+            Some(source) => Ok(source.as_ref().to_owned()),
             None => self.text_content(id),
         }
     }
@@ -1166,34 +1213,63 @@ impl DomArena {
     /// in light-tree order. Document callers use this internal extraction
     /// helper; the public Document.textContent getter returns null.
     pub fn text_content(&self, id: NodeId) -> Result<String, DomError> {
+        self.text_content_with_checkpoint(id, &mut || Ok(()))
+    }
+    pub fn text_content_with_checkpoint(
+        &self,
+        id: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<String, DomError> {
+        checkpoint()?;
         let node = self.get(id)?;
         match &node.kind {
             NodeKind::Text { data }
             | NodeKind::CDataSection { data }
             | NodeKind::ProcessingInstruction { data, .. }
-            | NodeKind::Comment { data } => return Ok(data.clone()),
-            NodeKind::Attribute { data, .. } => return Ok(data.value.clone()),
+            | NodeKind::Comment { data } => {
+                let value = data.clone();
+                checkpoint()?;
+                return Ok(value);
+            }
+            NodeKind::Attribute { data, .. } => {
+                let value = data.value.clone();
+                checkpoint()?;
+                return Ok(value);
+            }
             _ => {}
         }
         let mut result = Vec::new();
-        let mut pending = node.children.iter().rev().copied().collect::<Vec<_>>();
+        let mut pending = Vec::new();
+        for &child in node.children.iter().rev() {
+            checkpoint()?;
+            pending.push(child);
+        }
         let mut seen = BTreeSet::from([id]);
         while let Some(child) = pending.pop() {
+            checkpoint()?;
             if !seen.insert(child) {
                 return Err(DomError::Cycle);
             }
+            checkpoint()?;
             let record = self.get(child)?;
             match &record.kind {
                 NodeKind::Text { data } | NodeKind::CDataSection { data } => {
                     result.extend(dom_string::units(data))
                 }
-                NodeKind::Element { .. } => pending.extend(record.children.iter().rev().copied()),
+                NodeKind::Element { .. } => {
+                    for &child in record.children.iter().rev() {
+                        checkpoint()?;
+                        pending.push(child);
+                    }
+                }
                 // Internal shadow and browsing-document edges are not DOM
                 // children for descendant text, nor are template contents.
                 _ => {}
             }
         }
-        Ok(dom_string::from_units(&result))
+        let value = dom_string::from_units(&result);
+        checkpoint()?;
+        Ok(value)
     }
 
     fn slot(&self, id: NodeId) -> Option<&Slot> {
@@ -1436,8 +1512,23 @@ pub struct MutationBatch {
     pub mutations: Vec<Mutation>,
 }
 
-#[derive(Debug, Clone)]
+include!("prepared_stylesheet_metadata.rs");
+include!("prepared_stylesheet_source.rs");
+
+struct StylesheetJournalCharge {
+    bytes: usize,
+    _lease: Arc<dyn Send + Sync>,
+}
+impl std::fmt::Debug for StylesheetJournalCharge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StylesheetJournalCharge")
+            .field("bytes", &self.bytes)
+            .finish()
+    }
+}
+#[derive(Debug)]
 struct MutationJournal {
+    stylesheet_capacity_charge: Option<StylesheetJournalCharge>,
     entries: VecDeque<(u64, Mutation)>,
     next: u64,
     observer: MutationCursor,
@@ -1450,6 +1541,7 @@ struct MutationJournal {
 impl Default for MutationJournal {
     fn default() -> Self {
         Self {
+            stylesheet_capacity_charge: None,
             entries: VecDeque::new(),
             next: 1,
             observer: MutationCursor::default(),
@@ -3216,7 +3308,7 @@ impl DomRuntime {
 
     /// Publish CSSOM source without rewriting DOM text or emitting DOM records.
     pub fn set_stylesheet_text(&mut self, node: NodeId, source: String) -> Result<(), DomError> {
-        self.arena.get_mut(node)?.stylesheet_override = Some(source);
+        self.arena.get_mut(node)?.stylesheet_override = Some(source.into());
         self.record_mutation(Mutation::StyleSheets { node });
         Ok(())
     }
@@ -4497,24 +4589,34 @@ impl DomRuntime {
     /// Explicit and modal inertness follow the native flat tree. A modal
     /// dialog escapes ancestor inertness but its own inert attribute applies.
     pub fn is_inert(&self, node: NodeId) -> Result<bool, DomError> {
+        self.is_inert_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn is_inert_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        checkpoint()?;
         let document = self.arena.node_document(node)?;
-        let modal = self
-            .top_layer()
-            .filter(|entry| {
-                entry.kind == TopLayerKind::ModalDialog
-                    && self.arena.node_document(entry.node).ok() == Some(document)
-            })
-            .last()
-            .map(|entry| entry.node);
+        let mut modal = None;
+        for entry in self.top_layer() {
+            checkpoint()?;
+            if entry.kind == TopLayerKind::ModalDialog
+                && self.arena.node_document(entry.node).ok() == Some(document)
+            {
+                modal = Some(entry.node);
+            }
+        }
         if let Some(modal) = modal {
             let mut ancestor = Some(node);
             let mut inside = false;
             while let Some(current) = ancestor {
+                checkpoint()?;
                 if current == modal {
                     inside = true;
                     break;
                 }
-                ancestor = self.flat_tree_parent(current)?;
+                ancestor = self.flat_tree_parent_with_checkpoint(current, checkpoint)?;
             }
             if !inside {
                 return Ok(true);
@@ -4522,6 +4624,7 @@ impl DomRuntime {
         }
         let mut current = Some(node);
         while let Some(node) = current {
+            checkpoint()?;
             let record = self.arena.get(node)?;
             if matches!(&record.kind, NodeKind::Element { name }
                 if name.ns.as_ref() == "http://www.w3.org/1999/xhtml")
@@ -4532,7 +4635,7 @@ impl DomRuntime {
             if Some(node) == modal {
                 break;
             }
-            current = self.flat_tree_parent(node)?;
+            current = self.flat_tree_parent_with_checkpoint(node, checkpoint)?;
         }
         Ok(false)
     }
@@ -4584,11 +4687,19 @@ impl DomRuntime {
     /// Parent in the rendered flat tree. Unassigned light children and fallback
     /// children hidden by an assignment have no flat-tree parent.
     pub fn flat_tree_parent(&self, node: NodeId) -> Result<Option<NodeId>, DomError> {
+        self.flat_tree_parent_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn flat_tree_parent_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<NodeId>, DomError> {
+        checkpoint()?;
         let record = self.arena.get(node)?;
         if matches!(record.kind, NodeKind::Document) {
             return Ok(None);
         }
-        if let Some(slot) = self.assigned_slot(node, false)? {
+        if let Some(slot) = self.assigned_slot_with_checkpoint(node, false, checkpoint)? {
             return Ok(Some(slot));
         }
         let Some(parent) = record.parent else {
@@ -4597,13 +4708,17 @@ impl DomRuntime {
         if matches!(self.arena.get(parent)?.kind, NodeKind::ShadowRoot { .. }) {
             return Ok(self.arena.get(parent)?.parent);
         }
-        if self.attached_shadow_root(parent, false)?.is_some()
+        if self
+            .attached_shadow_root_with_checkpoint(parent, false, checkpoint)?
+            .is_some()
             && !matches!(record.kind, NodeKind::ShadowRoot { .. })
         {
             return Ok(None);
         }
         if self.is_element(parent, "http://www.w3.org/1999/xhtml", "slot")
-            && !self.assigned_nodes(parent, false)?.is_empty()
+            && !self
+                .assigned_nodes_with_checkpoint(parent, false, checkpoint)?
+                .is_empty()
         {
             return Ok(None);
         }
@@ -4793,6 +4908,14 @@ impl DomRuntime {
     }
 
     pub fn control_value(&self, node: NodeId) -> Result<String, DomError> {
+        self.control_value_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn control_value_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<String, DomError> {
+        checkpoint()?;
         if self.is_file_input(node) {
             return Ok(self
                 .arena
@@ -4803,7 +4926,7 @@ impl DomRuntime {
                 .unwrap_or_default());
         }
         if self.is_element(node, "http://www.w3.org/1999/xhtml", "select") {
-            return self.select_value(node);
+            return self.select_value_with_checkpoint(node, checkpoint);
         }
         let record = self.arena.get(node)?;
         if self.is_element(node, "http://www.w3.org/1999/xhtml", "input")
@@ -4821,14 +4944,14 @@ impl DomRuntime {
         {
             return Ok(dom_string::from_units(&self.normalized_control_edit_units(
                 node,
-                &self.textarea_default_value(node)?,
+                &self.textarea_default_value_with_checkpoint(node, checkpoint)?,
             )));
         }
         if let Some(value) = &record.value {
             return self.sanitized_input_value(node, value);
         }
         if self.is_element(node, "http://www.w3.org/1999/xhtml", "textarea") {
-            return self.arena.text_content(node);
+            return self.arena.text_content_with_checkpoint(node, checkpoint);
         }
         self.sanitized_input_value(
             node,
@@ -5047,18 +5170,25 @@ impl DomRuntime {
 
     /// Finds the first matching descendant in this tree, excluding shadow trees.
     pub fn get_element_by_id(&self, root: NodeId, id: &str) -> Result<Option<NodeId>, DomError> {
-        let mut pending: Vec<_> = self
-            .arena
-            .get(root)?
-            .children
-            .iter()
-            .rev()
-            .copied()
-            .collect();
+        self.get_element_by_id_with_checkpoint(root, id, &mut || Ok(()))
+    }
+    pub fn get_element_by_id_with_checkpoint(
+        &self,
+        root: NodeId,
+        id: &str,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<NodeId>, DomError> {
+        checkpoint()?;
+        let mut pending = Vec::new();
+        for &child in self.arena.get(root)?.children.iter().rev() {
+            checkpoint()?;
+            pending.push(child);
+        }
         if id.is_empty() {
             return Ok(None);
         }
         while let Some(node) = pending.pop() {
+            checkpoint()?;
             let record = self.arena.get(node)?;
             if matches!(record.kind, NodeKind::ShadowRoot { .. }) {
                 continue;
@@ -5071,7 +5201,10 @@ impl DomRuntime {
             {
                 return Ok(Some(node));
             }
-            pending.extend(record.children.iter().rev().copied());
+            for &child in record.children.iter().rev() {
+                checkpoint()?;
+                pending.push(child);
+            }
         }
         Ok(None)
     }

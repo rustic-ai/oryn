@@ -57,6 +57,7 @@ pub(in super::super) struct Notification {
     target: Option<v8::Global<v8::Object>>,
     phase: usize,
     idb_path: Option<Vec<u64>>,
+    idb_callback_checkpoint_pending: bool,
     threw: bool,
     listeners: Option<VecDeque<Entry>>,
     invocation_type: Option<String>,
@@ -83,6 +84,106 @@ pub(in super::super) struct Notification {
     visibility_snapshot: Option<(bool, bool)>,
 }
 impl Notification {
+    fn finish_idb_callback(
+        &mut self,
+        scope: &mut v8::PinScope,
+        state: &V8BindingState,
+    ) -> Result<bool, V8BindingError> {
+        if !self.idb_callback_checkpoint_pending {
+            return Ok(true);
+        }
+        // Terminal transaction events have an algorithm-owned cleanup suffix
+        // (openRequest.transaction removal) before their microtask checkpoint.
+        // Only request-event invocation cleanup belongs between listeners here.
+        let request_target = self
+            .idb_path
+            .as_ref()
+            .and_then(|path| path.first())
+            .is_some_and(|id| {
+                matches!(
+                    state.platform_objects.borrow().get(id),
+                    Some(PlatformObjectRecord::IdbRequest(_))
+                )
+            });
+        if !request_target {
+            self.idb_callback_checkpoint_pending = false;
+            return Ok(true);
+        }
+        if state.execution_suspended() || scope.is_execution_terminating() {
+            return Ok(false);
+        }
+        // Synchronous dispatch from an author stack is not a task boundary.
+        if !v8::StackTrace::current_stack_trace(scope, 1)
+            .is_some_and(|trace| trace.get_frame_count() == 0)
+        {
+            self.idb_callback_checkpoint_pending = false;
+            return Ok(true);
+        }
+        let protected = self
+            .idb_path
+            .as_ref()
+            .and_then(|path| path.first())
+            .and_then(|id| match state.platform_objects.borrow().get(id) {
+                Some(PlatformObjectRecord::IdbRequest(request)) => request.transaction_id,
+                _ => None,
+            });
+        // Microtask cleanup can reenter native dispatch; protection must remain
+        // visible to every nested task cleanup, not just the local snapshot.
+        struct Protection<'a>(&'a V8BindingState, Option<u64>);
+        impl Drop for Protection<'_> {
+            fn drop(&mut self) {
+                if let Some(id) = self.1 {
+                    let mut protected = self.0.idb_callback_protection.borrow_mut();
+                    if let Some(depth) = protected.get_mut(&id) {
+                        *depth -= 1;
+                        if *depth == 0 {
+                            protected.remove(&id);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(id) = protected {
+            let mut protection = state.idb_callback_protection.borrow_mut();
+            let depth = protection
+                .get(&id)
+                .copied()
+                .unwrap_or(0)
+                .checked_add(1)
+                .ok_or(V8BindingError::Allocation("IDB callback depth"))?;
+            protection.insert(id, depth);
+        }
+        let _protection = Protection(state, protected);
+        // Consume the checkpoint before running microtasks: suspension may
+        // retain a suffix, but must not replay an already executed callback.
+        self.idb_callback_checkpoint_pending = false;
+        scope.perform_microtask_checkpoint();
+        if let Some(registry) = scope.get_slot::<BindingStateRegistry>() {
+            let ceiling = registry.instances.borrow().keys().next_back().copied();
+            let mut cursor = None;
+            loop {
+                let next = {
+                    let instances = registry.instances.borrow();
+                    match cursor {
+                        None => instances.iter().next(),
+                        Some(id) => instances
+                            .range((std::ops::Bound::Excluded(id), std::ops::Bound::Unbounded))
+                            .next(),
+                    }
+                    .filter(|(id, _)| ceiling.is_some_and(|ceiling| **id <= ceiling))
+                    .map(|(id, owner)| (*id, owner.clone()))
+                };
+                let Some((id, owner)) = next else { break };
+                cursor = Some(id);
+                // No registry borrow may survive last-Rc destruction: retirement
+                // can cancel native transports and invoke their cleanup closures.
+                if let Some(owner) = owner.upgrade() {
+                    owner.finish_platform_task_checkpoint()?;
+                }
+            }
+        }
+        Ok(!state.execution_suspended() && !scope.is_execution_terminating())
+    }
     pub(in super::super) fn new(creator: crate::worker_wire::Creator, payload: Payload) -> Self {
         Self {
             creator: Some(creator),
@@ -92,6 +193,7 @@ impl Notification {
             target: None,
             phase: 0,
             idb_path: None,
+            idb_callback_checkpoint_pending: false,
             threw: false,
             listeners: None,
             invocation_type: None,
@@ -761,6 +863,9 @@ impl Notification {
             self.cancelled = true;
             return Ok(true);
         }
+        if !self.finish_idb_callback(scope, state)? {
+            return Ok(false);
+        }
         struct InsertionGuard(Rc<V8BindingState>, Option<(NodeId, u64, u64, u64)>);
         impl Drop for InsertionGuard {
             fn drop(&mut self) {
@@ -1062,6 +1167,8 @@ impl Notification {
                             }
                         };
                     self.threw |= resolution_threw;
+                    self.idb_callback_checkpoint_pending |=
+                        resolution_threw && self.idb_path.is_some();
                     entry.method = resolved.map(|(function, receiver)| {
                         let function: v8::Local<v8::Value> = function.into();
                         (
@@ -1118,6 +1225,7 @@ impl Notification {
                     global_events::invoke(scope, function, receiver, &arguments)
                 });
                 self.threw |= invoked && result.is_none();
+                self.idb_callback_checkpoint_pending |= invoked && self.idb_path.is_some();
                 {
                     let mut records = state.events.borrow_mut();
                     let record = records.get_mut(&id).unwrap();
@@ -1147,6 +1255,9 @@ impl Notification {
                     self.cancelled = true;
                     return Ok(true);
                 }
+                if !self.finish_idb_callback(scope, state)? {
+                    return Ok(false);
+                }
             }
             if state.execution_suspended() || scope.is_execution_terminating() {
                 return Ok(false);
@@ -1171,6 +1282,7 @@ impl Notification {
                         v8::tc_scope!(let tc,scope);
                         let value = receiver.get(tc, property.into());
                         let exception = tc.exception();
+                        self.idb_callback_checkpoint_pending |= self.idb_path.is_some();
                         let message = tc.message();
                         if !tc.is_execution_terminating() {
                             tc.reset();
@@ -1205,6 +1317,7 @@ impl Notification {
                 #[cfg(test)]
                 let invoked = self.property_callback.is_some();
                 if let Some(callback) = self.property_callback.take() {
+                    self.idb_callback_checkpoint_pending = self.idb_path.is_some();
                     let callback = v8::Local::new(scope, &callback);
                     self.property_result =
                         global_events::invoke(scope, callback, receiver.into(), &arguments)
@@ -1215,6 +1328,9 @@ impl Notification {
                     return Ok(true);
                 }
                 if state.execution_suspended() || scope.is_execution_terminating() {
+                    return Ok(false);
+                }
+                if !self.finish_idb_callback(scope, state)? {
                     return Ok(false);
                 }
                 if let Some(value) = self.property_result.take() {
@@ -1367,6 +1483,7 @@ pub(in super::super) fn pending_platform_dispatch(
         target: None,
         phase: 0,
         idb_path: None,
+        idb_callback_checkpoint_pending: false,
         threw: false,
         listeners: None,
         invocation_type: None,
@@ -1412,6 +1529,7 @@ pub(in super::super) fn prepare_platform_dispatch(
         target: None,
         phase: 0,
         idb_path: None,
+        idb_callback_checkpoint_pending: false,
         threw: false,
         listeners: None,
         invocation_type: None,
@@ -1473,6 +1591,7 @@ pub(in super::super) fn pending_dom_dispatch(
         target: None,
         phase: 0,
         idb_path: None,
+        idb_callback_checkpoint_pending: false,
         threw: false,
         listeners: None,
         invocation_type: None,
@@ -1575,6 +1694,7 @@ pub(in super::super) fn enqueue_local_csp(
         target: None,
         phase: 0,
         idb_path: None,
+        idb_callback_checkpoint_pending: false,
         threw: false,
         listeners: None,
         invocation_type: None,
@@ -2402,6 +2522,370 @@ mod suspended_continuation_tests {
         for state in states {
             state.set_execution_suspended(true);
         }
+    }
+    #[test]
+    fn idb_callback_fault_and_parking_preserve_checkpoint_suffix_once() {
+        for parking in [false, true] {
+            super::super::super::tests::initialize_v8();
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("").into_runtime().unwrap(),
+            ));
+            let mut isolate = v8::Isolate::new(Default::default());
+            v8::scope!(let scope, &mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let state = install_generated_bindings(scope, context, dom, RealmId(227), 1).unwrap();
+            let park_function = v8::Function::new(scope, park).unwrap();
+            let key = v8::String::new(scope, "parkNative").unwrap();
+            context
+                .global(scope)
+                .set(scope, key.into(), park_function.into())
+                .unwrap();
+            let id = new_idb_request(&state, None);
+            let request = new_platform_object(scope, &state, "IDBRequest", id).unwrap();
+            let key = v8::String::new(scope, "request").unwrap();
+            context
+                .global(scope)
+                .set(scope, key.into(), request.into())
+                .unwrap();
+            eval(
+                scope,
+                if parking {
+                    "globalThis.log=[];request.addEventListener('success',()=>{log.push('first');Promise.resolve().then(()=>log.push('microtask'));parkNative()},{once:true});request.addEventListener('success',()=>log.push('second'))"
+                } else {
+                    "globalThis.log=[];request.addEventListener('success',()=>{log.push('first');Promise.resolve().then(()=>log.push('microtask'))},{once:true});request.addEventListener('success',()=>log.push('second'))"
+                },
+            );
+            let event = create_event_object(scope, &state, "success", false, false).unwrap();
+            let mut pending = pending_idb_dispatch(scope, &state, id, "success", event).unwrap();
+            if parking {
+                assert!(!pending.resume(scope, &state).unwrap());
+                state.set_execution_suspended(false);
+            } else {
+                FAILURE.with(|failure| failure.set(Some(FailurePoint::AfterCallback)));
+                assert!(pending.resume(scope, &state).is_err());
+            }
+            assert!(pending.resume(scope, &state).unwrap());
+            pending.finish(scope, &state);
+            assert!(eval(scope, "log.join()==='first,microtask,second'").is_true());
+            assert!(state.idb_callback_protection.borrow().is_empty());
+        }
+    }
+    #[test]
+    fn idb_callback_cleanup_does_not_checkpoint_inside_author_dispatch_stack() {
+        super::super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(228), 1).unwrap();
+        let id = new_idb_request(&state, None);
+        let request = new_platform_object(scope, &state, "IDBRequest", id).unwrap();
+        let key = v8::String::new(scope, "request").unwrap();
+        context
+            .global(scope)
+            .set(scope, key.into(), request.into())
+            .unwrap();
+        assert!(eval(scope, "globalThis.log=[];request.addEventListener('success',()=>{log.push('first');Promise.resolve().then(()=>log.push('microtask'))});request.addEventListener('success',()=>log.push('second'));request.dispatchEvent(new Event('success'));log.push('returned');log.join()==='first,second,returned'").is_true());
+        scope.perform_microtask_checkpoint();
+        assert!(eval(scope, "log.join()==='first,second,returned,microtask'").is_true());
+    }
+    #[test]
+    fn nested_idb_request_dispatch_does_not_deactivate_outer_transaction() {
+        fn check_active(
+            scope: &mut v8::PinScope,
+            _: v8::FunctionCallbackArguments,
+            _: v8::ReturnValue,
+        ) {
+            let key = v8::String::new(scope, "transaction").unwrap();
+            let value = scope
+                .get_current_context()
+                .global(scope)
+                .get(scope, key.into())
+                .unwrap();
+            let object = value.to_object(scope).unwrap();
+            let state = binding_state_for_receiver(scope, object).unwrap();
+            let id = stateful_id(scope, object).unwrap();
+            assert!(
+                matches!(&*platform_object(&state,id).unwrap(),PlatformObjectRecord::IdbTransaction(transaction) if transaction.active)
+            );
+        }
+        fn nested(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+            let key = v8::String::new(scope, "innerRequest").unwrap();
+            let value = scope
+                .get_current_context()
+                .global(scope)
+                .get(scope, key.into())
+                .unwrap();
+            let object = value.to_object(scope).unwrap();
+            let state = binding_state_for_receiver(scope, object).unwrap();
+            let id = stateful_id(scope, object).unwrap();
+            state.activate_idb_request_transaction(id).unwrap();
+            let event = create_event_object(scope, &state, "success", false, false).unwrap();
+            let mut pending = pending_idb_dispatch(scope, &state, id, "success", event).unwrap();
+            assert!(pending.resume(scope, &state).unwrap());
+            pending.finish(scope, &state);
+            state.finish_platform_task_checkpoint().unwrap();
+        }
+        super::super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(231), 1).unwrap();
+        scope.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        let database = register_platform_object(
+            &state,
+            PlatformObjectRecord::IdbDatabase(IdbDatabaseRecord {
+                connection: None,
+                last_versionchange_event: 0,
+                name: "nested-native".into(),
+                version: 1,
+                old_version: 0,
+                object_stores: vec![],
+                object_store_definitions: BTreeMap::new(),
+                upgrade_base_object_stores: vec![],
+                upgrade_base_definitions: BTreeMap::new(),
+                upgrade_transaction_id: None,
+                closed: false,
+            }),
+        );
+        let database_wrapper = new_platform_object(scope, &state, "IDBDatabase", database).unwrap();
+        let key = v8::String::new(scope, "database").unwrap();
+        context
+            .global(scope)
+            .set(scope, key.into(), database_wrapper.into())
+            .unwrap();
+        let tx = register_platform_object(
+            &state,
+            PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
+                request_queue: VecDeque::new(),
+                abort_event_queued: false,
+                settled: false,
+                database_id: database,
+                request_id: None,
+                mode: "readonly".into(),
+                durability: "default".into(),
+                object_stores: vec![],
+                scope_custody: None,
+                aborted: false,
+                error: None,
+                pending_requests: 0,
+                completion_requested: false,
+                completion_queued: false,
+                explicit_commit: false,
+                active: true,
+                finished: false,
+            }),
+        );
+        let outer = new_idb_request(&state, Some(tx));
+        let transaction_wrapper = new_platform_object(scope, &state, "IDBTransaction", tx).unwrap();
+        let key = v8::String::new(scope, "transaction").unwrap();
+        context
+            .global(scope)
+            .set(scope, key.into(), transaction_wrapper.into())
+            .unwrap();
+        let inner = new_idb_request(&state, Some(tx));
+        for (name, id) in [("outerRequest", outer), ("innerRequest", inner)] {
+            let object = new_platform_object(scope, &state, "IDBRequest", id).unwrap();
+            let key = v8::String::new(scope, name).unwrap();
+            context
+                .global(scope)
+                .set(scope, key.into(), object.into())
+                .unwrap();
+        }
+        let function = v8::Function::new(scope, nested).unwrap();
+        let key = v8::String::new(scope, "nestedNative").unwrap();
+        context
+            .global(scope)
+            .set(scope, key.into(), function.into())
+            .unwrap();
+        let function = v8::Function::new(scope, check_active).unwrap();
+        let key = v8::String::new(scope, "checkActiveNative").unwrap();
+        context
+            .global(scope)
+            .set(scope, key.into(), function.into())
+            .unwrap();
+        eval(
+            scope,
+            "globalThis.log=[];innerRequest.addEventListener('success',()=>log.push('inner'));outerRequest.addEventListener('success',()=>{log.push('outer');Promise.resolve().then(nestedNative)});outerRequest.addEventListener('success',()=>{checkActiveNative();log.push('outer-second')})",
+        );
+        state.activate_idb_request_transaction(outer).unwrap();
+        let event = create_event_object(scope, &state, "success", false, false).unwrap();
+        let mut pending = pending_idb_dispatch(scope, &state, outer, "success", event).unwrap();
+        assert!(pending.resume(scope, &state).unwrap());
+        pending.finish(scope, &state);
+        assert!(
+            matches!(&*platform_object(&state,tx).unwrap(),PlatformObjectRecord::IdbTransaction(transaction) if transaction.active)
+        );
+        assert!(eval(scope, "log.join()==='outer,inner,outer-second'").is_true());
+        state.finish_platform_task_checkpoint().unwrap();
+        assert!(
+            matches!(&*platform_object(&state,tx).unwrap(),PlatformObjectRecord::IdbTransaction(transaction) if !transaction.active)
+        );
+        assert!(state.idb_callback_protection.borrow().is_empty());
+    }
+    #[test]
+    fn idb_throwing_handler_getter_checkpoints_before_parent_listener() {
+        super::super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(230), 1).unwrap();
+        let id = new_idb_request(&state, None);
+        let parent_id = new_idb_request(&state, None);
+        for (name, id) in [("request", id), ("parentRequest", parent_id)] {
+            let request = new_platform_object(scope, &state, "IDBRequest", id).unwrap();
+            let key = v8::String::new(scope, name).unwrap();
+            context
+                .global(scope)
+                .set(scope, key.into(), request.into())
+                .unwrap();
+        }
+        eval(
+            scope,
+            "globalThis.log=[];request.addEventListener('probe',{get handleEvent(){log.push('getter');Promise.resolve().then(()=>log.push('microtask'));throw new Error('getter')}});parentRequest.addEventListener('probe',()=>log.push('parent'))",
+        );
+        let event = create_event_object(scope, &state, "probe", true, true).unwrap();
+        let mut pending = pending_idb_dispatch(scope, &state, id, "probe", event).unwrap();
+        pending.idb_path = Some(vec![id, parent_id]);
+        assert!(pending.resume(scope, &state).unwrap());
+        pending.finish(scope, &state);
+        assert!(eval(scope, "log.join()==='getter,microtask,parent'").is_true());
+    }
+    #[test]
+    fn idb_successful_callback_getters_finish_single_invocation_then_cleanup() {
+        super::super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(232), 1).unwrap();
+        let id = new_idb_request(&state, None);
+        let parent = new_idb_request(&state, None);
+        for (name, id) in [("request", id), ("parentRequest", parent)] {
+            let object = new_platform_object(scope, &state, "IDBRequest", id).unwrap();
+            let key = v8::String::new(scope, name).unwrap();
+            context
+                .global(scope)
+                .set(scope, key.into(), object.into())
+                .unwrap();
+        }
+        eval(
+            scope,
+            "globalThis.log=[];request.addEventListener('probe',{get handleEvent(){log.push('getter');Promise.resolve().then(()=>log.push('microtask'));return ()=>log.push('method')}});request.addEventListener('probe',()=>log.push('second'));request.addEventListener('probe',{get handleEvent(){log.push('property');Promise.resolve().then(()=>log.push('property-microtask'));return null}});parentRequest.addEventListener('probe',()=>log.push('parent'))",
+        );
+        let event = create_event_object(scope, &state, "probe", true, true).unwrap();
+        let mut pending = pending_idb_dispatch(scope, &state, id, "probe", event).unwrap();
+        pending.idb_path = Some(vec![id, parent]);
+        assert!(pending.resume(scope, &state).unwrap());
+        pending.finish(scope, &state);
+        assert!(
+            eval(
+                scope,
+                "log.join()==='getter,method,microtask,second,property,property-microtask,parent'"
+            )
+            .is_true()
+        );
+    }
+    #[test]
+    fn idb_callback_checkpoint_runs_foreign_listener_microtasks_before_suffix() {
+        super::super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let foreign = v8::Context::new(scope, Default::default());
+        let callback = {
+            let foreign_scope = &mut v8::ContextScope::new(scope, foreign);
+            let foreign_dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("").into_runtime().unwrap(),
+            ));
+            let foreign_state =
+                install_generated_bindings(foreign_scope, foreign, foreign_dom, RealmId(233), 1)
+                    .unwrap();
+            let tx = register_platform_object(
+                &foreign_state,
+                PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
+                    request_queue: VecDeque::new(),
+                    abort_event_queued: false,
+                    settled: false,
+                    database_id: 0,
+                    request_id: None,
+                    mode: "readonly".into(),
+                    durability: "default".into(),
+                    object_stores: vec![],
+                    scope_custody: None,
+                    aborted: false,
+                    error: None,
+                    pending_requests: 0,
+                    completion_requested: false,
+                    completion_queued: false,
+                    explicit_commit: false,
+                    active: true,
+                    finished: false,
+                }),
+            );
+            foreign_state
+                .idb_transactions_to_deactivate
+                .borrow_mut()
+                .insert(tx);
+            let callback = eval(
+                foreign_scope,
+                "(event)=>{event.target.log.push('foreign');Promise.resolve().then(()=>event.target.log.push('foreign-microtask'))}",
+            );
+            (v8::Global::new(foreign_scope, callback), foreign_state, tx)
+        };
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(229), 1).unwrap();
+        let id = new_idb_request(&state, None);
+        let request = new_platform_object(scope, &state, "IDBRequest", id).unwrap();
+        let key = v8::String::new(scope, "request").unwrap();
+        context
+            .global(scope)
+            .set(scope, key.into(), request.into())
+            .unwrap();
+        let key = v8::String::new(scope, "foreignListener").unwrap();
+        let foreign_state = callback.1.clone();
+        let foreign_tx = callback.2;
+        let callback = v8::Local::new(scope, &callback.0);
+        context
+            .global(scope)
+            .set(scope, key.into(), callback)
+            .unwrap();
+        eval(
+            scope,
+            "request.log=[];request.addEventListener('success',foreignListener);request.addEventListener('success',()=>request.log.push('local'))",
+        );
+        let event = create_event_object(scope, &state, "success", false, false).unwrap();
+        let mut pending = pending_idb_dispatch(scope, &state, id, "success", event).unwrap();
+        assert!(pending.resume(scope, &state).unwrap());
+        pending.finish(scope, &state);
+        assert!(
+            eval(
+                scope,
+                "request.log.join()==='foreign,foreign-microtask,local'"
+            )
+            .is_true()
+        );
+        assert!(
+            matches!(&*platform_object(&foreign_state,foreign_tx).unwrap(),PlatformObjectRecord::IdbTransaction(transaction) if !transaction.active)
+        );
     }
     #[test]
     fn parking_between_listeners_or_in_property_getter_preserves_suffix() {

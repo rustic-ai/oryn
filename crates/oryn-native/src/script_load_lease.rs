@@ -18,8 +18,16 @@ struct State {
 struct Entry {
     cancel: Arc<AtomicBool>,
     claimed: bool,
+    response: Option<StylesheetEvidence>,
     owner: Option<crate::agent_registry::AgentOwner>,
 }
+
+struct StylesheetEvidence {
+    url_sha256: [u8; 32],
+    body_sha256: [u8; 32],
+    origin_clean: bool,
+}
+
 pub(crate) struct ScriptLoadLease {
     registry: Arc<Mutex<State>>,
     token: u64,
@@ -71,6 +79,7 @@ impl ScriptLoadRegistry {
             Entry {
                 cancel: Arc::new(AtomicBool::new(false)),
                 claimed: false,
+                response: None,
                 owner,
             },
         );
@@ -136,6 +145,60 @@ impl ScriptLoadRegistry {
         let state = self.0.lock().unwrap_or_else(|error| error.into_inner());
         Ok(!state.entries.contains_key(&token))
     }
+
+    pub(crate) fn validate_stylesheet_response(
+        &self,
+        owner: &crate::agent_registry::AgentOwner,
+        id: u64,
+        url: &str,
+        body_sha256: &[u8; 32],
+    ) -> Result<Option<bool>, RuntimeError> {
+        use sha2::Digest;
+        let state = self
+            .0
+            .lock()
+            .map_err(|_| failure("script registry poisoned"))?;
+        let Some(entry) = state.entries.get(&id) else {
+            return Ok(None);
+        };
+        if entry.owner.as_ref() != Some(owner) {
+            return Err(RuntimeError::ProtocolViolation(
+                "foreign stylesheet response owner".into(),
+            ));
+        }
+        if state.retired || entry.cancel.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        let Some(response) = &entry.response else {
+            return Err(RuntimeError::ProtocolViolation(
+                "script request is not a stylesheet response".into(),
+            ));
+        };
+        let url_sha256: [u8; 32] = sha2::Sha256::digest(url.as_bytes()).into();
+        if response.url_sha256 != url_sha256 || &response.body_sha256 != body_sha256 {
+            return Err(RuntimeError::ProtocolViolation(
+                "stylesheet response bytes mismatch".into(),
+            ));
+        }
+        Ok(Some(response.origin_clean))
+    }
+    pub(crate) fn release_stylesheet_response(
+        &self,
+        owner: &crate::agent_registry::AgentOwner,
+        id: u64,
+    ) -> Result<(), RuntimeError> {
+        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(entry) = state.entries.get(&id) {
+            if entry.owner.as_ref() != Some(owner) || entry.response.is_none() {
+                return Err(RuntimeError::ProtocolViolation(
+                    "foreign stylesheet response cleanup".into(),
+                ));
+            }
+            state.entries.remove(&id);
+        }
+        Ok(())
+    }
+
     pub fn retire(&self) {
         if let Ok(mut state) = self.0.lock() {
             state.retired = true;
@@ -146,8 +209,58 @@ impl ScriptLoadRegistry {
         }
     }
 }
+impl ScriptLoadLease {
+    /// Transfer actual request admission into completed response custody.
+    /// No new registry entry, owned source, URL allocation, or independent cap.
+    pub(crate) fn publish_stylesheet(
+        self,
+        url: &str,
+        body: &str,
+        origin_clean: bool,
+    ) -> Result<crate::stylesheet_response_proof::StylesheetResponseProof, RuntimeError> {
+        use sha2::Digest;
+        let body_sha256: [u8; 32] = sha2::Sha256::digest(body.as_bytes()).into();
+        let url_sha256: [u8; 32] = sha2::Sha256::digest(url.as_bytes()).into();
+        let mut state = self
+            .registry
+            .lock()
+            .map_err(|_| failure("script registry poisoned"))?;
+        if state.retired || self.cancel.load(Ordering::Acquire) {
+            return Err(RuntimeError::NavigationCancelled);
+        }
+        let entry = state
+            .entries
+            .get_mut(&self.token)
+            .ok_or_else(|| failure("stylesheet request admission absent"))?;
+        if !entry.claimed || entry.response.is_some() {
+            return Err(RuntimeError::ProtocolViolation(
+                "stylesheet response already published".into(),
+            ));
+        }
+        entry.response = Some(StylesheetEvidence {
+            url_sha256,
+            body_sha256,
+            origin_clean,
+        });
+        let id = self.token;
+        drop(state);
+        // The registry entry now owns admission until typed response release.
+        // Disarm only this lease's automatic terminal removal, not cancellation.
+        let mut this = self;
+        this.token = 0;
+        Ok(crate::stylesheet_response_proof::StylesheetResponseProof {
+            id,
+            origin_clean,
+            body_sha256,
+        })
+    }
+}
+
 impl Drop for ScriptLoadLease {
     fn drop(&mut self) {
+        if self.token == 0 {
+            return;
+        }
         if let Ok(mut state) = self.registry.lock() {
             state.entries.remove(&self.token);
         }
@@ -156,6 +269,82 @@ impl Drop for ScriptLoadLease {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn response_owner() -> crate::agent_registry::AgentOwner {
+        crate::agent_registry::AgentOwner::Window {
+            page: oryn_common::v3::PageId(1),
+            target: oryn_js::message_wire::WindowTarget::Root,
+            generation: 1,
+            epoch: 0,
+        }
+    }
+    #[test]
+    fn completed_stylesheet_retains_shared_request_admission_until_release() {
+        let registry = ScriptLoadRegistry::default();
+        let owner = response_owner();
+        let token = registry.reserve_for(owner.clone()).unwrap();
+        let proof = registry
+            .claim_for(token, &owner)
+            .unwrap()
+            .publish_stylesheet("https://a/s.css", "p{}", false)
+            .unwrap();
+        assert!(!registry.is_drained().unwrap());
+        assert_eq!(
+            registry
+                .validate_stylesheet_response(
+                    &owner,
+                    proof.id,
+                    "https://a/s.css",
+                    &proof.body_sha256
+                )
+                .unwrap(),
+            Some(false)
+        );
+        for _ in 1..128 {
+            registry.reserve_for(owner.clone()).unwrap();
+        }
+        assert!(registry.reserve_for(owner.clone()).is_err());
+        registry
+            .release_stylesheet_response(&owner, proof.id)
+            .unwrap();
+        registry.reserve_for(owner).unwrap(); // one shared slot, not a second proof quota
+    }
+    #[test]
+    fn completed_response_cancel_and_retire_preserve_exact_cleanup() {
+        let registry = ScriptLoadRegistry::default();
+        let owner = response_owner();
+        let token = registry.reserve_for(owner.clone()).unwrap();
+        let proof = registry
+            .claim_for(token, &owner)
+            .unwrap()
+            .publish_stylesheet("a", "p{}", true)
+            .unwrap();
+        let mut foreign = owner.clone();
+        if let crate::agent_registry::AgentOwner::Window { generation, .. } = &mut foreign {
+            *generation = 2;
+        }
+        assert!(
+            registry
+                .release_stylesheet_response(&foreign, proof.id)
+                .is_err()
+        );
+        assert!(
+            registry
+                .validate_stylesheet_response(&owner, proof.id, "b", &proof.body_sha256)
+                .is_err()
+        );
+        registry.cancel(token).unwrap();
+        assert_eq!(
+            registry
+                .validate_stylesheet_response(&owner, proof.id, "a", &proof.body_sha256)
+                .unwrap(),
+            None
+        );
+        registry.retire();
+        registry
+            .release_stylesheet_response(&owner, proof.id)
+            .unwrap();
+        assert!(registry.is_drained().unwrap());
+    }
     #[test]
     fn native_script_reservations_cannot_cross_document_generation_or_frame() {
         use crate::agent_registry::AgentOwner;

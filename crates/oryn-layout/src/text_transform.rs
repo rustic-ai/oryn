@@ -32,7 +32,25 @@ impl CaseContext {
     }
 
     fn build(text: &str, greek_eligible: Option<&[bool]>) -> Self {
-        let chars: Vec<_> = text.chars().collect();
+        match Self::build_with_checkpoint(text, greek_eligible, &mut || {
+            Ok::<_, std::convert::Infallible>(())
+        }) {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
+    }
+
+    fn build_with_checkpoint<E>(
+        text: &str,
+        greek_eligible: Option<&[bool]>,
+        checkpoint: &mut impl FnMut() -> Result<(), E>,
+    ) -> Result<Self, E> {
+        checkpoint()?;
+        let mut chars = Vec::new();
+        for ch in text.chars() {
+            checkpoint()?;
+            chars.push(ch);
+        }
         let count = chars.len();
         let mut context = Self {
             chars,
@@ -52,8 +70,10 @@ impl CaseContext {
         // typographic unit too; initial punctuation does not.
         let mut offset = 0;
         for word in text.split_word_bounds() {
+            checkpoint()?;
             let mut found = false;
             for ch in word.chars() {
+                checkpoint()?;
                 if !found
                     && !unicode_normalization::char::is_combining_mark(ch)
                     && (ch.is_alphanumeric() || cased.contains(ch))
@@ -66,7 +86,12 @@ impl CaseContext {
         }
         let mut first = 0;
         for grapheme in text.graphemes(true) {
-            let end = first + grapheme.chars().count();
+            checkpoint()?;
+            let mut end = first;
+            for _ in grapheme.chars() {
+                checkpoint()?;
+                end += 1;
+            }
             if context.word_initial[first..end]
                 .iter()
                 .any(|&initial| initial)
@@ -80,6 +105,7 @@ impl CaseContext {
         let combining = CodePointMapData::<CanonicalCombiningClass>::new();
         let (mut preceding_cased, mut preceding_i, mut preceding_soft) = (false, false, false);
         for (index, &ch) in context.chars.iter().enumerate() {
+            checkpoint()?;
             context.before_cased[index] = preceding_cased;
             context.after_i[index] = preceding_i;
             context.after_soft_dotted[index] = preceding_soft;
@@ -94,6 +120,7 @@ impl CaseContext {
         }
         let (mut following_cased, mut above, mut dot) = (false, false, false);
         for (index, &ch) in context.chars.iter().enumerate().rev() {
+            checkpoint()?;
             context.after_cased[index] = following_cased;
             context.more_above[index] = above;
             context.before_dot[index] = dot;
@@ -112,13 +139,14 @@ impl CaseContext {
                 dot = false;
             }
         }
-        context.greek_upper = crate::greek_upper::replacements(
+        context.greek_upper = crate::greek_upper::replacements_with_checkpoint(
             &context.chars,
             &context.before_cased,
             &context.after_cased,
             greek_eligible,
-        );
-        context
+            checkpoint,
+        )?;
+        Ok(context)
     }
 
     pub fn convert(&self, index: usize, transform: &str, language: &str) -> String {
@@ -620,22 +648,99 @@ pub fn accessibility_case_fragment(
     transform: &str,
     language: &str,
 ) -> String {
-    let case = transform
-        .split_ascii_whitespace()
-        .find(|token| matches!(*token, "uppercase" | "lowercase" | "capitalize"))
-        .unwrap_or("none");
-    let count = text.chars().count();
+    match accessibility_case_fragment_with_checkpoint(
+        text,
+        start,
+        end,
+        transform,
+        language,
+        &mut || Ok::<_, std::convert::Infallible>(()),
+    ) {
+        Ok(value) => value,
+        Err(never) => match never {},
+    }
+}
+
+/// The same case algorithm with caller-owned terminal cancellation checkpoints.
+/// Cancellation never produces an empty or partially transformed speech value.
+pub fn accessibility_case_fragment_with_checkpoint<E>(
+    text: &str,
+    start: usize,
+    end: usize,
+    transform: &str,
+    language: &str,
+    checkpoint: &mut impl FnMut() -> Result<(), E>,
+) -> Result<String, E> {
+    checkpoint()?;
+    let mut case = "none";
+    for token in transform.split_ascii_whitespace() {
+        checkpoint()?;
+        if matches!(token, "uppercase" | "lowercase" | "capitalize") {
+            case = token;
+            break;
+        }
+    }
+    let mut count = 0;
+    let mut eligible = Vec::new();
+    for _ in text.chars() {
+        checkpoint()?;
+        count += 1;
+        eligible.push(case == "uppercase");
+    }
     let start = start.min(count);
     let end = end.min(count).max(start);
-    let context = CaseContext::with_greek_eligibility(text, &vec![case == "uppercase"; count]);
-    (start..end)
-        .map(|index| context.convert(index, case, language))
-        .collect()
+    let context = CaseContext::build_with_checkpoint(text, Some(&eligible), checkpoint)?;
+    let mut output = String::new();
+    for index in start..end {
+        checkpoint()?;
+        output.push_str(&context.convert(index, case, language));
+    }
+    Ok(output)
 }
 
 #[cfg(test)]
 mod accessibility_tests {
     use super::*;
+    #[test]
+    fn checkpoint_case_conversion_preserves_multilingual_context_and_cancellation() {
+        for (text, transform, language) in [
+            ("hello world", "capitalize", "en"),
+            ("ΟΣ ΟΣΑ", "lowercase", "el"),
+            ("ή άι α\u{301}ι", "uppercase", "el"),
+            ("I\u{307} İ", "lowercase", "tr"),
+            ("I\u{301}", "lowercase", "lt"),
+        ] {
+            let count = text.chars().count();
+            assert_eq!(
+                accessibility_case_fragment_with_checkpoint(
+                    text,
+                    0,
+                    count,
+                    transform,
+                    language,
+                    &mut || Ok::<_, ()>(())
+                )
+                .unwrap(),
+                accessibility_case_fragment(text, 0, count, transform, language)
+            );
+        }
+        let text = "α".repeat(256);
+        let mut visits = 0;
+        let result = accessibility_case_fragment_with_checkpoint(
+            &text,
+            0,
+            256,
+            "uppercase",
+            "el",
+            &mut || {
+                visits += 1;
+                if visits == 70 { Err("retired") } else { Ok(()) }
+            },
+        );
+        assert_eq!(result, Err("retired"));
+        assert_eq!(visits, 70);
+    }
+
     #[test]
     fn speech_case_uses_paragraph_context_without_semantic_kana_conversion() {
         assert_eq!(

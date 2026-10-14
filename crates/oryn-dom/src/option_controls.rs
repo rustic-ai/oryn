@@ -1,5 +1,6 @@
 //! Native option state. Select list normalization is integrated separately.
 use super::{DomArena, DomError, DomRuntime, Mutation, Node, NodeId, NodeKind};
+use std::collections::BTreeSet;
 
 const HTML: &str = "http://www.w3.org/1999/xhtml";
 
@@ -219,16 +220,22 @@ impl DomRuntime {
 
     /// Text fallback strips/collapses ASCII whitespace, excluding script text.
     pub fn option_text(&self, option: NodeId) -> Result<String, DomError> {
-        let mut pending: Vec<_> = self
-            .arena
-            .get(option)?
-            .children
-            .iter()
-            .rev()
-            .copied()
-            .collect();
+        self.option_text_with_checkpoint(option, &mut || Ok(()))
+    }
+    pub fn option_text_with_checkpoint(
+        &self,
+        option: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<String, DomError> {
+        checkpoint()?;
+        let mut pending = Vec::new();
+        for &child in self.arena.get(option)?.children.iter().rev() {
+            checkpoint()?;
+            pending.push(child);
+        }
         let mut units = Vec::new();
         while let Some(node) = pending.pop() {
+            checkpoint()?;
             let record = self.arena.get(node)?;
             if matches!(
                 record.kind,
@@ -241,11 +248,15 @@ impl DomRuntime {
             if let NodeKind::Text { data } = &record.kind {
                 units.extend(super::dom_string::units(data));
             }
-            pending.extend(record.children.iter().rev().copied());
+            for &child in record.children.iter().rev() {
+                checkpoint()?;
+                pending.push(child);
+            }
         }
         let mut collapsed = Vec::new();
         let mut space = false;
         for unit in units {
+            checkpoint()?;
             if matches!(unit, 9 | 10 | 12 | 13 | 32) {
                 space = !collapsed.is_empty();
             } else {
@@ -261,6 +272,21 @@ impl DomRuntime {
 
     pub fn option_value(&self, option: NodeId) -> Result<String, DomError> {
         self.option_reflected_text(option, "value")
+    }
+    pub fn option_value_with_checkpoint(
+        &self,
+        option: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<String, DomError> {
+        checkpoint()?;
+        match self.attribute_in_null_namespace(option, "value")? {
+            Some(value) => {
+                let value = value.to_owned();
+                checkpoint()?;
+                Ok(value)
+            }
+            None => self.option_text_with_checkpoint(option, checkpoint),
+        }
     }
 
     pub fn option_label(&self, option: NodeId) -> Result<String, DomError> {
@@ -304,12 +330,22 @@ impl DomRuntime {
     /// Eligibility is distinct from validity: disabled controls can still have
     /// a missing value, but constraint validation must not dispatch for them.
     pub fn select_will_validate(&self, select: NodeId) -> Result<bool, DomError> {
-        if !self.is_element(select, HTML, "select") || self.control_disabled(select)? {
+        self.select_will_validate_with_checkpoint(select, &mut || Ok(()))
+    }
+    pub fn select_will_validate_with_checkpoint(
+        &self,
+        select: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        checkpoint()?;
+        if !self.is_element(select, HTML, "select")
+            || self.control_disabled_with_checkpoint(select, checkpoint)?
+        {
             return Ok(false);
         }
         Ok(!self
             .arena
-            .ancestors(select)?
+            .ancestors_with_checkpoint(select, checkpoint)?
             .iter()
             .any(|ancestor| self.is_element(*ancestor, HTML, "datalist")))
     }
@@ -336,18 +372,30 @@ impl DomRuntime {
     }
 
     pub fn select_value_missing(&self, select: NodeId) -> Result<bool, DomError> {
+        self.select_value_missing_with_checkpoint(select, &mut || Ok(()))
+    }
+    pub fn select_value_missing_with_checkpoint(
+        &self,
+        select: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        checkpoint()?;
         if self
             .attribute_in_null_namespace(select, "required")?
             .is_none()
         {
             return Ok(false);
         }
-        let options = self.select_options(select)?;
-        let selected = options
-            .iter()
-            .copied()
-            .filter(|option| self.arena.get(*option).is_ok_and(Node::selected))
-            .collect::<Vec<_>>();
+        let options = self
+            .arena
+            .select_options_with_checkpoint(select, checkpoint)?;
+        let mut selected = Vec::new();
+        for &option in &options {
+            checkpoint()?;
+            if self.arena.get(option).is_ok_and(Node::selected) {
+                selected.push(option);
+            }
+        }
         if selected.is_empty() {
             return Ok(true);
         }
@@ -356,7 +404,9 @@ impl DomRuntime {
             && selected[0] == first
             && self.select_display_size(select)? == 1
             && self.parent(first)? == Some(select)
-            && self.option_value(first)?.is_empty())
+            && self
+                .option_value_with_checkpoint(first, checkpoint)?
+                .is_empty())
     }
 
     pub fn set_custom_validity(&mut self, node: NodeId, message: String) -> Result<(), DomError> {
@@ -432,9 +482,21 @@ impl DomRuntime {
     }
 
     pub fn select_value(&self, select: NodeId) -> Result<String, DomError> {
-        for option in self.select_options(select)? {
+        self.select_value_with_checkpoint(select, &mut || Ok(()))
+    }
+    pub fn select_value_with_checkpoint(
+        &self,
+        select: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<String, DomError> {
+        checkpoint()?;
+        for option in self
+            .arena
+            .select_options_with_checkpoint(select, checkpoint)?
+        {
+            checkpoint()?;
             if self.option_selected(option)? {
-                return self.option_value(option);
+                return self.option_value_with_checkpoint(option, checkpoint);
             }
         }
         Ok(String::new())
@@ -834,19 +896,32 @@ mod tests {
 
 impl DomArena {
     pub fn select_options(&self, select: NodeId) -> Result<Vec<NodeId>, DomError> {
+        self.select_options_with_checkpoint(select, &mut || Ok(()))
+    }
+    pub fn select_options_with_checkpoint(
+        &self,
+        select: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Vec<NodeId>, DomError> {
+        checkpoint()?;
         let record = self.get(select)?;
-        if !matches!(&record.kind, NodeKind::Element { name } if name.ns.as_ref() == HTML && name.local.as_ref() == "select")
+        if !matches!(&record.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "select")
         {
+            checkpoint()?;
             return Ok(Vec::new());
         }
-        let mut pending: Vec<_> = record
-            .children
-            .iter()
-            .rev()
-            .map(|id| (*id, false))
-            .collect();
+        let mut pending = Vec::new();
+        for &child in record.children.iter().rev() {
+            checkpoint()?;
+            pending.push((child, false));
+        }
         let mut options = Vec::new();
+        let mut seen = BTreeSet::from([select]);
         while let Some((node, in_optgroup)) = pending.pop() {
+            if !seen.insert(node) {
+                return Err(DomError::Cycle);
+            }
+            checkpoint()?;
             let record = self.get(node)?;
             if matches!(
                 record.kind,
@@ -855,7 +930,11 @@ impl DomArena {
                 continue;
             }
             let tag = match &record.kind {
-                NodeKind::Element { name } if name.ns.as_ref() == HTML => name.local.as_ref(),
+                NodeKind::Element { name }
+                    if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" =>
+                {
+                    name.local.as_ref()
+                }
                 _ => "",
             };
             if tag == "option" {
@@ -866,14 +945,12 @@ impl DomArena {
             {
                 continue;
             }
-            pending.extend(
-                record
-                    .children
-                    .iter()
-                    .rev()
-                    .map(|id| (*id, in_optgroup || tag == "optgroup")),
-            );
+            for &child in record.children.iter().rev() {
+                checkpoint()?;
+                pending.push((child, in_optgroup || tag == "optgroup"));
+            }
         }
+        checkpoint()?;
         Ok(options)
     }
 }

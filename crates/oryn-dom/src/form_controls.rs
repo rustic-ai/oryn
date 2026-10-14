@@ -163,8 +163,21 @@ impl DomRuntime {
     }
 
     pub fn has_datalist_ancestor(&self, node: NodeId) -> Result<bool, DomError> {
+        self.has_datalist_ancestor_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn has_datalist_ancestor_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        checkpoint()?;
         let mut cursor = self.parent(node)?;
+        let mut visited = BTreeSet::from([node]);
         while let Some(parent) = cursor {
+            checkpoint()?;
+            if !visited.insert(parent) {
+                return Err(DomError::Cycle);
+            }
             if matches!(
                 self.arena.get(parent)?.kind,
                 NodeKind::Document | NodeKind::ShadowRoot { .. }
@@ -179,8 +192,16 @@ impl DomRuntime {
         Ok(false)
     }
     pub fn control_will_validate(&self, node: NodeId) -> Result<bool, DomError> {
+        self.control_will_validate_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn control_will_validate_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        checkpoint()?;
         if self.is_element(node, HTML, "select") {
-            return self.select_will_validate(node);
+            return self.select_will_validate_with_checkpoint(node, checkpoint);
         }
         let input = self.is_element(node, HTML, "input");
         let button = self.is_element(node, HTML, "button");
@@ -188,7 +209,7 @@ impl DomRuntime {
             && !button
             && !self.is_element(node, HTML, "textarea")
             && !self.is_form_associated_custom_element(node))
-            || self.control_disabled(node)?
+            || self.control_disabled_with_checkpoint(node, checkpoint)?
         {
             return Ok(false);
         }
@@ -209,30 +230,76 @@ impl DomRuntime {
         if button && !self.is_submit_button(node)? {
             return Ok(false);
         }
-        Ok(!self.has_datalist_ancestor(node)?)
+        Ok(!self.has_datalist_ancestor_with_checkpoint(node, checkpoint)?)
     }
 
     pub fn control_value_missing(&self, node: NodeId) -> Result<bool, DomError> {
+        self.control_value_missing_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn control_value_missing_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        checkpoint()?;
         if self.is_element(node, HTML, "select") {
-            return self.select_value_missing(node);
+            return self.select_value_missing_with_checkpoint(node, checkpoint);
         }
         if self.is_radio(node) {
             // Radio groups require a nonempty name, including the candidate
             // itself. An unnamed required radio has no required group.
-            if !self.same_radio_group(node, node)? {
+            if !self.same_radio_group_with_checkpoint(node, node, checkpoint)? {
                 return Ok(false);
             }
-            let peers = self
-                .arena
-                .iter()
-                .filter(|(peer, _)| {
-                    *peer == node || self.same_radio_group(node, *peer).unwrap_or(false)
-                })
-                .collect::<Vec<_>>();
-            return Ok(peers
-                .iter()
-                .any(|(_, record)| record.attributes.contains_null("required"))
-                && !peers.iter().any(|(_, record)| record.checked()));
+            let mut peers = Vec::new();
+            for (index, slot) in self.arena.slots.iter().enumerate() {
+                checkpoint()?;
+                if let Some(record) = &slot.node {
+                    let peer = NodeId {
+                        slot: index as u32,
+                        generation: slot.generation,
+                    };
+                    // Keep the legacy predicate's ordinary-error fallback,
+                    // but never confuse a caller checkpoint failure with it.
+                    let mut checkpoint_failed = false;
+                    let mut checked = || {
+                        let result = checkpoint();
+                        checkpoint_failed |= result.is_err();
+                        result
+                    };
+                    let group = if peer == node {
+                        Ok(true)
+                    } else {
+                        self.same_radio_group_with_checkpoint(node, peer, &mut checked)
+                    };
+                    let same_group = match group {
+                        Err(error) if checkpoint_failed => return Err(error),
+                        other => other.unwrap_or(false),
+                    };
+                    if same_group {
+                        peers.push(record);
+                    }
+                }
+            }
+            let mut required = false;
+            for record in &peers {
+                checkpoint()?;
+                if record.attributes.contains_null("required") {
+                    required = true;
+                    break;
+                }
+            }
+            let mut checked = false;
+            if required {
+                for record in &peers {
+                    checkpoint()?;
+                    if record.checked() {
+                        checked = true;
+                        break;
+                    }
+                }
+            }
+            return Ok(required && !checked);
         }
         let record = self.arena.get(node)?;
         if !record.attributes.contains_null("required") {
@@ -257,9 +324,11 @@ impl DomRuntime {
         } else if !self.is_element(node, HTML, "textarea") {
             return Ok(false);
         }
-        Ok(!self.control_disabled(node)?
+        Ok(!self.control_disabled_with_checkpoint(node, checkpoint)?
             && !record.attributes.contains_null("readonly")
-            && self.control_value(node)?.is_empty())
+            && self
+                .control_value_with_checkpoint(node, checkpoint)?
+                .is_empty())
     }
 
     pub fn set_custom_element_validity(
@@ -283,20 +352,29 @@ impl DomRuntime {
             .is_some_and(|flags| flags.contains(flag))
     }
     pub fn control_validity(&self, node: NodeId) -> Result<bool, DomError> {
+        self.control_validity_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn control_validity_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        checkpoint()?;
         if self.is_form_associated_custom_element(node) {
             return Ok(self
                 .custom_element_validity
                 .get(&node)
                 .is_none_or(|flags| flags.is_empty()));
         }
-        let numeric = self.control_numeric_validity(node)?;
-        let (too_short, too_long) = self.control_length_validity(node)?;
-        Ok(!self.control_bad_input(node)?
-            && !self.control_value_missing(node)?
+        let numeric = self.control_numeric_validity_with_checkpoint(node, checkpoint)?;
+        let (too_short, too_long) =
+            self.control_length_validity_with_checkpoint(node, checkpoint)?;
+        Ok(!self.control_bad_input_with_checkpoint(node, checkpoint)?
+            && !self.control_value_missing_with_checkpoint(node, checkpoint)?
             && !too_short
             && !too_long
-            && !self.control_type_mismatch(node)?
-            && !self.control_pattern_mismatch(node)?
+            && !self.control_type_mismatch_with_checkpoint(node, checkpoint)?
+            && !self.control_pattern_mismatch_with_checkpoint(node, checkpoint)?
             && !numeric.range_underflow
             && !numeric.range_overflow
             && !numeric.step_mismatch
@@ -367,21 +445,37 @@ impl DomRuntime {
     }
 
     pub fn control_type_mismatch(&self, node: NodeId) -> Result<bool, DomError> {
+        self.control_type_mismatch_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn control_type_mismatch_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        checkpoint()?;
         if self.is_element(node, HTML, "input")
             && self
                 .attribute_in_null_namespace(node, "type")?
                 .is_some_and(|kind| kind.eq_ignore_ascii_case("url"))
         {
-            let value = self.control_value(node)?;
+            let value = self.control_value_with_checkpoint(node, checkpoint)?;
             return Ok(!value.is_empty() && url::Url::parse(&value).is_err());
         }
-        self.input_email_type_mismatch(node)
+        self.input_email_type_mismatch_with_checkpoint(node, checkpoint)
     }
 
     /// Email-state type mismatch, independent of requiredness and whether the
     /// control is currently a candidate for constraint validation.
     /// https://html.spec.whatwg.org/multipage/input.html#email-state-(type=email)
     pub fn input_email_type_mismatch(&self, node: NodeId) -> Result<bool, DomError> {
+        self.input_email_type_mismatch_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn input_email_type_mismatch_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        checkpoint()?;
         if !self.is_element(node, HTML, "input")
             || !self
                 .attribute_in_null_namespace(node, "type")?
@@ -389,7 +483,7 @@ impl DomRuntime {
         {
             return Ok(false);
         }
-        let value = self.control_value(node)?;
+        let value = self.control_value_with_checkpoint(node, checkpoint)?;
         if value.is_empty() {
             return Ok(false);
         }
@@ -539,6 +633,14 @@ impl DomRuntime {
     }
 
     pub fn control_disabled(&self, node: NodeId) -> Result<bool, DomError> {
+        self.control_disabled_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn control_disabled_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        checkpoint()?;
         let record = self.arena.get(node)?;
         if record
             .submit_behavior
@@ -559,7 +661,12 @@ impl DomRuntime {
             return Ok(true);
         }
         let mut cursor = record.parent;
+        let mut visited = BTreeSet::from([node]);
         while let Some(parent) = cursor {
+            checkpoint()?;
+            if !visited.insert(parent) {
+                return Err(DomError::Cycle);
+            }
             if matches!(
                 self.arena.get(parent)?.kind,
                 NodeKind::Document | NodeKind::ShadowRoot { .. }
@@ -571,18 +678,23 @@ impl DomRuntime {
                     .attribute_in_null_namespace(parent, "disabled")?
                     .is_some()
             {
-                let first_legend = self
-                    .children(parent)?
-                    .iter()
-                    .copied()
-                    .find(|child| self.is_element(*child, HTML, "legend"));
-                let exempt = first_legend.is_some_and(|legend| {
+                let mut first_legend = None;
+                for &child in self.children(parent)? {
+                    checkpoint()?;
+                    if self.is_element(child, HTML, "legend") {
+                        first_legend = Some(child);
+                        break;
+                    }
+                }
+                let exempt = if let Some(legend) = first_legend {
                     legend == node
                         || self
                             .arena
-                            .ancestors(node)
-                            .is_ok_and(|ancestors| ancestors.contains(&legend))
-                });
+                            .ancestors_with_checkpoint(node, checkpoint)?
+                            .contains(&legend)
+                } else {
+                    false
+                };
                 if !exempt {
                     return Ok(true);
                 }
@@ -672,8 +784,21 @@ impl DomRuntime {
             && self.arena.get(node)?.indeterminate)
     }
 
-    pub fn control_tree_root(&self, mut node: NodeId) -> Result<NodeId, DomError> {
+    pub fn control_tree_root(&self, node: NodeId) -> Result<NodeId, DomError> {
+        self.control_tree_root_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn control_tree_root_with_checkpoint(
+        &self,
+        mut node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<NodeId, DomError> {
+        checkpoint()?;
+        let mut visited = BTreeSet::new();
         loop {
+            checkpoint()?;
+            if !visited.insert(node) {
+                return Err(DomError::Cycle);
+            }
             let record = self.arena.get(node)?;
             if matches!(
                 record.kind,
@@ -691,16 +816,29 @@ impl DomRuntime {
     /// Resolve explicit association before ancestor association; an unmatched
     /// explicit form attribute does not fall back to an ancestor form.
     pub fn form_owner(&self, node: NodeId) -> Result<Option<NodeId>, DomError> {
-        let root = self.control_tree_root(node)?;
+        self.form_owner_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn form_owner_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<NodeId>, DomError> {
+        checkpoint()?;
+        let root = self.control_tree_root_with_checkpoint(node, checkpoint)?;
         if let Some(id) = self.attribute_in_null_namespace(node, "form")? {
             if !self.is_connected(node)? {
                 return Ok(None);
             }
-            let candidate = self.get_element_by_id(root, id)?;
+            let candidate = self.get_element_by_id_with_checkpoint(root, id, checkpoint)?;
             return Ok(candidate.filter(|candidate| self.is_element(*candidate, HTML, "form")));
         }
         let mut cursor = self.parent(node)?;
+        let mut visited = BTreeSet::from([node]);
         while let Some(parent) = cursor {
+            checkpoint()?;
+            if !visited.insert(parent) {
+                return Err(DomError::Cycle);
+            }
             if self.is_element(parent, HTML, "form") {
                 return Ok(Some(parent));
             }
@@ -713,14 +851,25 @@ impl DomRuntime {
     }
 
     pub fn same_radio_group(&self, a: NodeId, b: NodeId) -> Result<bool, DomError> {
+        self.same_radio_group_with_checkpoint(a, b, &mut || Ok(()))
+    }
+    pub fn same_radio_group_with_checkpoint(
+        &self,
+        a: NodeId,
+        b: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        checkpoint()?;
         if !self.is_radio(a) || !self.is_radio(b) {
             return Ok(false);
         }
         let name = self.attribute_in_null_namespace(a, "name")?.unwrap_or("");
         Ok(!name.is_empty()
             && self.attribute_in_null_namespace(b, "name")? == Some(name)
-            && self.control_tree_root(a)? == self.control_tree_root(b)?
-            && self.form_owner(a)? == self.form_owner(b)?)
+            && self.control_tree_root_with_checkpoint(a, checkpoint)?
+                == self.control_tree_root_with_checkpoint(b, checkpoint)?
+            && self.form_owner_with_checkpoint(a, checkpoint)?
+                == self.form_owner_with_checkpoint(b, checkpoint)?)
     }
 
     fn enforce_radio_group(&mut self, node: NodeId) -> Result<(), DomError> {
@@ -1282,17 +1431,32 @@ impl DomArena {
     }
 
     pub fn label_control(&self, label: NodeId) -> Result<Option<NodeId>, DomError> {
+        self.label_control_with_checkpoint(label, &mut || Ok(()))
+    }
+    pub fn label_control_with_checkpoint(
+        &self,
+        label: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<NodeId>, DomError> {
+        checkpoint()?;
         let record = self.get(label)?;
-        if !matches!(&record.kind, NodeKind::Element { name } if name.ns.as_ref() == HTML && name.local.as_ref() == "label")
+        if !matches!(&record.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "label")
         {
+            checkpoint()?;
             return Ok(None);
         }
         if let Some(id) = record.attributes.get_null("for") {
             if id.is_empty() {
+                checkpoint()?;
                 return Ok(None);
             }
             let mut root = label;
+            let mut roots_seen = BTreeSet::new();
             loop {
+                checkpoint()?;
+                if !roots_seen.insert(root) {
+                    return Err(DomError::Cycle);
+                }
                 let node = self.get(root)?;
                 if matches!(node.kind, NodeKind::Document | NodeKind::ShadowRoot { .. }) {
                     break;
@@ -1304,7 +1468,12 @@ impl DomArena {
             }
             // First matching ID wins, even if it is not labelable.
             let mut pending = vec![root];
+            let mut visited = BTreeSet::new();
             while let Some(node) = pending.pop() {
+                if !visited.insert(node) {
+                    return Err(DomError::Cycle);
+                }
+                checkpoint()?;
                 let current = self.get(node)?;
                 if node != root && matches!(current.kind, NodeKind::ShadowRoot { .. }) {
                     continue;
@@ -1312,23 +1481,42 @@ impl DomArena {
                 if matches!(current.kind, NodeKind::Element { .. })
                     && current.attributes.get_null("id") == Some(id)
                 {
+                    checkpoint()?;
                     return Ok(self.is_labelable(node).then_some(node));
                 }
-                pending.extend(current.children.iter().rev().copied());
+                for &child in current.children.iter().rev() {
+                    checkpoint()?;
+                    pending.push(child);
+                }
             }
+            checkpoint()?;
             return Ok(None);
         }
-        let mut pending = record.children.iter().rev().copied().collect::<Vec<_>>();
+        let mut pending = Vec::new();
+        let mut visited = BTreeSet::from([label]);
+        for &child in record.children.iter().rev() {
+            checkpoint()?;
+            pending.push(child);
+        }
         while let Some(node) = pending.pop() {
+            if !visited.insert(node) {
+                return Err(DomError::Cycle);
+            }
+            checkpoint()?;
             let current = self.get(node)?;
             if matches!(current.kind, NodeKind::ShadowRoot { .. }) {
                 continue;
             }
             if self.is_labelable(node) {
+                checkpoint()?;
                 return Ok(Some(node));
             }
-            pending.extend(current.children.iter().rev().copied());
+            for &child in current.children.iter().rev() {
+                checkpoint()?;
+                pending.push(child);
+            }
         }
+        checkpoint()?;
         Ok(None)
     }
 }

@@ -579,6 +579,26 @@ pub(super) fn reclaim(state: &V8BindingState) {
             .get(&id)
             .is_some_and(|(current, _)| *current == serial)
         {
+            let cleanup = {
+                let Ok(mut records) = state.platform_objects.try_borrow_mut() else {
+                    state
+                        .platform_listener_releases
+                        .borrow_mut()
+                        .push((id, serial));
+                    continue;
+                };
+                match records.get_mut(&id) {
+                    Some(PlatformObjectRecord::IdbTransaction(transaction))
+                        if transaction.settled =>
+                    {
+                        Some((
+                            std::mem::take(&mut transaction.object_stores),
+                            transaction.scope_custody.take(),
+                        ))
+                    }
+                    _ => None,
+                }
+            };
             state.platform_listener_watchers.borrow_mut().remove(&id);
             state
                 .platform_edges
@@ -598,14 +618,9 @@ pub(super) fn reclaim(state: &V8BindingState) {
             message_ports::release_collected(state, id);
             web_animations::release_collected(state, id);
             text_tracks::release_collected(state, id);
-            if let Some(PlatformObjectRecord::IdbTransaction(transaction)) =
-                state.platform_objects.borrow_mut().get_mut(&id)
-                && transaction.settled
-            {
-                // Watcher serial identifies this collected wrapper; activity
-                // roots have already retired. Dispose buffers before custody.
-                drop(std::mem::take(&mut transaction.object_stores));
-                transaction.scope_custody.take();
+            if let Some((stores, custody)) = cleanup {
+                drop(stores);
+                drop(custody);
             }
         }
     }
@@ -763,6 +778,76 @@ mod tests {
             .run(scope)
             .unwrap()
             .to_rust_string_lossy(scope)
+    }
+    #[test]
+    fn collected_idb_custody_waits_for_record_borrow_then_releases_once() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(234), 1).unwrap();
+        let ledger = std::sync::Arc::new(crate::idb_owned_admission::Ledger::default());
+        let owned = crate::idb_owned_admission::Scope::copy_names(
+            &ledger,
+            &["store".into()],
+            1024 * 1024,
+            0,
+        )
+        .unwrap();
+        let (stores, custody) = owned.into_parts();
+        let id = register_platform_object(
+            &state,
+            PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
+                request_queue: VecDeque::new(),
+                abort_event_queued: false,
+                settled: true,
+                database_id: 0,
+                request_id: None,
+                mode: "readonly".into(),
+                durability: "default".into(),
+                object_stores: stores,
+                scope_custody: Some(custody),
+                aborted: false,
+                error: None,
+                pending_requests: 0,
+                completion_requested: false,
+                completion_queued: false,
+                explicit_commit: false,
+                active: false,
+                finished: true,
+            }),
+        );
+        let wrapper = new_platform_object(scope, &state, "IDBTransaction", id).unwrap();
+        let serial = state
+            .platform_listener_watchers
+            .borrow()
+            .get(&id)
+            .unwrap()
+            .0;
+        state
+            .platform_listener_releases
+            .borrow_mut()
+            .push((id, serial));
+        let borrowed = state.platform_objects.borrow();
+        reclaim(&state);
+        assert!(ledger.live_bytes() > 0);
+        assert_eq!(
+            *state.platform_listener_releases.borrow(),
+            vec![(id, serial)]
+        );
+        assert!(state.platform_listener_watchers.borrow().contains_key(&id));
+        drop(borrowed);
+        reclaim(&state);
+        assert_eq!(ledger.live_bytes(), 0);
+        assert!(state.platform_listener_releases.borrow().is_empty());
+        assert!(!state.platform_listener_watchers.borrow().contains_key(&id));
+        reclaim(&state);
+        assert_eq!(ledger.live_bytes(), 0);
+        let _ = wrapper;
     }
     #[test]
     fn unreachable_target_callback_cycles_collect_while_live_target_callbacks_survive() {

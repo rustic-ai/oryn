@@ -124,9 +124,9 @@ impl Executor {
                 .clone();
             let acknowledged = request.is_none() || std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let request=request.unwrap();
-                let kind=match &request{ContextServiceRequest::RollbackAuxiliaryRoot{..}=>12,ContextServiceRequest::DiscardNavigationNetworkSource{..}=>11,ContextServiceRequest::DiscardNavigationResponsePolicy{..}=>10,ContextServiceRequest::ReleaseOrdinaryKeepalive{..}=>9,ContextServiceRequest::ReleaseDeferredContainer{..}=>8,ContextServiceRequest::CancelBlankPrerender{..}|ContextServiceRequest::CancelPrerender{..}=>7,ContextServiceRequest::FinishHyperlinkAudit{..}=>6,ContextServiceRequest::ParserEncodingPolicy{action:super::ParserEncodingPolicyAction::Release,..}=>5,ContextServiceRequest::ReleaseNetworkResult{..}|ContextServiceRequest::ReleaseFrameResponseStream{..}=>1,ContextServiceRequest::HttpRequestAbort{..}=>2,ContextServiceRequest::DiscardPreparedLocalNavigation{..}=>3,ContextServiceRequest::NavigationEvent{event:crate::navigation_control::NavigationEvent::Stopped(_),..}=>4,_=>0};
+                let kind=match &request{ContextServiceRequest::ReleaseStylesheetResponse{..}=>13,ContextServiceRequest::RollbackAuxiliaryRoot{..}=>12,ContextServiceRequest::DiscardNavigationNetworkSource{..}=>11,ContextServiceRequest::DiscardNavigationResponsePolicy{..}=>10,ContextServiceRequest::ReleaseOrdinaryKeepalive{..}=>9,ContextServiceRequest::ReleaseDeferredContainer{..}=>8,ContextServiceRequest::CancelBlankPrerender{..}|ContextServiceRequest::CancelPrerender{..}=>7,ContextServiceRequest::FinishHyperlinkAudit{..}=>6,ContextServiceRequest::ParserEncodingPolicy{action:super::ParserEncodingPolicyAction::Release,..}=>5,ContextServiceRequest::ReleaseNetworkResult{..}|ContextServiceRequest::ReleaseFrameResponseStream{..}=>1,ContextServiceRequest::HttpRequestAbort{..}=>2,ContextServiceRequest::DiscardPreparedLocalNavigation{..}=>3,ContextServiceRequest::NavigationEvent{event:crate::navigation_control::NavigationEvent::Stopped(_),..}=>4,_=>0};
                 let client=job.state.lock().unwrap_or_else(|e|e.into_inner()).target_client.clone().unwrap_or_else(||job.client.clone());
-                matches!((kind,client.request(request)),(12,Ok(ContextServiceResponse::PageClosed)|Err(crate::runtime::RuntimeError::Closed))|(11,Ok(ContextServiceResponse::NavigationNetworkSourceDiscarded)|Err(crate::runtime::RuntimeError::Closed))|(10,Ok(ContextServiceResponse::NavigationResponsePolicyDiscarded)|Err(crate::runtime::RuntimeError::Closed))|(9,Ok(ContextServiceResponse::OrdinaryKeepaliveReleased)|Err(crate::runtime::RuntimeError::Closed))|(8,Ok(ContextServiceResponse::DeferredFetchResult{result:Ok(())})|Err(crate::runtime::RuntimeError::Closed))|(7,Ok(ContextServiceResponse::PrerenderCancelled))|(6,Ok(ContextServiceResponse::HyperlinkAuditFinished)|Err(crate::runtime::RuntimeError::Closed))|(5,Ok(ContextServiceResponse::DocumentSecurityInstalled))|(0,Ok(ContextServiceResponse::ScriptLoadCancelled))|(1,Ok(ContextServiceResponse::NetworkResultReleased))|(2,Ok(ContextServiceResponse::HttpRequestAborted))|(3,Ok(ContextServiceResponse::LocalNavigationDiscarded))|(4,Ok(ContextServiceResponse::NavigationControl{result:Ok(())|Err(crate::navigation_control::NavigationStop::Superseded|crate::navigation_control::NavigationStop::Retired)})))
+                matches!((kind,client.request(request)),(13,Ok(ContextServiceResponse::StylesheetResponseReleased)|Err(crate::runtime::RuntimeError::Closed))|(12,Ok(ContextServiceResponse::PageClosed)|Err(crate::runtime::RuntimeError::Closed))|(11,Ok(ContextServiceResponse::NavigationNetworkSourceDiscarded)|Err(crate::runtime::RuntimeError::Closed))|(10,Ok(ContextServiceResponse::NavigationResponsePolicyDiscarded)|Err(crate::runtime::RuntimeError::Closed))|(9,Ok(ContextServiceResponse::OrdinaryKeepaliveReleased)|Err(crate::runtime::RuntimeError::Closed))|(8,Ok(ContextServiceResponse::DeferredFetchResult{result:Ok(())})|Err(crate::runtime::RuntimeError::Closed))|(7,Ok(ContextServiceResponse::PrerenderCancelled))|(6,Ok(ContextServiceResponse::HyperlinkAuditFinished)|Err(crate::runtime::RuntimeError::Closed))|(5,Ok(ContextServiceResponse::DocumentSecurityInstalled))|(0,Ok(ContextServiceResponse::ScriptLoadCancelled))|(1,Ok(ContextServiceResponse::NetworkResultReleased))|(2,Ok(ContextServiceResponse::HttpRequestAborted))|(3,Ok(ContextServiceResponse::LocalNavigationDiscarded))|(4,Ok(ContextServiceResponse::NavigationControl{result:Ok(())|Err(crate::navigation_control::NavigationStop::Superseded|crate::navigation_control::NavigationStop::Retired)})))
             })).unwrap_or(false);
             {
                 let mut state = job.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -149,7 +149,7 @@ impl Executor {
     }
 }
 
-pub(super) struct Ticket {
+pub(crate) struct Ticket {
     job: Arc<Job>,
 }
 impl Ticket {
@@ -163,7 +163,7 @@ impl Ticket {
         (state.abandoned, state.done)
     }
     #[cfg(any(test, feature = "v8-host"))]
-    pub(super) fn reserve(
+    pub(crate) fn reserve(
         client: SharedContextClient,
         page_id: oryn_common::v3::PageId,
     ) -> Result<Self, String> {
@@ -236,10 +236,11 @@ impl Ticket {
         Ok(())
     }
     #[cfg(any(test, feature = "v8-host"))]
-    pub(super) fn attach_request(&self, request: ContextServiceRequest) {
+    pub(crate) fn attach_request(&self, request: ContextServiceRequest) {
         assert!(matches!(
             &request,
-            ContextServiceRequest::ReleaseOrdinaryKeepalive { .. }
+            ContextServiceRequest::ReleaseStylesheetResponse { .. }
+                | ContextServiceRequest::ReleaseOrdinaryKeepalive { .. }
                 | ContextServiceRequest::ReleaseDeferredContainer { .. }
                 | ContextServiceRequest::CancelBlankPrerender { .. }
                 | ContextServiceRequest::CancelPrerender { .. }
@@ -279,7 +280,7 @@ impl Ticket {
             _ => panic!("audit capability completion owner"),
         }
     }
-    pub(super) fn cancel(&self) {
+    pub(crate) fn cancel(&self) {
         let mut state = self.job.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.done {
             return;

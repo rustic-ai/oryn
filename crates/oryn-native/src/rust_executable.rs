@@ -382,7 +382,7 @@ impl Drop for PointerDispatchRoute {
     }
 }
 
-type LayoutEnvironmentKey = (u64, u64, u64, u64, u64, u64, u64, bool, bool);
+type LayoutEnvironmentKey = (u64, u64, u64, u64, u64, u64, u64, bool, bool, u64);
 type RetainedLayoutFont = (
     NodeId,
     NodeId,
@@ -396,7 +396,106 @@ type RootFormHistory = (
     bool,
 );
 
+include!("retained_stylesheet_registry.rs");
+include!("native_response_store.rs");
+include!("native_pending_import_dispatch.rs");
+include!("native_pending_import_retry.rs");
+include!("native_pending_import_terminal.rs");
+include!("native_pending_response_transaction.rs");
+include!("native_source_tree_descendant_bridge.rs");
+include!("native_pending_tree_prepare.rs");
+include!("native_pending_tree_transaction.rs");
+include!("retained_graph_revision_sync.rs");
+include!("retained_native_layout_sync.rs");
+include!("native_import_handle_mapper.rs");
+include!("native_owner_state_reconcile.rs");
+include!("native_owner_retirement.rs");
+include!("retained_registry_snapshot.rs");
+include!("retained_publication_transaction.rs");
+include!("import_completion_authority.rs");
+include!("native_inline_stylesheet_authority.rs");
+include!("native_stylesheet_response_authority.rs");
+include!("stylesheet_fetch_outcome.rs");
+include!("retained_import_loading.rs");
+include!("stylesheet_source_tree.rs");
+include!("stylesheet_source_envelope.rs");
+include!("stylesheet_budget_owned_transfer.rs");
+include!("stylesheet_publication_guards.rs");
+include!("retained_css_joint_publication.rs");
+include!("retained_parser_loader.rs");
+include!("retained_stylesheet_scheduling.rs");
+include!("retained_stylesheet_executor.rs");
+include!("retained_scheduler_start.rs");
+include!("retained_ready_jobs.rs");
+include!("retained_provider_publication.rs");
+include!("retained_automatic_schedule.rs");
+include!("native_retained_admission_adapter.rs");
+include!("native_retained_activation.rs");
+include!("native_prepared_allocation_install.rs");
+include!("native_pending_import_transport.rs");
+include!("native_pending_import_scheduler.rs");
+include!("native_pending_import_poll.rs");
+include!("native_pending_import_scan.rs");
+#[derive(PartialEq, Eq)]
+struct RetainedGraphRevision {
+    publication: usize,
+    mutation: u64,
+}
+
+impl LiveLayoutProvider {
+    fn retained_revision_admission(
+        &self,
+    ) -> Result<Rc<dyn oryn_layout::cssom::native_import_graph::ImportAdmission>, String> {
+        self.retained_admission
+            .try_borrow()
+            .map_err(|_| "retained admission read borrow conflict")?
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "retained allocation admission not installed".into())
+    }
+}
+
+type SharedRetainedAdmission =
+    std::sync::Arc<dyn oryn_layout::cssom::native_import_graph::ImportAdmission + Send + Sync>;
+struct NativeProviderAdmissionFromShared {
+    shared: SharedRetainedAdmission,
+    _charge: std::sync::Arc<dyn Send + Sync>,
+}
+impl oryn_layout::cssom::native_import_graph::ImportAdmission
+    for NativeProviderAdmissionFromShared
+{
+    fn checkpoint(&self) -> Result<(), String> {
+        self.shared.checkpoint()
+    }
+    fn reserve(&self, bytes: usize) -> Result<std::sync::Arc<dyn Send + Sync>, String> {
+        self.shared.reserve(bytes)
+    }
+}
+impl LiveLayoutProvider {}
+type RetainedCascadeKey = (
+    u64,
+    u64,
+    u64,
+    u64,
+    u64,
+    (bool, bool),
+    Vec<(NodeId, u64, u64)>,
+);
 struct LiveLayoutProvider {
+    style_lock: oryn_layout::cssom::NativeStyleLock,
+    retained_stylesheets: Rc<RefCell<RetainedStylesheets>>,
+    native_css_handles: Rc<RefCell<NativeCssHandleRegistry>>,
+    stylesheet_graph_revision: Cell<u64>,
+    native_document_identity: Cell<Option<ParserDocumentIdentity>>,
+    shared_retained_admission: RefCell<Option<SharedRetainedAdmission>>,
+    native_retained_allocation:
+        RefCell<Option<std::sync::Arc<oryn_js::v8_bindings::BindingRetainedAllocation>>>,
+    retained_admission:
+        RefCell<Option<Rc<dyn oryn_layout::cssom::native_import_graph::ImportAdmission>>>,
+    retained_cascade_key: RefCell<Option<RetainedCascadeKey>>,
+    retained_cascade_key_charge: RefCell<Option<std::sync::Arc<dyn Send + Sync>>>,
+    retained_revision_key: RefCell<Option<Vec<RetainedGraphRevision>>>,
+    retained_revision_key_charge: RefCell<Option<std::sync::Arc<dyn Send + Sync>>>,
     style_engine: RefCell<oryn_layout::StyleEngine>,
     animation_time: Cell<f64>,
     animation_revision: Cell<u64>,
@@ -653,6 +752,18 @@ pub(crate) fn initial_layout_provider(
     document: NodeId,
 ) -> Rc<dyn BindingLayoutProvider> {
     Rc::new(LiveLayoutProvider {
+        style_lock: oryn_layout::cssom::new_native_style_lock(),
+        retained_stylesheets: Rc::new(RefCell::new(RetainedStylesheets::default())),
+        native_css_handles: Rc::new(RefCell::new(NativeCssHandleRegistry::default())),
+        stylesheet_graph_revision: Cell::new(0),
+        native_document_identity: Cell::new(None),
+        shared_retained_admission: RefCell::new(None),
+        native_retained_allocation: RefCell::new(None),
+        retained_admission: RefCell::new(None),
+        retained_cascade_key: RefCell::new(None),
+        retained_cascade_key_charge: RefCell::new(None),
+        retained_revision_key: RefCell::new(None),
+        retained_revision_key_charge: RefCell::new(None),
         style_engine: RefCell::new(Default::default()),
         animation_time: Cell::new(0.),
         animation_revision: Cell::new(0),
@@ -675,6 +786,21 @@ impl LiveLayoutProvider {
         &self,
         input: &oryn_layout::LayoutInput,
         limits: &oryn_layout::LayoutLimits,
+    ) -> Result<
+        (
+            oryn_layout::LayoutOutput,
+            oryn_layout::svg_instances::StyleSample,
+        ),
+        oryn_layout::LayoutError,
+    > {
+        self.sample_layout_with_style_controlled(input, limits, None)
+    }
+
+    fn sample_layout_with_style_controlled(
+        &self,
+        input: &oryn_layout::LayoutInput,
+        limits: &oryn_layout::LayoutLimits,
+        cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     ) -> Result<
         (
             oryn_layout::LayoutOutput,
@@ -723,7 +849,12 @@ impl LiveLayoutProvider {
         let _profile = crate::native_timing::stage("deep.live_style_compute");
         let mut engine = self.style_engine.borrow_mut();
         let active = engine.has_active_animations();
-        let mut output = engine.compute_at(input, limits, self.animation_time.get() / 1000.)?;
+        let mut output = engine.compute_at_controlled(
+            input,
+            limits,
+            self.animation_time.get() / 1000.,
+            cancelled.clone(),
+        )?;
         let sample = engine.instance_style_sample().ok_or_else(|| {
             oryn_layout::LayoutError::StyleTraversal(
                 "successful layout lacks native style sample".into(),
@@ -737,6 +868,9 @@ impl LiveLayoutProvider {
             &mut output,
             Some(&sample),
         )?;
+        if cancelled.as_ref().is_some_and(|check| check()) {
+            return Err(oryn_layout::LayoutError::Cancelled);
+        }
         if active {
             self.animation_revision
                 .set(self.animation_revision.get().wrapping_add(1));
@@ -869,6 +1003,23 @@ impl LiveLayoutProvider {
                 )
             })
             .collect();
+        let admission = self
+            .retained_admission
+            .try_borrow()
+            .map_err(|_| "retained layout admission borrow conflict")?
+            .as_ref()
+            .cloned();
+        if let Some(admission) = admission
+            && let Some(identity) = self.native_document_identity.get()
+        {
+            self.synchronize_retained_graph_revision()?;
+            match self.synchronize_retained_cascade(&input, identity, admission.as_ref())? {
+                RetainedCascadeSync::Ready => {}
+                RetainedCascadeSync::Retry => {
+                    return Err("retained cascade changed; recapture layout input".into());
+                }
+            }
+        }
         // Geometry is an optional capability and must never be able to tear
         // down the page worker. Stylo/Blitz can reject a transient DOM shape
         // while parser re-entry is replacing nested documents; translate an
@@ -892,6 +1043,75 @@ mod selected_paint_image_load;
 pub(crate) use selected_paint_image_load::SelectedPaintImageLoad;
 
 impl BindingLayoutProvider for LiveLayoutProvider {
+    fn bind_stylesheet_document_owner(
+        &self,
+        dom: &DomRuntime,
+        owner: oryn_js::v8_bindings::BindingStylesheetDocumentOwner,
+    ) -> Result<(), String> {
+        if !std::ptr::eq(self.dom.as_ptr().cast_const(), dom as *const DomRuntime)
+            || owner.document != self.document
+        {
+            return Err("foreign native stylesheet owner installation".into());
+        }
+        self.native_document_identity
+            .set(Some(ParserDocumentIdentity {
+                realm: owner.realm,
+                document: owner.document,
+                document_generation: owner.document_generation,
+                stream_epoch: owner.stream_epoch,
+            }));
+        Ok(())
+    }
+    fn retained_stylesheet(
+        &self,
+        dom: &Rc<RefCell<DomRuntime>>,
+        owner: NodeId,
+    ) -> Option<Result<Option<Rc<dyn oryn_js::v8_bindings::BindingNativeStylesheet>>, String>> {
+        if self.retained_admission.try_borrow().ok()?.is_none() {
+            return None;
+        }
+        Some((|| {
+            // Capture exact arena ownership without holding a DOM borrow through
+            // native handle interning/admission callbacks.
+            if !Rc::ptr_eq(&self.dom, dom) {
+                return Err("foreign stylesheet document arena".into());
+            }
+            let Some(identity) = self.native_document_identity.get() else {
+                return Ok(None);
+            };
+            let revision = {
+                let dom = dom
+                    .try_borrow()
+                    .map_err(|_| "stylesheet owner DOM borrow conflict")?;
+                if dom
+                    .node_document(owner)
+                    .map_err(|error| error.to_string())?
+                    != Some(identity.document)
+                    || !dom.is_connected(owner).map_err(|error| error.to_string())?
+                {
+                    return Ok(None);
+                }
+                dom.arena()
+                    .stylesheet_revision(owner)
+                    .map_err(|error| error.to_string())?
+            };
+            let record = self
+                .retained_stylesheets
+                .try_borrow()
+                .map_err(|_| "retained stylesheet registry borrow conflict")?
+                .current(&self.dom, identity, owner, revision);
+            let Some(record) = record else {
+                return Ok(None);
+            };
+            let sheet = record
+                .graph
+                .try_borrow()
+                .map_err(|_| "retained stylesheet graph borrow conflict")?
+                .root();
+            NativeCssHandleRegistry::sheet(&self.native_css_handles, record, sheet)
+                .map(|sheet| Some(sheet as Rc<dyn oryn_js::v8_bindings::BindingNativeStylesheet>))
+        })())
+    }
     fn publish_animation_effects(
         &self,
         effects: &[oryn_js::v8_bindings::BindingAnimationEffect],
@@ -1445,6 +1665,18 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         viewport.width = width;
         viewport.height = height;
         Some(Rc::new(Self {
+            style_lock: oryn_layout::cssom::new_native_style_lock(),
+            retained_stylesheets: Rc::new(RefCell::new(RetainedStylesheets::default())),
+            native_css_handles: Rc::new(RefCell::new(NativeCssHandleRegistry::default())),
+            stylesheet_graph_revision: Cell::new(0),
+            native_document_identity: Cell::new(None),
+            shared_retained_admission: RefCell::new(None),
+            native_retained_allocation: RefCell::new(None),
+            retained_admission: RefCell::new(None),
+            retained_cascade_key: RefCell::new(None),
+            retained_cascade_key_charge: RefCell::new(None),
+            retained_revision_key: RefCell::new(None),
+            retained_revision_key_charge: RefCell::new(None),
             style_engine: RefCell::new(Default::default()),
             animation_time: Cell::new(0.),
             animation_revision: Cell::new(0),
@@ -1487,6 +1719,7 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             self.scrollbar_width.get().to_bits(),
             dark,
             reduced,
+            self.stylesheet_graph_revision.get(),
         );
         let mut environment = self.layout_environment.borrow_mut();
         if environment.as_ref() != Some(&current) {
@@ -2992,7 +3225,7 @@ impl BufferedNavigationInput {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct ParserDocumentIdentity {
     realm: RealmId,
     stream_epoch: u64,
@@ -3581,6 +3814,11 @@ enum ParserResourceCompletion<R = ScriptRecord> {
         asynchronous: bool,
         result: Result<std::sync::Arc<ParserLoadedSource>, ParserScriptFailure>,
     },
+    RetainedStylesheet(RetainedStylesheetReady),
+    NativePendingImport {
+        key: NativePendingImportKey,
+        result: Result<NativePendingImportReply, String>,
+    },
     Stylesheet {
         identity: ParserDocumentIdentity,
         node: NodeId,
@@ -3639,6 +3877,9 @@ struct ParserResourceScheduler {
     stylesheet_identities: BTreeMap<(NodeId, u64), ParserDocumentIdentity>,
     render_stylesheets: BTreeMap<(NodeId, u64), (Option<oryn_dom::RenderBlocker>, bool)>,
     published_stylesheets: BTreeMap<(NodeId, u64), Option<bool>>,
+    retained_ready: BTreeMap<(NodeId, u64), RetainedReadyCustody>,
+    native_pending_imports: BTreeMap<NativePendingImportKey, NativePendingImportJob>,
+    native_pending_import_retry: Option<NativePendingImportRequest>,
     lifetime: std::sync::Arc<()>,
     sender: std::sync::mpsc::Sender<ParserResourceCompletion<u64>>,
     receiver: std::sync::mpsc::Receiver<ParserResourceCompletion<u64>>,
@@ -3886,6 +4127,9 @@ impl ParserResourceScheduler {
             stylesheet_identities: BTreeMap::new(),
             render_stylesheets: BTreeMap::new(),
             published_stylesheets: BTreeMap::new(),
+            retained_ready: BTreeMap::new(),
+            native_pending_imports: BTreeMap::new(),
+            native_pending_import_retry: None,
             module_source_cursor: 0,
             ready_completions: Default::default(),
             async_modules: Vec::new(),
@@ -3996,6 +4240,14 @@ impl ParserResourceScheduler {
             diagnostics,
             context,
         } = params;
+        if let ParserResourceCompletion::RetainedStylesheet(ready) = completion {
+            self.apply_retained_ready_job(Some(ready), live_dom, host)?;
+            return Ok(None);
+        }
+        if let ParserResourceCompletion::NativePendingImport { key, result } = completion {
+            self.receive_native_pending_import(key, result)?;
+            return Ok(None);
+        }
 
         if let ParserResourceCompletion::Script {
             asynchronous: true,
@@ -4208,6 +4460,9 @@ impl ParserResourceScheduler {
     ) -> Result<(), HostError> {
         let original_realm = host.active_realm();
         let result = (|| {
+            self.poll_retained_ready_jobs(live_dom, host)?;
+            self.scan_native_pending_imports(host)?;
+            self.poll_native_pending_imports(host)?;
             // Rotate through a bounded slice: a stalled prefix must not starve
             // a ready later graph, or consume an entire page task indefinitely.
             let turns = self
@@ -4357,6 +4612,13 @@ impl ParserResourceScheduler {
         host: &RawV8Host,
         dom: &SharedDomRuntime,
     ) -> Result<bool, HostError> {
+        for &(node, revision) in self.retained_ready.keys() {
+            if dom.borrow().arena().stylesheet_revision(node).ok() == Some(revision)
+                && host.native_stylesheet_blocks_scripts(node)?
+            {
+                return Ok(true);
+            }
+        }
         for (&(node, revision), &owners) in &self.pending_stylesheets {
             if owners == 0 || dom.borrow().arena().stylesheet_revision(node).ok() != Some(revision)
             {
@@ -4383,6 +4645,9 @@ impl ParserResourceScheduler {
                     .filter_map(|(completion, _)| match completion {
                         ParserResourceCompletion::Stylesheet { node, revision, .. } => {
                             Some((*node, *revision))
+                        }
+                        ParserResourceCompletion::RetainedStylesheet(ready) => {
+                            Some((ready.node, ready.revision))
                         }
                         _ => None,
                     }),
@@ -4444,6 +4709,12 @@ impl ParserResourceScheduler {
                     asynchronous,
                     result,
                 }
+            }
+            ParserResourceCompletion::RetainedStylesheet(ready) => {
+                ParserResourceCompletion::RetainedStylesheet(ready)
+            }
+            ParserResourceCompletion::NativePendingImport { key, result } => {
+                ParserResourceCompletion::NativePendingImport { key, result }
             }
             ParserResourceCompletion::Stylesheet {
                 identity,
@@ -4889,6 +5160,12 @@ impl ParserResourceScheduler {
         &mut self,
         params: AutomaticStylesheetScheduleInput<'_>,
     ) -> Result<(), HostError> {
+        if let Some(admission) = params
+            .host
+            .native_retained_admission_for_realm(params.fetch.realm)?
+        {
+            return self.schedule_retained_auto(params, admission);
+        }
         let AutomaticStylesheetScheduleInput {
             context,
             node,
@@ -5251,6 +5528,17 @@ impl ParserResourceScheduler {
                 self.local_source_cancels.remove(order);
                 self.async_sources.remove(order);
             }
+            if let ParserResourceCompletion::RetainedStylesheet(ready) = &completion {
+                let key = (ready.node, ready.revision);
+                self.local_stylesheets.remove(&key);
+                self.stylesheet_identities.remove(&key);
+                if let Some(count) = self.pending_stylesheets.get_mut(&key) {
+                    *count -= 1;
+                    if *count == 0 {
+                        self.pending_stylesheets.remove(&key);
+                    }
+                }
+            }
             if let ParserResourceCompletion::Stylesheet { node, revision, .. } = &completion {
                 self.local_stylesheets.remove(&(*node, *revision));
                 self.stylesheet_identities.remove(&(*node, *revision));
@@ -5399,6 +5687,9 @@ impl ParserResourceScheduler {
             }
         }
         !self.async_executions.is_empty()
+            || !self.retained_ready.is_empty()
+            || !self.native_pending_imports.is_empty()
+            || self.native_pending_import_retry.is_some()
             || !self.ready_completions.is_empty()
             || self
                 .module_sources
@@ -5859,7 +6150,7 @@ fn import_loaded_frame_document(
     while let Some((source, destination)) = pending.pop() {
         let record = parsed.dom.get(source)?;
         if let Some(css) = &record.stylesheet_override {
-            target.set_stylesheet_text(destination, css.clone())?;
+            target.set_stylesheet_text(destination, css.as_ref().to_owned())?;
         }
         let source_children = record.children.iter().copied().filter(|child| {
             !matches!(
@@ -5996,7 +6287,7 @@ fn publish_buffered_navigation_document_ref(
             .get(source)
             .map_err(|error| HostError::Execution(error.to_string()))?;
         if let Some(css) = &source_node.stylesheet_override {
-            dom.set_stylesheet_text(destination, css.clone())
+            dom.set_stylesheet_text(destination, css.as_ref().to_owned())
                 .map_err(|error| HostError::Execution(error.to_string()))?;
         }
         let destination_node = dom
@@ -6380,6 +6671,16 @@ fn apply_parser_resource_completion(
                     ));
                 }
             }
+        }
+        ParserResourceCompletion::RetainedStylesheet(_) => {
+            return Err(HostError::Execution(
+                "retained completion bypassed owning scheduler".into(),
+            ));
+        }
+        ParserResourceCompletion::NativePendingImport { .. } => {
+            return Err(HostError::Execution(
+                "pending import bypassed owning scheduler".into(),
+            ));
         }
         ParserResourceCompletion::Stylesheet {
             identity,
@@ -8133,6 +8434,18 @@ impl RustExecutableDocument {
                 crate::observable::OBSERVABLE_GLOBALS,
             )?;
             host.install_layout_provider(Rc::new(LiveLayoutProvider {
+                style_lock: oryn_layout::cssom::new_native_style_lock(),
+                retained_stylesheets: Rc::new(RefCell::new(RetainedStylesheets::default())),
+                native_css_handles: Rc::new(RefCell::new(NativeCssHandleRegistry::default())),
+                stylesheet_graph_revision: Cell::new(0),
+                native_document_identity: Cell::new(None),
+                shared_retained_admission: RefCell::new(None),
+                native_retained_allocation: RefCell::new(None),
+                retained_admission: RefCell::new(None),
+                retained_cascade_key: RefCell::new(None),
+                retained_cascade_key_charge: RefCell::new(None),
+                retained_revision_key: RefCell::new(None),
+                retained_revision_key_charge: RefCell::new(None),
                 style_engine: RefCell::new(Default::default()),
                 animation_time: Cell::new(0.),
                 animation_revision: Cell::new(0),
@@ -8961,6 +9274,18 @@ impl RustExecutableDocument {
             }
             let layout_document = live_dom.borrow().document();
             host.install_layout_provider(Rc::new(LiveLayoutProvider {
+                style_lock: oryn_layout::cssom::new_native_style_lock(),
+                retained_stylesheets: Rc::new(RefCell::new(RetainedStylesheets::default())),
+                native_css_handles: Rc::new(RefCell::new(NativeCssHandleRegistry::default())),
+                stylesheet_graph_revision: Cell::new(0),
+                native_document_identity: Cell::new(None),
+                shared_retained_admission: RefCell::new(None),
+                native_retained_allocation: RefCell::new(None),
+                retained_admission: RefCell::new(None),
+                retained_cascade_key: RefCell::new(None),
+                retained_cascade_key_charge: RefCell::new(None),
+                retained_revision_key: RefCell::new(None),
+                retained_revision_key_charge: RefCell::new(None),
                 style_engine: RefCell::new(Default::default()),
                 animation_time: Cell::new(0.),
                 animation_revision: Cell::new(0),
@@ -9949,6 +10274,17 @@ impl RustExecutableDocument {
         self.agent.host.take_navigation_history_update()
     }
 
+    pub fn peek_navigation_history_update(&self) -> Option<crate::host::NativeHistoryReceipt> {
+        self.agent.host.peek_navigation_history_update()
+    }
+
+    pub fn commit_navigation_history_update(
+        &self,
+        receipt: &crate::host::NativeHistoryReceipt,
+    ) -> bool {
+        self.agent.host.commit_navigation_history_update(receipt)
+    }
+
     pub fn admit_native_navigation(
         &mut self,
         url: &str,
@@ -10204,6 +10540,15 @@ impl RustExecutableDocument {
             .ok_or_else(|| HostError::Execution("selected DOM retired".into()))
     }
     pub(crate) fn semantic_snapshot(&self) -> Result<ParsedDocument, HostError> {
+        let owner = self.page_terminal_control.clone();
+        let mut checkpoint = || {
+            if crate::page_terminal_control::retired(owner.as_deref()) {
+                Err(oryn_dom::DomError::ProjectionCancelled)
+            } else {
+                Ok(())
+            }
+        };
+        checkpoint().map_err(|error| HostError::Execution(error.to_string()))?;
         let Some(scope) = &self.automation_scope else {
             // Native navigation admission can run author handlers without a
             // full executable checkpoint. Pair the mutation journal and live
@@ -10214,7 +10559,7 @@ impl RustExecutableDocument {
             let document = selected_dom.document();
             let dom = selected_dom
                 .arena()
-                .snapshot_live_document_tree(document)
+                .snapshot_live_document_tree_with_checkpoint(document, &mut checkpoint)
                 .map_err(|error| HostError::Execution(error.to_string()))?;
             return Ok(ParsedDocument {
                 dom,
@@ -10229,7 +10574,7 @@ impl RustExecutableDocument {
         let dom = dom
             .borrow()
             .arena()
-            .snapshot_document_scope(scope.document_root)
+            .snapshot_document_scope_with_checkpoint(scope.document_root, &mut checkpoint)
             .map_err(|error| HostError::Execution(error.to_string()))?;
         Ok(ParsedDocument {
             dom,
@@ -13758,8 +14103,19 @@ impl RustExecutableDocument {
         &self,
         graph: &mut crate::semantic::SemanticGraph,
     ) -> Result<(), HostError> {
+        let owner = self.page_terminal_control.clone();
+        let mut checkpoint = || {
+            if crate::page_terminal_control::retired(owner.as_deref()) {
+                Err(oryn_dom::DomError::ProjectionCancelled)
+            } else {
+                Ok(())
+            }
+        };
         graph
-            .apply_native_control_state(&self.selected_dom()?.borrow())
+            .apply_native_control_state_with_checkpoint(
+                &self.selected_dom()?.borrow(),
+                &mut checkpoint,
+            )
             .map_err(|error| HostError::Execution(error.to_string()))
     }
 
@@ -13912,7 +14268,10 @@ impl RustExecutableDocument {
                     "native document style backend absent".into(),
                 )
             })?;
-        backend.sample_layout_with_style(input, limits)
+        let owner = self.page_terminal_control.clone();
+        let cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>> = owner
+            .map(|owner| Arc::new(move || owner.retired()) as Arc<dyn Fn() -> bool + Send + Sync>);
+        backend.sample_layout_with_style_controlled(input, limits, cancelled)
     }
     pub fn install_layout(
         &mut self,
@@ -17062,6 +17421,20 @@ impl RustExecutableDocument {
                 self.agent
                     .host
                     .install_layout_provider(Rc::new(LiveLayoutProvider {
+                        style_lock: oryn_layout::cssom::new_native_style_lock(),
+                        retained_stylesheets: Rc::new(RefCell::new(RetainedStylesheets::default())),
+                        native_css_handles: Rc::new(RefCell::new(
+                            NativeCssHandleRegistry::default(),
+                        )),
+                        stylesheet_graph_revision: Cell::new(0),
+                        native_document_identity: Cell::new(None),
+                        shared_retained_admission: RefCell::new(None),
+                        native_retained_allocation: RefCell::new(None),
+                        retained_admission: RefCell::new(None),
+                        retained_cascade_key: RefCell::new(None),
+                        retained_cascade_key_charge: RefCell::new(None),
+                        retained_revision_key: RefCell::new(None),
+                        retained_revision_key_charge: RefCell::new(None),
                         style_engine: RefCell::new(Default::default()),
                         animation_time: Cell::new(0.),
                         animation_revision: Cell::new(0),
@@ -19199,6 +19572,18 @@ mod tests {
         let key = (u64::from(node.generation) << 32) | u64::from(node.slot);
         let document = dom.borrow().document();
         let provider = LiveLayoutProvider {
+            style_lock: oryn_layout::cssom::new_native_style_lock(),
+            retained_stylesheets: Rc::new(RefCell::new(RetainedStylesheets::default())),
+            native_css_handles: Rc::new(RefCell::new(NativeCssHandleRegistry::default())),
+            stylesheet_graph_revision: Cell::new(0),
+            native_document_identity: Cell::new(None),
+            shared_retained_admission: RefCell::new(None),
+            native_retained_allocation: RefCell::new(None),
+            retained_admission: RefCell::new(None),
+            retained_cascade_key: RefCell::new(None),
+            retained_cascade_key_charge: RefCell::new(None),
+            retained_revision_key: RefCell::new(None),
+            retained_revision_key_charge: RefCell::new(None),
             style_engine: RefCell::new(Default::default()),
             animation_time: Cell::new(0.),
             animation_revision: Cell::new(0),
@@ -36632,7 +37017,7 @@ mod frame_stylesheet_transfer_tests {
                 (node.attributes.get_null("id").map(String::as_str) == Some("linked")).then_some(id)
             })
             .unwrap();
-        parsed.dom.get_mut(link).unwrap().stylesheet_override = Some(String::new());
+        parsed.dom.get_mut(link).unwrap().stylesheet_override = Some(String::new().into());
         let frame = parsed.into_runtime().unwrap();
         assert_eq!(
             frame

@@ -191,6 +191,17 @@ pub(super) fn executable_checkpoint_pending(
         || !navigation.pending_rejections.is_empty()
 }
 
+/// Non-consuming custody of one source-owned pending history publication.
+pub struct NavigationHistoryReceipt {
+    update: NavigationHistoryUpdate,
+    token: Rc<()>,
+}
+impl NavigationHistoryReceipt {
+    pub fn update(&self) -> &NavigationHistoryUpdate {
+        &self.update
+    }
+}
+
 #[derive(Default)]
 pub(super) struct NavigationState {
     history_projection: history_projection::State,
@@ -207,6 +218,7 @@ pub(super) struct NavigationState {
     activation: Option<u64>,
     pending: Option<PendingNavigation>,
     history_update: Option<NavigationHistoryUpdate>,
+    history_update_token: Rc<()>,
     history_values: BTreeMap<String, v8::Global<v8::Value>>,
     initialized: bool,
     initial_document: bool,
@@ -2909,7 +2921,7 @@ impl V8BindingState {
             })
             .collect()
     }
-    pub fn take_navigation_history_update(&self) -> Option<NavigationHistoryUpdate> {
+    pub fn peek_navigation_history_update(&self) -> Option<NavigationHistoryReceipt> {
         let needs_initial = {
             let navigation = self.navigation_api.borrow();
             navigation.load_restore.is_none()
@@ -2922,7 +2934,29 @@ impl V8BindingState {
         if needs_initial {
             record_document_scroll(self, self.document_scroll_offset());
         }
-        self.navigation_api.borrow_mut().history_update.take()
+        let navigation = self.navigation_api.borrow();
+        navigation
+            .history_update
+            .as_ref()
+            .map(|update| NavigationHistoryReceipt {
+                update: update.clone(),
+                token: navigation.history_update_token.clone(),
+            })
+    }
+    pub fn commit_navigation_history_update(&self, receipt: &NavigationHistoryReceipt) -> bool {
+        let mut navigation = self.navigation_api.borrow_mut();
+        if navigation.history_update.is_none()
+            || !Rc::ptr_eq(&navigation.history_update_token, &receipt.token)
+        {
+            return false;
+        }
+        navigation.history_update.take();
+        true
+    }
+    pub fn take_navigation_history_update(&self) -> Option<NavigationHistoryUpdate> {
+        let receipt = self.peek_navigation_history_update()?;
+        self.commit_navigation_history_update(&receipt)
+            .then_some(receipt.update)
     }
 }
 pub(super) fn record_document_scroll(state: &V8BindingState, position: (f64, f64)) {
@@ -3019,6 +3053,7 @@ fn publish_history_update(state: &V8BindingState, kind: &str) {
             navigation_type: kind.into(),
             truncates_forward,
         });
+        navigation.history_update_token = Rc::new(());
     }
 }
 pub(super) fn history_mutated(
@@ -9242,11 +9277,22 @@ mod native_source_origin_admission_tests {
             state.navigation_history_snapshot().unwrap().scroll.position,
             None
         );
-        let update = state.take_navigation_history_update().unwrap();
+        let receipt = state.peek_navigation_history_update().unwrap();
+        let update = receipt.update();
         assert_eq!(
             update.entries[update.current].scroll.position,
             Some((0.0, 0.0))
         );
+        assert!(state.peek_navigation_history_update().is_some());
+        let other = scroll_fixture(scope);
+        assert!(other.peek_navigation_history_update().is_some());
+        assert!(!other.commit_navigation_history_update(&receipt));
+        assert!(other.peek_navigation_history_update().is_some());
+        publish_history_update(&state, "replace");
+        assert!(!state.commit_navigation_history_update(&receipt));
+        let receipt = state.peek_navigation_history_update().unwrap();
+        assert!(state.commit_navigation_history_update(&receipt));
+        assert!(!state.commit_navigation_history_update(&receipt));
         assert!(state.take_navigation_history_update().is_none());
     }
     #[test]

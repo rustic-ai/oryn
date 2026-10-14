@@ -532,7 +532,18 @@ impl DomRuntime {
     }
 
     pub fn control_numeric_validity(&self, node: NodeId) -> Result<NumericValidity, DomError> {
-        self.control_numeric_validity_for_value(node, &self.control_value(node)?)
+        self.control_numeric_validity_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn control_numeric_validity_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<NumericValidity, DomError> {
+        checkpoint()?;
+        self.control_numeric_validity_for_value(
+            node,
+            &self.control_value_with_checkpoint(node, checkpoint)?,
+        )
     }
     pub fn control_numeric_validity_for_value(
         &self,

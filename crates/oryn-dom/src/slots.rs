@@ -114,7 +114,17 @@ impl DomRuntime {
         host: NodeId,
         open_only: bool,
     ) -> Result<Option<NodeId>, DomError> {
+        self.attached_shadow_root_with_checkpoint(host, open_only, &mut || Ok(()))
+    }
+    pub fn attached_shadow_root_with_checkpoint(
+        &self,
+        host: NodeId,
+        open_only: bool,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<NodeId>, DomError> {
+        checkpoint()?;
         for child in &self.arena.get(host)?.children {
+            checkpoint()?;
             if let NodeKind::ShadowRoot { mode, .. } = self.arena.get(*child)?.kind {
                 return Ok((!open_only || mode == ShadowMode::Open).then_some(*child));
             }
@@ -257,21 +267,33 @@ impl DomRuntime {
     /// The first matching slot in shadow-tree order wins, including empty slots.
     /// Nested shadow trees are separate assignment scopes.
     pub fn assigned_slot(&self, node: NodeId, open_only: bool) -> Result<Option<NodeId>, DomError> {
+        self.assigned_slot_with_checkpoint(node, open_only, &mut || Ok(()))
+    }
+    pub fn assigned_slot_with_checkpoint(
+        &self,
+        node: NodeId,
+        open_only: bool,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<NodeId>, DomError> {
+        checkpoint()?;
         if !self.is_slottable(node)? {
             return Ok(None);
         }
         let Some(host) = self.arena.get(node)?.parent else {
             return Ok(None);
         };
-        let Some(root) = self.attached_shadow_root(host, open_only)? else {
+        let Some(root) = self.attached_shadow_root_with_checkpoint(host, open_only, checkpoint)?
+        else {
             return Ok(None);
         };
         if self.has_manual_slot_assignment(root) {
-            return Ok(self
-                .manual_node_slots
-                .get(&node)
-                .copied()
-                .filter(|slot| self.control_tree_root(*slot).ok() == Some(root)));
+            let candidate = self.manual_node_slots.get(&node).copied();
+            return match candidate {
+                Some(slot) => Ok((self.control_tree_root_with_checkpoint(slot, checkpoint)?
+                    == root)
+                    .then_some(slot)),
+                None => Ok(None),
+            };
         }
         let name = if matches!(self.arena.get(node)?.kind, NodeKind::Element { .. }) {
             self.attribute_in_null_namespace(node, "slot")?
@@ -279,15 +301,13 @@ impl DomRuntime {
         } else {
             ""
         };
-        let mut pending: Vec<_> = self
-            .arena
-            .get(root)?
-            .children
-            .iter()
-            .rev()
-            .copied()
-            .collect();
+        let mut pending = Vec::new();
+        for &child in self.arena.get(root)?.children.iter().rev() {
+            checkpoint()?;
+            pending.push(child);
+        }
         while let Some(candidate) = pending.pop() {
+            checkpoint()?;
             let record = self.arena.get(candidate)?;
             if matches!(
                 record.kind,
@@ -303,13 +323,25 @@ impl DomRuntime {
             {
                 return Ok(Some(candidate));
             }
-            pending.extend(record.children.iter().rev().copied());
+            for &child in record.children.iter().rev() {
+                checkpoint()?;
+                pending.push(child);
+            }
         }
         Ok(None)
     }
 
     pub fn assigned_nodes(&self, slot: NodeId, flatten: bool) -> Result<Vec<NodeId>, DomError> {
-        let root = self.control_tree_root(slot)?;
+        self.assigned_nodes_with_checkpoint(slot, flatten, &mut || Ok(()))
+    }
+    pub fn assigned_nodes_with_checkpoint(
+        &self,
+        slot: NodeId,
+        flatten: bool,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Vec<NodeId>, DomError> {
+        checkpoint()?;
+        let root = self.control_tree_root_with_checkpoint(slot, checkpoint)?;
         if !self.is_slot(slot)?
             || !matches!(self.arena.get(root)?.kind, NodeKind::ShadowRoot { .. })
         {
@@ -328,7 +360,8 @@ impl DomRuntime {
             self.arena.get(host)?.children.as_slice()
         };
         for child in candidates {
-            if self.assigned_slot(*child, false)? == Some(slot) {
+            checkpoint()?;
+            if self.assigned_slot_with_checkpoint(*child, false, checkpoint)? == Some(slot) {
                 assigned.push(*child);
             }
         }
@@ -337,6 +370,7 @@ impl DomRuntime {
         }
         if assigned.is_empty() {
             for child in &self.arena.get(slot)?.children {
+                checkpoint()?;
                 if self.is_slottable(*child)? {
                     assigned.push(*child);
                 }
@@ -344,13 +378,16 @@ impl DomRuntime {
         }
         let mut result = Vec::new();
         for child in assigned {
+            checkpoint()?;
             if self.is_slot(child)?
                 && matches!(
-                    self.arena.get(self.control_tree_root(child)?)?.kind,
+                    self.arena
+                        .get(self.control_tree_root_with_checkpoint(child, checkpoint)?)?
+                        .kind,
                     NodeKind::ShadowRoot { .. }
                 )
             {
-                result.extend(self.assigned_nodes(child, true)?);
+                result.extend(self.assigned_nodes_with_checkpoint(child, true, checkpoint)?);
             } else {
                 result.push(child);
             }

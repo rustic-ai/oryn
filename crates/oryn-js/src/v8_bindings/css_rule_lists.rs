@@ -73,6 +73,11 @@ pub(super) fn length<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     object: v8::Local<v8::Object>,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if let Some(state) = binding_state_for_receiver(scope, object)
+        && let Some(result) = native_rule_list_length(scope, &state, object)
+    {
+        return result;
+    }
     let length = entries(scope, object)?.ok_or_else(invalid)?.len();
     Ok(v8::Integer::new_from_unsigned(scope, length as u32).into())
 }
@@ -82,6 +87,14 @@ pub(super) fn item<'s>(
     object: v8::Local<v8::Object>,
     input: v8::Local<v8::Value>,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if let Some(state) = binding_state_for_receiver(scope, object)
+        && native_rule_list_owner(scope, &state, object).is_some()
+    {
+        let index = input
+            .uint32_value(scope)
+            .ok_or(V8BindingError::JavaScriptException)?;
+        return native_rule_list_at(scope, &state, object, index, false).ok_or_else(invalid)?;
+    }
     if sheet(scope, object).is_none()
         && private(scope, object, "oryn.css.rule.list.parent").is_none()
     {
@@ -167,6 +180,16 @@ fn getter(
     args: v8::PropertyCallbackArguments,
     mut rv: v8::ReturnValue,
 ) -> v8::Intercepted {
+    if let Some(state) = binding_state_for_receiver(scope, args.holder())
+        && let Some(result) = native_rule_list_at(scope, &state, args.holder(), index, true)
+    {
+        match result {
+            Ok(value) if value.is_undefined() => return v8::Intercepted::kNo,
+            Ok(value) => rv.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return v8::Intercepted::kYes;
+    }
     match entries(scope, args.holder()) {
         Ok(Some(names)) if (index as usize) < names.len() => {
             rv.set(names[index as usize]);
@@ -186,6 +209,21 @@ fn query(
     args: v8::PropertyCallbackArguments,
     mut rv: v8::ReturnValue<v8::Integer>,
 ) -> v8::Intercepted {
+    if let Some(state) = binding_state_for_receiver(scope, args.holder())
+        && let Some(owner) = native_rule_list_owner(scope, &state, args.holder())
+    {
+        match owner.count() {
+            Ok(count) if (index as usize) < count => {
+                rv.set_int32(v8::PropertyAttribute::READ_ONLY.as_u32() as i32);
+                return v8::Intercepted::kYes;
+            }
+            Ok(_) => return v8::Intercepted::kNo,
+            Err(message) => {
+                throw_binding_error(scope, &native_css_read_error("CSSRuleList", message));
+                return v8::Intercepted::kYes;
+            }
+        }
+    }
     match entries(scope, args.holder()) {
         Ok(Some(names)) if (index as usize) < names.len() => {
             rv.set_int32(v8::PropertyAttribute::READ_ONLY.as_u32() as i32);
@@ -204,6 +242,31 @@ fn enumerator(
     args: v8::PropertyCallbackArguments,
     mut rv: v8::ReturnValue<v8::Array>,
 ) {
+    if let Some(state) = binding_state_for_receiver(scope, args.holder())
+        && let Some(owner) = native_rule_list_owner(scope, &state, args.holder())
+    {
+        let result = (|| {
+            let count = owner
+                .count()
+                .map_err(|error| native_css_read_error("CSSRuleList", error))?;
+            let count = i32::try_from(count).map_err(|_| {
+                V8BindingError::Allocation("native CSSRuleList enumeration overflow")
+            })?;
+            let indices = v8::Array::new(scope, count);
+            for index in 0..count {
+                let value = v8::Integer::new_from_unsigned(scope, index as u32);
+                if indices.set_index(scope, index as u32, value.into()) != Some(true) {
+                    return Err(V8BindingError::JavaScriptException);
+                }
+            }
+            Ok(indices)
+        })();
+        match result {
+            Ok(indices) => rv.set(indices),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     match entries(scope, args.holder()) {
         Ok(Some(names)) => {
             let indices = (0..names.len())
@@ -221,6 +284,18 @@ fn reject_write(
     args: v8::PropertyCallbackArguments,
     mut rv: v8::ReturnValue<()>,
 ) -> v8::Intercepted {
+    if let Some(state) = binding_state_for_receiver(scope, args.holder())
+        && let Some(owner) = native_rule_list_owner(scope, &state, args.holder())
+    {
+        if let Err(message) = owner.count() {
+            throw_binding_error(scope, &native_css_read_error("CSSRuleList", message));
+        } else if args.should_throw_on_error() {
+            throw_type_error(scope, "CSSRuleList indexed properties are read-only");
+        } else {
+            rv.set_bool(false);
+        }
+        return v8::Intercepted::kYes;
+    }
     match entries(scope, args.holder()) {
         Ok(None) => return v8::Intercepted::kNo,
         Err(error) => throw_binding_error(scope, &error),

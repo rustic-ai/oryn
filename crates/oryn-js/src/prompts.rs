@@ -156,6 +156,18 @@ impl PromptController {
         state.wait_observer = Some(observer);
         Ok(())
     }
+    /// Linearize a short native-only publication with exact controller retirement.
+    /// The callback must not invoke author code, prompt methods or wait for I/O.
+    /// Long draft computation belongs before this admission, not under this lock.
+    pub fn with_live_publication<T>(&self, publish: impl FnOnce() -> T) -> Result<T, PromptError> {
+        let state = self.state.lock().map_err(|_| PromptError::Poisoned)?;
+        if state.retired {
+            return Err(PromptError::Retired);
+        }
+        let result = publish();
+        drop(state);
+        Ok(result)
+    }
     pub fn inspect(&self) -> Result<Option<PendingPrompt>, PromptError> {
         let state = self.state.lock().map_err(|_| PromptError::Poisoned)?;
         if state.retired {
@@ -359,6 +371,41 @@ impl PromptController {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn live_publication_linearizes_retirement_and_releases_on_failure() {
+        let controller = Arc::new(PromptController::new());
+        let published = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (retire_tx, retire_rx) = std::sync::mpsc::channel();
+        let publisher = controller.clone();
+        let output = published.clone();
+        let publication = std::thread::spawn(move || {
+            publisher.with_live_publication(|| {
+                entered_tx.send(()).unwrap();
+                retire_rx.recv().unwrap();
+                output.store(true, std::sync::atomic::Ordering::Release);
+                Err::<(), &'static str>("native commit failure")
+            })
+        });
+        entered_rx.recv().unwrap();
+        let retiring = controller.clone();
+        let output = published.clone();
+        let retirement = std::thread::spawn(move || {
+            retire_tx.send(()).unwrap();
+            retiring.retire();
+            assert!(output.load(std::sync::atomic::Ordering::Acquire));
+        });
+        assert_eq!(
+            publication.join().unwrap().unwrap(),
+            Err("native commit failure")
+        );
+        retirement.join().unwrap();
+        assert_eq!(
+            controller.with_live_publication(|| panic!("retired publication")),
+            Err(PromptError::Retired)
+        );
+    }
+
     fn pending(controller: &PromptController) -> PendingPrompt {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let mut state = controller.state.lock().unwrap();

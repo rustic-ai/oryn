@@ -15,6 +15,14 @@ impl DomRuntime {
     }
 
     pub fn control_pattern_mismatch(&self, node: NodeId) -> Result<bool, DomError> {
+        self.control_pattern_mismatch_with_checkpoint(node, &mut || Ok(()))
+    }
+    pub fn control_pattern_mismatch_with_checkpoint(
+        &self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        checkpoint()?;
         if !self.is_element(node, "http://www.w3.org/1999/xhtml", "input") {
             return Ok(false);
         }
@@ -47,7 +55,7 @@ impl DomRuntime {
         let Some(pattern) = self.attribute_in_null_namespace(node, "pattern")? else {
             return Ok(false);
         };
-        let value = self.control_value(node)?;
+        let value = self.control_value_with_checkpoint(node, checkpoint)?;
         if value.is_empty() {
             return Ok(false);
         }
@@ -61,6 +69,7 @@ impl DomRuntime {
                 .is_some()
         {
             for (index, token) in value.split(',').enumerate() {
+                checkpoint()?;
                 if index >= 1024 {
                     return Err(DomError::PatternEvaluation("value count limit"));
                 }

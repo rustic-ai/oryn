@@ -827,6 +827,18 @@ fn temporal_picker_native_keyboard_constraints_dismissal_and_paint() {
         "d.matches(':open')&&getComputedStyle(d).color==='rgb(255, 0, 0)'",
     );
     let provider = LiveLayoutProvider {
+        style_lock: oryn_layout::cssom::new_native_style_lock(),
+        retained_stylesheets: Rc::new(RefCell::new(RetainedStylesheets::default())),
+        native_css_handles: Rc::new(RefCell::new(NativeCssHandleRegistry::default())),
+        stylesheet_graph_revision: Cell::new(0),
+        native_document_identity: Cell::new(None),
+        shared_retained_admission: RefCell::new(None),
+        native_retained_allocation: RefCell::new(None),
+        retained_admission: RefCell::new(None),
+        retained_cascade_key: RefCell::new(None),
+        retained_cascade_key_charge: RefCell::new(None),
+        retained_revision_key: RefCell::new(None),
+        retained_revision_key_charge: RefCell::new(None),
         style_engine: RefCell::new(Default::default()),
         animation_time: Cell::new(0.),
         animation_revision: Cell::new(0),
@@ -920,6 +932,18 @@ fn temporal_picker_pointer_uses_private_boxes_and_rechecks_native_candidates() {
         .position(|item| item.value == "2024-02-29")
         .unwrap();
     let provider = LiveLayoutProvider {
+        style_lock: oryn_layout::cssom::new_native_style_lock(),
+        retained_stylesheets: Rc::new(RefCell::new(RetainedStylesheets::default())),
+        native_css_handles: Rc::new(RefCell::new(NativeCssHandleRegistry::default())),
+        stylesheet_graph_revision: Cell::new(0),
+        native_document_identity: Cell::new(None),
+        shared_retained_admission: RefCell::new(None),
+        native_retained_allocation: RefCell::new(None),
+        retained_admission: RefCell::new(None),
+        retained_cascade_key: RefCell::new(None),
+        retained_cascade_key_charge: RefCell::new(None),
+        retained_revision_key: RefCell::new(None),
+        retained_revision_key_charge: RefCell::new(None),
         style_engine: RefCell::new(Default::default()),
         animation_time: Cell::new(0.),
         animation_revision: Cell::new(0),
@@ -1390,6 +1414,18 @@ fn native_popup_wheel_changes_highlight_without_author_wheel_or_value_commit() {
     );
     let c = page.agent.dom.borrow().find_by_id("c").unwrap();
     let provider = LiveLayoutProvider {
+        style_lock: oryn_layout::cssom::new_native_style_lock(),
+        retained_stylesheets: Rc::new(RefCell::new(RetainedStylesheets::default())),
+        native_css_handles: Rc::new(RefCell::new(NativeCssHandleRegistry::default())),
+        stylesheet_graph_revision: Cell::new(0),
+        native_document_identity: Cell::new(None),
+        shared_retained_admission: RefCell::new(None),
+        native_retained_allocation: RefCell::new(None),
+        retained_admission: RefCell::new(None),
+        retained_cascade_key: RefCell::new(None),
+        retained_cascade_key_charge: RefCell::new(None),
+        retained_revision_key: RefCell::new(None),
+        retained_revision_key_charge: RefCell::new(None),
         style_engine: RefCell::new(Default::default()),
         animation_time: Cell::new(0.),
         animation_revision: Cell::new(0),
@@ -1629,6 +1665,18 @@ fn native_ax_numeric_adjustment_reuses_step_bounds_and_rejects_readonly_number()
 fn select_picker_scroll_has_native_authority_and_cancelable_wheel_default() {
     fn picker(page: &RustExecutableDocument, scrollbar: f64) -> oryn_common::v4::PaintNodeSnapshot {
         let provider = LiveLayoutProvider {
+            style_lock: oryn_layout::cssom::new_native_style_lock(),
+            retained_stylesheets: Rc::new(RefCell::new(RetainedStylesheets::default())),
+            native_css_handles: Rc::new(RefCell::new(NativeCssHandleRegistry::default())),
+            stylesheet_graph_revision: Cell::new(0),
+            native_document_identity: Cell::new(None),
+            shared_retained_admission: RefCell::new(None),
+            native_retained_allocation: RefCell::new(None),
+            retained_admission: RefCell::new(None),
+            retained_cascade_key: RefCell::new(None),
+            retained_cascade_key_charge: RefCell::new(None),
+            retained_revision_key: RefCell::new(None),
+            retained_revision_key_charge: RefCell::new(None),
             style_engine: RefCell::new(Default::default()),
             animation_time: Cell::new(0.),
             animation_revision: Cell::new(0),

@@ -1327,6 +1327,18 @@ mod tests {
         let root = dom.borrow().find_by_id("root").unwrap();
         let later = dom.borrow().find_by_id("later").unwrap();
         let provider = Rc::new(LiveLayoutProvider {
+            style_lock: oryn_layout::cssom::new_native_style_lock(),
+            retained_stylesheets: Rc::new(RefCell::new(RetainedStylesheets::default())),
+            native_css_handles: Rc::new(RefCell::new(NativeCssHandleRegistry::default())),
+            stylesheet_graph_revision: Cell::new(0),
+            native_document_identity: Cell::new(None),
+            shared_retained_admission: RefCell::new(None),
+            native_retained_allocation: RefCell::new(None),
+            retained_admission: RefCell::new(None),
+            retained_cascade_key: RefCell::new(None),
+            retained_cascade_key_charge: RefCell::new(None),
+            retained_revision_key: RefCell::new(None),
+            retained_revision_key_charge: RefCell::new(None),
             style_engine: RefCell::new(Default::default()),
             animation_time: Cell::new(0.),
             animation_revision: Cell::new(0),

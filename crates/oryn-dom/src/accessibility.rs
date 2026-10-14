@@ -132,88 +132,170 @@ impl Node {
     }
 }
 impl DomArena {
-    fn accessibility_tree_root(&self, mut node: NodeId) -> Result<NodeId, DomError> {
-        loop {
-            let record = self.get(node)?;
-            if matches!(
-                record.kind,
-                NodeKind::ShadowRoot { .. } | NodeKind::Document
-            ) {
-                return Ok(node);
-            }
-            match record.parent {
-                Some(parent) => node = parent,
-                None => return Ok(node),
-            }
-        }
-    }
     pub fn accessibility_reference_in_scope(
         &self,
         source: NodeId,
         target: NodeId,
         internals: bool,
     ) -> bool {
-        let Ok(root) = self.accessibility_tree_root(target) else {
-            return false;
+        self.relation_in_scope_with_checkpoint(source, target, internals, &mut || Ok(()))
+            .unwrap_or(false)
+    }
+    pub fn accessibility_relation(&self, source: NodeId, name: &str) -> Option<Vec<NodeId>> {
+        self.accessibility_relation_with_checkpoint(source, name, &mut || Ok(()))
+            .ok()
+            .flatten()
+    }
+    fn relation_tree_root_with_checkpoint(
+        &self,
+        mut node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<NodeId>, DomError> {
+        let mut seen = BTreeSet::new();
+        loop {
+            checkpoint()?;
+            if !seen.insert(node) {
+                return Err(DomError::Cycle);
+            }
+            let Ok(record) = self.get(node) else {
+                return Ok(None);
+            };
+            if matches!(
+                record.kind,
+                NodeKind::ShadowRoot { .. } | NodeKind::Document
+            ) {
+                return Ok(Some(node));
+            }
+            match record.parent {
+                Some(parent) => node = parent,
+                None => return Ok(Some(node)),
+            }
+        }
+    }
+
+    fn relation_in_scope_with_checkpoint(
+        &self,
+        source: NodeId,
+        target: NodeId,
+        internals: bool,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        let Some(root) = self.relation_tree_root_with_checkpoint(target, checkpoint)? else {
+            return Ok(false);
         };
         let mut cursor = Some(source);
+        let mut seen = BTreeSet::new();
         while let Some(node) = cursor {
+            checkpoint()?;
+            if !seen.insert(node) {
+                return Err(DomError::Cycle);
+            }
             if node == root {
-                return true;
+                return Ok(true);
             }
             cursor = self.get(node).ok().and_then(|node| node.parent);
         }
         if internals {
             let mut cursor = Some(target);
+            seen.clear();
             while let Some(node) = cursor {
+                checkpoint()?;
+                if !seen.insert(node) {
+                    return Err(DomError::Cycle);
+                }
                 if node == source {
-                    return true;
+                    return Ok(true);
                 }
                 cursor = self.get(node).ok().and_then(|node| node.parent);
             }
         }
-        false
+        Ok(false)
     }
-    /// Effective native relation: authored/explicit element state suppresses
-    /// defaults even when its references are empty, missing or out of scope.
-    pub fn accessibility_relation(&self, source: NodeId, name: &str) -> Option<Vec<NodeId>> {
-        let node = self.get(source).ok()?;
+
+    pub fn accessibility_relation_with_checkpoint(
+        &self,
+        source: NodeId,
+        name: &str,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<Vec<NodeId>>, DomError> {
+        checkpoint()?;
+        let Ok(node) = self.get(source) else {
+            return Ok(None);
+        };
         if let Some(targets) = node.explicit_accessibility_references(name) {
-            return Some(
-                targets
-                    .iter()
-                    .copied()
-                    .filter(|target| self.accessibility_reference_in_scope(source, *target, false))
-                    .collect(),
-            );
-        }
-        if let Some(ids) = node.attributes.get_null(name) {
-            let root = self.accessibility_tree_root(source).ok()?;
             let mut result = Vec::new();
-            for token in ids.split_ascii_whitespace() {
-                if let Some(target) =
-                    self.descendants_inclusive(root)
-                        .ok()?
-                        .into_iter()
-                        .find(|target| {
-                            self.get(*target).is_ok_and(|node| {
-                                node.attributes.get_null("id").is_some_and(|id| id == token)
-                            }) && self.accessibility_tree_root(*target).ok() == Some(root)
-                        })
-                    && !result.contains(&target)
-                {
+            for &target in targets {
+                checkpoint()?;
+                if self.relation_in_scope_with_checkpoint(source, target, false, checkpoint)? {
                     result.push(target);
                 }
             }
-            return Some(result);
+            checkpoint()?;
+            return Ok(Some(result));
         }
-        node.default_accessibility_references(name).map(|targets| {
-            targets
-                .iter()
-                .copied()
-                .filter(|target| self.accessibility_reference_in_scope(source, *target, true))
-                .collect()
-        })
+        if let Some(ids) = node.attributes.get_null(name) {
+            let Some(root) = self.relation_tree_root_with_checkpoint(source, checkpoint)? else {
+                return Ok(None);
+            };
+            let mut result = Vec::new();
+            for token in ids.split_ascii_whitespace() {
+                checkpoint()?;
+                // Preserve the original full descendant validation before ID lookup.
+                let mut descendants = Vec::new();
+                let mut pending = vec![root];
+                let mut seen = BTreeSet::new();
+                while let Some(current) = pending.pop() {
+                    checkpoint()?;
+                    if !seen.insert(current) {
+                        return Err(DomError::Cycle);
+                    }
+                    let Ok(record) = self.get(current) else {
+                        return Ok(None);
+                    };
+                    descendants.push(current);
+                    for &child in record.children.iter().rev() {
+                        checkpoint()?;
+                        pending.push(child);
+                    }
+                }
+                for target in descendants {
+                    checkpoint()?;
+                    if self.get(target).is_ok_and(|node| {
+                        node.attributes.get_null("id").is_some_and(|id| id == token)
+                    }) && self.relation_tree_root_with_checkpoint(target, checkpoint)?
+                        == Some(root)
+                    {
+                        let mut duplicate = false;
+                        for &prior in &result {
+                            checkpoint()?;
+                            if prior == target {
+                                duplicate = true;
+                                break;
+                            }
+                        }
+                        if !duplicate {
+                            result.push(target);
+                        }
+                        break;
+                    }
+                }
+            }
+            checkpoint()?;
+            return Ok(Some(result));
+        }
+        let Some(targets) = node.default_accessibility_references(name) else {
+            checkpoint()?;
+            return Ok(None);
+        };
+        let mut result = Vec::new();
+        for &target in targets {
+            checkpoint()?;
+            if self.relation_in_scope_with_checkpoint(source, target, true, checkpoint)? {
+                result.push(target);
+            }
+        }
+        checkpoint()?;
+        Ok(Some(result))
     }
 }
 impl DomRuntime {

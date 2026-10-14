@@ -1,3 +1,17 @@
+#[cfg(feature = "v8-host")]
+pub(crate) struct PreparedNavigationHistoryUpdate {
+    next: Vec<NavigationHistoryEntry>,
+    index: usize,
+    url: String,
+    cache_indices: std::collections::BTreeMap<usize, usize>,
+}
+
+/// Hold removed cached documents until the caller has released publication custody.
+#[cfg(feature = "v8-host")]
+pub(crate) struct RetiredNavigationHistoryCache {
+    _entries: std::collections::BTreeMap<usize, BackForwardCacheEntry>,
+}
+
 /// Inputs for capture svg paint tree.
 #[cfg(feature = "v8-host")]
 struct SvgPaintTreeInputs<'a> {
@@ -15700,6 +15714,16 @@ impl PageState {
         &mut self,
         update: oryn_js::navigation_api::NavigationHistoryUpdate,
     ) -> Result<(), RuntimeError> {
+        let plan = self.prepare_navigation_history_update(update)?;
+        drop(self.commit_navigation_history_update(plan));
+        Ok(())
+    }
+
+    #[cfg(feature = "v8-host")]
+    pub(crate) fn prepare_navigation_history_update(
+        &self,
+        update: oryn_js::navigation_api::NavigationHistoryUpdate,
+    ) -> Result<PreparedNavigationHistoryUpdate, RuntimeError> {
         let old_current = self.history_index.ok_or(RuntimeError::HistoryBoundary)?;
         let owner = self
             .history
@@ -15784,8 +15808,8 @@ impl PageState {
                 resource: "native session history entries".into(),
             });
         }
-        let mut cache = std::collections::BTreeMap::new();
-        for (index, cached) in std::mem::take(&mut self.back_forward_cache) {
+        let mut cache_indices = std::collections::BTreeMap::new();
+        for &index in self.back_forward_cache.keys() {
             let old_id = self
                 .history
                 .get(index)
@@ -15797,14 +15821,36 @@ impl PageState {
                     .as_ref()
                     .is_some_and(|entry| Some(&entry.id) == old_id)
             }) {
+                cache_indices.insert(index, new_index);
+            }
+        }
+        let index = start + update.current;
+        let url = next[index].url.clone();
+        Ok(PreparedNavigationHistoryUpdate {
+            next,
+            index,
+            url,
+            cache_indices,
+        })
+    }
+
+    #[cfg(feature = "v8-host")]
+    pub(crate) fn commit_navigation_history_update(
+        &mut self,
+        plan: PreparedNavigationHistoryUpdate,
+    ) -> RetiredNavigationHistoryCache {
+        let mut cache = std::collections::BTreeMap::new();
+        let mut retired = std::mem::take(&mut self.back_forward_cache);
+        for (index, new_index) in plan.cache_indices {
+            if let Some(cached) = retired.remove(&index) {
                 cache.insert(new_index, cached);
             }
         }
         self.back_forward_cache = cache;
-        self.history = next;
-        self.history_index = Some(start + update.current);
-        self.url = self.history[start + update.current].url.clone();
-        Ok(())
+        self.history = plan.next;
+        self.history_index = Some(plan.index);
+        self.url = plan.url;
+        RetiredNavigationHistoryCache { _entries: retired }
     }
 
     #[cfg(feature = "v8-host")]
@@ -25333,6 +25379,7 @@ pub(crate) fn layout_input_from_dom(
     let mut stylesheet_media = BTreeMap::new();
     let mut stylesheet_scope_roots = BTreeMap::new();
     let mut stylesheet_base_urls = BTreeMap::new();
+    let mut stylesheet_owner_ids = BTreeMap::new();
     for (sheet, tree_scope, constructed) in sheets {
         if dom.stylesheet_disabled(sheet).unwrap_or(true) {
             continue;
@@ -25362,6 +25409,7 @@ pub(crate) fn layout_input_from_dom(
             if let Ok(media) = dom.stylesheet_media(sheet) {
                 stylesheet_media.insert(stylesheets.len(), media);
             }
+            stylesheet_owner_ids.insert(stylesheets.len(), pack_node_id(sheet));
             stylesheets.push(source);
         }
     }
@@ -25437,6 +25485,7 @@ pub(crate) fn layout_input_from_dom(
         stylesheet_media,
         stylesheet_scope_roots,
         stylesheet_base_urls,
+        stylesheet_owner_ids,
         custom_states: BTreeMap::new(),
         focused_node: None,
         focus_visible: false,
@@ -36820,9 +36869,13 @@ mod tests {
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
     async fn editing_document_root_units_descend_into_body_paragraphs() {
-        let page=Browser::new().new_context().new_page();
-        page.load_html("https://editing.example.test/body-units",
-            "<!doctype html><html><head><title>iframe</title></head><body></body></html>").await.unwrap();
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://editing.example.test/body-units",
+            "<!doctype html><html><head><title>iframe</title></head><body></body></html>",
+        )
+        .await
+        .unwrap();
         let result=page.evaluate(r#"(() => {
           const s=getSelection(),html=document.documentElement;
           const check=(ok,label)=>{if(!ok)throw Error(label)};
@@ -36847,15 +36900,19 @@ mod tests {
           }
           return 'passed';
         })()"#).await.unwrap();
-        assert_eq!(result,"passed");
+        assert_eq!(result, "passed");
     }
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
     async fn editing_backward_boundary_before_body_preserves_invisible_head() {
-        let page=Browser::new().new_context().new_page();
-        page.load_html("https://editing.example.test/invisible-head",
-            "<!doctype html><html><head><title>iframe</title></head><body>def</body></html>").await.unwrap();
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://editing.example.test/invisible-head",
+            "<!doctype html><html><head><title>iframe</title></head><body>def</body></html>",
+        )
+        .await
+        .unwrap();
         let result=page.evaluate(r#"(() => {
           const html=document.documentElement,s=getSelection();
           const check=(ok,label)=>{if(!ok)throw Error(label)};
@@ -36889,7 +36946,53 @@ mod tests {
           }
           return 'passed';
         })()"#).await.unwrap();
-        assert_eq!(result,"passed");
+        assert_eq!(result, "passed");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn editing_pre_preline_join_timing_controls_preserve_first_line() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html("https://editing.example.test/join-timing",
+            "<!doctype html><style>.pre{white-space:pre}.preLine{white-space:pre-line}</style><div id=editor contenteditable></div>")
+            .await.unwrap();
+        for (label, left, right) in [
+            ("class-left", "class='pre'", "style='white-space:pre-line'"),
+            ("class-right", "style='white-space:pre'", "class='preLine'"),
+            (
+                "inline-both",
+                "style='white-space:pre'",
+                "style='white-space:pre-line'",
+            ),
+        ] {
+            for iteration in 0..4 {
+                let script = format!(
+                    r#"(() => {{
+                  const e=document.getElementById('editor'),s=getSelection();
+                  const check=(ok,label)=>{{if(!ok)throw Error(label)}};
+                  e.innerHTML="<div {left}>abc</div><div {right}>def<div>ghi</div>jkl<br>mno</div>";
+                  const a=e.firstChild,b=e.lastChild,nested=b.children[0],tail=b.lastChild;
+                  s.collapse(b.firstChild,0);
+                  check(document.execCommand('delete'),'accepted delete');
+                  check(e.children.length===2&&e.firstChild===a&&e.lastChild===b,'paragraph owners');
+                  check(a.textContent==='abcdef'&&b.textContent==='ghijklmno','first line extent');
+                  check(b.firstChild===nested&&b.lastChild===tail,'unmoved residual identities');
+                  const carrier=a.lastChild;
+                  check(carrier.nodeName==='SPAN'&&carrier.textContent==='def','whitespace carrier');
+                  check(getComputedStyle(carrier).whiteSpace==='pre-line','computed source mode');
+                  check(s.isCollapsed&&(s.anchorNode===a||a.contains(s.anchorNode)),'caret remains destination');
+                  return 'passed';
+                }})()"#
+                );
+                let started = std::time::Instant::now();
+                let result = page.evaluate(&script).await.unwrap();
+                eprintln!(
+                    "join-control {label} iteration={iteration} elapsed_us={}",
+                    started.elapsed().as_micros()
+                );
+                assert_eq!(result, "passed");
+            }
+        }
     }
 
     #[cfg(feature = "v8-host")]

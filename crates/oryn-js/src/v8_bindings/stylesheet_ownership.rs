@@ -159,7 +159,7 @@ pub(super) fn for_node(
     let sheet = {
         let mut dom = state.dom.borrow_mut();
         let sheet = dom.create_element("style");
-        dom.arena_mut().get_mut(sheet)?.stylesheet_override = Some(source);
+        dom.arena_mut().get_mut(sheet)?.stylesheet_override = Some(source.into());
         dom.arena_mut().get_mut(sheet)?.stylesheet_media = Some(media);
         dom.arena_mut().get_mut(sheet)?.stylesheet_disabled = Some(disabled);
         sheet

@@ -1768,6 +1768,18 @@ mod native_pointer;
 mod native_pointer_selection;
 mod node_lists;
 mod page_rules;
+include!("v8_bindings/binding_import_handles.rs");
+include!("v8_bindings/binding_stylesheet_owner.rs");
+include!("v8_bindings/binding_stylesheet_lifecycle.rs");
+include!("v8_bindings/binding_retained_allocation.rs");
+include!("v8_bindings/native_css_rule_wrapper.rs");
+include!("v8_bindings/native_css_rule_list.rs");
+include!("v8_bindings/native_css_sheet_dispatch.rs");
+include!("v8_bindings/native_css_declaration_wrapper.rs");
+include!("v8_bindings/native_layer_name_list.rs");
+include!("v8_bindings/native_sheet_state_dispatch.rs");
+include!("v8_bindings/native_import_media_dispatch.rs");
+include!("v8_bindings/native_css_mutation_dispatch.rs");
 mod stylesheet_ownership;
 mod stylesheet_sets;
 mod window_dimensions;
@@ -1927,6 +1939,24 @@ pub enum BindingCssAnimationControl {
 }
 
 pub trait BindingLayoutProvider {
+    /// Native owner lookup; bare NodeIds are meaningful only inside the exact
+    /// runtime supplied by the receiver's binding state.
+    fn retained_stylesheet(
+        &self,
+        _dom: &Rc<RefCell<DomRuntime>>,
+        _owner: NodeId,
+    ) -> Option<Result<Option<Rc<dyn BindingNativeStylesheet>>, String>> {
+        None
+    }
+    fn bind_stylesheet_document_owner(
+        &self,
+        _dom: &DomRuntime,
+        _owner: BindingStylesheetDocumentOwner,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    // Legacy providers may not retain a graph; native LiveLayoutProvider
+    // overrides this with exact owning-arena/document validation.
     /// Private embedding bridge: the native renderer and synchronous geometry
     /// queries share one document style session without a layout crate dependency.
     fn native_backend(&self) -> Option<&dyn std::any::Any> {
@@ -2508,6 +2538,7 @@ pub struct V8BindingState {
     platform_wrappers: RefCell<BTreeMap<u64, v8::Weak<v8::Object>>>,
     platform_edges: RefCell<platform_listener_graph::Edges>,
     idb_payload_ledger: std::sync::Arc<crate::idb_owned_admission::Ledger>,
+    retained_allocation: RefCell<Option<std::sync::Arc<BindingRetainedAllocation>>>,
     queued_owned_idb: RefCell<VecDeque<OwnedIdbOperation>>,
     pending_owned_idb: RefCell<Vec<(HostOperationId, OwnedIdbOperation)>>,
     platform_host: RefCell<Option<Rc<dyn PlatformHost>>>,
@@ -2536,6 +2567,7 @@ pub struct V8BindingState {
     cache_storage: RefCell<cache_storage::Bindings>,
     blob_urls: RefCell<BTreeMap<String, u64>>,
     idb_transactions_to_deactivate: RefCell<BTreeSet<u64>>,
+    idb_callback_protection: RefCell<BTreeMap<u64, usize>>,
     next_traversal_id: Cell<u64>,
     node_iterators: RefCell<BTreeMap<u64, Rc<node_iterators::Record>>>,
     tree_walkers: RefCell<BTreeMap<u64, Rc<tree_walkers::Record>>>,
@@ -2559,6 +2591,7 @@ pub struct V8BindingState {
     stylesheet_rule_lists: RefCell<BTreeMap<NodeId, v8::Weak<v8::Array>>>,
     page_rules: RefCell<BTreeMap<u64, page_rules::Record>>,
     next_page_rule_id: Cell<u64>,
+    native_stylesheets: RefCell<NativeStylesheetWrappers>,
     current_script: Cell<Option<NodeId>>,
     native_csp_tasks: RefCell<VecDeque<(NodeId, u64, crate::platform_control::CspEvent)>>,
     inline_style_policy: RefCell<Option<Rc<inline_style_policy::Policy>>>,
@@ -5294,6 +5327,16 @@ impl V8BindingState {
         self.reclaim_collected_events();
         let transactions = std::mem::take(&mut *self.idb_transactions_to_deactivate.borrow_mut());
         for transaction_id in transactions {
+            if self
+                .idb_callback_protection
+                .borrow()
+                .contains_key(&transaction_id)
+            {
+                self.idb_transactions_to_deactivate
+                    .borrow_mut()
+                    .insert(transaction_id);
+                continue;
+            }
             if let Ok(mut record) = platform_object_mut(self, transaction_id)
                 && let PlatformObjectRecord::IdbTransaction(transaction) = &mut *record
             {
@@ -16482,6 +16525,13 @@ fn generated_attribute_getter<'s>(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    let _retained_scope = match state.enter_retained_allocation(scope) {
+        Ok(scope) => scope,
+        Err(error) => {
+            throw_binding_error(scope, &error);
+            return;
+        }
+    };
     if interface == "Window" && member == "customElements" {
         if !global_events::is_global(scope, &state, args.this()) {
             throw_type_error(scope, "Window.customElements requires a Window receiver");
@@ -16661,6 +16711,15 @@ fn generated_attribute_getter<'s>(
         }
         return;
     }
+    if matches!(interface, "StyleSheet" | "CSSStyleSheet")
+        && let Some(result) = native_sheet_attribute(scope, &state, args.this(), member)
+    {
+        match result {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if interface == "StyleSheet"
         && matches!(
             member,
@@ -16736,6 +16795,13 @@ fn generated_attribute_getter<'s>(
         return;
     }
     if interface == "MediaList" {
+        if let Some(result) = native_media_attribute(scope, &state, args.this(), member) {
+            match result {
+                Ok(value) => return_value.set(value),
+                Err(error) => throw_binding_error(scope, &error),
+            }
+            return;
+        }
         match page_rules::media_lists::attribute(scope, &state, args.this(), member) {
             Ok(value) => return_value.set(value),
             Err(error) => throw_binding_error(scope, &error),
@@ -16762,6 +16828,20 @@ fn generated_attribute_getter<'s>(
         return;
     }
     if page_rules::is_rule_interface(interface) {
+        if native_css_identity(scope, args.this(), "oryn.native.css.import").is_some() {
+            match native_import_attribute(scope, &state, args.this(), member) {
+                Ok(value) => return_value.set(value),
+                Err(error) => throw_binding_error(scope, &error),
+            }
+            return;
+        }
+        if native_css_identity(scope, args.this(), "oryn.native.css.rule").is_some() {
+            match native_rule_relationship(scope, &state, args.this(), member) {
+                Ok(value) => return_value.set(value),
+                Err(error) => throw_binding_error(scope, &error),
+            }
+            return;
+        }
         match page_rules::attribute(scope, &state, args.this(), interface, member) {
             Ok(value) => return_value.set(value),
             Err(error) => throw_binding_error(scope, &error),
@@ -16796,6 +16876,20 @@ fn generated_attribute_getter<'s>(
     {
         let result = node_lists::length(scope, &state, args.this(), interface);
         node_lists::account_memory(scope, &state);
+        match result {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
+    if matches!(
+        interface,
+        "CSSStyleDeclaration"
+            | "CSSStyleProperties"
+            | "CSSPageDescriptors"
+            | "CSSFontFaceDescriptors"
+    ) && let Some(result) = native_declaration_attribute(scope, &state, args.this(), member)
+    {
         match result {
             Ok(value) => return_value.set(value),
             Err(error) => throw_binding_error(scope, &error),
@@ -17207,6 +17301,13 @@ fn generated_attribute_setter_impl<'s>(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    let _retained_scope = match state.enter_retained_allocation(scope) {
+        Ok(scope) => scope,
+        Err(error) => {
+            throw_binding_error(scope, &error);
+            return;
+        }
+    };
     if xpath::is_namespace(scope, args.this()) {
         throw_binding_error(
             scope,
@@ -17303,6 +17404,12 @@ fn generated_attribute_setter_impl<'s>(
     }
     if interface == "StyleSheet" && member == "disabled" {
         let disabled = args.get(0).boolean_value(scope);
+        if let Some(result) = native_sheet_set_disabled(scope, &state, args.this(), disabled) {
+            if let Err(error) = result {
+                throw_binding_error(scope, &error);
+            }
+            return;
+        }
         let result =
             resolve_receiver(scope, &state, args.this(), "CSSStyleSheet").and_then(|sheet| {
                 let owner = stylesheet_ownership::active_owner(&state, sheet)?;
@@ -17333,6 +17440,12 @@ fn generated_attribute_setter_impl<'s>(
         return;
     }
     if interface == "MediaList" {
+        if let Some(result) = native_media_set_text(scope, &state, args.this(), args.get(0)) {
+            if let Err(error) = result {
+                throw_binding_error(scope, &error);
+            }
+            return;
+        }
         if let Err(error) =
             page_rules::media_lists::set_text(scope, &state, args.this(), args.get(0))
         {
@@ -17340,13 +17453,70 @@ fn generated_attribute_setter_impl<'s>(
         }
         return;
     }
+    if interface == "CSSStyleRule"
+        && member == "selectorText"
+        && let Some(identity) = native_css_identity(scope, args.this(), "oryn.native.css.rule")
+    {
+        let handle = state
+            .native_stylesheets
+            .borrow()
+            .rule_records
+            .get(&identity)
+            .cloned();
+        let Some(handle) = handle else {
+            throw_type_error(scope, "incompatible native CSSStyleRule receiver");
+            return;
+        };
+        let Some(selector) = cssom_string(scope, args.get(0), false).ok() else {
+            return;
+        };
+        if let Err(error) = handle.set_selector_text(&selector) {
+            throw_binding_error(scope, &native_css_read_error("CSSStyleRule", error));
+        }
+        return;
+    }
     if interface == "CSSRule" && member == "cssText" {
+        if let Some(identity) = native_css_identity(scope, args.this(), "oryn.native.css.rule") {
+            let exists = state
+                .native_stylesheets
+                .borrow()
+                .rule_records
+                .contains_key(&identity);
+            if !exists {
+                throw_type_error(scope, "incompatible native CSSRule receiver");
+                return;
+            }
+            let _ = cssom_string(scope, args.get(0), false);
+            return;
+        }
+        if let Some(identity) = native_css_identity(scope, args.this(), "oryn.native.css.import") {
+            if !state
+                .native_stylesheets
+                .borrow()
+                .import_records
+                .contains_key(&identity)
+            {
+                throw_type_error(scope, "incompatible native CSSRule receiver");
+                return;
+            }
+            let _ = cssom_string(scope, args.get(0), false);
+            return;
+        }
         // CSSRule.cssText has a no-op setter, after receiver validation and
         // Web IDL string conversion.
         if let Err(error) = page_rules::attribute(scope, &state, args.this(), interface, member) {
             throw_binding_error(scope, &error);
         } else {
             let _ = cssom_string(scope, args.get(0), false);
+        }
+        return;
+    }
+    if interface == "CSSStyleDeclaration"
+        && let Some(result) =
+            native_declaration_set_attribute(scope, &state, args.this(), member, args.get(0))
+    {
+        if let Err(error) = result {
+            throw_binding_error(scope, &error);
         }
         return;
     }
@@ -17701,6 +17871,13 @@ fn generated_operation_impl<'s>(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    let _retained_scope = match state.enter_retained_allocation(scope) {
+        Ok(scope) => scope,
+        Err(error) => {
+            throw_binding_error(scope, &error);
+            return;
+        }
+    };
     if interface == "EventTarget" && xpath::is_non_event_target(scope, args.this()) {
         throw_type_error(scope, "XPath value is not an EventTarget");
         return;
@@ -17739,7 +17916,23 @@ fn generated_operation_impl<'s>(
         }
         return;
     }
+    if matches!(interface, "CSSStyleSheet" | "CSSGroupingRule")
+        && let Some(result) = native_css_mutation(scope, &state, &args, interface, member)
+    {
+        match result {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if interface == "MediaList" {
+        if let Some(result) = native_media_operation(scope, &state, &args, member) {
+            match result {
+                Ok(value) => return_value.set(value),
+                Err(error) => throw_binding_error(scope, &error),
+            }
+            return;
+        }
         match page_rules::media_lists::operation(scope, &state, &args, member) {
             Ok(value) => return_value.set(value),
             Err(error) => throw_binding_error(scope, &error),
@@ -17762,6 +17955,15 @@ fn generated_operation_impl<'s>(
     }
     if interface == "FileList" && member == "item" {
         match file_lists::item(scope, args.this(), args.get(0)) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
+    if interface == "CSSStyleDeclaration"
+        && let Some(result) = native_declaration_operation(scope, &state, &args, member)
+    {
+        match result {
             Ok(value) => return_value.set(value),
             Err(error) => throw_binding_error(scope, &error),
         }
@@ -26991,15 +27193,18 @@ fn call_platform_operation<'s>(
                 // An upgrade transaction excludes creation of other
                 // transactions on this connection until it has finished.
                 // Use native database identity, not an origin/name match.
-                let upgrade_unfinished = database.upgrade_transaction_id
-                    .and_then(|transaction_id| {
-                        state.platform_objects.borrow().get(&transaction_id).map(|record| {
+                let upgrade_unfinished =
+                    database
+                        .upgrade_transaction_id
+                        .and_then(|transaction_id| {
+                            state.platform_objects.borrow().get(&transaction_id).map(|record| {
                             matches!(record, PlatformObjectRecord::IdbTransaction(transaction)
                                 if transaction.database_id == id
                                     && transaction.mode == "versionchange"
                                     && !transaction.finished)
                         })
-                    }).unwrap_or(false);
+                        })
+                        .unwrap_or(false);
                 if upgrade_unfinished {
                     return Err(V8BindingError::Unsupported {
                         interface: "IDBDatabase".into(),
@@ -32091,6 +32296,16 @@ fn stylesheet_views_for_owner(
             .is_some_and(|metadata| metadata.quirks)
     };
     let provider = state.layout_provider.borrow().clone();
+    let retained = provider
+        .as_ref()
+        .and_then(|provider| provider.retained_stylesheet(&state.dom, node));
+    if let Some(result) = retained
+        && let Some(sheet) = result.map_err(V8BindingError::EventCallback)?
+    {
+        return sheet
+            .rules()
+            .map_err(|error| native_css_read_error("CSSStyleSheet", error));
+    }
     if let Some(parsed) = provider
         .as_ref()
         .and_then(|provider| provider.read_stylesheet(source, &base_url, quirks, allow_imports))
@@ -32931,6 +33146,18 @@ fn get_attribute_value<'s>(
         "HTMLStyleElement" | "HTMLLinkElement" | "ProcessingInstruction"
     ) && member == "sheet"
     {
+        let provider = state.layout_provider.borrow().clone();
+        if let Some(result) = provider
+            .as_ref()
+            .and_then(|provider| provider.retained_stylesheet(&state.dom, node))
+        {
+            if let Some(handle) = result.map_err(V8BindingError::EventCallback)? {
+                return Ok(wrap_native_stylesheet(scope, state, handle)?.into());
+            }
+            // A native provider's absent current publication is not permission
+            // to fabricate a reparsed legacy sheet.
+            return Ok(v8::null(scope).into());
+        }
         return associated_wrapper(scope, state, node, "CSSStyleSheet");
     }
     if member == "customElementRegistry"
@@ -44973,6 +45200,7 @@ pub fn run_native_animation_frames(
     state: &Rc<V8BindingState>,
     rendering_time: Instant,
 ) -> Result<(), V8BindingError> {
+    let _retained_scope = state.enter_retained_allocation(scope)?;
     animation_frames::run(scope, state, rendering_time)
 }
 

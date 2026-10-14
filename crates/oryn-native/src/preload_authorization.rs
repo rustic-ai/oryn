@@ -293,6 +293,7 @@ impl ParentContextService {
                 &destination,
                 PageResourceOptions {
                     download: download.as_deref(),
+                    response_lease: None,
                     script_authority,
                     initiator: &initiator,
                     form_authority,

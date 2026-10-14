@@ -29,18 +29,20 @@ impl Marks {
 
 /// Replacement strings are indexed by original scalar position. A base and its
 /// consumed diacritics retain separate source identities in the caller.
-pub(super) fn replacements(
+pub(super) fn replacements_with_checkpoint<E>(
     chars: &[char],
     before_cased: &[bool],
     after_cased: &[bool],
     eligible: Option<&[bool]>,
-) -> BTreeMap<usize, String> {
+    checkpoint: &mut impl FnMut() -> Result<(), E>,
+) -> Result<BTreeMap<usize, String>, E> {
     let mut replacements = BTreeMap::new();
     let eligible = |index: usize| eligible.is_none_or(|values| values[index]);
     // Accent origin determines whether an introduced diaeresis is precomposed.
     let mut previous_accent: Option<bool> = None;
     let mut index = 0;
     while index < chars.len() {
+        checkpoint()?;
         let ch = chars[index];
         if !eligible(index) || !matches!(ch as u32, 0x370..=0x3ff | 0x1f00..=0x1fff | 0x2126) {
             previous_accent = None;
@@ -77,6 +79,7 @@ pub(super) fn replacements(
         }
         let mut end = index + 1;
         while end < chars.len() && eligible(end) && marks.add(chars[end]) {
+            checkpoint()?;
             end += 1;
         }
         previous_accent = (vowel && marks.accent && !marks.diaeresis).then_some(precomposed_accent);
@@ -113,13 +116,15 @@ pub(super) fn replacements(
             rendered.push('\u{301}');
         }
         for _ in 0..marks.iotas {
+            checkpoint()?;
             rendered.push('Ι');
         }
         replacements.insert(index, rendered);
         for consumed in index + 1..end {
+            checkpoint()?;
             replacements.insert(consumed, String::new());
         }
         index = end;
     }
-    replacements
+    Ok(replacements)
 }

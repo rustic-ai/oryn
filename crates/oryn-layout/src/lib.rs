@@ -88,7 +88,9 @@ mod inline_formatting;
 mod margin_collapse;
 mod ruby;
 mod text_transform;
-pub use text_transform::accessibility_case_fragment;
+pub use text_transform::{
+    accessibility_case_fragment, accessibility_case_fragment_with_checkpoint,
+};
 mod greek_upper;
 
 #[cfg(test)]
@@ -466,6 +468,10 @@ pub struct LayoutInput {
     /// Native base URL per stylesheet, retained independently of DOM base changes.
     #[serde(default)]
     pub stylesheet_base_urls: BTreeMap<usize, String>,
+    /// Exact native stylesheet owner keyed by cascade position.
+    /// Used only to join retained parsed sheets, never inferred from CSS text.
+    #[serde(default)]
+    pub stylesheet_owner_ids: BTreeMap<usize, u64>,
     /// Rust-owned `ElementInternals.states` keyed by the stable DOM node id.
     /// These are selector state, not serialized HTML attributes.
     #[serde(default)]
@@ -580,6 +586,8 @@ pub struct LayoutOutput {
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq)]
 pub enum LayoutError {
+    #[error("layout computation cancelled by its owner")]
+    Cancelled,
     #[error("layout snapshot contains {actual} nodes, limit is {limit}")]
     NodeLimit { actual: usize, limit: usize },
     #[error("viewport dimension {value} is outside 0..={limit} CSS px")]
@@ -627,6 +635,8 @@ pub fn animation_pseudo(name: &str) -> Option<style::selector_parser::PseudoElem
         .ok()
 }
 
+include!("retained_cascade_sheets.rs");
+
 #[derive(Debug, Default)]
 pub struct StyleEngine {
     effects: Vec<blitz_dom::NativeAnimationEffect>,
@@ -634,6 +644,7 @@ pub struct StyleEngine {
     continuity: blitz_dom::StyleContinuity,
     instance_sample: Option<svg_instances::StyleSample>,
     static_layout: Option<(LayoutInput, LayoutLimits, LayoutOutput)>,
+    retained_sheets: Option<RetainedCascadeSheets>,
 }
 
 impl StyleEngine {
@@ -689,6 +700,18 @@ impl StyleEngine {
         limits: &LayoutLimits,
         now: f64,
     ) -> Result<LayoutOutput, LayoutError> {
+        self.compute_at_controlled(input, limits, now, None)
+    }
+
+    /// Callback observes only owner state and must not execute author code.
+    pub fn compute_at_controlled(
+        &mut self,
+        input: &LayoutInput,
+        limits: &LayoutLimits,
+        now: f64,
+        cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    ) -> Result<LayoutOutput, LayoutError> {
+        layout_checkpoint(&cancelled)?;
         validate(input, limits)?;
         // Forced getters and actor rendering can request the same static scene
         // several times in one turn. Reuse only a complete successful result;
@@ -697,12 +720,14 @@ impl StyleEngine {
             && previous == input
             && previous_limits == limits
         {
+            let output = output.clone();
+            layout_checkpoint(&cancelled)?;
             self.instance_sample = Some(svg_instances::StyleSample {
                 now,
                 continuity: self.continuity.clone(),
                 effects: self.effects.clone(),
             });
-            return Ok(output.clone());
+            return Ok(output);
         }
         // A failed recomputation must not leave a result from an older native
         // style session eligible for reuse.
@@ -712,14 +737,21 @@ impl StyleEngine {
         #[cfg(test)]
         let phase_started = std::time::Instant::now();
 
-        let (computed_styles, author_whitespace, pseudo_styles) = stylo_computed_values_timed(
-            input,
-            false,
-            now,
-            Some(&mut self.continuity),
-            &self.effects,
-            Some(&mut self.samples),
-        )?;
+        let (computed_styles, author_whitespace, pseudo_styles) =
+            stylo_computed_values_with_instances_controlled(
+                input,
+                false,
+                now,
+                Some(&mut self.continuity),
+                &self.effects,
+                Some(&mut self.samples),
+                StyloControlledOptions {
+                    instances: None,
+                    cancelled: cancelled.clone(),
+                    retained: self.retained_sheets.as_ref(),
+                },
+            )?;
+        layout_checkpoint(&cancelled)?;
         #[cfg(test)]
         if profile {
             eprintln!(
@@ -752,7 +784,15 @@ impl StyleEngine {
         #[cfg(test)]
         let phase_started = std::time::Instant::now();
 
-        let mut output = compute_with_styles(&generated.input, limits, generated.styles.clone())?;
+        layout_checkpoint(&cancelled)?;
+        let mut output = compute_with_styles_fragmented_with_rows_controlled(
+            &generated.input,
+            limits,
+            generated.styles.clone(),
+            None,
+            &BTreeSet::new(),
+            cancelled.clone(),
+        )?;
         #[cfg(test)]
         if profile {
             eprintln!(
@@ -769,17 +809,23 @@ impl StyleEngine {
         generated::finish(&generated, &mut output);
         backdrop::append(&generated.input, limits, &mut output)?;
         object_images::finish(&mut output, &object_hidden);
-        self.instance_sample = Some(svg_instances::StyleSample {
+        layout_checkpoint(&cancelled)?;
+        let instance_sample = svg_instances::StyleSample {
             now,
             continuity: self.continuity.clone(),
             effects: self.effects.clone(),
-        });
-        if !self.continuity.active
+        };
+        let static_layout = if !self.continuity.active
             && self.effects.is_empty()
             && self.continuity.css_animations(now).is_empty()
         {
-            self.static_layout = Some((input.clone(), limits.clone(), output.clone()));
-        }
+            Some((input.clone(), limits.clone(), output.clone()))
+        } else {
+            None
+        };
+        layout_checkpoint(&cancelled)?;
+        self.instance_sample = Some(instance_sample);
+        self.static_layout = static_layout;
         Ok(output)
     }
 }
@@ -1112,6 +1158,7 @@ type StyledTextRange<'a> = (
 );
 
 struct TextEngine {
+    cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     font_demands: BTreeMap<u64, BTreeMap<String, BTreeSet<u32>>>,
     font_demand_bytes: usize,
     font_demand_error: Option<LayoutError>,
@@ -1559,6 +1606,14 @@ fn text_style_properties(
 }
 
 impl TextEngine {
+    fn terminal_cancelled(&mut self) -> bool {
+        if self.cancelled.as_ref().is_some_and(|check| check()) {
+            self.font_demand_error = Some(LayoutError::Cancelled);
+            true
+        } else {
+            false
+        }
+    }
     fn new(web_fonts: &[(String, Vec<u8>, String, bool, bool)]) -> Self {
         let mut collection = fontique::Collection::new(fontique::CollectionOptions {
             shared: false,
@@ -1593,6 +1648,7 @@ impl TextEngine {
         }
         Self {
             web_faces,
+            cancelled: None,
             fonts: FontContext {
                 collection,
                 source_cache: fontique::SourceCache::default(),
@@ -1881,6 +1937,9 @@ impl TextEngine {
         // separator (U+2028) only breaks the line and deliberately stays within
         // the same paragraph/base direction.
         for text in text.split_inclusive(['\n', '\u{2029}']) {
+            if self.terminal_cancelled() {
+                break;
+            }
             let end = byte_offset + text.len();
             let paragraph_ranges = ranges
                 .iter()
@@ -2638,6 +2697,9 @@ impl TextEngine {
     }
 
     fn shape_paragraph(&mut self, params: ParagraphShapeInputs<'_>) -> TextLayout {
+        if self.terminal_cancelled() {
+            return TextLayout::default();
+        }
         let ParagraphShapeInputs {
             text,
             width,
@@ -2694,6 +2756,9 @@ impl TextEngine {
             return vertical_text::shape(self, text, width, font_size, style, viewport, ranges);
         }
         let mut layout = self.paragraph_layout(text, font_size, style, viewport, ranges);
+        if self.terminal_cancelled() {
+            return TextLayout::default();
+        }
         let (indent, options) = text_indent(style, width, font_size, viewport, first_paragraph);
         layout.set_text_indent(indent, options);
         let float_origin = if self.float_context.is_some() {
@@ -2708,20 +2773,38 @@ impl TextEngine {
                 .any(|item| self.inline_floats.contains_key(&item.id))
         {
             let mut context = self.float_context.take().unwrap_or_default();
-            let placed = float_lines::break_layout(crate::float_lines::FloatLineInputs {
-                layout: &mut layout,
-                width,
-                specs: &self.inline_floats,
-                context: &mut context,
-                origin: float_origin,
-                context_width: self.float_context_width,
-                containing_insets: self.float_inline_insets,
-                fragment: self.float_fragment,
-            });
+            let placed = float_lines::break_layout_controlled(
+                crate::float_lines::FloatLineInputs {
+                    layout: &mut layout,
+                    width,
+                    specs: &self.inline_floats,
+                    context: &mut context,
+                    origin: float_origin,
+                    context_width: self.float_context_width,
+                    containing_insets: self.float_inline_insets,
+                    fragment: self.float_fragment,
+                },
+                self.cancelled.clone(),
+            );
             self.float_context = Some(context);
             placed
         } else {
-            layout.break_all_lines(Some(width.max(1.0) as f32));
+            let mut breaker = layout.break_lines();
+            breaker
+                .state_mut()
+                .set_layout_max_advance(width.max(1.0) as f32);
+            breaker
+                .state_mut()
+                .set_line_max_advance(width.max(1.0) as f32);
+            loop {
+                if self.terminal_cancelled() {
+                    return TextLayout::default();
+                }
+                if breaker.break_next().is_none() {
+                    break;
+                }
+            }
+            breaker.finish();
             Vec::new()
         };
         let rtl = layout.is_rtl();
@@ -2763,11 +2846,20 @@ impl TextEngine {
         );
         let mut clusters = Vec::new();
         for (line_index, line) in layout.lines().enumerate() {
+            if self.terminal_cancelled() {
+                return TextLayout::default();
+            }
             let metrics = line.metrics();
             let mut x = metrics.offset;
             for run in line.runs() {
+                if self.terminal_cancelled() {
+                    return TextLayout::default();
+                }
                 let mut first = true;
                 for cluster in run.visual_clusters() {
+                    if self.terminal_cancelled() {
+                        return TextLayout::default();
+                    }
                     if first {
                         x = cluster.visual_offset().unwrap_or(x);
                         first = false;
@@ -3617,6 +3709,35 @@ fn compute_with_styles_fragmented_with_rows(
     fragmentainer_height: Option<f64>,
     consumed_rows: &BTreeSet<u64>,
 ) -> Result<LayoutOutput, LayoutError> {
+    compute_with_styles_fragmented_with_rows_controlled(
+        input,
+        limits,
+        computed_styles,
+        fragmentainer_height,
+        consumed_rows,
+        None,
+    )
+}
+
+fn layout_checkpoint(
+    cancelled: &Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+) -> Result<(), LayoutError> {
+    if cancelled.as_ref().is_some_and(|check| check()) {
+        Err(LayoutError::Cancelled)
+    } else {
+        Ok(())
+    }
+}
+
+fn compute_with_styles_fragmented_with_rows_controlled(
+    input: &LayoutInput,
+    limits: &LayoutLimits,
+    computed_styles: ComputedStyles,
+    fragmentainer_height: Option<f64>,
+    consumed_rows: &BTreeSet<u64>,
+    cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+) -> Result<LayoutOutput, LayoutError> {
+    layout_checkpoint(&cancelled)?;
     validate(input, limits)?;
     let viewport_policy = scrollbars::viewport_style(input, &computed_styles);
     let mut layout_styles = computed_styles.clone();
@@ -3645,14 +3766,18 @@ fn compute_with_styles_fragmented_with_rows(
         .unwrap_or_default();
     // Cross-axis auto scrollbar reservation is monotone within one update.
     for pass in 0..8 {
+        layout_checkpoint(&cancelled)?;
         let mut output = compute_with_scrollbar_gutters(
             input,
             limits,
             layout_styles.clone(),
             fragmentainer_height,
             consumed_rows,
-            &gutters,
-            viewport_gutter,
+            ScrollbarGutterOptions {
+                scrollbar_gutters: &gutters,
+                viewport_gutter,
+                cancelled: cancelled.clone(),
+            },
         )?;
         let mut changed = false;
         if input.scrollbar_width > 0. {
@@ -3809,15 +3934,26 @@ fn compute_with_styles_fragmented_with_rows(
     }
     unreachable!()
 }
+struct ScrollbarGutterOptions<'a> {
+    scrollbar_gutters: &'a BTreeMap<u64, EdgeSizes>,
+    viewport_gutter: EdgeSizes,
+    cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+}
+
 fn compute_with_scrollbar_gutters(
     input: &LayoutInput,
     limits: &LayoutLimits,
     mut computed_styles: ComputedStyles,
     fragmentainer_height: Option<f64>,
     consumed_rows: &BTreeSet<u64>,
-    scrollbar_gutters: &BTreeMap<u64, EdgeSizes>,
-    viewport_gutter: EdgeSizes,
+    options: ScrollbarGutterOptions<'_>,
 ) -> Result<LayoutOutput, LayoutError> {
+    let ScrollbarGutterOptions {
+        scrollbar_gutters,
+        viewport_gutter,
+        cancelled,
+    } = options;
+    layout_checkpoint(&cancelled)?;
     validate(input, limits)?;
     #[cfg(test)]
     let profile = std::env::var_os("ORYN_DEEP_INPUT_DIRECTORY").is_some();
@@ -3855,6 +3991,7 @@ fn compute_with_scrollbar_gutters(
             .map(|entry| entry.node_id)
             .collect::<BTreeSet<_>>();
         for node in &mut rendered.nodes {
+            layout_checkpoint(&cancelled)?;
             if top.contains(&node.id) {
                 node.parent = None;
                 if let Some(style) = computed_styles.get_mut(&node.id) {
@@ -3885,6 +4022,7 @@ fn compute_with_scrollbar_gutters(
             .map(|node| (node.id, node))
             .collect::<BTreeMap<_, _>>();
         for node in &rendered.nodes {
+            layout_checkpoint(&cancelled)?;
             if node.parent.is_none()
                 || !computed_styles.get(&node.id).is_some_and(|style| {
                     style_value(style, "display", "block") == "contents"
@@ -3897,6 +4035,7 @@ fn compute_with_scrollbar_gutters(
             let mut hidden = false;
             let mut seen = BTreeSet::new();
             while let Some(id) = current {
+                layout_checkpoint(&cancelled)?;
                 if !seen.insert(id) {
                     hidden = true;
                     break;
@@ -3960,6 +4099,7 @@ fn compute_with_scrollbar_gutters(
         .collect::<Vec<_>>();
     let mut hidden_seen = BTreeSet::new();
     while let Some(id) = hidden.pop() {
+        layout_checkpoint(&cancelled)?;
         if !hidden_seen.insert(id) {
             continue;
         }
@@ -3970,6 +4110,7 @@ fn compute_with_scrollbar_gutters(
         }
     }
     for node in &original_input.nodes {
+        layout_checkpoint(&cancelled)?;
         if !by_id.contains_key(&node.id) {
             // A visible display:contents wrapper has no principal box; it is
             // not a hidden semantic node. Excluded rendered nodes stay hidden.
@@ -3982,6 +4123,7 @@ fn compute_with_scrollbar_gutters(
     let mut resolved_values = BTreeMap::new();
     let mut text_fragments = BTreeMap::new();
     let mut text_engine = TextEngine::new(&web_fonts);
+    text_engine.cancelled = cancelled.clone();
     text_engine.scrollbar_gutters = scrollbar_gutters.clone();
     text_engine.decoration_styles = text_decoration::propagate(input, &computed_styles);
     // Display-contents boxes still decorate descendants after their own boxes
@@ -4015,6 +4157,7 @@ fn compute_with_scrollbar_gutters(
     let phase_started = std::time::Instant::now();
     let mut cursor_y = 0.0;
     for root in roots {
+        layout_checkpoint(&cancelled)?;
         let height = layout_node(
             root,
             FlowBox {
@@ -4089,6 +4232,7 @@ fn compute_with_scrollbar_gutters(
     let mut deferred_index = 0;
     let mut anchor_work = 0usize;
     while deferred_index < text_engine.out_of_flow.len() {
+        layout_checkpoint(&cancelled)?;
         let ready = (deferred_index..text_engine.out_of_flow.len()).find(|index| {
             anchor_dependencies
                 .get(&text_engine.out_of_flow[*index].0)
@@ -4200,6 +4344,7 @@ fn compute_with_scrollbar_gutters(
             let mut selected = base;
             if candidates.len() > 1 {
                 for index in indices {
+                    layout_checkpoint(&cancelled)?;
                     anchor_work = anchor_work.saturating_add(input.nodes.len() + geometry.len());
                     if anchor_work > 4_000_000 {
                         return Err(LayoutError::StyleTraversal(
@@ -4214,6 +4359,7 @@ fn compute_with_scrollbar_gutters(
                     let mut trial_offsets = BTreeMap::new();
                     let mut trial_diagnostics = Vec::new();
                     let mut trial = TextEngine::new(&web_fonts);
+                    trial.cancelled = cancelled.clone();
                     trial.active_out_of_flow = Some(id);
                     trial.languages = text_engine.languages.clone();
                     trial.scrollbar_gutters = text_engine.scrollbar_gutters.clone();
@@ -4318,17 +4464,20 @@ fn compute_with_scrollbar_gutters(
             let mut descendants = BTreeSet::new();
             let mut pending = by_id[&id].children.clone();
             while let Some(child) = pending.pop() {
+                layout_checkpoint(&cancelled)?;
                 if descendants.insert(child) {
                     pending.extend(by_id[&child].children.iter().copied());
                 }
             }
             for (child, anchor) in text_engine.out_of_flow.iter_mut().skip(deferred_index) {
+                layout_checkpoint(&cancelled)?;
                 if descendants.contains(child) {
                     anchor.x += dx;
                     anchor.y += dy;
                 }
             }
             for line_break in text_engine.break_boxes.values_mut() {
+                layout_checkpoint(&cancelled)?;
                 if descendants.contains(&line_break.layout_node) || line_break.layout_node == id {
                     line_break.before.x += dx;
                     line_break.before.y += dy;
@@ -4349,6 +4498,7 @@ fn compute_with_scrollbar_gutters(
         &mut text_engine,
     );
     for (id, line_break) in &text_engine.break_boxes {
+        layout_checkpoint(&cancelled)?;
         let rect = line_break.before;
         geometry.insert(
             *id,
@@ -4423,11 +4573,13 @@ fn compute_with_scrollbar_gutters(
         .filter_map(|id| anonymous_owners.get(id).map(|parent| (*id, *parent)))
         .collect::<Vec<_>>();
     for (anonymous, parent) in &anonymous_order {
+        layout_checkpoint(&cancelled)?;
         if let Some(fragments) = text_fragments.remove(anonymous) {
             text_fragments.entry(*parent).or_default().extend(fragments);
         }
         for clusters in text_engine.source_geometry.values_mut() {
             for cluster in clusters {
+                layout_checkpoint(&cancelled)?;
                 if cluster.layout_node == *anonymous {
                     cluster.layout_node = *parent;
                 }
@@ -4541,12 +4693,14 @@ fn compute_with_scrollbar_gutters(
     .map_err(LayoutError::StyleTraversal)?;
     for clusters in text_engine.source_geometry.values_mut() {
         for cluster in clusters {
+            layout_checkpoint(&cancelled)?;
             if let Some(projection) = paint_projections.get(&cluster.layout_node) {
                 cluster.matrix = projection.text_matrix.unwrap_or(projection.matrix);
             }
         }
     }
     for anonymous in anonymous_owners.keys() {
+        layout_checkpoint(&cancelled)?;
         geometry.remove(anonymous);
         offset_dimensions.remove(anonymous);
         resolved_values.remove(anonymous);
@@ -4568,6 +4722,7 @@ fn compute_with_scrollbar_gutters(
     // Closed native button labels have paint provenance but no DOM text node
     // offsets. The real selectedcontent descendants retain their own clusters.
     for (id, state) in &control_states {
+        layout_checkpoint(&cancelled)?;
         if matches!(
             state,
             oryn_common::v4::PaintControl::Select {
@@ -5724,6 +5879,46 @@ fn stylo_computed_values_with_instances(
         &LayoutLimits,
     )>,
 ) -> Result<StyloStyleProjection, LayoutError> {
+    stylo_computed_values_with_instances_controlled(
+        input,
+        print_media,
+        now,
+        continuity,
+        effects,
+        samples,
+        StyloControlledOptions {
+            instances,
+            cancelled: None,
+            retained: None,
+        },
+    )
+}
+
+struct StyloControlledOptions<'a> {
+    instances: Option<(
+        &'a [svg_instances::StyleInstance],
+        &'a mut svg_instances::InstanceProjection,
+        &'a LayoutLimits,
+    )>,
+    cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    retained: Option<&'a RetainedCascadeSheets>,
+}
+
+fn stylo_computed_values_with_instances_controlled(
+    input: &LayoutInput,
+    print_media: bool,
+    now: f64,
+    continuity: Option<&mut blitz_dom::StyleContinuity>,
+    effects: &[blitz_dom::NativeAnimationEffect],
+    samples: Option<&mut BTreeMap<u64, BTreeMap<String, String>>>,
+    options: StyloControlledOptions<'_>,
+) -> Result<StyloStyleProjection, LayoutError> {
+    let StyloControlledOptions {
+        instances,
+        cancelled,
+        retained,
+    } = options;
+    layout_checkpoint(&cancelled)?;
     shadow_tree::validate(input)?;
     let viewport = BlitzViewport::new(
         (input.viewport.width * input.viewport.device_pixel_ratio).clamp(1.0, f64::from(u32::MAX))
@@ -5737,9 +5932,11 @@ fn stylo_computed_values_with_instances(
         },
     );
     let mut document = BaseDocument::new(DocumentConfig {
-        style_lock: continuity
-            .as_deref()
-            .and_then(|continuity| continuity.lock.clone()),
+        style_lock: retained.map(|sheets| sheets.lock.clone()).or_else(|| {
+            continuity
+                .as_deref()
+                .and_then(|continuity| continuity.lock.clone())
+        }),
         media_type: Some(if print_media {
             style::media_queries::MediaType::print()
         } else {
@@ -5751,6 +5948,7 @@ fn stylo_computed_values_with_instances(
         ..Default::default()
     });
     for registration in &input.registered_custom_properties {
+        layout_checkpoint(&cancelled)?;
         document
             .register_custom_property(
                 &registration.name,
@@ -5784,6 +5982,7 @@ fn stylo_computed_values_with_instances(
     let inherited_languages = effective_languages(input);
     let mut shadow_mirrors = BTreeMap::new();
     for (root, tree) in &input.shadow_trees.roots {
+        layout_checkpoint(&cancelled)?;
         if !by_id.contains_key(&tree.host) || by_id.contains_key(root) {
             return Err(LayoutError::StyleTraversal(
                 "invalid native shadow root identity".into(),
@@ -5797,6 +5996,7 @@ fn stylo_computed_values_with_instances(
     {
         let mut mutator = document.mutate();
         for node in &input.nodes {
+            layout_checkpoint(&cancelled)?;
             let mirror = match node.tag.as_str() {
                 "#text" => mutator.create_text_node(&node.text),
                 "#comment" => mutator.create_comment_node(&node.text),
@@ -5839,6 +6039,7 @@ fn stylo_computed_values_with_instances(
                 let mut visited = BTreeSet::new();
                 let mut direction = None;
                 while let Some(id) = current.filter(|id| visited.insert(*id)) {
+                    layout_checkpoint(&cancelled)?;
                     let Some(ancestor) = by_id.get(&id) else {
                         break;
                     };
@@ -5896,8 +6097,10 @@ fn stylo_computed_values_with_instances(
         }
         // Attach shadow-owned children before processing light DOM children.
         for (root, tree) in &input.shadow_trees.roots {
+            layout_checkpoint(&cancelled)?;
             let parent = shadow_mirrors[root];
             for item in &tree.content {
+                layout_checkpoint(&cancelled)?;
                 let child = match item {
                     LayoutContent::Element(id) => *mirror_ids.get(id).ok_or_else(|| {
                         LayoutError::StyleTraversal("missing shadow child".into())
@@ -5917,6 +6120,7 @@ fn stylo_computed_values_with_instances(
         // Establish authored child order before the compatibility parent-link
         // pass. Input vector order is an ownership inventory, not DOM order.
         for node in &input.nodes {
+            layout_checkpoint(&cancelled)?;
             if node.tag.starts_with('#') {
                 continue;
             }
@@ -5925,6 +6129,7 @@ fn stylo_computed_values_with_instances(
             };
             if let Some(content) = &node.content {
                 for item in content {
+                    layout_checkpoint(&cancelled)?;
                     let child = match item {
                         LayoutContent::Text { node_id, text } => {
                             let child = mutator.create_text_node(text);
@@ -5945,6 +6150,7 @@ fn stylo_computed_values_with_instances(
                 }
             } else {
                 for id in &node.children {
+                    layout_checkpoint(&cancelled)?;
                     let Some(child) = mirror_ids.get(id).copied() else {
                         continue;
                     };
@@ -5955,6 +6161,7 @@ fn stylo_computed_values_with_instances(
             }
         }
         for node in &input.nodes {
+            layout_checkpoint(&cancelled)?;
             let parent = node
                 .parent
                 .and_then(|parent| mirror_ids.get(&parent).copied())
@@ -5968,6 +6175,7 @@ fn stylo_computed_values_with_instances(
         }
     }
     for (root, tree) in &input.shadow_trees.roots {
+        layout_checkpoint(&cancelled)?;
         let mirror = shadow_mirrors[root];
         let host = mirror_ids[&tree.host];
         let children = document
@@ -5988,6 +6196,7 @@ fn stylo_computed_values_with_instances(
     let mut connected = vec![document.root_node().id];
     let mut visited = std::collections::HashSet::new();
     while let Some(id) = connected.pop() {
+        layout_checkpoint(&cancelled)?;
         if !visited.insert(id) {
             continue;
         }
@@ -6000,6 +6209,7 @@ fn stylo_computed_values_with_instances(
         connected.extend(node.shadow_root);
     }
     for (id, root) in &input.shadow_trees.node_scopes {
+        layout_checkpoint(&cancelled)?;
         let mirror = *mirror_ids
             .get(id)
             .ok_or_else(|| LayoutError::StyleTraversal("unknown shadow member".into()))?;
@@ -6014,6 +6224,7 @@ fn stylo_computed_values_with_instances(
     let mut slot_children = BTreeMap::<u64, Vec<_>>::new();
     // Native light-DOM order includes assigned text nodes.
     for parent in &input.nodes {
+        layout_checkpoint(&cancelled)?;
         let ids = parent
             .content
             .as_ref()
@@ -6030,6 +6241,7 @@ fn stylo_computed_values_with_instances(
             })
             .unwrap_or_else(|| parent.children.clone());
         for id in ids {
+            layout_checkpoint(&cancelled)?;
             if let Some(slot) = input.shadow_trees.assigned_slots.get(&id) {
                 let mirror = *mirror_ids
                     .get(&id)
@@ -6047,6 +6259,7 @@ fn stylo_computed_values_with_instances(
         }
     }
     for (slot, children) in slot_children {
+        layout_checkpoint(&cancelled)?;
         document
             .get_node_mut(mirror_ids[&slot])
             .expect("slot mirror")
@@ -6058,6 +6271,7 @@ fn stylo_computed_values_with_instances(
         .map(|node| (node.id, node))
         .collect::<BTreeMap<_, _>>();
     for input_node in &input.nodes {
+        layout_checkpoint(&cancelled)?;
         if !input_node.tag.starts_with('#')
             && let Some(mirror) = mirror_ids.get(&input_node.id).copied()
         {
@@ -6116,6 +6330,7 @@ fn stylo_computed_values_with_instances(
             let mut branch = input_node;
             let mut generated = true;
             for _ in 0..input.nodes.len() {
+                layout_checkpoint(&cancelled)?;
                 let Some(parent) = branch
                     .parent
                     .and_then(|id| animation_nodes.get(&id).copied())
@@ -6241,6 +6456,7 @@ fn stylo_computed_values_with_instances(
                 .is_some_and(|node| !matches!(node.tag.as_str(), "#text" | "#comment"))
     }) {
         for id in shadow_tree::focus_within(input, focused) {
+            layout_checkpoint(&cancelled)?;
             if let Some(mirror) = mirror_ids.get(&id).copied() {
                 let node = document.get_node_mut(mirror).expect("mapped style node");
                 node.element_state_mut().insert(ElementState::FOCUS_WITHIN);
@@ -6259,6 +6475,7 @@ fn stylo_computed_values_with_instances(
     document.clear_author_stylesheets();
     let mut shadow_sheets = BTreeMap::<u64, Vec<_>>::new();
     for (sheet_index, stylesheet) in input.stylesheets.iter().enumerate() {
+        layout_checkpoint(&cancelled)?;
         let style_node = {
             let mut mutator = document.mutate();
             mutator.create_element(
@@ -6271,7 +6488,10 @@ fn stylo_computed_values_with_instances(
             .stylesheet_base_urls
             .get(&sheet_index)
             .and_then(|url| url::Url::parse(url).ok());
-        let mut stylesheet = document.make_stylesheet_with_base(stylesheet, Origin::Author, base);
+        let mut stylesheet = match retained.and_then(|sheets| sheets.by_index.get(&sheet_index)) {
+            Some(sheet) => style::stylesheets::DocumentStyleSheet(sheet.stylesheet().clone(), None),
+            None => document.make_stylesheet_with_base(stylesheet, Origin::Author, base),
+        };
         use style::stylesheets::scope_rule::ImplicitScopeRoot;
         stylesheet.1 = match input.stylesheet_scope_roots.get(&sheet_index) {
             Some(StylesheetScopeRoot::Element(id)) => mirror_ids
@@ -6339,6 +6559,7 @@ fn stylo_computed_values_with_instances(
         }
     }
     for (root, sheets) in shadow_sheets {
+        layout_checkpoint(&cancelled)?;
         document
             .install_shadow_styles(shadow_mirrors[&root], sheets)
             .map_err(LayoutError::StyleTraversal)?;
@@ -6358,13 +6579,17 @@ fn stylo_computed_values_with_instances(
         if let Some(previous) = continuity.as_deref() {
             document.restore_style_continuity(previous, &mirror_ids);
         }
-        document.resolve_stylist(now);
+        if !document.resolve_stylist_controlled(now, cancelled.clone()) {
+            return Err(LayoutError::Cancelled);
+        }
         if !effects.is_empty() {
             let sampled = document.sample_native_effects(&mirror_ids, effects, now);
             if let Some(samples) = samples {
                 *samples = sampled;
             }
-            document.resolve_stylist(now);
+            if !document.resolve_stylist_controlled(now, cancelled.clone()) {
+                return Err(LayoutError::Cancelled);
+            }
         } else if let Some(samples) = samples {
             samples.clear();
         }
@@ -6386,6 +6611,7 @@ fn stylo_computed_values_with_instances(
     let mut author_whitespace = BTreeSet::new();
     let mut pending = BTreeSet::new();
     for node in &input.nodes {
+        layout_checkpoint(&cancelled)?;
         let mut values = BTreeMap::new();
         if node.tag == "#text" || node.tag == "#comment" {
             pending.insert(node.id);
@@ -6424,6 +6650,7 @@ fn stylo_computed_values_with_instances(
                     author_whitespace.insert(node.id);
                 }
                 for name in COMPUTED_PROPERTIES {
+                    layout_checkpoint(&cancelled)?;
                     let Ok(property) = PropertyId::parse_enabled_for_all_content(name) else {
                         continue;
                     };
@@ -6468,6 +6695,7 @@ fn stylo_computed_values_with_instances(
                 );
                 let custom = computed.custom_properties();
                 for (name, value) in custom.inherited.iter().chain(custom.non_inherited.iter()) {
+                    layout_checkpoint(&cancelled)?;
                     if let Some(value) = value {
                         values.insert(format!("--{name}"), value.to_css_string());
                     }
@@ -6484,6 +6712,7 @@ fn stylo_computed_values_with_instances(
     // Parent-first traversal is required for text nodes even when the input
     // snapshot itself is deliberately out of order.
     while !pending.is_empty() {
+        layout_checkpoint(&cancelled)?;
         let before = pending.len();
         pending.retain(|id| {
             let Some(node) = by_id.get(id).copied() else {
@@ -6515,10 +6744,12 @@ fn stylo_computed_values_with_instances(
     }
     let mut pseudo_styles = BTreeMap::new();
     for node in &input.nodes {
+        layout_checkpoint(&cancelled)?;
         let Some(mirror) = mirror_ids.get(&node.id).copied() else {
             continue;
         };
         for (name, pseudo) in projected_pseudo_kinds(input, node) {
+            layout_checkpoint(&cancelled)?;
             let Some(computed) = (if name.starts_with("picker::") {
                 document.resolved_nested_pseudo_style(mirror, &PseudoElement::PickerSelect, &pseudo)
             } else {
@@ -6550,6 +6781,7 @@ fn stylo_computed_values_with_instances(
                 .into(),
             );
             for property in COMPUTED_PROPERTIES {
+                layout_checkpoint(&cancelled)?;
                 if let Ok(parsed) = PropertyId::parse_enabled_for_all_content(property)
                     && let Err(longhand) = parsed.as_shorthand()
                 {
@@ -8935,6 +9167,44 @@ fn length(value: &str, basis: f64, font_size: f64, viewport: ViewportState) -> f
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn controlled_layout_retry_and_noop_match_complete_legacy_output() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let input = column_fixture(
+            "div{height:10px;color:red}",
+            (2..1026)
+                .map(|id| node(id, Some(1), "div", "text"))
+                .collect(),
+        );
+        let limits = LayoutLimits::default();
+        let expected = StyleEngine::default()
+            .compute_at(&input, &limits, 0.)
+            .unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        let callback: Arc<dyn Fn() -> bool + Send + Sync> =
+            Arc::new(move || counter.fetch_add(1, Ordering::Relaxed) >= 4096);
+        let mut engine = StyleEngine::default();
+        assert!(matches!(
+            engine.compute_at_controlled(&input, &limits, 0., Some(callback)),
+            Err(LayoutError::Cancelled)
+        ));
+        assert!(engine.static_layout.is_none());
+        assert!(engine.instance_style_sample().is_none());
+        // Retry on this same owner/session constructs a fresh private mirror.
+        assert_eq!(
+            engine
+                .compute_at_controlled(&input, &limits, 0., Some(Arc::new(|| false)))
+                .unwrap(),
+            expected
+        );
+        assert_eq!(
+            StyleEngine::default()
+                .compute_at_controlled(&input, &limits, 0., Some(Arc::new(|| false)))
+                .unwrap(),
+            expected
+        );
+    }
     use super::*;
     use sha2::{Digest, Sha256};
 
@@ -9023,6 +9293,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -9165,6 +9436,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -9279,6 +9551,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -9351,6 +9624,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -9421,6 +9695,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -9474,6 +9749,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -9600,7 +9876,7 @@ mod tests {
             LayoutContent::Element(3),
             LayoutContent::Element(4),
         ]);
-        let input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,nodes:vec![root,node(2,Some(1),"rb","W"),node(3,Some(1),"rb","Z"),node(4,Some(1),"rt","A")],stylesheets:vec!["ruby {font-size:60px;line-height:1;ruby-align:center} rt {font-size:30px;line-height:1}".into()],element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
+        let input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,nodes:vec![root,node(2,Some(1),"rb","W"),node(3,Some(1),"rb","Z"),node(4,Some(1),"rt","A")],stylesheets:vec!["ruby {font-size:60px;line-height:1;ruby-align:center} rt {font-size:30px;line-height:1}".into()],element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
         let output = compute(&input, &LayoutLimits::default()).unwrap();
         let base = output.geometry[&2].box_model.as_ref().unwrap().border_box;
         let annotation = output.geometry[&4].box_model.as_ref().unwrap().border_box;
@@ -9695,6 +9971,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -11784,6 +12061,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -11861,6 +12139,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -12970,7 +13249,7 @@ mod tests {
         }]);
         let atomic = node(3, Some(1), "span", "c");
         let input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,nodes:vec![root,child,atomic],stylesheets:vec!["div {text-decoration: underline solid coral} span {text-decoration: overline dashed skyblue} span:last-child {display:inline-block}".into()],
-            element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
+            element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
             viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
         let styles = stylo_computed_values(&input).unwrap();
         let decorated = text_decoration::propagate(&input, &styles);
@@ -14057,6 +14336,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -14643,6 +14923,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -14739,6 +15020,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -14942,6 +15224,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -15006,6 +15289,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -15046,6 +15330,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -15091,7 +15376,7 @@ mod tests {
             nodes: vec![root, hidden, child, node(4, Some(3), "span", "")],
             stylesheets: vec!["section { display: none; color: red; opacity: .5 } div { color: green; width: 37px } div.changed { color: lime } span { background-color: blue }".into()],
             stylesheet_media: BTreeMap::new(),
-            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
+            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
             viewport: ViewportState::default(), scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
@@ -15150,6 +15435,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -15196,6 +15482,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -15245,7 +15532,7 @@ mod tests {
                     .into(),
             ],
             stylesheet_media: BTreeMap::new(),
-            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
+            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::from([(2, BTreeSet::from(["--green".into()]))]),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -15300,7 +15587,7 @@ mod tests {
                     .into(),
             ],
             stylesheet_media: BTreeMap::new(),
-            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
+            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -15368,6 +15655,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -15414,7 +15702,7 @@ mod tests {
         second.children = vec![6];
         let input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,nodes:vec![table,first,span,node(4,Some(2),"td","wide content"),second,node(6,Some(5),"td","end")],
             stylesheets:vec!["table{width:300px;border-spacing:0;border-collapse:collapse} td{padding:0;border:2px solid red} tr:first-child td:last-child{height:30px;border-left:4px dashed blue} tr:last-child td{height:40px;border-left:6px double green}".into()],
-            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
+            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
             viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
         let output = compute(&input, &LayoutLimits::default()).unwrap();
         let box_for = |id| output.paint_projections[&id].box_model.border_box;
@@ -15447,7 +15735,7 @@ mod tests {
         row.children = vec![3, 4, 5];
         let input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,nodes:vec![table,row,node(3,Some(2),"td","top"),node(4,Some(2),"td","middle"),node(5,Some(2),"td","bottom")],
             stylesheets:vec!["table{width:300px;border-spacing:0}td{height:100px;padding:0;line-height:20px;vertical-align:top}td:nth-child(2){vertical-align:middle}td:nth-child(3){vertical-align:bottom}".into()],
-            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
+            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
             viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
         let output = compute(&input, &LayoutLimits::default()).unwrap();
         let boxes = (3..=5)
@@ -15484,7 +15772,7 @@ mod tests {
         let mut b = node(4, Some(2), "td", "");
         b.children = vec![6, 7];
         let image = node(6, Some(4), "img", "");
-        let input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,nodes:vec![table,row,a,b,node(5,Some(3),"span","Big"),image,node(7,Some(4),"span","Tail")],stylesheets:vec!["table{width:500px;border-spacing:0}td{padding:0;font-size:16px;line-height:20px;vertical-align:baseline}td:first-child span{font-size:32px;line-height:40px}img{width:20px;height:35px}".into()],stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
+        let input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,nodes:vec![table,row,a,b,node(5,Some(3),"span","Big"),image,node(7,Some(4),"span","Tail")],stylesheets:vec!["table{width:500px;border-spacing:0}td{padding:0;font-size:16px;line-height:20px;vertical-align:baseline}td:first-child span{font-size:32px;line-height:40px}img{width:20px;height:35px}".into()],stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
         let output = compute(&input, &LayoutLimits::default()).unwrap();
         let baseline = |id| {
             let fragment = &output.text_fragments[&id][0];
@@ -15505,7 +15793,7 @@ mod tests {
         row.children = vec![3, 4];
         let input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,nodes:vec![table,row,node(3,Some(2),"td","Ag"),node(4,Some(2),"td","Ag")],
             stylesheets:vec!["table{width:300px;border-spacing:0}td{padding:0;vertical-align:baseline;font-size:16px;line-height:20px}td+td{font-size:32px;line-height:40px;padding-top:8px}".into()],
-            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
+            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
             viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
         let output = compute(&input, &LayoutLimits::default()).unwrap();
         let baseline = |id| {
@@ -15592,7 +15880,7 @@ mod tests {
         second.children = vec![7, 8];
         let input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,nodes:vec![table,node(2,Some(1),"col",""),node(3,Some(1),"col",""),first,span,second,node(7,Some(6),"td","first"),node(8,Some(6),"td","second")],
             stylesheets:vec!["table{width:200px;table-layout:fixed;border-collapse:collapse;direction:rtl}col{width:100px;border-top:4px solid red}col+col{border-top:6px double blue}td{padding:0}".into()],
-            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
+            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
             viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
         let output = compute(&input, &LayoutLimits::default()).unwrap();
         assert!(
@@ -15667,6 +15955,7 @@ mod tests {
                     selector_states: Default::default(),
                     shadow_trees: Default::default(),
                     stylesheet_base_urls: Default::default(),
+                    stylesheet_owner_ids: Default::default(),
                     stylesheet_scope_roots: BTreeMap::new(),
                     element_scrolls: BTreeMap::new(),
                     anchor_parents: Default::default(),
@@ -15729,6 +16018,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 element_scrolls: BTreeMap::new(),
                 anchor_parents: Default::default(),
@@ -15777,7 +16067,7 @@ mod tests {
         second.children = vec![7, 8];
         let input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,nodes:vec![table,group,first,node(4,Some(3),"td",""),node(5,Some(3),"td",""),second,node(7,Some(6),"td",""),node(8,Some(6),"td","")],
             stylesheets:vec!["table{height:80px;writing-mode:vertical-rl;direction:ltr;border-spacing:0}tbody,tr{writing-mode:horizontal-tb;direction:rtl}td{width:20px;height:40px}".into()],
-            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
+            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
             viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
         let output = compute(&input, &LayoutLimits::default()).unwrap();
         let rect = |id| output.paint_projections[&id].box_model.border_box;
@@ -15795,7 +16085,7 @@ mod tests {
         row.children = vec![3];
         let mut input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,nodes:vec![table,row,node(3,Some(2),"td","word"),node(4,Some(1),"caption","top"),node(5,Some(1),"caption","bottom")],
             stylesheets:vec!["table{border-spacing:0}td{padding:0}caption{height:20px}caption:last-child{caption-side:bottom}".into()],
-            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
+            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
             viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
         let output = compute(&input, &LayoutLimits::default()).unwrap();
         let rect = |id| output.paint_projections[&id].box_model.border_box;
@@ -15845,6 +16135,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -15896,6 +16187,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -16027,6 +16319,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -16081,7 +16374,7 @@ mod tests {
                 "* {color:black; outline-color:black} :focus-within {color:red} :focus {color:blue} :focus-visible {outline-color:green}".into(),
             ],
             stylesheet_media: BTreeMap::new(),
-            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
+            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: Some(2), focus_visible: true,
             viewport: ViewportState::default(),
@@ -16123,7 +16416,7 @@ mod tests {
         let mut input = LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0., element_scrolls: BTreeMap::new(), anchor_parents: Default::default(), rendered_tree: None,
             nodes: vec![checkbox],
             stylesheets: vec!["input {color:black;outline-color:black} input[checked] {background-color:red} input:checked {color:blue} input:indeterminate {outline-color:green}".into()],
-            stylesheet_media: BTreeMap::new(), selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
+            stylesheet_media: BTreeMap::new(), selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
             viewport: ViewportState::default(), scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
@@ -16159,7 +16452,7 @@ mod tests {
             nodes,
             stylesheets: vec!["main {color:black} main:has(> .hot + .cold) {color:green} div {width:10px} div:nth-child(2 of .hot) {width:73px}".into()],
             stylesheet_media: BTreeMap::new(),
-            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
+            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -16193,7 +16486,7 @@ mod tests {
             nodes: vec![root, html, svg, unqualified],
             stylesheets: vec!["@namespace svg url(http://www.w3.org/2000/svg); circle {color:red} svg|circle {color:green} |circle {color:blue}".into()],
             stylesheet_media: BTreeMap::new(),
-            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
+            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -16244,6 +16537,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -16307,6 +16601,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -16357,6 +16652,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -16442,6 +16738,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -16514,6 +16811,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -16548,7 +16846,7 @@ mod tests {
             control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),
             top_layer:Vec::new(),scrollbar_width:0.,element_scrolls:Default::default(),anchor_parents:Default::default(),rendered_tree:None,
             nodes:vec![root,a,b],stylesheets:vec!["@scope (.a:hover){:scope{z-index:1}} @scope (.a) to (.b:hover){.b{opacity:.5;z-index:7}}".into()],
-            stylesheet_media:Default::default(),selector_states:Default::default(),shadow_trees:Default::default(),stylesheet_base_urls:Default::default(),stylesheet_scope_roots:Default::default(),
+            stylesheet_media:Default::default(),selector_states:Default::default(),shadow_trees:Default::default(),stylesheet_base_urls:Default::default(),stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:Default::default(),
             custom_states:Default::default(),focused_node:None,focus_visible:false,viewport:Default::default(),scroll:Default::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new(),
         };
         let mut engine = StyleEngine::default();
@@ -16609,6 +16907,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -16668,6 +16967,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -16718,6 +17018,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::from([(0, StylesheetScopeRoot::Element(2))]),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -16777,6 +17078,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -16821,6 +17123,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -16874,6 +17177,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -16927,6 +17231,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -16959,7 +17264,7 @@ mod tests {
             nodes: vec![root, node(2, Some(1), "div", ""), node(3, Some(1), "div", ""), node(4, Some(1), "div", ""), node(5, Some(1), "div", ""), node(6, Some(1), "span", "")],
             stylesheets: vec!["div { width: 200px } div > div { width: 50%; height: 100px; padding: 5px; border: 2px solid } div > div:nth-child(1) { transform: scale(2) } div > div:nth-child(2) { box-sizing: border-box } div > div:nth-child(3) { visibility: hidden } div > div:nth-child(4) { display: none } span { width: 50%; height: 100px }".into()],
             stylesheet_media: BTreeMap::new(),
-            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
+            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
             viewport: ViewportState::default(), scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
@@ -17021,6 +17326,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -17099,6 +17405,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -17174,7 +17481,7 @@ mod tests {
             anchor_parents: Default::default(), rendered_tree:None,
             nodes:vec![root,wrapper,node(3,Some(2),"span",""),node(4,Some(2),"span","")],
             stylesheets:vec!["section {display:flex;width:200px} div {display:contents;padding:50px;border:10px solid} span {display:block;width:20px;height:10px}".into()],
-            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),
+            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),
             custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
             viewport:ViewportState::default(),scroll:ScrollState::default(),
             color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new(),
@@ -17242,6 +17549,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -17313,6 +17621,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -17371,7 +17680,7 @@ mod tests {
             ])),
             nodes:vec![root,child,container,excluded],
             stylesheets:vec!["section > span {display:block;width:40px;height:10px;color:red} div {padding-left:10px}".into()],
-            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),
+            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),
             custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
             viewport:ViewportState::default(),scroll:ScrollState::default(),
             color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new(),
@@ -17413,7 +17722,7 @@ mod tests {
         let mut input = LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0., element_scrolls: BTreeMap::new(), anchor_parents: Default::default(), rendered_tree: None,
             nodes: vec![root, node(2, Some(1), "div", ""), node(3, Some(1), "div", ""), node(4, Some(1), "div", ""), node(5, Some(1), "div", "")],
             stylesheets: vec!["section {display:flex;width:300px;gap:5px} div {width:40px;height:20px} div:nth-child(1) {order:2} div:nth-child(2) {order:-1} div:nth-child(3) {order:-1} div:nth-child(4) {display:none;width:200px;order:-2}".into()],
-            stylesheet_media: BTreeMap::new(), selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
+            stylesheet_media: BTreeMap::new(), selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
             viewport: ViewportState::default(), scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
@@ -17469,6 +17778,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -17515,7 +17825,7 @@ mod tests {
         let mut input = LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0., element_scrolls: BTreeMap::new(), anchor_parents: Default::default(), rendered_tree: None,
             nodes: vec![root, node(2, Some(1), "div", ""), node(3, Some(1), "div", "")],
             stylesheets: vec!["section {display:flex;width:200px} div {width:40px;height:10px;flex-grow:1;padding:5px;border:2px solid;margin:3px}".into()],
-            stylesheet_media: BTreeMap::new(), selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
+            stylesheet_media: BTreeMap::new(), selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
             viewport: ViewportState::default(), scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
@@ -17777,7 +18087,7 @@ mod tests {
         let input = LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0., element_scrolls: BTreeMap::new(), anchor_parents: Default::default(), rendered_tree: None,
             nodes: vec![root, canvas, node(3, Some(2), "div", "Fallback child"), node(4, Some(1), "footer", "")],
             stylesheets: vec!["section {width:400px} canvas {display:block} canvas > div {height:500px;color:red} footer {height:10px}".into()],
-            stylesheet_media: BTreeMap::new(), selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
+            stylesheet_media: BTreeMap::new(), selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
             viewport: ViewportState::default(), scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
@@ -17858,6 +18168,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -17955,6 +18266,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -18028,6 +18340,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -18102,6 +18415,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -18170,6 +18484,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -18863,7 +19178,7 @@ mod tests {
         let mut input = LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0., element_scrolls: BTreeMap::new(), anchor_parents: Default::default(), rendered_tree: None,
             nodes: vec![root, node(2, Some(1), "div", ""), node(3, Some(1), "aside", ""), node(4, Some(1), "nav", "")],
             stylesheets: vec!["section {width:max-content} div {width:40px;padding:5px;border:2px solid;margin:3px} aside {display:none;width:500px} nav {position:absolute;width:700px}".into()],
-            stylesheet_media: BTreeMap::new(), selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
+            stylesheet_media: BTreeMap::new(), selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
             viewport: ViewportState::default(), scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
@@ -18963,6 +19278,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -19044,6 +19360,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -19100,7 +19417,7 @@ mod tests {
             nodes: vec![root, node(2, Some(1), "div", ""), node(3, Some(1), "div", ""), node(4, Some(1), "div", "")],
             stylesheets: vec!["div > div {width:100px;height:20px;padding:5px;border:2px solid} div > div:first-child {visibility:hidden} div > div:last-child {display:none}".into()],
             stylesheet_media: BTreeMap::new(),
-            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
+            selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -19221,6 +19538,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -19326,6 +19644,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
@@ -19445,6 +19764,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -19481,7 +19801,7 @@ mod tests {
         compute(&LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,
             nodes:vec![root,wrapper,positioned,node(4,Some(3),"div",""),node(5,Some(1),"footer","")],
             stylesheets:vec![format!("section {{{parent_rule};width:300px;height:200px;padding:10px}} article {{width:40px;height:20px}} nav {{{rule}}} nav>div {{width:50%;height:50%}} footer {{height:5px}}")],
-            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),
+            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),
             focused_node:None,focus_visible:false,viewport:ViewportState::default(),scroll:ScrollState::default(),
             color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()},&LayoutLimits::default()).unwrap()
     }
@@ -19539,6 +19859,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -19587,6 +19908,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             element_scrolls: BTreeMap::new(),
             anchor_parents: Default::default(),
@@ -19657,6 +19979,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 element_scrolls: BTreeMap::new(),
                 anchor_parents: Default::default(),
@@ -19823,7 +20146,7 @@ mod tests {
             let output=compute(&LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,
                 nodes:vec![root.clone(),node(2,Some(1),"article",""),node(3,Some(1),"aside","")],
                 stylesheets:vec![format!("section {{display:grid;writing-mode:vertical-rl;width:100px;height:150px;grid-template-columns:30px 50px;grid-template-rows:20px 40px;column-gap:7px;row-gap:9px}} {rules}")],
-                stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
+                stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
                 viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()},&LayoutLimits::default()).unwrap();
             let a = output.geometry[&2].box_model.as_ref().unwrap().border_box;
             let b = output.geometry[&3].box_model.as_ref().unwrap().border_box;
@@ -19854,7 +20177,7 @@ mod tests {
             let output=compute(&LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,
                 nodes:vec![root.clone(),node(2,Some(1),"article","ABC"),node(3,Some(1),"article","DEF")],
                 stylesheets:vec![format!("section {{writing-mode:{mode};width:200px;height:120px}} article {{width:30px;height:100%;text-orientation:upright;font-size:20px}}")],
-                stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
+                stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
                 viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()},&LayoutLimits::default()).unwrap();
             let first = output.geometry[&2].box_model.as_ref().unwrap().border_box;
             let second = output.geometry[&3].box_model.as_ref().unwrap().border_box;
@@ -19940,7 +20263,7 @@ mod tests {
             let output=compute(&LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,
                 nodes:vec![root.clone(),node(2,Some(1),"nav",""),node(3,Some(1),"footer","")],
                 stylesheets:vec![format!("section {{position:relative;display:{display};width:200px}} nav {{position:absolute;width:500px;height:900px}} footer {{width:100px;height:20px;flex-shrink:0}}")],
-                stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
+                stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
                 viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()},&LayoutLimits::default()).unwrap();
             assert!(
                 (output.paint_projections[&1].box_model.border_box.height - 20.).abs() < 0.02,
@@ -20197,7 +20520,7 @@ mod tests {
         let mut input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,element_scrolls:BTreeMap::from([(1,(10.,20.))]),anchor_parents: Default::default(), rendered_tree:None,
             nodes:vec![root,inner,node(3,Some(2),"main","")],
             stylesheets:vec!["section{width:100px;height:100px;overflow:auto;transform:scale(2);transform-origin:0 0}article{width:200px;height:300px;overflow:hidden}main{width:1000px;height:1000px}".into()],
-            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
+            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
             viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
         let output = compute(&input, &LayoutLimits::default()).unwrap();
         let metrics = output.paint_projections[&1].scroll.as_ref().unwrap();
@@ -20266,7 +20589,7 @@ mod tests {
         let mut input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,element_scrolls:BTreeMap::new(),anchor_parents: Default::default(), rendered_tree:None,
             nodes:vec![root,scroller,content,node(4,Some(3),"header",""),node(5,Some(3),"nav","sticky"),node(6,Some(3),"footer",""),node(7,Some(2),"aside","")],
             stylesheets:vec!["section {width:200px} article {width:200px;height:100px;overflow:auto} main {height:300px} header {height:30px} nav {position:sticky;top:10px;height:20px} footer {height:10px} article>aside {height:100px}".into()],
-            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
+            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
             viewport:ViewportState::default(),scroll:ScrollState::default(),color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
         let initial = compute(&input, &LayoutLimits::default()).unwrap();
         let initial_top = initial.geometry[&5]
@@ -20308,7 +20631,7 @@ mod tests {
         let input=LayoutInput {svg_clip_resources:Vec::new(),legacy_background_urls:Default::default(),registered_custom_properties:Vec::new(),document_language:None,document_base_url:"https://oryn.invalid/".into(),image_intrinsics:Default::default(),control_states:Default::default(),temporal_pickers:Default::default(),permission_prompts:Default::default(),top_layer:Vec::new(),scrollbar_width:0.,element_scrolls:BTreeMap::from([(2,(0.,20.))]),anchor_parents: Default::default(), rendered_tree:None,
             nodes:vec![root,wrapper,node(3,Some(2),"nav",""),fixed,node(5,Some(4),"div","")],
             stylesheets:vec!["section {position:relative;width:200px;height:150px;padding:10px;border:5px solid;margin:20px} article {width:50px;height:40px;margin:30px;overflow:hidden} nav {position:absolute;right:10px;bottom:15px;width:20px;height:25px} aside {position:fixed;left:8px;top:9px;width:20px;height:20px} div {width:5px;height:5px}".into()],
-            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
+            stylesheet_media:BTreeMap::new(),selector_states:Default::default(),shadow_trees: Default::default(), stylesheet_base_urls: Default::default(), stylesheet_owner_ids: Default::default(), stylesheet_scope_roots:BTreeMap::new(),custom_states:BTreeMap::new(),focused_node:None,focus_visible:false,
             viewport:ViewportState::default(),scroll:ScrollState{x:0.,y:100.,content_width:1280.,content_height:900.},
             color_scheme:ColorScheme::Light,reduced_motion:false,web_fonts:Vec::new()};
         let output = compute(&input, &LayoutLimits::default()).unwrap();
@@ -20361,6 +20684,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -20404,6 +20728,7 @@ mod tests {
                 selector_states: Default::default(),
                 shadow_trees: Default::default(),
                 stylesheet_base_urls: Default::default(),
+                stylesheet_owner_ids: Default::default(),
                 stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
@@ -20453,6 +20778,7 @@ mod tests {
             selector_states: Default::default(),
             shadow_trees: Default::default(),
             stylesheet_base_urls: Default::default(),
+            stylesheet_owner_ids: Default::default(),
             stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,

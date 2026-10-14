@@ -161,7 +161,7 @@ use crate::{
 #[path = "context_inventory_wire.rs"]
 mod inventory_wire;
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 58;
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 59;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NavigationNetworkAuthority {
@@ -1046,6 +1046,18 @@ pub enum ContextServiceRequest {
         stream_id: Option<u64>,
         socket_id: Option<u64>,
     },
+    ValidateStylesheetResponse {
+        page_id: PageId,
+        creator: oryn_js::worker_wire::Creator,
+        id: u64,
+        url: String,
+        body_sha256: [u8; 32],
+    },
+    ReleaseStylesheetResponse {
+        page_id: PageId,
+        creator: oryn_js::worker_wire::Creator,
+        id: u64,
+    },
     RunScriptLoad {
         #[serde(default)]
         render_blocking: bool,
@@ -1494,6 +1506,8 @@ impl ContextServiceRequest {
             Self::CancelScriptLoad { .. } => "CancelScriptLoad",
             Self::ReleaseFrameResponseStream { .. } => "ReleaseFrameResponseStream",
             Self::ReleaseNetworkResult { .. } => "ReleaseNetworkResult",
+            Self::ValidateStylesheetResponse { .. } => "ValidateStylesheetResponse",
+            Self::ReleaseStylesheetResponse { .. } => "ReleaseStylesheetResponse",
             Self::RunScriptLoad { .. } => "RunScriptLoad",
             Self::LoadScript { .. } => "LoadScript",
             Self::LoadTypedModule { .. } => "LoadTypedModule",
@@ -1892,6 +1906,8 @@ pub enum ContextServiceResponse {
     },
     PageResource {
         #[serde(default)]
+        stylesheet_response: Option<crate::stylesheet_response_proof::StylesheetResponseProof>,
+        #[serde(default)]
         inherited_encoding: Option<String>,
         #[serde(default)]
         response_headers: Vec<(String, String)>,
@@ -1926,6 +1942,10 @@ pub enum ContextServiceResponse {
         #[serde(default)]
         refresh_url: Option<String>,
     },
+    StylesheetResponseValidated {
+        origin_clean: Option<bool>,
+    },
+    StylesheetResponseReleased,
     WebSocketOpened {
         socket_id: u64,
         protocol: String,
@@ -2599,8 +2619,9 @@ struct DirectActorEndpoint {
 }
 
 #[path = "script_cleanup_custody.rs"]
-mod script_cleanup_custody;
+pub(crate) mod script_cleanup_custody;
 pub(crate) use crate::http_cleanup_custody;
+pub(crate) use crate::stylesheet_response_proof::StylesheetResponseProof;
 /// Worker-side ownership of a parent script operation. Dropping the handle
 /// queues cancellation on owned IO lanes and never waits for the broker reply.
 pub(crate) struct ContextScriptLoad {
@@ -3498,7 +3519,9 @@ impl SharedContextClient {
         };
         let _profile = crate::native_timing::stage(operation);
         crate::native_timing::count(operation, 1);
-        if initiator != Some("link") {
+        let stylesheet_evidence_request = matches!(&request,ContextServiceRequest::LoadPageResource{destination,..}if destination=="stylesheet")
+            || matches!(&request,ContextServiceRequest::RunScriptLoad{request,..}if matches!(request.as_ref(),ContextServiceRequest::LoadPageResource{destination,..}if destination=="stylesheet"));
+        if initiator != Some("link") && !stylesheet_evidence_request {
             let candidate=match &request{ContextServiceRequest::RunScriptLoad{page_id,token,render_blocking,request}=>self.claim_resource_preload(request,*render_blocking||matches!(request.as_ref(),ContextServiceRequest::LoadPageResource{initiator,..}if initiator.stylesheet.as_ref().is_some_and(|sheet|sheet.render_blocking))).map(|entry|(entry,Some((*page_id,*token)))),ContextServiceRequest::LoadPageResource{initiator,..}=>self.claim_resource_preload(&request,initiator.stylesheet.as_ref().is_some_and(|sheet|sheet.render_blocking)).map(|entry|(entry,None)),_=>None};
             if let Some((entry, unused_lease)) = candidate {
                 let response = entry.wait();
@@ -4694,6 +4717,7 @@ pub struct StylesheetRequest {
     pub cross_origin: Option<String>,
 }
 struct PageResourceOptions<'a> {
+    response_lease: Option<crate::script_load_lease::ScriptLoadLease>,
     download: Option<&'a str>,
     script_authority: Option<oryn_js::navigation::ScriptNavigationAdmission>,
     initiator: &'a ResourceInitiator,
@@ -8209,6 +8233,42 @@ impl ParentContextService {
             ContextServiceRequest::AuthorizePreloadConsumption { proof, request } => {
                 self.authorize_preload_consumption(&proof, &request)
             }
+            ContextServiceRequest::ValidateStylesheetResponse {
+                page_id,
+                creator,
+                id,
+                url,
+                body_sha256,
+            } => {
+                self.validate_socket_owner(page_id)?;
+                let owner = crate::stylesheet_response_proof::issued_owner(page_id, &creator)?;
+                let origin_clean = self.script_loads.validate_stylesheet_response(
+                    &owner,
+                    id,
+                    &url,
+                    &body_sha256,
+                )?;
+                let origin_clean = if self
+                    .context_owner()?
+                    .native_worker_authority(&owner)
+                    .is_ok()
+                {
+                    origin_clean
+                } else {
+                    None
+                };
+                Ok(ContextServiceResponse::StylesheetResponseValidated { origin_clean })
+            }
+            ContextServiceRequest::ReleaseStylesheetResponse {
+                page_id,
+                creator,
+                id,
+            } => {
+                self.validate_socket_owner(page_id)?;
+                let owner = crate::stylesheet_response_proof::issued_owner(page_id, &creator)?;
+                self.script_loads.release_stylesheet_response(&owner, id)?;
+                Ok(ContextServiceResponse::StylesheetResponseReleased)
+            }
             ContextServiceRequest::RunScriptLoad {
                 page_id,
                 token,
@@ -8228,6 +8288,7 @@ impl ParentContextService {
                 };
                 let owner = self.script_document_owner(page_id, creator)?;
                 let lease = self.script_loads.claim_for(token, &owner)?;
+                let lease_cancel = lease.cancel.clone();
                 match *request {
                     ContextServiceRequest::LoadScript {
                         fallback_encoding,
@@ -8254,7 +8315,7 @@ impl ParentContextService {
                         cross_origin: cross_origin.as_deref(),
                         referrer_source: referrer_source.as_deref(),
                         kind: None,
-                        cancellation: Some(&lease.cancel),
+                        cancellation: Some(&lease_cancel),
                         creator: Some(&creator),
                         script_policy: script_policy.as_deref(),
                         parser_inserted,
@@ -8284,7 +8345,7 @@ impl ParentContextService {
                         cross_origin: cross_origin.as_deref(),
                         referrer_source: referrer_source.as_deref(),
                         kind: Some(kind),
-                        cancellation: Some(&lease.cancel),
+                        cancellation: Some(&lease_cancel),
                         creator: Some(&creator),
                         script_policy: script_policy.as_deref(),
                         parser_inserted,
@@ -8307,6 +8368,7 @@ impl ParentContextService {
                         &url,
                         &destination,
                         PageResourceOptions {
+                            response_lease: Some(lease),
                             download: download.as_deref(),
                             script_authority,
                             initiator: &initiator,
@@ -8316,7 +8378,7 @@ impl ParentContextService {
                             parent_encoding: parent_encoding.as_deref(),
                             post,
                         },
-                        &lease.cancel,
+                        &lease_cancel,
                     ),
                     _ => Err(RuntimeError::ProtocolViolation(
                         "script lease accepts only its owning page script request".into(),
@@ -8401,6 +8463,7 @@ impl ParentContextService {
                 &url,
                 &destination,
                 PageResourceOptions {
+                    response_lease: None,
                     download: download.as_deref(),
                     script_authority,
                     initiator: &initiator,
@@ -11052,6 +11115,7 @@ impl ParentContextService {
         let embedded_representation = matches!(destination, "object" | "embed");
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         let PageResourceOptions {
+            mut response_lease,
             download,
             script_authority,
             initiator,
@@ -11063,6 +11127,16 @@ impl ParentContextService {
         } = options;
         self.validate_socket_owner(page_id)?;
         let owner = self.script_document_owner(page_id, &initiator.creator)?;
+        if destination == "stylesheet" && response_lease.is_none() {
+            let token = self.script_loads.reserve_for(owner.clone())?;
+            match self.script_loads.claim_for(token, &owner) {
+                Ok(lease) => response_lease = Some(lease),
+                Err(error) => {
+                    let _ = self.script_loads.cancel(token);
+                    return Err(error);
+                }
+            }
+        }
         let context = self.context_owner()?;
         let (_, native_origin, native_policy) = context
             .native_worker_authority(&owner)
@@ -11589,7 +11663,28 @@ impl ParentContextService {
                         inherited_encoding.as_deref()
                     },
                 );
+                let stylesheet_response = if destination == "stylesheet" {
+                    Some(
+                        response_lease
+                            .take()
+                            .ok_or_else(|| {
+                                RuntimeError::ProtocolViolation(
+                                    "stylesheet response admission absent".into(),
+                                )
+                            })?
+                            .publish_stylesheet(
+                                url.as_str(),
+                                &source,
+                                integrity_eligible
+                                    && (url.scheme() == "data"
+                                        || native_origin.authority == embedding_origin.authority),
+                            )?,
+                    )
+                } else {
+                    None
+                };
                 return Ok(ContextServiceResponse::PageResource {
+                    stylesheet_response,
                     inherited_encoding,
                     response_headers: Vec::new(),
                     raw_body_base64: (document_resource).then(|| {
@@ -12247,7 +12342,29 @@ impl ParentContextService {
             } else {
                 None
             };
+            let stylesheet_response = if destination == "stylesheet" {
+                Some(
+                    response_lease
+                        .take()
+                        .ok_or_else(|| {
+                            RuntimeError::ProtocolViolation(
+                                "stylesheet response admission absent".into(),
+                            )
+                        })?
+                        .publish_stylesheet(
+                            url.as_str(),
+                            &source,
+                            crate::stylesheet_response_proof::http_origin_clean(
+                                cors,
+                                integrity_eligible,
+                            ),
+                        )?,
+                )
+            } else {
+                None
+            };
             return Ok(ContextServiceResponse::PageResource {
+                stylesheet_response,
                 inherited_encoding,
                 response_headers: response.headers.clone(),
                 raw_body_base64: (document_resource && stream_id.is_none()).then(|| {
@@ -12838,7 +12955,9 @@ impl ContextTransport for ParentContextService {
         if matches!(
             request,
             Some(
-                ContextServiceRequest::CancelBlankPrerender { .. }
+                ContextServiceRequest::ReleaseStylesheetResponse { .. }
+                    | ContextServiceRequest::ValidateStylesheetResponse { .. }
+                    | ContextServiceRequest::CancelBlankPrerender { .. }
                     | ContextServiceRequest::ReleaseOrdinaryKeepalive { .. }
                     | ContextServiceRequest::ParserEncodingPolicy {
                         action: ParserEncodingPolicyAction::Release,
@@ -14931,6 +15050,7 @@ mod tests {
                     url,
                     "frame",
                     PageResourceOptions {
+                        response_lease: None,
                         download: None,
                         script_authority: None,
                         initiator: &initiator,
@@ -15074,6 +15194,7 @@ mod tests {
                     "https://example.test/frame",
                     "frame",
                     PageResourceOptions {
+                        response_lease: None,
                         download: None,
                         script_authority: None,
                         initiator: &initiator,
@@ -15157,6 +15278,7 @@ mod tests {
                     "https://other.test/start",
                     destination,
                     PageResourceOptions {
+                        response_lease: None,
                         download: None,
                         script_authority: None,
                         initiator: &initiator,
@@ -15270,6 +15392,7 @@ mod tests {
                         "https://current.test/child",
                         "frame",
                         PageResourceOptions {
+                            response_lease: None,
                             download: None,
                             script_authority: None,
                             initiator: &initiator,
@@ -15339,6 +15462,7 @@ mod tests {
                             "https://current.test/new",
                             "frame",
                             PageResourceOptions {
+                                response_lease: None,
                                 download: None,
                                 script_authority: None,
                                 initiator: &initiator,
@@ -15993,6 +16117,7 @@ mod tests {
                 url,
                 "stylesheet",
                 PageResourceOptions {
+                    response_lease: None,
                     download: None,
                     script_authority: None,
                     initiator: &initiator,
@@ -16008,6 +16133,206 @@ mod tests {
                 allowed,
                 "{url}, quirks={quirks}, crossorigin={cross:?}"
             );
+        }
+    }
+
+    #[test]
+    fn stylesheet_response_proof_tracks_redirect_taint_and_cors_completion() {
+        use sha2::Digest;
+        struct Responses;
+        impl NetworkBroker for Responses {
+            fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                let location = if request.url.ends_with("start.css") {
+                    Some("https://cdn.test/hop.css")
+                } else if request.url.ends_with("hop.css") {
+                    Some("https://source.test/end.css")
+                } else {
+                    None
+                };
+                Ok(NetworkResponse {
+                    response_policy: None,
+                    timing: None,
+                    request_id: request.request_id,
+                    status: if location.is_some() { 302 } else { 200 },
+                    headers: location
+                        .map(|url| {
+                            vec![
+                                ("location".into(), url.into()),
+                                ("access-control-allow-origin".into(), "*".into()),
+                            ]
+                        })
+                        .unwrap_or_else(|| {
+                            vec![
+                                ("content-type".into(), "text/css".into()),
+                                ("access-control-allow-origin".into(), "*".into()),
+                            ]
+                        }),
+                    body: b"p { color: green }".to_vec(),
+                })
+            }
+        }
+        for (address, cross, expected) in [
+            ("https://source.test/end.css", None, true),
+            ("https://source.test/start.css", None, false),
+            ("https://source.test/start.css", Some("anonymous"), true),
+        ] {
+            let context = Browser::in_process_probe().new_context();
+            let page = context.new_page();
+            let page_id = page.page_id();
+            context
+                .commit_page_url(page_id, "https://source.test/".into())
+                .unwrap();
+            context
+                .install_document_security(page_id, "https://source.test/".into(), &[])
+                .unwrap();
+            let service = ParentContextService::new_with_network(
+                context,
+                page_id,
+                Some(SharedNetworkBroker::new(Responses)),
+            );
+            let creator = script_test_creator(&service, page_id);
+            let initiator = ResourceInitiator {
+                embedded_type: None,
+                request_state: None,
+                navigation: Default::default(),
+                creator: creator.clone(),
+                prepared_policy: None,
+                stylesheet: Some(StylesheetRequest {
+                    policy: None,
+                    render_blocking: false,
+                    quirks: false,
+                    nonce: None,
+                    integrity: None,
+                    cross_origin: cross.map(str::to_owned),
+                }),
+            };
+            let response = service
+                .load_page_resource(
+                    page_id,
+                    address,
+                    "stylesheet",
+                    PageResourceOptions {
+                        response_lease: None,
+                        download: None,
+                        script_authority: None,
+                        initiator: &initiator,
+                        form_authority: None,
+                        initiator_url: None,
+                        referrer_policy: None,
+                        parent_encoding: None,
+                        post: None,
+                    },
+                )
+                .unwrap();
+            let ContextServiceResponse::PageResource {
+                stylesheet_response: Some(proof),
+                url,
+                source,
+                ..
+            } = response
+            else {
+                panic!("missing response proof");
+            };
+            assert_eq!(proof.origin_clean, expected);
+            let owner = service.script_document_owner(page_id, &creator).unwrap();
+            assert_eq!(
+                service
+                    .script_loads
+                    .validate_stylesheet_response(
+                        &owner,
+                        proof.id,
+                        &url,
+                        &sha2::Sha256::digest(source.as_bytes()).into()
+                    )
+                    .unwrap(),
+                Some(expected)
+            );
+            assert!(
+                service
+                    .script_loads
+                    .validate_stylesheet_response(
+                        &owner,
+                        proof.id,
+                        "https://source.test/other.css",
+                        &proof.body_sha256
+                    )
+                    .is_err()
+            );
+            service
+                .script_loads
+                .release_stylesheet_response(&owner, proof.id)
+                .unwrap();
+            assert!(service.script_loads.is_drained().unwrap());
+        }
+    }
+    #[test]
+    fn local_stylesheet_proof_uses_native_blob_origin_and_cancelled_request_custody() {
+        let context = Browser::in_process_probe().new_context();
+        let page = context.new_page();
+        let page_id = page.page_id();
+        context
+            .commit_page_url(page_id, "https://source.test/".into())
+            .unwrap();
+        context
+            .install_document_security(page_id, "https://source.test/".into(), &[])
+            .unwrap();
+        let service = ParentContextService::new_with_network(context, page_id, None);
+        let creator = script_test_creator(&service, page_id);
+        let owner = service.script_document_owner(page_id, &creator).unwrap();
+        let blob = service
+            .context_owner()
+            .unwrap()
+            .register_native_blob(owner.clone(), b"p{}".to_vec(), "text/css".into())
+            .unwrap();
+        for address in ["data:text/css,p%7B%7D".to_owned(), blob] {
+            let initiator = ResourceInitiator {
+                embedded_type: None,
+                request_state: None,
+                navigation: Default::default(),
+                creator: creator.clone(),
+                stylesheet: None,
+                prepared_policy: None,
+            };
+            let response = service
+                .load_page_resource(
+                    page_id,
+                    &address,
+                    "stylesheet",
+                    PageResourceOptions {
+                        response_lease: None,
+                        download: None,
+                        script_authority: None,
+                        initiator: &initiator,
+                        form_authority: None,
+                        initiator_url: None,
+                        referrer_policy: None,
+                        parent_encoding: None,
+                        post: None,
+                    },
+                )
+                .unwrap();
+            let ContextServiceResponse::PageResource {
+                stylesheet_response: Some(proof),
+                url,
+                ..
+            } = response
+            else {
+                panic!("missing local proof");
+            };
+            assert!(proof.origin_clean);
+            service.script_loads.cancel(proof.id).unwrap();
+            assert_eq!(
+                service
+                    .script_loads
+                    .validate_stylesheet_response(&owner, proof.id, &url, &proof.body_sha256)
+                    .unwrap(),
+                None
+            );
+            service
+                .script_loads
+                .release_stylesheet_response(&owner, proof.id)
+                .unwrap();
+            assert!(service.script_loads.is_drained().unwrap());
         }
     }
 
@@ -16094,6 +16419,7 @@ mod tests {
                 "https://source.test/start.css",
                 "stylesheet",
                 PageResourceOptions {
+                    response_lease: None,
                     download: None,
                     script_authority: None,
                     initiator: &initiator,
@@ -19561,6 +19887,7 @@ mod form_fetch_metadata_regressions {
                 "https://receipt.test/start",
                 "frame",
                 PageResourceOptions {
+                    response_lease: None,
                     download: None,
                     script_authority: None,
                     initiator: &ResourceInitiator {
@@ -19737,6 +20064,7 @@ mod form_fetch_metadata_regressions {
             "https://receipt.test/wrong",
             "frame",
             PageResourceOptions {
+                response_lease: None,
                 download: None,
                 script_authority: Some(admission.clone()),
                 initiator: &initiator,
@@ -19755,6 +20083,7 @@ mod form_fetch_metadata_regressions {
                 "https://receipt.test/start",
                 "frame",
                 PageResourceOptions {
+                    response_lease: None,
                     download: None,
                     script_authority: Some(admission),
                     initiator: &initiator,
@@ -19929,6 +20258,7 @@ mod form_fetch_metadata_regressions {
                 "https://receipt.test/start",
                 "frame",
                 PageResourceOptions {
+                    response_lease: None,
                     download: None,
                     script_authority: Some(oryn_js::navigation::ScriptNavigationAdmission {
                         authority,
@@ -24682,6 +25012,7 @@ mod embedded_type_request_tests {
                 "https://embedded.test/item",
                 "object",
                 PageResourceOptions {
+                    response_lease: None,
                     download: None,
                     script_authority: None,
                     initiator: &initiator,
@@ -24712,6 +25043,7 @@ mod embedded_type_request_tests {
                     "https://embedded.test/item",
                     "frame",
                     PageResourceOptions {
+                        response_lease: None,
                         download: None,
                         script_authority: None,
                         initiator: &initiator,
@@ -24732,6 +25064,7 @@ mod embedded_type_request_tests {
                     "https://embedded.test/item",
                     "object",
                     PageResourceOptions {
+                        response_lease: None,
                         download: None,
                         script_authority: None,
                         initiator: &initiator,
@@ -24811,6 +25144,7 @@ mod credentialless_navigation_request_tests {
                         "https://cross.test/item",
                         destination,
                         PageResourceOptions {
+                            response_lease: None,
                             download: None,
                             script_authority: None,
                             initiator: &initiator,
