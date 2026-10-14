@@ -4,6 +4,7 @@ pub mod async_ops;
 pub mod bindings;
 pub mod crypto_key;
 pub mod generated;
+pub mod idb_owned_admission;
 pub mod import_maps;
 pub mod indexed_db;
 pub mod integrity;

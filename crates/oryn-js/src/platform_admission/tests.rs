@@ -1,5 +1,65 @@
 use super::*;
 
+#[test]
+fn owned_admission_respects_active_budget_and_rejection_cleanup() {
+    use crate::idb_owned_admission::{Admission, Ledger, Scope};
+    use std::sync::Arc;
+    let ledger = Arc::new(Ledger::default());
+    let host = Rc::new(MockHost::default());
+    let adapter = AdmissionHost::new(host.clone());
+    let prepare = || {
+        let names = vec!["store".to_owned()];
+        let scope = Scope::copy_names(&ledger, &names, 1024 * 1024, 0).unwrap();
+        let admission = Admission::new("tx".into(), "db".into(), scope, "readonly".into(), None);
+        admission.prepare(&ledger, 1024 * 1024, 0).unwrap()
+    };
+    for id in 0..ACTIVE_LIMIT {
+        adapter
+            .state
+            .borrow_mut()
+            .active
+            .insert(HostOperationId(id as u64), Kind::Other);
+    }
+    assert!(
+        adapter
+            .submit_owned_idb_admission(
+                HostOperationId(1000),
+                "https://fixture.invalid".into(),
+                prepare(),
+            )
+            .is_err()
+    );
+    assert_eq!(adapter.state.borrow().active.len(), ACTIVE_LIMIT);
+    assert!(host.submitted.borrow().is_empty());
+    assert_eq!(ledger.live_bytes(), 0);
+    adapter.state.borrow_mut().active.clear();
+    // MockHost intentionally does not support owned transfer; fail-closed
+    // endpoint rejection must remove the provisional active correlation.
+    assert!(
+        adapter
+            .submit_owned_idb_admission(
+                HostOperationId(1000),
+                "https://fixture.invalid".into(),
+                prepare(),
+            )
+            .is_err()
+    );
+    assert!(adapter.state.borrow().active.is_empty());
+    assert!(host.submitted.borrow().is_empty());
+    assert_eq!(ledger.live_bytes(), 0);
+    adapter.retire();
+    assert!(
+        adapter
+            .submit_owned_idb_admission(
+                HostOperationId(1001),
+                "https://fixture.invalid".into(),
+                prepare(),
+            )
+            .is_err()
+    );
+    assert_eq!(ledger.live_bytes(), 0);
+}
+
 #[derive(Default)]
 struct MockHost {
     completions: RefCell<VecDeque<PlatformHostCompletion>>,

@@ -1044,8 +1044,12 @@ impl Notification {
                 if !entry.method_resolved {
                     // Preserve the returned method before yielding; once removal
                     // has already committed but invocation has not begun.
-                    let resolved =
-                        match global_events::resolve_listener(scope, callback, receiver.into()) {
+                    let (resolved, resolution_threw) =
+                        match global_events::resolve_listener_capturing(
+                            scope,
+                            callback,
+                            receiver.into(),
+                        ) {
                             Ok(resolved) => resolved,
                             Err(error) => {
                                 state
@@ -1057,6 +1061,7 @@ impl Notification {
                                 return Err(error);
                             }
                         };
+                    self.threw |= resolution_threw;
                     entry.method = resolved.map(|(function, receiver)| {
                         let function: v8::Local<v8::Value> = function.into();
                         (

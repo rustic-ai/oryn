@@ -116,6 +116,7 @@ mod file_reader_sync;
 mod html_stream;
 mod idb_admission;
 mod idb_delivery;
+mod idb_v8_store_sequence;
 #[path = "navigation_api.rs"]
 pub mod navigation_api;
 mod node_event_listeners;
@@ -1121,6 +1122,8 @@ struct IdbTransactionRecord {
     mode: String,
     durability: String,
     object_stores: Vec<String>,
+    // Exact custody follows the Vec so payload destruction precedes release.
+    scope_custody: Option<crate::idb_owned_admission::ScopeCustody>,
     aborted: bool,
     error: Option<String>,
     pending_requests: usize,
@@ -1446,6 +1449,10 @@ impl PendingPlatformOperation {
 struct QueuedIdbOperation {
     request: PlatformHostRequest,
     pending: PendingPlatformOperation,
+}
+struct OwnedIdbOperation {
+    request_id: u64,
+    admission: std::sync::Arc<crate::idb_owned_admission::Admission>,
 }
 
 struct DeferredDomTarget {
@@ -2500,6 +2507,9 @@ pub struct V8BindingState {
     request_constructor: RefCell<Option<v8::Weak<v8::Function>>>,
     platform_wrappers: RefCell<BTreeMap<u64, v8::Weak<v8::Object>>>,
     platform_edges: RefCell<platform_listener_graph::Edges>,
+    idb_payload_ledger: std::sync::Arc<crate::idb_owned_admission::Ledger>,
+    queued_owned_idb: RefCell<VecDeque<OwnedIdbOperation>>,
+    pending_owned_idb: RefCell<Vec<(HostOperationId, OwnedIdbOperation)>>,
     platform_host: RefCell<Option<Rc<dyn PlatformHost>>>,
     next_platform_operation_id: Cell<u64>,
     pending_platform_operations: RefCell<BTreeMap<HostOperationId, PendingPlatformOperation>>,
@@ -3557,6 +3567,14 @@ impl V8BindingState {
         self.pending_platform_operations.borrow_mut().clear();
         idb_delivery::retire(self);
         self.queued_idb_operations.borrow_mut().clear();
+        self.queued_owned_idb.borrow_mut().clear();
+        self.pending_owned_idb.borrow_mut().clear();
+        for record in self.platform_objects.borrow_mut().values_mut() {
+            if let PlatformObjectRecord::IdbTransaction(transaction) = record {
+                drop(std::mem::take(&mut transaction.object_stores));
+                transaction.scope_custody.take();
+            }
+        }
         self.idb_retry_requests.borrow_mut().clear();
         self.idb_blocked_requests.borrow_mut().clear();
         self.ready_platform_completions.borrow_mut().clear();
@@ -3575,6 +3593,8 @@ impl V8BindingState {
             return Ok(0);
         }
         html_stream::resume(scope, self)?;
+        flush_owned_idb(scope, self)?;
+        apply_idb_payload_memory(scope, self)?;
         platform_listener_graph::reconcile_activity(scope, self);
         let result = (|| {
             idb_delivery::drain(scope, self)?;
@@ -4136,7 +4156,9 @@ impl V8BindingState {
     }
 
     pub fn has_pending_platform_work(&self) -> bool {
-        self.has_ready_platform_work()
+        !self.queued_owned_idb.borrow().is_empty()
+            || !self.pending_owned_idb.borrow().is_empty()
+            || self.has_ready_platform_work()
             || self
                 .pending_platform_operations
                 .borrow()
@@ -4220,7 +4242,9 @@ impl V8BindingState {
     }
 
     pub fn has_pending_non_image_work(&self) -> bool {
-        idb_delivery::pending(self)
+        !self.queued_owned_idb.borrow().is_empty()
+            || !self.pending_owned_idb.borrow().is_empty()
+            || idb_delivery::pending(self)
             || self.queued_idb_operations.borrow().iter().any(|queued| {
                 self.platform_operation_is_foreground(&queued.pending)
                     && self.idb_operation_ready(&queued.pending)
@@ -4364,6 +4388,23 @@ impl V8BindingState {
 
     fn idb_operation_ready(&self, pending: &PendingPlatformOperation) -> bool {
         if let PendingPlatformOperation::IndexedDb { request_id, .. } = pending {
+            // Owned admissions are BeginTransaction requests too: parent
+            // admission records creation order before local store readiness.
+            // Ordinary requests on that transaction still use the readiness
+            // checks below. No payload clone is needed to identify admission.
+            if self
+                .queued_owned_idb
+                .borrow()
+                .iter()
+                .any(|operation| operation.request_id == *request_id)
+                || self
+                    .pending_owned_idb
+                    .borrow()
+                    .iter()
+                    .any(|(_, operation)| operation.request_id == *request_id)
+            {
+                return true;
+            }
             // Admission records creation order even when an older local
             // transaction currently owns the overlapping stores.
             if matches!(
@@ -4406,6 +4447,51 @@ impl V8BindingState {
             .pending_platform_operations
             .borrow_mut()
             .remove(&completion.operation_id);
+        let owned_index = self
+            .pending_owned_idb
+            .borrow()
+            .iter()
+            .position(|(id, _)| *id == completion.operation_id);
+        if let Some(owned) =
+            owned_index.map(|index| self.pending_owned_idb.borrow_mut().swap_remove(index).1)
+            && matches!(&completion.result,Ok(PlatformHostResult::IndexedDb{response})if response.transaction_blocked)
+        {
+            let blocked_request = owned.request_id;
+            self.idb_blocked_requests
+                .borrow_mut()
+                .insert(blocked_request);
+            self.active_idb_connections
+                .borrow_mut()
+                .remove(&blocked_request);
+            // Move the original native retry custody before publishing any
+            // blocked notification. Retry on the next page checkpoint, not
+            // in this completion drain; preserve background classification
+            // until the eventual terminal completion clears it below.
+            self.queued_owned_idb.borrow_mut().push_back(owned);
+            if let Ok(PlatformHostResult::IndexedDb { response }) = &completion.result
+                && response.connection_blocked
+            {
+                let notify = match &mut *platform_object_mut(self, blocked_request)? {
+                    PlatformObjectRecord::IdbRequest(request) => {
+                        let notify = !request.versionchange_notified;
+                        request.versionchange_notified = true;
+                        notify
+                    }
+                    _ => false,
+                };
+                if notify {
+                    idb_delivery::blocked(
+                        self,
+                        blocked_request,
+                        response.old_version.unwrap_or(0),
+                        response.version,
+                    );
+                }
+            }
+            return Ok(());
+        }
+        // Native transport has returned. A terminal retry owner drops here;
+        // delivery retains only the transaction's independent scope.
         let Some(pending) = pending else {
             if self
                 .cancelled_platform_operations
@@ -9954,6 +10040,159 @@ fn submit_idb(
     state.flush_queued_idb_operations()
 }
 
+fn submit_owned_idb_admission(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    request_id: u64,
+    admission: crate::idb_owned_admission::Admission,
+) -> Result<(), V8BindingError> {
+    state
+        .queued_owned_idb
+        .borrow_mut()
+        .try_reserve(1)
+        .map_err(|_| V8BindingError::Allocation("IDB owned admission queue"))?;
+    let transaction_id = {
+        let record = platform_object(state, request_id)?;
+        match &*record {
+            PlatformObjectRecord::IdbRequest(request) => request.transaction_id,
+            _ => None,
+        }
+    };
+    if let Some(transaction_id) = transaction_id
+        && let PlatformObjectRecord::IdbTransaction(transaction) =
+            &mut *platform_object_mut(state, transaction_id)?
+    {
+        let pending = transaction
+            .pending_requests
+            .checked_add(1)
+            .ok_or(V8BindingError::Allocation("IDB pending count"))?;
+        transaction
+            .request_queue
+            .try_reserve(1)
+            .map_err(|_| V8BindingError::Allocation("IDB transaction request queue"))?;
+        transaction.pending_requests = pending;
+        transaction.request_queue.push_back(request_id);
+    }
+    state
+        .queued_owned_idb
+        .borrow_mut()
+        .push_back(OwnedIdbOperation {
+            request_id,
+            admission: std::sync::Arc::new(admission),
+        });
+    flush_owned_idb(scope, state)
+}
+fn self_cleanup_unreturned_idb(
+    state: &V8BindingState,
+    transaction_id: u64,
+    request_id: u64,
+) -> Result<(), V8BindingError> {
+    state
+        .queued_owned_idb
+        .borrow_mut()
+        .retain(|op| op.request_id != request_id);
+    if let PlatformObjectRecord::IdbTransaction(transaction) =
+        &mut *platform_object_mut(state, transaction_id)?
+    {
+        transaction.pending_requests = 0;
+        transaction.request_queue.clear();
+        transaction.aborted = true;
+        transaction.settled = true;
+        transaction.finished = true;
+        transaction.active = false;
+        drop(std::mem::take(&mut transaction.object_stores));
+        transaction.scope_custody.take();
+    }
+    Ok(())
+}
+fn apply_idb_payload_memory(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+) -> Result<(), V8BindingError> {
+    if let Some(adjustment) = state
+        .idb_payload_ledger
+        .begin_adjustment()
+        .map_err(V8BindingError::Message)?
+    {
+        scope.adjust_amount_of_external_allocated_memory(adjustment.amount());
+        state
+            .idb_payload_ledger
+            .finish_adjustment(adjustment)
+            .map_err(V8BindingError::Message)?;
+    }
+    Ok(())
+}
+fn flush_owned_idb(scope: &mut v8::PinScope, state: &V8BindingState) -> Result<(), V8BindingError> {
+    if state.execution_retired() || scope.is_execution_terminating() {
+        return Err(V8BindingError::JavaScriptException);
+    }
+    while state.pending_platform_operations.borrow().len()
+        < crate::platform_admission::PENDING_LIMIT
+    {
+        let Some(operation) = state.queued_owned_idb.borrow_mut().pop_front() else {
+            break;
+        };
+        let result = (|| {
+            let heap = scope.get_heap_statistics();
+            let used = heap
+                .used_heap_size()
+                .checked_add(heap.external_memory())
+                .ok_or(V8BindingError::Allocation("IDB heap accounting"))?;
+            let prepared = operation
+                .admission
+                .prepare(&state.idb_payload_ledger, heap.heap_size_limit(), used)
+                .map_err(|_| V8BindingError::Allocation("IDB prepared admission"))?;
+            if scope.is_execution_terminating() {
+                return Err(V8BindingError::JavaScriptException);
+            }
+            let host = state
+                .platform_host
+                .borrow()
+                .clone()
+                .ok_or(V8BindingError::Allocation("IDB host"))?;
+            let id = HostOperationId(state.next_platform_operation_id.get());
+            state
+                .pending_owned_idb
+                .borrow_mut()
+                .try_reserve(1)
+                .map_err(|_| V8BindingError::Allocation("IDB pending owned receipt"))?;
+            let next =
+                id.0.checked_add(1)
+                    .ok_or(V8BindingError::Allocation("IDB operation identity"))?;
+            match host.submit_owned_idb_admission(id, current_platform_origin(state), prepared) {
+                Ok(()) => {}
+                Err(crate::platform::OwnedIdbSubmitError::Busy) => return Ok(None),
+                Err(crate::platform::OwnedIdbSubmitError::Failure(error)) => {
+                    return Err(V8BindingError::Message(error));
+                }
+            }
+            state.next_platform_operation_id.set(next);
+            state.pending_platform_operations.borrow_mut().insert(
+                id,
+                PendingPlatformOperation::IndexedDb {
+                    request_id: operation.request_id,
+                    action: IdbCompletionAction::Unit,
+                },
+            );
+            Ok(Some(id))
+        })();
+        match result {
+            Ok(Some(id)) => {
+                state.pending_owned_idb.borrow_mut().push((id, operation));
+            }
+            Ok(None) => {
+                state.queued_owned_idb.borrow_mut().push_front(operation);
+                break;
+            }
+            Err(error) => {
+                state.queued_owned_idb.borrow_mut().push_front(operation);
+                return Err(error);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn queue_idb(
     _scope: &mut v8::PinScope,
     state: &V8BindingState,
@@ -10180,6 +10419,14 @@ fn cancel_idb_transaction_requests(
         transaction.request_queue.clear();
     }
     let ids = requests.iter().copied().collect::<BTreeSet<_>>();
+    state
+        .queued_owned_idb
+        .borrow_mut()
+        .retain(|operation| !ids.contains(&operation.request_id));
+    state
+        .pending_owned_idb
+        .borrow_mut()
+        .retain(|(_, operation)| !ids.contains(&operation.request_id));
     state
         .idb_retry_requests
         .borrow_mut()
@@ -14303,31 +14550,6 @@ fn headers_from_entries(
         state,
         PlatformObjectRecord::Headers(headers),
     ))
-}
-
-fn idb_dom_string_sequence(
-    scope: &mut v8::PinScope,
-    value: v8::Local<v8::Value>,
-) -> Result<Vec<String>, V8BindingError> {
-    if value.is_null_or_undefined() {
-        return Ok(Vec::new());
-    }
-    let values = if let Ok(array) = v8::Local::<v8::Array>::try_from(value) {
-        (0..array.length())
-            .filter_map(|index| array.get_index(scope, index))
-            .collect::<Vec<_>>()
-    } else {
-        vec![value]
-    };
-    values
-        .into_iter()
-        .map(|value| {
-            value
-                .to_string(scope)
-                .ok_or(V8BindingError::Allocation("IndexedDB DOMString conversion"))
-                .and_then(|value| rust_string_preserving_utf16(scope, value))
-        })
-        .collect()
 }
 
 fn dom_string_sort_key(value: &str) -> Vec<u16> {
@@ -21947,12 +22169,21 @@ fn editing_white_space(state: &V8BindingState, mut node: NodeId) -> Result<Strin
 
 fn nearest_rendered_editing_block(
     state: &V8BindingState,
-    mut node: NodeId,
+    node: NodeId,
     host: NodeId,
 ) -> Result<NodeId, V8BindingError> {
     refresh_layout(state)?;
     let dom = state.dom.borrow();
     let layout = state.layout.borrow();
+    nearest_rendered_editing_block_in_layout(&dom, &layout, node, host)
+}
+
+fn nearest_rendered_editing_block_in_layout(
+    dom: &DomRuntime,
+    layout: &BindingLayout,
+    mut node: NodeId,
+    host: NodeId,
+) -> Result<NodeId, V8BindingError> {
     loop {
         if node == host {
             return Ok(host);
@@ -21962,7 +22193,7 @@ fn nearest_rendered_editing_block(
             .get(&node_key(node))
             .and_then(|style| style.get("display"));
         let block = display.map_or_else(
-            || is_editing_block(&dom, node),
+            || is_editing_block(dom, node),
             |display| {
                 matches!(
                     display.as_str(),
@@ -26713,9 +26944,12 @@ fn call_platform_operation<'s>(
             return Ok(None);
         }
         ("IDBDatabase", "transaction") => {
-            let mut names = idb_dom_string_sequence(scope, args.get(0))?;
-            names.sort_by_cached_key(|name| dom_string_sort_key(name));
-            names.dedup();
+            let converted = idb_v8_store_sequence::convert(scope, args.get(0))?;
+            let owned_scope = idb_v8_store_sequence::native_scope(scope, state, converted)?;
+            let owned_scope = owned_scope
+                .normalize()
+                .map_err(|_| V8BindingError::Allocation("IDB scope normalization"))?;
+            let (names, scope_custody) = owned_scope.into_parts();
             let mode = if args.get(1).is_undefined() {
                 "readonly".into()
             } else {
@@ -26774,6 +27008,27 @@ fn call_platform_operation<'s>(
                     member: "invalid transaction mode".into(),
                 });
             }
+            // Complete all fallible scope preparation before publishing a
+            // transaction record; failures drop both local scope custodians.
+            let heap = scope.get_heap_statistics();
+            let used = heap
+                .used_heap_size()
+                .checked_add(heap.external_memory())
+                .ok_or(V8BindingError::Allocation("IDB heap accounting"))?;
+            let scope_names = crate::idb_owned_admission::Scope::copy_names(
+                &state.idb_payload_ledger,
+                &names,
+                heap.heap_size_limit(),
+                used,
+            )
+            .map_err(|_| V8BindingError::Allocation("IDB admission scope copy"))?;
+            let (database, connection) = match &*platform_object(state, id)? {
+                PlatformObjectRecord::IdbDatabase(database) => {
+                    (database.name.clone(), database.connection.clone())
+                }
+                _ => return Err(V8BindingError::Allocation("IDBDatabase record")),
+            };
+            let admission_mode = mode.clone();
             let transaction_id = register_platform_object(
                 state,
                 PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
@@ -26785,6 +27040,7 @@ fn call_platform_operation<'s>(
                     mode,
                     durability,
                     object_stores: names,
+                    scope_custody: Some(scope_custody),
                     aborted: false,
                     error: None,
                     pending_requests: 0,
@@ -26795,38 +27051,22 @@ fn call_platform_operation<'s>(
                     finished: false,
                 }),
             );
-            let (database, scope_names, mode, connection) =
-                match &*platform_object(state, transaction_id)? {
-                    PlatformObjectRecord::IdbTransaction(transaction) => {
-                        let (database, connection) = match &*platform_object(state, id)? {
-                            PlatformObjectRecord::IdbDatabase(database) => {
-                                (database.name.clone(), database.connection.clone())
-                            }
-                            _ => unreachable!(),
-                        };
-                        (
-                            database,
-                            transaction.object_stores.clone(),
-                            transaction.mode.clone(),
-                            connection,
-                        )
-                    }
-                    _ => unreachable!(),
-                };
             let admission = new_internal_idb_request(state, Some(transaction_id));
-            submit_idb(
+            if let Err(error) = submit_owned_idb_admission(
                 scope,
                 state,
                 admission,
-                IdbHostCommand::BeginTransaction {
-                    token: format!("{}:{transaction_id}", state.instance_id),
+                crate::idb_owned_admission::Admission::new(
+                    format!("{}:{transaction_id}", state.instance_id),
                     database,
-                    scope: scope_names,
-                    mode,
+                    scope_names,
+                    admission_mode,
                     connection,
-                },
-                IdbCompletionAction::Unit,
-            )?;
+                ),
+            ) {
+                self_cleanup_unreturned_idb(state, transaction_id, admission)?;
+                return Err(error);
+            }
             state
                 .idb_transactions_to_deactivate
                 .borrow_mut()
@@ -47926,6 +48166,19 @@ mod tests {
     }
 
     impl PlatformHost for TestPlatformHost {
+        fn submit_owned_idb_admission(
+            &self,
+            id: HostOperationId,
+            origin: String,
+            admission: crate::idb_owned_admission::PreparedAdmission,
+        ) -> Result<(), crate::platform::OwnedIdbSubmitError> {
+            let (command, custody) = admission.into_command();
+            let result = self.submit(id, PlatformHostRequest::IndexedDb { origin, command });
+            // This deterministic host consumes request synchronously before
+            // publishing its response; no native request payload survives.
+            drop(custody);
+            result.map_err(crate::platform::OwnedIdbSubmitError::Failure)
+        }
         fn submit(
             &self,
             operation_id: HostOperationId,
@@ -58802,6 +59055,75 @@ target.srcdoc='raw';
     }
 
     #[test]
+    fn indexeddb_transaction_stores_union_preserves_iteration_and_exceptions() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/").unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source = v8::String::new(scope, r#"
+          globalThis.storesResult='pending';
+          const opening=indexedDB.open('stores-union',2);
+          opening.onupgradeneeded=()=>{
+            for(const name of ['store','null','undefined']) opening.result.createObjectStore(name);
+          };
+          opening.onsuccess=()=>{
+            const db=opening.result, marker={}, checks=[];
+            const check=value=>{if(!value)throw Error('stores conversion');checks.push(true)};
+            check(db.transaction(null).objectStoreNames[0]==='null');
+            check(db.transaction(undefined).objectStoreNames[0]==='undefined');
+            check(db.transaction(new Set(['store'])).objectStoreNames[0]==='store');
+            let iteratorReads=0;
+            const array=['missing'];
+            Object.defineProperty(array,Symbol.iterator,{get(){iteratorReads++;return function*(){yield 'store'}}});
+            check(db.transaction(array).objectStoreNames[0]==='store'&&iteratorReads===1);
+            let later=0,closed=0;
+            const mode={toString(){later++;return 'readonly'}};
+            const options={get durability(){later++;return 'default'}};
+            const failures=[
+              {get [Symbol.iterator](){throw marker}},
+              {toString(){throw marker}},
+              { [Symbol.iterator](){return {next(){return {done:false,value:{toString(){throw marker}}}},return(){closed++;throw Error('close must not replace marker')}}}}
+            ];
+            const getterArray=[];Object.defineProperty(getterArray,0,{get(){throw marker}});getterArray.length=1;
+            failures.push(getterArray);
+            for(const stores of failures){
+              let caught=false;try{db.transaction(stores,mode,options)}catch(error){caught=error===marker}
+              check(caught&&later===0);
+            }
+            check(closed===1);
+            let rejected=false;try{db.transaction({[Symbol.iterator]:7},mode,options)}catch(error){rejected=error instanceof TypeError}
+            check(rejected&&later===0);
+            let touched=0;const foreign={get [Symbol.iterator](){touched++;throw marker}};
+            rejected=false;try{IDBDatabase.prototype.transaction.call({},foreign,mode,options)}catch(error){rejected=error instanceof TypeError}
+            check(rejected&&touched===0&&later===0);
+            storesResult='passed:'+checks.length;
+          };
+        "#).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        for _ in 0..64 {
+            state.drain_platform_completions(scope, 1).unwrap();
+            scope.perform_microtask_checkpoint();
+        }
+        let source = v8::String::new(scope, "storesResult").unwrap();
+        assert_eq!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .to_rust_string_lossy(scope),
+            "passed:11"
+        );
+    }
+
+    #[test]
     fn indexeddb_transaction_durability_options_are_converted_and_retained() {
         initialize_v8();
         let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
@@ -58950,6 +59272,7 @@ target.srcdoc='raw';
                 mode: "readwrite".into(),
                 durability: "default".into(),
                 object_stores: vec![],
+                scope_custody: None,
                 aborted: false,
                 error: None,
                 pending_requests: 0,
@@ -59179,6 +59502,147 @@ target.srcdoc='raw';
             2
         );
         assert!(state.idb_retry_requests.borrow().is_empty());
+    }
+
+    #[test]
+    fn indexeddb_owned_busy_preserves_retry_custody_through_gc_and_retirement() {
+        struct BusyHost {
+            busy: Cell<bool>,
+            held: RefCell<Option<crate::idb_owned_admission::PreparedAdmission>>,
+        }
+        impl PlatformHost for BusyHost {
+            fn submit(&self, _: HostOperationId, _: PlatformHostRequest) -> Result<(), String> {
+                panic!("owned admission must not use legacy DTO submission")
+            }
+            fn submit_owned_idb_admission(
+                &self,
+                _: HostOperationId,
+                _: String,
+                admission: crate::idb_owned_admission::PreparedAdmission,
+            ) -> Result<(), crate::platform::OwnedIdbSubmitError> {
+                if self.busy.replace(false) {
+                    return Err(crate::platform::OwnedIdbSubmitError::Busy);
+                }
+                *self.held.borrow_mut() = Some(admission);
+                Ok(())
+            }
+            fn cancel(&self, _: HostOperationId) {}
+            fn retire(&self) {
+                self.held.borrow_mut().take();
+            }
+            fn drain_completions(&self, _: usize) -> Vec<PlatformHostCompletion> {
+                Vec::new()
+            }
+        }
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(html::parse("").into_runtime().unwrap()));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let host = Rc::new(BusyHost {
+            busy: Cell::new(true),
+            held: RefCell::new(None),
+        });
+        state.set_platform_host(host.clone());
+        let request_id = new_idb_request(&state, None);
+        let heap = scope.get_heap_statistics();
+        let used = heap
+            .used_heap_size()
+            .checked_add(heap.external_memory().max(0) as usize)
+            .unwrap();
+        let payload = crate::idb_owned_admission::Scope::copy_names(
+            &state.idb_payload_ledger,
+            &["records".into()],
+            heap.heap_size_limit(),
+            used,
+        )
+        .unwrap();
+        submit_owned_idb_admission(
+            scope,
+            &state,
+            request_id,
+            crate::idb_owned_admission::Admission::new(
+                "transaction".into(),
+                "database".into(),
+                payload,
+                "readonly".into(),
+                None,
+            ),
+        )
+        .unwrap();
+        assert_eq!(state.queued_owned_idb.borrow().len(), 1);
+        assert!(state.pending_owned_idb.borrow().is_empty());
+        assert!(state.pending_platform_operations.borrow().is_empty());
+        let original = state.queued_owned_idb.borrow()[0].admission.clone();
+        let live = state.idb_payload_ledger.live_bytes();
+        apply_idb_payload_memory(scope, &state).unwrap();
+        scope.low_memory_notification();
+        assert_eq!(state.idb_payload_ledger.live_bytes(), live);
+        assert!(std::sync::Arc::ptr_eq(
+            &original,
+            &state.queued_owned_idb.borrow()[0].admission
+        ));
+        flush_owned_idb(scope, &state).unwrap();
+        assert!(state.queued_owned_idb.borrow().is_empty());
+        assert_eq!(state.pending_owned_idb.borrow().len(), 1);
+        assert!(std::sync::Arc::ptr_eq(
+            &original,
+            &state.pending_owned_idb.borrow()[0].1.admission
+        ));
+        drop(original);
+        state.retire_execution();
+        assert!(state.pending_owned_idb.borrow().is_empty());
+        assert!(host.held.borrow().is_none());
+        assert_eq!(state.idb_payload_ledger.live_bytes(), 0);
+        apply_idb_payload_memory(scope, &state).unwrap();
+    }
+
+    #[test]
+    fn indexeddb_callback_interface_resolution_errors_abort_notification_transactions() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(html::parse("").into_runtime().unwrap()));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source = v8::String::new(scope, r#"
+          location.href='https://example.test/';globalThis.outcomes=[];globalThis.reports=0;
+          onerror=()=>{reports++;return true};
+          for(const kind of ['getter','noncallable']) {
+            const opening=indexedDB.open('resolution-'+kind,2);
+            opening.onupgradeneeded=()=>opening.result.createObjectStore('store');
+            opening.onsuccess=()=>{
+              const tx=opening.result.transaction('store','readonly');
+              tx.oncomplete=()=>outcomes.push(kind+':complete');
+              tx.onabort=()=>outcomes.push(kind+':'+tx.error.name);
+              const request=tx.objectStore('store').get(0);
+              const listener=kind==='getter'?{get handleEvent(){throw Error('getter')}}:{handleEvent:null};
+              request.addEventListener('success',listener);
+              request.addEventListener('success',()=>outcomes.push(kind+':later'));
+            };
+          }
+        "#).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        for _ in 0..128 {
+            state.drain_platform_completions(scope, 1).unwrap();
+            scope.perform_microtask_checkpoint();
+        }
+        let source=v8::String::new(scope,"reports===2&&outcomes.length===4&&['getter','noncallable'].every(kind=>outcomes.includes(kind+':later')&&outcomes.includes(kind+':AbortError')&&outcomes.indexOf(kind+':later')<outcomes.indexOf(kind+':AbortError'))").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
     }
 
     #[test]
@@ -60643,6 +61107,72 @@ target.srcdoc='raw';
             .run(scope)
             .unwrap();
         assert_eq!(result.to_rust_string_lossy(scope), "passed");
+    }
+
+    #[test]
+    fn editing_container_text_insertion_reuses_adjacent_source_without_normalizing_authored_nodes()
+    {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<div id=editor contenteditable></div>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source=v8::String::new(scope,r##"
+            const editor=document.getElementById('editor'),selection=getSelection();
+            const check=(ok,message)=>{if(!ok)throw Error(message)};
+            editor.innerHTML='<img src="#">foo<img src="#">';editor.focus();
+            const original=editor.childNodes[1];selection.collapse(editor,1);
+            check(document.execCommand('insertText',false,'x'),'insert');
+            check(editor.childNodes.length===3&&editor.childNodes[1]===original&&original.data==='xfoo','source reuse');
+            check(document.execCommand('undo')&&original.data==='foo','undo');
+            check(document.execCommand('redo')&&original.data==='xfoo','redo');
+            editor.innerHTML='<p>editor</p>';selection.collapse(editor.firstChild.firstChild,3);
+            document.execCommand('insertLineBreak');const tail=editor.firstChild.lastChild;
+            document.execCommand('insertText',false,'x');
+            check(editor.firstChild.lastChild===tail&&tail.data==='xtor','linebreak source');
+            const walker=document.createTreeWalker(editor,NodeFilter.SHOW_TEXT);let node;
+            while(node=walker.nextNode())check(!node.nextSibling||node.nextSibling.nodeType!==3,'adjacent text');
+            editor.replaceChildren();
+            const prior=document.createTextNode('prior');editor.append(prior);
+            selection.collapse(editor,1);document.execCommand('insertText',false,'x');
+            check(editor.childNodes.length===1&&editor.firstChild===prior&&prior.data==='priorx','prior-only reuse');
+            editor.replaceChildren();
+            const left=document.createTextNode('left'),right=document.createTextNode('right');
+            editor.append(left,right);selection.collapse(editor,1);
+            document.execCommand('insertText',false,'x');
+            check(editor.childNodes.length===2&&editor.firstChild===left&&editor.lastChild===right,'authored two Text identities');
+            check(left.data==='leftx'&&right.data==='right'&&selection.focusNode===left&&selection.focusOffset===5,'preceding Text owns insertion');
+            editor.innerHTML='<span contenteditable=false>protected</span><span contenteditable=true>nested</span>';
+            const protectedText=editor.firstChild.firstChild,nestedText=editor.lastChild.firstChild;
+            selection.collapse(editor,1);document.execCommand('insertText',false,'x');
+            check(protectedText.data==='protected'&&nestedText.data==='nested','host barriers');
+            editor.innerHTML='<div>block</div><span>inline</span>';
+            const blockText=editor.firstChild.firstChild,inlineText=editor.lastChild.firstChild;
+            selection.collapse(editor,1);document.execCommand('insertText',false,'x');
+            check(blockText.data==='block'&&inlineText.data==='inline','no descent across block/wrapper');
+            editor.innerHTML='<span id=shadowhost></span>';
+            const shadowHost=editor.firstChild,shadow=shadowHost.attachShadow({mode:'open'});
+            shadow.innerHTML='<span contenteditable=true>shadow</span>';
+            const shadowText=shadow.firstChild.firstChild;
+            selection.collapse(editor,0);document.execCommand('insertText',false,'x');
+            check(shadowText.data==='shadow'&&shadowHost.shadowRoot===shadow,'no shadow descent');
+            'passed';
+        "##).unwrap();
+        assert_eq!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .to_rust_string_lossy(scope),
+            "passed"
+        );
     }
 
     #[test]
@@ -63185,6 +63715,75 @@ target.srcdoc='raw';
         state.scroll_offsets.borrow_mut().insert(nested, (0., 0.));
         refresh_layout(&state).unwrap();
         assert!(provider.inputs.borrow()[2].1.is_empty());
+    }
+
+    #[test]
+    fn editing_adjacent_text_recaptures_selection_after_native_layout_callback() {
+        struct RetargetProvider {
+            state: std::rc::Weak<V8BindingState>,
+            target: NodeId,
+            armed: Cell<bool>,
+        }
+        impl BindingLayoutProvider for RetargetProvider {
+            fn compute_layout(
+                &self,
+                _: &BTreeMap<NodeId, BTreeSet<String>>,
+            ) -> Result<BindingLayout, String> {
+                if self.armed.replace(false) {
+                    let state = self.state.upgrade().ok_or("retired test realm")?;
+                    let point = BoundaryPoint {
+                        container: self.target,
+                        offset: 0,
+                    };
+                    set_selection_boundaries(&state, point, point)
+                        .map_err(|error| format!("{error:?}"))?;
+                }
+                Ok(BindingLayout::default())
+            }
+        }
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse(
+                "<main id=one contenteditable>one</main><main id=two contenteditable>two</main>",
+            )
+            .into_runtime()
+            .unwrap(),
+        ));
+        let one = dom.borrow().find_by_id("one").unwrap();
+        let two = dom.borrow().find_by_id("two").unwrap();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let point = BoundaryPoint {
+            container: one,
+            offset: 0,
+        };
+        set_selection_boundaries(&state, point, point).unwrap();
+        let provider = Rc::new(RetargetProvider {
+            state: Rc::downgrade(&state),
+            target: two,
+            armed: Cell::new(true),
+        });
+        state.set_layout_provider(provider);
+        let source =
+            v8::String::new(scope, "document.execCommand('insertText',false,'x')").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .boolean_value(scope)
+        );
+        assert_eq!(dom.borrow().arena().text_content(one).unwrap(), "one");
+        assert_eq!(dom.borrow().arena().text_content(two).unwrap(), "xtwo");
+        let range = state.ranges.borrow()[&state.selection_range.get().unwrap()].clone();
+        assert_eq!(
+            range.start_container,
+            light_children(&dom.borrow(), two).unwrap()[0]
+        );
+        assert_eq!(range.start_offset, 1);
     }
 
     #[test]

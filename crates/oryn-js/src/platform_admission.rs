@@ -223,6 +223,51 @@ fn request_bytes(request: &PlatformHostRequest, limit: usize) -> Result<usize, S
 }
 
 impl PlatformHost for AdmissionHost {
+    fn submit_owned_idb_admission(
+        &self,
+        id: HostOperationId,
+        origin: String,
+        admission: crate::idb_owned_admission::PreparedAdmission,
+    ) -> Result<(), OwnedIdbSubmitError> {
+        if self.retired.get() {
+            return Err(OwnedIdbSubmitError::Failure(
+                "execution environment is retired".into(),
+            ));
+        }
+        let mut state = self.state.borrow_mut();
+        if state.active.contains_key(&id)
+            || state.queued.iter().any(|entry| entry.id == id)
+            || state.ready.iter().any(|entry| entry.operation_id == id)
+        {
+            return Err(OwnedIdbSubmitError::Failure(
+                "duplicate platform operation identity".into(),
+            ));
+        }
+        if state.active.len() + state.queued.len() + state.ready.len() >= PENDING_LIMIT {
+            return Err(OwnedIdbSubmitError::Busy);
+        }
+        // The JS IDB producer already owns its retry queue and immutable scope.
+        // Reject rather than creating a second uncustodied adapter queue or
+        // bypassing the existing active ceiling and runnable-queue ordering.
+        if !state.can_start(Kind::Other)
+            || state
+                .queued
+                .iter()
+                .any(|entry| state.can_start(Kind::of(&entry.request)))
+        {
+            return Err(OwnedIdbSubmitError::Busy);
+        }
+        state.active.insert(id, Kind::Other);
+        drop(state);
+        if let Err(error) = self.host.submit_owned_idb_admission(id, origin, admission) {
+            self.state.borrow_mut().active.remove(&id);
+            return Err(error);
+        }
+        // Normal receive/cancel/acknowledge paths retain the active slot until
+        // a terminal native completion; cancellation is not a physical receipt.
+        Ok(())
+    }
+
     fn supports_image_requests(&self) -> bool {
         self.host.supports_image_requests()
     }

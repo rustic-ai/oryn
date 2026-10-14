@@ -579,13 +579,25 @@ pub(super) fn phase<'s>(
 }
 /// Resolve EventListener's author handleEvent getter separately from calling
 /// its method, allowing native retained dispatch to park between those steps.
+#[cfg(test)]
 pub(super) fn resolve_listener<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     listener: v8::Local<'s, v8::Value>,
     receiver: v8::Local<'s, v8::Value>,
 ) -> Result<Option<EventCallback<'s>>, V8BindingError> {
+    resolve_listener_capturing(scope, listener, receiver).map(|(callback, _)| callback)
+}
+
+/// Callback-interface resolution can itself throw before invocation. Retain
+/// that event-dispatch outcome separately from reporting the exception so IDB
+/// request notification can run its specified abort algorithm afterward.
+pub(super) fn resolve_listener_capturing<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    listener: v8::Local<'s, v8::Value>,
+    receiver: v8::Local<'s, v8::Value>,
+) -> Result<(Option<EventCallback<'s>>, bool), V8BindingError> {
     if let Ok(function) = v8::Local::<v8::Function>::try_from(listener) {
-        return Ok(Some((function, receiver)));
+        return Ok((Some((function, receiver)), false));
     }
     let object = listener
         .to_object(scope)
@@ -615,15 +627,19 @@ pub(super) fn resolve_listener<'s>(
         }
         (function, exception, message)
     };
+    let threw = exception.is_some() && !scope.is_execution_terminating();
     if let Some(exception) = exception
         && !scope.is_execution_terminating()
     {
         let scope = &mut v8::ContextScope::new(scope, context);
         let _ = report_exception(scope, exception, message);
     }
-    Ok(result
-        .filter(|_| !scope.is_execution_terminating())
-        .map(|function| (function, object.into())))
+    Ok((
+        result
+            .filter(|_| !scope.is_execution_terminating())
+            .map(|function| (function, object.into())),
+        threw,
+    ))
 }
 
 pub(super) fn invoke<'s>(

@@ -552,11 +552,31 @@ pub struct PlatformHostCompletion {
     pub result: Result<PlatformHostResult, String>,
 }
 
+/// Internal owned-submit outcome; Busy retains producer retry ownership.
+#[derive(Debug)]
+pub enum OwnedIdbSubmitError {
+    Busy,
+    Failure(String),
+}
+
 /// Non-blocking authority boundary used by generated bindings.
 /// Each accepted operation produces one terminal completion (including after
 /// cancellation). A failed HttpRead must close its stream before completing.
 /// Retirement revokes the endpoint and may discard outstanding completions.
 pub trait PlatformHost {
+    /// Internal owned admission; unimplemented endpoints fail closed rather
+    /// than cloning native scope storage through the ordinary DTO path.
+    fn submit_owned_idb_admission(
+        &self,
+        _operation_id: HostOperationId,
+        _origin: String,
+        _admission: crate::idb_owned_admission::PreparedAdmission,
+    ) -> Result<(), OwnedIdbSubmitError> {
+        Err(OwnedIdbSubmitError::Failure(
+            "owned IndexedDB admission is unavailable".into(),
+        ))
+    }
+
     /// Whether this endpoint provides an image resource backend. This reports
     /// availability only; individual requests still pass admission and policy.
     /// Transform-only endpoints must not be selected for CSS image demand.

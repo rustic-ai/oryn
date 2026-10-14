@@ -18351,6 +18351,101 @@ mod tests {
     use super::*;
 
     #[test]
+    fn computed_empty_pseudo_counters_reach_native_accessibility_projection() {
+        for (css, expected) in [
+            (
+                r#":root{counter-reset:seq 0}.alt::before{counter-increment:seq;content:"" / counter(seq)}"#,
+                ["1 label", "2 label", "3 label"],
+            ),
+            (
+                r#".alt::before{counter-set:cnt 228;content:"" / counter(cnt)}"#,
+                ["228 label", "228 label", "228 label"],
+            ),
+        ] {
+            let dom = crate::html::parse("<button id=button class=alt>label</button><h3 id=heading class=alt>label</h3><a id=link href='#' class=alt>label</a><button id=parent><span hidden class=alt>Secret</span>Public</button>").into_runtime().unwrap();
+            let viewport = oryn_common::v4::ViewportState::default();
+            let mut input = crate::runtime::layout_input_from_dom(
+                dom.arena(),
+                dom.document(),
+                viewport,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                &[],
+            );
+            input.stylesheets.push(css.into());
+            let output =
+                oryn_layout::compute(&input, &oryn_layout::LayoutLimits::default()).unwrap();
+            let binding = binding_layout_from_output(&output, viewport);
+            let graph = layout_accessibility_graph(&dom, 1, &binding).unwrap();
+            let nodes = graph.accessibility(oryn_common::v3::ProjectionProfile::Full);
+            for (name, expected) in ["button", "heading", "link"].into_iter().zip(expected) {
+                let id = dom.find_by_id(name).unwrap();
+                let actual = nodes
+                    .iter()
+                    .find(|entry| crate::semantic::unpack_node_ref(entry.semantic_ref.node) == id)
+                    .unwrap();
+                assert_eq!(actual.name, expected, "{name}: {css}");
+            }
+            let parent = dom.find_by_id("parent").unwrap();
+            assert_eq!(
+                nodes
+                    .iter()
+                    .find(
+                        |entry| crate::semantic::unpack_node_ref(entry.semantic_ref.node) == parent
+                    )
+                    .unwrap()
+                    .name,
+                "Public"
+            );
+        }
+    }
+
+    #[test]
+    fn inline_painted_pseudos_and_empty_alternatives_preserve_text_joining() {
+        for (content, expected) in [
+            (r#"counter(seq)"#, "1label"),
+            (r#""paint" / "alt""#, "altlabel"),
+            (r#""paint" / """#, "label"),
+            (r#""" / "spoken""#, "spoken label"),
+        ] {
+            let dom = crate::html::parse("<h3 id=target>label</h3>")
+                .into_runtime()
+                .unwrap();
+            let viewport = oryn_common::v4::ViewportState::default();
+            let mut input = crate::runtime::layout_input_from_dom(
+                dom.arena(),
+                dom.document(),
+                viewport,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                &[],
+            );
+            input.stylesheets.push(format!(
+                ":root{{counter-reset:seq 1}}h3::before{{content:{content}}}"
+            ));
+            let output =
+                oryn_layout::compute(&input, &oryn_layout::LayoutLimits::default()).unwrap();
+            let binding = binding_layout_from_output(&output, viewport);
+            let graph = layout_accessibility_graph(&dom, 1, &binding).unwrap();
+            let target = dom.find_by_id("target").unwrap();
+            let nodes = graph.accessibility(oryn_common::v3::ProjectionProfile::Full);
+            assert_eq!(
+                nodes
+                    .iter()
+                    .find(
+                        |entry| crate::semantic::unpack_node_ref(entry.semantic_ref.node) == target
+                    )
+                    .unwrap()
+                    .name,
+                expected,
+                "{content}"
+            );
+        }
+    }
+
+    #[test]
     fn javascript_navigation_decodes_utf8_without_form_decoding() {
         assert_eq!(
             decode_javascript_navigation_source("JaVaScRiPt:'%E2%82%AC'+1#fragment?query").unwrap(),

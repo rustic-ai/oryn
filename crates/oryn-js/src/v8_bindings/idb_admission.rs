@@ -175,6 +175,7 @@ mod tests {
                 mode: "readonly".into(),
                 durability: "default".into(),
                 object_stores: vec!["records".into()],
+                scope_custody: None,
                 aborted: false,
                 error: None,
                 pending_requests: 0,

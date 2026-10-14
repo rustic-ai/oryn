@@ -32,6 +32,9 @@ pub(super) fn consume<'s>(
     let next = v8::Local::<v8::Function>::try_from(field(scope, iterator, "next")?)
         .map_err(|_| type_error())?;
     loop {
+        if scope.is_execution_terminating() {
+            return Err(V8BindingError::JavaScriptException);
+        }
         let step = next
             .call(scope, iterator.into(), &[])
             .ok_or(V8BindingError::JavaScriptException)?;
@@ -43,17 +46,28 @@ pub(super) fn consume<'s>(
         let (result, exception) = {
             v8::tc_scope!(let tc, scope);
             let result = convert(tc, value);
+            if tc.has_terminated() || tc.is_execution_terminating() {
+                tc.rethrow();
+                return Err(V8BindingError::JavaScriptException);
+            }
             let exception = tc.exception().map(|e| v8::Global::new(tc, e));
             tc.reset();
             (result, exception)
         };
         if let Err(error) = result {
+            if scope.is_execution_terminating() {
+                return Err(V8BindingError::JavaScriptException);
+            }
             {
                 v8::tc_scope!(let tc, scope);
                 if let Ok(value) = field(tc, iterator, "return")
                     && let Ok(close) = v8::Local::<v8::Function>::try_from(value)
                 {
                     close.call(tc, iterator.into(), &[]);
+                }
+                if tc.has_terminated() || tc.is_execution_terminating() {
+                    tc.rethrow();
+                    return Err(V8BindingError::JavaScriptException);
                 }
             }
             if let Some(exception) = exception {

@@ -5756,6 +5756,64 @@ mod tests {
     }
 
     #[test]
+    fn empty_painted_counter_alternatives_name_visible_controls_not_hidden_content() {
+        let dom = crate::html::parse("<button id=button>label</button><h3 id=heading>label</h3><a id=link href='#'>label</a><button id=parent><span id=hidden hidden>Secret</span>Public</button>").into_runtime().unwrap();
+        let id = |name: &str| {
+            dom.arena()
+                .iter()
+                .find(|(_, node)| node.attributes.get_null("id").map(String::as_str) == Some(name))
+                .unwrap()
+                .0
+        };
+        let pack = |id: NodeId| (u64::from(id.generation) << 32) | u64::from(id.slot);
+        let mut graph = SemanticGraph::new(PageId(1), 1);
+        graph.reset(dom.arena(), 1);
+        let content = vec![
+            oryn_common::v4::GeneratedContent {
+                owner: pack(id("button")),
+                pseudo: "before".into(),
+                text: String::new(),
+                alternative: Some("1 ".into()),
+                separates_text: false,
+            },
+            oryn_common::v4::GeneratedContent {
+                owner: pack(id("heading")),
+                pseudo: "before".into(),
+                text: String::new(),
+                alternative: Some("2 ".into()),
+                separates_text: false,
+            },
+            oryn_common::v4::GeneratedContent {
+                owner: pack(id("link")),
+                pseudo: "after".into(),
+                text: String::new(),
+                alternative: Some(" 3".into()),
+                separates_text: false,
+            },
+            oryn_common::v4::GeneratedContent {
+                owner: pack(id("hidden")),
+                pseudo: "before".into(),
+                text: String::new(),
+                alternative: Some("Hidden counter ".into()),
+                separates_text: false,
+            },
+        ];
+        graph.apply_generated_content(dom.arena(), &content);
+        assert_eq!(graph.full[&id("button")].name, "1 label");
+        assert_eq!(graph.full[&id("heading")].name, "2 label");
+        assert_eq!(graph.full[&id("link")].name, "label 3");
+        assert_eq!(graph.full[&id("parent")].name, "Public");
+        assert!(
+            graph.full[&id("hidden")]
+                .states
+                .contains(&NodeState::Hidden)
+        );
+        graph.apply_generated_content(dom.arena(), &content);
+        assert_eq!(graph.full[&id("button")].name, "1 label");
+        graph.apply_generated_content(dom.arena(), &[]);
+        assert_eq!(graph.full[&id("button")].name, "label");
+    }
+    #[test]
     fn generated_names_follow_native_owner_labels_and_removal_without_dom_mutation() {
         let parsed = crate::html::parse(
             "<label id=label for=field><span id=source>Amount</span></label><input id=field><button id=ref aria-labelledby=label></button><button id=explicit aria-label=Authored>Text</button>",

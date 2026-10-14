@@ -598,6 +598,15 @@ pub(super) fn reclaim(state: &V8BindingState) {
             message_ports::release_collected(state, id);
             web_animations::release_collected(state, id);
             text_tracks::release_collected(state, id);
+            if let Some(PlatformObjectRecord::IdbTransaction(transaction)) =
+                state.platform_objects.borrow_mut().get_mut(&id)
+                && transaction.settled
+            {
+                // Watcher serial identifies this collected wrapper; activity
+                // roots have already retired. Dispose buffers before custody.
+                drop(std::mem::take(&mut transaction.object_stores));
+                transaction.scope_custody.take();
+            }
         }
     }
 }

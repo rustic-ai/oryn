@@ -36740,6 +36740,85 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn editing_adjacent_text_respects_computed_block_and_host_boundaries() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://editing.example.test/adjacent-source",
+            "<!doctype html><main id=host contenteditable></main>",
+        )
+        .await
+        .unwrap();
+        let result = page.evaluate(r#"(() => {
+          const host=document.getElementById('host'),s=getSelection();
+          const check=(ok,message)=>{if(!ok)throw Error(message)};
+          for(const display of ['block','inline','flow-root']) {
+            host.innerHTML='<span style="display:'+display+'">tail</span>';
+            const shell=host.firstChild,source=shell.firstChild;
+            check(getComputedStyle(shell).display===display,'real computed block');
+            s.collapse(shell,0);document.execCommand('insertText',false,'x');
+            check(shell.firstChild===source&&source.data==='xtail','same rendered block source');
+            document.execCommand('undo');check(source.data==='tail','undo source');
+            document.execCommand('redo');check(source.data==='xtail','redo source');
+            host.innerHTML='<span style="display:'+display+'">left</span>right';
+            const block=host.firstChild.firstChild,right=host.lastChild;
+            s.collapse(host,1);document.execCommand('insertText',false,'x');
+            check(block.data==='left'&&host.lastChild===right&&right.data==='xright','no block descent');
+          }
+          host.innerHTML='<span contenteditable=false>protected</span><span contenteditable=true>nested</span>';
+          const protectedText=host.firstChild.firstChild,nestedText=host.lastChild.firstChild;
+          s.collapse(host,1);document.execCommand('insertText',false,'x');
+          check(protectedText.data==='protected'&&nestedText.data==='nested','host barriers');
+          return 'passed';
+        })()"#).await.unwrap();
+        assert_eq!(result, "passed");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn editing_lists_keep_selected_fragment_direction_and_atomic_extent() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://editing.example.test/list-fragment",
+            "<!doctype html><main id=host contenteditable></main>",
+        )
+        .await
+        .unwrap();
+        let result=page.evaluate(r##"(() => {
+          const host=document.getElementById('host'),s=getSelection();
+          const check=(ok,label)=>{if(!ok)throw Error(label)};
+          let count=0;
+          for(const command of ['insertOrderedList','insertUnorderedList']) {
+            for(const css of [false,true]) for(const backward of [false,true]) {
+              host.innerHTML='<div>abc</div><div>def</div>';host.focus();
+              document.execCommand('styleWithCSS',false,css);
+              const a=host.firstChild.firstChild,b=host.lastChild.firstChild;
+              s.setBaseAndExtent(backward?b:a,backward?2:1,backward?a:b,backward?1:2);
+              check(document.execCommand(command),'accepted');
+              check(s.toString().replace(/\s/g,'')==='bcde','fragment content');
+              const r=s.getRangeAt(0);
+              check(backward?s.anchorNode===r.endContainer:s.anchorNode===r.startContainer,'direction');
+              host.innerHTML='<span>A</span><img src="#"><br><span>B</span>';host.focus();
+              const image=host.childNodes[1],br=host.childNodes[2];
+              s.setBaseAndExtent(host,backward?4:0,host,backward?0:4);
+              document.execCommand(command);
+              const fragment=s.getRangeAt(0).cloneContents();
+              check(fragment.querySelectorAll('img').length===1&&fragment.querySelectorAll('br').length===1,'atomic extent');
+              check(image.isConnected&&br.isConnected,'atomic identity');count++;
+              host.innerHTML='<img src="#"><br><span></span>';host.focus();
+              const original=Array.from(host.childNodes);
+              s.setBaseAndExtent(host,backward?3:0,host,backward?0:3);
+              document.execCommand(command);
+              const atoms=s.getRangeAt(0).cloneContents();
+              check(atoms.querySelectorAll('img').length===1&&atoms.querySelectorAll('br').length===1&&atoms.querySelectorAll('span').length===1&&original.every(n=>n.isConnected),'atomic-only endpoints');
+            }
+          }
+          return String(count);
+        })()"##).await.unwrap();
+        assert_eq!(result, "8");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn editing_typing_consumes_terminal_placeholders_and_keeps_visible_breaks() {
         let page = Browser::new().new_context().new_page();
         page.load_html(

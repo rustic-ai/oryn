@@ -1,5 +1,79 @@
 //! CSS-generated content is shaped by the ordinary native formatting engine.
 //! Its private paint IDs never acquire DOM identity or DOM selection offsets.
+#[cfg(test)]
+mod speech_publication_tests {
+    use super::*;
+
+    #[test]
+    fn empty_painted_pseudos_publish_isolated_counter_alternatives() {
+        let input = crate::tests::column_fixture(
+            r#"div{counter-reset:seq 0}p::before{counter-increment:seq;content:"" / counter(seq)}"#,
+            vec![
+                crate::tests::node(2, Some(1), "p", "label"),
+                crate::tests::node(3, Some(1), "p", "label"),
+            ],
+        );
+        let mut output = compute(&input, &LayoutLimits::default()).unwrap();
+        let generated = materialize(
+            &input,
+            output.computed_styles.clone(),
+            &output.pseudo_styles,
+        )
+        .unwrap();
+        // Geometry-free semantic publication is intentional: paint omission
+        // cannot erase a computed accessible alternate string.
+        output.generated_content.clear();
+        output.generated_nodes.clear();
+        output.geometry.clear();
+        finish(&generated, &mut output);
+        let before = output
+            .generated_content
+            .iter()
+            .filter(|item| item.pseudo == "before")
+            .map(|item| (item.owner, item.text.as_str(), item.alternative.as_deref()))
+            .collect::<Vec<_>>();
+        assert_eq!(before, vec![(2, "", Some("1")), (3, "", Some("2"))]);
+        assert!(output.generated_nodes.is_empty());
+    }
+
+    #[test]
+    fn empty_painted_counter_set_alternative_updates_after_stylesheet_mutation() {
+        let mut input = crate::tests::column_fixture(
+            r#"p::before{counter-set:cnt 5051;content:"" / counter(cnt)}"#,
+            vec![crate::tests::node(2, Some(1), "p", "label")],
+        );
+        for expected in ["5051", "228"] {
+            let output = compute(&input, &LayoutLimits::default()).unwrap();
+            assert!(output.generated_content.iter().any(|item| item.owner == 2
+                && item.pseudo == "before"
+                && item.alternative.as_deref() == Some(expected)));
+            input.stylesheets[0] =
+                r#"p::before{counter-set:cnt 228;content:"" / counter(cnt)}"#.into();
+        }
+    }
+
+    #[test]
+    fn display_none_owner_and_pseudo_do_not_publish_counter_alternatives() {
+        let input = crate::tests::column_fixture(
+            r#"p::before{content:"" / "visible"}p::after{display:none;content:"" / "not generated"}p.hidden{display:none}"#,
+            vec![crate::tests::node(2, Some(1), "p", "label"), {
+                let mut hidden = crate::tests::node(3, Some(1), "p", "Secret");
+                hidden.attributes.insert("class".into(), "hidden".into());
+                hidden
+            }],
+        );
+        let output = compute(&input, &LayoutLimits::default()).unwrap();
+        assert!(output.generated_content.iter().any(|item| item.owner == 2
+            && item.pseudo == "before"
+            && item.alternative.as_deref() == Some("visible")));
+        assert!(
+            !output
+                .generated_content
+                .iter()
+                .any(|item| item.owner == 3 || item.pseudo == "after")
+        );
+    }
+}
 use super::*;
 use oryn_common::v4::{GeneratedContent, PaintNodeSnapshot};
 pub(super) struct Materialized {
@@ -766,11 +840,16 @@ pub(super) fn materialize_for_media(
                 node.text.clear();
                 node.content = Some(content);
             }
+            // Speech-only replacements form a separate accessible text run;
+            // ordinary inline painted content still concatenates faithfully.
+            let speech_only =
+                text.is_empty() && alternative.as_ref().is_some_and(|value| !value.is_empty());
             let separates_text = matches!(name, "before" | "after")
-                && !matches!(
-                    style_value(&style, "display", "inline"),
-                    "inline" | "contents" | "none"
-                );
+                && (speech_only
+                    || !matches!(
+                        style_value(&style, "display", "inline"),
+                        "inline" | "contents" | "none"
+                    ));
             styles.insert(generated, style);
             entries.insert(
                 generated,
@@ -902,6 +981,12 @@ pub(super) fn finish(generated: &Materialized, output: &mut LayoutOutput) {
         &mut output.css_image_requests,
     );
     for (id, entry) in generated.entries.iter().rev() {
+        // Accessible alternate content is a computed pseudo value, not a
+        // paint fragment. Empty painted strings can carry nonempty speech
+        // counters, and must remain visible to native name consumers.
+        if matches!(entry.pseudo.as_str(), "before" | "after" | "marker") {
+            output.generated_content.push(entry.clone());
+        }
         let Some(geometry) = output.geometry.get(id).cloned() else {
             continue;
         };
@@ -929,9 +1014,6 @@ pub(super) fn finish(generated: &Materialized, output: &mut LayoutOutput) {
             text: output.text_fragments.get(id).cloned().unwrap_or_default(),
             image_resource: None,
         });
-        if matches!(entry.pseudo.as_str(), "before" | "after" | "marker") {
-            output.generated_content.push(entry.clone());
-        }
         output.text_clusters.remove(id);
         if let Some(url) = generated.images.get(id) {
             // This private replaced box is a CSS resource consumer even when

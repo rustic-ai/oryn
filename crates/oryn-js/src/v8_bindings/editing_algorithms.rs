@@ -52,11 +52,112 @@ pub(super) async fn apply_block_command_at_boundary(
                 .iter()
                 .all(|child| element_local_name(&state.dom.borrow(), *child) == Some("li"))
             {
+                let revision = state.selection_revision.get();
+                let backward = state.selection_backward.get();
+                let selected = list_node
+                    == state
+                        .selection_anchor
+                        .get()
+                        .map(|point| point.container)
+                        .unwrap_or(host);
+                let first = *children
+                    .first()
+                    .ok_or(V8BindingError::Allocation("list start"))?;
+                let last = *children
+                    .last()
+                    .ok_or(V8BindingError::Allocation("list end"))?;
+                context.lease(first)?;
+                context.lease(last)?;
+                let empty_start = boundary_length(&state.dom.borrow(), first)? == 0;
+                let empty_end = boundary_length(&state.dom.borrow(), last)? == 0;
+                let endpoint = |first: bool| -> Result<RangeRecord, V8BindingError> {
+                    let dom = state.dom.borrow();
+                    let node = if first {
+                        children.first()
+                    } else {
+                        children.last()
+                    }
+                    .copied()
+                    .ok_or(V8BindingError::Allocation("list fragment endpoint"))?;
+                    let offset = if first {
+                        0
+                    } else {
+                        boundary_length(&dom, node)?
+                    };
+                    Ok(RangeRecord {
+                        start_container: node,
+                        start_offset: offset,
+                        end_container: node,
+                        end_offset: offset,
+                    })
+                };
+                let start = context.marker(endpoint(true)?)?;
+                let end = context.marker(endpoint(false)?)?;
                 let item = state.dom.borrow_mut().create_element("li");
                 for child in children {
-                    context.append(item, child, None).await?;
+                    context
+                        .append_with_endpoint_markers(item, child, &[&start, &end])
+                        .await?;
                 }
-                context.append(list_node, item, None).await?;
+                context
+                    .append_with_endpoint_markers(list_node, item, &[&start, &end])
+                    .await?;
+                if selected && state.selection_revision.get() == revision {
+                    let start = start.range()?;
+                    let end = end.range()?;
+                    context.lease(first)?;
+                    context.lease(last)?;
+                    let a = if empty_start {
+                        let (container, offset) =
+                            relative_boundary(&state.dom.borrow(), first, false)?;
+                        BoundaryPoint { container, offset }
+                    } else {
+                        BoundaryPoint {
+                            container: start.start_container,
+                            offset: start.start_offset,
+                        }
+                    };
+                    let b = if empty_end {
+                        let (container, offset) =
+                            relative_boundary(&state.dom.borrow(), last, true)?;
+                        BoundaryPoint { container, offset }
+                    } else {
+                        BoundaryPoint {
+                            container: end.start_container,
+                            offset: end.start_offset,
+                        }
+                    };
+                    context.lease(a.container)?;
+                    context.lease(b.container)?;
+                    let dom = state.dom.borrow();
+                    if dom.is_connected(a.container)?
+                        && dom.is_connected(b.container)?
+                        && editing_host_for_node(
+                            &dom,
+                            Some(a.container),
+                            state.design_mode_enabled(),
+                            state.document_root(),
+                        )? == Some(host)
+                        && editing_host_for_node(
+                            &dom,
+                            Some(b.container),
+                            state.design_mode_enabled(),
+                            state.document_root(),
+                        )? == Some(host)
+                        && compare_boundary_points(
+                            &dom,
+                            (a.container, a.offset),
+                            (b.container, b.offset),
+                        )? <= 0
+                    {
+                        drop(dom);
+                        set_selection_boundaries(
+                            state,
+                            if backward { b } else { a },
+                            if backward { a } else { b },
+                        )?;
+                    }
+                }
             }
         }
         "formatblock" => {
@@ -426,6 +527,9 @@ pub(super) async fn insert_editing_element(
     attributes: &[(&str, &str)],
 ) -> Result<NodeId, V8BindingError> {
     let state: &V8BindingState = &context.state;
+    let selection_revision = state.selection_revision.get();
+    let backward = state.selection_backward.get();
+    let original_host = editing_host(state)?;
     let id = state
         .selection_range
         .get()
@@ -458,17 +562,37 @@ pub(super) async fn insert_editing_element(
         .insert_at_boundary(insertion.start_container, insertion.start_offset, element)
         .await?;
     let end = light_children(&state.dom.borrow(), element)?.len() as u32;
-    set_selection_boundaries(
-        state,
-        BoundaryPoint {
-            container: element,
-            offset: 0,
-        },
-        BoundaryPoint {
-            container: element,
-            offset: end,
-        },
-    )?;
+    // A callback-authored selection supersedes the command's original extent.
+    // Without such a change retain the source selection's direction.
+    if state.selection_revision.get() == selection_revision {
+        context.lease(element)?;
+        let valid = {
+            let dom = state.dom.borrow();
+            dom.is_connected(element)?
+                && original_host.is_some()
+                && editing_host_for_node(
+                    &dom,
+                    Some(element),
+                    state.design_mode_enabled(),
+                    state.document_root(),
+                )? == original_host
+        };
+        if valid {
+            let start = BoundaryPoint {
+                container: element,
+                offset: 0,
+            };
+            let end = BoundaryPoint {
+                container: element,
+                offset: end,
+            };
+            set_selection_boundaries(
+                state,
+                if backward { end } else { start },
+                if backward { start } else { end },
+            )?;
+        }
+    }
     Ok(element)
 }
 
@@ -1258,6 +1382,11 @@ pub(super) async fn replace_selection_with_text(
     replacement: &str,
 ) -> Result<(), V8BindingError> {
     let state: &V8BindingState = &context.state;
+    // Layout callbacks may retarget selection. Capture its authority only
+    // after the existing native provider has published rendered block styles.
+    if !replacement.is_empty() {
+        refresh_layout(state)?;
+    }
     let id = state
         .selection_range
         .get()
@@ -1329,6 +1458,86 @@ pub(super) async fn replace_selection_with_text(
         },
     };
     if !replacement.is_empty() {
+        // A container boundary beside existing text is the same insertion
+        // position. Reuse that source, rather than creating adjacent Text nodes.
+        let adjacent = {
+            let dom = state.dom.borrow();
+            if matches!(
+                dom.arena().get(point.container)?.kind,
+                NodeKind::Element { .. }
+            ) {
+                let children = light_children(&dom, point.container)?;
+                let index = usize::try_from(point.offset)
+                    .map_err(|_| V8BindingError::Allocation("editing boundary index"))?;
+                let host = editing_host_for_node(
+                    &dom,
+                    Some(point.container),
+                    state.design_mode_enabled(),
+                    state.document_root(),
+                )?;
+                if let Some(host) = host {
+                    let layout = state.layout.borrow();
+                    let block = nearest_rendered_editing_block_in_layout(
+                        &dom,
+                        &layout,
+                        point.container,
+                        host,
+                    )?;
+                    let eligible = |node: NodeId| -> Result<bool, V8BindingError> {
+                        Ok(matches!(dom.arena().get(node)?.kind, NodeKind::Text { .. })
+                            && editing_host_for_node(
+                                &dom,
+                                Some(node),
+                                state.design_mode_enabled(),
+                                state.document_root(),
+                            )? == Some(host)
+                            && nearest_rendered_editing_block_in_layout(&dom, &layout, node, host)?
+                                == block)
+                    };
+                    // The native command prefers the preceding Text. Read its
+                    // UTF-16 length only after confirming eligibility.
+                    if let Some(node) = index
+                        .checked_sub(1)
+                        .and_then(|index| children.get(index))
+                        .copied()
+                        .filter(|node| {
+                            matches!(
+                                dom.arena().get(*node).map(|record| &record.kind),
+                                Ok(NodeKind::Text { .. })
+                            )
+                        })
+                    {
+                        if eligible(node)? {
+                            Some(BoundaryPoint {
+                                container: node,
+                                offset: boundary_length(&dom, node)?,
+                            })
+                        } else {
+                            None
+                        }
+                    } else if let Some(node) = children.get(index).copied() {
+                        if eligible(node)? {
+                            Some(BoundaryPoint {
+                                container: node,
+                                offset: 0,
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+        if let Some(adjacent) = adjacent {
+            context.lease(adjacent.container)?;
+            point = adjacent;
+        }
         let kind = state
             .dom
             .borrow()

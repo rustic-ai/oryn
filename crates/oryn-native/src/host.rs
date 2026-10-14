@@ -1034,6 +1034,18 @@ mod raw_v8 {
     type ModuleResponseRevisions = (Rc<std::cell::Cell<u64>>, Rc<std::cell::Cell<u64>>);
 
     #[cfg(unix)]
+    enum OrderedIdbRequest {
+        Legacy(PlatformHostRequest),
+        Owned {
+            origin: String,
+            admission: oryn_js::idb_owned_admission::PreparedAdmission,
+        },
+    }
+
+    // No Clone implementation: an owned admission has one physical allocation
+    // owner across enqueue, execution, response and terminal drop.
+
+    #[cfg(unix)]
     struct ContextPlatformHost {
         binding: Option<std::rc::Weak<V8BindingState>>,
         retired: Arc<AtomicBool>,
@@ -1050,7 +1062,7 @@ mod raw_v8 {
         >,
         idb_sender: mpsc::Sender<(
             HostOperationId,
-            PlatformHostRequest,
+            OrderedIdbRequest,
             Option<oryn_js::worker_wire::Creator>,
         )>,
         cancellable_http_starts: Arc<Mutex<CancellableHttpStarts>>,
@@ -1076,14 +1088,33 @@ mod raw_v8 {
                         if idb_retired.load(Ordering::Acquire) {
                             break;
                         }
-                        let result = execute_platform_request(
-                            &idb_context,
-                            operation_id,
-                            request,
-                            creator,
-                            None,
-                            None,
-                        );
+                        let result = match request {
+                            OrderedIdbRequest::Legacy(request) => execute_platform_request(
+                                &idb_context,
+                                operation_id,
+                                request,
+                                creator,
+                                None,
+                                None,
+                            ),
+                            OrderedIdbRequest::Owned { origin, admission } => {
+                                let (command, custody) = admission.into_command();
+                                // Custody covers the actual moved DTO throughout
+                                // the synchronous parent request, including errors.
+                                // Cancellation may discard delivery, never release
+                                // this allocation while physical work still owns it.
+                                let result = execute_platform_request(
+                                    &idb_context,
+                                    operation_id,
+                                    PlatformHostRequest::IndexedDb { origin, command },
+                                    creator,
+                                    None,
+                                    None,
+                                );
+                                drop(custody);
+                                result
+                            }
+                        };
                         if idb_retired.load(Ordering::Acquire) {
                             break;
                         }
@@ -1119,6 +1150,41 @@ mod raw_v8 {
 
     #[cfg(unix)]
     impl PlatformHost for ContextPlatformHost {
+        fn submit_owned_idb_admission(
+            &self,
+            operation_id: HostOperationId,
+            origin: String,
+            admission: oryn_js::idb_owned_admission::PreparedAdmission,
+        ) -> Result<(), oryn_js::platform::OwnedIdbSubmitError> {
+            if self.retired.load(Ordering::Acquire) {
+                return Err(oryn_js::platform::OwnedIdbSubmitError::Failure(
+                    "execution environment is retired".into(),
+                ));
+            }
+            let creator = self
+                .binding
+                .as_ref()
+                .and_then(std::rc::Weak::upgrade)
+                .map(|state| {
+                    state
+                        .native_worker_creator()
+                        .map_err(|error| error.to_string())
+                })
+                .transpose()
+                .map_err(oryn_js::platform::OwnedIdbSubmitError::Failure)?;
+            self.idb_sender
+                .send((
+                    operation_id,
+                    OrderedIdbRequest::Owned { origin, admission },
+                    creator,
+                ))
+                .map_err(|_| {
+                    oryn_js::platform::OwnedIdbSubmitError::Failure(
+                        "IndexedDB platform service is unavailable".to_string(),
+                    )
+                })
+        }
+
         fn submit(
             &self,
             operation_id: HostOperationId,
@@ -1140,7 +1206,7 @@ mod raw_v8 {
             if matches!(request, PlatformHostRequest::IndexedDb { .. }) {
                 return self
                     .idb_sender
-                    .send((operation_id, request, creator))
+                    .send((operation_id, OrderedIdbRequest::Legacy(request), creator))
                     .map_err(|_| "IndexedDB platform service is unavailable".to_string());
             }
             let context = self.context.clone();
@@ -15189,6 +15255,86 @@ mod raw_v8 {
         Ok(stream_request)
     }
 
+    /// Move parent-owned payloads without a temporary JSON transport tree.
+    fn binding_idb_response(response: crate::storage::IdbResponse) -> IdbHostResponse {
+        IdbHostResponse {
+            transaction_blocked: response.transaction_blocked,
+            connection_blocked: response.connection_blocked,
+            connection_managed: response.connection_managed,
+            connection_events: response.connection_events,
+            databases: response
+                .databases
+                .into_iter()
+                .map(|database| oryn_js::platform::IdbDatabaseInfo {
+                    name: database.name,
+                    version: database.version,
+                })
+                .collect(),
+            version: response.version,
+            old_version: response.old_version,
+            upgrade_needed: response.upgrade_needed,
+            object_stores: response.object_stores,
+            object_store_definitions: response
+                .object_store_definitions
+                .into_iter()
+                .map(|store| oryn_js::platform::IdbObjectStoreDefinition {
+                    name: store.name,
+                    key_path: store.key_path,
+                    auto_increment: store.auto_increment,
+                    indexes: store
+                        .indexes
+                        .into_iter()
+                        .map(|index| oryn_js::platform::IdbIndexDefinition {
+                            name: index.name,
+                            key_path: index.key_path,
+                            unique: index.unique,
+                            multi_entry: index.multi_entry,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            key: response.key,
+            value: response.value,
+            value_present: response.value_present,
+            values: response.values,
+            records: response
+                .records
+                .into_iter()
+                .map(|record| oryn_js::platform::IdbHostRecord {
+                    key: record.key,
+                    primary_key: record.primary_key,
+                    value: record.value,
+                })
+                .collect(),
+            count: response.count,
+        }
+    }
+
+    #[cfg(unix)]
+    fn parent_idb_command(
+        command: oryn_js::platform::IdbHostCommand,
+    ) -> Result<crate::storage::IdbCommand, String> {
+        match command {
+            oryn_js::platform::IdbHostCommand::BeginTransaction {
+                token,
+                database,
+                scope,
+                mode,
+                connection,
+            } => Ok(crate::storage::IdbCommand::BeginTransaction {
+                token,
+                database,
+                scope,
+                mode,
+                connection,
+            }),
+            command => serde_json::from_value(
+                serde_json::to_value(command).map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string()),
+        }
+    }
+
     #[cfg(unix)]
     fn execute_platform_request(
         state: &ContextState,
@@ -15461,10 +15607,7 @@ mod raw_v8 {
                 _ => Err("context service returned an invalid WebSocket close response".into()),
             },
             PlatformHostRequest::IndexedDb { origin, command } => {
-                let command: crate::storage::IdbCommand = serde_json::from_value(
-                    serde_json::to_value(command).map_err(|error| error.to_string())?,
-                )
-                .map_err(|error| error.to_string())?;
+                let command = parent_idb_command(command)?;
                 match state
                     .client
                     .request(ContextServiceRequest::Storage {
@@ -15475,12 +15618,9 @@ mod raw_v8 {
                 {
                     ContextServiceResponse::Storage { response } => match *response {
                         crate::storage::StorageResponse::IndexedDb { response } => {
-                            let response: IdbHostResponse = serde_json::from_value(
-                                serde_json::to_value(response)
-                                    .map_err(|error| error.to_string())?,
-                            )
-                            .map_err(|error| error.to_string())?;
-                            Ok(PlatformHostResult::IndexedDb { response })
+                            Ok(PlatformHostResult::IndexedDb {
+                                response: binding_idb_response(response),
+                            })
                         }
                         _ => {
                             Err("context service returned a non-IndexedDB storage response".into())
@@ -16547,6 +16687,155 @@ mod raw_v8 {
     }
     #[cfg(test)]
     mod native_context_tests {
+        #[test]
+        fn native_idb_response_moves_payload_and_preserves_wire_semantics() {
+            let mut response = crate::storage::IdbResponse::default();
+            assert_eq!(
+                serde_json::to_value(super::binding_idb_response(response.clone())).unwrap(),
+                serde_json::to_value(&response).unwrap()
+            );
+            response.databases = vec![crate::storage::DatabaseInfo {
+                name: "database".into(),
+                version: 3,
+            }];
+            response.connection_events = vec![oryn_js::platform::IdbConnectionEvent {
+                event: 9,
+                old_version: 2,
+                new_version: None,
+            }];
+            response.connection_managed = true;
+            response.version = Some(3);
+            response.old_version = Some(2);
+            response.value = Some(serde_json::json!(["payload", null, 7]));
+            response.value_present = true;
+            response.values = vec![serde_json::json!({"nested":[1,2,3]})];
+            response.records = vec![crate::storage::IdbRecord {
+                key: serde_json::json!(1),
+                primary_key: serde_json::json!(2),
+                value: serde_json::json!(["record", 9]),
+            }];
+            response.object_store_definitions = vec![crate::storage::ObjectStoreDefinition {
+                name: "store".into(),
+                key_path: Some("key".into()),
+                auto_increment: true,
+                indexes: vec![crate::storage::IndexDefinition {
+                    name: "index".into(),
+                    key_path: "keys".into(),
+                    unique: false,
+                    multi_entry: true,
+                }],
+            }];
+            let value = response
+                .value
+                .as_ref()
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .as_ptr();
+            let values = response.values.as_ptr();
+            let record = response.records[0].value.as_array().unwrap().as_ptr();
+            let expected = serde_json::to_value(&response).unwrap();
+            let result = super::binding_idb_response(response);
+            assert_eq!(serde_json::to_value(&result).unwrap(), expected);
+            assert_eq!(
+                result.value.as_ref().unwrap().as_array().unwrap().as_ptr(),
+                value
+            );
+            assert_eq!(result.values.as_ptr(), values);
+            assert_eq!(result.records[0].value.as_array().unwrap().as_ptr(), record);
+        }
+        #[cfg(unix)]
+        use super::{OrderedIdbRequest, parent_idb_command};
+        #[cfg(unix)]
+        use oryn_js::platform::IdbHostCommand;
+        #[cfg(unix)]
+        use std::sync::{Arc, mpsc};
+        #[cfg(unix)]
+        fn owned_idb_fixture(
+            ledger: &Arc<oryn_js::idb_owned_admission::Ledger>,
+        ) -> OrderedIdbRequest {
+            use oryn_js::idb_owned_admission::{Admission, Scope};
+            let source = vec!["one".to_owned(), "two".to_owned()];
+            let scope = Scope::copy_names(ledger, &source, 1024 * 1024, 0).unwrap();
+            let retained =
+                Admission::new("token".into(), "db".into(), scope, "readonly".into(), None);
+            let admission = retained.prepare(ledger, 1024 * 1024, 0).unwrap();
+            drop(retained);
+            OrderedIdbRequest::Owned {
+                origin: "https://fixture.invalid".into(),
+                admission,
+            }
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn owned_idb_disconnected_channel_releases_actual_payload_once() {
+            use oryn_js::idb_owned_admission::Ledger;
+            let ledger = Arc::new(Ledger::default());
+            let request = owned_idb_fixture(&ledger);
+            assert!(ledger.live_bytes() > 0);
+            let (sender, receiver) = mpsc::channel::<OrderedIdbRequest>();
+            drop(receiver);
+            let failed = sender.send(request).unwrap_err();
+            // SendError still owns the actual Vec/String and its leases.
+            assert!(ledger.live_bytes() > 0);
+            drop(failed);
+            assert_eq!(ledger.live_bytes(), 0);
+            drop(sender);
+            assert_eq!(ledger.live_bytes(), 0);
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn owned_idb_queued_retirement_drops_each_physical_attempt() {
+            use oryn_js::idb_owned_admission::Ledger;
+            let ledger = Arc::new(Ledger::default());
+            let (sender, receiver) = mpsc::channel::<OrderedIdbRequest>();
+            let first = owned_idb_fixture(&ledger);
+            let one = ledger.live_bytes();
+            sender
+                .send(first)
+                .unwrap_or_else(|_| panic!("queue disconnected"));
+            sender
+                .send(owned_idb_fixture(&ledger))
+                .unwrap_or_else(|_| panic!("queue disconnected"));
+            assert_eq!(ledger.live_bytes(), one * 2);
+            // Mirrors exiting the ordered worker and dropping its receiver;
+            // it does not assert retirement immediately cancels parent IO.
+            drop(receiver);
+            assert_eq!(ledger.live_bytes(), 0);
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn owned_idb_transfer_keeps_custody_until_payload_is_destroyed() {
+            use oryn_js::idb_owned_admission::Ledger;
+            let ledger = Arc::new(Ledger::default());
+            let OrderedIdbRequest::Owned { admission, .. } = owned_idb_fixture(&ledger) else {
+                panic!("wrong request variant")
+            };
+            let charged = ledger.live_bytes();
+            let (command, custody) = admission.into_command();
+            assert_eq!(ledger.live_bytes(), charged);
+            let IdbHostCommand::BeginTransaction { scope, .. } = &command else {
+                panic!("wrong command variant")
+            };
+            let vector = scope.as_ptr();
+            let text = scope[0].as_ptr();
+            let command = parent_idb_command(command).unwrap();
+            let crate::storage::IdbCommand::BeginTransaction { scope, .. } = &command else {
+                panic!("wrong parent variant")
+            };
+            assert_eq!(scope.as_ptr(), vector);
+            assert_eq!(scope[0].as_ptr(), text);
+            assert_eq!(ledger.live_bytes(), charged);
+            drop(command);
+            // Payload is physically gone; guard follows, never precedes it.
+            assert_eq!(ledger.live_bytes(), charged);
+            drop(custody);
+            assert_eq!(ledger.live_bytes(), 0);
+        }
+
         #[test]
         fn preparation_capacity_mapping_uses_provenance_not_matching_message() {
             use oryn_js::v8_bindings::V8BindingError;

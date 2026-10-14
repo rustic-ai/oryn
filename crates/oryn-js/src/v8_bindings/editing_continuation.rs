@@ -66,6 +66,10 @@ enum Operation {
         node: oryn_dom::TrackedNodeLease,
         ranges: Option<RetainedRanges>,
     },
+    RemoveWithMarkers {
+        node: oryn_dom::TrackedNodeLease,
+        markers: Vec<oryn_dom::LiveRangeId>,
+    },
     Append {
         parent: oryn_dom::TrackedNodeLease,
         node: oryn_dom::TrackedNodeLease,
@@ -142,6 +146,42 @@ impl Context {
         self.clones.borrow_mut().push(job.clone());
         self.state.range_clone_completions.borrow_mut().push(job);
         Ok(())
+    }
+
+    pub(super) async fn append_with_endpoint_markers(
+        &self,
+        parent: NodeId,
+        node: NodeId,
+        markers: &[&Marker],
+    ) -> Result<(), V8BindingError> {
+        self.lease(parent)?;
+        let lease = self.lease(node)?;
+        let updates = {
+            let dom = self.state.dom.borrow();
+            let mut updates = Vec::new();
+            updates
+                .try_reserve_exact(markers.len())
+                .map_err(|_| V8BindingError::Allocation("editing endpoint markers"))?;
+            for marker in markers {
+                let range = dom.live_range(marker.id)?;
+                if range.start != range.end {
+                    return Err(V8BindingError::Allocation("noncollapsed command endpoint"));
+                }
+                updates.push(marker.id);
+            }
+            updates
+        };
+        if self.state.dom.borrow().parent(node)?.is_some() {
+            self.request(Operation::RemoveWithMarkers {
+                node: lease,
+                markers: updates,
+            })
+            .await?;
+        }
+        // The independent collapsed markers remain rooted in the removed
+        // subtree before author callbacks. Text mutation and adoption then use
+        // ordinary native journals; no JS/external Range is restored.
+        self.append(parent, node, None).await
     }
 
     pub(super) fn marker(&self, range: RangeRecord) -> Result<Marker, V8BindingError> {
@@ -1096,6 +1136,7 @@ impl Continuation {
             | Operation::Text { node, .. }
             | Operation::Split { node, .. }
             | Operation::Remove { node, .. }
+            | Operation::RemoveWithMarkers { node, .. }
             | Operation::Append { node, .. } => {
                 let node = self.resolve(node)?;
                 if self.context.admitted.borrow().contains(&node) {
@@ -1144,7 +1185,7 @@ impl Continuation {
             Operation::Split { node, .. } | Operation::Text { node, .. } => Preparation::Parent(
                 script_children_changed::character_data(scope, state, self.resolve(node)?)?,
             ),
-            Operation::Remove { node, .. } => {
+            Operation::Remove { node, .. } | Operation::RemoveWithMarkers { node, .. } => {
                 let node = self.resolve(node)?;
                 let parent = state.dom.borrow().parent(node)?;
                 Preparation::Parent(script_children_changed::parent_change(
@@ -1188,6 +1229,7 @@ impl Continuation {
             | Operation::Text { node, .. }
             | Operation::Split { node, .. }
             | Operation::Remove { node, .. }
+            | Operation::RemoveWithMarkers { node, .. }
             | Operation::Append { node, .. } => {
                 self.context
                     .admitted
@@ -1270,6 +1312,37 @@ impl Continuation {
                     *output.borrow_mut() = Some(state.ranges.borrow().clone());
                 }
             }
+            Operation::RemoveWithMarkers { node, markers } => {
+                let node = self.resolve(node)?;
+                let retained = {
+                    let dom = state.dom.borrow();
+                    let subtree = dom.arena().descendants_inclusive(node)?;
+                    let mut retained = Vec::new();
+                    retained
+                        .try_reserve_exact(markers.len())
+                        .map_err(|_| V8BindingError::Allocation("editing endpoint markers"))?;
+                    for id in markers {
+                        let range = dom.live_range(*id)?;
+                        if range.start != range.end {
+                            return Err(V8BindingError::Allocation(
+                                "noncollapsed command endpoint",
+                            ));
+                        }
+                        let point = range.start;
+                        if subtree.contains(&point.container) {
+                            retained.push((*id, point));
+                        }
+                    }
+                    retained
+                };
+                state.dom.borrow_mut().remove(node)?;
+                // Restore only independent command endpoint markers before
+                // author work resumes, never the ordinary Selection/Range.
+                for (id, point) in retained {
+                    state.dom.borrow_mut().set_live_range(id, point, point)?;
+                }
+                synchronize_live_ranges(state)?;
+            }
             Operation::Append {
                 parent,
                 node,
@@ -1332,6 +1405,194 @@ mod tests {
     fn eval(scope: &mut v8::PinScope, code: &str) -> bool {
         super::super::test_eval::eval(scope, code).is_true()
     }
+    #[test]
+    fn list_endpoint_markers_exclude_callback_added_content_and_leave_external_ranges_ordinary() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let realm = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, realm);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse(
+                "<body><main id=host contenteditable><div id=target></div></main></body>",
+            )
+            .into_runtime()
+            .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, realm, dom, RealmId(0), 1).unwrap();
+        assert!(eval(
+            scope,
+            r#"
+          globalThis.host=document.getElementById('host');globalThis.target=document.getElementById('target');
+          globalThis.script=document.createElement('script');script.type='text/plain';
+          globalThis.moving=document.createTextNode('x');
+          script.append(moving,document.createTextNode("target.append(document.createTextNode('author'))"));
+          host.append(script);script.type='text/javascript';
+          globalThis.external=document.createRange();external.selectNodeContents(moving);
+          const selected=document.createRange();selected.selectNodeContents(moving);
+          getSelection().removeAllRanges();getSelection().addRange(selected);true
+        "#
+        ));
+        let (node, target) = {
+            let dom = state.dom.borrow();
+            let script = dom
+                .arena()
+                .get(dom.find_by_id("host").unwrap())
+                .unwrap()
+                .children[1];
+            (
+                dom.arena().get(script).unwrap().children[0],
+                dom.find_by_id("target").unwrap(),
+            )
+        };
+        let owner = state.clone();
+        let mut job = Continuation::new(state.clone(), "endpointMove".into(), move |context| {
+            Box::pin(async move {
+                let start = context.marker(RangeRecord {
+                    start_container: node,
+                    start_offset: 0,
+                    end_container: node,
+                    end_offset: 0,
+                })?;
+                let end = context.marker(RangeRecord {
+                    start_container: node,
+                    start_offset: 1,
+                    end_container: node,
+                    end_offset: 1,
+                })?;
+                context
+                    .append_with_endpoint_markers(target, node, &[&start, &end])
+                    .await?;
+                let a = start.range()?;
+                let b = end.range()?;
+                set_selection_boundaries(
+                    &owner,
+                    BoundaryPoint {
+                        container: a.start_container,
+                        offset: a.start_offset,
+                    },
+                    BoundaryPoint {
+                        container: b.start_container,
+                        offset: b.start_offset,
+                    },
+                )?;
+                Ok(())
+            })
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(job.poll(scope).unwrap(), Some(true));
+        assert!(eval(
+            scope,
+            "target.textContent==='authorx'&&getSelection().toString()==='x'&&external.toString()===''&&moving.parentNode===target"
+        ));
+    }
+
+    #[test]
+    fn list_endpoint_markers_respect_author_retarget_and_foreign_adoption() {
+        super::super::tests::initialize_v8();
+        for adopt in [false, true] {
+            let mut isolate = v8::Isolate::new(Default::default());
+            v8::scope!(let scope,&mut isolate);
+            let realm = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, realm);
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse(
+                    "<body><main id=host contenteditable><div id=target>B</div></main></body>",
+                )
+                .into_runtime()
+                .unwrap(),
+            ));
+            let state = install_generated_bindings(scope, realm, dom, RealmId(0), 1).unwrap();
+            assert!(eval(
+                scope,
+                &format!(
+                    r#"
+                globalThis.host=document.getElementById('host');globalThis.target=document.getElementById('target');
+                globalThis.foreign=document.implementation.createHTMLDocument();
+                globalThis.script=document.createElement('script');script.type='text/plain';
+                globalThis.moving=document.createTextNode('x');
+                script.append(moving,document.createTextNode({callback:?}));host.append(script);script.type='text/javascript';
+                const selected=document.createRange();selected.selectNodeContents(moving);
+                getSelection().removeAllRanges();getSelection().addRange(selected);true
+            "#,
+                    callback = if adopt {
+                        "foreign.body.append(foreign.adoptNode(moving))"
+                    } else {
+                        "getSelection().collapse(target.firstChild,1)"
+                    }
+                )
+            ));
+            let (node, target) = {
+                let dom = state.dom.borrow();
+                let script = dom
+                    .arena()
+                    .get(dom.find_by_id("host").unwrap())
+                    .unwrap()
+                    .children[1];
+                (
+                    dom.arena().get(script).unwrap().children[0],
+                    dom.find_by_id("target").unwrap(),
+                )
+            };
+            let owner = state.clone();
+            let mut job =
+                Continuation::new(state.clone(), "endpointAuthority".into(), move |context| {
+                    Box::pin(async move {
+                        let revision = owner.selection_revision.get();
+                        let start = context.marker(RangeRecord {
+                            start_container: node,
+                            start_offset: 0,
+                            end_container: node,
+                            end_offset: 0,
+                        })?;
+                        let end = context.marker(RangeRecord {
+                            start_container: node,
+                            start_offset: 1,
+                            end_container: node,
+                            end_offset: 1,
+                        })?;
+                        context
+                            .append_with_endpoint_markers(target, node, &[&start, &end])
+                            .await?;
+                        if owner.selection_revision.get() == revision {
+                            let a = start.range()?;
+                            let b = end.range()?;
+                            set_selection_boundaries(
+                                &owner,
+                                BoundaryPoint {
+                                    container: a.start_container,
+                                    offset: a.start_offset,
+                                },
+                                BoundaryPoint {
+                                    container: b.start_container,
+                                    offset: b.start_offset,
+                                },
+                            )?;
+                        }
+                        Ok(())
+                    })
+                })
+                .unwrap()
+                .unwrap();
+            if adopt {
+                assert!(
+                    matches!(job.poll(scope),Err(V8BindingError::Unsupported{member,..})if member=="AbortError")
+                );
+                assert!(eval(
+                    scope,
+                    "moving.ownerDocument===foreign&&moving.parentNode===foreign.body&&moving.data==='x'&&target.textContent==='B'"
+                ));
+            } else {
+                assert_eq!(job.poll(scope).unwrap(), Some(true));
+                assert!(eval(
+                    scope,
+                    "moving.parentNode===target&&getSelection().anchorNode===target.firstChild&&getSelection().anchorOffset===1&&getSelection().isCollapsed"
+                ));
+            }
+        }
+    }
+
     #[test]
     fn mutation_retry_and_undo_preserve_author_boundary_effects() {
         super::super::tests::initialize_v8();
