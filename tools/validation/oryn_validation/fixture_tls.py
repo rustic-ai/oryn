@@ -64,7 +64,7 @@ def bootstrap_inputs(path,digest):
             'store_root':Path(store),'bundle_root':Path(bundle)}
 
 
-def load_contract(path,digest,bound=None):
+def load_contract(path,digest,bound=None,*,executing_bootstrap=True):
     """Resolve one explicit current policy; no generation or historical graph."""
     from .admission import read_object
     if bound is None:
@@ -79,7 +79,10 @@ def load_contract(path,digest,bound=None):
             or set(value['modules'])!={'wptserve.server','wptrunner.environment'}
             or value['bootstrap_inputs']!=['fixture_tls_module','fixture_tls_bootstrap']):
         raise ValueError('unsupported typed fixture TLS policy')
-    if record(sys.executable)['sha256']!=record(assets['python'])['sha256']:
+    python=record(assets['python'])
+    if python['sha256']!=run['assets']['python']['sha256']:
+        raise ValueError('fixture admitted interpreter changed')
+    if executing_bootstrap and record(sys.executable)['sha256']!=python['sha256']:
         raise ValueError('fixture bootstrap interpreter differs')
     registry=read_object(assets['core_profile_registry'])
     fixture_path=assets[registry['profiles'][run['profile']]['fixture']]
@@ -99,10 +102,10 @@ def load_contract(path,digest,bound=None):
             or assets['fixture_tls_bootstrap']!=ROOT/'tools/validation/bootstrap/sitecustomize.py'):
         raise ValueError('fixture bootstrap code differs from committed runner source')
     receipt_inputs={name:run['assets'][asset] for name,asset in {
-        'contract':'fixture_tls_policy','server_module':value['modules']['wptserve.server'],
+        'python':'python','contract':'fixture_tls_policy','server_module':value['modules']['wptserve.server'],
         'response_module':value['response_module'],'certificate':value['certificate'],
         'bootstrap_module':'fixture_tls_module','bootstrap_site':'fixture_tls_bootstrap'}.items()}
-    return dict(value, receipt_inputs=receipt_inputs, modules=modules, certificate=record(assets[value['certificate']]),
+    return dict(value, python=python, receipt_inputs=receipt_inputs, modules=modules, certificate=record(assets[value['certificate']]),
                 **{key:record(assets[value[key]]) for key in ('response_module','handlers_module','pipes_module')},
                 bootstrap_inputs=[record(assets[name]) for name in value['bootstrap_inputs']],
                 bootstrap_directory=str(ROOT/'tools/validation/bootstrap'))
@@ -122,7 +125,7 @@ def prepare_environment(base,contract_path,digest,receipt_dir):
     return env
 
 def verify_receipts(directory,contract_path,digest,expected_ports,require_live=True,expected_processes=None,bound=None):
-    value=load_contract(contract_path,digest,bound=bound);found={}
+    value=load_contract(contract_path,digest,bound=bound,executing_bootstrap=require_live);found={}
     # Startup listens before __init__ has published its receipt. Wait only for
     # missing expected ports; malformed, duplicate or mismatched receipts fail.
     deadline=time.monotonic()+10
@@ -133,9 +136,9 @@ def verify_receipts(directory,contract_path,digest,expected_ports,require_live=T
         time.sleep(.05)
     for path in sorted(Path(directory).glob('server-*.json')):
         receipt=json.loads(path.read_text())
-        if receipt.get('schema_version')!=2 or receipt.get('input_identities')!=value['receipt_inputs']:
+        if receipt.get('schema_version')!=3 or receipt.get('input_identities')!=value['receipt_inputs']:
             raise ValueError('server receipt typed input identities mismatch')
-        expected={'contract':record(contract_path),'certificate':value['certificate'],
+        expected={'python':value['python'],'contract':record(contract_path),'certificate':value['certificate'],
                   'server_module':value['modules']['wptserve.server'],'response_module':value['response_module']}
         for name,item in expected.items():
             observed=receipt.get(name)
@@ -290,7 +293,8 @@ def _patch_server(module,value,path,digest,directory):
         try:
             birth=identity(os.getpid())
             if birth is None:raise ValueError('TLS server birth identity absent')
-            receipt={'schema_version':2,'input_identities':value['receipt_inputs'],'kind':'actual_tls_server_bootstrap','pid':os.getpid(),'ppid':os.getppid(),'birth_identity':list(birth[0]),'address':list(self.socket.getsockname()),'port':self.socket.getsockname()[1],'mode':('normal_h1_tls_shutdown' if not self.encrypt_after_connect else 'connect_tls_unchanged') if self.scheme=='https' else 'http2_unchanged','contract':record(path),'bootstrap_inputs':value['bootstrap_inputs'],'server_module':value['modules']['wptserve.server'],'response_module':value['response_module'],'certificate':record(self.certificate),'qualified':False}
+            receipt={'schema_version':3,'python':record(sys.executable),'input_identities':value['receipt_inputs'],'kind':'actual_tls_server_bootstrap','pid':os.getpid(),'ppid':os.getppid(),'birth_identity':list(birth[0]),'address':list(self.socket.getsockname()),'port':self.socket.getsockname()[1],'mode':('normal_h1_tls_shutdown' if not self.encrypt_after_connect else 'connect_tls_unchanged') if self.scheme=='https' else 'http2_unchanged','contract':record(path),'bootstrap_inputs':value['bootstrap_inputs'],'server_module':value['modules']['wptserve.server'],'response_module':value['response_module'],'certificate':record(self.certificate),'qualified':False}
+            if receipt['python']!=value['python']:raise ValueError('TLS server interpreter differs from contract')
             if receipt['certificate']!=value['certificate']:raise ValueError('TLS server certificate differs from contract')
             name=f"server-{os.getpid()}-{receipt['port']}-{birth[0][0]}-{birth[0][1]}.json"
             temporary=directory/(name+'.publishing')

@@ -69,11 +69,19 @@ class FixtureTransportTests(unittest.TestCase):
             assets['fixture'].write_text(json.dumps({'tls': {'certificate': {'path': 'correct-cert'}}}))
             assets['core_profile_registry'] = root / 'registry.json'
             assets['core_profile_registry'].write_text(json.dumps({'profiles': {'standard-block': {'fixture': 'fixture'}}}))
-            bound = {'assets': assets, 'run': {'profile': 'standard-block'}}
+            bound = {'assets': assets, 'run': {'profile': 'standard-block', 'assets': {'python': {'sha256': hashlib.sha256(assets['python'].read_bytes()).hexdigest()}}}}
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
             with self.assertRaisesRegex(ValueError, 'interpreter differs'):
                 load_contract(path, digest, bound=bound)
+            # Offline validation progresses past a different verifier interpreter,
+            # but still rejects the next invalid contract binding.
+            with self.assertRaisesRegex(ValueError, 'certificate differs'):
+                load_contract(path, digest, bound=bound, executing_bootstrap=False)
+            bound['run']['assets']['python']['sha256'] = '0' * 64
+            with self.assertRaisesRegex(ValueError, 'admitted interpreter changed'):
+                load_contract(path, digest, bound=bound, executing_bootstrap=False)
             assets['python'] = Path(sys.executable).resolve()
+            bound['run']['assets']['python']['sha256'] = hashlib.sha256(assets['python'].read_bytes()).hexdigest()
             with self.assertRaisesRegex(ValueError, 'certificate differs'):
                 load_contract(path, digest, bound=bound)
             assets['fixture'].write_text(json.dumps({'tls': {'certificate': {'path': 'certificate'}}}))
@@ -88,9 +96,9 @@ class FixtureTransportTests(unittest.TestCase):
             digest = hashlib.sha256(contract.read_bytes()).hexdigest()
             ref = lambda name: {'path': str(root / name), 'sha256': 'a' * 64}
             identities = {'contract': {'scope': 'store', 'path': 'policy.json', 'sha256': digest}}
-            value = {'receipt_inputs': identities, 'certificate': ref('cert'), 'response_module': ref('response'),
+            value = {'python': ref('python'), 'receipt_inputs': identities, 'certificate': ref('cert'), 'response_module': ref('response'),
                      'modules': {'wptserve.server': ref('server')}, 'bootstrap_inputs': [ref('bootstrap')]}
-            receipt = {'schema_version': 2, 'kind': 'actual_tls_server_bootstrap', 'input_identities': identities,
+            receipt = {'schema_version': 3, 'python': ref('python'), 'kind': 'actual_tls_server_bootstrap', 'input_identities': identities,
                        'port': 8443, 'pid': 42, 'birth_identity': [1, 2], 'mode': 'normal_h1_tls_shutdown',
                        'contract': {'path': '/old/policy.json', 'sha256': digest},
                        'certificate': ref('cert'), 'response_module': ref('response'),
@@ -105,6 +113,37 @@ class FixtureTransportTests(unittest.TestCase):
                 target.write_text(json.dumps(receipt))
                 with self.assertRaisesRegex(ValueError, 'typed input identities'):
                     verify_receipts(root, contract, digest, [8443], require_live=False)
+
+    def test_offline_receipts_reject_old_missing_and_forged_interpreter_without_observing_verifier(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            contract = root / 'policy.json'; contract.write_text('policy')
+            digest = hashlib.sha256(contract.read_bytes()).hexdigest()
+            ref = lambda name: {'path': str(root / name), 'sha256': 'a' * 64}
+            identities = {'python': {'scope': 'store', 'path': 'python', 'sha256': 'a' * 64}}
+            value = {'python': ref('python'), 'receipt_inputs': identities, 'certificate': ref('cert'),
+                     'response_module': ref('response'), 'modules': {'wptserve.server': ref('server')},
+                     'bootstrap_inputs': [ref('bootstrap')]}
+            receipt = {'schema_version': 3, 'kind': 'actual_tls_server_bootstrap', 'input_identities': identities,
+                       'python': ref('python'), 'port': 8443, 'pid': 42, 'birth_identity': [1, 2],
+                       'mode': 'normal_h1_tls_shutdown', 'contract': {'path': str(contract), 'sha256': digest},
+                       'certificate': ref('cert'), 'response_module': ref('response'), 'server_module': ref('server'),
+                       'bootstrap_inputs': [ref('bootstrap')]}
+            target = root / 'server-42.json'
+            with patch('oryn_validation.fixture_tls.load_contract', return_value=value) as loader:
+                target.write_text(json.dumps(receipt))
+                self.assertEqual(len(verify_receipts(root, contract, digest, [8443], require_live=False)), 1)
+                self.assertFalse(loader.call_args.kwargs['executing_bootstrap'])
+                for change in ('old', 'missing', 'forged', 'relative', 'identity'):
+                    broken = json.loads(json.dumps(receipt))
+                    if change == 'old': broken['schema_version'] = 2
+                    elif change == 'missing': del broken['python']
+                    elif change == 'forged': broken['python']['sha256'] = 'b' * 64
+                    elif change == 'relative': broken['python']['path'] = 'python'
+                    else: broken['input_identities']['python']['sha256'] = 'b' * 64
+                    target.write_text(json.dumps(broken))
+                    with self.subTest(change=change), self.assertRaises(ValueError):
+                        verify_receipts(root, contract, digest, [8443], require_live=False)
 
     def test_service_original_requires_real_settlement_and_exact_command(self):
         with tempfile.TemporaryDirectory() as directory:

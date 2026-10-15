@@ -78,7 +78,8 @@ Crashes erase observations; recover them before accepting semantic gains.
    Gate: minimal reproduction plus nested callback/error/detachment controls,
    then all affected 231 URLs and complete editing slice. Missing observations
    must recover without new losses before promotion.
-3. Diagnose 21 stylesheet-completion routing crashes separately. Signature:
+3. Diagnose 24 stylesheet-completion routing crash signatures separately
+   (three also contain expired-snapshot diagnostics; 21 in exclusive grouping). Signature:
    non-stylesheet completion in parser stylesheet owner. Trace exact request,
    resource kind, owner/publication generation and completion destination across
    CSS imports/font/child CSS/referrer fixtures. Check broker dispatch and parser
