@@ -25,7 +25,7 @@ impl ImportAdmission for Admission {
     }
 }
 fn fixture() -> (DomRuntime, oryn_dom::NodeId, ImportGraph, Admission) {
-    let mut dom = DomRuntime::default();
+    let mut dom = DomRuntime::new();
     let node = dom.create_element("style");
     dom.append_child(dom.document(), node).unwrap();
     dom.set_stylesheet_text(node, "div { color: red }".into())
