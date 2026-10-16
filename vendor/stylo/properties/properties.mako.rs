@@ -2918,6 +2918,16 @@ impl DescriptorId {
     /// The total number of descriptors.
     pub const COUNT: usize = ${len(descriptors)};
 
+    /// Returns an identifier in canonical native descriptor order.
+    pub fn at(index: usize) -> Option<Self> {
+        const IDS: [DescriptorId; DescriptorId::COUNT] = [
+        % for descriptor in descriptors:
+            DescriptorId::${descriptor.camel_case},
+        % endfor
+        ];
+        IDS.get(index).copied()
+    }
+
     /// The CSS name of this descriptor.
     pub fn name(&self) -> &'static str {
         const NAMES: [&'static str; DescriptorId::COUNT] = [
@@ -2944,6 +2954,11 @@ pub struct Descriptors {
 impl Descriptors {
     /// Gets a descriptor in CSS syntax.
     pub fn get(&self, id: DescriptorId, dest: &mut CssStringWriter) -> fmt::Result {
+        self.get_with_writer(id, dest)
+    }
+
+    /// Serializes a descriptor to a counting or bounded native writer.
+    pub fn get_with_writer<W: fmt::Write>(&self, id: DescriptorId, dest: &mut W) -> fmt::Result {
         let mut dest = CssWriter::new(dest);
         match id {
         % for descriptor in descriptors:
@@ -2971,6 +2986,24 @@ impl Descriptors {
                 self.${descriptor.ident} = value;
                 Ok(change)
             },
+        % endfor
+        }
+    }
+
+    /// Moves one parsed descriptor into this original descriptor object.
+    pub fn swap_one(&mut self, id: DescriptorId, staged: &mut Self) {
+        match id {
+        % for descriptor in descriptors:
+            DescriptorId::${descriptor.camel_case} => std::mem::swap(&mut self.${descriptor.ident}, &mut staged.${descriptor.ident}),
+        % endfor
+        }
+    }
+
+    /// Compares one descriptor without cloning its owned value.
+    pub fn same_one(&self, id: DescriptorId, other: &Self) -> bool {
+        match id {
+        % for descriptor in descriptors:
+            DescriptorId::${descriptor.camel_case} => self.${descriptor.ident} == other.${descriptor.ident},
         % endfor
         }
     }

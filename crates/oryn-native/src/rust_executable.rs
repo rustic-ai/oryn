@@ -32712,6 +32712,29 @@ mod tests {
     }
 
     #[test]
+    fn native_conditional_rule_scope_endpoints_keep_original_rule_after_removal() {
+        let mut page = RustExecutableDocument::load("<!doctype html><style>@scope (.root) to (.limit) { a {} } @scope { b {} }</style>").unwrap();
+        assert_eq!(page.evaluate(r#"
+            const sheet = document.styleSheets[0], bounded = sheet.cssRules[0], implicit = sheet.cssRules[1];
+            const check = (v, m) => { if (!v) throw Error(m); };
+            check(bounded instanceof CSSScopeRule, 'typed scope');
+            check(bounded.start === '.root' && bounded.end === '.limit', 'original endpoints');
+            check(implicit.start === null && implicit.end === null, 'absent endpoints');
+            const child = bounded.cssRules[0];
+            sheet.deleteRule(0);
+            check(bounded.start === '.root' && bounded.end === '.limit', 'retained original endpoints');
+            check(bounded.parentStyleSheet === null && bounded.cssRules[0] === child, 'retained identity');
+            const getter = Object.getOwnPropertyDescriptor(CSSScopeRule.prototype, 'start').get;
+            for (const receiver of [{}, Object.create(CSSScopeRule.prototype), implicit.cssRules[0]]) {
+                let rejected = false;
+                try { getter.call(receiver); } catch (e) { rejected = e.name === 'TypeError'; }
+                check(rejected, 'receiver brand');
+            }
+            true;
+        "#).unwrap(), "true");
+    }
+
+    #[test]
     fn cssom_font_face_descriptors_keep_native_identity_and_mutations() {
         let mut page = RustExecutableDocument::load(
             "<!doctype html><style>@font-face { font-family: Example; src: url(a.woff2); font-weight: 100 900; } p { color: red; }</style>",

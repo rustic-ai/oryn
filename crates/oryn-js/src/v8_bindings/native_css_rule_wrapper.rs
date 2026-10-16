@@ -95,6 +95,45 @@ fn native_rule_relationship<'s>(
     if !page_rules::supports_interface(kind,interface) {return Err(invalid());}
     // Query original list membership; no stale positional or captured parent.
     match member {
+        "matches" => {
+            let view = handle.view().map_err(|e| native_css_read_error(interface, e))?;
+            Ok(v8::Boolean::new(scope, view.properties.get("matches")
+                .is_some_and(|value| value == "true")).into())
+        }
+        "containerName" | "containerQuery" => {
+            let view = handle.view().map_err(|e| native_css_read_error(interface, e))?;
+            v8_string(scope, view.properties.get(member).map_or("", String::as_str))
+        }
+        "start" | "end" => {
+            let view = handle.view().map_err(|e| native_css_read_error(interface, e))?;
+            match view.properties.get(member) {
+                Some(value) => v8_string(scope, value),
+                None => Ok(v8::null(scope).into()),
+            }
+        }
+        "conditions" => {
+            let view = handle.view().map_err(|e| native_css_read_error(interface, e))?;
+            let mut values = Vec::new();
+            values.try_reserve_exact(view.conditions.len())
+                .map_err(|_| V8BindingError::Allocation("native CSS conditions"))?;
+            for (name, query) in &view.conditions {
+                let condition = v8::Object::new(scope);
+                for (key, value) in [("name", name), ("query", query)] {
+                    let key = v8::String::new(scope, key)
+                        .ok_or(V8BindingError::Allocation("native CSS condition key"))?;
+                    let value = v8_string(scope, value)?;
+                    if condition.create_data_property(scope, key.into(), value) != Some(true) {
+                        return Err(V8BindingError::JavaScriptException);
+                    }
+                }
+                values.push(condition.into());
+            }
+            let array = v8::Array::new_with_elements(scope, &values);
+            if array.set_integrity_level(scope, v8::IntegrityLevel::Frozen) != Some(true) {
+                return Err(V8BindingError::JavaScriptException);
+            }
+            Ok(array.into())
+        }
         "nameList" => native_layer_name_list(scope, &handle),
         "style" => Ok(wrap_native_rule_declaration(scope, state, object, &handle)?.into()),
         "type" => {

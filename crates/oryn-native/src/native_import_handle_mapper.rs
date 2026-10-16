@@ -200,6 +200,12 @@ impl NativeImportHandle {
     }
 }
 impl oryn_js::v8_bindings::BindingNativeImport for NativeImportHandle {
+    fn view(
+        &self,
+    ) -> Result<oryn_js::v8_bindings::BindingRuleView, oryn_js::v8_bindings::BindingNativeCssError> {
+        self.require_origin_clean()?;
+        self.snapshot()?.view().map(binding_rule_view).map_err(Into::into)
+    }
     fn media_count(&self) -> Result<usize, oryn_js::v8_bindings::BindingNativeCssError> {
         self.require_origin_clean()?;
         Ok(self.snapshot()?.media_count())

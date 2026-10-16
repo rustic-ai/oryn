@@ -8,6 +8,21 @@ pub(super) fn install(
     binding_global: BindingGlobal,
     constructors: &BTreeMap<&'static str, v8::Global<v8::Function>>,
 ) -> Result<(), V8BindingError> {
+    // A generic Worker realm has no parent-authenticated subtype. Do not mint
+    // DedicatedWorker exposure just to select its global prototype.
+    if binding_global == BindingGlobal::Worker && context.get_slot::<WorkerExposureKind>().is_none() {
+        let constructor = constructors.get("WorkerGlobalScope")
+            .ok_or(V8BindingError::MissingInterface("WorkerGlobalScope"))?;
+        let constructor = v8::Local::new(scope, constructor);
+        let key = v8::String::new(scope, "prototype")
+            .ok_or(V8BindingError::Allocation("worker prototype key"))?;
+        let prototype = constructor.get(scope, key.into())
+            .ok_or(V8BindingError::JavaScriptException)?;
+        if !crate::v8_context_bridge::set_global_object_prototype(scope, context, prototype) {
+            return Err(V8BindingError::Allocation("worker global prototype"));
+        }
+        return Ok(());
+    }
     let selected = GENERATED_INTERFACES.iter().find(|interface| {
         if interface.global_names.is_empty()
             || (interface.secure_context && !state.secure_context.get())
@@ -251,6 +266,27 @@ mod tests {
             assert!(owners[target].0.idb_factory_object.get().is_none());
             assert!(owners[1-target].0.idb_factory_object.get().is_none());
         }
+    }
+
+    #[test]
+    fn worker_without_authenticated_subtype_keeps_base_global_and_no_subtype_exposure() {
+        super::super::tests::initialize_v8();
+        let mut isolate=v8::Isolate::new(Default::default());
+        v8::scope!(let handles,&mut isolate);
+        let context=v8::Context::new(handles,Default::default());
+        let scope=&mut v8::ContextScope::new(handles,context);
+        let dom=Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
+        let document=dom.borrow().document();
+        let state=install_generated_bindings_with_root_for_global(scope,context,dom,
+            RealmId(0),1,document,BindingGlobal::Worker).unwrap();
+        assert!(context.get_slot::<WorkerExposureKind>().is_none());
+        let source=v8::String::new(scope,r#"(()=>{
+          if('FileReaderSync' in globalThis||'DedicatedWorkerGlobalScope' in globalThis)throw Error('subtype authority');
+          if(!Object.hasOwn(WorkerGlobalScope.prototype,'indexedDB')||indexedDB!==indexedDB)throw Error('base getter');
+          return true;
+        })()"#).unwrap();
+        assert!(v8::Script::compile(scope,source,None).unwrap().run(scope).unwrap().is_true());
+        assert!(state.idb_factory_object.get().is_some());
     }
 
 }

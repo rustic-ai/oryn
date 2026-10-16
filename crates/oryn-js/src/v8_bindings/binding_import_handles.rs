@@ -93,6 +93,8 @@ pub trait BindingNativeRule {
     fn delete_rule(&self, index: usize) -> Result<(), BindingNativeRuleError>;
 }
 pub trait BindingNativeImport {
+    /// Original parsed import rule projection, not resolved-resource href text.
+    fn view(&self) -> Result<BindingRuleView, BindingNativeCssError>;
     fn media_count(&self) -> Result<usize, BindingNativeCssError>;
     fn media_at(&self, index: usize) -> Result<Option<String>, BindingNativeCssError>;
     fn identity(&self) -> u64;
@@ -296,6 +298,17 @@ fn native_import_attribute<'s>(
         .ok_or_else(invalid)?;
     let failure = |error| native_css_read_error("CSSImportRule", error);
     match member {
+        "type" => {
+            let view = handle.view().map_err(failure)?;
+            Ok(v8::Integer::new_from_unsigned(scope, u32::from(view.rule_type)).into())
+        }
+        "cssText" => {
+            let view = handle.view().map_err(failure)?;
+            v8_string(scope, &view.css_text)
+        }
+        // Imports are top-level stylesheet rules. Their retained stylesheet
+        // membership may change, but they never acquire a grouping parent.
+        "parentRule" => Ok(v8::null(scope).into()),
         "href" => v8_string(scope, &handle.href().map_err(failure)?),
         "layerName" | "supportsText" => {
             let text = if member == "layerName" {

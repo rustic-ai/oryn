@@ -2,6 +2,34 @@
 mod retained_delivery_custody_tests {
     use super::*;
     #[test]
+    fn retained_import_base_attributes_use_original_rule_after_media_edit_and_detach() {
+        let resources = BTreeMap::new();
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<!doctype html><body></body>", &resources, None,
+            Some(Url::parse("https://example.test/").unwrap()),
+        ).unwrap();
+        assert_eq!(page.agent.host.evaluate_string(r#"
+            globalThis.s=document.createElement('style');
+            s.textContent='@import url("child.css") layer(theme) supports(display: flex) all;';
+            document.head.append(s);
+            globalThis.sheet=s.sheet;globalThis.rule=sheet.cssRules[0];
+            [rule.type,rule.parentRule===null,rule.parentStyleSheet===sheet,
+             rule.cssText==='@import url("child.css") layer(theme) supports(display: flex) all;',
+             rule.href==='https://example.test/child.css',rule===sheet.cssRules[0]].join('|')
+        "#).unwrap(), "3|true|true|true|true|true");
+        assert_eq!(page.agent.host.evaluate_string(r#"
+            rule.media.mediaText='screen';
+            [rule.cssText==='@import url("child.css") layer(theme) supports(display: flex) screen;',
+             rule.layerName==='theme',rule.supportsText==='display: flex',
+             rule===sheet.cssRules[0]].join('|')
+        "#).unwrap(), "true|true|true|true");
+        assert_eq!(page.agent.host.evaluate_string(r#"
+            sheet.deleteRule(0);
+            [rule.type,rule.parentRule===null,rule.parentStyleSheet===null,
+             rule.cssText==='@import url("child.css") layer(theme) supports(display: flex) screen;'].join('|')
+        "#).unwrap(), "3|true|true|true");
+    }
+    #[test]
     fn same_callback_resource_root_keeps_import_rule_identity_through_delivery() {
         let resources=BTreeMap::from([("https://example.test/child.css".into(),"p{height:23px}".into())]);
         let mut page=RustExecutableDocument::load_with_environment("<!doctype html><p id=p></p>",

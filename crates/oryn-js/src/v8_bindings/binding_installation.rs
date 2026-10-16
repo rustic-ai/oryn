@@ -488,9 +488,6 @@ pub(super) fn install_interfaces(
     state: &Rc<V8BindingState>,
     binding_global: BindingGlobal,
 ) -> Result<BTreeMap<&'static str, v8::Global<v8::Function>>, V8BindingError> {
-    if binding_global == BindingGlobal::Worker && context.get_slot::<WorkerExposureKind>().is_none() {
-        context.set_slot(Rc::new(WorkerExposureKind(crate::worker_wire::AgentKind::Dedicated)));
-    }
     // Installation creates thousands of temporary template/member handles.
     // Do not retain them in the caller's script scope: a script can create
     // hundreds of iframe realms before that scope returns. Published objects

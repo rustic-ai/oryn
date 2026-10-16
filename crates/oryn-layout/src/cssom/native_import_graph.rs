@@ -222,6 +222,14 @@ pub struct NativeImport {
     pub depth: usize,
 }
 impl NativeImport {
+    /// Serialize the original retained import rule, including authored URL
+    /// spelling and conditions, even after removal from its owner's list.
+    pub fn view(&self) -> Result<RuleView, String> {
+        let lock = self.parent.shared_lock();
+        let guard = lock.read();
+        rule_view(&CssRule::Import(self.rule.clone()), &guard)
+    }
+
     pub fn media_count(&self) -> usize {
         self.media
             .read_with(&self.parent.shared_lock().read())
@@ -1158,6 +1166,7 @@ pub struct ImportGraph {
     root: NativeSheet,
     leases: Leases,
     next: u64,
+    font_revision: LeaseArc<std::sync::atomic::AtomicU64>,
     quirks: QuirksMode,
     max_depth: usize,
     occurrences: Occurrences,
@@ -1353,6 +1362,9 @@ impl ImportGraph {
         priority: &str,
         admission: &dyn ImportAdmission,
     ) -> Result<super::DeclarationMutation, String> {
+        if matches!(retained.rule, CssRule::FontFace(_)) {
+            return self.mutate_font_face(retained, FontFaceDescriptorEdit::Property { name: property, value, priority }, admission);
+        }
         use style::properties::declaration_block::{
             Importance, SourcePropertyDeclarationUpdate, parse_one_declaration_into,
         };
@@ -1631,6 +1643,10 @@ impl ImportGraph {
         text: &str,
         admission: &dyn ImportAdmission,
     ) -> Result<(), String> {
+        if matches!(retained.rule, CssRule::FontFace(_)) {
+            self.mutate_font_face(retained, FontFaceDescriptorEdit::Text(text), admission)?;
+            return Ok(());
+        }
         if !LeaseArc::ptr_eq(&retained.owner.leases, &self.leases) {
             return Err("foreign native rule".into());
         }
@@ -2217,11 +2233,17 @@ impl ImportGraph {
             Arc::new(lock.wrap(MediaList::empty())),
             admission,
         )?;
+        let font_epoch_charge = admission.reserve(
+            std::mem::size_of::<std::sync::atomic::AtomicU64>()
+                .checked_add(2 * std::mem::size_of::<usize>())
+                .ok_or("font epoch allocation overflow")?,
+        )?;
         let mut initial_leases = Vec::new();
         initial_leases
-            .try_reserve(2)
+            .try_reserve(3)
             .map_err(|error| error.to_string())?;
         initial_leases.push(source_lease);
+        initial_leases.push(font_epoch_charge);
         let leases = LeaseArc::new(Mutex::new(initial_leases));
         let root = NativeSheet {
             sheet,
@@ -2232,6 +2254,7 @@ impl ImportGraph {
             root: root.clone(),
             leases: leases.clone(),
             next: 1,
+            font_revision: LeaseArc::new(std::sync::atomic::AtomicU64::new(0)),
             quirks,
             max_depth,
             occurrences: Occurrences::new(),
@@ -2677,6 +2700,9 @@ impl ImportGraph {
         property: &str,
         admission: &dyn ImportAdmission,
     ) -> Result<NativeDeclarationView, String> {
+        if matches!(retained.rule, CssRule::FontFace(_)) {
+            return self.font_face_declaration(retained, property, admission);
+        }
         use style::properties::PropertyId;
         admission.checkpoint()?;
         let original = self.declaration_block(retained)?;
@@ -2900,6 +2926,7 @@ impl ImportGraph {
                 root: self.root.clone(),
                 leases: self.leases.clone(),
                 next: self.next,
+                font_revision: self.font_revision.clone(),
                 quirks: self.quirks,
                 max_depth: self.max_depth,
                 occurrences: Occurrences {
@@ -3906,3 +3933,5 @@ mod prepared_insert_controls {
         assert_eq!(graph.occurrences.len(), 0);
     }
 }
+
+include!("font_face_descriptors.rs");
