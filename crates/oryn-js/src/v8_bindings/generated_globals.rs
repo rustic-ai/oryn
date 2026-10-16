@@ -144,7 +144,7 @@ mod tests {
             let dom=Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
             let document=dom.borrow().document();
             let state=install_generated_bindings_with_root_for_global(scope,context,dom,
-                RealmId(index as u64),1,document,BindingGlobal::Worker).unwrap();
+                RealmId(index as u32),1,document,BindingGlobal::Worker).unwrap();
             let caches_key=v8::String::new(scope,"caches").unwrap();
             let own=context.global(scope).get_own_property_descriptor(scope,caches_key.into()).unwrap();
             assert_eq!(!own.is_undefined(),index == 1);
@@ -190,7 +190,7 @@ mod tests {
         let mut owners=Vec::new();
         for index in 0..2 {
             let context=v8::Context::new(handles,Default::default());
-            context.set_security_token(handles,token.into());
+            context.set_security_token(token.into());
             let scope=&mut v8::ContextScope::new(handles,context);
             let dom=Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
             let state=install_generated_bindings(scope,context,dom,RealmId(index),1).unwrap();
@@ -228,7 +228,7 @@ mod tests {
             let dom=Rc::new(RefCell::new(html::parse("<body></body>").into_runtime().unwrap()));
             let document=dom.borrow().document();
             let state=install_generated_bindings_with_root_for_global(scope,context,dom,
-                RealmId(index as u64),1,document,global).unwrap();
+                RealmId(index as u32),1,document,global).unwrap();
             assert!(state.idb_factory_object.get().is_none());
             owners.push((state,v8::Global::new(scope,context)));
         }

@@ -17238,7 +17238,7 @@ fn generated_attribute_getter<'s>(
             return;
         }
         match generated_globals::indexed_db(scope, &state) {
-            Ok(value) => return_value.set(value),
+            Ok(value) => return_value.set(value.into()),
             Err(error) => throw_binding_error(scope, &error),
         }
         return;
