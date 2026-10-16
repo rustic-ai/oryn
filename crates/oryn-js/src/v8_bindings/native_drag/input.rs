@@ -310,7 +310,7 @@ impl NativeDragInput {
                                         {
                                             DefaultEdit::Rejected
                                         } else if let Some(caret) =
-                                            selection_movement::drop_caret(state, target, x, y)?
+                                            selection_movement::drop_caret(scope, state, target, x, y)?
                                         {
                                             let text = oryn_dom::dom_string::from_units(
                                                 &store.get_data("text/plain"),

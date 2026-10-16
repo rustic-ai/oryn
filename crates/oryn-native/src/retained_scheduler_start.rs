@@ -71,7 +71,7 @@ impl ParserResourceScheduler {
                         node: key.0,
                         revision: key.1,
                         cancellation,
-                        result: Err(error),
+                        result: Err(RetainedStylesheetFailure::Operational(error)),
                     },
                 };
                 ParserResourceCompletion::RetainedStylesheet(ready)

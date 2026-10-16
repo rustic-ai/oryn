@@ -350,6 +350,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
              pub value_iterable: bool,\n\
              pub constant_value: Option<&'static str>,\n\
              pub type_name: Option<&'static str>,\n\
+             pub secure_context: bool,\n\
              pub same_object: bool,\n\
              pub new_object: bool,\n\
              pub ce_reactions: bool,\n\
@@ -364,6 +365,8 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
              pub name: &'static str,\n\
              pub parent: Option<&'static str>,\n\
              pub exposed: &'static [&'static str],\n\
+             pub global_names: &'static [&'static str],\n\
+             pub secure_context: bool,\n\
              pub constructible: bool,\n\
              pub callback: bool,\n\
              pub members: &'static [GeneratedMember],\n\
@@ -475,6 +478,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
             );
             let value_iterable = matches!(member, Member::Iterable { key: None, .. });
             let static_member = has_extended_attribute(attributes, "Static");
+            let secure_context = has_extended_attribute(attributes, "SecureContext");
             let same_object = has_extended_attribute(attributes, "SameObject");
             let new_object = has_extended_attribute(attributes, "NewObject");
             let ce_reactions = has_extended_attribute(attributes, "CEReactions");
@@ -489,7 +493,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
                 Vec::new()
             };
             output.push_str(&format!(
-                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, static_member: {static_member}, indexed_getter: {indexed_getter}, named_getter: {named_getter}, value_iterable: {value_iterable}, constant_value: {constant_value:?}, type_name: {type_name:?}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unscopable: {unscopable}, unforgeable: {unforgeable}, replaceable: {replaceable}, exposed: &{exposed:?}, put_forwards: {put_forwards:?} }},",
+                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, static_member: {static_member}, indexed_getter: {indexed_getter}, named_getter: {named_getter}, value_iterable: {value_iterable}, constant_value: {constant_value:?}, type_name: {type_name:?}, secure_context: {secure_context}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unscopable: {unscopable}, unforgeable: {unforgeable}, replaceable: {replaceable}, exposed: &{exposed:?}, put_forwards: {put_forwards:?} }},",
                 token = ((interface_index as u32) << 16) | member_index as u32,
             ));
         }
@@ -504,7 +508,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
             .any(|member| matches!(member, Member::Constructor { .. }))
             || has_extended_attribute(&interface.extended_attributes, "Constructor");
         output.push_str(&format!(
-            "    GeneratedInterface {{ name: {:?}, parent: {}, exposed: &{:?}, constructible: {}, callback: {}, members: {}_MEMBERS }},\n",
+            "    GeneratedInterface {{ name: {:?}, parent: {}, exposed: &{:?}, global_names: &{:?}, secure_context: {}, constructible: {}, callback: {}, members: {}_MEMBERS }},\n",
             interface.name,
             interface
                 .inherits
@@ -512,6 +516,11 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
                 .map(|parent| format!("Some({parent:?})"))
                 .unwrap_or_else(|| "None".into()),
             exposed,
+            extended_attribute_value(&interface.extended_attributes, "Global")
+                .map(|value| value.trim_matches(|c| c == '(' || c == ')')
+                    .split(',').map(str::trim).filter(|value| !value.is_empty())
+                    .map(str::to_string).collect::<Vec<_>>()).unwrap_or_default(),
+            has_extended_attribute(&interface.extended_attributes, "SecureContext"),
             constructible,
             interface.callback,
             rust_constant(&interface.name)
@@ -1229,6 +1238,24 @@ fn rust_constant(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn global_metadata_is_distinct_from_exposure_and_inherited_mixin_members() {
+        let definitions = parse_definitions(r#"
+          [Global=Window,Exposed=Window] interface Window {};
+          [Exposed=Worker] interface WorkerGlobalScope {};
+          [Global=(Worker,DedicatedWorker),Exposed=DedicatedWorker]
+          interface DedicatedWorkerGlobalScope : WorkerGlobalScope {};
+          interface mixin Globals { [SameObject] readonly attribute Factory indexedDB; };
+          Window includes Globals; WorkerGlobalScope includes Globals;
+        "#).unwrap();
+        let registry = emit_binding_registry(&definitions).unwrap();
+        assert!(registry.contains(r#"global_names: &["Window"]"#));
+        assert!(registry.contains(r#"global_names: &["Worker", "DedicatedWorker"]"#));
+        assert!(registry.contains(r#"name: "WorkerGlobalScope", parent: None, exposed: &["Worker"], global_names: &[], secure_context: false"#));
+        assert!(registry.contains(r#"name: "indexedDB""#));
+    }
+
 
     #[test]
     fn nested_dictionary_defaults_do_not_end_interface_or_dictionary_bodies() {

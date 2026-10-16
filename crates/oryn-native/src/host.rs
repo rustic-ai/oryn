@@ -2285,10 +2285,19 @@ mod raw_v8 {
                     .split_ascii_whitespace()
                     .any(|token| token.eq_ignore_ascii_case("allow-modals"))
             });
-        let (width, height) = active
-            .native_frame_content_size(frame)
-            .map_err(|error| HostError::Execution(error.to_string()))?
-            .unwrap_or((300., 150.));
+        // Container geometry belongs to the parent provider, not the child
+        // context entered above. Admit this native layout from its actual
+        // owner after child installation; never reuse an earlier heap sample.
+        let (width, height) = {
+            let parent_scope = &mut v8::ContextScope::new(scope, parent);
+            let _retained_scope = active
+                .enter_retained_allocation(parent_scope)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            active
+                .native_frame_content_size(frame)
+                .map_err(|error| HostError::Execution(error.to_string()))?
+                .unwrap_or((300., 150.))
+        };
         active
             .install_initial_frame_layout(&child_state, width, height)
             .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -2560,7 +2569,27 @@ mod raw_v8 {
         Ok(())
     }
 
+    // Diagnostic categories are internal variants, not exception text or
+    // authority. No V8 coercion/property read/catcher is involved.
+    fn record_frame_binding_error(error: &oryn_js::v8_bindings::V8BindingError) {
+        use oryn_js::v8_bindings::V8BindingError;
+        let category = match error {
+            V8BindingError::JavaScriptException => 1,
+            V8BindingError::Allocation(_) => 2,
+            V8BindingError::EventCallback(_) => 3,
+            _ => 4,
+        };
+        crate::native_timing::count("frame.binding.error_count", 1);
+        crate::native_timing::count("frame.binding.error_category_sum", category);
+        match category {
+            1 => crate::native_timing::count("frame.binding.js_exception", 1),
+            2 => crate::native_timing::count("frame.binding.allocation", 1),
+            3 => crate::native_timing::count("frame.binding.event_callback", 1),
+            _ => crate::native_timing::count("frame.binding.other", 1),
+        }
+    }
     fn checkpoint_frame_lifetimes(scope: &mut v8::PinScope) {
+        let _phase = crate::native_timing::stage("frame.lifecycle.discard_checkpoint");
         loop {
             let Some(registry) = scope.get_slot::<FrameLifetimes>() else {
                 return;
@@ -2599,10 +2628,14 @@ mod raw_v8 {
                     // Abort listeners must run before the frame's environment
                     // and execution authority are retired. A failed suffix
                     // keeps this closed lifetime for the next checkpoint.
-                    if !matches!(
-                        oryn_js::navigation_api::abort_navigation_for_discard(scope, &child),
-                        Ok(true)
-                    ) {
+                    let abort = {
+                        let _phase = crate::native_timing::stage("frame.lifecycle.abort_publication");
+                        oryn_js::navigation_api::abort_navigation_for_discard(scope, &child)
+                    };
+                    if let Err(error) = &abort {
+                        record_frame_binding_error(error);
+                    }
+                    if !matches!(abort, Ok(true)) {
                         return;
                     }
                 }
@@ -2865,10 +2898,18 @@ mod raw_v8 {
             if let Some(child_state) = child.get_slot::<V8BindingState>() {
                 child_state.set_location_ancestor_origins(ancestry);
                 child_state.set_navigation_initial_document(true);
-                let (width, height) = state
-                    .native_frame_content_size(frame)
-                    .map_err(|error| HostError::Execution(error.to_string()))?
-                    .unwrap_or((300., 150.));
+                let (width, height) = {
+                    // Child installation can expire a preceding allocation
+                    // sample. Refresh the parent owner whose provider is queried.
+                    let parent_scope = &mut v8::ContextScope::new(scope, parent);
+                    let _retained_scope = state
+                        .enter_retained_allocation(parent_scope)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    state
+                        .native_frame_content_size(frame)
+                        .map_err(|error| HostError::Execution(error.to_string()))?
+                        .unwrap_or((300., 150.))
+                };
                 state
                     .install_initial_frame_layout(&child_state, width, height)
                     .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -2960,6 +3001,9 @@ mod raw_v8 {
     struct NativeWindowLifecycle {
         closed: std::cell::Cell<bool>,
         discarded: std::cell::Cell<bool>,
+        // Native navigable/page publication authority, deliberately separate
+        // from each Document's prompt waits and retirement.
+        page_controller: Arc<oryn_js::prompts::PromptController>,
     }
 
     fn native_window_callback_context<'s>(
@@ -4279,8 +4323,14 @@ mod raw_v8 {
             state.inherit_prerender_loading();
         }
         if crate::native_timing::enabled() {
+            state.install_native_animation_failure_diagnostic(|reason| {
+                crate::native_timing::point("native_animation_failure", serde_json::json!({"reason":reason}));
+            });
             context.set_slot(Rc::new(oryn_js::v8_bindings::NativeBindingTimingHook(
                 |label| Box::new(crate::native_timing::stage(label)),
+            )));
+            context.set_slot(Rc::new(oryn_js::v8_bindings::NativeBindingMemoryHook(
+                |snapshot| crate::native_timing::point("native_memory_snapshot", snapshot),
             )));
         }
         context.set_slot(Rc::new(oryn_js::v8_bindings::NativeModulePreloadHook(
@@ -4865,8 +4915,10 @@ mod raw_v8 {
                 None,
             );
             queue_mutation_observer_microtask(scope);
+            oryn_js::v8_bindings::publish_native_binding_memory(scope, "script_entry");
             let completion = v8::Script::compile(scope, source, Some(&origin))
                 .and_then(|script| script.run(scope));
+            oryn_js::v8_bindings::publish_native_binding_memory(scope, "script_end");
             let completed = completion.is_some();
             let string = completion
                 .filter(|_| capture_string)
@@ -6805,6 +6857,11 @@ mod raw_v8 {
             &mut self,
             content_loaded: bool,
         ) -> Result<(), HostError> {
+            let _phase = crate::native_timing::stage(if content_loaded {
+                "frame.lifecycle.dom_content_loaded"
+            } else {
+                "frame.lifecycle.document_load"
+            });
             let state = self
                 .binding_states
                 .get(&self.active_realm)
@@ -6824,7 +6881,10 @@ mod raw_v8 {
             let context = v8::Local::new(handle_scope, &context);
             let scope = &mut v8::ContextScope::new(handle_scope, context);
             oryn_js::v8_bindings::dispatch_document_lifecycle(scope, &state, content_loaded)
-                .map_err(|error| HostError::Execution(error.to_string()))
+                .map_err(|error| {
+                    record_frame_binding_error(&error);
+                    HostError::Execution(error.to_string())
+                })
         }
 
         fn script_preparation_error(error: oryn_js::v8_bindings::V8BindingError) -> HostError {
@@ -7071,7 +7131,10 @@ mod raw_v8 {
             }
             let scope = &mut v8::ContextScope::new(handle_scope, context);
             oryn_js::v8_bindings::dispatch_frame_load(scope, &state, frame)
-                .map_err(|error| HostError::Execution(error.to_string()))
+                .map_err(|error| {
+                    record_frame_binding_error(&error);
+                    HostError::Execution(error.to_string())
+                })
         }
 
         /// Native automation identity; does not inspect author-visible globals.
@@ -8321,8 +8384,10 @@ mod raw_v8 {
             v8::scope!(let scope,&mut self.isolate);
             let context = v8::Local::new(scope, &context);
             let scope = &mut v8::ContextScope::new(scope, context);
-            oryn_js::navigation_api::start_native_event_publication(scope, event)
-                .map_err(|error| HostError::Execution(error.to_string()))
+            let _phase = crate::native_timing::stage("close_event_publication_start");
+            let result = oryn_js::navigation_api::start_native_event_publication(scope, event);
+            observe_close_binding_result(&result);
+            result.map_err(|error| HostError::Execution(error.to_string()))
         }
         pub fn resume_native_history_publication(
             &mut self,
@@ -8337,8 +8402,10 @@ mod raw_v8 {
             v8::scope!(let scope,&mut self.isolate);
             let context = v8::Local::new(scope, &context);
             let scope = &mut v8::ContextScope::new(scope, context);
-            oryn_js::navigation_api::resume_native_history_publication(scope, receipt)
-                .map_err(|error| HostError::Execution(error.to_string()))
+            let _phase = crate::native_timing::stage("close_event_publication_resume");
+            let result = oryn_js::navigation_api::resume_native_history_publication(scope, receipt);
+            observe_close_binding_result(&result);
+            result.map_err(|error| HostError::Execution(error.to_string()))
         }
 
         pub fn sync_navigation_history(
@@ -8584,7 +8651,7 @@ mod raw_v8 {
                 let _retained_scope = state
                     .enter_retained_allocation(scope)
                     .map_err(|error| HostError::Execution(error.to_string()))?;
-                oryn_js::v8_bindings::publish_native_animation_samples(&state, rendering_time)
+                oryn_js::v8_bindings::publish_native_animation_samples(scope, &state, rendering_time)
                     .map_err(|error| HostError::Execution(error.to_string()))
             })
         }
@@ -9779,6 +9846,23 @@ mod raw_v8 {
                 .collect())
         }
 
+        pub(crate) fn peek_pending_dynamic_stylesheet(&self) -> Result<Option<(RealmId, NodeId)>, HostError> {
+            let active = self.active_root_realm_ids();
+            for (realm, state) in &self.binding_states {
+                if active.contains(realm)
+                    && let Some(node) = state.peek_pending_dynamic_stylesheet()
+                        .map_err(|error| HostError::Execution(error.to_string()))?
+                {
+                    return Ok(Some((*realm, node)));
+                }
+            }
+            Ok(None)
+        }
+        pub(crate) fn commit_pending_dynamic_stylesheet(&self, realm: RealmId, node: NodeId) -> Result<(), HostError> {
+            self.binding_states.get(&realm).ok_or(HostError::CachedAuthorityExpired)?
+                .commit_pending_dynamic_stylesheet(node)
+                .map_err(|error| HostError::Execution(error.to_string()))
+        }
         pub fn take_all_pending_dynamic_stylesheets(
             &self,
         ) -> Result<Vec<(RealmId, NodeId)>, HostError> {
@@ -9950,19 +10034,51 @@ mod raw_v8 {
             Ok(())
         }
 
-        pub fn scroll_node_into_view(&self, node: NodeId) -> Result<(), HostError> {
-            self.binding_states
+        pub fn scroll_node_into_view(&mut self, node: NodeId) -> Result<(), HostError> {
+            let realm = self.active_realm;
+            if !self.realm_execution_live(realm) {
+                return Err(HostError::CachedAuthorityExpired);
+            }
+            let state = self
+                .binding_states
                 .get(&self.active_realm)
-                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
-                .scroll_node_into_view(node)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?;
+            let context = self
+                .contexts
+                .get(&realm)
+                .cloned()
+                .ok_or(HostError::CachedAuthorityExpired)?;
+            v8::scope!(let handles, &mut self.isolate);
+            let context = v8::Local::new(handles, &context);
+            let scope = &mut v8::ContextScope::new(handles, context);
+            state
+                .scroll_node_into_view_in_scope(scope, node)
                 .map_err(|error| HostError::Execution(error.to_string()))
         }
 
-        pub fn element_scroll_offsets(&self) -> Result<BTreeMap<NodeId, (f64, f64)>, HostError> {
-            self.binding_states
+        pub fn element_scroll_offsets(
+            &mut self,
+        ) -> Result<BTreeMap<NodeId, (f64, f64)>, HostError> {
+            let realm = self.active_realm;
+            if !self.realm_execution_live(realm) {
+                return Err(HostError::CachedAuthorityExpired);
+            }
+            let state = self
+                .binding_states
                 .get(&self.active_realm)
-                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
-                .synchronized_element_scroll_offsets()
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?;
+            let context = self
+                .contexts
+                .get(&realm)
+                .cloned()
+                .ok_or(HostError::CachedAuthorityExpired)?;
+            v8::scope!(let handles, &mut self.isolate);
+            let context = v8::Local::new(handles, &context);
+            let scope = &mut v8::ContextScope::new(handles, context);
+            state
+                .synchronized_element_scroll_offsets_in_scope(scope)
                 .map_err(|error| HostError::Execution(error.to_string()))
         }
 
@@ -9987,6 +10103,18 @@ mod raw_v8 {
             realm: RealmId,
         ) -> Option<Rc<dyn oryn_js::v8_bindings::BindingLayoutProvider>> {
             self.binding_states.get(&realm)?.native_layout_provider()
+        }
+        pub(crate) fn standalone_page_controller(
+            &mut self,
+            realm: RealmId,
+        ) -> Result<Arc<oryn_js::prompts::PromptController>, HostError> {
+            if !self.realm_execution_live(realm) || self.realm_is_parked(realm) {
+                return Err(HostError::CachedAuthorityExpired);
+            }
+            let context = self.contexts.get(&realm).cloned().ok_or(HostError::CachedAuthorityExpired)?;
+            let lifecycle = context.open(&mut self.isolate).get_slot::<NativeWindowLifecycle>();
+            lifecycle.map(|window| window.page_controller.clone())
+                .ok_or(HostError::CachedAuthorityExpired)
         }
         pub(crate) fn sample_intersection_observer_tree(
             &mut self,
@@ -10069,7 +10197,7 @@ mod raw_v8 {
         }
 
         pub fn sync_frame_viewport(
-            &self,
+            &mut self,
             parent: RealmId,
             frame: NodeId,
             child: RealmId,
@@ -10078,18 +10206,22 @@ mod raw_v8 {
             if !self.automation_frame_child_live(parent, frame, child) {
                 return Ok(false);
             }
-            let parent_state = self
-                .binding_states
-                .get(&parent)
-                .ok_or_else(|| HostError::Execution("frame viewport parent unavailable".into()))?;
-            let child_state = self
-                .binding_states
-                .get(&child)
-                .ok_or_else(|| HostError::Execution("frame viewport child unavailable".into()))?;
-            let Some((width, height)) = parent_state
-                .native_frame_content_size(frame)
-                .map_err(|error| HostError::Execution(error.to_string()))?
-            else {
+            let parent_state =
+                self.binding_states.get(&parent).cloned().ok_or_else(|| {
+                    HostError::Execution("frame viewport parent unavailable".into())
+                })?;
+            let child_state =
+                self.binding_states.get(&child).cloned().ok_or_else(|| {
+                    HostError::Execution("frame viewport child unavailable".into())
+                })?;
+            let size = {
+                let _admission = self.native_retained_admission_for_realm(parent)?;
+                let _retained_scope = self.retained_allocation_scope(parent)?;
+                parent_state
+                    .native_frame_content_size(frame)
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+            };
+            let Some((width, height)) = size else {
                 return Ok(false);
             };
             child_state
@@ -10122,10 +10254,30 @@ mod raw_v8 {
             }
         }
         /// Uses the active realm's native viewport and media preferences.
-        pub fn native_stylesheet_blocks_scripts(&self, node: NodeId) -> Result<bool, HostError> {
+        pub fn native_stylesheet_blocks_scripts(&mut self, node: NodeId) -> Result<bool, HostError> {
             self.native_stylesheet_blocks_scripts_in_realm(self.active_realm, node)
         }
         pub fn native_stylesheet_blocks_scripts_in_realm(
+            &mut self,
+            realm: RealmId,
+            node: NodeId,
+        ) -> Result<bool, HostError> {
+            if !self.realm_execution_live(realm) {
+                return Err(HostError::CachedAuthorityExpired);
+            }
+            let state = self.binding_states.get(&realm).cloned()
+                .ok_or(HostError::CachedAuthorityExpired)?;
+            let context = self.contexts.get(&realm).cloned()
+                .ok_or(HostError::CachedAuthorityExpired)?;
+            v8::scope!(let handles, &mut self.isolate);
+            let context = v8::Local::new(handles, &context);
+            let scope = &mut v8::ContextScope::new(handles, context);
+            oryn_js::v8_bindings::native_stylesheet_blocks_scripts_in_scope(scope, &state, node)
+                .map_err(|error| HostError::Execution(error.to_string()))
+        }
+        // Scheduling/projection consumes the viewport synchronized by the
+        // execution/rendering checkpoint. This must not calculate ancestors.
+        pub(crate) fn cached_stylesheet_blocks_scripts_in_realm(
             &self,
             realm: RealmId,
             node: NodeId,
@@ -10136,12 +10288,29 @@ mod raw_v8 {
                 .native_stylesheet_blocks_scripts(node)
                 .map_err(HostError::Execution)
         }
-        pub fn native_media_matches(&self, query: &str) -> Result<bool, HostError> {
-            self.binding_states
-                .get(&self.active_realm)
-                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
-                .native_media_matches(query)
-                .map_err(HostError::Execution)
+        pub(crate) fn cached_stylesheet_blocks_scripts(&self, node: NodeId) -> Result<bool, HostError> {
+            self.cached_stylesheet_blocks_scripts_in_realm(self.active_realm, node)
+        }
+        pub fn native_media_matches(&mut self, query: &str) -> Result<bool, HostError> {
+            self.native_media_matches_in_realm(self.active_realm, query)
+        }
+        pub(crate) fn native_media_matches_in_realm(
+            &mut self,
+            realm: RealmId,
+            query: &str,
+        ) -> Result<bool, HostError> {
+            if !self.realm_execution_live(realm) {
+                return Err(HostError::CachedAuthorityExpired);
+            }
+            let state = self.binding_states.get(&realm).cloned()
+                .ok_or(HostError::CachedAuthorityExpired)?;
+            let context = self.contexts.get(&realm).cloned()
+                .ok_or(HostError::CachedAuthorityExpired)?;
+            v8::scope!(let handles, &mut self.isolate);
+            let context = v8::Local::new(handles, &context);
+            let scope = &mut v8::ContextScope::new(handles, context);
+            oryn_js::v8_bindings::native_media_matches_in_scope(scope, &state, query)
+                .map_err(|error| HostError::Execution(error.to_string()))
         }
 
         pub fn set_native_scrollbar_width(&mut self, width: f64) -> Result<(), HostError> {
@@ -10186,6 +10355,7 @@ mod raw_v8 {
             provider
                 .bind_stylesheet_document_owner(&state.dom().borrow(), owner)
                 .map_err(HostError::Execution)?;
+            self.transfer_native_provider_allocation(realm, &provider)?;
             state.set_layout_provider(provider);
             let context = self
                 .contexts
@@ -11328,6 +11498,9 @@ mod raw_v8 {
                 let previous = previous.expect("initial document has an existing realm");
                 let context = self.contexts.get(&previous).unwrap().clone();
                 let state = self.binding_states.get(&previous).unwrap().clone();
+                // Stage document-specific caches and admission before the
+                // verified initial Window transition changes its active NodeId.
+                let provider = self.prepare_initial_document_provider(previous, &state, document)?;
                 v8::scope!(let scope, &mut self.isolate);
                 let context = v8::Local::new(scope, &context);
                 let scope = &mut v8::ContextScope::new(scope, context);
@@ -11341,6 +11514,9 @@ mod raw_v8 {
                 if let Err(error) = state.replace_initial_document(document, generation) {
                     retire_environment(scope, environment.id);
                     return Err(HostError::Execution(error.to_string()));
+                }
+                if let Some(provider) = provider {
+                    state.set_layout_provider(provider);
                 }
                 // Reused initial Windows retain binding state, but the old
                 // provenance issuer cannot sign the replacement before bind.
@@ -15381,6 +15557,27 @@ mod raw_v8 {
                 mode,
                 connection,
             }),
+            oryn_js::platform::IdbHostCommand::CreateIndex {
+                database, store, definition,
+            } => Ok(crate::storage::IdbCommand::CreateIndex {
+                database, store,
+                definition: crate::storage::IndexDefinition {
+                    name: definition.name,
+                    key_path: definition.key_path,
+                    unique: definition.unique,
+                    multi_entry: definition.multi_entry,
+                },
+            }),
+            oryn_js::platform::IdbHostCommand::UpgradeConnection { token, name, inner } => {
+                // Move string payloads without a JSON value tree. The parent
+                // DTO box belongs to the native parent's existing memory bound,
+                // not the child isolate lease (different enum allocation layout).
+                // Do not claim this new parent allocation is the moved child box.
+                let command = parent_idb_command(*inner)?;
+                Ok(crate::storage::IdbCommand::UpgradeConnection {
+                    token, name, inner: Box::new(command),
+                })
+            }
             command => serde_json::from_value(
                 serde_json::to_value(command).map_err(|error| error.to_string())?,
             )
@@ -16740,6 +16937,101 @@ mod raw_v8 {
     }
     #[cfg(test)]
     mod native_context_tests {
+        #[test]
+        fn parser_memory_phases_preserve_exception_and_observe_exact_release() {
+            #[cfg(unix)]
+            if std::env::var("ORYN_RANGE_PHASE_TEST_CHILD").is_err() {
+                use std::os::fd::{AsRawFd,FromRawFd};
+                use std::os::unix::fs::OpenOptionsExt;
+                use std::os::unix::process::CommandExt;
+                let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local-patches/wpt-p0-20261015/range-performance");
+                std::fs::create_dir_all(&root).unwrap();
+                let stamp=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+                let attempt=root.join(format!("phase-control-{}-{stamp}",std::process::id()));
+                std::fs::create_dir(&attempt).unwrap();
+                let manifest=serde_json::json!({"base":"063173bb0ceb6b2eb09a96ffc66ccf905bcad90a","destination":"oryn-roadmap-next","owner":"root/range_performance","state":"started; outer run_owned settlement required","child_modes":["enabled","absent"]});
+                std::fs::write(attempt.join("manifest.json"),serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+                let path=attempt.join("events.jsonl");
+                let file=std::fs::OpenOptions::new().read(true).append(true).create_new(true).mode(0o600).open(&path).unwrap();
+                let duplicate=unsafe{libc::fcntl(file.as_raw_fd(),libc::F_DUPFD_CLOEXEC,64)};
+                assert!(duplicate>=64);
+                let source=unsafe{std::fs::File::from_raw_fd(duplicate)};
+                let filter="host::raw_v8::native_context_tests::parser_memory_phases_preserve_exception_and_observe_exact_release";
+                let executable=std::env::current_exe().unwrap();
+                let listing=std::process::Command::new(&executable).args(["--list","--exact",filter]).output().unwrap();
+                assert!(listing.status.success());
+                assert!(String::from_utf8_lossy(&listing.stdout).lines().any(|line|line==format!("{filter}: test")));
+                for mode in ["enabled","absent"] {
+                    let mut command=std::process::Command::new(&executable);
+                    command.args(["--exact",filter,"--nocapture"]).env("ORYN_RANGE_PHASE_TEST_CHILD",mode);
+                    let fd=source.as_raw_fd();
+                    unsafe{command.pre_exec(move||{if libc::dup2(fd,5)<0{return Err(std::io::Error::last_os_error())}Ok(())});}
+                    let launched=command.output();
+                    if let Err(error)=&launched {
+                        std::fs::write(attempt.join(format!("{mode}.spawn-error.txt")),error.to_string()).unwrap();
+                    }
+                    let result=launched.unwrap();
+                    std::fs::write(attempt.join(format!("{mode}.stdout")),&result.stdout).unwrap();
+                    std::fs::write(attempt.join(format!("{mode}.stderr")),&result.stderr).unwrap();
+                    std::fs::write(attempt.join(format!("{mode}.result.json")),serde_json::to_vec_pretty(&serde_json::json!({"success":result.status.success(),"exit_code":result.status.code(),"state":"child-terminal; outer custody unsettled until run_owned"})).unwrap()).unwrap();
+                    assert!(result.status.success(),"stdout={} stderr={}",String::from_utf8_lossy(&result.stdout),String::from_utf8_lossy(&result.stderr));
+                    assert!(String::from_utf8_lossy(&result.stdout).contains("1 passed; 0 failed"));
+                    assert!(String::from_utf8_lossy(&result.stdout).contains("ORYN_RANGE_PHASE_CONTROL_COMPLETE"));
+                }
+                let bytes=std::fs::read_to_string(&path).unwrap();
+                let rows=bytes.lines().map(|line|serde_json::from_str::<serde_json::Value>(line).unwrap()).filter(|row|row["phase"]=="native_memory_snapshot").collect::<Vec<_>>();
+                assert!(!rows.is_empty(),"production diagnostic transport emitted no memory rows");
+                let identities=rows.iter().map(|row|&row["identity"]).collect::<Vec<_>>();
+                assert!(identities.iter().all(|row|row.as_object().unwrap().values().all(serde_json::Value::is_number)));
+                for phase in [1,2,3] {assert!(identities.iter().any(|row|row["phase_code"]==phase));}
+                assert!(identities.iter().any(|row|row["phase_code"]==3 && row["removal_lease_count"]==0));
+                std::fs::write(attempt.join("manifest.json"),serde_json::to_vec_pretty(&serde_json::json!({"base":"063173bb0ceb6b2eb09a96ffc66ccf905bcad90a","destination":"oryn-roadmap-next","owner":"root/range_performance","state":"test-terminal; outer run_owned settlement required","filter":filter,"child_modes":["enabled","absent"],"retained_files":["events.jsonl","enabled.stdout","enabled.stderr","absent.stdout","absent.stderr"]})).unwrap()).unwrap();
+                // Raw diagnostic file retained for coordinator review, not deleted.
+                return;
+            }
+            #[cfg(unix)]
+            if std::env::var("ORYN_RANGE_PHASE_TEST_CHILD").ok().as_deref()==Some("enabled") {
+                crate::native_timing::install_inherited(5).unwrap();
+            }
+            thread_local! {static ROWS:RefCell<Vec<serde_json::Value>>=const{RefCell::new(Vec::new())};}
+            fn capture(row:serde_json::Value){
+                crate::native_timing::point("native_memory_snapshot",row.clone());
+                ROWS.with(|rows|rows.borrow_mut().push(row));
+            }
+            let mut host=RawV8Host::new();
+            let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<body><p>x</p></body>").into_runtime().unwrap()));
+            host.install_dom(dom.clone(),1).unwrap();
+            let realm=host.active_realm;
+            {
+                v8::scope!(let handles,&mut host.isolate);
+                let context=v8::Local::new(handles,host.contexts.get(&realm).unwrap());
+                if crate::native_timing::enabled() {
+                    assert!(context.get_slot::<oryn_js::v8_bindings::NativeBindingMemoryHook>().is_some(),"host did not install production memory hook");
+                    context.set_slot(Rc::new(oryn_js::v8_bindings::NativeBindingMemoryHook(capture)));
+                } else {
+                    assert!(context.get_slot::<oryn_js::v8_bindings::NativeBindingMemoryHook>().is_none());
+                }
+            }
+            // Actual classic-script path; exception reporting must stay unchanged.
+            host.execute_parser_script("globalThis.errors=[];onerror=()=>{errors.push('caught');return true};document.body.firstChild.remove();throw new Error('expected')","https://example.test/phase.js",false).unwrap();
+            host.run_dom_observer_checkpoint().unwrap();
+            assert_eq!(host.evaluate_string("errors.join(',')").unwrap(),"caught");
+            ROWS.with(|rows|{
+                let rows=rows.borrow();
+                if !crate::native_timing::enabled() {assert!(rows.is_empty());return;}
+                assert!(rows.iter().all(|row|row.as_object().unwrap().values().all(serde_json::Value::is_number)));
+                assert!(rows.iter().any(|row|row["phase_code"]==1));
+                assert!(rows.iter().any(|row|row["phase_code"]==2));
+                #[cfg(unix)]
+                assert!(rows.iter().any(|row|row["phase_code"]==3 && row["removal_lease_count"]==0));
+            });
+            // Private descriptor gating of the production host is independently
+            // tested by existing native_timing controls; injected hook above alone
+            // must not bypass scheduler descriptor gate for phase3.
+            assert_eq!(dom.borrow().diagnostic_memory_snapshot().removal_lease_count,0);
+            ROWS.with(|rows|rows.borrow_mut().clear());
+            println!("ORYN_RANGE_PHASE_CONTROL_COMPLETE");
+        }
         #[cfg(unix)]
         #[test]
         fn native_parent_alternating_inline_keys_preserve_all_upgrade_and_normal_writes() {

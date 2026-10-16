@@ -202,7 +202,7 @@ impl RustExecutableDocument {
     }
 
     pub(crate) fn paint_visual_viewport(
-        &self,
+        &mut self,
     ) -> Result<Option<oryn_common::visual_viewport::Geometry>, HostError> {
         let identity = if let Some(scope) = self.automation_scope.as_ref() {
             self.validate_automation_scope(scope)?;

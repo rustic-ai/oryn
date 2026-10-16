@@ -67,7 +67,7 @@ impl RetainedStylesheetFetchWork {
                 }
             }
         })()
-        .map_err(|error| error.to_string());
+        .map_err(RetainedStylesheetFailure::from);
         RetainedStylesheetReady {
             identity,
             node: self.node,

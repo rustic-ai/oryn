@@ -751,7 +751,7 @@ impl PendingToggle {
                     if let Some(target) = focus
                         && state.dom.borrow().is_connected(target)?
                         && !state.dom.borrow().is_inert(target)?
-                        && let Some(target) = focus_navigation::delegated_target(state, target)?
+                        && let Some(target) = focus_navigation::delegated_target(scope, state, target)?
                     {
                         self.focus = Some(native_platform::focus_publication::Transition::new(
                             state, target,

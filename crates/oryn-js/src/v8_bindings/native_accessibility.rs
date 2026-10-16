@@ -36,7 +36,7 @@ pub fn text(
             "stale accessibility text target".into(),
         ));
     }
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     if !state.dom.borrow().is_editable_text_control(target) {
         return editing_text(scope, state, target, command, identity);
     }

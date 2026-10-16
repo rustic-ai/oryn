@@ -1215,6 +1215,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        state.bind_direct_fixture_terminal_owner();
         state
             .load_document(
                 "https://webdriver-fairness.test/".into(),
@@ -1685,6 +1686,7 @@ mod tests {
             Some(SharedNetworkBroker::new(Buffered)),
             None,
         );
+        state.bind_direct_fixture_terminal_owner();
         state.load_document("https://webdriver-fairness.test/frames".into(), r#"<iframe style='width:120px;height:80px' srcdoc='<p style="color:blue">Child paint</p>'></iframe><iframe style='display:none' srcdoc='<p>Hidden</p>'></iframe>"#, None, None, HistoryUpdate::Push, &BTreeMap::new(), Vec::new()).unwrap();
         state.poll_page_tasks().unwrap();
         state

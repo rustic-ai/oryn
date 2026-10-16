@@ -256,11 +256,12 @@ fn supports(state: &V8BindingState, node: NodeId, command: &str) -> Result<bool,
     })
 }
 fn page_scroll(
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     node: NodeId,
     command: &str,
 ) -> Result<bool, V8BindingError> {
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     let delta = {
         let layout = state.layout.borrow();
         let dom = state.dom.borrow();
@@ -327,7 +328,12 @@ fn page_scroll(
             _ => return Ok(false),
         }
     };
-    let bounds = programmatic_scroll_bounds(state, node);
+    let bounds = programmatic_scroll_bounds_in_layout(
+        &state.dom.borrow(),
+        &state.layout.borrow(),
+        state.document_root(),
+        node,
+    );
     let offset_node = scroll_offset_node(state, node);
     let previous = state
         .scroll_offsets
@@ -582,7 +588,7 @@ impl Job {
                         return Ok(true);
                     }
                     if self.command.starts_with("page-") {
-                        if page_scroll(&self.owner, self.target, &self.command)? {
+                        if page_scroll(scope, &self.owner, self.target, &self.command)? {
                             self.phase = 4;
                             continue;
                         }

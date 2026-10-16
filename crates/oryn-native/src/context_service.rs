@@ -11431,6 +11431,11 @@ impl ParentContextService {
         for redirect in 0..=10 {
             navigation_phases.begin_hop();
             if cancellation.load(Ordering::Acquire) || self.shutting_down.load(Ordering::Acquire) {
+                if destination == "stylesheet" {
+                    return Err(RuntimeError::StylesheetFailure(
+                        crate::script_load_failure::ScriptLoadFailure::Cancelled,
+                    ));
+                }
                 return Err(RuntimeError::Network("resource owner cancelled".into()));
             }
             if std::time::Instant::now() >= deadline {
@@ -11447,7 +11452,15 @@ impl ParentContextService {
                 trace.push(url.to_string());
             }
             fetch_metadata.observe(request_origin.as_deref(), &url);
-            enforce_mixed_content(&native_origin.serialized, &url)?;
+            enforce_mixed_content(&native_origin.serialized, &url).map_err(|error| {
+                if destination == "stylesheet" {
+                    RuntimeError::StylesheetFailure(
+                        crate::script_load_failure::ScriptLoadFailure::Fetch(error.to_string()),
+                    )
+                } else {
+                    error
+                }
+            })?;
             if post
                 .as_ref()
                 .is_some_and(|resource| !resource.valid_for(&url))
@@ -11496,6 +11509,13 @@ impl ParentContextService {
                 )?;
             }
             if !decision.allowed {
+                if destination == "stylesheet" {
+                    return Err(RuntimeError::StylesheetFailure(
+                        crate::script_load_failure::ScriptLoadFailure::Fetch(
+                            "stylesheet blocked by Content-Security-Policy".into(),
+                        ),
+                    ));
+                }
                 return Err(RuntimeError::ContextService(format!(
                     "{destination} blocked by Content-Security-Policy"
                 )));
@@ -11550,9 +11570,9 @@ impl ParentContextService {
                         stylesheet.is_some_and(|options| options.quirks),
                         true,
                     ) {
-                        return Err(RuntimeError::Network(
+                        return Err(RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch(
                             "stylesheet response blocked by MIME type".into(),
-                        ));
+                        )));
                     }
                 }
                 if let Some(options) = stylesheet {
@@ -11562,7 +11582,7 @@ impl ParentContextService {
                         true,
                     )
                     .map_err(|error| {
-                        RuntimeError::Network(format!("stylesheet integrity failed: {error:?}"))
+                        RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Integrity(format!("stylesheet integrity failed: {error:?}")))
                     })?;
                 }
                 if body.len() > 16 * 1024 * 1024 {
@@ -11919,7 +11939,13 @@ impl ParentContextService {
                     16 * 1024 * 1024,
                     cancellation,
                 )
-                .map_err(|error| RuntimeError::Network(error.to_string()))?
+                .map_err(|error| {
+                    if destination == "stylesheet" {
+                        RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::network(error))
+                    } else {
+                        RuntimeError::Network(error.to_string())
+                    }
+                })?
             };
             timing_hops.push(crate::network::timing_hop(&url, &response.headers));
             if !document_resource {
@@ -11954,12 +11980,17 @@ impl ParentContextService {
                                 .omit_credentials(cors || document_resource, resource_cross),
                         &response.headers,
                     )
-                    .map_err(RuntimeError::Network)?;
+                    .map_err(|message| if destination == "stylesheet" {
+                        RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch(message))
+                    } else { RuntimeError::Network(message) })?;
             }
             if font_cross {
                 enforce_cors_response(&font_request_origin, use_credentials, &response)?;
             }
             if cancellation.load(Ordering::Acquire) {
+                if destination == "stylesheet" {
+                    return Err(RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Cancelled));
+                }
                 return Err(RuntimeError::Network(
                     "resource cancelled before response publication".into(),
                 ));
@@ -11972,6 +12003,9 @@ impl ParentContextService {
                 navigation_phases.redirected();
                 oryn_js::navigation::PostResource::redirect(&mut post, response.status);
                 if redirect == 10 {
+                    if destination == "stylesheet" {
+                        return Err(RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch("stylesheet redirect limit exceeded".into())));
+                    }
                     return Err(RuntimeError::Network(format!(
                         "{destination} redirect limit exceeded"
                     )));
@@ -11982,12 +12016,16 @@ impl ParentContextService {
                     .find(|(name, _)| name.eq_ignore_ascii_case("location"))
                     .map(|(_, value)| value)
                     .ok_or_else(|| {
-                        RuntimeError::Network(format!("{destination} redirect omitted Location"))
+                        if destination == "stylesheet" {
+                            RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch("stylesheet redirect omitted Location".into()))
+                        } else { RuntimeError::Network(format!("{destination} redirect omitted Location")) }
                     })?;
                 policy = policy.after_response(&response.headers);
                 let next = url
                     .join(location)
-                    .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                    .map_err(|error| if destination == "stylesheet" {
+                        RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch(error.to_string()))
+                    } else { RuntimeError::Network(error.to_string()) })?;
                 if cors && (!next.username().is_empty() || next.password().is_some()) {
                     return Err(RuntimeError::Network(
                         "font redirect contains credentials".into(),
@@ -12196,23 +12234,23 @@ impl ParentContextService {
                         integrity_eligible,
                     )
                     .map_err(|error| {
-                        RuntimeError::Network(format!("stylesheet integrity failed: {error:?}"))
+                        RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Integrity(format!("stylesheet integrity failed: {error:?}")))
                     })?;
                 }
                 if !(200..300).contains(&response.status) {
-                    return Err(RuntimeError::Network(format!(
+                    return Err(RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch(format!(
                         "stylesheet response returned HTTP {}",
                         response.status
-                    )));
+                    ))));
                 }
                 if !oryn_net::stylesheet_response_allowed(
                     &response.headers,
                     stylesheet.is_some_and(|options| options.quirks),
                     cors || integrity_eligible,
                 ) {
-                    return Err(RuntimeError::Network(
+                    return Err(RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch(
                         "stylesheet response blocked by MIME type or nosniff".into(),
-                    ));
+                    )));
                 }
             }
             let mut timing_metadata = crate::network::resource_timing_metadata(
@@ -16264,6 +16302,57 @@ mod tests {
                 .unwrap();
             assert!(service.script_loads.is_drained().unwrap());
         }
+    }
+    #[test]
+    fn native_stylesheet_policy_denials_remain_web_failures_without_network() {
+        struct ForbiddenNetwork;
+        impl NetworkBroker for ForbiddenNetwork {
+            fn send(&self, _: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                panic!("denied stylesheet must not reach transport")
+            }
+        }
+        for (address, headers) in [
+            ("https://source.test/blocked.css",vec![("content-security-policy".into(),"style-src 'none'".into())]),
+            ("http://other.test/blocked.css",Vec::new()),
+        ] {
+            let context=Browser::in_process_probe().new_context();
+            let page=context.new_page();
+            let page_id=page.page_id();
+            context.commit_page_url(page_id,"https://source.test/".into()).unwrap();
+            context.install_document_security(page_id,"https://source.test/".into(),&headers).unwrap();
+            let service=ParentContextService::new_with_network(context,page_id,Some(SharedNetworkBroker::new(ForbiddenNetwork)));
+            let creator=script_test_creator(&service,page_id);
+            let initiator=ResourceInitiator {
+                embedded_type:None,request_state:None,navigation:Default::default(),
+                creator,prepared_policy:None,
+                stylesheet:Some(StylesheetRequest {policy:None,render_blocking:false,quirks:false,
+                    nonce:None,integrity:None,cross_origin:None}),
+            };
+            let error=service.load_page_resource(page_id,address,"stylesheet",PageResourceOptions {
+                response_lease:None,download:None,script_authority:None,initiator:&initiator,
+                form_authority:None,initiator_url:None,referrer_policy:None,parent_encoding:None,post:None,
+            }).unwrap_err();
+            assert!(matches!(error,RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch(_))), "denied stylesheet case {address}");
+            assert!(service.script_loads.is_drained().unwrap());
+        }
+    }
+    #[test]
+    fn native_stylesheet_absent_broker_is_operational_not_web_failure() {
+        let context=Browser::in_process_probe().new_context();
+        let page=context.new_page();let page_id=page.page_id();
+        context.commit_page_url(page_id,"https://source.test/".into()).unwrap();
+        context.install_document_security(page_id,"https://source.test/".into(),&[]).unwrap();
+        let service=ParentContextService::new_with_network(context,page_id,None);
+        let creator=script_test_creator(&service,page_id);
+        let initiator=ResourceInitiator {embedded_type:None,request_state:None,navigation:Default::default(),
+            creator,prepared_policy:None,stylesheet:Some(StylesheetRequest {policy:None,render_blocking:false,
+                quirks:false,nonce:None,integrity:None,cross_origin:None})};
+        let error=service.load_page_resource(page_id,"https://source.test/style.css","stylesheet",PageResourceOptions {
+            response_lease:None,download:None,script_authority:None,initiator:&initiator,form_authority:None,
+            initiator_url:None,referrer_policy:None,parent_encoding:None,post:None,
+        }).unwrap_err();
+        assert!(matches!(&error,RuntimeError::ContextService(message) if message=="page resource broker is unavailable"), "unexpected operational origin: {error:?}");
+        assert!(service.script_loads.is_drained().unwrap());
     }
     #[test]
     fn local_stylesheet_proof_uses_native_blob_origin_and_cancelled_request_custody() {

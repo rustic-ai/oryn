@@ -1,7 +1,10 @@
 //! Outer dimensions follow the top-level native headless window rectangle.
 use super::*;
 
-pub(super) fn outer_size(state: &Rc<V8BindingState>) -> Result<(f64, f64), V8BindingError> {
+pub(super) fn outer_size(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+) -> Result<(f64, f64), V8BindingError> {
     let mut current = state.clone();
     let mut ancestors = BTreeSet::new();
     loop {
@@ -15,7 +18,8 @@ pub(super) fn outer_size(state: &Rc<V8BindingState>) -> Result<(f64, f64), V8Bin
         let Some((parent, frame, connection)) = relation else {
             // Oryn has no browser chrome: WebDriver's outer rectangle is the
             // top-level viewport in CSS pixels, independent of device scale.
-            return current.native_layout_viewport();
+            refresh_layout_in_scope(scope, &current)?;
+            return Ok(current.layout.borrow().viewport.unwrap_or((1280., 720.)));
         };
         let Some(parent) = parent.upgrade() else {
             return Ok((0., 0.));
@@ -80,17 +84,17 @@ mod tests {
         let child = install_generated_bindings(scope, child_context, dom, RealmId(1), 1).unwrap();
         child.set_native_layout_viewport(240., 120., false).unwrap();
         child.set_frame_viewport_parent(&parent, frame).unwrap();
-        assert_eq!(outer_size(&child).unwrap(), (800., 600.));
+        assert_eq!(outer_size(scope, &child).unwrap(), (800., 600.));
         let other = parent.dom.borrow().find_by_id("other").unwrap();
         parent.dom.borrow_mut().append_child(other, frame).unwrap();
         assert!(parent.dom.borrow().is_connected(frame).unwrap());
-        assert_eq!(outer_size(&child).unwrap(), (0., 0.));
+        assert_eq!(outer_size(scope, &child).unwrap(), (0., 0.));
         child.set_frame_viewport_parent(&parent, frame).unwrap();
-        assert_eq!(outer_size(&child).unwrap(), (800., 600.));
+        assert_eq!(outer_size(scope, &child).unwrap(), (800., 600.));
         parent.dom.borrow_mut().remove(frame).unwrap();
         child.set_frame_viewport_parent(&parent, frame).unwrap();
         assert!(!parent.execution_retired() && !child.execution_retired());
-        assert_eq!(outer_size(&child).unwrap(), (0., 0.));
+        assert_eq!(outer_size(scope, &child).unwrap(), (0., 0.));
     }
 
     #[test]
@@ -147,6 +151,6 @@ mod tests {
         "#,
         );
         state.retire_execution();
-        assert_eq!(outer_size(&state).unwrap(), (0., 0.));
+        assert_eq!(outer_size(scope, &state).unwrap(), (0., 0.));
     }
 }

@@ -4237,7 +4237,7 @@ mod tests {
             "https://handler.test/?%s".into(),
         )
         .unwrap();
-        permission_prompt::fixup(&state).unwrap();
+        permission_prompt::fixup(scope, &state).unwrap();
         assert!(
             state.permission_elements.borrow().prompt.is_some(),
             "author inert/display cannot dismiss browser registration UI"

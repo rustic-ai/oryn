@@ -85,8 +85,19 @@ struct RetainedParserCompletion {
     authority: StylesheetPublicationAuthority,
     phase: RetainedParserCompletionPhase,
 }
+// Phase payload is already owned and charged by the source/completion queue.
+// Boxing would add an unadmitted allocation to the delivery transition.
+#[expect(clippy::large_enum_variant, reason = "fixed inline phase ownership avoids an unadmitted allocation during completion transfer")]
 enum RetainedParserCompletionPhase {
     Source(RetainedStylesheetSourceEnvelope),
+    InlineRoot {
+        delivery: Box<InlinePendingRootDelivery>,
+        _allocation: Arc<dyn Send + Sync>,
+    },
+    OperationalFailure {
+        _reservations: Vec<ScriptSourceReservation>,
+        diagnostic: String,
+    },
     Failed {
         _reservations: Vec<ScriptSourceReservation>,
         diagnostic: Option<String>,
@@ -120,6 +131,7 @@ impl RetainedParserCompletion {
                 }
             }
             RetainedParserCompletionPhase::Prepared { prepared, .. } => prepared.proofs.cancel(),
+            RetainedParserCompletionPhase::InlineRoot { delivery, .. } => delivery.cancel(),
             _ => {}
         }
         self.phase = RetainedParserCompletionPhase::Retired;
@@ -220,20 +232,21 @@ impl RetainedParserCompletion {
         // The envelope keeps body reservations even if native parsing fails.
         // A consumed source is a terminal parse failure, not a refetch/retry.
         let tree = envelope.take_tree()?;
-        let source = match tree.realize(lock, quirks, admission) {
+        let mut source = match tree.realize(lock, quirks, admission) {
             Ok(source) => source,
             Err(error) => {
                 let reservations = std::mem::take(&mut envelope.reservations);
-                self.phase = RetainedParserCompletionPhase::Failed {
+                self.phase = RetainedParserCompletionPhase::OperationalFailure {
                     _reservations: reservations,
-                    // The original typed error is returned on this boundary;
-                    // later delivery retries only its terminal error event.
-                    diagnostic: None,
+                    // Retry retains the primary diagnostic and source quota;
+                    // operational parsing failure is never an author event.
+                    diagnostic: error.to_string(),
                 };
                 return Err(error);
             }
         };
         let reservations = std::mem::take(&mut envelope.reservations);
+        source.retained_allocation = envelope._allocation.take();
         self.phase = RetainedParserCompletionPhase::Parsed {
             source,
             reservations,
@@ -243,8 +256,7 @@ impl RetainedParserCompletion {
         }
         if let RetainedParserCompletionPhase::Parsed { source, .. } = &self.phase {
             for response in &source.responses {
-                if let NativeStylesheetResponseAuthority::Inline(authority) = &response.proof
-        && !authority.current(host, arena)? {
+                if !response.proof.validate_native_owner(host, arena)? {
                     return Ok(false);
                 }
             }

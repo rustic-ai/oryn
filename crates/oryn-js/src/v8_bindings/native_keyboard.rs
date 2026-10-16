@@ -588,14 +588,16 @@ fn movement(
     let Some((alter, direction, granularity)) = movement_parameters(state, key, mods) else {
         return Ok(false);
     };
-    if !selection_movement::modify_control(scope, state, alter, direction, granularity)? {
-        selection_movement::modify_admitted(
-            state,
-            alter,
-            direction,
-            granularity,
-            |anchor, focus| admit_selection(scope, state, anchor, focus),
-        )?;
+    if !selection_movement::modify_control(scope, state, alter, direction, granularity)?
+        && let Some(plan) =
+            selection_movement::prepare_movement(scope, state, alter, direction, granularity)?
+    {
+        if let Some((anchor, focus)) = plan.boundaries
+            && !admit_selection(scope, state, anchor, focus)?
+        {
+            return Ok(true);
+        }
+        plan.commit(state)?;
     }
     Ok(true)
 }
@@ -636,13 +638,16 @@ struct EditDescription {
     enter: bool,
 }
 fn prepare_edit(
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     target: NodeId,
     key: &str,
     mods: NativeKeyboardModifiers,
     deletion_unit: Option<crate::composition::TextUnit>,
 ) -> Result<Option<EditDescription>, V8BindingError> {
-    if !clipboard_actions::editable(state, target)? || css_suppresses_focus(state, target)? {
+    if !clipboard_actions::editable(state, target)?
+        || css_suppresses_focus_in_scope(scope, state, target)?
+    {
         return Ok(None);
     }
     let is_control = state.dom.borrow().is_editable_text_control(target);
@@ -766,6 +771,9 @@ fn apply_edit(
     let changed = if is_control {
         let (mut start, mut end, before) = clipboard_actions::control_selection(state, target)?;
         if deletion && start == end {
+            let initial_selection = (start, end, before.clone());
+            let initial_generation = state.document_generation();
+            let initial_authority = state.document_authority_epoch();
             let units = oryn_dom::dom_string::units(&before);
             let text = String::from_utf16_lossy(&units);
             let mut offset = 0;
@@ -776,6 +784,7 @@ fn apply_edit(
             }
             if let Some(unit) = description.deletion_unit {
                 let Some(plan) = selection_movement::prepare_control_movement(
+                    scope,
                     state,
                     target,
                     "extend",
@@ -785,6 +794,14 @@ fn apply_edit(
                 else {
                     return Ok(false);
                 };
+                if state.execution_retired()
+                    || state.execution_suspended()
+                    || state.document_generation() != initial_generation
+                    || state.document_authority_epoch() != initial_authority
+                    || clipboard_actions::control_selection(state, target)? != initial_selection
+                {
+                    return Ok(false);
+                }
                 let boundaries = plan.boundaries();
                 start = boundaries.0;
                 end = boundaries.1;
@@ -802,11 +819,19 @@ fn apply_edit(
                 }
             } else if line_delete {
                 let Some(boundary) = selection_movement::control_line_boundary(
-                    state, target, &before, start, !backward,
+                    scope, state, target, &before, start, !backward,
                 )?
                 else {
                     return Ok(false);
                 };
+                if state.execution_retired()
+                    || state.execution_suspended()
+                    || state.document_generation() != initial_generation
+                    || state.document_authority_epoch() != initial_authority
+                    || clipboard_actions::control_selection(state, target)? != initial_selection
+                {
+                    return Ok(false);
+                }
                 if backward {
                     start = boundary;
                 } else {
@@ -884,7 +909,7 @@ fn edit_with_deletion_unit(
         deletion_unit,
     } = params;
 
-    let Some(description) = prepare_edit(state, target, key, mods, deletion_unit)? else {
+    let Some(description) = prepare_edit(scope, state, target, key, mods, deletion_unit)? else {
         return Ok(());
     };
     let data =
@@ -900,7 +925,7 @@ fn edit_with_deletion_unit(
     )? || !live(state, target, generation, epoch)
         || !clipboard_actions::editable(state, target)?
         || state.dom.borrow().is_inert(target)?
-        || css_suppresses_focus(state, target)?
+        || css_suppresses_focus_in_scope(scope, state, target)?
         || state.dom.borrow().is_editable_text_control(target) != description.is_control
     {
         return Ok(());
@@ -1073,7 +1098,7 @@ fn dispatch_after_key(
         && matches!(key.as_str(), "Enter" | " ")
         && state.dom.borrow().is_file_input(target)
     {
-        file_picker::open(state, target)?;
+        file_picker::open(scope, state, target)?;
         return Ok(true);
     }
     if !mods.control
@@ -1265,7 +1290,7 @@ fn dispatch_after_key(
     if (!printable(&key) || shortcut) && control_step(scope, state, target, &key, mods)? {
         return Ok(true);
     }
-    if key != " " && scroll_default(state, target, &key, mods)? {
+    if key != " " && scroll_default(scope, state, target, &key, mods)? {
         return Ok(true);
     }
     if movement(scope, state, &key, mods)? {
@@ -1303,7 +1328,7 @@ fn dispatch_after_key(
         }
         return Ok(true);
     }
-    if key == " " && scroll_default(state, target, &key, mods)? {
+    if key == " " && scroll_default(scope, state, target, &key, mods)? {
         return Ok(true);
     }
     if key == "Enter"
@@ -1337,6 +1362,78 @@ mod tests {
             .unwrap()
             .run(scope)
             .unwrap()
+    }
+    #[test]
+    fn deletion_does_not_use_geometry_after_provider_changes_control_value() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<input id=x value=abcdef>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let node = dom.borrow().find_by_id("x").unwrap();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(221), 1).unwrap();
+        struct Provider {
+            state: std::rc::Weak<V8BindingState>,
+            node: NodeId,
+            calls: Cell<usize>,
+        }
+        impl BindingLayoutProvider for Provider {
+            fn compute_layout(
+                &self,
+                _: &BTreeMap<NodeId, BTreeSet<String>>,
+            ) -> Result<BindingLayout, String> {
+                self.calls.set(self.calls.get() + 1);
+                let state = self.state.upgrade().ok_or("owner retired")?;
+                state
+                    .dom
+                    .borrow_mut()
+                    .restore_control_edit_value(self.node, "author".into(), false)
+                    .map_err(|e| e.to_string())?;
+                state
+                    .text_control_selections
+                    .borrow_mut()
+                    .insert(self.node, (3, 3, "none".into()));
+                Ok(BindingLayout::default())
+            }
+        }
+        state
+            .text_control_selections
+            .borrow_mut()
+            .insert(node, (2, 2, "none".into()));
+        let provider = Rc::new(Provider {
+            state: Rc::downgrade(&state),
+            node,
+            calls: Cell::new(0),
+        });
+        state.set_layout_provider(provider.clone());
+        let description = EditDescription {
+            deletion_unit: Some(crate::composition::TextUnit::Line),
+            is_control: true,
+            backward: true,
+            deletion: true,
+            line: false,
+            word_delete: false,
+            line_delete: false,
+            hard_line_delete: false,
+            input_type: "deleteContentBackward".into(),
+            replacement: String::new(),
+            enter: false,
+        };
+        assert!(!apply_edit(scope, &state, node, &description).unwrap());
+        assert_eq!(provider.calls.get(), 1);
+        assert_eq!(
+            state.dom.borrow().control_edit_value(node).unwrap(),
+            "author"
+        );
+        assert_eq!(
+            state.text_control_selections.borrow().get(&node).unwrap().0,
+            3
+        );
     }
     #[test]
     fn native_keyboard_selectstart_precedes_extension_and_cancellation_preserves_range() {
@@ -1601,7 +1698,7 @@ fn temporal_key(
     if !live(state, node, generation, epoch)
         || state.dom.borrow().focused() != Some(node)
         || !state.dom.borrow().is_temporal_control(node)
-        || css_suppresses_focus(state, node)?
+        || css_suppresses_focus_in_scope(scope, state, node)?
     {
         return Ok(false);
     }
@@ -1671,7 +1768,7 @@ fn temporal_key(
             || state.dom.borrow().focused() != Some(node)
             || !state.dom.borrow().is_temporal_control(node)
             || state.dom.borrow().is_inert(node)?
-            || css_suppresses_focus(state, node)?)
+            || css_suppresses_focus_in_scope(scope, state, node)?)
     {
         return Ok(true);
     }
@@ -1789,7 +1886,7 @@ pub(super) fn control_step(
         let before = state.dom.borrow().control_edit_value(node)?;
         let mut down = matches!(key, "ArrowDown" | "ArrowLeft");
         if kind == "range" && matches!(key, "ArrowLeft" | "ArrowRight") {
-            refresh_layout(state)?;
+            refresh_layout_in_scope(scope, state)?;
             let rtl = editing_snapshot_property(
                 &state.dom.borrow(),
                 &state.layout.borrow(),
@@ -1847,6 +1944,7 @@ pub(super) fn control_step(
     Ok(true)
 }
 fn scroll_default(
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     node: NodeId,
     key: &str,
@@ -1860,7 +1958,7 @@ fn scroll_default(
     {
         return Ok(false);
     }
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     let viewport = state.layout.borrow().viewport;
     let Some((_, height)) = viewport else {
         return Ok(false);
@@ -1887,7 +1985,7 @@ fn scroll_default(
         "ArrowLeft" => (-line.unwrap_or(0.), 0.),
         _ => return Ok(false),
     };
-    apply_pixel_wheel(state, node, x, y)?;
+    apply_pixel_wheel(scope, state, node, x, y)?;
     Ok(true)
 }
 
@@ -2542,7 +2640,7 @@ fn select_step(
             .borrow_mut()
             .set_select_picker_active(node, Some(next))?;
         state.layout_cache_key.borrow_mut().take();
-        scroll_element_into_view(state, next, "nearest", "nearest", false)?;
+        scroll_element_into_view_in_scope(scope, state, next, "nearest", "nearest", false)?;
         return Ok(true);
     }
     let mut selected = if multiple && mods.control {

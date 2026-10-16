@@ -280,12 +280,32 @@ fn entries<'s>(
         .collect::<Result<Vec<_>, _>>()
         .map(Some)
 }
+fn native_count(scope: &mut v8::PinScope, object: v8::Local<v8::Object>)
+    -> Option<Result<usize,V8BindingError>> {
+    let state=binding_state_for_receiver(scope,object)?;
+    let owner=super::super::native_media_owner(scope,&state,object)?;
+    Some((|| {let _guard=state.enter_retained_allocation(scope)?;
+        owner?.count().map_err(|e|super::super::native_css_read_error("MediaList",e))})())
+}
+fn native_index<'s>(scope: &mut v8::PinScope<'s,'_>,object: v8::Local<v8::Object>,index:u32)
+    -> Option<Result<Option<v8::Local<'s,v8::Value>>,V8BindingError>> {
+    let state=binding_state_for_receiver(scope,object)?;
+    let owner=super::super::native_media_owner(scope,&state,object)?;
+    Some((|| {let _guard=state.enter_retained_allocation(scope)?;
+        let value=owner?.at(index as usize).map_err(|e|super::super::native_css_read_error("MediaList",e))?;
+        value.as_deref().map(|text|v8_string(scope,text)).transpose()})())
+}
 fn getter(
     scope: &mut v8::PinScope,
     index: u32,
     args: v8::PropertyCallbackArguments,
     mut rv: v8::ReturnValue,
 ) -> v8::Intercepted {
+    if let Some(result)=native_index(scope,args.holder(),index) {
+        return match result {Ok(None)=>v8::Intercepted::kNo,
+            Ok(Some(value))=>{rv.set(value);v8::Intercepted::kYes},
+            Err(e)=>{throw_binding_error(scope,&e);v8::Intercepted::kYes}};
+    }
     match entries(scope, args.holder()) {
         Ok(Some(names)) if (index as usize) < names.len() => {
             rv.set(names[index as usize]);
@@ -305,6 +325,11 @@ fn query(
     args: v8::PropertyCallbackArguments,
     mut rv: v8::ReturnValue<v8::Integer>,
 ) -> v8::Intercepted {
+    if let Some(result)=native_count(scope,args.holder()) {
+        return match result {Ok(count) if (index as usize)<count=>{
+            rv.set_int32(v8::PropertyAttribute::READ_ONLY.as_u32() as i32);v8::Intercepted::kYes},
+            Ok(_)=>v8::Intercepted::kNo,Err(e)=>{throw_binding_error(scope,&e);v8::Intercepted::kYes}};
+    }
     match entries(scope, args.holder()) {
         Ok(Some(names)) if (index as usize) < names.len() => {
             rv.set_int32(v8::PropertyAttribute::READ_ONLY.as_u32() as i32);
@@ -323,6 +348,28 @@ fn enumerator(
     args: v8::PropertyCallbackArguments,
     mut rv: v8::ReturnValue<v8::Array>,
 ) {
+    if let Some(state)=binding_state_for_receiver(scope,args.holder())
+        && let Some(owner)=super::super::native_media_owner(scope,&state,args.holder())
+    {
+            let result=(|| -> Result<(),V8BindingError> {
+                let _guard=state.enter_retained_allocation(scope)?;
+                let count=owner?.count().map_err(|e|super::super::native_css_read_error("MediaList",e))?;
+                let count=i32::try_from(count).map_err(|_|V8BindingError::Allocation("native MediaList enumeration overflow"))?;
+                let array=v8::Array::new(scope,count);
+                for i in 0..count {
+                    let value=v8::Integer::new(scope,i);
+                    match array.set_index(scope,i as u32,value.into()) {
+                        Some(true)=>{},
+                        Some(false)=>return Err(V8BindingError::Allocation("native MediaList enumeration index")),
+                        None=>return Err(V8BindingError::JavaScriptException),
+                    }
+                }
+                rv.set(array);
+                Ok(())
+            })();
+            if let Err(error)=result {throw_binding_error(scope,&error);}
+            return;
+    }
     match entries(scope, args.holder()) {
         Ok(Some(names)) => {
             let indices = (0..names.len())
@@ -340,6 +387,11 @@ fn reject_write(
     args: v8::PropertyCallbackArguments,
     mut rv: v8::ReturnValue<()>,
 ) -> v8::Intercepted {
+    if let Some(result)=native_count(scope,args.holder()) {
+        match result {Ok(_)=>{rv.set_bool(false);if args.should_throw_on_error(){
+            throw_type_error(scope,"MediaList indexed properties are read-only");}},Err(e)=>throw_binding_error(scope,&e)}
+        return v8::Intercepted::kYes;
+    }
     match entries(scope, args.holder()) {
         Ok(None) => return v8::Intercepted::kNo,
         Err(error) => throw_binding_error(scope, &error),
@@ -376,6 +428,12 @@ fn deleter(
     args: v8::PropertyCallbackArguments,
     mut rv: v8::ReturnValue<v8::Boolean>,
 ) -> v8::Intercepted {
+    if let Some(result)=native_count(scope,args.holder()) {
+        match result {Ok(count)=>{let allowed=index as usize>=count;rv.set_bool(allowed);
+            if !allowed&&args.should_throw_on_error(){throw_type_error(scope,"MediaList indexed properties cannot be deleted");}},
+            Err(e)=>throw_binding_error(scope,&e)}
+        return v8::Intercepted::kYes;
+    }
     match entries(scope, args.holder()) {
         Ok(None) => return v8::Intercepted::kNo,
         Err(error) => throw_binding_error(scope, &error),

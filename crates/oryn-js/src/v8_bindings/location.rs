@@ -371,7 +371,19 @@ pub(super) fn set(
     match member {
         "href" => url = resolve(scope, state, &value)?,
         "protocol" => {
-            url::quirks::set_protocol(&mut url, &value).map_err(|_| error("SyntaxError"))?;
+            // A malformed scheme is a Location syntax error. A syntactically
+            // valid scheme rejected by the URL scheme-override constraints
+            // instead leaves this URL and its navigation queue untouched.
+            let scheme = value.split(':').next().unwrap_or_default();
+            let mut bytes = scheme.bytes();
+            if !bytes.next().is_some_and(|byte| byte.is_ascii_alphabetic())
+                || !bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.'))
+            {
+                return Err(error("SyntaxError"));
+            }
+            if url::quirks::set_protocol(&mut url, &value).is_err() {
+                return Ok(());
+            }
             if !matches!(url.scheme(), "http" | "https") {
                 return Ok(());
             }
@@ -452,6 +464,33 @@ pub(super) fn operation<'s>(
 #[cfg(test)]
 mod installation_tests {
     use super::*;
+    #[test]
+    fn valid_incompatible_scheme_override_keeps_location_and_navigation_unchanged() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context,
+            Rc::new(RefCell::new(oryn_dom::html::parse("<body>").into_runtime().unwrap())),
+            RealmId(323), 1).unwrap();
+        for initial in ["https://example.test/path?q#hash", "data:text/html,body"] {
+            state.commit_location(initial).unwrap();
+            assert!(eval(scope, r#"(()=>{
+                const before=location.href;
+                const values=before.startsWith('data:')?['http','https','file','ftp']:['x','data','file','http+x'];
+                for(const value of values){location.protocol=value;if(location.href!==before)throw Error('URL changed');}
+                let converted=0;const sentinel={};
+                try{location.protocol={toString(){converted++;throw sentinel}};throw Error('missing conversion throw')}
+                catch(error){if(error!==sentinel)throw error;}
+                if(converted!==1||location.href!==before)throw Error('conversion changed URL');
+                try{location.protocol=':';throw Error('missing SyntaxError')}catch(error){if(error.name!=='SyntaxError')throw error;}
+                return true;
+            })()"#).is_true());
+            assert!(state.take_location_navigation().is_none());
+            assert_eq!(state.location_url.borrow().as_str(), initial);
+        }
+    }
     fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, source: &str) -> v8::Local<'s, v8::Value> {
         let source = v8::String::new(scope, source).unwrap();
         v8::Script::compile(scope, source, None)

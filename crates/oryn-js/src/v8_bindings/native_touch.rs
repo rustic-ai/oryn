@@ -80,8 +80,12 @@ impl Policy {
     }
 }
 
-pub(super) fn policy(state: &V8BindingState, target: NodeId) -> Result<Policy, V8BindingError> {
-    refresh_layout(state)?;
+pub(super) fn policy(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    target: NodeId,
+) -> Result<Policy, V8BindingError> {
+    refresh_layout_in_scope(scope, state)?;
     let dom = state.dom.borrow();
     let layout = state.layout.borrow();
     let mut cursor = Some(target);
@@ -401,7 +405,11 @@ impl Pan {
             done: false,
         }
     }
-    pub(super) fn poll(&mut self, state: &Rc<V8BindingState>) -> Result<bool, V8BindingError> {
+    pub(super) fn poll(
+        &mut self,
+        scope: &mut v8::PinScope,
+        state: &Rc<V8BindingState>,
+    ) -> Result<bool, V8BindingError> {
         if self.done {
             return Ok(self.changed);
         }
@@ -418,7 +426,19 @@ impl Pan {
             return Ok(self.changed);
         }
         if !self.prepared {
-            refresh_layout(state)?;
+            refresh_layout_in_scope(scope, state)?;
+            if state.execution_retired()
+                || self.identity
+                    != (
+                        state.document_root(),
+                        state.document_generation(),
+                        state.document_stream_epoch(),
+                        state.document_authority_epoch(),
+                    )
+            {
+                self.done = true;
+                return Ok(self.changed);
+            }
             self.prepared = true;
         }
         loop {
@@ -635,7 +655,7 @@ impl Pan {
                         state.layout_cache_key.borrow_mut().take();
                     }
                 } else {
-                    perform_scroll(state, step.node, (Some(next.0), Some(next.1)), false)?;
+                    perform_scroll_in_scope(scope, state, step.node, (Some(next.0), Some(next.1)), false)?;
                 }
             }
             let step = self.pending.take().unwrap();

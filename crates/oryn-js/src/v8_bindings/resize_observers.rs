@@ -266,6 +266,7 @@ fn remove_active(state: &V8BindingState, target: &Rc<RefCell<Target>>) {
 fn sample(scope: &mut v8::PinScope, target: &Target) -> Result<ResizeMeasurement, V8BindingError> {
     let object = v8::Local::new(scope, &target.object);
     let (state, node) = owner(scope, object)?;
+    let revision = state.native_paint_revision_in_scope(scope)?;
     let mut rect = BindingRect::default();
     let mut content = (0., 0.);
     let mut border = (0., 0.);
@@ -391,7 +392,7 @@ fn sample(scope: &mut v8::PinScope, target: &Target) -> Result<ResizeMeasurement
         selected,
         depth,
         Rc::downgrade(&state),
-        state.native_paint_revision()?,
+        revision,
     ))
 }
 fn platform<'s>(
@@ -696,6 +697,45 @@ pub(super) fn layout_changed(state: &V8BindingState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn idle_observer_dependency_comparison_does_not_compute_layout() {
+        struct Provider(Cell<usize>);
+        impl BindingLayoutProvider for Provider {
+            fn compute_layout(
+                &self,
+                _: &BTreeMap<NodeId, BTreeSet<String>>,
+            ) -> Result<BindingLayout, String> {
+                self.0.set(self.0.get() + 1);
+                Ok(BindingLayout::default())
+            }
+        }
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<div id=target></div>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let provider = Rc::new(Provider(Cell::new(0)));
+        state.set_layout_provider(provider.clone());
+        let revision = state.native_paint_revision().unwrap();
+        assert_eq!(provider.0.get(), 0);
+        assert!(eval(
+            scope,
+            "globalThis.ro=new ResizeObserver(()=>{});ro.observe(document.getElementById('target'));true"
+        ));
+        state.resize_observers.borrow_mut().dependencies = vec![(Rc::downgrade(&state), revision)];
+        state.resize_observers.borrow_mut().dirty = false;
+        let before = provider.0.get();
+        needs_render(&state);
+        assert_eq!(provider.0.get(), before);
+        state.native_paint_revision_in_scope(scope).unwrap();
+        assert!(provider.0.get() > before);
+    }
     fn eval(scope: &mut v8::PinScope, source: &str) -> bool {
         let source = v8::String::new(scope, source).unwrap();
         v8::Script::compile(scope, source, None)

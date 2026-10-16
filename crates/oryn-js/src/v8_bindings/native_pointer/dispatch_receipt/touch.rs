@@ -625,7 +625,7 @@ impl Touch {
                                 native_touch::Pan::new(&state, contact.target, start, end)
                             }));
                         }
-                        self.pan.as_mut().unwrap().poll(&state)?;
+                        self.pan.as_mut().unwrap().poll(scope, &state)?;
                     }
                     self.result = Some(self.active.then_some(contact.target));
                     return Ok(self.result);

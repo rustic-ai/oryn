@@ -97,7 +97,7 @@ impl Transition {
                     if self.revision != Some(state.focus_transition_revision.get())
                         || !state.dom.borrow().is_connected(self.target)?
                         || state.dom.borrow().is_inert(self.target)?
-                        || !self.root && css_suppresses_focus(state, self.target)?
+                        || !self.root && css_suppresses_focus_in_scope(scope, state, self.target)?
                     {
                         return Ok(true);
                     }
@@ -126,7 +126,7 @@ impl Transition {
                     if !self.root
                         && self.revision == Some(state.focus_transition_revision.get())
                         && state.dom.borrow().focused() == Some(self.target)
-                        && focus_navigation::delegated_target(state, self.target)?
+                        && focus_navigation::delegated_target(scope, state, self.target)?
                             == Some(self.target)
                     {
                         // The target is already focused. This runs the native caret

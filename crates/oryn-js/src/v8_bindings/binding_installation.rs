@@ -61,9 +61,12 @@ pub(super) fn create_state(
         .borrow_mut()
         .push(Rc::downgrade(&selection_composed_range));
     let state = Rc::new(V8BindingState {
+        stylesheet_execution_owner: RefCell::new(std::rc::Weak::new()),
+        inline_publication_cursor: Cell::new(None),
         document_provenance_capture: RefCell::new(None),
         animation_frames: RefCell::new(animation_frames::State::default()),
         web_animations: RefCell::new(web_animations::State::default()),
+        animation_failure_diagnostic: web_animations::FailureDiagnostic::default(),
         page_revealed: Cell::new(false),
         speculation_rules: RefCell::new(speculation_registry::Registry::default()),
         document_prerendering: Cell::new(false),
@@ -253,6 +256,7 @@ pub(super) fn create_state(
         ),
         location_url: RefCell::new(Url::parse("about:blank").expect("valid initial URL")),
         location_object: Cell::new(None),
+        idb_factory_object: Cell::new(None),
         pending_location_navigation: RefCell::new(None),
         url_search_params: RefCell::new(BTreeMap::new()),
         url_iterator_prototype: RefCell::new(None),
@@ -274,6 +278,7 @@ pub(super) fn create_state(
         idb_blocked_requests: RefCell::new(BTreeSet::new()),
         ready_platform_completions: RefCell::new(VecDeque::new()),
         active_idb_connections: RefCell::new(BTreeMap::new()),
+        owned_active_connections: RefCell::new(BTreeMap::new()),
         blocked_idb_completions: RefCell::new(VecDeque::new()),
         deferred_platform_tasks: RefCell::new(VecDeque::new()),
         prefer_deferred_platform_tasks: Cell::new(false),
@@ -343,7 +348,7 @@ pub(super) fn create_state(
         default_paragraph_separator: RefCell::new("div".into()),
         undo_history: RefCell::new(UndoHistory::default()),
         editing_recovery: RefCell::new(Vec::new()),
-        range_clone_completions: RefCell::new(Vec::new()),
+        range_clone_completions: RefCell::new(std::collections::VecDeque::new()),
         range_clone_retry: Cell::new(None),
         pending_split_undo: Cell::new(None),
         custom_elements: custom_elements::Registry::default(),
@@ -375,7 +380,7 @@ pub(super) fn create_state(
         post_connection_scripts: post_connection_scripts::registry(scope),
         editing_continuations: editing_commands::registry(scope),
         pending_dynamic_stylesheets: RefCell::new(VecDeque::new()),
-        prepared_stylesheets: RefCell::new(BTreeSet::new()),
+        prepared_stylesheets: RefCell::new(BTreeMap::new()),
         pending_referrer_policies: RefCell::new(VecDeque::new()),
         document_referrer_policy: RefCell::new("strict-origin-when-cross-origin".into()),
         pending_dynamic_frames: RefCell::new(VecDeque::new()),
@@ -443,6 +448,7 @@ pub(super) fn create_state(
         ),
         scroll_offsets: RefCell::new(BTreeMap::new()),
     });
+    *state.stylesheet_execution_owner.borrow_mut() = Rc::downgrade(&state);
     context.set_slot(state.clone());
     if matches!(
         state.binding_global,
@@ -482,6 +488,9 @@ pub(super) fn install_interfaces(
     state: &Rc<V8BindingState>,
     binding_global: BindingGlobal,
 ) -> Result<BTreeMap<&'static str, v8::Global<v8::Function>>, V8BindingError> {
+    if binding_global == BindingGlobal::Worker && context.get_slot::<WorkerExposureKind>().is_none() {
+        context.set_slot(Rc::new(WorkerExposureKind(crate::worker_wire::AgentKind::Dedicated)));
+    }
     // Installation creates thousands of temporary template/member handles.
     // Do not retain them in the caller's script scope: a script can create
     // hundreds of iframe realms before that scope returns. Published objects
@@ -518,8 +527,12 @@ pub(super) fn install_interfaces(
                 } else {
                     index_data.into()
                 };
+            let constructor_arity = interface.members.iter()
+                .filter(|member| member.kind == GeneratedMemberKind::Constructor)
+                .map(|member| member.arity).min().unwrap_or(0);
             let template = v8::FunctionTemplate::builder(generated_constructor)
                 .data(constructor_data)
+                .length(i32::from(constructor_arity))
                 .build(scope);
             if interface.name.starts_with("HTML") && interface.name.ends_with("Element") {
                 crate::v8_context_bridge::defer_html_constructor_prototype(template);
@@ -658,6 +671,7 @@ pub(super) fn install_interfaces(
                 {
                     continue;
                 }
+                if member.secure_context && !state.secure_context.get() { continue; }
                 if !member.exposed.is_empty()
                     && !exposed_on_global(member.exposed, binding_global, context)
                 {
@@ -720,6 +734,12 @@ pub(super) fn install_interfaces(
                                 setter,
                                 v8::PropertyAttribute::NONE,
                             );
+                            continue;
+                        }
+                        // [Global] attributes are installed on the actual global,
+                        // never on this interface's prototype. Inherited attributes
+                        // remain on their non-global declaring prototype.
+                        if !interface.global_names.is_empty() && !member.unforgeable {
                             continue;
                         }
                         let target = if member.unforgeable {
@@ -1104,7 +1124,8 @@ pub(super) fn install_interfaces(
                     v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_DELETE,
                 );
             }
-            if exposed_on_global(interface.exposed, binding_global, context) {
+            if (!interface.secure_context || state.secure_context.get())
+                && exposed_on_global(interface.exposed, binding_global, context) {
                 let global = context.global(scope);
                 global.define_own_property(
                     scope,
@@ -1156,6 +1177,7 @@ pub(super) fn publish_objects(
     binding_global: BindingGlobal,
     constructors: &BTreeMap<&'static str, v8::Global<v8::Function>>,
 ) -> Result<(), V8BindingError> {
+    generated_globals::install(scope, context, state, binding_global, constructors)?;
     web_crypto::install(scope, state, context, constructors)?;
     submit_behavior::install(scope, state, constructors)?;
     if binding_global == BindingGlobal::Window {
@@ -1176,12 +1198,6 @@ pub(super) fn publish_objects(
         cache_storage::install(scope, state)?;
         navigation_api::install(scope, state)?;
         publish_named_window_properties(scope, context, state, document)?;
-        let history = new_stateful_object(scope, state, "History", 1)?;
-        let name =
-            v8::String::new(scope, "history").ok_or(V8BindingError::Allocation("history name"))?;
-        context
-            .global(scope)
-            .set(scope, name.into(), history.into());
         for (name, id) in [("localStorage", 1), ("sessionStorage", 2)] {
             let storage = new_stateful_object(scope, state, "Storage", id)?;
             storage_events::retain(scope, context, storage, id == 1)?;
@@ -1194,18 +1210,6 @@ pub(super) fn publish_objects(
         context
             .global(scope)
             .set(scope, name.into(), restore.into());
-    }
-    if matches!(
-        binding_global,
-        BindingGlobal::Window | BindingGlobal::Worker
-    ) {
-        let factory_id = register_platform_object(state, PlatformObjectRecord::IdbFactory);
-        let factory = new_platform_object(scope, state, "IDBFactory", factory_id)?;
-        let name = v8::String::new(scope, "indexedDB")
-            .ok_or(V8BindingError::Allocation("indexedDB name"))?;
-        context
-            .global(scope)
-            .set(scope, name.into(), factory.into());
     }
     let now = v8::Function::new(scope, performance_now_callback)
         .ok_or(V8BindingError::Allocation("performance clock"))?;
@@ -1228,7 +1232,6 @@ pub(super) fn publish_objects(
         binding_global,
         BindingGlobal::Window | BindingGlobal::Worker
     ) {
-        install_idb_key_range_statics(scope, context)?;
         install_abort_signal_statics(scope, context)?;
         install_url_statics(scope, context)?;
         install_response_statics(scope, context)?;

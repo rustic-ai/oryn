@@ -42,6 +42,7 @@ mod document_scope;
 mod registry_index;
 use registry_index::RegistryIndex;
 pub mod dom_string;
+pub mod projection_allocation;
 use attributes::AttributeKey;
 pub use attributes::{AttributeList, ContentAttribute};
 mod control_locale;
@@ -467,6 +468,8 @@ struct Slot {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum DomError {
+    #[error("native semantic projection allocation capacity exceeded")]
+    SemanticProjectionCapacity,
     #[error("native document projection cancelled by its owner")]
     ProjectionCancelled,
     #[error("native pointer source capacity exceeded")]
@@ -1220,56 +1223,11 @@ impl DomArena {
         id: NodeId,
         checkpoint: &mut impl FnMut() -> Result<(), DomError>,
     ) -> Result<String, DomError> {
-        checkpoint()?;
-        let node = self.get(id)?;
-        match &node.kind {
-            NodeKind::Text { data }
-            | NodeKind::CDataSection { data }
-            | NodeKind::ProcessingInstruction { data, .. }
-            | NodeKind::Comment { data } => {
-                let value = data.clone();
-                checkpoint()?;
-                return Ok(value);
-            }
-            NodeKind::Attribute { data, .. } => {
-                let value = data.value.clone();
-                checkpoint()?;
-                return Ok(value);
-            }
-            _ => {}
-        }
-        let mut result = Vec::new();
-        let mut pending = Vec::new();
-        for &child in node.children.iter().rev() {
-            checkpoint()?;
-            pending.push(child);
-        }
-        let mut seen = BTreeSet::from([id]);
-        while let Some(child) = pending.pop() {
-            checkpoint()?;
-            if !seen.insert(child) {
-                return Err(DomError::Cycle);
-            }
-            checkpoint()?;
-            let record = self.get(child)?;
-            match &record.kind {
-                NodeKind::Text { data } | NodeKind::CDataSection { data } => {
-                    result.extend(dom_string::units(data))
-                }
-                NodeKind::Element { .. } => {
-                    for &child in record.children.iter().rev() {
-                        checkpoint()?;
-                        pending.push(child);
-                    }
-                }
-                // Internal shadow and browsing-document edges are not DOM
-                // children for descendant text, nor are template contents.
-                _ => {}
-            }
-        }
-        let value = dom_string::from_units(&result);
-        checkpoint()?;
-        Ok(value)
+        self.text_content_with_allocation(
+            id,
+            &mut crate::projection_allocation::OrdinaryProjectionAllocation,
+            checkpoint,
+        )
     }
 
     fn slot(&self, id: NodeId) -> Option<&Slot> {
@@ -1653,6 +1611,21 @@ pub struct CustomRegistryAdmission {
     documents: BTreeMap<(u64, NodeId), u64>,
 }
 
+/// Numeric diagnostic counters only; constructing this DTO allocates nothing.
+#[derive(Debug, serde::Serialize)]
+pub struct DomMemorySnapshot {
+    pub arena_slots: usize,
+    pub arena_slot_capacity: usize,
+    pub arena_occupied_nodes: usize,
+    pub character_capacity_bytes: usize,
+    pub live_ranges: usize,
+    pub mutation_revision: u64,
+    pub journal_entries: usize,
+    pub discarded_removal_roots: usize,
+    pub outstanding_removal_roots: usize,
+    pub removal_lease_count: usize,
+}
+
 /// Live leases, iterators and mutation consumers belong to one runtime.
 /// Use `snapshot` and `from_parsed` to create independent document state.
 #[derive(Debug, Default)]
@@ -1790,6 +1763,39 @@ impl DomRuntime {
 
     pub fn arena(&self) -> &DomArena {
         &self.arena
+    }
+    /// Payload-free native diagnostics. Scans slots without cloning node data;
+    /// embeddings must sample sparsely, never use this as execution authority.
+    pub fn diagnostic_memory_snapshot(&self) -> DomMemorySnapshot {
+        let mut occupied = 0usize;
+        let mut character_capacity = 0usize;
+        for slot in &self.arena.slots {
+            let Some(node) = &slot.node else { continue };
+            occupied += 1;
+            let bytes = match &node.kind {
+                NodeKind::Text { data }
+                | NodeKind::CDataSection { data }
+                | NodeKind::Comment { data } => data.capacity(),
+                NodeKind::ProcessingInstruction { target, data } => {
+                    target.capacity().saturating_add(data.capacity())
+                }
+                _ => 0,
+            };
+            character_capacity = character_capacity.saturating_add(bytes);
+        }
+        DomMemorySnapshot {
+            arena_slots: self.arena.slots.len(),
+            arena_slot_capacity: self.arena.slots.capacity(),
+            arena_occupied_nodes: occupied,
+            character_capacity_bytes: character_capacity,
+            live_ranges: self.ranges.len(),
+            mutation_revision: self.mutation_cursor().0,
+            journal_entries: self.mutations.entries.len(),
+            discarded_removal_roots: self.mutations.discarded_removed_roots.len(),
+            outstanding_removal_roots: self.mutations.outstanding_removed_roots.len(),
+            removal_lease_count: self.mutations.removed_leases.values()
+                .fold(0usize, |total, leases| total.saturating_add(leases.len())),
+        }
     }
     pub fn arena_mut(&mut self) -> &mut DomArena {
         &mut self.arena
@@ -5266,6 +5272,44 @@ impl DomRuntime {
         self.first_element_child(self.document()).ok().flatten()
     }
 
+    /// The HTML document head/body are direct children of its HTML root,
+    /// not the first matching descendant returned by a selector.
+    pub fn document_head(&self, document: NodeId) -> Result<Option<NodeId>, DomError> {
+        self.document_html_child(document, false)
+    }
+
+    pub fn document_body(&self, document: NodeId) -> Result<Option<NodeId>, DomError> {
+        self.document_html_child(document, true)
+    }
+
+    fn document_html_child(&self, document: NodeId, body: bool) -> Result<Option<NodeId>, DomError> {
+        if !matches!(self.arena.get(document)?.kind, NodeKind::Document) {
+            return Ok(None);
+        }
+        let mut root = None;
+        for child in self.children(document)? {
+            if matches!(self.arena.get(*child)?.kind, NodeKind::Element { .. }) {
+                root = Some(*child);
+                break;
+            }
+        }
+        let Some(root) = root else { return Ok(None) };
+        if !self.is_element(root, "http://www.w3.org/1999/xhtml", "html") {
+            return Ok(None);
+        }
+        for child in self.children(root)? {
+            let record = self.arena.get(*child)?;
+            if let NodeKind::Element { name } = &record.kind
+                && name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                && if body { matches!(name.local.as_ref(), "body" | "frameset") }
+                    else { name.local.as_ref() == "head" }
+            {
+                return Ok(Some(*child));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn node_name(&self, node: NodeId) -> Result<String, DomError> {
         Ok(match &self.arena.get(node)?.kind {
             NodeKind::Document => "#document".into(),
@@ -6066,6 +6110,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn memory_snapshot_is_numeric_and_tracks_actual_removal_custody() {
+        let mut dom = DomRuntime::new();
+        let node = dom.create_element("section");
+        dom.retain_wrapper(node).unwrap();
+        dom.append_child(dom.document(), node).unwrap();
+        dom.remove(node).unwrap();
+        let before = dom.diagnostic_memory_snapshot();
+        assert_eq!(before.outstanding_removal_roots, 1);
+        assert_eq!(before.removal_lease_count, 1);
+        assert!(before.arena_occupied_nodes <= before.arena_slots);
+        assert!(before.arena_slots <= before.arena_slot_capacity);
+        let value = serde_json::to_value(&before).unwrap();
+        assert!(value.as_object().unwrap().values().all(|value| value.is_u64()));
+        let changes = dom.drain_mutations();
+        assert_eq!(dom.diagnostic_memory_snapshot().removal_lease_count, 1);
+        dom.release_mutation_roots(&changes).unwrap();
+        let after = dom.diagnostic_memory_snapshot();
+        assert_eq!(after.removal_lease_count, 0);
+        assert_eq!(after.outstanding_removal_roots, 0);
+        dom.release_wrapper(node).unwrap();
+    }
+
+    #[test]
     fn state_preserving_move_rejects_cross_document_before_mutation() {
         let mut dom = html::parse("<main id=target></main><iframe id=frame></iframe>")
             .into_runtime()
@@ -6106,6 +6173,31 @@ mod tests {
         assert_eq!(dom.frame_context_generation(frame), None);
     }
 
+#[test]
+fn document_head_body_are_direct_html_children_with_frameset_precedence() {
+    let mut dom = DomRuntime::new();
+    let document = dom.document();
+    let html = dom.create_element("html");
+    let div = dom.create_element("div");
+    let nested_body = dom.create_element("body");
+    let nested_head = dom.create_element("head");
+    let frameset = dom.create_element("frameset");
+    let body = dom.create_element("body");
+    let head = dom.create_element("head");
+    dom.append_child(document, html).unwrap();
+    dom.append_child(html, div).unwrap();
+    dom.append_child(div, nested_body).unwrap();
+    dom.append_child(div, nested_head).unwrap();
+    assert_eq!(dom.document_body(document).unwrap(), None);
+    assert_eq!(dom.document_head(document).unwrap(), None);
+    dom.append_child(html, frameset).unwrap();
+    dom.append_child(html, body).unwrap();
+    dom.append_child(html, head).unwrap();
+    assert_eq!(dom.document_body(document).unwrap(), Some(frameset));
+    assert_eq!(dom.document_head(document).unwrap(), Some(head));
+    dom.remove(frameset).unwrap();
+    assert_eq!(dom.document_body(document).unwrap(), Some(body));
+}
     #[test]
     fn template_ownership_is_inert_shared_nested_and_adopted_without_cloning() {
         let mut dom = html::parse("<template id=a><template id=b><span>kept</span></template></template><template id=c></template>").into_runtime().unwrap();
@@ -9174,5 +9266,60 @@ mod uninitialized_registry_tests {
             dom.arena().get(node).unwrap().custom_element_registry,
             Some(Some(942))
         );
+    }
+}
+
+impl DomArena {
+    pub fn text_content_with_allocation<A: crate::projection_allocation::ProjectionAllocation>(
+        &self,
+        id: NodeId,
+        allocation: &mut A,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<String, A::Error> {
+        use crate::projection_allocation::{admitted_append, admitted_push};
+        checkpoint().map_err(A::Error::from)?;
+        let node = self.get(id).map_err(A::Error::from)?;
+        let raw = match &node.kind {
+            NodeKind::Text { data }
+            | NodeKind::CDataSection { data }
+            | NodeKind::ProcessingInstruction { data, .. }
+            | NodeKind::Comment { data } => Some(data.as_str()),
+            NodeKind::Attribute { data, .. } => Some(data.value.as_str()),
+            _ => None,
+        };
+        if let Some(raw) = raw {
+            let mut output = String::new();
+            admitted_append(&mut output, raw, allocation, checkpoint)?;
+            checkpoint().map_err(A::Error::from)?;
+            return Ok(output);
+        }
+        let mut result = Vec::new();
+        let mut pending = Vec::new();
+        for &child in node.children.iter().rev() {
+            admitted_push(&mut pending, child, allocation, checkpoint)?;
+        }
+        let mut seen = BTreeSet::from([id]);
+        while let Some(child) = pending.pop() {
+            checkpoint().map_err(A::Error::from)?;
+            if !seen.insert(child) {
+                return Err(A::Error::from(DomError::Cycle));
+            }
+            let record = self.get(child).map_err(A::Error::from)?;
+            match &record.kind {
+                NodeKind::Text { data } | NodeKind::CDataSection { data } => {
+                    let units = dom_string::units_with_allocation(data, allocation, checkpoint)?;
+                    for unit in units {
+                        admitted_push(&mut result, unit, allocation, checkpoint)?;
+                    }
+                }
+                NodeKind::Element { .. } => {
+                    for &child in record.children.iter().rev() {
+                        admitted_push(&mut pending, child, allocation, checkpoint)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        dom_string::from_units_with_allocation(&result, allocation, checkpoint)
     }
 }

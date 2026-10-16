@@ -367,7 +367,7 @@ impl PageState {
                 frame.revision = frame.revision.checked_add(1).ok_or_else(|| {
                     RuntimeError::ProtocolViolation("frame revision exhausted".into())
                 })?;
-                frame.record_snapshot();
+                frame.record_snapshot()?;
             }
             frame.frame_checkpoint = Some(checkpoint);
             let response = operation(&mut frame)?;

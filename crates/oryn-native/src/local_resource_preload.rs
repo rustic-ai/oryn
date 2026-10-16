@@ -65,14 +65,14 @@ impl Key {
 pub(crate) enum Response {
     Script(String, String, bool, String),
     #[cfg(feature = "v8-host")]
-    Style(String, String, String, String),
+    Style(String, String, String, String, bool),
 }
 impl Response {
     fn bytes(&self) -> usize {
         match self {
             Self::Script(url, source, _, policy) => url.len() + source.len() + policy.len(),
             #[cfg(feature = "v8-host")]
-            Self::Style(url, source, encoding, policy) => {
+            Self::Style(url, source, encoding, policy, _) => {
                 url.len() + source.len() + encoding.len() + policy.len()
             }
         }

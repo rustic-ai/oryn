@@ -879,7 +879,15 @@ impl FrameScriptPreparation {
                 || host.automation_frame_child_live(self.parent, self.frame, self.load.realm))
     }
 
-    fn current_styles_block_scripts(&self, host: &RawV8Host) -> Result<bool, HostError> {
+    #[cfg(test)]
+    pub(super) fn root_or_live_for_test(&self, host: &RawV8Host) -> bool {
+        self.root_document || self.live(host)
+    }
+
+    fn current_styles_block_scripts(&self, host: &mut RawV8Host) -> Result<bool, HostError> {
+        // Actual parser barrier; polling helpers below consume cached viewport.
+        host.native_media_matches_in_realm(self.load.realm, "all")?;
+
         #[cfg(test)]
         xml_publication_failure(XmlPublicationFailure::BeforeStylesBarrier)?;
         #[cfg(unix)]
@@ -899,7 +907,7 @@ impl FrameScriptPreparation {
                 || self
                     .styles
                     .as_ref()
-                    .is_some_and(|styles| styles.pending != 0)
+                    .is_some_and(ParserResourceScheduler::has_stylesheet_owner_work)
                 || self.parser_async.is_some()
         }
         #[cfg(not(unix))]
@@ -2156,7 +2164,7 @@ impl FrameScriptPreparation {
                 .stylesheet_revision(pending.node)
                 .ok()
                 == Some(pending.revision)
-            && host.native_stylesheet_blocks_scripts(pending.node)?
+            && host.cached_stylesheet_blocks_scripts(pending.node)?
         {
             return Ok(true);
         }
@@ -2170,7 +2178,7 @@ impl FrameScriptPreparation {
         }
         for &(node, revision) in &self.style_nodes {
             if self.dom.borrow().arena().stylesheet_revision(node).ok() == Some(revision)
-                && host.native_stylesheet_blocks_scripts(node)?
+                && host.cached_stylesheet_blocks_scripts(node)?
             {
                 return Ok(true);
             }
@@ -2245,8 +2253,9 @@ impl FrameScriptPreparation {
                 } else {
                     styles.complete_render_stylesheet(node, revision);
                 }
-            } else if oryn_layout::cssom::stylesheet_requires_resources(&css, &fetch.base_url)
-                .map_err(HostError::Execution)?
+            } else if page.agent.host.native_retained_admission_for_realm(fetch.realm)?.is_some()
+                || oryn_layout::cssom::stylesheet_requires_resources(&css, &fetch.base_url)
+                    .map_err(HostError::Execution)?
             {
                 styles.schedule_stylesheet_auto(
                     crate::executable::AutomaticStylesheetScheduleInput {
@@ -2273,6 +2282,18 @@ impl FrameScriptPreparation {
                 let Some(completion) = styles.try_next() else {
                     break;
                 };
+                if parser_stylesheet_owner_completion(&completion)? {
+                    styles.apply_completion(crate::executable::ParserCompletionInput {
+                        completion,
+                        live_dom: &self.dom,
+                        host: &mut page.agent.host,
+                        resources: &mut page.resources,
+                        deferred: &mut BTreeMap::new(),
+                        diagnostics: &mut page.diagnostics,
+                        context: page.context.as_ref(),
+                    })?;
+                    continue;
+                }
                 let ParserResourceCompletion::Stylesheet {
                     identity,
                     node,
@@ -2327,7 +2348,32 @@ impl FrameScriptPreparation {
             styles.complete_render_stylesheet(pending.node, pending.revision);
             self.pending_stylesheet = None;
         }
+        styles.poll_async_modules(
+            &self.dom,
+            &mut page.agent.host,
+            &mut page.resources,
+            &mut page.diagnostics,
+            page.context.as_ref(),
+        )?;
         Ok(())
+    }
+}
+
+#[cfg(unix)]
+fn parser_stylesheet_owner_completion(
+    completion: &ParserResourceCompletion,
+) -> Result<bool, HostError> {
+    match completion {
+        ParserResourceCompletion::Stylesheet { .. } => Ok(false),
+        ParserResourceCompletion::RetainedStylesheet(_)
+        | ParserResourceCompletion::NativePendingImport { .. } => Ok(true),
+        ParserResourceCompletion::Script { .. } => Err(HostError::Execution(
+            "script completion in parser stylesheet owner".into(),
+        )),
+        #[cfg(test)]
+        ParserResourceCompletion::Frame { .. } => Err(HostError::Execution(
+            "frame completion in parser stylesheet owner".into(),
+        )),
     }
 }
 
@@ -3115,7 +3161,7 @@ impl RustExecutableDocument {
                 if !pending.live(&self.agent.host) {
                     continue;
                 }
-                let scripts_blocked = match pending.current_styles_block_scripts(&self.agent.host) {
+                let scripts_blocked = match pending.current_styles_block_scripts(&mut self.agent.host) {
                     Ok(blocked) => blocked,
                     Err(error) => {
                         pending.parser_retry =
@@ -3133,6 +3179,11 @@ impl RustExecutableDocument {
                         pending.live_parser.as_ref().map(|parser| &parser.parser),
                     ) {
                         Ok(true) => {
+                            // The completed script can synchronously remove its
+                            // frame. Drop that owner before resuming its tokenizer.
+                            if !pending.live(&self.agent.host) {
+                                continue;
+                            }
                             // Script completion resumes its tokenizer before
                             // unrelated task sources. Spend only this turn's
                             // remaining byte budget; a new script stays queued
@@ -5987,6 +6038,30 @@ mod tests {
     }
 
     #[test]
+    fn native_media_owner_refreshes_after_parent_resize_without_window_getter() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<body><iframe id=f style='width:240px;height:120px' srcdoc='<body>child</body>'></iframe>",
+            &BTreeMap::new(), None,
+            Some(Url::parse("https://example.test/root").unwrap()),
+        ).unwrap();
+        for _ in 0..16 {
+            page.drain_tasks().unwrap();
+            if !page.frame_scripts_pending(None) { break; }
+        }
+        let child = *page.frame_realms.keys().next().expect("child realm");
+        page.agent.host.activate_realm(page.top_realm).unwrap();
+        assert!(page.agent.host.native_media_matches_in_realm(child, "(width: 240px)").unwrap());
+        page.agent.host.execute("f.style.width='360px';f.contentWindow.innerWidth=7").unwrap();
+        assert!(page.agent.host.native_media_matches_in_realm(child, "(width: 360px)").unwrap());
+        assert!(!page.agent.host.native_media_matches_in_realm(child, "(width: 240px)").unwrap());
+        // Explicit owner entry must not alter the incumbent author realm.
+        assert_eq!(page.agent.host.evaluate_string("String(f.contentWindow.innerWidth)").unwrap(), "7");
+        page.agent.host.execute("f.remove()").unwrap();
+        page.checkpoint().unwrap();
+        assert!(page.agent.host.native_media_matches_in_realm(child, "all").is_err());
+    }
+
+    #[test]
     fn frame_viewport_uses_native_content_box_before_scripts_and_after_parent_resize() {
         let mut page=RustExecutableDocument::load_with_environment("<body><iframe id=f style='width:240px;height:120px;border:8px solid;padding:4px;transform:scale(2)' srcdoc='<script>parent.initialSize=innerWidth+String.fromCharCode(120)+innerHeight</script>'></iframe>",&BTreeMap::new(),None,Some(Url::parse("https://example.test/root").unwrap())).unwrap();
         for _ in 0..16 {
@@ -6663,7 +6738,7 @@ mod streamed_xml_input_tests {
 
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq)]
-enum XmlPublicationFailure {
+pub(super) enum XmlPublicationFailure {
     AfterHtmlTokenization,
     AfterHtmlEof,
     BeforeStylesBarrier,
@@ -6682,7 +6757,11 @@ thread_local! {static XML_SETUP_FAILURE_REALM:std::cell::Cell<Option<RealmId>>=c
 #[cfg(test)]
 thread_local! {static XML_PUBLICATION_FAILURE:std::cell::Cell<Option<XmlPublicationFailure>>=const{std::cell::Cell::new(None)};}
 #[cfg(test)]
-fn xml_publication_failure(point: XmlPublicationFailure) -> Result<(), HostError> {
+pub(super) fn inject_stylesheet_event_failure() {
+    XML_PUBLICATION_FAILURE.with(|failure|failure.set(Some(XmlPublicationFailure::BeforeStyleEvent)));
+}
+#[cfg(test)]
+pub(super) fn xml_publication_failure(point: XmlPublicationFailure) -> Result<(), HostError> {
     if XML_PUBLICATION_FAILURE.with(|failure| {
         if failure.get() == Some(point) {
             failure.set(None);
@@ -6928,14 +7007,17 @@ mod xml_publication_recovery_tests {
     #[cfg(unix)]
     #[test]
     fn stylesheet_event_admission_retry_keeps_installed_sheet_and_blocks_next_script() {
-        let mut page = html_page(
+        let mut page = retained_fixture_stylesheet_stream(
             "<script>globalThis.sheetEvents=0</script><link rel=stylesheet href=style.css onload='sheetEvents++'><script>globalThis.sheetObserved=getComputedStyle(document.documentElement).marginTop</script>",
+            "text/html", "https://example.test/recovery.html", "html{margin-top:19px}",
         );
+        let mut page = page.unwrap();
         page.resources.insert(
             "https://example.test/style.css".into(),
             "html{margin-top:19px}".into(),
         );
-        page.agent.host.set_module_sources(&page.resources);
+        let sources = page.resources.clone();
+        page.agent.host.set_module_sources(&sources);
         XML_PUBLICATION_FAILURE
             .with(|failure| failure.set(Some(XmlPublicationFailure::BeforeStyleEvent)));
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
@@ -7089,14 +7171,17 @@ mod xml_publication_recovery_tests {
     #[cfg(unix)]
     #[test]
     fn stylesheet_admission_failure_preserves_blocking_queue_before_following_xml_script() {
-        let mut page = page(
+        let mut page = retained_fixture_stylesheet_stream(
             "<html xmlns='http://www.w3.org/1999/xhtml'><head><link rel='stylesheet' href='style.css'/><script>globalThis.sheetReady=getComputedStyle(document.documentElement).marginTop</script></head></html>",
+            "application/xhtml+xml", "https://example.test/recovery.xhtml", "html{margin-top:17px}",
         );
+        let mut page = page.unwrap();
         page.resources.insert(
             "https://example.test/style.css".into(),
             "html{margin-top:17px}".into(),
         );
-        page.agent.host.set_module_sources(&page.resources);
+        let sources = page.resources.clone();
+        page.agent.host.set_module_sources(&sources);
         XML_PUBLICATION_FAILURE
             .with(|failure| failure.set(Some(XmlPublicationFailure::BeforeStyleAdmission)));
         let mut failed = false;
@@ -7864,7 +7949,7 @@ impl FrameScriptPreparation {
     fn portable_styles_block_scripts(&self, host: &RawV8Host) -> Result<bool, HostError> {
         for (node, revision) in &self.portable_styles {
             if self.dom.borrow().arena().stylesheet_revision(*node).ok() == Some(*revision)
-                && host.native_stylesheet_blocks_scripts_in_realm(self.load.realm, *node)?
+                && host.cached_stylesheet_blocks_scripts_in_realm(self.load.realm, *node)?
             {
                 return Ok(true);
             }
@@ -7876,3 +7961,76 @@ impl FrameScriptPreparation {
 #[cfg(test)]
 #[path = "parser_continuation_tests.rs"]
 mod parser_continuation_tests;
+
+#[cfg(all(test, unix))]
+mod parser_stylesheet_completion_routing_tests {
+    use super::*;
+    #[test]
+    fn retained_ready_is_routed_and_stale_owner_is_terminal_without_publication() {
+        let mut page = RustExecutableDocument::load("<head></head>").unwrap();
+        let dom = page.agent.dom.clone();
+        let realm = page.agent.host.active_realm();
+        let identity = page.agent.host.automation_realm_identity(realm).unwrap();
+        let node = dom.borrow_mut().create_element("style");
+        let document = dom.borrow().document();
+        dom.borrow_mut().append_child(document, node).unwrap();
+        let revision = dom.borrow().arena().stylesheet_revision(node).unwrap();
+        let mut owner = FrameScriptPreparation::root_html(
+            PreparedDocumentLoad { realm, identity },
+            dom.clone(),
+            &page.dynamic_scripts,
+            &mut page.agent.host,
+        )
+        .unwrap();
+        let cancel = Arc::new(crate::context_service::ResourceCancellation::default());
+        let completion = ParserResourceCompletion::RetainedStylesheet(RetainedStylesheetReady {
+            identity: ParserDocumentIdentity {
+                realm,
+                document: identity.0,
+                document_generation: identity.1,
+                stream_epoch: identity.2,
+            },
+            node,
+            revision,
+            cancellation: cancel.clone(),
+            result: Err(RetainedStylesheetFailure::Operational("unused stale response".into())),
+        });
+        assert!(parser_stylesheet_owner_completion(&completion).unwrap());
+        dom.borrow_mut().remove_child(document, node).unwrap();
+        let mut scheduler = ParserResourceScheduler::new();
+        scheduler.ready_completions.push_back((completion, false));
+        owner.styles = Some(scheduler);
+        owner.poll_styles(&mut page).unwrap();
+        assert!(cancel.flag.load(std::sync::atomic::Ordering::Acquire));
+        assert!(!owner.retained_resources());
+        assert!(!page.agent.host.realm_has_pending_stylesheet_events(realm));
+    }
+    #[test]
+    fn script_completion_is_rejected_not_applied_by_stylesheet_owner() {
+        let page = RustExecutableDocument::load("<script></script>").unwrap();
+        let dom = page.agent.dom.clone();
+        let realm = page.agent.host.active_realm();
+        let document = dom.borrow().document();
+        let node = dom.borrow_mut().create_element("script");
+        dom.borrow_mut().append_child(document, node).unwrap();
+        let record = {
+            let scheduler = ParserResourceScheduler::new();
+            let mut record = capture_parser_script_node(&page.agent.host, &dom, node).unwrap();
+            record.3 = "throw new Error('must not run')".into();
+            ParserResourceCompletion::Script {
+                realm,
+                stream_epoch: 0,
+                document_generation: 1,
+                document,
+                order: 0,
+                record,
+                asynchronous: true,
+                result: Err(ParserScriptFailure::Fetch {
+                    message: "wrong kind".into(),
+                    source_bytes: scheduler.source_bytes.clone(),
+                }),
+            }
+        };
+        assert!(parser_stylesheet_owner_completion(&record).is_err());
+    }
+}

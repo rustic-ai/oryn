@@ -51,6 +51,7 @@ pub trait BindingNativeStylesheet {
     fn owner_node(&self) -> Result<Option<NodeId>, BindingNativeCssError>;
     fn origin_clean(&self) -> bool;
     fn parent(&self) -> Result<Option<Rc<dyn BindingNativeStylesheet>>, BindingNativeCssError>;
+    fn owner_import(&self) -> Result<Option<Rc<dyn BindingNativeImport>>, BindingNativeCssError>;
     fn identity(&self) -> u64;
     fn insert_rule(&self, index: usize, source: &str) -> Result<(), BindingNativeRuleError>;
     fn delete_rule(&self, index: usize) -> Result<(), BindingNativeRuleError>;

@@ -55,15 +55,20 @@ fn publish_ready_retained_stylesheet(
     // rather than whichever author realm last executed on this host.
     let previous_realm = host.active_realm();
     host.activate_realm(identity.realm)?;
-    let publication = apply_retained_stylesheet_ready(
-        completion,
-        host,
-        arena,
-        &backend.retained_stylesheets,
-        backend.style_lock.clone(),
-        quirks,
-        admission,
-    );
+    let publication = (|| {
+        if matches!(&completion.phase,RetainedParserCompletionPhase::Source(envelope)
+            if envelope.tree.as_ref().is_some_and(|tree|matches!(&tree.response.proof,NativeStylesheetResponseAuthority::Inline(_))))
+            && completion.authority.current(host,arena)? {
+            let current=backend.retained_stylesheets.try_borrow()
+                .map_err(|_|HostError::Execution("inline incumbent registry conflict".into()))?
+                .current(arena,identity,completion.authority.owner,completion.authority.source_revision);
+            if let Some(record)=current
+                && !completion.capture_incumbent_inline_root(record,host,arena,
+                    &backend.retained_stylesheets,admission.as_ref())? {return Ok(false);}
+        }
+        apply_retained_stylesheet_ready(completion,host,arena,
+            &backend.retained_stylesheets,backend.style_lock.clone(),quirks,admission)
+    })();
     let invalidation = allocation.invalidate().map_err(HostError::Execution);
     let restoration = host.activate_realm(previous_realm);
     // Preserve the primary publication diagnostic if restoration also fails.

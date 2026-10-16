@@ -1,5 +1,27 @@
 // Retained script-close departure. No navigation history entry or pageswap is
 // created: closing discards the active Document after its prompt and unload.
+fn close_binding_error_category(error: &V8BindingError) -> u64 {
+    match error {
+        V8BindingError::JavaScriptException => 1,
+        V8BindingError::Allocation(_) => 2,
+        V8BindingError::EventCallback(_) => 3,
+        V8BindingError::Unsupported { .. } => 4,
+        _ => 5,
+    }
+}
+fn observe_close_binding_result<T>(result: &Result<T, V8BindingError>) {
+    if let Err(error) = result {
+        crate::native_timing::count("close_binding_error", 1);
+        crate::native_timing::count("close_binding_category", close_binding_error_category(error));
+        match close_binding_error_category(error) {
+            1 => crate::native_timing::count("close_binding_javascript", 1),
+            2 => crate::native_timing::count("close_binding_allocation", 1),
+            3 => crate::native_timing::count("close_binding_event", 1),
+            4 => crate::native_timing::count("close_binding_unsupported", 1),
+            _ => crate::native_timing::count("close_binding_other", 1),
+        }
+    }
+}
 type BeforeUnloadAncestor = (Rc<V8BindingState>, NodeId, RealmId, u64, u64, u64);
 struct BeforeUnloadRecipient {
     owner: Rc<V8BindingState>,
@@ -197,8 +219,11 @@ impl RawV8Host {
                 let context = v8::Local::new(handles, &context);
                 let scope = &mut v8::ContextScope::new(handles, context);
                 v8::tc_scope!(let scope,scope);
+                let _phase = crate::native_timing::stage("close_beforeunload_poll");
                 let result = recipient.receipt.as_mut().unwrap().poll(scope);
+                observe_close_binding_result(&result);
                 if deadline.expired() || scope.is_execution_terminating() {
+                    crate::native_timing::count("close_beforeunload_deadline", 1);
                     scope.cancel_terminate_execution();
                     reset_mutation_observer_microtask_after_termination(scope);
                     Err(HostError::Execution(
@@ -331,6 +356,24 @@ impl RawV8Host {
         close.result = Some(true);
         close.unload_guards.clear();
         Ok(close.result)
+    }
+}
+#[cfg(test)]
+mod close_binding_diagnostic_tests {
+    use super::*;
+    #[test]
+    fn close_diagnostic_categories_do_not_expose_payload_or_change_results() {
+        assert_eq!(close_binding_error_category(&V8BindingError::JavaScriptException), 1);
+        assert_eq!(close_binding_error_category(&V8BindingError::Allocation("private detail")), 2);
+        assert_eq!(close_binding_error_category(&V8BindingError::EventCallback("private detail".into())), 3);
+        assert_eq!(close_binding_error_category(&V8BindingError::Unsupported { interface: "private".into(), member: "private".into() }), 4);
+        assert_eq!(close_binding_error_category(&V8BindingError::Message("private detail".into())), 5);
+        let success: Result<bool, V8BindingError> = Ok(true);
+        observe_close_binding_result(&success);
+        assert!(success.unwrap());
+        let failure: Result<bool, V8BindingError> = Err(V8BindingError::JavaScriptException);
+        observe_close_binding_result(&failure);
+        assert!(matches!(failure, Err(V8BindingError::JavaScriptException)));
     }
 }
 impl NativeBeforeUnloadTree {

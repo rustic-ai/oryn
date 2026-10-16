@@ -156,6 +156,7 @@ impl Selection {
         }
     }
     pub(super) fn begin(
+        scope: &mut v8::PinScope,
         state: &Rc<V8BindingState>,
         target: NodeId,
         x: f64,
@@ -166,7 +167,7 @@ impl Selection {
         if selection_text::preserves_control_on_pointer(state, target)? {
             return Ok(None);
         }
-        let Some(point) = selection_movement::pointer_caret(state, target, x, y)? else {
+        let Some(point) = selection_movement::pointer_caret(scope, state, target, x, y)? else {
             return Ok(None);
         };
         let control = state.dom.borrow().is_editable_text_control(target);
@@ -258,6 +259,7 @@ impl Selection {
         }))
     }
     pub(super) fn update(
+        scope: &mut v8::PinScope,
         state: &Rc<V8BindingState>,
         mut gesture: Gesture,
         target: NodeId,
@@ -285,11 +287,11 @@ impl Selection {
             }
         };
         let point = if gesture.control {
-            selection_movement::pointer_caret(state, target, x, y)?
+            selection_movement::pointer_caret(scope, state, target, x, y)?
         } else {
-            match selection_movement::pointer_exclusion_boundary(state, target, gesture.anchor)? {
+            match selection_movement::pointer_exclusion_boundary(scope, state, target, gesture.anchor)? {
                 Some(point) => Some(point),
-                None => selection_movement::pointer_caret(state, target, x, y)?,
+                None => selection_movement::pointer_caret(scope, state, target, x, y)?,
             }
         };
         let Some(mut point) = point else {
@@ -420,7 +422,7 @@ impl Selection {
                     let mut gesture = self.gesture.unwrap();
                     gesture.autoscroll_at = if self.autoscroll
                         && !self.release
-                        && scroll_plan(&self.owner, gesture, self.x, self.y)?.is_some()
+                        && scroll_plan(scope, &self.owner, gesture, self.x, self.y)?.is_some()
                     {
                         Some(gesture.autoscroll_at.unwrap_or_else(|| {
                             std::time::Instant::now() + std::time::Duration::from_millis(16)
@@ -445,7 +447,7 @@ pub(super) fn begin(
     shift: bool,
     count: i32,
 ) -> Result<Option<Gesture>, V8BindingError> {
-    let Some(mut job) = Selection::begin(state, target, x, y, shift, count)? else {
+    let Some(mut job) = Selection::begin(scope, state, target, x, y, shift, count)? else {
         return Ok(None);
     };
     job.poll(scope)?
@@ -460,7 +462,7 @@ pub(super) fn update(
     y: f64,
     release: bool,
 ) -> Result<Option<Gesture>, V8BindingError> {
-    let Some(mut job) = Selection::update(state, gesture, target, x, y, release)? else {
+    let Some(mut job) = Selection::update(scope, state, gesture, target, x, y, release)? else {
         return Ok(None);
     };
     job.poll(scope)?
@@ -483,6 +485,7 @@ fn edge_delta(position: f64, start: f64, length: f64) -> f64 {
     }
 }
 fn scroll_plan(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     gesture: Gesture,
     x: f64,
@@ -491,7 +494,10 @@ fn scroll_plan(
     if !live(state, gesture) || gesture.deferred {
         return Ok(None);
     }
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
+    if !live(state, gesture) {
+        return Ok(None);
+    }
     let dom = state.dom.borrow();
     let layout = state.layout.borrow();
     let mut current = Some(gesture.target);
@@ -569,18 +575,22 @@ pub(super) fn autoscroll(
     if !live(state, gesture) {
         return Ok((None, false));
     }
-    let Some((node, next)) = scroll_plan(state, gesture, x, y)? else {
+    let Some((node, next)) = scroll_plan(scope, state, gesture, x, y)? else {
         gesture.autoscroll_at = None;
         return Ok((Some(gesture), false));
     };
-    perform_scroll(state, node, (Some(next.0), Some(next.1)), false)?;
-    refresh_layout(state)?;
+    perform_scroll_in_scope(scope, state, node, (Some(next.0), Some(next.1)), false)?;
+    refresh_layout_in_scope(scope, state)?;
+    if !live(state, gesture) {
+        return Ok((None, false));
+    }
     let (width, height) = state.layout.borrow().viewport.unwrap_or_default();
     let point = (x.clamp(0., width.max(0.)), y.clamp(0., height.max(0.)));
-    let target = native_pointer::hit_test(state, state.document_root(), point.0, point.1, false)?
-        .first()
-        .copied()
-        .unwrap_or(gesture.target);
+    let target =
+        native_pointer::hit_test_snapshot(state, state.document_root(), point.0, point.1, false)?
+            .first()
+            .copied()
+            .unwrap_or(gesture.target);
     gesture.autoscroll_at = Some(now + std::time::Duration::from_millis(16));
     Ok((update(scope, state, gesture, target, x, y, false)?, true))
 }

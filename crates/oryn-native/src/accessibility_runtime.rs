@@ -607,6 +607,7 @@ mod retained_accessibility_actor_tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://ax.test/".into(),
             "<textarea id=t>abc</textarea>",

@@ -53,12 +53,6 @@ impl Transition {
         state: &Rc<V8BindingState>,
         target: Option<NodeId>,
     ) -> Result<Self, V8BindingError> {
-        let target = target
-            .map(|target| {
-                focus_navigation::delegated_target(state, target)
-                    .map(|delegated| delegated.unwrap_or(target))
-            })
-            .transpose()?;
         let previous = state.dom.borrow().focused();
         Ok(Self {
             owner: state.clone(),
@@ -137,6 +131,12 @@ impl Transition {
                 self.phase += 1;
                 continue;
             }
+            if self.phase == 0
+                && let Some(target) = self.node(state, &self.target, true)
+            {
+                let resolved = focus_navigation::delegated_target(scope, state, target)?;
+                self.target = resolved.map(|node| oryn_dom::TrackedNodeLease::new(&state.dom, node)).transpose()?;
+            }
             let previous = self.node(state, &self.previous, false);
             let target = self.node(state, &self.target, true);
             match self.phase {
@@ -181,7 +181,7 @@ impl Transition {
                     let Some(target) = target else {
                         return Ok(true);
                     };
-                    refresh_layout(state)?;
+                    refresh_layout_in_scope(scope, state)?;
                     if self.revision != Some(state.focus_transition_revision.get())
                         || state.dom.borrow().is_inert(target)?
                         || !focus_navigation::eligible_for(state, target, false)?

@@ -16,6 +16,7 @@ impl PreparedPendingImportCompletion {
                     if !child.response.proof.validate_native_owner(host, arena)? {
                         return Err(HostError::CachedAuthorityExpired);
                     }
+                    if matches!(child.response.proof, NativeStylesheetResponseAuthority::Fetched(_)) {
                     let guard = child.response.guard.as_ref().ok_or_else(|| {
                         HostError::Execution("descendant proof custody absent".into())
                     })?;
@@ -25,6 +26,7 @@ impl PreparedPendingImportCompletion {
                         != Some(child.response.proof.origin_clean())
                     {
                         return Err(HostError::CachedAuthorityExpired);
+                    }
                     }
                     sheets
                         .try_reserve(1)

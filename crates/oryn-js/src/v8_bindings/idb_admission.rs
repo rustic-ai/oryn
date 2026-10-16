@@ -7,9 +7,18 @@ pub(super) fn flush(state: &V8BindingState) -> Result<(), V8BindingError> {
     {
         let selected = {
             let queue = state.queued_idb_operations.borrow();
-            queue
-                .iter()
-                .position(|queued| state.idb_operation_ready(&queued.pending))
+            queue.iter().position(|queued| {
+                state.idb_operation_ready(&queued.pending)
+                    && match &queued.pending {
+                        PendingPlatformOperation::IndexedDb { request_id, .. } => {
+                            !owned_queue_order::earlier_unsubmitted_on_transaction(
+                                state,
+                                *request_id,
+                            )
+                        }
+                        _ => true,
+                    }
+            })
         };
         let Some(index) = selected else { break };
         // Keep the original request and completion action in the queue until
@@ -62,6 +71,17 @@ mod tests {
         accepted: RefCell<Vec<String>>,
     }
     impl PlatformHost for Host {
+        fn submit_owned_idb_admission(
+            &self,
+            id: HostOperationId,
+            origin: String,
+            prepared: crate::idb_owned_admission::PreparedAdmission,
+        ) -> Result<(), crate::platform::OwnedIdbSubmitError> {
+            let (command, custody) = prepared.into_command();
+            let result = self.submit(id, PlatformHostRequest::IndexedDb { origin, command });
+            drop(custody);
+            result.map_err(crate::platform::OwnedIdbSubmitError::Failure)
+        }
         fn submit(&self, _: HostOperationId, request: PlatformHostRequest) -> Result<(), String> {
             if self.reject.replace(false) {
                 return Err("injected native admission failure".into());
@@ -112,7 +132,12 @@ mod tests {
                     },
                     pending: PendingPlatformOperation::IndexedDb {
                         request_id: id,
-                        action: IdbCompletionAction::Open { name: "db".into() },
+                        action: owned_action::OwnedAction::copy(
+                            scope,
+                            &state,
+                            &IdbCompletionAction::Open { name: "db".into() },
+                        )
+                        .unwrap(),
                     },
                 });
         }
@@ -148,22 +173,66 @@ mod tests {
         state.pending_platform_operations.borrow_mut().clear();
         state.active_idb_connections.borrow_mut().clear();
         *state.security_origin.borrow_mut() = Some("https://db.example".into());
+        let heap = scope.get_heap_statistics();
+        let used = heap.used_heap_size().checked_add(heap.external_memory()).unwrap();
+        let limit = heap.heap_size_limit();
+        let ledger = &state.idb_payload_ledger;
+        let (database_name, name_custody) = crate::idb_owned_admission::Text::copy_string_cancelled(
+            ledger, "transactions", limit, used,
+            &mut || scope.is_execution_terminating() || state.execution_retired(),
+        ).unwrap().into_parts();
         let database = register_platform_object(
             &state,
             PlatformObjectRecord::IdbDatabase(IdbDatabaseRecord {
                 connection: Some("existing".into()),
                 last_versionchange_event: 0,
-                name: "transactions".into(),
+                name: database_name,
+                _name_custody: Some(name_custody),
                 version: 1,
                 old_version: 1,
-                object_stores: vec!["records".into()],
-                object_store_definitions: BTreeMap::new(),
-                upgrade_base_object_stores: Vec::new(),
-                upgrade_base_definitions: BTreeMap::new(),
+                object_stores: owned_names::Names::from_strings(
+                    &vec!["records".into()],
+                    ledger,
+                    limit,
+                    used,
+                    &mut || scope.is_execution_terminating() || state.execution_retired(),
+                )
+                .unwrap(),
+                object_store_definitions: owned_store_map::StoreMap::empty(
+                    ledger,
+                    limit,
+                    used,
+                    &mut || scope.is_execution_terminating() || state.execution_retired(),
+                )
+                .unwrap(),
+                _upgrade_base_object_stores: owned_names::Names::from_strings(
+                    &[],
+                    ledger,
+                    limit,
+                    used,
+                    &mut || scope.is_execution_terminating() || state.execution_retired(),
+                )
+                .unwrap(),
+                upgrade_base_definitions: owned_store_map::StoreMap::empty(
+                    ledger,
+                    limit,
+                    used,
+                    &mut || scope.is_execution_terminating() || state.execution_retired(),
+                )
+                .unwrap(),
                 upgrade_transaction_id: None,
                 closed: false,
             }),
         );
+        let admitted_scope = crate::idb_owned_admission::Scope::copy_names_cancelled(
+            ledger,
+            &vec!["records".into()],
+            limit,
+            used,
+            &mut || scope.is_execution_terminating() || state.execution_retired(),
+        )
+        .unwrap()
+        .into_parts();
         let transaction = register_platform_object(
             &state,
             PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
@@ -174,8 +243,8 @@ mod tests {
                 request_id: None,
                 mode: "readonly".into(),
                 durability: "default".into(),
-                object_stores: vec!["records".into()],
-                scope_custody: None,
+                object_stores: admitted_scope.0,
+                scope_custody: Some(admitted_scope.1),
                 aborted: false,
                 error: None,
                 pending_requests: 0,
@@ -210,8 +279,19 @@ mod tests {
             assert_eq!(transaction.pending_requests, 1);
             assert_eq!(transaction.request_queue, VecDeque::from([request]));
         }
-        assert_eq!(state.queued_idb_operations.borrow().len(), 1);
-        flush(&state).unwrap();
+        assert_eq!(state.queued_owned_idb.borrow().len(), 1);
+        assert_eq!(state.queued_owned_idb.borrow()[0].request_id, request);
+        let original = state.queued_owned_idb.borrow()[0].admission.clone();
+        flush_owned_idb(scope, &state).unwrap();
+        assert!(state.queued_owned_idb.borrow().is_empty());
+        assert!(
+            state
+                .pending_owned_idb
+                .borrow()
+                .iter()
+                .any(|(_, op)| op.request_id == request
+                    && std::sync::Arc::ptr_eq(&op.admission, &original))
+        );
         {
             let record = platform_object(&state, transaction).unwrap();
             let PlatformObjectRecord::IdbTransaction(transaction) = &*record else {

@@ -1013,6 +1013,20 @@ fn node_at<'s>(
     {
         // Resolve the current generation every time. Caching by owner element
         // would incorrectly return an old sheet after a source replacement.
+        // Use the same native handle and wrapper intern table as owner.sheet.
+        // A legacy wrapper here would reparse retained rules and lose imported
+        // sheet identity, even though the collection owner is still current.
+        publish_inline_owner_before_read(state,node)?;
+        let provider = state.layout_provider.borrow().clone();
+        if let Some(result) = provider
+            .as_ref()
+            .and_then(|provider| provider.retained_stylesheet(&state.dom, node))
+        {
+            return match result.map_err(V8BindingError::EventCallback)? {
+                Some(handle) => wrap_native_stylesheet(scope, state, handle).map(Some),
+                None => Ok(None),
+            };
+        }
         let value = associated_wrapper(scope, state, node, "CSSStyleSheet")?;
         return Ok(v8::Local::<v8::Object>::try_from(value).ok());
     }
@@ -1168,7 +1182,12 @@ fn indexed_getter(
         }
         return v8::Intercepted::kYes;
     }
-    match owner(scope, args.holder()).and_then(|(state, id)| node_at(scope, &state, id, index)) {
+    match owner(scope, args.holder()).and_then(|(state, id)| {
+        // Only raw indexed interception bypasses attribute/operation entry.
+        // item() retains its existing operation scope, without a nested guard.
+        let _retained_scope = state.enter_retained_allocation(scope)?;
+        node_at(scope, &state, id, index)
+    }) {
         Ok(Some(node)) => {
             rv.set(node.into());
             v8::Intercepted::kYes

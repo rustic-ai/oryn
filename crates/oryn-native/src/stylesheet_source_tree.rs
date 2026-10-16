@@ -251,7 +251,8 @@ impl StylesheetSourceTree {
                     let Some(token) = graph.begin_import(id) else {
                         continue;
                     };
-                    let clean = child
+                    if matches!(child.response.proof, NativeStylesheetResponseAuthority::Fetched(_)) {
+                        let clean = child
                         .response
                         .guard
                         .as_ref()
@@ -262,6 +263,7 @@ impl StylesheetSourceTree {
                         .map_err(|error| HostError::Execution(error.to_string()))?;
                     if clean != Some(child.response.proof.origin_clean()) {
                         return Err(HostError::CachedAuthorityExpired);
+                    }
                     }
                     graph
                         .commit(

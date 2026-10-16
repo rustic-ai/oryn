@@ -75,6 +75,7 @@ fn native_rule_relationship<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
     object: v8::Local<v8::Object>,
+    interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
     let invalid = || V8BindingError::Unsupported {
@@ -90,6 +91,8 @@ fn native_rule_relationship<'s>(
         .get(&identity)
         .cloned()
         .ok_or_else(invalid)?;
+    let kind=handle.view().map_err(|e|native_css_read_error(interface,e))?.rule_type;
+    if !page_rules::supports_interface(kind,interface) {return Err(invalid());}
     // Query original list membership; no stale positional or captured parent.
     match member {
         "nameList" => native_layer_name_list(scope, &handle),

@@ -2,6 +2,24 @@ use super::*;
 use crate::network::{NetworkBroker, NetworkError, NetworkRequest, NetworkResponse};
 
 struct InitialPopupBroker(Arc<Mutex<Vec<NetworkRequest>>>);
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_initial_blank_popup_keeps_exposed_document_and_synchronous_edits() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let browser = Browser::native_test_with_config(Default::default());
+    let context = browser.new_native_test_context_with_broker(
+        Default::default(), SharedNetworkBroker::new(InitialPopupBroker(requests.clone())),
+    );
+    let opener = context.new_page();
+    opener.load_html("https://popup.test/source", "<!doctype html><body>source</body>").await.unwrap();
+    opener.evaluate("globalThis.popup=open('about:blank');globalThis.initial=popup.document;popup.document.body.innerHTML='<p id=written>saved</p>';popup.marker=73;true").await.unwrap();
+    let child = context.wait_for_page(PagePredicate::Opener { page_id: opener.page_id() }, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(child.evaluate("String(document.getElementById('written').textContent==='saved'&&marker===73)").await.unwrap(), "true");
+    assert_eq!(opener.evaluate("String(popup.document===initial&&popup.opener===window)").await.unwrap(), "true");
+    assert!(requests.lock().unwrap().is_empty());
+    assert_eq!(context.queued_navigation_status(child.page_id()).unwrap().active, 0);
+    child.close().await.unwrap();
+    opener.close().await.unwrap();
+}
 impl NetworkBroker for InitialPopupBroker {
     fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
         let request_id = request.request_id;

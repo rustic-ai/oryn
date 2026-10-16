@@ -19,7 +19,12 @@ pub(super) fn radio_arrow(
             return Ok(());
         }
     }
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
+    let next = {
+let context = state.realm_context.to_local(scope)
+    .ok_or(V8BindingError::Allocation("focus owner context expired"))?;
+let scope = &mut v8::ContextScope::new(scope, context);
+let _retained_scope = state.enter_retained_allocation(scope)?;
     if css_suppresses_focus_snapshot(state, target)? {
         return Ok(());
     }
@@ -53,7 +58,8 @@ pub(super) fn radio_arrow(
         return Ok(());
     }
     let forward = key == "ArrowDown" || key == if rtl { "ArrowLeft" } else { "ArrowRight" };
-    let next = group[(index + if forward { 1 } else { group.len() - 1 }) % group.len()];
+    group[(index + if forward { 1 } else { group.len() - 1 }) % group.len()]
+    };
     focus_html_element(scope, state, next, false)?;
     // Focus listeners may remove, disable, retype or redirect the destination.
     {
@@ -235,10 +241,16 @@ fn scope_nodes(state: &V8BindingState, root: NodeId) -> Result<Vec<NodeId>, V8Bi
 }
 
 pub(super) fn next_sequential(
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     reverse: bool,
 ) -> Result<Option<NodeId>, V8BindingError> {
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
+let context = state.realm_context.to_local(scope)
+    .ok_or(V8BindingError::Allocation("focus owner context expired"))?;
+let scope = &mut v8::ContextScope::new(scope, context);
+let _retained_scope = state.enter_retained_allocation(scope)?;
+
     let mut candidates = scope_nodes(state, state.document_root())?;
     let current = state.dom.borrow().focused();
     // Radio groups are one sequential stop. An eligible checked member wins;
@@ -304,7 +316,7 @@ pub(super) fn advance(
     state: &Rc<V8BindingState>,
     reverse: bool,
 ) -> Result<(), V8BindingError> {
-    let next = next_sequential(state, reverse)?;
+    let next = next_sequential(scope, state, reverse)?;
     let current = state.dom.borrow().focused();
     if let Some(next) = next {
         focus_html_element(scope, state, next, false)?;
@@ -324,6 +336,7 @@ pub(super) fn advance(
 /// Script focus on a delegating host chooses a focusable area in its flat tree.
 /// Slot assignment comes from the same authority used by event dispatch.
 pub(super) fn delegated_target(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     host: NodeId,
 ) -> Result<Option<NodeId>, V8BindingError> {
@@ -340,7 +353,12 @@ pub(super) fn delegated_target(
         }
         root
     };
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
+let context = state.realm_context.to_local(scope)
+    .ok_or(V8BindingError::Allocation("focus owner context expired"))?;
+let scope = &mut v8::ContextScope::new(scope, context);
+let _retained_scope = state.enter_retained_allocation(scope)?;
+
     let mut nodes = Vec::new();
     flat_nodes(&state.dom.borrow(), root, &mut nodes)?;
     let focused = state.dom.borrow().focused();
@@ -367,8 +385,7 @@ pub(super) fn delegated_target(
     Ok(None)
 }
 
-/// Blur follows an existing delegated focus target; it must not choose a new
-/// candidate using autofocus or eligibility rules when the active one changed.
+/// Blur follows an existing delegated focus target without selecting autofocus.
 pub(super) fn delegated_blur_target(
     state: &V8BindingState,
     host: NodeId,

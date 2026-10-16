@@ -408,6 +408,11 @@ include!("native_pending_tree_transaction.rs");
 include!("retained_graph_revision_sync.rs");
 include!("retained_native_layout_sync.rs");
 include!("native_import_handle_mapper.rs");
+include!("native_cssom_execution_authority.rs");
+include!("native_declaration_conversion_control.rs");
+include!("retained_fixture_context.rs");
+include!("cssom_relative_consumer_tests.rs");
+include!("retained_delivery_custody_tests.rs");
 include!("native_owner_state_reconcile.rs");
 include!("native_owner_retirement.rs");
 include!("retained_registry_snapshot.rs");
@@ -428,6 +433,11 @@ include!("retained_stylesheet_executor.rs");
 include!("retained_scheduler_start.rs");
 include!("retained_ready_jobs.rs");
 include!("retained_provider_publication.rs");
+include!("inline_text_cursor.rs");
+include!("native_inline_synchronous_publication.rs");
+include!("inline_original_occurrence_request.rs");
+include!("inline_pending_root.rs");
+include!("inline_event_retry_control.rs");
 include!("retained_automatic_schedule.rs");
 include!("native_retained_admission_adapter.rs");
 include!("native_retained_activation.rs");
@@ -893,14 +903,26 @@ impl LiveLayoutProvider {
         custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
         scroll: (f64, f64),
         element_scrolls: &BTreeMap<NodeId, (f64, f64)>,
-    ) -> Result<
-        (
-            oryn_layout::LayoutInput,
-            oryn_layout::LayoutOutput,
-            oryn_layout::svg_instances::StyleSample,
-        ),
-        String,
-    > {
+    ) -> Result<(oryn_layout::LayoutInput,oryn_layout::LayoutOutput,oryn_layout::svg_instances::StyleSample),String> {
+        let input=self.capture_layout_input(document,custom_states,scroll,element_scrolls)?;
+        // Geometry is an optional capability and must never be able to tear
+        // down the page worker. Stylo/Blitz can reject a transient DOM shape
+        // while parser re-entry is replacing nested documents; translate an
+        // upstream panic into the same explicit unavailable result as a
+        // normal layout error.
+        let (output,sample)=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||{
+            self.sample_layout_with_style(&input,&oryn_layout::LayoutLimits::default())
+        })).map_err(|_|"synchronous layout flush panicked on a transient DOM shape".to_owned())?
+            .map_err(|error|format!("synchronous layout flush failed: {error}"))?;
+        Ok((input,output,sample))
+    }
+    fn capture_layout_input(
+        &self,
+        document: Option<NodeId>,
+        custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
+        scroll: (f64, f64),
+        element_scrolls: &BTreeMap<NodeId, (f64, f64)>,
+    ) -> Result<oryn_layout::LayoutInput,String> {
         let _profile = crate::native_timing::stage("deep.live_binding_layout");
         let document = document.unwrap_or(self.document);
         let mut input = {
@@ -1020,17 +1042,7 @@ impl LiveLayoutProvider {
                 }
             }
         }
-        // Geometry is an optional capability and must never be able to tear
-        // down the page worker. Stylo/Blitz can reject a transient DOM shape
-        // while parser re-entry is replacing nested documents; translate an
-        // upstream panic into the same explicit unavailable result as a
-        // normal layout error.
-        let (output, sample) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.sample_layout_with_style(&input, &oryn_layout::LayoutLimits::default())
-        }))
-        .map_err(|_| "synchronous layout flush panicked on a transient DOM shape".to_owned())?
-        .map_err(|error| format!("synchronous layout flush failed: {error}"))?;
-        Ok((input, output, sample))
+        Ok(input)
     }
 }
 #[path = "drag_image_capture.rs"]
@@ -1043,6 +1055,86 @@ mod selected_paint_image_load;
 pub(crate) use selected_paint_image_load::SelectedPaintImageLoad;
 
 impl BindingLayoutProvider for LiveLayoutProvider {
+    fn resolve_legacy_font_keyword(
+        &self,dom:&Rc<RefCell<DomRuntime>>,
+        request:oryn_js::v8_bindings::BindingLegacyFontRequest,
+        custom_states:&BTreeMap<NodeId,BTreeSet<String>>,
+        scroll:(f64,f64),element_scrolls:&BTreeMap<NodeId,(f64,f64)>,
+    )->Option<Result<oryn_js::v8_bindings::BindingLegacyFontResult,String>>{
+        Some((||{
+            if !Rc::ptr_eq(dom,&self.dom)||request.document!=self.document{return Err("foreign legacy-font document owner".into())}
+            let identity=self.native_document_identity.get().ok_or("unbound legacy-font owner")?;
+            if identity.document!=request.document||identity.document_generation!=request.document_generation||identity.stream_epoch!=request.stream_epoch{return Err("retired legacy-font document".into())}
+            if self.layout_revision()!=Some(request.style_generation){return Err("stale legacy-font style request".into())}
+            let validate_body=|| -> Result<(),String> {
+                let dom=dom.borrow();
+                if dom.document_body(request.document).map_err(|e|e.to_string())?!=Some(request.body)
+                    || dom.node_document(request.body).map_err(|e|e.to_string())?!=Some(request.document)
+                    || !dom.is_connected(request.body).map_err(|e|e.to_string())? {
+                    return Err("replaced legacy-font document body".into());
+                }
+                Ok(())
+            };
+            validate_body()?;
+            let input=self.capture_layout_input(Some(request.document),custom_states,scroll,element_scrolls)?;
+            validate_body()?;
+            // This callback only reads the parent-owned atomic cancellation
+            // flag. It cannot run author code or allocate under the engine borrow.
+            let cancellation=self.native_retained_allocation.try_borrow()
+                .map_err(|_|"legacy-font admission borrow conflict")?
+                .as_ref().cloned();
+            let cancelled:Option<Arc<dyn Fn()->bool+Send+Sync>>=cancellation.map(|scope| {
+                Arc::new(move ||scope.owner_cancelled())
+                    as Arc<dyn Fn()->bool+Send+Sync>
+            });
+            use oryn_js::v8_bindings::BindingLegacyFontKeyword as B;
+            use oryn_layout::LegacyFontKeyword as L;
+            let keyword=match request.keyword{B::XSmall=>L::XSmall,B::Small=>L::Small,B::Medium=>L::Medium,B::Large=>L::Large,B::XLarge=>L::XLarge,B::XXLarge=>L::XXLarge,B::XXXLarge=>L::XXXLarge};
+            let demand=oryn_layout::LegacyFontDemand{body:(u64::from(request.body.generation)<<32)|u64::from(request.body.slot),keyword};
+            let resolution=self.style_engine.try_borrow_mut().map_err(|_|"legacy-font style engine borrow conflict")?
+                .resolve_legacy_font_at_controlled(&input,&oryn_layout::LayoutLimits::default(),self.animation_time.get()/1000.,demand,cancelled).map_err(|e|e.to_string())?;
+            if self.native_document_identity.get()!=Some(identity)||self.layout_revision()!=Some(request.style_generation){return Err("legacy-font owner changed during query".into())}
+            validate_body()?;
+            if !resolution.pixels.is_finite()||resolution.pixels<=0. {
+                return Err("invalid owning font pixel resolution".into());
+            }
+            Ok(oryn_js::v8_bindings::BindingLegacyFontResult{request,pixels:resolution.pixels})
+        })())
+    }
+    fn publish_inline_owner(
+        &self,
+        dom: &SharedDomRuntime,
+        owner: NodeId,
+        document: oryn_js::v8_bindings::BindingStylesheetDocumentOwner,
+        lifecycle: Rc<dyn oryn_js::v8_bindings::BindingStylesheetLifecycle>,
+        base: &str,
+        referrer_policy: &str,
+        encoding: &str,
+    ) -> Result<(), String> {
+        if self.retained_admission.try_borrow().map_err(|_| "inline admission borrow conflict")?.is_none() {
+            return Ok(());
+        }
+        if !Rc::ptr_eq(dom,&self.dom) {return Err("foreign inline publication arena".into());}
+        self.publish_inline_owner_now(owner,document,lifecycle,base,referrer_policy,encoding).map(|_|())
+    }
+    fn needs_inline_publication(&self,dom:&SharedDomRuntime,owner:NodeId,
+        document:oryn_js::v8_bindings::BindingStylesheetDocumentOwner)->Result<bool,String> {
+        if !Rc::ptr_eq(dom,&self.dom) {return Err("foreign inline arena".into());}
+        if self.retained_admission.try_borrow().map_err(|_|"inline admission conflict")?.is_none() {return Ok(false);}
+        let identity=ParserDocumentIdentity {realm:document.realm,document:document.document,
+            document_generation:document.document_generation,stream_epoch:document.stream_epoch};
+        if self.native_document_identity.get()!=Some(identity) {return Ok(false);}
+        let borrowed=dom.try_borrow().map_err(|_|"inline owner snapshot conflict")?;
+        let node=borrowed.arena().get(owner).map_err(|e|e.to_string())?;
+        if !matches!(&node.kind,NodeKind::Element {name} if name.ns.as_ref()=="http://www.w3.org/1999/xhtml" && name.local.as_ref()=="style")
+            || !borrowed.arena().is_css_stylesheet_owner(owner).map_err(|e|e.to_string())?
+            || !node.stylesheet_policy_allowed || !node.stylesheet_parser_ready
+            || !borrowed.is_connected(owner).map_err(|e|e.to_string())?
+            || borrowed.node_document(owner).map_err(|e|e.to_string())?!=Some(document.document) {return Ok(false);}
+        let revision=borrowed.arena().stylesheet_revision(owner).map_err(|e|e.to_string())?;
+        Ok(self.retained_stylesheets.try_borrow().map_err(|_|"inline registry snapshot conflict")?
+            .current(dom,identity,owner,revision).is_none())
+    }
     fn bind_stylesheet_document_owner(
         &self,
         dom: &DomRuntime,
@@ -1706,6 +1798,22 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         // addition can alias changes in independently owned inputs.
         if self.animations_active() {
             return None;
+        }
+        // CSSOM edits mutate native rule Arcs without a DOM journal entry.
+        // Do not let a cached style prevent the flush that synchronizes the
+        // admitted graph revision key. This comparison allocates nothing.
+        if self.retained_admission.try_borrow().ok()?.is_some() {
+            let records = self.retained_stylesheets.try_borrow().ok()?;
+            let key = self.retained_revision_key.try_borrow().ok()?;
+            let current = key.as_ref()?;
+            if current.len() != records.records.len()
+                || current.iter().zip(&records.records).any(|(old, record)| {
+                    old.publication != Rc::as_ptr(record) as usize
+                        || old.mutation != record.mutation_revision.get()
+                })
+            {
+                return None;
+            }
         }
         let viewport = self.viewport.get();
         let (dark, reduced) = self.native_media.get();
@@ -3751,6 +3859,7 @@ pub(crate) struct CssDependencyBatch {
     pub revision: u64,
     pub epoch: u64,
     pub dependencies: CssDependencies,
+    pub _allocation: Option<Arc<dyn Send + Sync>>,
     pub _bytes: ScriptSourceReservation,
 }
 type StylesheetSource = (String, String, CssDependencies);
@@ -4614,7 +4723,7 @@ impl ParserResourceScheduler {
     ) -> Result<bool, HostError> {
         for &(node, revision) in self.retained_ready.keys() {
             if dom.borrow().arena().stylesheet_revision(node).ok() == Some(revision)
-                && host.native_stylesheet_blocks_scripts(node)?
+                && host.cached_stylesheet_blocks_scripts(node)?
             {
                 return Ok(true);
             }
@@ -4624,7 +4733,7 @@ impl ParserResourceScheduler {
             {
                 continue;
             }
-            if host.native_stylesheet_blocks_scripts(node)? {
+            if host.cached_stylesheet_blocks_scripts(node)? {
                 return Ok(true);
             }
         }
@@ -5530,7 +5639,8 @@ impl ParserResourceScheduler {
             }
             if let ParserResourceCompletion::RetainedStylesheet(ready) = &completion {
                 let key = (ready.node, ready.revision);
-                self.local_stylesheets.remove(&key);
+                // Completion delivery is not cancellation. Transfer this
+                // exact Cancel owner into retained-ready custody after admission.
                 self.stylesheet_identities.remove(&key);
                 if let Some(count) = self.pending_stylesheets.get_mut(&key) {
                     *count -= 1;
@@ -5676,6 +5786,13 @@ impl ParserResourceScheduler {
     fn try_next_with_host(&mut self, host: &mut RawV8Host) -> Option<ParserResourceCompletion> {
         self.poll_module_sources(host);
         self.try_next()
+    }
+    fn has_stylesheet_owner_work(&self) -> bool {
+        self.pending != 0
+            || !self.retained_ready.is_empty()
+            || !self.native_pending_imports.is_empty()
+            || self.native_pending_import_retry.is_some()
+            || !self.ready_completions.is_empty()
     }
     fn has_ready_completion(&mut self) -> bool {
         if self.ready_completions.is_empty() {
@@ -10061,6 +10178,7 @@ impl RustExecutableDocument {
             let result = (|| {
                 self.agent.host.activate_realm(self.top_realm)?;
                 ensure_live_parser_identity(&self.agent.host, &self.agent.dom, &pending.identity)?;
+                self.agent.host.native_media_matches_in_realm(self.top_realm, "all")?;
                 let dom = self.agent.dom.clone();
                 let record = pending.scripts.front().expect("retained parser record");
                 if pending.job.is_none() {
@@ -11185,7 +11303,7 @@ impl RustExecutableDocument {
     }
 
     pub(crate) fn webdriver_action_coordinates(
-        &self,
+        &mut self,
         selected: &AutomationRealmSnapshot,
         origin: &crate::webdriver_actions::Origin,
         x: i64,
@@ -11424,7 +11542,7 @@ impl RustExecutableDocument {
     }
 
     fn webdriver_pointer_context(
-        &self,
+        &mut self,
         selected: &AutomationRealmSnapshot,
         id: Option<i32>,
         mut x: f64,
@@ -11558,7 +11676,7 @@ impl RustExecutableDocument {
         self.agent.host.take_drag_feedback()
     }
     fn pointer_input_in_realm(
-        &self,
+        &mut self,
         selected: &AutomationRealmSnapshot,
         target: &AutomationRealmSnapshot,
         input: &oryn_js::v8_bindings::NativePointerInput,
@@ -12044,16 +12162,15 @@ impl RustExecutableDocument {
             current = parent;
         }
         let mut exits = Vec::new();
-        for old in inventory.iter().filter(|entry| {
-            !owned
-                && entry.live
-                && entry.realm != target.realm
-                && !coordinates.contains_key(&entry.realm)
-                && self
-                    .agent
-                    .host
-                    .automation_pointer_has_hover(entry.realm, input.id)
-        }) {
+        for old in &inventory {
+            // End the immutable hover eligibility borrow before admitting
+            // mutable provider work for this occurrence. Preserve scan order.
+            if owned || !old.live || old.realm == target.realm
+                || coordinates.contains_key(&old.realm)
+                || !self.agent.host.automation_pointer_has_hover(old.realm, input.id)
+            {
+                continue;
+            }
             let mut path = Vec::new();
             let mut current = old;
             let mut seen = BTreeSet::new();
@@ -12891,6 +13008,15 @@ impl RustExecutableDocument {
         }
         #[cfg(unix)]
         if let Some(pending) = &self.parser_async_modules {
+            if pending.scheduler.native_pending_imports.keys()
+                .any(|key| realm.is_none_or(|realm| key.realm == realm))
+                || pending.scheduler.retained_ready.values()
+                    .any(|job| realm.is_none_or(|realm| job.completion.authority.document.realm == realm))
+                || pending.scheduler.native_pending_import_retry.as_ref()
+                    .is_some_and(|request| realm.is_none_or(|realm| request.publication.owner.document.realm == realm))
+            {
+                return true;
+            }
             if pending
                 .scheduler
                 .live_stylesheets(&self.agent.host, &self.agent.dom, realm)
@@ -12908,6 +13034,38 @@ impl RustExecutableDocument {
 
     #[cfg(unix)]
     fn poll_parser_async_modules(&mut self) -> Result<(), HostError> {
+        // CSSOM can issue native occurrences after tokenizer EOF, when the
+        // original parser scheduler has already been reclaimed. Reuse the
+        // existing owning async slot to scan those exact retained records.
+        let queued_native_import = if self.parser_async_modules.is_none() {
+            let mut queued = false;
+            for realm in self.agent.host.realm_ids() {
+                if !self.agent.host.realm_execution_live(realm) || self.agent.host.realm_is_parked(realm) {
+                    continue;
+                }
+                let Some(provider) = self.agent.host.native_layout_provider_in_realm(realm) else { continue; };
+                let Some(backend) = provider.native_backend()
+                    .and_then(|value| value.downcast_ref::<LiveLayoutProvider>()) else { continue; };
+                let records = backend.retained_stylesheets.try_borrow()
+                    .map_err(|_| HostError::Execution("pending import wake registry borrow conflict".into()))?;
+                for record in &records.records {
+                    if !record.pending_imports.try_borrow()
+                        .map_err(|_| HostError::Execution("pending import wake queue borrow conflict".into()))?.is_empty()
+                    {
+                        queued = true;
+                        break;
+                    }
+                }
+                if queued { break; }
+            }
+            queued
+        } else { false };
+        if queued_native_import {
+            self.parser_async_modules = Some(PendingParserAsyncModules {
+                scheduler: ParserResourceScheduler::with_page_limits(&self.dynamic_scripts),
+                _leases: Vec::new(),
+            });
+        }
         let Some(mut pending) = self.parser_async_modules.take() else {
             return Ok(());
         };
@@ -12946,6 +13104,10 @@ impl RustExecutableDocument {
         let live = pending
             .scheduler
             .live_stylesheets(&self.agent.host, &self.agent.dom, None)
+            || !pending.scheduler.retained_ready.is_empty()
+            || !pending.scheduler.ready_completions.is_empty()
+            || !pending.scheduler.native_pending_imports.is_empty()
+            || pending.scheduler.native_pending_import_retry.is_some()
             || pending
                 .scheduler
                 .live_script_records()
@@ -13674,7 +13836,7 @@ impl RustExecutableDocument {
     }
 
     fn semantic_pointer_point_through_ancestors(
-        &self,
+        &mut self,
         selected: &AutomationRealmSnapshot,
         target: NodeId,
     ) -> Result<(f64, f64), crate::host::webdriver_script::ScriptError> {
@@ -13748,7 +13910,10 @@ impl RustExecutableDocument {
         Ok(point)
     }
 
-    pub(crate) fn hosted_semantic_pointer_ready(&self, target: NodeId) -> Result<bool, HostError> {
+    pub(crate) fn hosted_semantic_pointer_ready(
+        &mut self,
+        target: NodeId,
+    ) -> Result<bool, HostError> {
         let selected = self.semantic_pointer_context(target)?;
         if selected.realm == self.automation_realm() {
             return Ok(false);
@@ -14191,11 +14356,11 @@ impl RustExecutableDocument {
         self.semantic_mutation_cursor = next;
     }
 
-    pub fn scroll_node_into_view(&self, node: NodeId) -> Result<(), HostError> {
+    pub fn scroll_node_into_view(&mut self, node: NodeId) -> Result<(), HostError> {
         self.agent.host.scroll_node_into_view(node)
     }
 
-    pub fn element_scroll_offsets(&self) -> Result<BTreeMap<NodeId, (f64, f64)>, HostError> {
+    pub fn element_scroll_offsets(&mut self) -> Result<BTreeMap<NodeId, (f64, f64)>, HostError> {
         self.agent.host.element_scroll_offsets()
     }
 
@@ -14207,7 +14372,7 @@ impl RustExecutableDocument {
         self.agent.host.set_document_scroll_offset(offset)
     }
 
-    fn sync_frame_viewports(&self) -> Result<(), HostError> {
+    fn sync_frame_viewports(&mut self) -> Result<(), HostError> {
         for (&realm, owner) in &self.frame_realms {
             self.agent
                 .host
@@ -15221,16 +15386,19 @@ impl RustExecutableDocument {
     fn drain_dynamic_stylesheets(&mut self) -> Result<(), HostError> {
         let previous = self.agent.host.active_realm();
         let result = (|| {
-            let pending = self.agent.host.take_all_pending_dynamic_stylesheets()?;
-            for (realm, node) in pending {
+            for _ in 0..MAX_SCRIPT_COMPLETIONS_PER_SLICE {
+                let Some((realm, node)) = self.agent.host.peek_pending_dynamic_stylesheet()? else { break; };
                 if !self.agent.host.realm_execution_live(realm) {
+                    self.agent.host.commit_pending_dynamic_stylesheet(realm, node)?;
                     continue;
                 }
                 #[cfg(unix)]
                 if self.queue_preparing_frame_stylesheet(realm, node)? {
+                    self.agent.host.commit_pending_dynamic_stylesheet(realm, node)?;
                     continue;
                 }
                 self.schedule_dynamic_stylesheet(realm, node)?;
+                self.agent.host.commit_pending_dynamic_stylesheet(realm, node)?;
             }
             self.poll_dynamic_stylesheets()
         })();
@@ -19616,6 +19784,151 @@ mod tests {
                 .scrollport,
             overlay.scrollport
         );
+    }
+
+    #[test]
+    fn replacing_native_provider_preserves_exact_binding_receipt_and_rejects_foreign_dom() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<!doctype html><body></body>", &BTreeMap::new(), None,
+            Some(Url::parse("https://example.test/receipt").unwrap()),
+        ).unwrap();
+        let host = &mut page.agent.host;
+        let realm = host.active_realm();
+        let shared = host.native_retained_admission_for_realm(realm).unwrap().unwrap();
+        let original = host.native_layout_provider_in_realm(realm).unwrap();
+        let old = original.native_backend().unwrap().downcast_ref::<LiveLayoutProvider>().unwrap();
+        let receipt = old.native_retained_allocation.borrow().as_ref().unwrap().clone();
+        let dom = old.dom.clone();
+        let document = old.document;
+        for _ in 0..2 {
+            host.install_layout_provider(initial_layout_provider(dom.clone(), document)).unwrap();
+            let next = host.native_retained_admission_for_realm(realm).unwrap().unwrap();
+            assert!(Arc::ptr_eq(&shared, &next));
+            let current = host.native_layout_provider_in_realm(realm).unwrap();
+            let backend = current.native_backend().unwrap().downcast_ref::<LiveLayoutProvider>().unwrap();
+            assert!(Arc::ptr_eq(&receipt, backend.native_retained_allocation.borrow().as_ref().unwrap()));
+        }
+        let retained = host.native_layout_provider_in_realm(realm).unwrap();
+        let foreign = Rc::new(RefCell::new(oryn_dom::html::parse("<body></body>").into_runtime().unwrap()));
+        let foreign_document = foreign.borrow().document();
+        assert!(host.install_layout_provider(initial_layout_provider(foreign, foreign_document)).is_err());
+        assert!(Rc::ptr_eq(&retained, &host.native_layout_provider_in_realm(realm).unwrap()));
+        assert!(Arc::ptr_eq(&shared, &host.native_retained_admission_for_realm(realm).unwrap().unwrap()));
+    }
+
+    #[test]
+    fn initial_srcdoc_provider_transition_keeps_document_specific_geometry() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><iframe id=f srcdoc='<p id=child style=width:40px>child</p>'></iframe>",
+        ).unwrap();
+        assert_eq!(page.evaluate("document.getElementById('f').contentDocument.getElementById('child').textContent").unwrap(), "child");
+        let realm = page.agent.host.realm_ids().into_iter().find(|realm| *realm != page.top_realm
+            && page.agent.host.realm_execution_live(*realm)).unwrap();
+        let state = page.agent.host.retained_binding_state(realm).unwrap();
+        let provider = page.agent.host.native_layout_provider_in_realm(realm).unwrap();
+        let backend = provider.native_backend().unwrap().downcast_ref::<LiveLayoutProvider>().unwrap();
+        assert_eq!(backend.document, state.document_root());
+        assert!(Rc::ptr_eq(&backend.dom, &state.dom()));
+        let first = page.agent.host.native_retained_admission_for_realm(realm).unwrap().unwrap();
+        let next = page.agent.host.native_retained_admission_for_realm(realm).unwrap().unwrap();
+        assert!(Arc::ptr_eq(&first, &next));
+        page.agent.host.activate_realm(page.top_realm).unwrap();
+        assert_eq!(page.evaluate("String(document.getElementById('f').contentDocument.getElementById('child').getBoundingClientRect().width)").unwrap(), "40");
+    }
+
+    #[test]
+    fn initial_document_history_is_replaced_but_open_and_removal_preserve_it() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<!doctype html><body></body>", &BTreeMap::new(), None,
+            Some(Url::parse("https://example.test/history-owner").unwrap()),
+        ).unwrap();
+        page.evaluate(r#"
+            globalThis.frame=document.createElement('iframe');document.body.append(frame);
+            globalThis.before=frame.contentWindow.history;
+            globalThis.savedWindow=frame.contentWindow;
+            frame.srcdoc='<p>replacement</p>';
+        "#).unwrap();
+        page.drain_tasks().unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const current=frame.contentWindow.history;
+            if(frame.contentWindow!==savedWindow||current===before)throw Error('initial association');
+            let rejected=false;try{void before.length}catch(e){rejected=e.name==='SecurityError'}
+            if(!rejected)throw Error('old History authority');
+            const sentinel={};let converted=false;let caught;
+            try{before.replaceState(null,{toString(){converted=true;throw sentinel}},'#stale')}
+            catch(error){caught=error}
+            if(!converted||caught!==sentinel)throw Error('stale conversion exception');
+            let staleRejected=false;
+            try{before.pushState(null,'','#stale')}catch(error){staleRejected=error.name==='SecurityError'}
+            if(!staleRejected||current.state!==null)throw Error('stale mutation');
+            const own=Object.getOwnPropertyDescriptor(savedWindow,'history');
+            if(own&&'value'in own)throw Error('writable data History');
+            const descriptor=Object.getOwnPropertyDescriptor(History.prototype,'state');
+            if(descriptor.get.call(current)!==null)throw Error('borrowed current getter');
+            frame.contentDocument.open();if(frame.contentWindow.history!==current)throw Error('open identity');
+            frame.contentDocument.close();frame.remove();
+            return String(savedWindow.history===current);
+        })()"#).unwrap(), "true");
+    }
+
+    #[test]
+    fn replacement_provider_admission_failure_preserves_installed_authority() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<!doctype html><body></body>", &BTreeMap::new(), None,
+            Some(Url::parse("https://example.test/receipt-failure").unwrap()),
+        ).unwrap();
+        let host = &mut page.agent.host;
+        let realm = host.active_realm();
+        let shared = host.native_retained_admission_for_realm(realm).unwrap().unwrap();
+        let original = host.native_layout_provider_in_realm(realm).unwrap();
+        let old = original.native_backend().unwrap().downcast_ref::<LiveLayoutProvider>().unwrap();
+        let receipt = old.native_retained_allocation.borrow().as_ref().unwrap().clone();
+        let replacement = initial_layout_provider(old.dom.clone(), old.document);
+        FAIL_PROVIDER_ADAPTER_RESERVE.with(|failure| failure.set(true));
+        let error = host.install_layout_provider(replacement.clone()).unwrap_err();
+        assert!(error.to_string().contains("injected provider adapter reserve failure"));
+        assert!(Rc::ptr_eq(&original, &host.native_layout_provider_in_realm(realm).unwrap()));
+        assert!(Arc::ptr_eq(&shared, &host.native_retained_admission_for_realm(realm).unwrap().unwrap()));
+        let next = replacement.native_backend().unwrap().downcast_ref::<LiveLayoutProvider>().unwrap();
+        assert!(next.shared_retained_admission.borrow().is_none());
+        assert!(next.native_retained_allocation.borrow().is_none());
+        assert!(next.retained_admission.borrow().is_none());
+        assert!(Arc::ptr_eq(&receipt, old.native_retained_allocation.borrow().as_ref().unwrap()));
+        host.install_layout_provider(replacement).unwrap();
+        assert!(Arc::ptr_eq(&shared, &host.native_retained_admission_for_realm(realm).unwrap().unwrap()));
+    }
+
+    #[test]
+    fn initial_provider_prepare_failure_preserves_old_document_and_receipt() {
+        let mut page = RustExecutableDocument::load("<!doctype html><iframe id=f></iframe>").unwrap();
+        let host = &mut page.agent.host;
+        let realm = host.realm_ids().into_iter().find(|realm| *realm != page.top_realm
+            && host.realm_execution_live(*realm)).unwrap();
+        let state = host.retained_binding_state(realm).unwrap();
+        let original = host.native_layout_provider_in_realm(realm).unwrap();
+        let old_document = state.document_root();
+        let old_generation = state.document_generation();
+        let shared = host.native_retained_admission_for_realm(realm).unwrap().unwrap();
+        let backend = original.native_backend().unwrap().downcast_ref::<LiveLayoutProvider>().unwrap();
+        let receipt = backend.native_retained_allocation.borrow().as_ref().unwrap().clone();
+        let parsed = html::parse("<p>new</p>");
+        let dom = state.dom();
+        let next_document = import_loaded_frame_document(&mut dom.borrow_mut(), &parsed).unwrap();
+        assert_ne!(next_document, old_document);
+        FAIL_PROVIDER_ADAPTER_RESERVE.with(|failure| failure.set(true));
+        let failed = host.prepare_initial_document_provider(realm, &state, next_document);
+        assert!(matches!(failed, Err(HostError::Execution(ref error)) if error.contains("injected provider adapter reserve failure")));
+        assert_eq!(state.document_root(), old_document);
+        assert_eq!(state.document_generation(), old_generation);
+        assert!(!state.execution_retired());
+        assert!(Rc::ptr_eq(&original, &host.native_layout_provider_in_realm(realm).unwrap()));
+        assert!(Arc::ptr_eq(&shared, &host.native_retained_admission_for_realm(realm).unwrap().unwrap()));
+        assert!(Arc::ptr_eq(&receipt, backend.native_retained_allocation.borrow().as_ref().unwrap()));
+        let prepared = host.prepare_initial_document_provider(realm, &state, next_document).unwrap().unwrap();
+        let prepared = prepared.native_backend().unwrap().downcast_ref::<LiveLayoutProvider>().unwrap();
+        assert_eq!(prepared.document, next_document);
+        assert!(Arc::ptr_eq(&receipt, prepared.native_retained_allocation.borrow().as_ref().unwrap()));
+        assert_eq!(state.document_root(), old_document, "preparation alone must not commit active document");
     }
 
     #[test]
@@ -25117,6 +25430,10 @@ mod tests {
             live.evaluate("order.slice().sort().join(',')").unwrap(),
             "first,parent"
         );
+        live.drain_tasks().unwrap();
+        assert!(live.frame_script_preparations.iter().all(|pending| {
+            pending.root_or_live_for_test(&live.agent.host)
+        }), "removed children must not retain parser preparations");
         let mut dynamic =
             RustExecutableDocument::load("<body><script>globalThis.order=[]</script>").unwrap();
         dynamic
@@ -25129,6 +25446,8 @@ mod tests {
         "#,
             )
             .unwrap();
+        assert_eq!(dynamic.evaluate("order.join(',')").unwrap(), "first");
+        dynamic.drain_tasks().unwrap();
         assert_eq!(dynamic.evaluate("order.join(',')").unwrap(), "first");
     }
 
@@ -32233,7 +32552,7 @@ mod tests {
         let mut page = RustExecutableDocument::load("<!doctype html><body></body>").unwrap();
         assert_eq!(
             page.evaluate(
-                r#"
+                r#"globalThis.mediaChecks = [];
             const owner = document.createElement('style');
             owner.setAttribute('media', 'screen');
             owner.textContent = 'body { color: rgb(1, 2, 3) }';
@@ -32254,11 +32573,13 @@ mod tests {
             media.mediaText = 'print';
             checks.push(replacement !== sheet, replacement.media.mediaText === 'screen');
             checks.push(getComputedStyle(document.body).color === 'rgb(4, 5, 6)');
+            globalThis.mediaChecks = checks;
             checks.every(Boolean)
         "#
             )
             .unwrap(),
-            "true"
+            "true",
+            "individual media checks: {}", page.agent.host.evaluate_string("JSON.stringify(mediaChecks)").unwrap()
         );
     }
 
@@ -32862,7 +33183,16 @@ mod tests {
 
     #[test]
     fn cssom_stylesheet_mutations_use_native_hierarchy_and_preserve_rule_identity() {
+        #[cfg(not(unix))]
         let mut page = RustExecutableDocument::load(r#"<!doctype html><style>@namespace svg url(http://www.w3.org/2000/svg); svg|rect { color: red; }</style>"#).unwrap();
+        #[cfg(unix)]
+        let mut page = retained_fixture_stylesheet_stream(r#"<!doctype html><style>@namespace svg url(http://www.w3.org/2000/svg); svg|rect { color: red; }</style>"#, "text/html", "https://example.test/hierarchy.html", "").unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while page.parser_pending() || !page.document_load_complete() {
+            page.poll_context_events().unwrap();
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::yield_now();
+        }
         assert_eq!(
             page.evaluate(
                 r#"
@@ -34267,6 +34597,27 @@ mod tests {
             assert_eq!(page.evaluate("JSON.stringify([loads,removedWindow.closed,document.querySelectorAll('iframe').length])").unwrap(),
             expected, "{remove}");
         }
+    }
+
+    #[test]
+    fn retired_frame_import_scan_does_not_reactivate_retained_owner() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><iframe id=f srcdoc='<p>child</p>'></iframe>",
+        ).unwrap();
+        let realm = page.agent.host.realm_ids().into_iter().find(|realm| *realm != page.top_realm
+            && page.agent.host.realm_execution_live(*realm)).unwrap();
+        let old = page.agent.host.retained_binding_state(realm).unwrap();
+        page.execute("globalThis.oldDocument=f.contentDocument;f.remove()").unwrap();
+        page.drain_tasks().unwrap();
+        assert!(!page.agent.host.realm_execution_live(realm));
+        assert!(old.execution_retired());
+        // Removal may eliminate registration or reject the retained receipt.
+        // Neither outcome may return execution authority.
+        assert!(matches!(page.agent.host.native_retained_admission_for_realm(realm),
+            Ok(None) | Err(HostError::CachedAuthorityExpired)));
+        page.drain_tasks().unwrap();
+        assert_eq!(page.evaluate("oldDocument.querySelector('p').textContent").unwrap(), "child");
+        assert!(old.execution_retired());
     }
 
     #[test]
@@ -38732,6 +39083,15 @@ impl RustExecutableDocument {
             self.agent.host.native_paint_revision(root.realm)?,
         ))
     }
+
+    pub(crate) fn sample_paint_environment_in_scope(&mut self) -> Result<(), HostError> {
+        let realm = self.automation_realm();
+        self.agent
+            .host
+            .sample_native_paint_revision_in_scope(realm)
+            .ok_or_else(|| HostError::Execution("paint environment owner unavailable".into()))?;
+        Ok(())
+    }
     pub(crate) fn install_root_paint_capture_inventory(
         &self,
         stamp: (u64, u64, u64),
@@ -41059,3 +41419,50 @@ mod native_frame_input_membership_tests {
 #[cfg(test)]
 #[path = "executable_checkpoint_tests.rs"]
 mod executable_checkpoint_tests;
+
+// Proposed owning-runtime bridge. Reuses the existing isolate ledger and its
+// configured heap bound; no independent semantic memory cap is introduced.
+impl RustExecutableDocument {
+    pub(crate) fn with_semantic_retained_admission<T>(
+        &mut self,
+        prepare: impl FnOnce(
+            &dyn oryn_layout::cssom::native_import_graph::ImportAdmission,
+        ) -> Result<T, crate::semantic::SemanticPreparationError>,
+    ) -> Result<T, crate::semantic::SemanticPreparationError> {
+        use crate::semantic::SemanticPreparationError as PreparationError;
+        let realm = self.automation_realm();
+        if let Some(selected) = &self.automation_scope {
+            self.validate_automation_scope(selected)
+                .map_err(PreparationError::Host)?;
+        }
+        let previous = self.agent.host.active_realm();
+        if let Err(error) = self.activate_selected_script_realm() {
+            let _restored = self.agent.host.activate_realm(previous);
+            return Err(PreparationError::Host(error));
+        }
+        let result = (|| {
+            let admission = self
+                .agent
+                .host
+                .native_retained_admission_for_realm(realm)
+                .map_err(PreparationError::Host)?
+                .ok_or_else(|| {
+                    PreparationError::Host(HostError::Execution(
+                        "semantic retained owner unavailable".into(),
+                    ))
+                })?;
+            let _scope = self
+                .agent
+                .host
+                .retained_allocation_scope(realm)
+                .map_err(PreparationError::Host)?;
+            prepare(admission.as_ref())
+        })();
+        let restored = self.agent.host.activate_realm(previous);
+        match (result, restored) {
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(PreparationError::Host(error)),
+            (Ok(value), Ok(())) => Ok(value),
+        }
+    }
+}

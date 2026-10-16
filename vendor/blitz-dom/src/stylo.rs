@@ -1,6 +1,46 @@
 //! Enable the dom to participate in styling by servo
 //!
 
+/// HTML FONT size parsing only needs the clamped legacy category. Consume the
+/// HTML leading integer prefix without overflow or stricter whole-string parse.
+/// Native specified-value descriptor for the HTML FONT size presentational
+/// hint. Shares the exact bounded HTML parser used by hint production.
+pub fn html_font_size_hint_keyword(input:&str)->Option<&'static str>{
+    use style::values::specified::font::FontSizeKeyword as K;
+    Some(match html_legacy_font_keyword(input)? {
+        K::XSmall=>"x-small",K::Small=>"small",K::Medium=>"medium",
+        K::Large=>"large",K::XLarge=>"x-large",K::XXLarge=>"xx-large",
+        K::XXXLarge=>"xxx-large",_=>return None,
+    })
+}
+fn html_legacy_font_keyword(input:&str)->Option<style::values::specified::font::FontSizeKeyword>{
+    let mut input=input.trim_start_matches([' ','\t','\n','\r','\u{000c}']).chars().peekable();
+    let sign=match input.peek(){Some('+')=>{input.next();1i32},Some('-')=>{input.next();-1i32},_=>0};
+    let mut value=0i32;let mut any=false;
+    while let Some(character)=input.peek().copied(){
+        let Some(digit)=character.to_digit(10).filter(|_|character.is_ascii_digit())else{break};
+        any=true;input.next();value=value.saturating_mul(10).saturating_add(digit as i32).min(10);
+    }
+    if !any{return None}
+    let size=match sign{1=>3+value,-1=>3-value,_=>value}.clamp(1,7);
+    use style::values::specified::font::FontSizeKeyword;
+    Some(match size{1=>FontSizeKeyword::XSmall,2=>FontSizeKeyword::Small,3=>FontSizeKeyword::Medium,4=>FontSizeKeyword::Large,5=>FontSizeKeyword::XLarge,6=>FontSizeKeyword::XXLarge,_=>FontSizeKeyword::XXXLarge})
+}
+
+#[cfg(test)]
+mod html_legacy_font_size_tests{
+    use super::html_legacy_font_keyword;
+    use style::values::specified::font::FontSizeKeyword as K;
+    #[test]
+    fn bounded_html_integer_category_preserves_sign_and_prefix_rules(){
+        for (input,expected) in [("0",K::XSmall),("+0",K::Medium),("-0",K::Medium),("+4",K::XXXLarge),("-4",K::XSmall),("999999999999999999999999999999",K::XXXLarge),("-999999999999999999999999999999",K::XSmall),(" \t\n3junk",K::Medium),("+2junk",K::XLarge)]{
+            assert_eq!(html_legacy_font_keyword(input),Some(expected),"{input:?}");
+        }
+        for input in [""," ","+","-","+ 2","- 2","junk","٣"]{
+            assert_eq!(html_legacy_font_keyword(input),None,"{input:?}");
+        }
+    }
+}
 use blitz_traits::node_id::NodeId;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
@@ -313,6 +353,39 @@ impl crate::document::BaseDocument {
     /// Resolve a primary style even when normal traversal pruned this element
     /// beneath display:none. Call after resolve_stylist; this does not create boxes
     /// or change the element's display value.
+    /// Query the HTML FONT legacy size keyword under the actual body inherited
+    /// style/device. No DOM node, cascade rule, property publication or cache.
+    pub fn resolve_legacy_font_keyword(
+        &self, body:NodeId, keyword:style::values::specified::font::FontSizeKeyword,
+    )->Option<f32>{
+        use style::values::computed::ToComputedValue;
+        use style::values::specified::font::{FontSize,KeywordInfo};
+        struct LayoutThreadState(bool);
+        impl Drop for LayoutThreadState{fn drop(&mut self){if self.0{style::thread_state::exit(style::thread_state::ThreadState::LAYOUT);}}}
+        let entered=!style::thread_state::get().contains(style::thread_state::ThreadState::LAYOUT);
+        if entered{style::thread_state::enter(style::thread_state::ThreadState::LAYOUT);}
+        let _thread=LayoutThreadState(entered);
+        let parent=self.resolved_primary_style(body)?;
+        let device=self.stylist.device();
+        let builder=style::properties::StyleBuilder::for_inheritance(device,Some(&self.stylist),Some(&parent),None);
+        let mut conditions=style::rule_cache::RuleCacheConditions::default();
+        let mut counting=style::context::TreeCountingCaches::default();
+        let element=style::dom::DummyElementContext{};
+        let context=style::values::computed::Context::new(builder,device.quirks_mode(),&mut conditions,
+            style::stylesheets::container_rule::ContainerSizeQuery::none(),
+            style::rule_tree::RuleCascadeFlags::empty(),&element,&mut counting);
+        let specified=FontSize::Keyword(KeywordInfo{kw:keyword,factor:1.,offset:style::values::computed::CSSPixelLength::new(0.)});
+        // Editing compares this demand with CSSOM font-size, whose resolved
+        // value removes effective zoom. Use the same native resolution path.
+        use style::values::resolved::ToResolvedValue;
+        let resolved_context=style::values::resolved::Context {
+            style: &parent,
+            for_property: style::properties::PropertyId::NonCustom(style::properties::LonghandId::FontSize.into()),
+            current_longhand: Some(style::properties::LonghandId::FontSize),
+        };
+        let pixels=specified.to_computed_value(&context).to_resolved_value(&resolved_context).px();
+        (pixels.is_finite()&&pixels>0.).then_some(pixels)
+    }
     pub fn resolved_primary_style(
         &self,
         node_id: NodeId,
@@ -1282,6 +1355,12 @@ impl<'a> TElement for BlitzNode<'a> {
 
         let tag = &elem.name.local;
 
+        // HTML FONT size is a native presentational hint, never an inline
+        // author declaration. Legacy 1 maps to x-small, not xx-small.
+        let font_size_hint = if elem.name.ns.as_ref()=="http://www.w3.org/1999/xhtml" && tag.as_ref()=="font" {
+            elem.attr(local_name!("size")).and_then(html_legacy_font_keyword)
+        }else{None};
+
         let mut push_style = |decl: PropertyDeclaration| {
             hints.push(ApplicableDeclarationBlock::from_declarations(
                 Arc::new(
@@ -1292,6 +1371,14 @@ impl<'a> TElement for BlitzNode<'a> {
                 LayerOrder::root(),
             ));
         };
+
+        if let Some(keyword)=font_size_hint {
+            use style::values::specified::font::{FontSize,KeywordInfo};
+            push_style(PropertyDeclaration::FontSize(FontSize::Keyword(KeywordInfo{kw:keyword,factor:1.,offset:style::values::computed::CSSPixelLength::new(0.)})));
+        }
+        if let Some(family)=elem.native_font_face_hint.as_ref() {
+            push_style(PropertyDeclaration::FontFamily(family.clone()));
+        }
 
         // URL resolution belongs to the native owner Document, including its
         // legacy query encoding. Keep authored attribute bytes for selectors.

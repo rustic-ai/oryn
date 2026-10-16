@@ -3,7 +3,7 @@
 struct NativePendingImportJob {
     request: NativePendingImportRequest,
     reply: Option<RetainedStylesheetSourceEnvelope>,
-    failure: Option<HostError>,
+    failure: Option<String>,
     failed: bool,
     prepared: Option<PreparedPendingTreeCompletion>,
     _request_allocation: Arc<dyn Send + Sync>,
@@ -11,6 +11,7 @@ struct NativePendingImportJob {
     dependencies: Option<CssDependencies>,
     committed: bool,
     _dependency_allocation: Option<Arc<dyn Send + Sync>>,
+    settlement_failures: (Option<HostError>, Option<HostError>),
 }
 impl NativePendingImportJob {
     fn publish(
@@ -39,8 +40,8 @@ impl NativePendingImportJob {
             }
             return Ok(true);
         }
-        if let Some(error) = self.failure.take() {
-            return Err(error);
+        if let Some(error) = &self.failure {
+            return Err(HostError::Execution(error.clone()));
         }
         if self.failed {
             return self.request.fail_current(host, arena);
@@ -155,6 +156,7 @@ impl NativePendingImportJob {
 }
 impl Drop for NativePendingImportJob {
     fn drop(&mut self) {
+        if self.committed { return; } // Published source authority outlives transport.
         self.cancellation
             .flag
             .store(true, std::sync::atomic::Ordering::Release);
@@ -172,16 +174,17 @@ struct NativePendingImportReply {
     document: ParserDocumentIdentity,
     publication_revision: u64,
     occurrence: oryn_layout::cssom::native_import_graph::OccurrenceId,
-    result: Result<RetainedStylesheetSourceEnvelope, String>,
+    result: Result<RetainedStylesheetSourceEnvelope, RetainedStylesheetFailure>,
 }
 
 #[cfg(unix)]
 struct NativePendingImportFetch {
-    client: crate::context_service::SharedContextClient,
-    page_id: oryn_common::v3::PageId,
+    endpoint: Option<(crate::context_service::SharedContextClient, oryn_common::v3::PageId)>,
+    standalone: Option<standalone_stylesheet::Loader>,
     initiator: crate::context_service::ResourceInitiator,
     key: NativePendingImportKey,
     document: ParserDocumentIdentity,
+    owner_node: NodeId,
     publication_revision: u64,
     occurrence: oryn_layout::cssom::native_import_graph::OccurrenceId,
     url: String,
@@ -197,19 +200,29 @@ struct NativePendingImportFetch {
 
 #[cfg(unix)]
 impl NativePendingImportFetch {
-    fn execute(self) -> NativePendingImportReply {
+    fn execute(mut self) -> NativePendingImportReply {
         let result = (|| {
             if self.depth > 8 {
                 return Err(HostError::LimitExceeded {
                     resource: "stylesheet import depth".into(),
                 });
             }
+            if let Some(loader) = self.standalone.take() {
+                return loader.load_retained_import_tree(
+                    self.document, self.owner_node,
+                    self.publication_revision, self.cancellation.clone(),
+                    &self.url, &self.parent_url, &self.referrer_policy,
+                    &self.encoding, self.depth,
+                );
+            }
+            let (client, page_id) = self.endpoint.as_ref()
+                .ok_or_else(|| HostError::Execution("pending import transport absent".into()))?;
             let mut budget =
                 StylesheetExpansionBudget::new(self.source_budget, self.cancellation.flag.clone())
                     .with_native(self.cancellation.clone());
             let mut walk = ImportWalk {
-                client: &self.client,
-                page_id: self.page_id,
+                client,
+                page_id: *page_id,
                 initiator: &self.initiator,
                 budget: &mut budget,
             };
@@ -231,7 +244,7 @@ impl NativePendingImportFetch {
             let tree = walk.collect_source_tree(response, self.depth, &mut ancestors)?;
             walk.budget.finish_retained_tree(tree)
         })()
-        .map_err(|error| error.to_string());
+        .map_err(RetainedStylesheetFailure::from);
         drop(self.queued_source);
         NativePendingImportReply {
             key: self.key,

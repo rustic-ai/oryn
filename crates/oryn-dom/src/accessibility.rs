@@ -212,90 +212,147 @@ impl DomArena {
         Ok(false)
     }
 
-    pub fn accessibility_relation_with_checkpoint(
+    pub fn accessibility_relation_with_allocation<
+        A: crate::projection_allocation::ProjectionAllocation,
+    >(
         &self,
         source: NodeId,
         name: &str,
+        allocation: &mut A,
         checkpoint: &mut impl FnMut() -> Result<(), DomError>,
-    ) -> Result<Option<Vec<NodeId>>, DomError> {
-        checkpoint()?;
+    ) -> Result<Option<Vec<NodeId>>, A::Error> {
+        checkpoint().map_err(A::Error::from)?;
         let Ok(node) = self.get(source) else {
             return Ok(None);
         };
         if let Some(targets) = node.explicit_accessibility_references(name) {
             let mut result = Vec::new();
             for &target in targets {
-                checkpoint()?;
+                checkpoint().map_err(A::Error::from)?;
                 if self.relation_in_scope_with_checkpoint(source, target, false, checkpoint)? {
-                    result.push(target);
+                    crate::projection_allocation::admitted_push(
+                        &mut result,
+                        target,
+                        allocation,
+                        checkpoint,
+                    )?;
                 }
             }
-            checkpoint()?;
+            checkpoint().map_err(A::Error::from)?;
             return Ok(Some(result));
         }
-        if let Some(ids) = node.attributes.get_null(name) {
+        if let Some(ids) = node.attributes.get_null_with_checkpoint(name, checkpoint)? {
             let Some(root) = self.relation_tree_root_with_checkpoint(source, checkpoint)? else {
                 return Ok(None);
             };
             let mut result = Vec::new();
-            for token in ids.split_ascii_whitespace() {
-                checkpoint()?;
+            let token_start = allocation.scratch_mark();
+            let tokens = relation_tokens_with_allocation(ids, allocation, checkpoint)?;
+            let token_end = allocation.scratch_mark();
+            for token in &tokens {
+                let token = *token;
+                let scratch_start = allocation.scratch_mark();
+                checkpoint().map_err(A::Error::from)?;
                 // Preserve the original full descendant validation before ID lookup.
                 let mut descendants = Vec::new();
-                let mut pending = vec![root];
+                let mut pending = Vec::new();
+                crate::projection_allocation::admitted_push(
+                    &mut pending,
+                    root,
+                    allocation,
+                    checkpoint,
+                )?;
                 let mut seen = BTreeSet::new();
                 while let Some(current) = pending.pop() {
-                    checkpoint()?;
+                    checkpoint().map_err(A::Error::from)?;
                     if !seen.insert(current) {
-                        return Err(DomError::Cycle);
+                        return Err(A::Error::from(DomError::Cycle));
                     }
                     let Ok(record) = self.get(current) else {
                         return Ok(None);
                     };
-                    descendants.push(current);
+                    crate::projection_allocation::admitted_push(
+                        &mut descendants,
+                        current,
+                        allocation,
+                        checkpoint,
+                    )?;
                     for &child in record.children.iter().rev() {
-                        checkpoint()?;
-                        pending.push(child);
+                        checkpoint().map_err(A::Error::from)?;
+                        crate::projection_allocation::admitted_push(
+                            &mut pending,
+                            child,
+                            allocation,
+                            checkpoint,
+                        )?;
                     }
                 }
-                for target in descendants {
-                    checkpoint()?;
-                    if self.get(target).is_ok_and(|node| {
-                        node.attributes.get_null("id").is_some_and(|id| id == token)
-                    }) && self.relation_tree_root_with_checkpoint(target, checkpoint)?
-                        == Some(root)
+                let scratch_end = allocation.scratch_mark();
+                for &target in &descendants {
+                    checkpoint().map_err(A::Error::from)?;
+                    if relation_id_matches(self, target, token, checkpoint)?
+                        && self.relation_tree_root_with_checkpoint(target, checkpoint)?
+                            == Some(root)
                     {
                         let mut duplicate = false;
                         for &prior in &result {
-                            checkpoint()?;
+                            checkpoint().map_err(A::Error::from)?;
                             if prior == target {
                                 duplicate = true;
                                 break;
                             }
                         }
                         if !duplicate {
-                            result.push(target);
+                            crate::projection_allocation::admitted_push(
+                                &mut result,
+                                target,
+                                allocation,
+                                checkpoint,
+                            )?;
                         }
                         break;
                     }
                 }
+                drop(descendants);
+                drop(pending);
+                allocation.release_scratch_range(scratch_start..scratch_end);
             }
-            checkpoint()?;
+            drop(tokens);
+            allocation.release_scratch_range(token_start..token_end);
+            checkpoint().map_err(A::Error::from)?;
             return Ok(Some(result));
         }
         let Some(targets) = node.default_accessibility_references(name) else {
-            checkpoint()?;
+            checkpoint().map_err(A::Error::from)?;
             return Ok(None);
         };
         let mut result = Vec::new();
         for &target in targets {
-            checkpoint()?;
+            checkpoint().map_err(A::Error::from)?;
             if self.relation_in_scope_with_checkpoint(source, target, true, checkpoint)? {
-                result.push(target);
+                crate::projection_allocation::admitted_push(
+                    &mut result,
+                    target,
+                    allocation,
+                    checkpoint,
+                )?;
             }
         }
-        checkpoint()?;
+        checkpoint().map_err(A::Error::from)?;
         Ok(Some(result))
+    }
+    pub fn accessibility_relation_with_checkpoint(
+        &self,
+        source: NodeId,
+        name: &str,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<Vec<NodeId>>, DomError> {
+        self.accessibility_relation_with_allocation(
+            source,
+            name,
+            &mut crate::projection_allocation::OrdinaryProjectionAllocation,
+            checkpoint,
+        )
     }
 }
 impl DomRuntime {
@@ -558,5 +615,385 @@ impl DomArena {
     }
     pub fn accessibility_computed_visibility(&self, node: NodeId) -> Option<(bool, bool)> {
         self.accessibility_computed_visibility.get(&node).copied()
+    }
+}
+
+impl Node {
+    pub fn accessibility_attribute_with_checkpoint<E>(
+        &self,
+        name: &str,
+        check: &mut impl FnMut() -> Result<(), E>,
+    ) -> Result<Option<&String>, E> {
+        if let Some(value) = self.attributes.get_null_with_checkpoint(name, check)? {
+            return Ok(Some(value));
+        }
+        // Iteration rather than an unchecked tree key comparison also checks
+        // arbitrarily long default attribute names.
+        for (key, value) in &self.default_accessibility {
+            check()?;
+            let mut equal = key.len() == name.len();
+            if equal {
+                for (left, right) in key.bytes().zip(name.bytes()) {
+                    check()?;
+                    if left != right {
+                        equal = false;
+                        break;
+                    }
+                }
+            }
+            if equal {
+                check()?;
+                return Ok(Some(value));
+            }
+        }
+        check()?;
+        Ok(if name == "role" {
+            self.submit_behavior.as_ref().map(|behavior| &behavior.role)
+        } else {
+            None
+        })
+    }
+}
+
+#[cfg(test)]
+mod effective_attribute_checkpoint_tests {
+    use super::*;
+    #[test]
+    fn author_then_default_then_submit_role_precedence() {
+        let mut dom = DomRuntime::new();
+        let id = dom.create_element("button");
+        let node = dom.arena.get_mut(id).unwrap();
+        node.submit_behavior = Some(SubmitButtonBehavior::default());
+        assert_eq!(
+            node.accessibility_attribute_with_checkpoint("role", &mut || Ok::<_, &str>(()))
+                .unwrap()
+                .map(String::as_str),
+            Some("button")
+        );
+        node.default_accessibility
+            .insert("role".into(), "checkbox".into());
+        assert_eq!(
+            node.accessibility_attribute_with_checkpoint("role", &mut || Ok::<_, &str>(()))
+                .unwrap()
+                .map(String::as_str),
+            Some("checkbox")
+        );
+        node.attributes.insert(Arc::new(ContentAttribute {
+            namespace: None,
+            local_name: "role".into(),
+            name: "role".into(),
+            prefix: None,
+            value: "switch".into(),
+        }));
+        assert_eq!(
+            node.accessibility_attribute_with_checkpoint("role", &mut || Ok::<_, &str>(()))
+                .unwrap()
+                .map(String::as_str),
+            Some("switch")
+        );
+        let effective = node
+            .accessibility_attributes_with_checkpoint(&mut || Ok::<_, &str>(()))
+            .unwrap();
+        assert_eq!(
+            effective.get_null("role").map(String::as_str),
+            Some("switch")
+        );
+    }
+
+    #[test]
+    fn final_lookup_cancellation_is_not_published() {
+        let mut attributes = AttributeList::default();
+        attributes.insert(Arc::new(ContentAttribute {
+            namespace: None,
+            local_name: "".into(),
+            name: "".into(),
+            prefix: None,
+            value: "value".into(),
+        }));
+        let mut calls = 0;
+        assert_eq!(
+            attributes.get_null_with_checkpoint("", &mut || {
+                calls += 1;
+                if calls == 4 { Err("cancel") } else { Ok(()) }
+            }),
+            Err("cancel")
+        );
+    }
+}
+
+use crate::attributes::{
+    ProducerFailure, ordinary_allocation_failure, shared_effective_attributes,
+};
+impl Node {
+    pub fn accessibility_attributes_with_checkpoint<E>(
+        &self,
+        check: &mut impl FnMut() -> Result<(), E>,
+    ) -> Result<std::borrow::Cow<'_, AttributeList>, E> {
+        match shared_effective_attributes(
+            self,
+            &mut |_| Ok::<_, std::collections::TryReserveError>(()),
+            &mut |error| error,
+            check,
+        ) {
+            Ok(value) => Ok(value),
+            Err(ProducerFailure::Checkpoint(error)) => Err(error),
+            Err(ProducerFailure::Allocation(_)) => ordinary_allocation_failure(1, 1),
+            Err(ProducerFailure::AllocationLayout { bytes, align, .. }) => {
+                ordinary_allocation_failure(bytes, align)
+            }
+            Err(ProducerFailure::Capacity) => panic!("ordinary accessibility capacity overflow"),
+        }
+    }
+    pub fn accessibility_attributes_with_allocation<
+        A: crate::projection_allocation::ProjectionAllocation,
+    >(
+        &self,
+        allocation: &mut A,
+        check: &mut impl FnMut() -> Result<(), crate::DomError>,
+    ) -> Result<std::borrow::Cow<'_, AttributeList>, A::Error> {
+        let allocator = std::cell::RefCell::new(allocation);
+        match shared_effective_attributes(
+            self,
+            &mut |bytes| allocator.borrow_mut().reserve(bytes),
+            &mut |error| allocator.borrow().allocation_error(error),
+            check,
+        ) {
+            Ok(value) => Ok(value),
+            Err(ProducerFailure::Checkpoint(error)) => Err(A::Error::from(error)),
+            Err(ProducerFailure::Allocation(error)) => Err(error),
+            Err(ProducerFailure::AllocationLayout { error, .. }) => Err(error),
+            Err(ProducerFailure::Capacity) => {
+                Err(A::Error::from(crate::DomError::SemanticProjectionCapacity))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod effective_allocation_controls {
+    use super::*;
+    #[derive(Debug)]
+    struct TestError;
+    impl From<crate::DomError> for TestError {
+        fn from(_: crate::DomError) -> Self {
+            Self
+        }
+    }
+    struct Allocator {
+        calls: usize,
+        fail: usize,
+    }
+    impl crate::projection_allocation::ProjectionAllocation for Allocator {
+        type Error = TestError;
+        fn reserve(&mut self, _: usize) -> Result<(), Self::Error> {
+            self.calls += 1;
+            if self.calls == self.fail {
+                Err(TestError)
+            } else {
+                Ok(())
+            }
+        }
+        fn allocation_error(&self, _: std::collections::TryReserveError) -> Self::Error {
+            TestError
+        }
+    }
+    #[test]
+    fn admitted_effective_attributes_preserve_precedence_and_failure_source() {
+        let mut dom = DomRuntime::new();
+        let id = dom.create_element("button");
+        let node = dom.arena.get_mut(id).unwrap();
+        node.submit_behavior = Some(SubmitButtonBehavior::default());
+        node.default_accessibility
+            .insert("aria-label".into(), "value".repeat(1024));
+        for (author, default, expected) in [
+            (false, false, "button"),
+            (false, true, "checkbox"),
+            (true, true, "switch"),
+        ] {
+            if default {
+                node.default_accessibility
+                    .insert("role".into(), "checkbox".into());
+            }
+            if author {
+                node.attributes.insert(Arc::new(ContentAttribute {
+                    namespace: None,
+                    local_name: "role".into(),
+                    name: "role".into(),
+                    prefix: None,
+                    value: "switch".into(),
+                }));
+            }
+            let mut allocation = Allocator {
+                calls: 0,
+                fail: usize::MAX,
+            };
+            let result = node
+                .accessibility_attributes_with_allocation(&mut allocation, &mut || Ok(()))
+                .unwrap();
+            assert_eq!(result.get_null("role").map(String::as_str), Some(expected));
+            let total = allocation.calls;
+            let before = format!("{node:?}");
+            for boundary in 1..=total {
+                let mut allocation = Allocator {
+                    calls: 0,
+                    fail: boundary,
+                };
+                let result =
+                    node.accessibility_attributes_with_allocation(&mut allocation, &mut || Ok(()));
+                assert!(result.is_err());
+                assert_eq!(format!("{node:?}"), before);
+            }
+        }
+    }
+}
+
+fn relation_tokens_with_allocation<'a, A: crate::projection_allocation::ProjectionAllocation>(
+    value: &'a str,
+    allocation: &mut A,
+    check: &mut impl FnMut() -> Result<(), DomError>,
+) -> Result<Vec<&'a str>, A::Error> {
+    check().map_err(A::Error::from)?;
+    let mut output = Vec::new();
+    let mut start = None;
+    for (index, byte) in value.bytes().enumerate() {
+        check().map_err(A::Error::from)?;
+        if byte.is_ascii_whitespace() {
+            if let Some(begin) = start.take() {
+                crate::projection_allocation::admitted_push(
+                    &mut output,
+                    &value[begin..index],
+                    allocation,
+                    check,
+                )?;
+            }
+        } else if start.is_none() {
+            start = Some(index);
+        }
+    }
+    if let Some(begin) = start {
+        crate::projection_allocation::admitted_push(
+            &mut output,
+            &value[begin..],
+            allocation,
+            check,
+        )?;
+    }
+    check().map_err(A::Error::from)?;
+    Ok(output)
+}
+fn relation_id_matches(
+    dom: &DomArena,
+    target: NodeId,
+    token: &str,
+    check: &mut impl FnMut() -> Result<(), DomError>,
+) -> Result<bool, DomError> {
+    check()?;
+    let Ok(node) = dom.get(target) else {
+        return Ok(false);
+    };
+    let Some(id) = node.attributes.get_null_with_checkpoint("id", check)? else {
+        return Ok(false);
+    };
+    if id.len() != token.len() {
+        return Ok(false);
+    }
+    for (left, right) in id.bytes().zip(token.bytes()) {
+        check()?;
+        if left != right {
+            return Ok(false);
+        }
+    }
+    check()?;
+    Ok(true)
+}
+
+#[cfg(test)]
+mod relation_allocation_controls {
+    use super::*;
+    struct Allocation {
+        calls: usize,
+        fail: usize,
+    }
+    impl crate::projection_allocation::ProjectionAllocation for Allocation {
+        type Error = DomError;
+        fn reserve(&mut self, _: usize) -> Result<(), DomError> {
+            self.calls += 1;
+            if self.calls == self.fail {
+                Err(DomError::SemanticProjectionCapacity)
+            } else {
+                Ok(())
+            }
+        }
+        fn allocation_error(&self, _: std::collections::TryReserveError) -> DomError {
+            DomError::SemanticProjectionCapacity
+        }
+    }
+    #[test]
+    fn explicit_relation_reservation_failure_preserves_dom_and_identity() {
+        let mut dom = DomRuntime::new();
+        let source = dom.create_element("x-source");
+        let target = dom.create_element("span");
+        dom.retain_native(source).unwrap();
+        dom.set_accessibility_references(source, "aria-labelledby", false, Some(vec![target]))
+            .unwrap();
+        let expected = dom
+            .arena()
+            .accessibility_relation(source, "aria-labelledby");
+        let mut allocation = Allocation {
+            calls: 0,
+            fail: usize::MAX,
+        };
+        assert_eq!(
+            dom.arena()
+                .accessibility_relation_with_allocation(
+                    source,
+                    "aria-labelledby",
+                    &mut allocation,
+                    &mut || Ok(())
+                )
+                .unwrap(),
+            expected
+        );
+        for fail in 1..=allocation.calls {
+            let mut allocation = Allocation { calls: 0, fail };
+            assert!(matches!(
+                dom.arena().accessibility_relation_with_allocation(
+                    source,
+                    "aria-labelledby",
+                    &mut allocation,
+                    &mut || Ok(())
+                ),
+                Err(DomError::SemanticProjectionCapacity)
+            ));
+            assert_eq!(
+                dom.arena()
+                    .accessibility_relation(source, "aria-labelledby"),
+                expected
+            );
+            assert!(dom.arena().get(target).is_ok());
+        }
+    }
+    #[test]
+    fn long_relation_token_scan_is_cancelled_inside_scan() {
+        let text = "x".repeat(8192);
+        let mut allocation = Allocation {
+            calls: 0,
+            fail: usize::MAX,
+        };
+        let mut calls = 0;
+        let result = relation_tokens_with_allocation(&text, &mut allocation, &mut || {
+            calls += 1;
+            if calls == 64 {
+                Err(DomError::ProjectionCancelled)
+            } else {
+                Ok(())
+            }
+        });
+        assert!(matches!(result, Err(DomError::ProjectionCancelled)));
+        assert_eq!(calls, 64);
+        assert_eq!(
+            allocation.calls, 0,
+            "not a post-scan allocation cancellation"
+        );
     }
 }

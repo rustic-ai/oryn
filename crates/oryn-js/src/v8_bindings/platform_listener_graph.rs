@@ -12,8 +12,27 @@ pub(super) struct Edges {
     pub(super) media_candidates: BTreeSet<u64>,
     pub(super) response_candidates: BTreeSet<u64>,
     pub(super) native_lease_candidates: BTreeSet<u64>,
+    pub(super) unpublished_candidates: BTreeMap<u64,Rc<Cell<owned_unpublished_cleanup::Status>>>,
+    pub(super) unpublished_cursor: Option<u64>,
+    pub(super) unpublished_ready: Rc<Cell<usize>>,
 }
 impl Edges {
+    pub(super) fn discard_unpublished(&mut self,id:u64) {
+        owned_unpublished_cleanup::retire(self,id);
+        self.replace(id,BTreeSet::new());
+        if let Some(owners)=self.incoming.remove(&id) {
+            for owner in owners {
+                if let Some(targets)=self.outgoing.get_mut(&owner) {
+                    targets.remove(&id);
+                    if targets.is_empty() {self.outgoing.remove(&owner);}
+                }
+            }
+        }
+        self.activity_candidates.remove(&id);
+        self.media_candidates.remove(&id);
+        self.response_candidates.remove(&id);
+        self.native_lease_candidates.remove(&id);
+    }
     pub(super) fn registered(&mut self, id: u64, record: &PlatformObjectRecord) {
         for (set, selected) in [
             (
@@ -571,6 +590,7 @@ pub(super) fn watch(
         .insert(id, (serial, watcher));
 }
 pub(super) fn reclaim(state: &V8BindingState) {
+    owned_unpublished_cleanup::drain(state);
     let releases = std::mem::take(&mut *state.platform_listener_releases.borrow_mut());
     for (id, serial) in releases {
         if state
@@ -579,6 +599,10 @@ pub(super) fn reclaim(state: &V8BindingState) {
             .get(&id)
             .is_some_and(|(current, _)| *current == serial)
         {
+            if !owned_unpublished_cleanup::weak_released(state,id) {
+                state.platform_listener_releases.borrow_mut().push((id,serial));
+                continue;
+            }
             let cleanup = {
                 let Ok(mut records) = state.platform_objects.try_borrow_mut() else {
                     state
@@ -1039,12 +1063,19 @@ mod tests {
                 .set(inner, name.into(), record.into())
                 .unwrap();
             let value = v8::Object::new(inner);
+            let heap = inner.get_heap_statistics();
+            let used = heap.used_heap_size().checked_add(heap.external_memory()).unwrap();
+            let (direction, direction_custody) = crate::idb_owned_admission::Text::copy_string_cancelled(
+                &state.idb_payload_ledger, "next", heap.heap_size_limit(), used,
+                &mut || inner.is_execution_terminating() || state.execution_retired(),
+            ).unwrap().into_parts();
             cursor_id = register_platform_object(
                 &state,
                 PlatformObjectRecord::IdbCursor(IdbCursorRecord {
                     request_id: 0,
                     source_id: 0,
-                    direction: "next".into(),
+                    direction,
+                    _direction_custody: Some(direction_custody),
                     query: None,
                     records: Vec::new(),
                     index: 0,

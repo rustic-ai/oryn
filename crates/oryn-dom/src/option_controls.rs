@@ -903,55 +903,11 @@ impl DomArena {
         select: NodeId,
         checkpoint: &mut impl FnMut() -> Result<(), DomError>,
     ) -> Result<Vec<NodeId>, DomError> {
-        checkpoint()?;
-        let record = self.get(select)?;
-        if !matches!(&record.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "select")
-        {
-            checkpoint()?;
-            return Ok(Vec::new());
-        }
-        let mut pending = Vec::new();
-        for &child in record.children.iter().rev() {
-            checkpoint()?;
-            pending.push((child, false));
-        }
-        let mut options = Vec::new();
-        let mut seen = BTreeSet::from([select]);
-        while let Some((node, in_optgroup)) = pending.pop() {
-            if !seen.insert(node) {
-                return Err(DomError::Cycle);
-            }
-            checkpoint()?;
-            let record = self.get(node)?;
-            if matches!(
-                record.kind,
-                NodeKind::Document | NodeKind::ShadowRoot { .. }
-            ) {
-                continue;
-            }
-            let tag = match &record.kind {
-                NodeKind::Element { name }
-                    if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" =>
-                {
-                    name.local.as_ref()
-                }
-                _ => "",
-            };
-            if tag == "option" {
-                options.push(node);
-            }
-            if matches!(tag, "option" | "select" | "hr" | "datalist")
-                || tag == "optgroup" && in_optgroup
-            {
-                continue;
-            }
-            for &child in record.children.iter().rev() {
-                checkpoint()?;
-                pending.push((child, in_optgroup || tag == "optgroup"));
-            }
-        }
-        checkpoint()?;
-        Ok(options)
+        self.select_options_with_allocation(
+            select,
+            &mut crate::projection_allocation::OrdinaryProjectionAllocation,
+            checkpoint,
+        )
     }
 }
 
@@ -973,5 +929,111 @@ mod grouped_single_insertion_tests {
         dom.insert_dom_node(t, a, None).unwrap();
         assert_eq!(dom.select_selected_index(t).unwrap(), 0);
         assert_eq!(dom.select_selected_index(s).unwrap(), 0);
+    }
+}
+
+impl Node {
+    pub fn selected_with_checkpoint<E>(
+        &self,
+        check: &mut impl FnMut() -> Result<(), E>,
+    ) -> Result<bool, E> {
+        check()?;
+        let value = match self.selectedness {
+            Some(value) => value,
+            None => self
+                .attributes
+                .contains_null_with_checkpoint("selected", check)?,
+        };
+        check()?;
+        Ok(value)
+    }
+
+    pub fn checked_with_checkpoint<E>(
+        &self,
+        check: &mut impl FnMut() -> Result<(), E>,
+    ) -> Result<bool, E> {
+        check()?;
+        let value = match self.checkedness {
+            Some(value) => value,
+            None => self
+                .attributes
+                .contains_null_with_checkpoint("checked", check)?,
+        };
+        check()?;
+        Ok(value)
+    }
+}
+
+impl DomArena {
+    pub fn select_options_with_allocation<A: crate::projection_allocation::ProjectionAllocation>(
+        &self,
+        select: NodeId,
+        allocation: &mut A,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Vec<NodeId>, A::Error> {
+        checkpoint().map_err(A::Error::from)?;
+        let record = self.get(select).map_err(A::Error::from)?;
+        if !matches!(&record.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "select")
+        {
+            checkpoint().map_err(A::Error::from)?;
+            return Ok(Vec::new());
+        }
+        let mut pending = Vec::new();
+        for &child in record.children.iter().rev() {
+            checkpoint().map_err(A::Error::from)?;
+            crate::projection_allocation::admitted_push(
+                &mut pending,
+                (child, false),
+                allocation,
+                checkpoint,
+            )?;
+        }
+        let mut options = Vec::new();
+        let mut seen = BTreeSet::from([select]);
+        while let Some((node, in_optgroup)) = pending.pop() {
+            if !seen.insert(node) {
+                return Err(A::Error::from(DomError::Cycle));
+            }
+            checkpoint().map_err(A::Error::from)?;
+            let record = self.get(node).map_err(A::Error::from)?;
+            if matches!(
+                record.kind,
+                NodeKind::Document | NodeKind::ShadowRoot { .. }
+            ) {
+                continue;
+            }
+            let tag = match &record.kind {
+                NodeKind::Element { name }
+                    if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" =>
+                {
+                    name.local.as_ref()
+                }
+                _ => "",
+            };
+            if tag == "option" {
+                crate::projection_allocation::admitted_push(
+                    &mut options,
+                    node,
+                    allocation,
+                    checkpoint,
+                )?;
+            }
+            if matches!(tag, "option" | "select" | "hr" | "datalist")
+                || tag == "optgroup" && in_optgroup
+            {
+                continue;
+            }
+            for &child in record.children.iter().rev() {
+                checkpoint().map_err(A::Error::from)?;
+                crate::projection_allocation::admitted_push(
+                    &mut pending,
+                    (child, in_optgroup || tag == "optgroup"),
+                    allocation,
+                    checkpoint,
+                )?;
+            }
+        }
+        checkpoint().map_err(A::Error::from)?;
+        Ok(options)
     }
 }

@@ -18,7 +18,9 @@ pub(super) fn publish(
             if sheet {
                 sheets.push(*node);
                 if dom.is_connected(*node)? {
-                    connected.push(*node);
+                    // reset_adopted_stylesheet advances this exact SSOT
+                    // revision with saturating_add(1), with no author callback.
+                    connected.push((*node, dom.arena().stylesheet_revision(*node)?.saturating_add(1)));
                 }
             }
         }
@@ -51,7 +53,7 @@ pub(super) fn publish(
         source
             .prepared_stylesheets
             .borrow_mut()
-            .retain(|node| !nodes.contains_key(node));
+            .retain(|node, _| !nodes.contains_key(node));
         source
             .stylesheet_event_tasks
             .borrow_mut()
@@ -77,8 +79,8 @@ pub(super) fn publish(
                 .expect("preflighted adoption stylesheet");
         }
     }
-    for node in connected {
-        destination.prepared_stylesheets.borrow_mut().insert(node);
+    for (node, revision) in connected {
+        destination.prepared_stylesheets.borrow_mut().insert(node, revision);
         destination
             .pending_dynamic_stylesheets
             .borrow_mut()

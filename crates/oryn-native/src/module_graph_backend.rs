@@ -382,6 +382,18 @@ impl ModuleGraphBackend {
     pub(crate) fn resolve_request(&self, base: &str, requested: &str) -> Result<String, HostError> {
         self.resolve_html_request(base, requested, "UTF-8")
     }
+    pub(crate) fn resolve_stylesheet_request(&self, base: &str, requested: &str) -> Result<String, HostError> {
+        let resolved = oryn_dom::document_url::parse_with_label(
+            requested, Url::parse(base).ok().as_ref(), "UTF-8",
+        ).map(|url| url.to_string());
+        if let Ok(url) = resolved { return Ok(url); }
+        if let Self::Sources(sources, _, _) = self
+            && let Some((name, _)) = resource_entry(sources, requested)
+        { return Ok(name.into()); }
+        resolved.map_err(|error| HostError::ScriptLoad(
+            crate::script_load_failure::ScriptLoadFailure::Fetch(error.to_string()),
+        ))
+    }
     pub(crate) fn resolve_html_request(
         &self,
         base: &str,
@@ -1523,6 +1535,7 @@ mod preload_reuse_tests {
                     "body{}".into(),
                     "UTF-8".into(),
                     "origin".into(),
+                    true,
                 )
             }));
             assert!(backend.authorize_preload_reuse(&key, &entry).unwrap());

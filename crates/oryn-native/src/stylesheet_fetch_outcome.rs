@@ -12,7 +12,10 @@ fn classify_stylesheet_fetch_error(error: crate::RuntimeError)
     -> Result<StylesheetFetchOutcome, crate::RuntimeError> {
     match error {
         crate::RuntimeError::NavigationCancelled => Ok(StylesheetFetchOutcome { response: None, failure: None }),
-        error @ (crate::RuntimeError::Network(_) | crate::RuntimeError::CertificateRejected(_))
+        error @ (crate::RuntimeError::CertificateRejected(_)
+            | crate::RuntimeError::StylesheetFailure(
+            crate::script_load_failure::ScriptLoadFailure::Fetch(_)
+            | crate::script_load_failure::ScriptLoadFailure::Integrity(_)))
             => Ok(StylesheetFetchOutcome { response: None, failure: Some(error) }),
         error => Err(error),
     }
@@ -27,6 +30,9 @@ fn stylesheet_fetch_host_error(error: crate::RuntimeError) -> HostError {
     match error {
         crate::RuntimeError::WorkerLimitExceeded { resource } => HostError::LimitExceeded { resource },
         crate::RuntimeError::NavigationCancelled => HostError::CachedAuthorityExpired,
+        crate::RuntimeError::StylesheetFailure(failure) => HostError::ScriptLoad(failure),
+        error @ crate::RuntimeError::CertificateRejected(_) =>
+            HostError::ScriptLoad(crate::script_load_failure::ScriptLoadFailure::Fetch(error.to_string())),
         error => HostError::Execution(error.to_string()),
     }
 }

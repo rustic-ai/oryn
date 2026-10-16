@@ -57,9 +57,11 @@ fn native_declaration_attribute<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
     object: v8::Local<v8::Object>,
+    interface: &str,
     member: &str,
 ) -> Option<Result<v8::Local<'s, v8::Value>, V8BindingError>> {
     let handle = native_declaration_rule(scope, state, object)?;
+    if let Err(error)=native_declaration_subtype(&handle,interface) {return Some(Err(error));}
     Some((|| {
         if member == "parentRule" {
             return Ok(private_object(scope, object, "oryn.native.css.declaration.rule")?.into());
@@ -97,6 +99,7 @@ fn native_declaration_operation<'s>(
                 .get(0)
                 .uint32_value(scope)
                 .ok_or(V8BindingError::JavaScriptException)?;
+            let _retained_scope = state.enter_retained_allocation(scope)?;
             let view = handle
                 .declaration("")
                 .map_err(|error| native_css_read_error("CSSStyleDeclaration", error))?;
@@ -108,6 +111,7 @@ fn native_declaration_operation<'s>(
         let property = cssom_string(scope, args.get(0), false)?;
         match method {
             "getPropertyValue" | "getPropertyPriority" => {
+                let _retained_scope = state.enter_retained_allocation(scope)?;
                 let view = handle
                     .declaration(&property)
                     .map_err(|error| native_css_read_error("CSSStyleDeclaration", error))?;
@@ -123,6 +127,7 @@ fn native_declaration_operation<'s>(
                 )
             }
             "removeProperty" => {
+                let _retained_scope = state.enter_retained_allocation(scope)?;
                 let mutation = handle
                     .set_property(&property, "", "")
                     .map_err(|error| native_css_read_error("CSSStyleDeclaration", error))?;
@@ -135,6 +140,7 @@ fn native_declaration_operation<'s>(
                 } else {
                     cssom_string(scope, args.get(2), true)?
                 };
+                let _retained_scope = state.enter_retained_allocation(scope)?;
                 handle
                     .set_property(&property, &value, &priority)
                     .map_err(|error| native_css_read_error("CSSStyleDeclaration", error))?;
@@ -159,6 +165,7 @@ fn native_declaration_set_attribute(
     Some((|| {
         let replace = member == "cssText";
         let value = cssom_string(scope, input, !replace)?;
+        let _retained_scope = state.enter_retained_allocation(scope)?;
         if replace {
             handle
                 .set_declaration_text(&value)
@@ -170,4 +177,19 @@ fn native_declaration_set_attribute(
         }
         Ok(())
     })())
+}
+
+fn native_declaration_subtype(handle:&Rc<dyn BindingNativeRule>,interface:&str)->Result<(),V8BindingError> {
+    let kind=handle.view().map_err(|e|native_css_read_error(interface,e))?.rule_type;
+    let valid=match interface {"CSSStyleDeclaration"=>matches!(kind,1|24|5|6),
+        "CSSStyleProperties"=>matches!(kind,1|24),"CSSFontFaceDescriptors"=>kind==5,
+        "CSSPageDescriptors"=>kind==6,_=>false};
+    if valid {Ok(())} else {Err(V8BindingError::Unsupported {interface:interface.into(),member:"incompatible receiver".into()})}
+}
+fn native_declaration_set_attribute_for_interface(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,
+    object:v8::Local<v8::Object>,interface:&str,member:&str,input:v8::Local<v8::Value>)
+    ->Option<Result<(),V8BindingError>> {
+    let handle=native_declaration_rule(scope,state,object)?;
+    if let Err(error)=native_declaration_subtype(&handle,interface) {return Some(Err(error));}
+    native_declaration_set_attribute(scope,state,object,member,input)
 }

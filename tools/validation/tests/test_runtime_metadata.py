@@ -187,6 +187,28 @@ class RuntimeMetadataContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'differs'):
             runtime_metadata.validate_profile_replacement(self.source, self.profile_file, incomplete, 'mocked')
 
+    def test_rebound_input_requires_fresh_snapshot_before_typed_publication(self):
+        original = dict(self.profile)
+        original['rust_source_rebind_intermediate'] = {
+            'schema_version': 1, 'old_profile_sha256': '0' * 64,
+            'old_rust_tree': '1' * 64, 'new_rust_tree': '2' * 64,
+            'fresh_worker_required': True, 'fresh_snapshot_required': True,
+            'qualification_complete': False}
+        self.profile_file.write_text(json.dumps(original))
+        with self.assertRaisesRegex(ValueError, 'requires fresh snapshot and worker'):
+            self.prepare()
+        snapshot = self.file('fresh-rebound-snapshot', b'fresh rebound snapshot')
+        output = self.root / 'snapshot-intermediate.json'
+        runtime_metadata.refresh_engine_profile(self.source, self.profile_file, output,
+                                                startup_snapshot=snapshot)
+        value = json.loads(output.read_text())
+        self.assertFalse(value['rust_source_rebind_intermediate']['fresh_snapshot_required'])
+        self.assertTrue(value['rust_source_rebind_intermediate']['fresh_worker_required'])
+        self.assertEqual(value['worker_sha256'], original['worker_sha256'])
+        runtime_metadata.refresh_engine_profile(self.source, output, self.root / 'same.json',
+                                                startup_snapshot=snapshot)
+        self.assertTrue((self.root / 'same.json').exists())
+
     def test_refresh_uses_new_worker_and_rejects_bridge_or_runtime_mismatch(self):
         scripts = self.source / 'scripts'
         scripts.mkdir()

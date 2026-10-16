@@ -36,7 +36,7 @@ impl StylesheetPublicationGuards {
             .map_err(|error| HostError::Execution(error.to_string()))?;
         // Stage every fallible URL copy before moving any cleanup guard.
         for response in responses.iter() {
-            if matches!(response.proof, NativeStylesheetResponseAuthority::Inline(_)) {
+            if !matches!(response.proof, NativeStylesheetResponseAuthority::Fetched(_)) {
                 continue;
             }
             let mut url = String::new();

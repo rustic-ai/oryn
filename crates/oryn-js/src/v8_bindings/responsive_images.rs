@@ -175,10 +175,11 @@ fn supported_type(value: &str) -> bool {
         .any(|known| mime.eq_ignore_ascii_case(known))
 }
 pub(super) fn source(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     node: NodeId,
 ) -> Result<(Option<String>, f64, bool, Option<NodeId>), V8BindingError> {
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     let (src, sets, auto_width) = {
         let dom = state.dom.borrow();
         let attr = |id, name| {
@@ -233,7 +234,7 @@ pub(super) fn source(
     for (srcset, sizes, media, mime, source_node) in sets {
         let is_img = source_node.is_none();
         if !supported_type(&mime)
-            || (!media.trim().is_empty() && !state.native_media_matches(&media).unwrap_or(false))
+            || (!media.trim().is_empty() && !native_media_matches_in_scope(scope, state, &media)?)
         {
             continue;
         }
@@ -243,7 +244,7 @@ pub(super) fn source(
         }
         let hints = source_dimensions(state, source_node)?;
         state.dom.borrow_mut().set_image_source_size(node, hints)?;
-        refresh_layout(state)?;
+        refresh_layout_in_scope(scope, state)?;
         let base = state.native_document_base_url(false)?;
         let auto_size = auto_width
             .then(|| {
@@ -255,10 +256,16 @@ pub(super) fn source(
                     .map(|p| p.box_model.content_box.width)
             })
             .flatten();
-        let size = provider
-            .as_ref()
-            .and_then(|p| p.native_image_source_size(&sizes, &base, auto_size).ok())
-            .unwrap_or_else(|| state.layout.borrow().viewport.unwrap_or((1280., 720.)).0);
+        let size = {
+            // The layout helper's receipt ends on return. Provider parsing is
+            // another retained-work boundary, so admit from the current owner
+            // scope rather than depending on that expired layout receipt.
+            let _retained_scope = state.enter_retained_allocation(scope)?;
+            provider
+                .as_ref()
+                .and_then(|p| p.native_image_source_size(&sizes, &base, auto_size).ok())
+                .unwrap_or_else(|| state.layout.borrow().viewport.unwrap_or((1280., 720.)).0)
+        };
         if let Some((url, density)) = select(
             candidates,
             is_img.then_some(src.as_deref()).flatten(),

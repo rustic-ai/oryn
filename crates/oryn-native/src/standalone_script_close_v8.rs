@@ -243,6 +243,10 @@ impl RawV8Host {
                 }
                 Some(true) => {
                     self.discard_standalone_closed_root(root)?;
+                    // Only successful terminal departure retires the page.
+                    // A dismissed beforeunload retains a live Document even
+                    // though the preexisting logical closed flag is true.
+                    job.window.page_controller.retire();
                     job.window.discarded.set(true);
                     self.isolate
                         .get_slot_mut::<StandaloneScriptCloses>()
@@ -447,7 +451,9 @@ mod standalone_script_close_tests {
             .unwrap();
         host.notify_user_activation().unwrap();
         host.execute("globalThis.trace=[];onbeforeunload=e=>{trace.push('before');e.preventDefault()};onpagehide=()=>trace.push('hide');close()").unwrap();
+        let page_controller = host.standalone_page_controller(RealmId(0)).unwrap();
         assert_eq!(host.poll_standalone_script_closes().unwrap(), 1);
+        assert!(page_controller.inspect().is_ok(), "dismissed beforeunload keeps page publication live");
         assert_eq!(
             host.evaluate_string("closed+':'+trace.join(',')+':'+document.body.textContent")
                 .unwrap(),
@@ -456,6 +462,10 @@ mod standalone_script_close_tests {
         assert!(!host.binding_states[&RealmId(0)].execution_retired());
         host.execute("close()").unwrap();
         assert!(!host.has_standalone_script_close());
+        host.execute("onbeforeunload=null;globalThis.afterDismiss=17;Promise.resolve().then(()=>afterDismiss++)").unwrap();
+        host.run_microtask_checkpoint().unwrap();
+        assert_eq!(host.evaluate_string("String(afterDismiss)").unwrap(), "18");
+        assert!(page_controller.inspect().is_ok());
     }
     #[test]
     fn descendant_close_checks_destination_sandbox_flags() {

@@ -58,6 +58,18 @@ fn native_sheet_attribute<'s>(
             Some(owner) => wrap_node(scope, state, owner).map(Into::into),
             None => Ok(v8::null(scope).into()),
         },
+        "ownerRule" => match handle.owner_import()
+            .map_err(|error| native_css_read_error("CSSStyleSheet", error))? {
+            Some(import) => {
+                let rule = wrap_native_import(scope, state, import)?;
+                checked_native_css_edge(scope, object, "oryn.native.css.ownerRule", rule.into())?;
+                Ok(rule.into())
+            }
+            None => {
+                clear_native_css_edge(scope, object, "oryn.native.css.ownerRule")?;
+                Ok(v8::null(scope).into())
+            }
+        },
         "parentStyleSheet" => match handle
             .parent()
             .map_err(|error| native_css_read_error("CSSStyleSheet", error))?

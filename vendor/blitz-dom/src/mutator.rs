@@ -332,6 +332,11 @@ impl DocumentMutator<'_> {
             node.set_restyle_hint(RestyleHint::RESTYLE_STYLE_ATTRIBUTE);
             return;
         }
+        if *attr == local_name!("face") {
+            element.flush_font_face_hint(&self.doc.url.url_extra_data());
+            node.set_restyle_hint(RestyleHint::RESTYLE_SELF);
+            return;
+        }
 
         if *attr == local_name!("disabled") && element.can_be_disabled() {
             node.disable();
@@ -447,6 +452,10 @@ impl DocumentMutator<'_> {
         if *attr == local_name!("style") {
             element.flush_style_attribute(&self.doc.guard, &self.doc.url.url_extra_data());
             node.set_restyle_hint(RestyleHint::RESTYLE_STYLE_ATTRIBUTE);
+        } else if *attr == local_name!("face") {
+            element.flush_font_face_hint(&self.doc.url.url_extra_data());
+            node.set_restyle_hint(RestyleHint::RESTYLE_SELF);
+            return;
         } else if (tag, attr) == tag_and_attr!("canvas", "src") {
             self.recompute_is_animating = true;
         } else if (tag, attr) == tag_and_attr!("link", "href") {

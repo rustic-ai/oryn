@@ -9,6 +9,13 @@ impl ParserResourceScheduler {
         // One owning provider at a time. No registry/graph borrow survives a
         // broker request, allocation receipt, or native scheduler callback.
         for realm in host.realm_ids() {
+            // Retained DOM/provider ownership is not permission to run a
+            // departed document's import scheduler. Parked owners resume only
+            // after restoration; retired owners keep their physical charges
+            // until native cleanup without acquiring a new V8 receipt.
+            if !host.realm_execution_live(realm) || host.realm_is_parked(realm) {
+                continue;
+            }
             let Some(provider) = host.native_layout_provider_in_realm(realm) else {
                 continue;
             };

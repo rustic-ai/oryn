@@ -904,6 +904,7 @@ fn history_task_receipt_is_pending_until_its_original_native_plan_commits() {
         #[cfg(unix)]
         None,
     );
+    page.bind_direct_fixture_terminal_owner();
     for (url, html) in [
         ("https://history-fence.test/one", "<title>One</title>"),
         ("https://history-fence.test/two", "<title>Two</title>"),
@@ -978,6 +979,7 @@ fn generic_frame_fixture(
         #[cfg(unix)]
         None,
     );
+    page.bind_direct_fixture_terminal_owner();
     page.load_document(
         "https://generic-frame.test/root".into(),
         r#"<title>Root</title><iframe srcdoc='<title>Child</title><p id=ready>Ready</p>'></iframe>"#,

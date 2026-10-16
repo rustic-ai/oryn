@@ -847,8 +847,17 @@ impl RawV8Host {
                     }
                 }
 
-                let value = oryn_js::v8_bindings::native_automation_accessibility(&state, node)
-                    .map_err(|error| ScriptError::javascript(error.to_string()))?;
+                let context = self
+                    .contexts
+                    .get(&realm)
+                    .cloned()
+                    .ok_or_else(ScriptError::retired)?;
+                v8::scope!(let handles, &mut self.isolate);
+                let context = v8::Local::new(handles, &context);
+                let scope = &mut v8::ContextScope::new(handles, context);
+                let value =
+                    oryn_js::v8_bindings::native_automation_accessibility(scope, &state, node)
+                        .map_err(|error| ScriptError::javascript(error.to_string()))?;
                 return Ok(ScriptValue::String(
                     if *role { value.role } else { value.name }
                         .encode_utf16()
@@ -919,7 +928,7 @@ impl RawV8Host {
                 ElementCommand::AccessibilityProperties { .. } => {
                     use oryn_common::v3::ProjectionProfile;
                     let layout = state
-                        .native_accessibility_layout()
+                        .native_accessibility_layout_in_scope(scope)
                         .map_err(ScriptError::javascript)?;
                     let shared = state.dom();
                     let dom = shared.borrow();
@@ -1123,8 +1132,10 @@ impl RawV8Host {
                             .map_err(|error| ScriptError::javascript(error.to_string()))?;
                     let click_target = option_container.unwrap_or(nodes[0]);
                     if let Some(select) = option_container {
-                        match oryn_js::v8_bindings::native_automation_click_ready(&state, select)
-                            .map_err(|error| ScriptError::javascript(error.to_string()))?
+                        match oryn_js::v8_bindings::native_automation_click_ready(
+                            scope, &state, select,
+                        )
+                        .map_err(|error| ScriptError::javascript(error.to_string()))?
                         {
                             Some(true) => {}
                             Some(false) => {
@@ -1146,8 +1157,12 @@ impl RawV8Host {
                         .map_err(|error| ScriptError::javascript(error.to_string()))?;
                         return Ok(ScriptValue::Bool(true));
                     }
-                    match oryn_js::v8_bindings::native_automation_click_ready(&state, click_target)
-                        .map_err(|error| ScriptError::javascript(error.to_string()))?
+                    match oryn_js::v8_bindings::native_automation_click_ready(
+                        scope,
+                        &state,
+                        click_target,
+                    )
+                    .map_err(|error| ScriptError::javascript(error.to_string()))?
                     {
                         Some(true) => Ok(ScriptValue::Null),
                         Some(false) => Err(ScriptError {
@@ -1263,7 +1278,7 @@ impl RawV8Host {
             .and_then(|state| oryn_js::v8_bindings::native_drag_target_identity(state))
     }
     pub(crate) fn automation_pointer_physical_target(
-        &self,
+        &mut self,
         realm: RealmId,
         generation: u64,
         epoch: u64,
@@ -1280,11 +1295,27 @@ impl RawV8Host {
         {
             return Err(ScriptError::retired());
         }
-        oryn_js::v8_bindings::native_pointer_physical_target(state, x, y)
-            .map_err(|error| ScriptError::javascript(error.to_string()))
+        let state = state.clone();
+        let context = self
+            .contexts
+            .get(&realm)
+            .cloned()
+            .ok_or_else(ScriptError::retired)?;
+        v8::scope!(let handles, &mut self.isolate);
+        let context = v8::Local::new(handles, &context);
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let target = oryn_js::v8_bindings::native_pointer_physical_target(scope, &state, x, y)
+            .map_err(|error| ScriptError::javascript(error.to_string()))?;
+        if state.execution_retired()
+            || state.document_generation() != generation
+            || state.document_stream_epoch() != epoch
+        {
+            return Err(ScriptError::retired());
+        }
+        Ok(target)
     }
     pub(crate) fn automation_pointer_parent_coordinates(
-        &self,
+        &mut self,
         realm: RealmId,
         frame: NodeId,
         x: f64,
@@ -1296,13 +1327,22 @@ impl RawV8Host {
             .binding_states
             .get(&realm)
             .ok_or_else(ScriptError::retired)?;
+        let state = state.clone();
+        let context = self
+            .contexts
+            .get(&realm)
+            .cloned()
+            .ok_or_else(ScriptError::retired)?;
+        v8::scope!(let handles, &mut self.isolate);
+        let context = v8::Local::new(handles, &context);
+        let scope = &mut v8::ContextScope::new(handles, context);
         oryn_js::v8_bindings::native_frame_pointer_parent_coordinates(
-            state, frame, x, y, movement_x, movement_y,
+            scope, &state, frame, x, y, movement_x, movement_y,
         )
         .map_err(|error| ScriptError::javascript(error.to_string()))
     }
     pub(crate) fn automation_pointer_frame_coordinates(
-        &self,
+        &mut self,
         realm: RealmId,
         frame: NodeId,
         x: f64,
@@ -1314,14 +1354,23 @@ impl RawV8Host {
             .binding_states
             .get(&realm)
             .ok_or_else(ScriptError::retired)?;
+        let state = state.clone();
+        let context = self
+            .contexts
+            .get(&realm)
+            .cloned()
+            .ok_or_else(ScriptError::retired)?;
+        v8::scope!(let handles, &mut self.isolate);
+        let context = v8::Local::new(handles, &context);
+        let scope = &mut v8::ContextScope::new(handles, context);
         oryn_js::v8_bindings::native_frame_pointer_coordinates(
-            state, frame, x, y, movement_x, movement_y,
+            scope, &state, frame, x, y, movement_x, movement_y,
         )
         .map_err(|error| ScriptError::javascript(error.to_string()))
     }
 
     pub(crate) fn automation_pointer_frame_target(
-        &self,
+        &mut self,
         realm: RealmId,
         id: Option<i32>,
         x: f64,
@@ -1333,8 +1382,37 @@ impl RawV8Host {
             .binding_states
             .get(&realm)
             .ok_or_else(ScriptError::retired)?;
-        oryn_js::v8_bindings::native_frame_pointer_target(state, id, x, y, movement_x, movement_y)
-            .map_err(|error| ScriptError::javascript(error.to_string()))
+        let state = state.clone();
+        let lifetime = (
+            state.document_root(),
+            state.document_generation(),
+            state.document_stream_epoch(),
+            state.document_authority_epoch(),
+        );
+        let context = self
+            .contexts
+            .get(&realm)
+            .cloned()
+            .ok_or_else(ScriptError::retired)?;
+        v8::scope!(let handles, &mut self.isolate);
+        let context = v8::Local::new(handles, &context);
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let target = oryn_js::v8_bindings::native_frame_pointer_target(
+            scope, &state, id, x, y, movement_x, movement_y,
+        )
+        .map_err(|error| ScriptError::javascript(error.to_string()))?;
+        if state.execution_retired()
+            || lifetime
+                != (
+                    state.document_root(),
+                    state.document_generation(),
+                    state.document_stream_epoch(),
+                    state.document_authority_epoch(),
+                )
+        {
+            return Err(ScriptError::retired());
+        }
+        Ok(target)
     }
 
     #[cfg(test)]
@@ -1950,7 +2028,7 @@ impl RawV8Host {
     }
 
     pub(crate) fn apply_webdriver_wheel_remainder(
-        &self,
+        &mut self,
         realm: RealmId,
         generation: u64,
         epoch: u64,
@@ -1967,12 +2045,24 @@ impl RawV8Host {
         {
             return Err(ScriptError::retired());
         }
-        oryn_js::v8_bindings::apply_native_wheel_default(state, target, delta.0, delta.1)
+        let state = state.clone();
+        if !self.realm_execution_live(realm) {
+            return Err(ScriptError::retired());
+        }
+        let context = self
+            .contexts
+            .get(&realm)
+            .cloned()
+            .ok_or_else(ScriptError::retired)?;
+        v8::scope!(let handles, &mut self.isolate);
+        let context = v8::Local::new(handles, &context);
+        let scope = &mut v8::ContextScope::new(handles, context);
+        oryn_js::v8_bindings::apply_native_wheel_default(scope, &state, target, delta.0, delta.1)
             .map_err(|error| ScriptError::javascript(error.to_string()))
     }
 
     pub(crate) fn semantic_scroll_into_view(
-        &self,
+        &mut self,
         realm: RealmId,
         generation: u64,
         epoch: u64,
@@ -1999,13 +2089,29 @@ impl RawV8Host {
         {
             return Err(ScriptError::retired());
         }
+        let state = state.clone();
+        let context = self
+            .contexts
+            .get(&realm)
+            .cloned()
+            .ok_or_else(ScriptError::retired)?;
+        v8::scope!(let handles, &mut self.isolate);
+        let context = v8::Local::new(handles, &context);
+        let scope = &mut v8::ContextScope::new(handles, context);
         state
-            .scroll_node_into_view(target)
-            .map_err(|error| ScriptError::javascript(error.to_string()))
+            .scroll_node_into_view_in_scope(scope, target)
+            .map_err(|error| ScriptError::javascript(error.to_string()))?;
+        if state.execution_retired()
+            || state.document_generation() != generation
+            || state.document_stream_epoch() != epoch
+        {
+            return Err(ScriptError::retired());
+        }
+        Ok(())
     }
 
     pub(crate) fn semantic_pointer_point(
-        &self,
+        &mut self,
         realm: RealmId,
         generation: u64,
         epoch: u64,
@@ -2021,12 +2127,28 @@ impl RawV8Host {
         {
             return Err(ScriptError::retired());
         }
-        oryn_js::v8_bindings::native_semantic_pointer_point(state, target)
-            .map_err(|error| ScriptError::javascript(error.to_string()))
+        let state = state.clone();
+        let context = self
+            .contexts
+            .get(&realm)
+            .cloned()
+            .ok_or_else(ScriptError::retired)?;
+        v8::scope!(let handles, &mut self.isolate);
+        let context = v8::Local::new(handles, &context);
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let point = oryn_js::v8_bindings::native_semantic_pointer_point(scope, &state, target)
+            .map_err(|error| ScriptError::javascript(error.to_string()))?;
+        if state.execution_retired()
+            || state.document_generation() != generation
+            || state.document_stream_epoch() != epoch
+        {
+            return Err(ScriptError::retired());
+        }
+        Ok(point)
     }
 
     pub(crate) fn webdriver_action_coordinates(
-        &self,
+        &mut self,
         selected: &super::webdriver_script::AutomationRealmSnapshot,
         origin: &crate::webdriver_actions::Origin,
         x: i64,
@@ -2040,6 +2162,7 @@ impl RawV8Host {
             .binding_states
             .get(&realm)
             .ok_or_else(ScriptError::retired)?;
+        let state = state.clone();
         let live = || {
             !state.execution_retired()
                 && state.document_generation() == generation
@@ -2054,7 +2177,15 @@ impl RawV8Host {
             }
             _ => None,
         };
-        let (viewport, rect) = oryn_js::v8_bindings::native_input_geometry(state, target)
+        let context = self
+            .contexts
+            .get(&realm)
+            .cloned()
+            .ok_or_else(ScriptError::retired)?;
+        v8::scope!(let handles, &mut self.isolate);
+        let context = v8::Local::new(handles, &context);
+        let scope = &mut v8::ContextScope::new(handles, context);
+        let (viewport, rect) = oryn_js::v8_bindings::native_input_geometry(scope, &state, target)
             .map_err(|error| ScriptError::javascript(error.to_string()))?;
         if !live() {
             return Err(ScriptError::retired());
@@ -3366,7 +3497,7 @@ impl RawV8Host {
         Ok(state.captured_css_images())
     }
     pub(crate) fn capture_visual_viewport(
-        &self,
+        &mut self,
         realm: RealmId,
         generation: u64,
         epoch: u64,
@@ -3380,9 +3511,27 @@ impl RawV8Host {
         {
             return Err(ScriptError::retired());
         }
+        let state = state.clone();
+        if !self.realm_execution_live(realm) {
+            return Err(ScriptError::retired());
+        }
+        let context = self
+            .contexts
+            .get(&realm)
+            .cloned()
+            .ok_or_else(ScriptError::retired)?;
+        v8::scope!(let handles, &mut self.isolate);
+        let context = v8::Local::new(handles, &context);
+        let scope = &mut v8::ContextScope::new(handles, context);
         let geometry = state
-            .native_visual_viewport_geometry()
+            .native_visual_viewport_geometry_in_scope(scope)
             .map_err(|error| ScriptError::javascript(error.to_string()))?;
+        if state.execution_retired()
+            || state.document_generation() != generation
+            || state.document_stream_epoch() != epoch
+        {
+            return Err(ScriptError::retired());
+        }
         if !geometry.is_valid() {
             return Err(ScriptError::javascript("invalid native visual viewport"));
         }
@@ -3435,10 +3584,64 @@ impl RawV8Host {
 }
 
 impl RawV8Host {
+    /// Rendering/capture sampling is deliberately separate from cached poll
+    /// comparisons. Every owner is entered in its exact live context; the
+    /// scoped helper synchronizes its ancestors before its own admission.
+    pub(crate) fn sample_native_paint_revision_in_scope(&mut self, realm: RealmId) -> Option<u64> {
+        let owners = self
+            .binding_states
+            .iter()
+            .filter(|(id, state)| !state.execution_retired() && self.realm_execution_live(**id))
+            .map(|(id, state)| (*id, state.clone()))
+            .collect::<Vec<_>>();
+        for (id, state) in owners {
+            if !self.realm_execution_live(id)
+                || state.execution_retired()
+                || !self
+                    .binding_states
+                    .get(&id)
+                    .is_some_and(|current| Rc::ptr_eq(current, &state))
+            {
+                return None;
+            }
+            let lifetime = (
+                state.document_root(),
+                state.document_generation(),
+                state.document_stream_epoch(),
+                state.document_authority_epoch(),
+            );
+            let context = self.contexts.get(&id)?.clone();
+            {
+                v8::scope!(let handles, &mut self.isolate);
+                let context = v8::Local::new(handles, &context);
+                let scope = &mut v8::ContextScope::new(handles, context);
+                state.native_paint_revision_in_scope(scope).ok()?;
+            }
+            if !self.realm_execution_live(id)
+                || !self.contexts.contains_key(&id)
+                || state.execution_retired()
+                || lifetime
+                    != (
+                        state.document_root(),
+                        state.document_generation(),
+                        state.document_stream_epoch(),
+                        state.document_authority_epoch(),
+                    )
+                || !self
+                    .binding_states
+                    .get(&id)
+                    .is_some_and(|current| Rc::ptr_eq(current, &state))
+            {
+                return None;
+            }
+        }
+        self.native_paint_revision(realm)
+    }
+
     pub(crate) fn native_paint_revision(&self, realm: RealmId) -> Option<u64> {
         let mut environments = Vec::new();
         for (id, state) in &self.binding_states {
-            if !state.execution_retired() {
+            if !state.execution_retired() && self.realm_execution_live(*id) {
                 environments.push((
                     u64::from(id.0),
                     state.document_generation(),

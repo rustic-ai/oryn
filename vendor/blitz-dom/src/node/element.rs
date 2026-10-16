@@ -57,6 +57,8 @@ pub struct ElementData {
 
     /// The element's parsed style attribute (used by stylo)
     pub style_attribute: Option<ServoArc<Locked<PropertyDeclarationBlock>>>,
+    /// Parsed HTML FONT face hint, separate from author declarations/CSSOM.
+    pub native_font_face_hint: Option<style::values::specified::font::FontFamily>,
 
     /// Heterogeneous data that depends on the element's type.
     /// For example:
@@ -296,6 +298,7 @@ impl Clone for ElementData {
             attrs: self.attrs.clone(),
             is_focussable: self.is_focussable,
             style_attribute: self.style_attribute.clone(),
+            native_font_face_hint: self.native_font_face_hint.clone(),
             special_data: self.special_data.clone(),
             background_images: self.background_images.clone(),
             mask_images: self.mask_images.clone(),
@@ -404,6 +407,7 @@ impl ElementData {
             attrs: Attributes::new(attrs),
             is_focussable: false,
             style_attribute: Default::default(),
+            native_font_face_hint: None,
             inline_layout_data: None,
             list_item_data: None,
             special_data: SpecialElementData::None,
@@ -659,6 +663,7 @@ impl ElementData {
     }
 
     pub fn flush_style_attribute(&mut self, guard: &SharedRwLock, url_extra_data: &UrlExtraData) {
+        self.flush_font_face_hint(url_extra_data);
         self.style_attribute = self.attr(local_name!("style")).map(|style_str| {
             ServoArc::new(guard.wrap(parse_style_attribute(
                 style_str,
@@ -670,6 +675,18 @@ impl ElementData {
         });
     }
 
+    pub fn flush_font_face_hint(&mut self, url_extra_data:&UrlExtraData) {
+        use style::parser::Parse;
+        self.native_font_face_hint=None;
+        if self.name.ns.as_ref()!="http://www.w3.org/1999/xhtml"||self.name.local.as_ref()!="font" {return}
+        let Some(face)=self.attr(local_name!("face"))else{return};
+        let context=ParserContext::new(Origin::Author,url_extra_data,Some(CssRuleType::Style),ParsingMode::DEFAULT,
+            QuirksMode::NoQuirks,Default::default(),None,None,Default::default());
+        let mut input=ParserInput::new(face);let mut parser=cssparser::Parser::new(&mut input);
+        let parsed=parser.parse_entirely(|parser|style::values::specified::font::FontFamily::parse(&context,parser)).ok();
+        drop(parser);drop(input);
+        self.native_font_face_hint=parsed;
+    }
     pub fn set_style_property(
         &mut self,
         name: &str,

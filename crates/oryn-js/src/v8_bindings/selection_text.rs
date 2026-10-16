@@ -205,11 +205,11 @@ pub(super) fn preserves_control_on_pointer(
     Ok(false)
 }
 
-pub(super) fn collect(state: &V8BindingState) -> Result<String, V8BindingError> {
+pub(super) fn collect(scope: &mut v8::PinScope,state: &V8BindingState) -> Result<String, V8BindingError> {
     if let Some(text) = control_text(state)? {
         return Ok(text);
     }
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     synchronize_selection_range(state)?;
     let Some(id) = state
         .selection_composed_range

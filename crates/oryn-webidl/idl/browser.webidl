@@ -47,7 +47,7 @@ dictionary TextEncoderEncodeIntoResult {
   unsigned long long written;
 };
 
-[Exposed=Window]
+[Global=Window, Exposed=Window]
 interface Window : EventTarget {
   readonly attribute boolean isSecureContext;
   Selection? getSelection();
@@ -63,6 +63,7 @@ interface Window : EventTarget {
   [Replaceable] readonly attribute long outerWidth;
   [Replaceable] readonly attribute long outerHeight;
   [SameObject] readonly attribute Navigation navigation;
+  [SameObject] readonly attribute History history;
   [SameObject] readonly attribute VisualViewport? visualViewport;
   attribute DOMString name;
   readonly attribute unsigned long length;
@@ -2353,14 +2354,24 @@ interface IDBFactory {
   IDBOpenDBRequest open(DOMString name, optional unsigned long long version);
   IDBOpenDBRequest deleteDatabase(DOMString name);
   short cmp(any first, any second);
-  any databases();
+  Promise<sequence<IDBDatabaseInfo>> databases();
 };
 
 [Exposed=(Window,Worker)]
 interface IDBVersionChangeEvent : Event {
-  constructor(DOMString type, optional any eventInitDict);
+  constructor(DOMString type, optional IDBVersionChangeEventInit eventInitDict = {});
   readonly attribute unsigned long long oldVersion;
-  readonly attribute any newVersion;
+  readonly attribute unsigned long long? newVersion;
+};
+
+dictionary IDBDatabaseInfo {
+  DOMString name;
+  unsigned long long version;
+};
+
+dictionary IDBVersionChangeEventInit : EventInit {
+  unsigned long long oldVersion = 0;
+  unsigned long long? newVersion = null;
 };
 
 [Exposed=(Window,Worker)]
@@ -2418,6 +2429,10 @@ interface IDBTransaction : EventTarget {
 
 [Exposed=(Window,Worker)]
 interface IDBKeyRange {
+  [NewObject] static IDBKeyRange only(any value);
+  [NewObject] static IDBKeyRange lowerBound(any lower, optional boolean open = false);
+  [NewObject] static IDBKeyRange upperBound(any upper, optional boolean open = false);
+  [NewObject] static IDBKeyRange bound(any lower, any upper, optional boolean lowerOpen = false, optional boolean upperOpen = false);
   readonly attribute any lower;
   readonly attribute any upper;
   readonly attribute boolean lowerOpen;
@@ -2617,6 +2632,7 @@ interface StyleSheet {
 [Exposed=Window]
 interface CSSStyleSheet : StyleSheet {
   constructor();
+  readonly attribute CSSRule? ownerRule;
   [SameObject] readonly attribute CSSRuleList cssRules;
   [SameObject] readonly attribute CSSRuleList rules;
   unsigned long insertRule(DOMString rule, optional unsigned long index = 0);
@@ -4649,3 +4665,17 @@ partial interface Document { Promise<boolean> hasStorageAccess(); Promise<undefi
 
 // Native foreground and active-document focus inspection.
 partial interface Document { boolean hasFocus(); };
+
+// IndexedDB extends the HTML global mixin; the base worker interface is not [Global].
+interface mixin WindowOrWorkerGlobalScope {
+  [SameObject] readonly attribute IDBFactory indexedDB;
+};
+Window includes WindowOrWorkerGlobalScope;
+WorkerGlobalScope includes WindowOrWorkerGlobalScope;
+
+[Global=(Worker,DedicatedWorker), Exposed=DedicatedWorker]
+interface DedicatedWorkerGlobalScope : WorkerGlobalScope {};
+[Global=(Worker,SharedWorker), Exposed=SharedWorker]
+interface SharedWorkerGlobalScope : WorkerGlobalScope {};
+[Global=(Worker,ServiceWorker), Exposed=ServiceWorker]
+interface ServiceWorkerGlobalScope : WorkerGlobalScope {};

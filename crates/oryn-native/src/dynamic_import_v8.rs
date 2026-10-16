@@ -468,7 +468,19 @@ fn dynamic_import<'s>(
                     state.fetches.clone(),
                 )
             });
-        let graph = ModuleGraphLoad::external_root(crate::executable::module_graph_load::ExternalModuleRootInput { requested: &resolved, parent: &base, kind, include, policy: &policy, integrity, budget: bytes, slots, registry: fetches })
+        let graph = ModuleGraphLoad::external_root(
+            crate::executable::module_graph_load::ExternalModuleRootInput {
+                requested: &resolved,
+                parent: &base,
+                kind,
+                include,
+                policy: &policy,
+                integrity,
+                budget: bytes,
+                slots,
+                registry: fetches,
+            },
+        )
         .map_err(|error| error.to_string())?;
         let captured_options: v8::Local<v8::Data> = captured_options.into();
         let captured_resource: v8::Local<v8::Value> = captured_resource.into();
@@ -558,13 +570,30 @@ impl RawV8Host {
     }
 
     pub(crate) fn native_css_resource_layout(
-        &self,
+        &mut self,
         realm: RealmId,
     ) -> Result<oryn_js::v8_bindings::BindingLayout, HostError> {
-        self.binding_states
+        if !self.realm_execution_live(realm) {
+            return Err(HostError::CachedAuthorityExpired);
+        }
+        let state = self
+            .binding_states
             .get(&realm)
-            .ok_or_else(|| HostError::Execution("CSS demand realm retired".into()))?
-            .native_resource_layout()
+            .cloned()
+            .ok_or_else(|| HostError::Execution("CSS demand realm retired".into()))?;
+        let context = self
+            .contexts
+            .get(&realm)
+            .cloned()
+            .ok_or(HostError::CachedAuthorityExpired)?;
+        v8::scope!(let handles, &mut self.isolate);
+        let context = v8::Local::new(handles, &context);
+        let scope = &mut v8::ContextScope::new(handles, context);
+        // Native CSS demand follows stylesheet scheduling, which invalidates
+        // receipts. Refresh from this live owner, not the prior scheduler's
+        // heap snapshot or whichever author realm happened to be incumbent.
+        state
+            .native_resource_layout_in_scope(scope)
             .map_err(HostError::Execution)
     }
     pub(crate) fn css_font_owner_applicable(
@@ -663,6 +692,7 @@ impl RawV8Host {
             revision,
             epoch,
             dependencies,
+            _allocation: None,
             _bytes: reservation,
         });
         Ok(())

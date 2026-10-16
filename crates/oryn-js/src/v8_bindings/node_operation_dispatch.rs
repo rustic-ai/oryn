@@ -830,6 +830,21 @@ pub(super) fn dispatch_document_execcommand<'s>(
                 member: "InvalidStateError".into(),
             });
         }
+        // Capability support is an HTML document interface query, not an
+        // executable-document mutation. Conversion and XML rejection above
+        // still precede this lookup; inert mutations remain guarded below.
+        if member == "queryCommandSupported" {
+            let supported = matches!(command.as_str(), "copy" | "cut" | "paste")
+                || edit_command_supported(&command);
+            return Ok(Some(v8::Boolean::new(scope, supported).into()));
+        }
+        if active_document_state_for_node(scope, state, node).is_none() {
+            return Ok(Some(if member == "queryCommandValue" {
+                v8_string(scope, "")?
+            } else {
+                v8::Boolean::new(scope, false).into()
+            }));
+        }
         let invocation = if member == "execCommand" {
             let Some(invocation) = editing_commands::admit_invocation(scope, state, node)? else {
                 return Ok(Some(v8::Boolean::new(scope, false).into()));
@@ -840,7 +855,6 @@ pub(super) fn dispatch_document_execcommand<'s>(
         };
         if matches!(command.as_str(), "copy" | "cut" | "paste") {
             let value = match member {
-                "queryCommandSupported" => true,
                 "queryCommandEnabled" => async_clipboard::exec(scope, state, &command, false)?,
                 "execCommand" => async_clipboard::exec(scope, state, &command, true)?,
                 "queryCommandValue" => return Ok(Some(v8_string(scope, "")?)),
@@ -849,9 +863,6 @@ pub(super) fn dispatch_document_execcommand<'s>(
             return Ok(Some(v8::Boolean::new(scope, value).into()));
         }
         let supported = edit_command_supported(&command);
-        if member == "queryCommandSupported" {
-            return Ok(Some(v8::Boolean::new(scope, supported).into()));
-        }
         if member == "queryCommandEnabled" {
             let focused_control = state
                 .dom
@@ -895,6 +906,11 @@ pub(super) fn dispatch_document_execcommand<'s>(
                 )
                 .into(),
             ));
+        }
+        if matches!(member, "queryCommandIndeterm" | "queryCommandState" | "queryCommandValue")
+            && matches!(command.as_str(), "justifyleft" | "justifyright" | "justifycenter" | "justifyfull")
+        {
+            refresh_layout_in_scope(scope, state)?;
         }
         if member == "queryCommandIndeterm" {
             let alignment = match command.as_str() {
@@ -1057,11 +1073,44 @@ pub(super) fn dispatch_document_execcommand<'s>(
         if !supported || (!document_is_editable(state) && !document_command) {
             return Ok(Some(v8::Boolean::new(scope, false).into()));
         }
+        let settings_owner = if matches!(
+            command.as_str(),
+            "stylewithcss" | "usecss" | "defaultparagraphseparator"
+        ) {
+            active_document_state_for_node(scope, state, node).map(|owner| {
+                let identity = (
+                    owner.document_root(),
+                    owner.document_generation(),
+                    owner.document_authority_epoch(),
+                );
+                (owner, identity)
+            })
+        } else {
+            None
+        };
         let value = if args.get(2).is_undefined() {
             String::new()
         } else {
             required_string(scope, args, 2)?
         };
+        if matches!(
+            command.as_str(),
+            "stylewithcss" | "usecss" | "defaultparagraphseparator"
+        ) {
+            let current = settings_owner.as_ref().is_some_and(|(owner, identity)| {
+                !owner.execution_retired()
+                    && (
+                        owner.document_root(),
+                        owner.document_generation(),
+                        owner.document_authority_epoch(),
+                    ) == *identity
+                    && active_document_state_for_node(scope, state, node)
+                        .is_some_and(|current| Rc::ptr_eq(&current, owner))
+            });
+            if !current {
+                return Ok(Some(v8::Boolean::new(scope, false).into()));
+            }
+        }
         let plaintext = editing_host(state)?
             .is_some_and(|host| host_is_plaintext_only(&state.dom.borrow(), host));
         let formatting = matches!(
@@ -3207,7 +3256,12 @@ pub(super) fn dispatch_document_elementfrompoint<'s>(
         let (owner, node) =
             node_identity::argument(scope, args.this().into())?.ok_or(DomError::StaleNode(node))?;
         let state = &owner;
-        let hits = native_pointer::hit_test(state, node, x, y, true)?;
+        refresh_layout_in_scope(scope, state)?;
+        let hits = native_pointer::hit_test_snapshot(state, node, x, y, true)?;
+        let context = state.realm_context.to_local(scope)
+            .ok_or(V8BindingError::Allocation("geometry result owner context expired"))?;
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _retained_scope = state.enter_retained_allocation(scope)?;
         if member == "elementFromPoint" {
             optional_node(scope, state, hits.first().copied()).map(Some)
         } else {
@@ -3286,7 +3340,11 @@ pub(super) fn dispatch_element_getboundingclientrect<'s>(
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     {
-        let rects = client_rects_for_node(state, node)?;
+        let rects = client_rects_for_node(scope, state, node)?;
+        let context = state.realm_context.to_local(scope)
+            .ok_or(V8BindingError::Allocation("geometry result owner context expired"))?;
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _retained_scope = state.enter_retained_allocation(scope)?;
         Ok(Some(
             dom_rect_object(scope, bounding_client_rect(&rects))?.into(),
         ))
@@ -3304,8 +3362,14 @@ pub(super) fn dispatch_element_getclientrects<'s>(
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     {
-        let rects = client_rects_for_node(state, node)?;
-        let mut values = Vec::with_capacity(rects.len());
+        let rects = client_rects_for_node(scope, state, node)?;
+        let context = state.realm_context.to_local(scope)
+            .ok_or(V8BindingError::Allocation("geometry result owner context expired"))?;
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _retained_scope = state.enter_retained_allocation(scope)?;
+        let mut values = Vec::new();
+        values.try_reserve_exact(rects.len())
+            .map_err(|_| V8BindingError::Allocation("Element client rectangle results"))?;
         for rect in rects {
             values.push(dom_rect_object(scope, rect)?.into());
         }
@@ -3809,7 +3873,7 @@ pub(super) fn dispatch_htmlelement_focus<'s>(
             let own_focus = {
                 let dom = state.dom.borrow();
                 dom.parsed_tab_index(node)?.is_some() && !dom.is_inert(node)?
-            } && !css_suppresses_focus(state, node)?;
+            } && !css_suppresses_focus_in_scope(scope, state, node)?;
             if own_focus {
                 Some(node)
             } else {
@@ -3984,7 +4048,7 @@ pub(super) fn dispatch_element_scroll<'s>(
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     {
         let requested = scroll_coordinates(scope, args)?;
-        perform_scroll(state, node, requested, member == "scrollBy")?;
+        perform_scroll_in_scope(scope, state, node, requested, member == "scrollBy")?;
         Ok(None)
     }
 }
@@ -4053,7 +4117,7 @@ pub(super) fn dispatch_element_scrollintoview<'s>(
                 false,
             )
         };
-        scroll_element_into_view(state, node, &block, &inline, nearest)?;
+        scroll_element_into_view_in_scope(scope, state, node, &block, &inline, nearest)?;
         Ok(None)
     }
 }

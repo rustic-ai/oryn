@@ -856,7 +856,7 @@ impl NativeCrossFrameDrag {
                                     {
                                         CrossEdit::Rejected
                                     } else if let Some(caret) = selection_movement::drop_caret(
-                                        &realm.state,
+                                        scope, &realm.state,
                                         node,
                                         self.target_init.client_x as f64,
                                         self.target_init.client_y as f64,
@@ -894,7 +894,7 @@ impl NativeCrossFrameDrag {
                                 } else {
                                     optional_owned_edit(|| {
                                         Move::new(
-                                            &self.source,
+                                            scope, &self.source,
                                             &realm,
                                             node,
                                             snapshot,
@@ -1010,6 +1010,7 @@ pub(super) struct Move {
 }
 impl Move {
     pub(super) fn new(
+        scope: &mut v8::PinScope,
         source: &NativeDragRealm,
         target_realm: &NativeDragRealm,
         target: NodeId,
@@ -1040,7 +1041,7 @@ impl Move {
             _ => return Ok(None),
         };
         let Some(caret) = selection_movement::drop_caret(
-            &target_realm.state,
+            scope, &target_realm.state,
             target,
             init.client_x as f64,
             init.client_y as f64,

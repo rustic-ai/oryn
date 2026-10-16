@@ -2,6 +2,14 @@
 //! publication and shared byte custody. No network wait runs on the page actor.
 use super::*;
 use std::time::Instant;
+#[cfg(test)]
+thread_local! {
+    static DYNAMIC_RETAINED_SCHEDULE_FAILURE: Cell<bool> = const { Cell::new(false) };
+}
+#[cfg(test)]
+pub(super) fn fail_next_dynamic_retained_schedule() {
+    DYNAMIC_RETAINED_SCHEDULE_FAILURE.with(|flag| flag.set(true));
+}
 const RESOURCE_ATTRIBUTES: [&str; 11] = [
     "style",
     "background",
@@ -34,7 +42,7 @@ struct FontCandidate {
     order: u64,
 }
 fn font_requests(
-    host: &RawV8Host,
+    host: &mut RawV8Host,
     css: &str,
     base: &str,
 ) -> Result<Vec<(oryn_layout::cssom::CssResourceReference, FontCandidate)>, HostError> {
@@ -299,6 +307,8 @@ struct StylesheetResult {
     _bytes: Option<ScriptSourceReservation>,
 }
 pub(super) struct StylesheetPreparation {
+    #[cfg(unix)]
+    retained: Option<ParserResourceScheduler>,
     retry: Option<Instant>,
     _render_blocker: Option<oryn_dom::RenderBlocker>,
     published: Option<Option<bool>>,
@@ -345,6 +355,10 @@ impl StylesheetPreparation {
             })
     }
     fn ready(&mut self) -> bool {
+        #[cfg(unix)]
+        if let Some(scheduler) = &mut self.retained {
+            return scheduler.has_ready_completion();
+        }
         if self.ready.is_none() {
             match self.receiver.try_recv() {
                 Ok(result) => self.ready = Some(result),
@@ -450,7 +464,7 @@ impl RustExecutableDocument {
         for (dependency_index, (base, initiator, policy, css)) in
             batch.dependencies.iter().enumerate()
         {
-            for (reference, mut candidate) in font_requests(&self.agent.host, css, base)? {
+            for (reference, mut candidate) in font_requests(&mut self.agent.host, css, base)? {
                 candidate.order = candidate
                     .order
                     .saturating_add((dependency_index as u64).saturating_mul(8192));
@@ -601,6 +615,8 @@ impl RustExecutableDocument {
             let (sender, receiver) = std::sync::mpsc::channel();
             let lifetime = std::sync::Arc::new(());
             let mut job = StylesheetPreparation {
+                #[cfg(unix)]
+                retained: None,
                 retry: None,
                 published: None,
                 _render_blocker: None,
@@ -787,7 +803,7 @@ impl RustExecutableDocument {
                 && self
                     .agent
                     .host
-                    .native_stylesheet_blocks_scripts_in_realm(realm, job.node)?
+                    .cached_stylesheet_blocks_scripts_in_realm(realm, job.node)?
             {
                 return Ok(true);
             }
@@ -966,6 +982,7 @@ impl RustExecutableDocument {
                     revision,
                     epoch: identity.stream_epoch,
                     dependencies,
+                    _allocation: None,
                     _bytes: bytes,
                 },
             );
@@ -973,6 +990,8 @@ impl RustExecutableDocument {
         let pure = inline
             && !oryn_layout::cssom::stylesheet_requires_resources(&css, &fetch.base_url)
                 .map_err(HostError::Execution)?;
+        #[cfg(unix)]
+        let retained = self.agent.host.native_retained_admission_for_realm(realm)?.is_some();
         let budget = self.dynamic_scripts.source_bytes.clone();
         let reservation =
             ScriptSourceReservation::reserve(&budget, css.len().saturating_add(href.len()))
@@ -986,6 +1005,8 @@ impl RustExecutableDocument {
             .admit_render_resource(node, parser_inserted)
             .map_err(|error| HostError::Execution(error.to_string()))?;
         let mut job = StylesheetPreparation {
+            #[cfg(unix)]
+            retained: None,
             retry: None,
             published: None,
             _render_blocker: render_blocker,
@@ -1009,6 +1030,28 @@ impl RustExecutableDocument {
             _lifetime: lifetime.clone(),
             _cancel: None,
         };
+        #[cfg(unix)]
+        if retained {
+            // The retained scheduler admits the same owner render blocker;
+            // release the legacy preparation's token before creating it.
+            job._render_blocker = None;
+            #[cfg(test)]
+            if DYNAMIC_RETAINED_SCHEDULE_FAILURE.with(|flag| flag.replace(false)) {
+                return Err(HostError::Execution("injected dynamic native schedule preflight".into()));
+            }
+            let mut scheduler = ParserResourceScheduler::with_page_limits(&self.dynamic_scripts);
+            let scheduled = scheduler.schedule_stylesheet_auto(AutomaticStylesheetScheduleInput {
+                context: self.context.as_ref(), node, revision,
+                href: if linked { Some(href) } else { None }, css, encoding, fetch,
+                host: &mut self.agent.host, resources: &self.resources,
+            });
+            // The original binding queue head is not committed on Err;
+            // its owner/source generation remains available for retry.
+            scheduled?;
+            job.retained = Some(scheduler);
+            self.dynamic_stylesheets.push_back(job);
+            return Ok(());
+        }
         if pure {
             job.ready = Some(StylesheetResult {
                 binary: None,
@@ -1254,6 +1297,31 @@ impl RustExecutableDocument {
                     self.dynamic_stylesheets.push_back(job);
                     continue;
                 }
+                #[cfg(unix)]
+                if let Some(scheduler) = &mut job.retained {
+                    let outcome = (|| {
+                        self.agent.host.activate_realm(job.identity.realm)?;
+                        for _ in 0..MAX_SCRIPT_COMPLETIONS_PER_SLICE {
+                            let Some(completion) = scheduler.try_next_with_host(&mut self.agent.host) else { break; };
+                            let ParserResourceCompletion::RetainedStylesheet(ready) = completion else {
+                                scheduler.retry_completion(completion);
+                                return Err(HostError::Execution("unexpected dynamic retained completion".into()));
+                            };
+                            scheduler.apply_retained_ready_job(Some(ready), &job.dom, &mut self.agent.host)?;
+                        }
+                        scheduler.poll_retained_ready_jobs(&job.dom, &mut self.agent.host)?;
+                        scheduler.poll_native_pending_imports(&mut self.agent.host)
+                    })();
+                    if let Err(error) = outcome {
+                        job.retry = Some(Instant::now() + Duration::from_millis(25));
+                        self.dynamic_stylesheets.push_front(job);
+                        return Err(error);
+                    }
+                    if scheduler.has_stylesheet_owner_work() {
+                        self.dynamic_stylesheets.push_back(job);
+                    }
+                    continue;
+                }
                 if job.install {
                     let publication = (|| {
                         self.agent.host.activate_realm(job.identity.realm)?;
@@ -1436,6 +1504,7 @@ mod tests {
             revision,
             epoch: identity.stream_epoch,
             dependencies: Vec::new(),
+            _allocation: None,
             _bytes: ScriptSourceReservation::reserve(&page.dynamic_scripts.source_bytes, 0)
                 .unwrap(),
         };
@@ -1484,8 +1553,8 @@ mod tests {
     }
     #[test]
     fn font_sources_filter_before_fetch_and_preserve_fallback_and_descriptors() {
-        let page = RustExecutableDocument::load("<body>Font demand</body>").unwrap();
-        let requests=font_requests(&page.agent.host,"@font-face{font-family:Demo;font-weight:700;unicode-range:U+0041;src:local('Nonexistent Font'),url(skip.svg) format(svg),url(first.woff2) format(woff2),url(last.ttf) format(truetype)}","https://example.test/style.css").unwrap();
+        let mut page = RustExecutableDocument::load("<body>Font demand</body>").unwrap();
+        let requests=font_requests(&mut page.agent.host,"@font-face{font-family:Demo;font-weight:700;unicode-range:U+0041;src:local('Nonexistent Font'),url(skip.svg) format(svg),url(first.woff2) format(woff2),url(last.ttf) format(truetype)}","https://example.test/style.css").unwrap();
         assert_eq!(requests.len(), 2);
         assert!(requests[0].0.url.ends_with("first.woff2"));
         assert!(requests[1].0.url.ends_with("last.ttf"));
@@ -1571,17 +1640,25 @@ mod tests {
         page.schedule_dynamic_stylesheet(realm, node).unwrap();
         assert!(page.dynamic_stylesheets_pending(Some(realm)));
         assert!(page.dynamic_stylesheets_runnable());
-        let reserved = page
-            .dynamic_stylesheets
-            .back()
-            .unwrap()
-            .ready
-            .as_ref()
-            .unwrap()
-            ._bytes
-            .as_ref()
-            .unwrap()
-            .bytes;
+        let job = page.dynamic_stylesheets.back_mut().unwrap();
+        #[cfg(unix)]
+        let reserved = if let Some(scheduler) = &mut job.retained {
+            // Native ready envelopes, not legacy StylesheetResult, own the
+            // exact original source reservations through publication/retry.
+            assert!(scheduler.has_ready_completion());
+            let envelope = scheduler.ready_completions.iter().find_map(|(completion, _)| {
+                if let ParserResourceCompletion::RetainedStylesheet(ready) = completion {
+                    ready.result.as_ref().ok()
+                } else { None }
+            }).expect("native original ready source");
+            assert!(envelope.tree.as_ref().is_some_and(|tree|
+                tree.response.source.as_ref() == "body{color:red}"));
+            envelope.reservations.iter().map(|reservation| reservation.bytes).sum::<usize>()
+        } else {
+            job.ready.as_ref().unwrap()._bytes.as_ref().unwrap().bytes
+        };
+        #[cfg(not(unix))]
+        let reserved = job.ready.as_ref().unwrap()._bytes.as_ref().unwrap().bytes;
         assert!(reserved > 0);
         assert_eq!(
             budget.load(std::sync::atomic::Ordering::Acquire),
@@ -1764,76 +1841,31 @@ mod tests {
         assert!(page.css_binary_resources.is_empty());
     }
     #[cfg(unix)]
-    #[test]
-    fn xml_pi_completion_reaches_cssom_media_and_production_layout() {
-        let parsed = oryn_dom::xml::parse_navigation(
-            "<?xml-stylesheet href='theme.css' media='screen' title='Main'?><root/>",
-            Some("application/xml"),
-            "https://example.test/document.xml",
-        );
-        let mut page = RustExecutableDocument::load_parsed_with_limits(
-            parsed,
-            &BTreeMap::new(),
-            None,
-            Some(Url::parse("https://example.test/document.xml").unwrap()),
-            256 * 1024 * 1024,
-        )
-        .unwrap();
-        let dom = page.agent.dom.clone();
-        let node = {
-            let dom = dom.borrow();
-            dom.arena()
-                .get(dom.document())
-                .unwrap()
-                .children
-                .iter()
-                .copied()
-                .find(|node| dom.arena().xml_stylesheet(*node).unwrap().is_some())
-                .unwrap()
-        };
-        page.schedule_dynamic_stylesheet(page.top_realm, node)
-            .unwrap();
-        let job = page.dynamic_stylesheets.back_mut().unwrap();
-        job.ready = Some(StylesheetResult {
-            binary: None,
-            result: Ok((
-                "https://example.test/theme.css".into(),
-                "root{color:red}".into(),
-                Vec::new(),
-            )),
-            _bytes: None,
-        });
-        page.poll_dynamic_stylesheets().unwrap();
-        page.agent.host.execute("const pi=document.firstChild;if(!pi.sheet||document.styleSheets[0]!==pi.sheet||pi.sheet.ownerNode!==pi||pi.sheet.media.mediaText!=='screen'||pi.sheet.href!=='https://example.test/theme.css')throw Error('PI sheet publication')").unwrap();
-        let (arena, document) = dom.borrow().snapshot();
-        let parsed = ParsedDocument {
-            dom: arena,
-            document,
-            errors: Vec::new(),
-            quirks_mode: html5ever::interface::QuirksMode::NoQuirks,
-            events: Vec::new(),
-        };
-        let input = crate::runtime::layout_input(
-            &parsed,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            &[],
-        );
-        assert!(
-            input
-                .stylesheets
-                .iter()
-                .any(|source| source == "root{color:red}")
-        );
-        assert!(
-            input
-                .stylesheet_media
-                .values()
-                .any(|media| media == "screen")
-        );
-        page.agent.host.execute("const old=pi.sheet;pi.data=\"href='other.css'\";if(pi.sheet!==null||old.ownerNode!==null)throw Error('obsolete PI sheet survived')").unwrap();
+    #[tokio::test(flavor = "current_thread")]
+    async fn xml_pi_completion_reaches_cssom_media_and_production_layout() {
+        struct XmlStyles;
+        impl crate::network::NetworkBroker for XmlStyles {
+            fn send(&self, request: crate::network::NetworkRequest) -> Result<crate::network::NetworkResponse, crate::network::NetworkError> {
+                let (mime, body) = if request.url.ends_with("/theme.css") {
+                    ("text/css", "root{color:red}")
+                } else if request.url.ends_with("/other.css") {
+                    ("text/css", "root{color:blue}")
+                } else {
+                    ("application/xml", "<?xml-stylesheet href='theme.css' media='screen' title='Main'?><root/>")
+                };
+                Ok(crate::network::NetworkResponse {
+                    response_policy: None, timing: None, request_id: request.request_id,
+                    status: 200, headers: vec![("content-type".into(), mime.into())],
+                    body: body.as_bytes().to_vec(),
+                })
+            }
+        }
+        let context = crate::Browser::in_process_probe().new_context_with_broker(
+            crate::ContextOptions::default(), crate::network::SharedNetworkBroker::new(XmlStyles));
+        let page = context.new_page();
+        page.goto("https://example.test/document.xml").await.unwrap();
+        assert_eq!(page.evaluate("(()=>{const pi=document.firstChild;return [pi.sheet!==null,document.styleSheets[0]===pi.sheet,pi.sheet.ownerNode===pi,pi.sheet.media.mediaText,pi.sheet.href,getComputedStyle(document.documentElement).color].join('|')})()").await.unwrap(), "true|true|true|screen|https://example.test/theme.css|rgb(255, 0, 0)");
+        assert_eq!(page.evaluate("(()=>{const pi=document.firstChild,old=pi.sheet;pi.data=\"href='other.css'\";return [pi.sheet===null,old.ownerNode===null].join('|')})()").await.unwrap(), "true|true");
     }
 }
 
@@ -2372,6 +2404,7 @@ mod retained_css_publication_tests {
                 revision,
                 epoch,
                 dependencies: Vec::new(),
+                _allocation: None,
                 _bytes: bytes,
             },
         )

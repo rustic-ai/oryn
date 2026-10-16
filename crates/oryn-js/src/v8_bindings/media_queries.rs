@@ -5,6 +5,13 @@ pub(super) fn create<'s>(
     state: &Rc<V8BindingState>,
     query: &str,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let context = state
+        .realm_context
+        .to_local(scope)
+        .ok_or(V8BindingError::Allocation("media query owner context"))?;
+    let scope = &mut v8::ContextScope::new(scope, context);
+    synchronize_embedded_viewport_in_scope(scope, state)?;
+    let _retained_scope = state.enter_retained_allocation(scope)?;
     let base = state.native_document_base_url(false)?;
     let quirks = state
         .dom
@@ -53,13 +60,8 @@ pub(super) fn get<'s>(
     if member == "media" {
         v8_string(scope, &query)
     } else {
-        Ok(v8::Boolean::new(
-            scope,
-            state
-                .native_media_matches(&query)
-                .map_err(V8BindingError::EventCallback)?,
-        )
-        .into())
+        let matches = native_media_matches_in_scope(scope, state, &query)?;
+        Ok(v8::Boolean::new(scope, matches).into())
     }
 }
 pub(super) fn legacy_listener(
@@ -177,6 +179,15 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
     if state.execution_retired() {
         return Ok(0);
     }
+    let context = state
+        .realm_context
+        .to_local(scope)
+        .ok_or(V8BindingError::Allocation("media query owner context"))?;
+    let scope = &mut v8::ContextScope::new(scope, context);
+    // One scoped viewport synchronization for the checkpoint; query evaluation
+    // below cannot recursively trigger a parent's layout without admission.
+    synchronize_embedded_viewport_in_scope(scope, state)?;
+    let _retained_scope = state.enter_retained_allocation(scope)?;
     let queries = state
         .platform_objects
         .borrow()
@@ -250,4 +261,118 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
         delivered += 1;
     }
     Ok(delivered)
+}
+
+#[cfg(test)]
+mod scoped_tests {
+    use super::*;
+
+    struct Provider {
+        frame: Option<NodeId>,
+        width: Cell<f64>,
+        computes: Cell<usize>,
+    }
+    impl BindingLayoutProvider for Provider {
+        fn compute_layout(
+            &self,
+            _: &BTreeMap<NodeId, BTreeSet<String>>,
+        ) -> Result<BindingLayout, String> {
+            self.computes.set(self.computes.get() + 1);
+            let mut layout = BindingLayout::default();
+            if let Some(frame) = self.frame {
+                let rect = oryn_common::v4::CssRect {
+                    x: 0.,
+                    y: 0.,
+                    width: self.width.get(),
+                    height: 100.,
+                };
+                layout.hit_projections.insert(
+                    node_key(frame),
+                    oryn_common::v4::PaintProjection {
+                        scroll: None,
+                        fragment_boxes: Vec::new(),
+                        border_segments: Vec::new(),
+                        border_edges: None,
+                        text_matrix: None,
+                        text_clips: Vec::new(),
+                        matrix: [
+                            1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
+                        ],
+                        box_model: oryn_common::v4::BoxModel {
+                            border_box: rect,
+                            padding_box: rect,
+                            content_box: rect,
+                            margin: Default::default(),
+                            border: Default::default(),
+                            padding: Default::default(),
+                        },
+                        text: Vec::new(),
+                        clips: Vec::new(),
+                    },
+                );
+            }
+            Ok(layout)
+        }
+        fn set_viewport(&self, width: f64, _: f64) {
+            self.width.set(width);
+        }
+        fn native_media_matches(&self, _: &str, _: &str, _: bool) -> Result<bool, String> {
+            Ok(self.width.get() > 600.)
+        }
+    }
+
+    #[test]
+    fn idle_media_hint_never_projects_parent_but_scoped_evaluation_sees_resize() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let handles, &mut isolate);
+        let parent_context = v8::Context::new(handles, Default::default());
+        let parent_dom = Rc::new(RefCell::new(
+            html::parse("<iframe id=f></iframe>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let parent = {
+            let scope = &mut v8::ContextScope::new(handles, parent_context);
+            install_generated_bindings(scope, parent_context, parent_dom.clone(), RealmId(0), 1)
+                .unwrap()
+        };
+        let frame = parent_dom.borrow().find_by_id("f").unwrap();
+        let parent_provider = Rc::new(Provider {
+            frame: Some(frame),
+            width: Cell::new(400.),
+            computes: Cell::new(0),
+        });
+        parent.set_layout_provider(parent_provider.clone());
+        let child_context = v8::Context::new(handles, Default::default());
+        let scope = &mut v8::ContextScope::new(handles, child_context);
+        let child_dom = Rc::new(RefCell::new(
+            html::parse("<p>child</p>").into_runtime().unwrap(),
+        ));
+        let child =
+            install_generated_bindings(scope, child_context, child_dom, RealmId(1), 1).unwrap();
+        child.set_layout_provider(Rc::new(Provider {
+            frame: None,
+            width: Cell::new(400.),
+            computes: Cell::new(0),
+        }));
+        child.set_frame_viewport_parent(&parent, frame).unwrap();
+        register_platform_object(
+            &child,
+            PlatformObjectRecord::MediaQueryList {
+                query: "(width > 600px)".into(),
+                observed: false,
+            },
+        );
+        assert!(child.has_pending_media_query_change());
+        assert_eq!(parent_provider.computes.get(), 0);
+        assert!(!native_media_matches_in_scope(scope, &child, "(width > 600px)").unwrap());
+        let previous = parent_provider.computes.get();
+        parent_provider.width.set(800.);
+        parent.layout_cache_key.borrow_mut().take();
+        assert!(child.has_pending_media_query_change());
+        assert_eq!(parent_provider.computes.get(), previous);
+        assert!(native_media_matches_in_scope(scope, &child, "(width > 600px)").unwrap());
+        assert!(parent_provider.computes.get() > previous);
+    }
 }

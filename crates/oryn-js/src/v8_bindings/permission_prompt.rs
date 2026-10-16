@@ -170,7 +170,7 @@ fn answer(
         return Ok(());
     };
     if !eligible(state, node) {
-        fixup(state)?;
+        fixup(scope, state)?;
         return Ok(());
     }
     let protocol = state
@@ -314,6 +314,7 @@ impl Choice {
     }
 }
 pub(super) fn prepare_keyboard(
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     key: &str,
 ) -> Result<(bool, Option<Choice>), V8BindingError> {
@@ -321,7 +322,7 @@ pub(super) fn prepare_keyboard(
         return Ok((false, None));
     };
     if !eligible(state, node) {
-        fixup(state)?;
+        fixup(scope, state)?;
         return Ok((false, None));
     }
     let choice = match key {
@@ -360,7 +361,7 @@ pub(super) fn keyboard(
     state: &Rc<V8BindingState>,
     key: &str,
 ) -> Result<bool, V8BindingError> {
-    let (handled, job) = prepare_keyboard(state, key)?;
+    let (handled, job) = prepare_keyboard(scope, state, key)?;
     if let Some(mut job) = job
         && !job.poll(scope)?
     {
@@ -388,7 +389,7 @@ pub(super) fn click(
         return Ok(false);
     };
     if !eligible(state, node) {
-        fixup(state)?;
+        fixup(scope, state)?;
         return Ok(false);
     }
     let x = native_input_property(scope, event, "MouseEvent", "clientX")?
@@ -397,7 +398,7 @@ pub(super) fn click(
     let y = native_input_property(scope, event, "MouseEvent", "clientY")?
         .number_value(scope)
         .unwrap_or(f64::NAN);
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     let action = {
         let layout = state.layout.borrow();
         layout
@@ -423,7 +424,10 @@ pub(super) fn click(
     state.permission_elements.borrow_mut().suppress_activation = Some(_target);
     Ok(true)
 }
-pub(super) fn fixup(state: &V8BindingState) -> Result<(), V8BindingError> {
+pub(super) fn fixup(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+) -> Result<(), V8BindingError> {
     let Some((node, id)) = state.permission_elements.borrow().prompt.clone() else {
         return Ok(());
     };
@@ -438,7 +442,7 @@ pub(super) fn fixup(state: &V8BindingState) -> Result<(), V8BindingError> {
             .borrow()
             .permission_prompt_snapshot(node)?
             .is_some_and(|prompt| prompt.protocol.is_some())
-            && css_suppresses_focus(state, node)?)
+            && css_suppresses_focus_in_scope(scope, state, node)?)
     {
         native_platform::prompt_request(state, Request::PromptCancel { id })?;
         close(state, node);
@@ -542,11 +546,11 @@ impl Pointer {
                         return Ok(self.result);
                     };
                     if !eligible(&state, node) {
-                        fixup(&state)?;
+                        fixup(scope, &state)?;
                         self.result = Some(None);
                         return Ok(self.result);
                     }
-                    refresh_layout(&state)?;
+                    refresh_layout_in_scope(scope, &state)?;
                     let input = &self.input;
                     let choice = {
                         let layout = state.layout.borrow();

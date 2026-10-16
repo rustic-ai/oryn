@@ -15,6 +15,11 @@ impl Roots {
     pub(crate) fn drivers_len(&self) -> usize {
         self.drivers.len()
     }
+    #[cfg(test)]
+    pub(crate) fn driver_page_controller(&self, root: oryn_js::realm::RealmId)
+        -> Option<Arc<oryn_js::prompts::PromptController>> {
+        self.drivers.get(&root)?.page_task_terminal_control.controller().cloned()
+    }
     pub(crate) fn next_delay(&self) -> Option<Duration> {
         self.next
             .map(|next| next.saturating_duration_since(Instant::now()))
@@ -113,6 +118,14 @@ impl Roots {
                 None,
             );
             state.standalone_root = Some(realm);
+            // Like a canonical PageRecord, the native navigable owns this
+            // controller independently of its replaceable Document bindings.
+            let controller = owned.standalone_page_controller(realm)?;
+            if !state.page_task_terminal_control.bind(controller) {
+                return Err(crate::host::HostError::Execution(
+                    "standalone root terminal controller mismatch".into(),
+                ));
+            }
             state.adopt_agent_document(crate::runtime::AgentDocumentInputs {
                 executable,
                 url,

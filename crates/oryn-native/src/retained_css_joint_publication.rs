@@ -157,7 +157,7 @@ impl PreparedRetainedCssPublication {
             .map_err(HostError::Execution)?;
         let owned_source = oryn_dom::OwnedNativeStylesheetSource::admitted(
             source.original.clone(),
-            retained_source.clone(),
+            Arc::new((retained_source.clone(), source.retained_allocation.clone())),
         );
         let base_bytes = source.final_url.len();
         let mut base_url = String::new();
@@ -196,7 +196,9 @@ impl PreparedRetainedCssPublication {
         let mut source = source_slot
             .take()
             .expect("exclusive checked source custody");
-        source.retained_allocation = Some(retained_source.clone());
+        source.retained_allocation = Some(Arc::new((
+            retained_source.clone(), source.retained_allocation.take(),
+        )));
         let source_reservations = reservations_slot
             .take()
             .expect("exclusive checked reservation custody");

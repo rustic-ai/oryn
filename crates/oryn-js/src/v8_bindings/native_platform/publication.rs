@@ -2640,18 +2640,27 @@ mod suspended_continuation_tests {
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(231), 1).unwrap();
         scope.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        let heap = scope.get_heap_statistics();
+        let used = heap.used_heap_size().checked_add(heap.external_memory()).unwrap();
+        let limit = heap.heap_size_limit();
+        let ledger = &state.idb_payload_ledger;
+        let (database_name, name_custody) = crate::idb_owned_admission::Text::copy_string_cancelled(
+            ledger, "nested-native", limit, used,
+            &mut || scope.is_execution_terminating() || state.execution_retired(),
+        ).unwrap().into_parts();
         let database = register_platform_object(
             &state,
             PlatformObjectRecord::IdbDatabase(IdbDatabaseRecord {
                 connection: None,
                 last_versionchange_event: 0,
-                name: "nested-native".into(),
+                name: database_name,
+                _name_custody: Some(name_custody),
                 version: 1,
                 old_version: 0,
-                object_stores: vec![],
-                object_store_definitions: BTreeMap::new(),
-                upgrade_base_object_stores: vec![],
-                upgrade_base_definitions: BTreeMap::new(),
+                object_stores: owned_names::Names::from_strings(&vec![], ledger, limit, used, &mut || scope.is_execution_terminating() || state.execution_retired()).unwrap(),
+                object_store_definitions: owned_store_map::StoreMap::empty(ledger, limit, used, &mut || scope.is_execution_terminating() || state.execution_retired()).unwrap(),
+                _upgrade_base_object_stores: owned_names::Names::from_strings(&[], ledger, limit, used, &mut || scope.is_execution_terminating() || state.execution_retired()).unwrap(),
+                upgrade_base_definitions: owned_store_map::StoreMap::empty(ledger, limit, used, &mut || scope.is_execution_terminating() || state.execution_retired()).unwrap(),
                 upgrade_transaction_id: None,
                 closed: false,
             }),
@@ -2662,6 +2671,10 @@ mod suspended_continuation_tests {
             .global(scope)
             .set(scope, key.into(), database_wrapper.into())
             .unwrap();
+        let admitted_scope = crate::idb_owned_admission::Scope::copy_names_cancelled(
+            ledger, &vec![], limit, used,
+            &mut || scope.is_execution_terminating() || state.execution_retired(),
+        ).unwrap().into_parts();
         let tx = register_platform_object(
             &state,
             PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
@@ -2672,8 +2685,8 @@ mod suspended_continuation_tests {
                 request_id: None,
                 mode: "readonly".into(),
                 durability: "default".into(),
-                object_stores: vec![],
-                scope_custody: None,
+                object_stores: admitted_scope.0,
+                scope_custody: Some(admitted_scope.1),
                 aborted: false,
                 error: None,
                 pending_requests: 0,

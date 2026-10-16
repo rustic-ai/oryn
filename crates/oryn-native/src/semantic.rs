@@ -17,216 +17,12 @@ use oryn_common::v6::{
 
 use crate::dom::{DomArena, NodeId, NodeKind};
 
-fn accessible_case_text_with_checkpoint(
-    dom: &DomArena,
-    id: NodeId,
-    data: &str,
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<String, crate::dom::DomError> {
-    check()?;
-    let mut lineage = Vec::new();
-    let mut cursor = dom.get(id).ok().and_then(|node| node.parent);
-    let mut ancestors_seen = BTreeSet::from([id]);
-    while let Some(parent) = cursor {
-        check()?;
-        if !ancestors_seen.insert(parent) {
-            lineage.clear();
-            break;
-        }
-        lineage.push(parent);
-        cursor = dom.get(parent).ok().and_then(|node| node.parent);
-    }
-    let mut transform = None;
-    let mut language = None;
-    let mut root = None;
-    for parent in &lineage {
-        check()?;
-        if transform.is_none() {
-            transform = dom
-                .accessibility_computed_text_style(*parent)
-                .map(|(_, transform)| transform.to_owned())
-                .or_else(|| {
-                    dom.get(*parent).ok().and_then(|node| {
-                        inline_style_value(node, "text-transform").map(str::to_owned)
-                    })
-                });
-        }
-        if language.is_none() {
-            language = dom
-                .get(*parent)
-                .ok()
-                .and_then(|node| node.attributes.get_null("lang").cloned());
-        }
-        if root.is_none() && accessible_text_run_separator(dom, *parent) {
-            root = Some(*parent);
-        }
-    }
-    let transform = transform.unwrap_or_else(|| "none".into());
-    let mut transforms = false;
-    for token in checked_name_tokens(
-        &transform,
-        |character| character.is_ascii_whitespace(),
-        check,
-    )? {
-        check()?;
-        transforms |= matches!(token, "uppercase" | "lowercase" | "capitalize");
-    }
-    if !transforms {
-        return Ok(data.into());
-    }
-    let language = language.unwrap_or_default();
-    let root = root.or_else(|| lineage.last().copied()).unwrap_or(id);
-    let mut pending = vec![(root, false)];
-    let mut seen = BTreeSet::new();
-    let mut context = String::new();
-    let mut offset = 0;
-    let mut range = None;
-    while let Some((node_id, after)) = pending.pop() {
-        check()?;
-        if after {
-            context.push(' ');
-            offset += 1;
-            continue;
-        }
-        if !seen.insert(node_id) {
-            continue;
-        }
-        let Ok(node) = dom.get(node_id) else {
-            continue;
-        };
-        if matches!(&node.kind,NodeKind::Element{name}if matches!(name.local.as_ref(),"script"|"style"|"template"))
-        {
-            continue;
-        }
-        if let NodeKind::Text { data } = &node.kind {
-            let mut end = offset;
-            for ch in data.chars() {
-                check()?;
-                context.push(ch);
-                end += 1;
-            }
-            if node_id == id {
-                range = Some((offset, end));
-            }
-            offset = end;
-        } else {
-            if node_id != root && accessible_text_run_separator(dom, node_id) {
-                context.push(' ');
-                offset += 1;
-                pending.push((node_id, true));
-            }
-            pending.extend(
-                accessible_children_with_checkpoint(dom, node_id, check)?
-                    .into_iter()
-                    .rev()
-                    .map(|child| (child, false)),
-            );
-        }
-    }
-    let Some((start, end)) = range else {
-        let mut count = 0;
-        for _ in data.chars() {
-            check()?;
-            count += 1;
-        }
-        return oryn_layout::accessibility_case_fragment_with_checkpoint(
-            data, 0, count, &transform, &language, check,
-        );
-    };
-    check()?;
-    oryn_layout::accessibility_case_fragment_with_checkpoint(
-        &context, start, end, &transform, &language, check,
-    )
-}
-
 fn accessible_children_with_checkpoint(
     dom: &DomArena,
     id: NodeId,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<Vec<NodeId>, crate::dom::DomError> {
-    check()?;
-    let Ok(node) = dom.get(id) else {
-        return Ok(Vec::new());
-    };
-    for child in &node.children {
-        check()?;
-        if let Ok(root) = dom.get(*child)
-            && matches!(root.kind, NodeKind::ShadowRoot { .. })
-        {
-            return copy_name_children(&root.children, check);
-        }
-    }
-    let slot = matches!(&node.kind, NodeKind::Element { name }
-        if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "slot");
-    if slot && let Some(assigned) = &node.native_resolved_slot_nodes {
-        return copy_name_children(
-            if assigned.is_empty() {
-                &node.children
-            } else {
-                assigned
-            },
-            check,
-        );
-    }
-    if slot
-        && let Some(root_id) = tree_scope_with_checkpoint(dom, id, check)?
-        && let Ok(root) = dom.get(root_id)
-        && matches!(root.kind, NodeKind::ShadowRoot { .. })
-        && let Some(host) = root.parent.and_then(|host| dom.get(host).ok())
-    {
-        let slot_name = node
-            .attributes
-            .get_null("name")
-            .map(String::as_str)
-            .unwrap_or("");
-        let mut first_slot = None;
-        for candidate in descendants_with_checkpoint(dom, root_id, check)? {
-            check()?;
-            if tree_scope_with_checkpoint(dom, candidate, check)? == Some(root_id)
-                && dom.get(candidate).is_ok_and(|candidate| {
-                    matches!(&candidate.kind, NodeKind::Element { name }
-                        if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "slot")
-                        && candidate.attributes.get_null("name").map(String::as_str).unwrap_or("") == slot_name
-                })
-            {
-                first_slot = Some(candidate);
-                break;
-            }
-        }
-        if first_slot == Some(id) {
-            let mut assigned = Vec::new();
-            for child in &host.children {
-                check()?;
-                if dom.get(*child).is_ok_and(|child| {
-                    matches!(child.kind, NodeKind::Element { .. } | NodeKind::Text { .. })
-                        && child
-                            .attributes
-                            .get_null("slot")
-                            .map(String::as_str)
-                            .unwrap_or("")
-                            == slot_name
-                }) {
-                    assigned.push(*child);
-                }
-            }
-            if !assigned.is_empty() {
-                return Ok(assigned);
-            }
-        }
-    }
-    copy_name_children(&node.children, check)
-}
-
-fn copy_name_children(
-    children: &[NodeId],
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<Vec<NodeId>, crate::dom::DomError> {
-    let mut result = Vec::new();
-    for child in children {
-        check()?;
-        result.push(*child);
-    }
-    Ok(result)
+    shared_accessible_children_with_checkpoint(dom, id, &mut OrdinarySemanticProducer, check)
 }
 
 fn tree_scope_with_checkpoint(
@@ -254,469 +50,7 @@ fn tree_scope_with_checkpoint(
     Ok(last)
 }
 
-fn visible_text_below_hidden_visibility_with_checkpoint(
-    dom: &DomArena,
-    id: NodeId,
-    excluded: Option<NodeId>,
-    traversal: &mut NameTraversal,
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<String, crate::dom::DomError> {
-    check()?;
-    if Some(id) == excluded {
-        return Ok(String::new());
-    }
-    let Ok(node) = dom.get(id) else {
-        return Ok(String::new());
-    };
-    if subtree_excluded_at(dom, id) {
-        return Ok(String::new());
-    }
-    if dom
-        .accessibility_computed_visibility(id)
-        .is_some_and(|(_, hidden)| !hidden)
-        || (dom.accessibility_computed_visibility(id).is_none()
-            && inline_style_value(node, "visibility")
-                .is_some_and(|value| value.eq_ignore_ascii_case("visible")))
-    {
-        return accessible_text_content_walk_with_checkpoint(
-            dom,
-            id,
-            true,
-            excluded,
-            referenced_root_hidden_with_checkpoint(dom, id, check)?,
-            traversal,
-            check,
-        );
-    }
-    let mut parts = Vec::new();
-    for child in &node.children {
-        check()?;
-        let value = visible_text_below_hidden_visibility_with_checkpoint(
-            dom, *child, excluded, traversal, check,
-        )?;
-        if !value.is_empty() {
-            parts.push(value);
-        }
-    }
-    Ok(parts.join(" "))
-}
-
-fn referenced_root_hidden_with_checkpoint(
-    dom: &DomArena,
-    id: NodeId,
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<bool, crate::dom::DomError> {
-    let mut cursor = Some(id);
-    let mut seen = BTreeSet::new();
-    let mut visibility = None;
-    while let Some(id) = cursor {
-        check()?;
-        if !seen.insert(id) {
-            break;
-        }
-        let Ok(node) = dom.get(id) else {
-            break;
-        };
-        if subtree_excluded_at(dom, id) {
-            return Ok(true);
-        }
-        if visibility.is_none() {
-            if let Some((_, hidden)) = dom.accessibility_computed_visibility(id) {
-                visibility = Some(hidden);
-            } else if let Some(value) = inline_style_value(node, "visibility") {
-                if value.eq_ignore_ascii_case("visible") {
-                    visibility = Some(false);
-                } else if value.eq_ignore_ascii_case("hidden")
-                    || value.eq_ignore_ascii_case("collapse")
-                {
-                    visibility = Some(true);
-                }
-            }
-        }
-        cursor = node.parent;
-    }
-    Ok(visibility.unwrap_or(false))
-}
-
-fn accessible_text_content_walk_with_checkpoint(
-    dom: &DomArena,
-    id: NodeId,
-    include_hidden_root: bool,
-    excluded: Option<NodeId>,
-    include_hidden_subtree: bool,
-    traversal: &mut NameTraversal,
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<String, crate::dom::DomError> {
-    check()?;
-    if Some(id) == excluded {
-        return Ok(if dom.get(id).is_ok_and(|node| matches!(&node.kind, NodeKind::Element { name }
-            if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && matches!(name.local.as_ref(), "input" | "select" | "textarea"))) { " ".into() } else { String::new() });
-    }
-    let Ok(node) = dom.get(id) else {
-        return Ok(String::new());
-    };
-    if matches!(&node.kind, NodeKind::Element { name }
-        if (name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && matches!(name.local.as_ref(), "script" | "style" | "template"))
-            || (name.ns.as_ref() == "http://www.w3.org/2000/svg" && matches!(name.local.as_ref(), "script" | "style")))
-    {
-        return Ok(String::new());
-    }
-    if !include_hidden_root && !include_hidden_subtree && accessibility_hidden_at(dom, id) {
-        if visibility_hidden_at(dom, id) {
-            let mut parts = Vec::new();
-            for child in accessible_children_with_checkpoint(dom, id, check)? {
-                let text = visible_text_below_hidden_visibility_with_checkpoint(
-                    dom, child, excluded, traversal, check,
-                )?;
-                if !text.is_empty() {
-                    parts.push(text);
-                }
-            }
-            return Ok(parts.join(" "));
-        }
-        return Ok(String::new());
-    }
-    if !traversal.seen.insert(id) {
-        return Ok(String::new());
-    }
-    let is_shadow_slot = matches!(&node.kind, NodeKind::Element { name }
-        if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "slot")
-        && tree_scope_with_checkpoint(dom, id, check)?.is_some_and(|root| {
-            dom.get(root)
-                .is_ok_and(|root| matches!(root.kind, NodeKind::ShadowRoot { .. }))
-        });
-    let role = computed_role_for_node_with_checkpoint(dom, id, check)?;
-    let embedded = matches!(&node.kind, NodeKind::Element { .. })
-        && matches!(
-            role.as_str(),
-            "textbox" | "searchbox" | "combobox" | "listbox" | "menu" | "slider" | "spinbutton"
-        );
-    if !is_shadow_slot
-        && !embedded
-        && traversal.reference_depth == 0
-        && let Some(targets) = dom
-            .accessibility_relation_with_checkpoint(id, "aria-labelledby", check)?
-            .filter(|targets| !targets.is_empty())
-    {
-        traversal.reference_depth += 1;
-        let result = (|| {
-            let mut parts = Vec::new();
-            let mut self_reference = false;
-            for target in targets {
-                check()?;
-                if target == id && !self_reference {
-                    traversal.seen.remove(&id);
-                    self_reference = true;
-                }
-                let text = accessible_text_content_walk_with_checkpoint(
-                    dom,
-                    target,
-                    true,
-                    excluded,
-                    referenced_root_hidden_with_checkpoint(dom, target, check)?,
-                    traversal,
-                    check,
-                )?;
-                if !text.is_empty() {
-                    parts.push(text);
-                }
-            }
-            normalize_text_with_checkpoint(&parts.join(" "), check)
-        })();
-        traversal.reference_depth -= 1;
-        return result;
-    }
-    if !is_shadow_slot
-        && !embedded
-        && let Some(label) = node
-            .accessibility_attribute("aria-label")
-            .map(|label| normalize_text_with_checkpoint(label, check))
-            .transpose()?
-            .filter(|label| !label.is_empty())
-    {
-        return Ok(label);
-    }
-    if let Some(title) = svg_child_alternative_with_checkpoint(dom, id, "title", check)? {
-        return Ok(title);
-    }
-    match &node.kind {
-        NodeKind::Text { data } => {
-            return accessible_case_text_with_checkpoint(dom, id, data, check);
-        }
-        NodeKind::Element { .. } if role == "menu" => return Ok(String::new()),
-        NodeKind::Element { name }
-            if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
-                && name.local.as_ref() == "br" =>
-        {
-            return Ok(" ".into());
-        }
-        NodeKind::Element { name } if name.local.as_ref() == "img" => {
-            return Ok(node.attributes.get_null("alt").cloned().unwrap_or_default());
-        }
-        NodeKind::Element { name } if name.local.as_ref() == "input" => {
-            let button = node.attributes.get_null("type").is_some_and(|kind| {
-                matches!(
-                    kind.to_ascii_lowercase().as_str(),
-                    "button" | "submit" | "reset"
-                )
-            });
-            if button {
-                return Ok(node
-                    .value
-                    .clone()
-                    .or_else(|| node.attributes.get_null("value").cloned())
-                    .unwrap_or_else(|| {
-                        match node
-                            .attributes
-                            .get_null("type")
-                            .map(|kind| kind.to_ascii_lowercase())
-                            .as_deref()
-                        {
-                            Some("reset") => "Reset".into(),
-                            Some("submit") => "Submit".into(),
-                            _ => String::new(),
-                        }
-                    }));
-            }
-            return Ok(if matches!(role.as_str(), "slider" | "spinbutton") {
-                node.accessibility_attribute("aria-valuetext")
-                    .or_else(|| node.accessibility_attribute("aria-valuenow"))
-                    .cloned()
-                    .or_else(|| node.value.clone())
-                    .or_else(|| node.attributes.get_null("value").cloned())
-                    .unwrap_or_default()
-            } else {
-                node.value
-                    .clone()
-                    .or_else(|| node.attributes.get_null("value").cloned())
-                    .unwrap_or_default()
-            });
-        }
-        NodeKind::Element { name } if name.local.as_ref() == "textarea" => {
-            return if node.dirty_value {
-                Ok(node.value.clone().unwrap_or_default())
-            } else {
-                cancellation_or_default(dom.text_content_with_checkpoint(id, check))
-            };
-        }
-        NodeKind::Element { name } if name.local.as_ref() == "select" => {
-            let options = cancellation_or_default(dom.select_options_with_checkpoint(id, check))?;
-            let mut selected = Vec::new();
-            let mut initialized = false;
-            for option in &options {
-                check()?;
-                if let Ok(option_node) = dom.get(*option) {
-                    if option_node.selected() {
-                        selected.push(*option);
-                    }
-                    initialized |= option_node.selectedness.is_some();
-                } else {
-                    initialized = true;
-                }
-            }
-            if selected.is_empty()
-                && !initialized
-                && !node.attributes.contains_null("multiple")
-                && node
-                    .attributes
-                    .get_null("size")
-                    .and_then(|size| size.parse::<u32>().ok())
-                    .unwrap_or(0)
-                    <= 1
-            {
-                for option in &options {
-                    check()?;
-                    if !dom
-                        .get(*option)
-                        .is_ok_and(|option| !option.attributes.contains_null("disabled"))
-                    {
-                        continue;
-                    }
-                    let mut disabled = false;
-                    for ancestor in
-                        cancellation_or_default(ancestors_with_checkpoint(dom, *option, check))?
-                    {
-                        check()?;
-                        if ancestor == id {
-                            break;
-                        }
-                        disabled |= dom.get(ancestor).is_ok_and(|node| {
-                            matches!(&node.kind, NodeKind::Element { name }
-                            if name.local.as_ref() == "optgroup")
-                                && node.attributes.contains_null("disabled")
-                        });
-                    }
-                    if !disabled {
-                        selected.push(*option);
-                        break;
-                    }
-                }
-            }
-            let mut parts = Vec::new();
-            for option in selected {
-                check()?;
-                let label = if let Ok(node) = dom.get(option) {
-                    let explicit = node
-                        .accessibility_attribute("aria-label")
-                        .map(|label| normalize_text_with_checkpoint(label, check))
-                        .transpose()?
-                        .filter(|label| !label.is_empty());
-                    match explicit {
-                        Some(label) => Some(label),
-                        None => node
-                            .attributes
-                            .get_null("label")
-                            .map(|label| normalize_text_with_checkpoint(label, check))
-                            .transpose()?
-                            .filter(|label| !label.is_empty()),
-                    }
-                } else {
-                    None
-                };
-                let text = match label {
-                    Some(label) => label,
-                    None => accessible_text_content_walk_with_checkpoint(
-                        dom,
-                        option,
-                        false,
-                        excluded,
-                        include_hidden_subtree,
-                        traversal,
-                        check,
-                    )?,
-                };
-                if !text.is_empty() {
-                    parts.push(text);
-                }
-            }
-            return Ok(parts.join(" "));
-        }
-        NodeKind::Element { .. } if matches!(role.as_str(), "listbox" | "combobox") => {
-            let selected = embedded_selected_options_with_checkpoint(dom, id, check)?;
-            let join = !selected.is_empty();
-            let children = if join {
-                selected
-            } else if role == "combobox" {
-                accessible_children_with_checkpoint(dom, id, check)?
-            } else {
-                Vec::new()
-            };
-            let mut parts = Vec::new();
-            for child in children {
-                check()?;
-                let text = accessible_text_content_walk_with_checkpoint(
-                    dom,
-                    child,
-                    false,
-                    excluded,
-                    include_hidden_subtree,
-                    traversal,
-                    check,
-                )?;
-                if !text.is_empty() {
-                    parts.push(text);
-                }
-            }
-            return Ok(parts.join(if join { " " } else { "" }));
-        }
-        NodeKind::Element { .. } if matches!(role.as_str(), "slider" | "spinbutton") => {
-            return Ok(node
-                .accessibility_attribute("aria-valuetext")
-                .or_else(|| node.accessibility_attribute("aria-valuenow"))
-                .cloned()
-                .unwrap_or_default());
-        }
-        _ => {}
-    }
-    let mut action_targets = BTreeSet::new();
-    for target in dom
-        .accessibility_relation_with_checkpoint(id, "aria-actions", check)?
-        .unwrap_or_default()
-    {
-        check()?;
-        action_targets.insert(target);
-    }
-    if traversal.owners.is_none() {
-        traversal.owners = Some(accepted_aria_owners_with_checkpoint(dom, check)?);
-    }
-    let mut value = String::new();
-    for child in accessible_children_with_checkpoint(dom, id, check)? {
-        check()?;
-        if traversal
-            .owners
-            .as_ref()
-            .is_some_and(|owners| owners.contains_key(&child))
-            || action_targets.contains(&child)
-        {
-            continue;
-        }
-        let text = accessible_text_content_walk_with_checkpoint(
-            dom,
-            child,
-            false,
-            excluded,
-            include_hidden_subtree,
-            traversal,
-            check,
-        )?;
-        if !text.is_empty() {
-            if accessible_text_run_separator(dom, child) {
-                value.push(' ');
-                value.push_str(&text);
-                value.push(' ');
-            } else {
-                value.push_str(&text);
-            }
-        }
-    }
-    if let Some(owned) = dom.accessibility_relation_with_checkpoint(id, "aria-owns", check)? {
-        for owned_id in owned {
-            check()?;
-            if owned_id == id
-                || traversal
-                    .owners
-                    .as_ref()
-                    .and_then(|owners| owners.get(&owned_id))
-                    .copied()
-                    != Some(id)
-            {
-                continue;
-            }
-            let text = accessible_text_content_walk_with_checkpoint(
-                dom,
-                owned_id,
-                true,
-                excluded,
-                include_hidden_subtree || accessibility_hidden_at(dom, owned_id),
-                traversal,
-                check,
-            )?;
-            if !text.is_empty() {
-                if !value.is_empty() {
-                    value.push(' ');
-                }
-                value.push_str(&text);
-            }
-        }
-    }
-    if excluded.is_some()
-        && normalize_text_with_checkpoint(&value, check)?.is_empty()
-        && matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "label")
-        && let Some(title) = node
-            .attributes
-            .get_null("title")
-            .map(|title| normalize_text_with_checkpoint(title, check))
-            .transpose()?
-            .filter(|title| !title.is_empty())
-    {
-        value = format!(" {title} ");
-    }
-    if let Some((before, after)) = dom.accessibility_generated_content(id) {
-        value = format!("{before}{value}{after}");
-    }
-    Ok(value)
-}
-
+#[cfg(test)]
 fn accessible_text_content_with_checkpoint(
     dom: &DomArena,
     id: NodeId,
@@ -726,6 +60,7 @@ fn accessible_text_content_with_checkpoint(
     accessible_text_content_excluding_with_checkpoint(dom, id, include_hidden_root, None, check)
 }
 
+#[cfg(test)]
 fn accessible_text_content_excluding_with_checkpoint(
     dom: &DomArena,
     id: NodeId,
@@ -733,218 +68,32 @@ fn accessible_text_content_excluding_with_checkpoint(
     excluded: Option<NodeId>,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<String, crate::dom::DomError> {
-    let hidden = include_hidden_root && referenced_root_hidden_with_checkpoint(dom, id, check)?;
-    accessible_text_content_walk_with_checkpoint(
+    shared_accessible_text(
         dom,
         id,
         include_hidden_root,
         excluded,
-        hidden,
-        &mut NameTraversal::default(),
+        &mut OrdinarySemanticProducer,
         check,
     )
 }
 
-fn svg_child_alternative_with_checkpoint(
-    dom: &DomArena,
-    id: NodeId,
-    local: &str,
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<Option<String>, crate::dom::DomError> {
-    check()?;
-    let Ok(node) = dom.get(id) else {
-        return Ok(None);
-    };
-    if !matches!(&node.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/2000/svg")
-    {
-        return Ok(None);
-    }
-    for child in &node.children {
-        check()?;
-        if dom.get(*child).is_ok_and(|node| {
-            matches!(&node.kind, NodeKind::Element { name }
-            if name.ns.as_ref() == "http://www.w3.org/2000/svg" && name.local.as_ref() == local)
-        }) {
-            let text = normalize_text_with_checkpoint(
-                &cancellation_or_default(dom.text_content_with_checkpoint(*child, check))?,
-                check,
-            )?;
-            return Ok((!text.is_empty()).then_some(text));
-        }
-    }
-    Ok(None)
-}
-
+#[cfg(test)]
 fn embedded_selected_options_with_checkpoint(
     dom: &DomArena,
     root: NodeId,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<Vec<NodeId>, crate::dom::DomError> {
-    let root_is_combobox = computed_role_for_node_with_checkpoint(dom, root, check)? == "combobox";
-    let owners = accepted_aria_owners_with_checkpoint(dom, check)?;
-    let mut pending = vec![root];
-    let mut seen = BTreeSet::new();
-    let mut selected = Vec::new();
-    while let Some(id) = pending.pop() {
-        check()?;
-        if !seen.insert(id) {
-            continue;
-        }
-        let Ok(node) = dom.get(id) else {
-            continue;
-        };
-        if id != root && matches!(&node.kind, NodeKind::Element { .. }) {
-            let role = computed_role_for_node_with_checkpoint(dom, id, check)?;
-            if role == "option" {
-                if node
-                    .accessibility_attribute("aria-selected")
-                    .is_some_and(|value| value.eq_ignore_ascii_case("true"))
-                {
-                    selected.push(id);
-                }
-                continue;
-            }
-            if role == "combobox" || (role == "listbox" && !root_is_combobox) {
-                continue;
-            }
-        }
-        let mut children = Vec::new();
-        for child in accessible_children_with_checkpoint(dom, id, check)? {
-            check()?;
-            if !owners.contains_key(&child) {
-                children.push(child);
-            }
-        }
-        let mut children_seen = BTreeSet::new();
-        for child in &children {
-            check()?;
-            children_seen.insert(*child);
-        }
-        if let Some(owned) = dom.accessibility_relation_with_checkpoint(id, "aria-owns", check)? {
-            for child in owned {
-                check()?;
-                if owners.get(&child) == Some(&id) && children_seen.insert(child) {
-                    children.push(child);
-                }
-            }
-        }
-        for child in children.into_iter().rev() {
-            check()?;
-            pending.push(child);
-        }
-    }
-    Ok(selected)
+    shared_embedded_selected_options(dom, root, &mut OrdinarySemanticProducer, check)
 }
 
+#[cfg(test)]
 fn host_label_with_checkpoint(
     dom: &DomArena,
     id: NodeId,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<Option<(String, Vec<NodeId>)>, crate::dom::DomError> {
-    check()?;
-    if !dom.is_labelable(id) {
-        return Ok(None);
-    }
-    let Some(root) = tree_scope_with_checkpoint(dom, id, check)? else {
-        return Ok(None);
-    };
-    let mut labels = Vec::new();
-    let mut candidates = vec![root];
-    for child in descendants_with_checkpoint(dom, root, check)? {
-        check()?;
-        candidates.push(child);
-    }
-    for candidate in candidates {
-        check()?;
-        if tree_scope_with_checkpoint(dom, candidate, check)? == Some(root)
-            && cancellation_or_default(dom.label_control_with_checkpoint(candidate, check))?
-                == Some(id)
-        {
-            let text = normalize_text_with_checkpoint(
-                &accessible_text_content_excluding_with_checkpoint(
-                    dom,
-                    candidate,
-                    true,
-                    Some(id),
-                    check,
-                )?,
-                check,
-            )?;
-            labels.push((candidate, text));
-        }
-    }
-    if labels.is_empty() {
-        return Ok(None);
-    }
-    let mut parts = Vec::new();
-    let mut references = Vec::new();
-    for (label, text) in labels {
-        check()?;
-        references.push(label);
-        if !text.is_empty() {
-            parts.push(text);
-        }
-    }
-    Ok(Some((parts.join(" "), references)))
-}
-
-fn referenced_nodes_text_with_checkpoint(
-    dom: &DomArena,
-    targets: &[NodeId],
-    page_id: PageId,
-    document_generation: u64,
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<(String, Vec<SemanticRef>), crate::dom::DomError> {
-    let mut values = Vec::new();
-    let mut references = Vec::new();
-    for &id in targets {
-        check()?;
-        let explicit = dom
-            .get(id)
-            .ok()
-            .and_then(|node| node.accessibility_attribute("aria-label"))
-            .map(|label| normalize_text_with_checkpoint(label, check))
-            .transpose()?
-            .filter(|label| !label.is_empty());
-        let mut text = if let Some(label) = explicit {
-            label
-        } else if let Some((label, _)) = host_label_with_checkpoint(dom, id, check)? {
-            label
-        } else {
-            normalize_text_with_checkpoint(
-                &accessible_text_content_walk_with_checkpoint(
-                    dom,
-                    id,
-                    true,
-                    None,
-                    referenced_root_hidden_with_checkpoint(dom, id, check)?,
-                    &mut NameTraversal {
-                        seen: BTreeSet::new(),
-                        reference_depth: 1,
-                        ..Default::default()
-                    },
-                    check,
-                )?,
-                check,
-            )?
-        };
-        if text.is_empty() {
-            text = dom
-                .get(id)
-                .ok()
-                .and_then(|node| node.attributes.get_null("title"))
-                .map(|title| normalize_text_with_checkpoint(title, check))
-                .transpose()?
-                .unwrap_or_default();
-        }
-        if dom.get(id).is_ok() {
-            references.push(semantic_ref_for(id, page_id, document_generation));
-        }
-        if !text.is_empty() {
-            values.push(text);
-        }
-    }
-    Ok((values.join(" "), references))
+    shared_host_label_with_checkpoint(dom, id, &mut OrdinarySemanticProducer, check)
 }
 
 fn accessible_semantics_with_checkpoint(
@@ -956,322 +105,16 @@ fn accessible_semantics_with_checkpoint(
     document_generation: u64,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<AccessibleSemantics, crate::dom::DomError> {
-    check()?;
-    let Ok(node) = dom.get(id) else {
-        return Ok(AccessibleSemantics {
-            name: String::new(),
-            description: None,
-            provenance: Provenance::Heuristic { confidence: 0.0 },
-            evidence: Vec::new(),
-        });
-    };
-    let mut evidence = Vec::new();
-    let mut provenance = Provenance::BrowserDeterministic;
-    let name = if let Some(targets) = dom
-        .accessibility_relation_with_checkpoint(id, "aria-labelledby", check)?
-        .filter(|targets| !targets.is_empty())
-    {
-        let (value, references) = referenced_nodes_text_with_checkpoint(
-            dom,
-            &targets,
-            page_id,
-            document_generation,
-            check,
-        )?;
-        evidence.push(AccessibilityEvidence {
-            kind: AccessibilityEvidenceKind::ReferencedContent,
-            source: "aria-labelledby".into(),
-            references,
-        });
-        // A valid reference wins even when its text alternative is empty.
-        Some(value)
-    } else {
-        None
-    };
-    let name = if let Some(name) = name {
-        name
-    } else if let Some(label) = node
-        .accessibility_attribute("aria-label")
-        .map(|value| normalize_text_with_checkpoint(value, check))
-        .transpose()?
-        .filter(|value| !value.is_empty())
-    {
-        evidence.push(AccessibilityEvidence {
-            kind: AccessibilityEvidenceKind::ExplicitAria,
-            source: "aria-label".into(),
-            references: Vec::new(),
-        });
-        label
-    } else if let Some((label, references)) = host_label_with_checkpoint(dom, id, check)? {
-        evidence.push(AccessibilityEvidence {
-            kind: AccessibilityEvidenceKind::HostLanguage,
-            source: "label".into(),
-            references: references
-                .into_iter()
-                .map(|reference| semantic_ref_for(reference, page_id, document_generation))
-                .collect(),
-        });
-        label
-    } else if let Some((value, source)) =
-        host_language_name_with_checkpoint(dom, id, local_name, role, check)?
-    {
-        evidence.push(AccessibilityEvidence {
-            kind: AccessibilityEvidenceKind::HostLanguage,
-            source,
-            references: Vec::new(),
-        });
-        value
-    } else if let Some(title) = node
-        .attributes
-        .get_null("title")
-        .map(|value| normalize_text_with_checkpoint(value, check))
-        .transpose()?
-        .filter(|value| !value.is_empty())
-    {
-        evidence.push(AccessibilityEvidence {
-            kind: AccessibilityEvidenceKind::HostLanguage,
-            source: "title".into(),
-            references: Vec::new(),
-        });
-        title
-    } else if let Some(placeholder) = node
-        .attributes
-        .get_null("placeholder")
-        .map(|value| normalize_text_with_checkpoint(value, check))
-        .transpose()?
-        .filter(|value| !value.is_empty())
-    {
-        provenance = Provenance::Heuristic { confidence: 0.65 };
-        evidence.push(AccessibilityEvidence {
-            kind: AccessibilityEvidenceKind::PlaceholderFallback,
-            source: "placeholder".into(),
-            references: Vec::new(),
-        });
-        placeholder
-    } else {
-        String::new()
-    };
-
-    let description = if let Some(targets) = dom
-        .accessibility_relation_with_checkpoint(id, "aria-describedby", check)?
-        .filter(|targets| !targets.is_empty())
-    {
-        let (value, references) = referenced_nodes_text_with_checkpoint(
-            dom,
-            &targets,
-            page_id,
-            document_generation,
-            check,
-        )?;
-        if value.is_empty() {
-            None
-        } else {
-            evidence.push(AccessibilityEvidence {
-                kind: AccessibilityEvidenceKind::ReferencedContent,
-                source: "aria-describedby".into(),
-                references,
-            });
-            Some(value)
-        }
-    } else if let Some(value) = node
-        .accessibility_attribute("aria-description")
-        .map(|value| normalize_text_with_checkpoint(value, check))
-        .transpose()?
-        .filter(|value| !value.is_empty())
-    {
-        evidence.push(AccessibilityEvidence {
-            kind: AccessibilityEvidenceKind::ExplicitAria,
-            source: "aria-description".into(),
-            references: Vec::new(),
-        });
-        Some(value)
-    } else if let Some(value) = svg_child_alternative_with_checkpoint(dom, id, "desc", check)? {
-        evidence.push(AccessibilityEvidence {
-            kind: AccessibilityEvidenceKind::HostLanguage,
-            source: "svg-desc".into(),
-            references: Vec::new(),
-        });
-        Some(value)
-    } else {
-        // Tooltip text is a description only when it did not supply the name.
-        // Equal strings from independent naming sources still qualify.
-        let title_used_for_name = evidence.iter().any(|item| {
-            item.kind == AccessibilityEvidenceKind::HostLanguage && item.source == "title"
-        });
-        let title = node
-            .attributes
-            .get_null("title")
-            .map(|value| normalize_text_with_checkpoint(value, check))
-            .transpose()?
-            .filter(|value| !value.is_empty() && !title_used_for_name);
-        if title.is_some() {
-            evidence.push(AccessibilityEvidence {
-                kind: AccessibilityEvidenceKind::HostLanguage,
-                source: "title-description".into(),
-                references: Vec::new(),
-            });
-        }
-        title
-    };
-
-    Ok(AccessibleSemantics {
-        name,
-        description,
-        provenance,
-        evidence,
-    })
-}
-
-fn host_language_name_with_checkpoint(
-    dom: &DomArena,
-    id: NodeId,
-    local_name: &str,
-    role: &str,
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<Option<(String, String)>, crate::dom::DomError> {
-    check()?;
-    let Ok(node) = dom.get(id) else {
-        return Ok(None);
-    };
-    if let Some(title) = svg_child_alternative_with_checkpoint(dom, id, "title", check)? {
-        return Ok(Some((title, "svg-title".into())));
-    }
-    let html = matches!(&node.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/1999/xhtml");
-    let attribute = match if html { local_name } else { "" } {
-        "img" | "area" => Some(("alt", "alt")),
-        "input"
-            if node
-                .attributes
-                .get_null("type")
-                .is_some_and(|kind| kind.eq_ignore_ascii_case("image")) =>
-        {
-            Some(("alt", "input-alt"))
-        }
-        "input"
-            if node.attributes.get_null("type").is_some_and(|kind| {
-                matches!(
-                    kind.to_ascii_lowercase().as_str(),
-                    "button" | "submit" | "reset"
-                )
-            }) =>
-        {
-            Some(("value", "input-value"))
-        }
-        _ => None,
-    };
-    if let Some((attribute, source)) = attribute
-        && let Some(value) = (if attribute == "value" {
-            node.value
-                .as_ref()
-                .or_else(|| node.attributes.get_null(attribute))
-        } else {
-            node.attributes.get_null(attribute)
-        })
-    {
-        // An explicitly empty host-language alternative is authoritative and
-        // must suppress lower-priority title/placeholder fallbacks.
-        return Ok(Some((
-            normalize_text_with_checkpoint(value, check)?,
-            source.into(),
-        )));
-    }
-    if html
-        && local_name == "input"
-        && node
-            .attributes
-            .get_null("type")
-            .is_some_and(|kind| matches!(kind.to_ascii_lowercase().as_str(), "submit" | "reset"))
-    {
-        return Ok(Some((
-            if node
-                .attributes
-                .get_null("type")
-                .is_some_and(|kind| kind.eq_ignore_ascii_case("reset"))
-            {
-                "Reset"
-            } else {
-                "Submit"
-            }
-            .into(),
-            "input-default-value".into(),
-        )));
-    }
-    if html
-        && local_name == "img"
-        && node
-            .attributes
-            .get_null("title")
-            .map(|title| normalize_text_with_checkpoint(title, check)).transpose()?.is_none_or(|title| title.is_empty())
-        && let Some(parent)=node.parent.and_then(|parent|dom.get(parent).ok()).filter(|parent|matches!(&parent.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="figure")) {
-            let mut caption=None;let mut eligible=true;
-            for child in &parent.children {check()?;if *child==id{continue;}let Ok(child_node)=dom.get(*child)else{eligible=false;break;};match &child_node.kind{
-                NodeKind::Element{name} if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="figcaption"=>{if caption.replace(*child).is_some(){eligible=false;}},
-                NodeKind::Text{data}|NodeKind::CDataSection{data} if data.chars().all(|ch|matches!(ch,' '|'\t'|'\r'|'\n'|'\u{c}'))=>{},
-                NodeKind::Comment{..}=>{},_=>eligible=false,
-            }}
-            if eligible&& let Some(caption)=caption {return Ok(Some((normalize_text_with_checkpoint(&accessible_text_content_with_checkpoint(dom,caption,false,check)?, check)?,"figcaption-image".into())));}
-        }
-    let named_child = match if html { local_name } else { "" } {
-        "fieldset" => Some(("legend", "legend")),
-        "table" => Some(("caption", "caption")),
-        _ => None,
-    };
-    if let Some((child_name, source)) = named_child {
-        for child in &node.children {
-            check()?;
-            if dom.get(*child).is_ok_and(|node| matches!(&node.kind, NodeKind::Element { name }
-                if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == child_name))
-            {
-                let text = normalize_text_with_checkpoint(&accessible_text_content_with_checkpoint(dom, *child, false, check)?, check)?;
-                if !text.is_empty() { return Ok(Some((text, source.into()))); }
-                break;
-            }
-        }
-    }
-    // Name-from-heading selects the first exposed heading in depth-first
-    // flat-tree order. Dialogs and articles share this algorithm; looking only
-    // at immediate children would skip headings inside native layout wrappers.
-    if matches!(role, "article" | "dialog" | "alertdialog") {
-        let mut pending = accessible_children_with_checkpoint(dom, id, check)?;
-        pending.reverse();
-        let mut seen = BTreeSet::new();
-        while let Some(candidate) = pending.pop() {
-            check()?;
-            if !seen.insert(candidate) || subtree_excluded_at(dom, candidate) {
-                continue;
-            }
-            if !accessibility_hidden_at(dom, candidate)
-                && computed_role_for_node_with_checkpoint(dom, candidate, check)? == "heading"
-            {
-                let text = normalize_text_with_checkpoint(
-                    &accessible_text_content_with_checkpoint(dom, candidate, false, check)?,
-                    check,
-                )?;
-                if !text.is_empty() {
-                    return Ok(Some((text, "heading".into())));
-                }
-                break;
-            }
-            pending.extend(
-                accessible_children_with_checkpoint(dom, candidate, check)?
-                    .into_iter()
-                    .rev(),
-            );
-        }
-    }
-    if name_from_content(local_name, role)
-        || node.attributes.contains_null("onclick")
-        || node.event_listeners.contains("click")
-    {
-        let text = normalize_text_with_checkpoint(
-            &accessible_text_content_with_checkpoint(dom, id, true, check)?,
-            check,
-        )?;
-        if !text.is_empty() {
-            return Ok(Some((text, "text-content".into())));
-        }
-    }
-    Ok(None)
+    shared_accessible_semantics_with_checkpoint(
+        dom,
+        id,
+        local_name,
+        role,
+        page_id,
+        document_generation,
+        &mut OrdinarySemanticProducer,
+        check,
+    )
 }
 
 pub(crate) fn computed_role_for_node_with_checkpoint(
@@ -1279,246 +122,7 @@ pub(crate) fn computed_role_for_node_with_checkpoint(
     id: NodeId,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<String, crate::dom::DomError> {
-    check()?;
-    let role = unpromoted_role_for_node_with_checkpoint(dom, id, check)?;
-    if matches!(role.as_str(), "generic" | "none")
-        && dom.get(id).is_ok_and(|node| {
-            ["autofocus", "draggable", "popover"]
-                .iter()
-                .any(|attribute| node.attributes.contains_null(attribute))
-        })
-    {
-        Ok("group".into())
-    } else {
-        Ok(role)
-    }
-}
-fn unpromoted_role_for_node_with_checkpoint(
-    dom: &DomArena,
-    id: NodeId,
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<String, crate::dom::DomError> {
-    check()?;
-    let Ok(node) = dom.get(id) else {
-        return Ok("generic".into());
-    };
-    let NodeKind::Element { name } = &node.kind else {
-        return Ok("generic".into());
-    };
-    let local = name.local.as_ref();
-    let attributes = node.accessibility_attributes();
-    let base = computed_role(local, &attributes);
-    let explicit = attributes.get_null("role").and_then(|value| {
-        value
-            .split_ascii_whitespace()
-            .map(str::to_ascii_lowercase)
-            .find(|role| supported_aria_role(role))
-    });
-    if explicit
-        .as_deref()
-        .is_some_and(|role| !matches!(role, "none" | "presentation" | "form" | "region"))
-    {
-        return Ok(base);
-    }
-    let base = if matches!(explicit.as_deref(), Some("form" | "region")) {
-        if role_has_name_with_checkpoint(dom, id, local, &base, check)? {
-            return Ok(explicit.unwrap());
-        }
-        if let Some(fallback) = attributes.get_null("role").and_then(|roles| {
-            roles
-                .split_ascii_whitespace()
-                .map(str::to_ascii_lowercase)
-                .find(|role| {
-                    supported_aria_role(role) && !matches!(role.as_str(), "form" | "region")
-                })
-        }) {
-            return Ok(explicit_role_value(local, &attributes, fallback));
-        }
-        implicit_role(local, &attributes)
-    } else {
-        base.clone()
-    };
-    if matches!(explicit.as_deref(), Some("none" | "presentation")) && base == "none" {
-        return Ok(base);
-    }
-    if name.ns.as_ref() != "http://www.w3.org/1999/xhtml" {
-        return Ok(base);
-    }
-    // Native required-owned descendants inherit their container's effective
-    // presentation. Global ARIA properties on the descendant do not cancel
-    // inherited presentation; an explicit role or focusability does.
-    if attributes
-        .get_null("tabindex")
-        .is_none_or(|value| value.trim().parse::<i32>().is_err())
-        && let Some(parent) = node.parent
-    {
-        let required_parent = dom.get(parent).is_ok_and(|parent| match &parent.kind {
-            NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" => {
-                match local {
-                    "thead" | "tbody" | "tfoot" | "caption" => name.local.as_ref() == "table",
-                    "tr" => {
-                        matches!(name.local.as_ref(), "table" | "thead" | "tbody" | "tfoot")
-                    }
-                    "td" | "th" => name.local.as_ref() == "tr",
-                    _ => false,
-                }
-            }
-            _ => false,
-        });
-        if required_parent && computed_role_for_node_with_checkpoint(dom, parent, check)? == "none"
-        {
-            return Ok("none".into());
-        }
-    }
-    let mut sectioning = false;
-    let mut below_main = false;
-    for ancestor in cancellation_or_default(ancestors_with_checkpoint(dom, id, check))? {
-        check()?;
-        if let Ok(node) = dom.get(ancestor)
-            && let NodeKind::Element { name } = &node.kind
-            && name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
-        {
-            sectioning |= matches!(name.local.as_ref(), "article" | "aside" | "nav" | "section");
-            below_main |= name.local.as_ref() == "main";
-        }
-    }
-    let mut row_has_cell = false;
-    if local == "th"
-        && let Some(row) = node.parent.and_then(|parent| dom.get(parent).ok())
-    {
-        for child in &row.children {
-            check()?;
-            if dom.get(*child).is_ok_and(|node| matches!(&node.kind, NodeKind::Element { name }
-                if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "td")) {
-                row_has_cell = true;
-                break;
-            }
-        }
-    }
-    Ok(match local {
-        "th" if attributes.get_null("scope").is_none_or(|scope| {
-            !matches!(
-                scope.to_ascii_lowercase().as_str(),
-                "row" | "rowgroup" | "col" | "colgroup"
-            )
-        }) =>
-        {
-            if row_has_cell {
-                "rowheader".into()
-            } else {
-                "columnheader".into()
-            }
-        }
-        "li" => {
-            let mut cursor = accepted_aria_owners_with_checkpoint(dom, check)?
-                .get(&id)
-                .copied()
-                .or(node.parent);
-            let mut seen = BTreeSet::new();
-            while let Some(parent) = cursor {
-                check()?;
-                if !seen.insert(parent) {
-                    break;
-                }
-                let role = computed_role_for_node_with_checkpoint(dom, parent, check)?;
-                if role == "list" {
-                    return Ok("listitem".into());
-                }
-                if !matches!(role.as_str(), "generic" | "none") {
-                    break;
-                }
-                cursor = dom.get(parent).ok().and_then(|parent| parent.parent);
-            }
-            "generic".into()
-        }
-        "aside" if sectioning && !role_has_name_with_checkpoint(dom, id, local, &base, check)? => {
-            "generic".into()
-        }
-        "header" | "footer" if sectioning || below_main => {
-            if local == "header" {
-                "sectionheader".into()
-            } else {
-                "sectionfooter".into()
-            }
-        }
-        "section" => {
-            if role_has_name_with_checkpoint(dom, id, local, &base, check)? {
-                "region".into()
-            } else {
-                "generic".into()
-            }
-        }
-        "form" => {
-            if role_has_name_with_checkpoint(dom, id, local, &base, check)? {
-                "form".into()
-            } else {
-                "generic".into()
-            }
-        }
-        "img"
-            if attributes
-                .get_null("alt")
-                .map(|alt| normalize_text_with_checkpoint(alt, check))
-                .transpose()?
-                .is_some_and(|alt| alt.is_empty()) =>
-        {
-            if (attributes.contains_null("aria-label")
-                || dom
-                    .accessibility_relation_with_checkpoint(id, "aria-labelledby", check)?
-                    .is_some_and(|targets| !targets.is_empty()))
-                && role_has_name_with_checkpoint(dom, id, local, &base, check)?
-            {
-                "image".into()
-            } else {
-                "none".into()
-            }
-        }
-        "img"
-            if !["src", "srcset"].iter().any(|attribute| {
-                attributes
-                    .get_null(attribute)
-                    .is_some_and(|value| !value.is_empty())
-            }) && !role_has_name_with_checkpoint(dom, id, local, &base, check)? =>
-        {
-            "none".into()
-        }
-        "input"
-            if attributes
-                .get_null("type")
-                .is_some_and(|kind| kind.eq_ignore_ascii_case("checkbox"))
-                && attributes.contains_null("switch") =>
-        {
-            "switch".into()
-        }
-        _ => base,
-    })
-}
-
-fn role_has_name_with_checkpoint(
-    dom: &DomArena,
-    id: NodeId,
-    local: &str,
-    base: &str,
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<bool, crate::dom::DomError> {
-    let key = (dom as *const DomArena as usize, id);
-    if !ROLE_NAME_STACK.with(|stack| stack.borrow_mut().insert(key)) {
-        return Ok(false);
-    }
-    struct Guard((usize, NodeId));
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            ROLE_NAME_STACK.with(|stack| {
-                stack.borrow_mut().remove(&self.0);
-            });
-        }
-    }
-    let _guard = Guard(key);
-    Ok(
-        !accessible_semantics_with_checkpoint(dom, id, local, base, PageId(1), 1, check)?
-            .name
-            .is_empty(),
-    )
+    shared_role_for_node(dom, id, &mut OrdinarySemanticProducer, check)
 }
 
 pub fn project_element_with_checkpoint(
@@ -1549,397 +153,16 @@ fn project_element_with_visibility_and_checkpoint(
     bypass_visibility: bool,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<Option<SemanticNodeView>, crate::dom::DomError> {
-    check()?;
-    let Ok(node) = dom.get(id) else {
-        return Ok(None);
-    };
-    let NodeKind::Element { name } = &node.kind else {
-        return Ok(None);
-    };
-    let ancestors = match ancestors_with_checkpoint(dom, id, check) {
-        Ok(value) => value,
-        Err(crate::dom::DomError::ProjectionCancelled) => {
-            return Err(crate::dom::DomError::ProjectionCancelled);
-        }
-        Err(_) => return Ok(None),
-    };
-    let mut owner = id;
-    let mut owner_seen = BTreeSet::new();
-    loop {
-        check()?;
-        if !owner_seen.insert(owner) {
-            // Hosted-document cycles have no live browsing-context projection.
-            return Ok(None);
-        }
-        let Some(document) = cancellation_or_default(ancestors_with_checkpoint(dom, owner, check))?
-            .into_iter()
-            .find(|ancestor| {
-                dom.get(*ancestor)
-                    .is_ok_and(|node| matches!(node.kind, NodeKind::Document))
-            })
-        else {
-            return Ok(None);
-        };
-        if dom.document_is_retired(document) {
-            return Ok(None);
-        }
-        match dom.document_host(document) {
-            Some(frame) => owner = frame,
-            None => break,
-        }
-    }
-    if ancestors
-        .iter()
-        .any(|document| dom.document_is_retired(*document))
-    {
-        return Ok(None);
-    }
-    // Wrapper leases deliberately keep detached nodes alive, but detached
-    // records are not part of the document's semantic projection. Publishing
-    // them allowed OIL to resolve a freshly replaced list item to an old,
-    // disconnected NodeId and then correctly reject it as stale at dispatch.
-    if !ancestors.iter().any(|ancestor| {
-        matches!(
-            dom.get(*ancestor).ok().map(|node| &node.kind),
-            Some(NodeKind::Document)
-        )
-    }) {
-        return Ok(None);
-    }
-    if ancestors.iter().any(|ancestor| {
-        matches!(
-            dom.get(*ancestor).ok().map(|node| &node.kind),
-            Some(NodeKind::ShadowRoot {
-                mode: crate::dom::ShadowMode::Closed,
-                ..
-            })
-        )
-    }) {
-        return Ok(None);
-    }
-    let local_name = name.local.as_ref();
-    let parent = ancestors
-        .iter()
-        .copied()
-        .find_map(|ancestor| {
-            matches!(dom.get(ancestor).ok()?.kind, NodeKind::Element { .. }).then_some(
-                SemanticRef {
-                    page_id,
-                    document_generation,
-                    node: (u64::from(ancestor.generation) << 32) | u64::from(ancestor.slot),
-                },
-            )
-        })
-        .or_else(|| {
-            ancestors.iter().find_map(|document| {
-                let frame = dom.document_host(*document)?;
-                Some(SemanticRef {
-                    page_id,
-                    document_generation,
-                    node: (u64::from(frame.generation) << 32) | u64::from(frame.slot),
-                })
-            })
-        });
-    let role = computed_role_for_node_with_checkpoint(dom, id, check)?;
-    let mut accessible = accessible_semantics_with_checkpoint(
+    shared_project_element(
         dom,
         id,
-        local_name,
-        &role,
         page_id,
         document_generation,
-        check,
-    )?;
-    if accessible.name.is_empty() && matches!(role.as_str(), "status" | "alert" | "log") {
-        let text = normalize_text_with_checkpoint(
-            &accessible_text_content_with_checkpoint(dom, id, false, check)?,
-            check,
-        )?;
-        if !text.is_empty() {
-            // Compatibility observations historically surface live-region
-            // content as the node's agent-facing name. Contract v5 keeps the
-            // accessibility name and live content distinct.
-            accessible.name = text;
-            accessible.provenance = Provenance::Heuristic { confidence: 0.8 };
-        }
-    }
-    let accessible_name = accessible.name;
-    let input_kind = node
-        .attributes
-        .get_null("type")
-        .map(|kind| kind.to_ascii_lowercase())
-        .unwrap_or_else(|| "text".into());
-    let native_readonly = local_name == "textarea"
-        || (local_name == "input"
-            && !matches!(
-                input_kind.as_str(),
-                "hidden"
-                    | "range"
-                    | "color"
-                    | "checkbox"
-                    | "radio"
-                    | "file"
-                    | "button"
-                    | "submit"
-                    | "reset"
-                    | "image"
-            ));
-    let mut actions = BTreeSet::new();
-    let mut states = BTreeSet::new();
-    if is_hidden_with_checkpoint(dom, id, check)? {
-        states.insert(NodeState::Hidden);
-    } else {
-        states.insert(NodeState::Visible);
-    }
-    for (present, state) in [
-        (
-            node.attributes.contains_null("disabled")
-                || aria_true(&node.accessibility_attributes(), "aria-disabled"),
-            NodeState::Disabled,
-        ),
-        (
-            node.attributes.contains_null("required")
-                || aria_true(&node.accessibility_attributes(), "aria-required"),
-            NodeState::Required,
-        ),
-        (
-            (native_readonly && node.attributes.contains_null("readonly"))
-                || accessibility_readonly_with_checkpoint(dom, id, check)?,
-            NodeState::Readonly,
-        ),
-        (
-            node.attributes.contains_null("data-oryn-focused"),
-            NodeState::Focused,
-        ),
-        (
-            node.checked() || aria_true(&node.accessibility_attributes(), "aria-checked"),
-            NodeState::Checked,
-        ),
-        (
-            node.attributes.contains_null("selected")
-                || aria_true(&node.accessibility_attributes(), "aria-selected"),
-            NodeState::Selected,
-        ),
-        (
-            aria_true(&node.accessibility_attributes(), "aria-expanded")
-                || (local_name == "details" && node.attributes.contains_null("open")),
-            NodeState::Expanded,
-        ),
-    ] {
-        if present {
-            states.insert(state);
-        }
-    }
-    if !states.contains(&NodeState::Disabled)
-        && (bypass_visibility || !states.contains(&NodeState::Hidden))
-    {
-        if node
-            .attributes
-            .get_null("tabindex")
-            .is_some_and(|value| value.trim().parse::<i32>().is_ok())
-            || node
-                .attributes
-                .get_null("contenteditable")
-                .is_some_and(|value| {
-                    value.is_empty()
-                        || value.eq_ignore_ascii_case("true")
-                        || value.eq_ignore_ascii_case("plaintext-only")
-                })
-        {
-            actions.insert(SemanticAction::Focus);
-        }
-        if matches!(local_name, "button" | "a") {
-            actions.extend([
-                SemanticAction::Click,
-                SemanticAction::Focus,
-                SemanticAction::Hover,
-            ]);
-        }
-        if local_name == "textarea" {
-            if !states.contains(&NodeState::Readonly) {
-                actions.extend([SemanticAction::Type, SemanticAction::Clear]);
-            }
-            actions.extend([
-                SemanticAction::Click,
-                SemanticAction::Focus,
-                SemanticAction::Hover,
-            ]);
-        }
-        if local_name == "input" {
-            match Some(input_kind.as_str()) {
-                Some("checkbox" | "radio") => actions.extend([
-                    SemanticAction::Click,
-                    SemanticAction::Check,
-                    SemanticAction::Uncheck,
-                ]),
-                Some("button" | "submit" | "reset" | "image" | "file") => {
-                    actions.insert(SemanticAction::Click);
-                }
-                _ if !states.contains(&NodeState::Readonly) => {
-                    actions.extend([SemanticAction::Type, SemanticAction::Clear]);
-                }
-                _ => {}
-            }
-            actions.extend([
-                SemanticAction::Click,
-                SemanticAction::Focus,
-                SemanticAction::Hover,
-            ]);
-        }
-        if local_name == "select" {
-            actions.extend([
-                SemanticAction::Click,
-                SemanticAction::Select,
-                SemanticAction::Focus,
-            ]);
-        }
-        // A visible label that wraps a visually-hidden checkbox or radio is
-        // the actual pointer affordance used by many component libraries.
-        // Keep the hidden control out of the compact visual projection, but
-        // expose the label as clickable so OIL does not resolve its text-only
-        // descendant and then report a non-actionable alias.
-        if local_name == "label"
-            && descendants_with_checkpoint(dom, id, check)?
-                .into_iter()
-                .any(|input| {
-                    dom.get(input).is_ok_and(|input| {
-                matches!(&input.kind, NodeKind::Element { name } if name.local.as_ref() == "input")
-                    && input.attributes.get_null("type").is_some_and(|kind| {
-                        kind.eq_ignore_ascii_case("checkbox") || kind.eq_ignore_ascii_case("radio")
-                    })
-            })
-                })
-        {
-            actions.extend([SemanticAction::Click, SemanticAction::Focus]);
-        }
-        if local_name == "form"
-            || matches!(
-                node.attributes.get_null("type").map(String::as_str),
-                Some("submit")
-            )
-        {
-            actions.insert(SemanticAction::Submit);
-        }
-        if node.attributes.contains_null("onclick") || node.event_listeners.contains("click") {
-            actions.extend([SemanticAction::Click, SemanticAction::Focus]);
-        }
-        match role.as_str() {
-            "button" | "tab" | "menuitem" | "treeitem" | "link" | "option" => {
-                actions.extend([SemanticAction::Click, SemanticAction::Focus]);
-            }
-            "checkbox" | "radio" | "switch" | "menuitemcheckbox" | "menuitemradio" => {
-                actions.extend([
-                    SemanticAction::Click,
-                    SemanticAction::Check,
-                    SemanticAction::Uncheck,
-                    SemanticAction::Focus,
-                ]);
-            }
-            "textbox" | "searchbox" => {
-                if !states.contains(&NodeState::Readonly) {
-                    actions.extend([SemanticAction::Type, SemanticAction::Clear]);
-                }
-                actions.extend([SemanticAction::Click, SemanticAction::Focus]);
-            }
-            "combobox" | "listbox" | "radiogroup" => {
-                actions.extend([
-                    SemanticAction::Click,
-                    SemanticAction::Select,
-                    SemanticAction::Focus,
-                ]);
-            }
-            "slider" | "spinbutton" | "gridcell" | "columnheader" | "rowheader" => {
-                if !states.contains(&NodeState::Readonly) {
-                    actions.insert(SemanticAction::Type);
-                }
-                actions.extend([SemanticAction::Click, SemanticAction::Focus]);
-            }
-            _ => {}
-        }
-    }
-    let description = accessible.description;
-    Ok(Some(SemanticNodeView {
-        validation: None,
-        semantic_ref: SemanticRef {
-            page_id,
-            document_generation,
-            node: (u64::from(id.generation) << 32) | u64::from(id.slot),
-        },
-        parent,
-        document_order: id.slot,
         alias,
-        role,
-        name: accessible_name,
-        selector: node
-            .attributes
-            .get_null("id")
-            .map(|id| format!("#{id}"))
-            .or_else(|| {
-                node.attributes
-                    .get_null("data-testid")
-                    .map(|value| format!(r#"[data-testid="{value}"]"#))
-            }),
-        value: if node.sensitive_value
-            || (local_name == "input"
-                && node
-                    .attributes
-                    .get_null("type")
-                    .is_some_and(|kind| kind.eq_ignore_ascii_case("password")))
-        {
-            (node.value.is_some() || node.sensitive_value).then(|| "[REDACTED]".into())
-        } else {
-            node.value
-                .clone()
-                .or_else(|| node.attributes.get_null("value").cloned())
-        },
-        description,
-        states,
-        actions,
-        content_trust: ContentTrust::PageAuthored,
-        // This projection currently has node-level provenance. Accessible-name
-        // fallback and visibility both use deliberately bounded heuristics, so
-        // the whole node must be conservatively labelled until field-level
-        // provenance is introduced.
-        provenance: accessible.provenance,
-    }))
-}
-
-fn target_content_text_with_checkpoint(
-    dom: &DomArena,
-    root: NodeId,
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<String, crate::dom::DomError> {
-    let mut pending = accessible_children_with_checkpoint(dom, root, check)?;
-    pending.reverse();
-    let mut seen = BTreeSet::new();
-    let mut parts = Vec::new();
-    while let Some(id) = pending.pop() {
-        check()?;
-        if !seen.insert(id) || is_hidden_with_checkpoint(dom, id, check)? {
-            continue;
-        }
-        let Ok(node) = dom.get(id) else {
-            continue;
-        };
-        match &node.kind {
-            NodeKind::Text { data } => parts.push(data.clone()),
-            NodeKind::Element { name }
-                if matches!(
-                    name.local.as_ref(),
-                    "input" | "textarea" | "select" | "script" | "style" | "template"
-                ) => {}
-            _ => {
-                for child in accessible_children_with_checkpoint(dom, id, check)?
-                    .into_iter()
-                    .rev()
-                {
-                    check()?;
-                    pending.push(child);
-                }
-            }
-        }
-    }
-    normalize_text_with_checkpoint(&parts.join(" "), check)
+        bypass_visibility,
+        &mut OrdinarySemanticProducer,
+        check,
+    )
 }
 
 fn aria_owned_target_is_exposable_with_checkpoint(
@@ -1948,7 +171,7 @@ fn aria_owned_target_is_exposable_with_checkpoint(
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<bool, crate::dom::DomError> {
     check()?;
-    if dom.get(target).is_err() || accessibility_hidden_at(dom, target) {
+    if dom.get(target).is_err() || accessibility_hidden_at_with_checkpoint(dom, target, check)? {
         return Ok(false);
     }
     for ancestor in cancellation_or_default(ancestors_with_checkpoint(dom, target, check))? {
@@ -1962,15 +185,27 @@ fn aria_owned_target_is_exposable_with_checkpoint(
             }
             continue;
         }
-        if node.attributes.contains_null("hidden") {
+        if node
+            .attributes
+            .contains_null_with_checkpoint("hidden", check)?
+        {
             return Ok(false);
         }
-        if let Some(style) = node.attributes.get_null("style") {
-            for declaration in style.split(';') {
+        if let Some(style) = node.attributes.get_null_with_checkpoint("style", check)? {
+            for declaration in checked_name_tokens(style, |character| character == ';', check)? {
                 check()?;
-                if let Some((name, value)) = declaration.split_once(':') {
-                    let name = name.trim().to_ascii_lowercase();
-                    let value = value.trim().to_ascii_lowercase();
+                let tokens = checked_name_tokens(declaration, |character| character == ':', check)?;
+                if tokens.len() > 1 {
+                    let name = tokens[0];
+                    let value = &declaration[name.len() + 1..];
+                    let name = naming_ascii_lowercase_with_checkpoint(
+                        naming_trim_with_checkpoint(name, check)?,
+                        check,
+                    )?;
+                    let value = naming_ascii_lowercase_with_checkpoint(
+                        naming_trim_with_checkpoint(value, check)?,
+                        check,
+                    )?;
                     if (name == "display" && value == "none")
                         || (name == "visibility" && matches!(value.as_str(), "hidden" | "collapse"))
                     {
@@ -1988,42 +223,7 @@ pub(crate) fn accessibility_readonly_with_checkpoint(
     id: NodeId,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<bool, crate::dom::DomError> {
-    check()?;
-    let Ok(node) = dom.get(id) else {
-        return Ok(true);
-    };
-    if let Some(value) = node.accessibility_attribute("aria-readonly") {
-        return Ok(value.eq_ignore_ascii_case("true"));
-    }
-    if matches!(
-        computed_role_for_node_with_checkpoint(dom, id, check)?.as_str(),
-        "gridcell" | "columnheader" | "rowheader"
-    ) {
-        let owners = accepted_aria_owners_with_checkpoint(dom, check)?;
-        let mut cursor = owners.get(&id).copied().or(node.parent);
-        let mut seen = BTreeSet::from([id]);
-        while let Some(parent) = cursor {
-            check()?;
-            if !seen.insert(parent) {
-                break;
-            }
-            if matches!(
-                computed_role_for_node_with_checkpoint(dom, parent, check)?.as_str(),
-                "grid" | "treegrid"
-            ) {
-                return Ok(dom.get(parent).is_ok_and(|parent| {
-                    parent
-                        .accessibility_attribute("aria-readonly")
-                        .is_some_and(|value| value.eq_ignore_ascii_case("true"))
-                }));
-            }
-            cursor = owners
-                .get(&parent)
-                .copied()
-                .or_else(|| dom.get(parent).ok().and_then(|node| node.parent));
-        }
-    }
-    Ok(false)
+    shared_accessibility_readonly(dom, id, &mut OrdinarySemanticProducer, check)
 }
 
 pub(crate) fn is_hidden_with_checkpoint(
@@ -2031,218 +231,17 @@ pub(crate) fn is_hidden_with_checkpoint(
     id: NodeId,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<bool, crate::dom::DomError> {
-    let mut lineage = vec![id];
-    for ancestor in cancellation_or_default(ancestors_with_checkpoint(dom, id, check))? {
-        check()?;
-        lineage.push(ancestor);
-    }
-    if let Some((_, visibility_hidden)) = dom.accessibility_computed_visibility(id) {
-        if visibility_hidden {
-            return Ok(true);
-        }
-        for candidate in lineage {
-            check()?;
-            if subtree_excluded_at(dom, candidate) {
-                return Ok(true);
-            }
-        }
-        return Ok(false);
-    }
-    let mut rules = Vec::new();
-    {
-        let mut cursor = 0usize;
-        while let Some((style_id, node)) = dom.next_with_checkpoint(&mut cursor, check)? {
-            check()?;
-            if !matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "style") {
-                continue;
-            }
-            let sheet = cancellation_or_default(dom.text_content_with_checkpoint(style_id, check))?;
-            let sheet = strip_css_comments_with_checkpoint(&sheet, check)?;
-            for rule in sheet.split('}') {
-                check()?;
-                if let Some((selectors, declarations)) = rule.split_once('{') {
-                    for selector in selectors.split(',') {
-                        check()?;
-                        rules.push((selector.trim().to_owned(), declarations.to_owned()));
-                    }
-                }
-            }
-        }
-    }
-    for candidate in lineage {
-        check()?;
-        let Ok(node) = dom.get(candidate) else {
-            continue;
-        };
-        if node.attributes.contains_null("hidden")
-            || node
-                .accessibility_attribute("aria-hidden")
-                .is_some_and(|value| value.eq_ignore_ascii_case("true"))
-        {
-            return Ok(true);
-        }
-        let mut hidden = None;
-        for (selector, declarations) in &rules {
-            check()?;
-            if matches_selector_with_checkpoint(dom, candidate, selector, check)? {
-                update_visibility(&mut hidden, declarations);
-            }
-        }
-        if let Some(style) = node.attributes.get_null("style") {
-            update_visibility(&mut hidden, style);
-        }
-        if hidden.unwrap_or(false) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    shared_is_hidden(dom, id, &mut OrdinarySemanticProducer, check)
 }
 
-fn matches_selector_with_checkpoint(
-    dom: &DomArena,
-    id: NodeId,
-    selector: &str,
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<bool, crate::dom::DomError> {
-    let mut segments = Vec::new();
-    for segment in selector.split_whitespace() {
-        check()?;
-        if segment != ">" {
-            segments.push(segment);
-        }
-    }
-    let Some(subject) = segments.last() else {
-        return Ok(false);
-    };
-    let Ok(node) = dom.get(id) else {
-        return Ok(false);
-    };
-    if !matches_simple_selector_with_checkpoint(node, subject, check)? {
-        return Ok(false);
-    }
-    let ancestors = cancellation_or_default(ancestors_with_checkpoint(dom, id, check))?;
-    let mut index = 0;
-    for segment in segments[..segments.len() - 1].iter().rev() {
-        check()?;
-        let mut found = false;
-        while index < ancestors.len() {
-            check()?;
-            let ancestor = ancestors[index];
-            index += 1;
-            if let Ok(node) = dom.get(ancestor)
-                && matches_simple_selector_with_checkpoint(node, segment, check)?
-            {
-                found = true;
-                break;
-            }
-        }
-        if !found {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
+#[cfg(any(test, feature = "semantic-oracle"))]
 fn tree_exclusion_reason_with_checkpoint(
     dom: &DomArena,
     id: NodeId,
     role: &str,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<Option<String>, crate::dom::DomError> {
-    check()?;
-    let Ok(node) = dom.get(id) else {
-        return Ok(None);
-    };
-    if matches!(role, "none" | "presentation") {
-        return Ok(Some("presentational_role".into()));
-    }
-    if matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "input")
-        && node
-            .attributes
-            .get_null("type")
-            .is_some_and(|value| value.eq_ignore_ascii_case("hidden"))
-    {
-        return Ok(Some("hidden_input".into()));
-    }
-    let mut lineage = vec![id];
-    for ancestor in cancellation_or_default(ancestors_with_checkpoint(dom, id, check))? {
-        check()?;
-        lineage.push(ancestor);
-    }
-    for candidate in &lineage {
-        check()?;
-        if dom
-            .get(*candidate)
-            .is_ok_and(|node| node.attributes.contains_null("inert"))
-        {
-            return Ok(Some("inert_subtree".into()));
-        }
-    }
-    let document = lineage.iter().copied().find(|candidate| {
-        dom.get(*candidate)
-            .is_ok_and(|node| matches!(node.kind, NodeKind::Document))
-    });
-    if let Some(document) = document {
-        let mut candidates = vec![document];
-        for descendant in descendants_with_checkpoint(dom, document, check)? {
-            check()?;
-            candidates.push(descendant);
-        }
-        let mut modal = None;
-        for candidate in candidates.into_iter().rev() {
-            check()?;
-            if dom.get(candidate).is_ok_and(|node| {
-                node.accessibility_attribute("aria-modal")
-                    .is_some_and(|value| value.eq_ignore_ascii_case("true"))
-            }) && !is_hidden_with_checkpoint(dom, candidate, check)?
-                && matches!(
-                    computed_role_for_node_with_checkpoint(dom, candidate, check)?.as_str(),
-                    "dialog" | "alertdialog"
-                )
-            {
-                modal = Some(candidate);
-                break;
-            }
-        }
-        if let Some(modal) = modal {
-            let owners = accepted_aria_owners_with_checkpoint(dom, check)?;
-            if !naming_accessibility_ancestors_with_checkpoint(dom, id, &owners, check)?
-                .contains(&modal)
-                && id != modal
-                && !naming_accessibility_ancestors_with_checkpoint(dom, modal, &owners, check)?
-                    .contains(&id)
-            {
-                return Ok(Some("aria_modal_scope".into()));
-            }
-        }
-    }
-    Ok(is_hidden_with_checkpoint(dom, id, check)?.then_some("hidden_subtree".into()))
-}
-
-fn naming_accessibility_ancestors_with_checkpoint(
-    dom: &DomArena,
-    id: NodeId,
-    owners: &BTreeMap<NodeId, NodeId>,
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<Vec<NodeId>, crate::dom::DomError> {
-    let mut result = Vec::new();
-    let mut seen = BTreeSet::from([id]);
-    let mut cursor = owners
-        .get(&id)
-        .copied()
-        .or_else(|| dom.get(id).ok().and_then(|node| node.parent));
-    while let Some(parent) = cursor {
-        check()?;
-        if !seen.insert(parent) {
-            break;
-        }
-        result.push(parent);
-        cursor = owners
-            .get(&parent)
-            .copied()
-            .or_else(|| dom.get(parent).ok().and_then(|node| node.parent));
-    }
-    Ok(result)
+    shared_tree_exclusion(dom, id, role, &mut OrdinarySemanticProducer, check)
 }
 
 fn find_element_by_id_scoped_with_checkpoint(
@@ -2262,10 +261,14 @@ fn find_element_by_id_scoped_with_checkpoint(
     for candidate in candidates {
         check()?;
         if tree_scope_with_checkpoint(dom, candidate, check)? == Some(scope)
-            && dom.get(candidate).is_ok_and(|node| {
-                matches!(node.kind, NodeKind::Element { .. })
-                    && node.attributes.get_null("id").is_some_and(|id| id == value)
-            })
+            && let Ok(node) = dom.get(candidate)
+            && matches!(node.kind, NodeKind::Element { .. })
+            && node
+                .attributes
+                .get_null_with_checkpoint("id", check)?
+                .map(|id| naming_equal_with_checkpoint(id, value, check))
+                .transpose()?
+                .unwrap_or(false)
         {
             return Ok(Some(candidate));
         }
@@ -2273,6 +276,7 @@ fn find_element_by_id_scoped_with_checkpoint(
     Ok(None)
 }
 
+#[cfg(any(test, feature = "semantic-oracle"))]
 fn accessibility_relationships_with_checkpoint(
     dom: &DomArena,
     source: NodeId,
@@ -2282,45 +286,19 @@ fn accessibility_relationships_with_checkpoint(
     diagnostics: &mut Vec<String>,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<BTreeMap<AccessibilityRelation, Vec<SemanticRef>>, crate::dom::DomError> {
-    let mut relationships = BTreeMap::new();
-    for (attribute, relation) in [
-        ("aria-labelledby", AccessibilityRelation::LabelledBy),
-        ("aria-describedby", AccessibilityRelation::DescribedBy),
-        ("aria-controls", AccessibilityRelation::Controls),
-        ("aria-owns", AccessibilityRelation::Owns),
-        (
-            "aria-activedescendant",
-            AccessibilityRelation::ActiveDescendant,
-        ),
-        ("aria-details", AccessibilityRelation::Details),
-        ("aria-errormessage", AccessibilityRelation::ErrorMessage),
-        ("aria-flowto", AccessibilityRelation::FlowTo),
-    ] {
-        check()?;
-        if node.explicit_accessibility_references(attribute).is_none()
-            && let Some(idrefs) = node.attributes.get_null(attribute)
-        {
-            for idref in idrefs.split_whitespace() {
-                check()?;
-                if find_element_by_id_scoped_with_checkpoint(dom, source, idref, check)?.is_none() {
-                    diagnostics.push(format!("{attribute} references missing id {idref:?}"));
-                }
-            }
-        }
-        if let Some(nodes) = dom.accessibility_relation_with_checkpoint(source, attribute, check)? {
-            let mut targets = Vec::new();
-            for id in nodes {
-                check()?;
-                targets.push(semantic_ref_for(id, page_id, document_generation));
-            }
-            if !targets.is_empty() {
-                relationships.insert(relation, targets);
-            }
-        }
-    }
-    Ok(relationships)
+    shared_accessibility_relationships(
+        dom,
+        source,
+        node,
+        page_id,
+        document_generation,
+        diagnostics,
+        &mut OrdinarySemanticProducer,
+        check,
+    )
 }
 
+#[cfg(any(test, feature = "semantic-oracle"))]
 fn accessibility_properties_with_checkpoint(
     dom: &DomArena,
     id: NodeId,
@@ -2328,359 +306,14 @@ fn accessibility_properties_with_checkpoint(
     node: &crate::dom::Node,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<BTreeMap<String, serde_json::Value>, crate::dom::DomError> {
-    check()?;
-    let effective_attributes = node.accessibility_attributes();
-    let attributes = &effective_attributes;
-    let mut properties = BTreeMap::new();
-    for attribute in [
-        "aria-expanded",
-        "aria-checked",
-        "aria-selected",
-        "aria-disabled",
-        "aria-required",
-        "aria-readonly",
-        "aria-pressed",
-        "aria-current",
-        "aria-invalid",
-        "aria-busy",
-        "aria-modal",
-        "aria-multiline",
-        "aria-orientation",
-        "aria-level",
-        "aria-posinset",
-        "aria-setsize",
-        "aria-rowcount",
-        "aria-colcount",
-        "aria-rowindex",
-        "aria-colindex",
-        "aria-rowspan",
-        "aria-colspan",
-        "aria-live",
-        "aria-atomic",
-        "aria-relevant",
-        "aria-roledescription",
-        "aria-valuetext",
-        "aria-haspopup",
-    ] {
-        if let Some(value) = attributes.get_null(attribute) {
-            properties.insert(
-                attribute.trim_start_matches("aria-").replace('-', "_"),
-                semantic_property_value(value),
-            );
-        }
-    }
-    for attribute in ["aria-valuetext", "aria-roledescription"] {
-        if let Some(value) = attributes.get_null(attribute) {
-            properties.insert(
-                attribute.trim_start_matches("aria-").into(),
-                serde_json::Value::String(value.clone()),
-            );
-        }
-    }
-    for attribute in ["aria-valuemin", "aria-valuemax", "aria-valuenow"] {
-        if let Some(value) = attributes
-            .get_null(attribute)
-            .and_then(|value| oryn_dom::parse_html_floating_point(value))
-            .and_then(serde_json::Number::from_f64)
-        {
-            properties.insert(
-                attribute.trim_start_matches("aria-").into(),
-                serde_json::Value::Number(value),
-            );
-        }
-    }
-    if let Some(value) = attributes
-        .get_null("placeholder")
-        .or_else(|| attributes.get_null("aria-placeholder"))
-    {
-        properties.insert("placeholder".into(), serde_json::json!(value));
-    }
-    if attributes
-        .get_null("aria-invalid")
-        .is_some_and(|value| !value.is_empty() && !value.eq_ignore_ascii_case("false"))
-        && let Some(targets) =
-            dom.accessibility_relation_with_checkpoint(id, "aria-errormessage", check)?
-    {
-        let mut visible_targets = Vec::new();
-        for target in targets {
-            check()?;
-            if !is_hidden_with_checkpoint(dom, target, check)? {
-                visible_targets.push(target);
-            }
-        }
-        let (message, _) =
-            referenced_nodes_text_with_checkpoint(dom, &visible_targets, PageId(1), 1, check)?;
-        if !message.is_empty() {
-            properties.insert("validation_error".into(), serde_json::json!(message));
-        }
-    }
-    let role = computed_role_for_node_with_checkpoint(dom, id, check)?;
-    if matches!(
-        role.as_str(),
-        "slider" | "scrollbar" | "separator" | "spinbutton"
-    ) {
-        let spin = role == "spinbutton";
-        let minimum = properties
-            .get("valuemin")
-            .and_then(serde_json::Value::as_f64)
-            .unwrap_or(if spin { -9007199254740992. } else { 0. });
-        let maximum = properties
-            .get("valuemax")
-            .and_then(serde_json::Value::as_f64)
-            .unwrap_or(if spin { 9007199254740992. } else { 100. });
-        let current = properties
-            .get("valuenow")
-            .and_then(serde_json::Value::as_f64)
-            .unwrap_or_else(|| {
-                if spin {
-                    0.
-                } else if maximum < minimum {
-                    minimum
-                } else {
-                    minimum / 2. + maximum / 2.
-                }
-            });
-        for (key, value) in [
-            ("valuemin", minimum),
-            ("valuemax", maximum),
-            ("valuenow", current),
-        ] {
-            properties.insert(key.into(), serde_json::json!(value));
-        }
-    }
-    if accessibility_readonly_with_checkpoint(dom, id, check)? {
-        properties.insert("readonly".into(), serde_json::json!(true));
-    }
-    if matches!(
-        role.as_str(),
-        "checkbox" | "menuitemcheckbox" | "radio" | "menuitemradio" | "switch"
-    ) {
-        let value = attributes
-            .get_null("aria-checked")
-            .map(|value| value.to_ascii_lowercase());
-        let checked = match value.as_deref() {
-            Some("true") => serde_json::Value::Bool(true),
-            Some("mixed") if matches!(role.as_str(), "checkbox" | "menuitemcheckbox") => {
-                serde_json::json!("mixed")
-            }
-            _ => serde_json::Value::Bool(false),
-        };
-        properties.insert("checked".into(), checked);
-    }
-    if role == "button" {
-        let pressed = match attributes
-            .get_null("aria-pressed")
-            .map(|value| value.to_ascii_lowercase())
-            .as_deref()
-        {
-            Some("true") => serde_json::Value::Bool(true),
-            Some("false") => serde_json::Value::Bool(false),
-            Some("mixed") => serde_json::json!("mixed"),
-            _ => serde_json::json!("undefined"),
-        };
-        properties.insert("pressed".into(), pressed);
-    }
-    if local_name == "input"
-        && attributes.get_null("type").is_some_and(|kind| {
-            kind.eq_ignore_ascii_case("checkbox") || kind.eq_ignore_ascii_case("radio")
-        })
-    {
-        properties.insert(
-            "checked".into(),
-            if node.indeterminate
-                && attributes
-                    .get_null("type")
-                    .is_some_and(|kind| kind.eq_ignore_ascii_case("checkbox"))
-            {
-                serde_json::Value::String("mixed".into())
-            } else {
-                serde_json::Value::Bool(node.checked())
-            },
-        );
-    }
-    for attribute in [
-        "disabled", "required", "readonly", "checked", "selected", "open",
-    ] {
-        let kind = attributes
-            .get_null("type")
-            .map(|kind| kind.to_ascii_lowercase())
-            .unwrap_or_else(|| "text".into());
-        let applicable = match attribute {
-            "readonly" => {
-                local_name == "textarea"
-                    || (local_name == "input"
-                        && !matches!(
-                            kind.as_str(),
-                            "hidden"
-                                | "range"
-                                | "color"
-                                | "checkbox"
-                                | "radio"
-                                | "file"
-                                | "button"
-                                | "submit"
-                                | "reset"
-                                | "image"
-                        ))
-            }
-            "required" => {
-                matches!(local_name, "textarea" | "select")
-                    || (local_name == "input"
-                        && !matches!(
-                            kind.as_str(),
-                            "hidden" | "range" | "color" | "button" | "submit" | "reset" | "image"
-                        ))
-            }
-            "checked" => local_name == "input" && matches!(kind.as_str(), "checkbox" | "radio"),
-            "selected" => local_name == "option",
-            "open" => matches!(local_name, "details" | "dialog"),
-            "disabled" => matches!(
-                local_name,
-                "input" | "button" | "select" | "textarea" | "fieldset" | "optgroup" | "option"
-            ),
-            _ => false,
-        };
-        if applicable && attributes.contains_null(attribute) {
-            properties
-                .entry(attribute.into())
-                .or_insert(serde_json::Value::Bool(true));
-        }
-    }
-    if local_name == "table" {
-        properties.insert("native_table".into(), serde_json::Value::Bool(true));
-        let span = |node: &crate::dom::Node| {
-            node.attributes
-                .get_null("span")
-                .and_then(|value| value.parse::<u64>().ok())
-                .filter(|span| *span > 0)
-                .unwrap_or(1)
-                .min(1000)
-        };
-        let mut groups = Vec::new();
-        let mut start = 0u64;
-        for child in &node.children {
-            check()?;
-            let Ok(group) = dom.get(*child) else {
-                continue;
-            };
-            if !matches!(&group.kind,NodeKind::Element{name} if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="colgroup")
-            {
-                continue;
-            }
-            let mut columns = Vec::new();
-            for child in &group.children {
-                check()?;
-                if let Ok(column) = dom.get(*child)
-                    && matches!(&column.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "col")
-                {
-                    columns.push(column);
-                }
-            }
-            let width = if columns.is_empty() {
-                span(group)
-            } else {
-                let mut width = 0;
-                for column in columns {
-                    check()?;
-                    width += span(column);
-                }
-                width
-            };
-            groups.push(serde_json::json!([start, width]));
-            start = start.saturating_add(width);
-        }
-        if !groups.is_empty() {
-            properties.insert(
-                "native_column_groups".into(),
-                serde_json::Value::Array(groups),
-            );
-        }
-    }
-    if matches!(local_name, "td" | "th") {
-        properties.insert(
-            "native_header".into(),
-            serde_json::Value::Bool(local_name == "th"),
-        );
-        let mut empty = true;
-        for child in &node.children {
-            check()?;
-            let Ok(child) = dom.get(*child) else {
-                empty = false;
-                break;
-            };
-            match &child.kind {
-                NodeKind::Element { .. } => {
-                    empty = false;
-                    break;
-                }
-                NodeKind::Text { data } | NodeKind::CDataSection { data } => {
-                    for ch in data.chars() {
-                        check()?;
-                        if !matches!(ch, '\t' | '\n' | '\u{c}' | '\r' | ' ') {
-                            empty = false;
-                            break;
-                        }
-                    }
-                }
-                _ => {}
-            }
-            if !empty {
-                break;
-            }
-        }
-        properties.insert("native_empty_cell".into(), serde_json::Value::Bool(empty));
-        if let Some(headers) = attributes.get_null("headers") {
-            let mut targets = Vec::new();
-            for token in headers.split_ascii_whitespace() {
-                check()?;
-                if let Some(target) = find_element_by_id_scoped_with_checkpoint(dom, id, token, check)?
-                    && target != id && dom.get(target).is_ok_and(|node| matches!(&node.kind, NodeKind::Element { name }
-                        if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && matches!(name.local.as_ref(), "td" | "th")))
-                { targets.push((u64::from(target.generation) << 32) | u64::from(target.slot)); }
-            }
-            properties.insert("native_headers".into(), serde_json::json!(targets));
-        }
-        if local_name == "th"
-            && let Some(scope) = attributes
-                .get_null("scope")
-                .map(|scope| scope.to_ascii_lowercase())
-                .filter(|scope| matches!(scope.as_str(), "row" | "col" | "rowgroup" | "colgroup"))
-        {
-            properties.insert("native_scope".into(), serde_json::json!(scope));
-        }
-        for (name, maximum, allow_zero) in
-            [("rowspan", 65534u64, true), ("colspan", 1000u64, false)]
-        {
-            let parsed = attributes
-                .get_null(name)
-                .and_then(|value| value.trim().parse::<u64>().ok())
-                .unwrap_or(1);
-            let value = if parsed == 0 && !allow_zero {
-                1
-            } else {
-                parsed.min(maximum)
-            };
-            properties.insert(format!("native_{name}"), serde_json::json!(value));
-            properties.insert(
-                format!("native_{name}_explicit"),
-                serde_json::json!(attributes.contains_null(name)),
-            );
-        }
-    }
-    if role == "heading"
-        && properties
-            .get("level")
-            .and_then(serde_json::Value::as_i64)
-            .is_none_or(|level| level < 1)
-    {
-        let level = if matches!(local_name, "h1" | "h2" | "h3" | "h4" | "h5" | "h6") {
-            local_name[1..].parse::<u8>().unwrap_or(2)
-        } else {
-            2
-        };
-        properties.insert("level".into(), serde_json::json!(level));
-    }
-    Ok(properties)
+    shared_accessibility_properties(
+        dom,
+        id,
+        local_name,
+        node,
+        &mut OrdinarySemanticProducer,
+        check,
+    )
 }
 
 pub const SEMANTIC_GRAPH_VERSION: u16 = 2;
@@ -2709,6 +342,7 @@ fn normalize_text_with_checkpoint(
     Ok(output)
 }
 
+#[cfg(test)]
 fn strip_css_comments_with_checkpoint(
     sheet: &str,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
@@ -2755,97 +389,13 @@ fn checked_name_tokens<'a>(
     Ok(tokens)
 }
 
+#[cfg(test)]
 fn matches_simple_selector_with_checkpoint(
     node: &crate::dom::Node,
     selector: &str,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<bool, crate::dom::DomError> {
-    check()?;
-    let NodeKind::Element { name } = &node.kind else {
-        return Ok(false);
-    };
-    let selector = checked_name_tokens(selector, |character| character == ':', check)?[0];
-    let mut attribute_start = None;
-    for (index, character) in selector.char_indices() {
-        check()?;
-        if character == '[' {
-            attribute_start = Some(index);
-            break;
-        }
-    }
-    let simple = &selector[..attribute_start.unwrap_or(selector.len())];
-    if let Some(index) = attribute_start
-        && let Some(selector) = selector.strip_suffix(']')
-    {
-        let attribute = &selector[index + 1..];
-        let mut equal = None;
-        for (index, character) in attribute.char_indices() {
-            check()?;
-            if character == '=' {
-                equal = Some(index);
-                break;
-            }
-        }
-        let (key, expected) = match equal {
-            Some(index) => (
-                &attribute[..index],
-                Some(attribute[index + 1..].trim_matches(['"', '\''])),
-            ),
-            None => (attribute, None),
-        };
-        let Some(actual) = node.attributes.get_null(key) else {
-            return Ok(false);
-        };
-        if expected.is_some_and(|expected| actual != expected) {
-            return Ok(false);
-        }
-    }
-    let mut tag_end = simple.len();
-    let mut id_start = None;
-    for (index, character) in simple.char_indices() {
-        check()?;
-        if matches!(character, '#' | '.') {
-            tag_end = tag_end.min(index);
-        }
-        if character == '#' && id_start.is_none() {
-            id_start = Some(index);
-        }
-    }
-    let tag = &simple[..tag_end];
-    if !tag.is_empty() && !name.local.as_ref().eq_ignore_ascii_case(tag) {
-        return Ok(false);
-    }
-    if let Some(start) = id_start {
-        let id = checked_name_tokens(&simple[start + 1..], |character| character == '.', check)?[0];
-        if node
-            .attributes
-            .get_null("id")
-            .is_none_or(|value| value != id)
-        {
-            return Ok(false);
-        }
-    }
-    for class in checked_name_tokens(simple, |character| character == '.', check)?
-        .into_iter()
-        .skip(1)
-    {
-        check()?;
-        let Some(value) = node.attributes.get_null("class") else {
-            return Ok(false);
-        };
-        let mut found = false;
-        for token in checked_name_tokens(value, char::is_whitespace, check)? {
-            check()?;
-            if !token.is_empty() && token == class {
-                found = true;
-                break;
-            }
-        }
-        if !found {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+    shared_matches_simple_selector(node, selector, &mut OrdinarySemanticProducer, check)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2868,6 +418,7 @@ pub struct SemanticGraphChanges {
 /// repeatedly walking the full document.
 #[derive(Debug, Clone)]
 pub struct SemanticGraph {
+    allocation_receipts: Option<std::sync::Arc<SemanticGraphAllocations>>,
     page_id: PageId,
     document_generation: u64,
     full: BTreeMap<NodeId, SemanticNodeView>,
@@ -2901,6 +452,7 @@ impl SemanticGraph {
         Self {
             page_id,
             document_generation,
+            allocation_receipts: None,
             full: BTreeMap::new(),
             compact: BTreeSet::new(),
             target_hints: BTreeMap::new(),
@@ -2933,67 +485,7 @@ impl SemanticGraph {
         generation: u64,
         check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
     ) -> Result<(), crate::dom::DomError> {
-        check()?;
-        if self.document_generation != generation {
-            self.generated_content.clear();
-            self.computed_visibility.clear();
-            self.computed_text_style.clear();
-        }
-        let projection = self.layout_projection_with_checkpoint(dom, check)?;
-        let dom = projection.as_ref().unwrap_or(dom);
-        self.native_control_cursor = None;
-        for node in self.full.values() {
-            check()?;
-            self.pending_removed.insert(node.semantic_ref);
-        }
-        for node in self.accessibility.values() {
-            check()?;
-            self.pending_accessibility_removed.insert(node.semantic_ref);
-        }
-        for id in self.structures.keys() {
-            check()?;
-            self.pending_structure_removed.insert(id.clone());
-        }
-        self.document_generation = generation;
-        self.full.clear();
-        self.compact.clear();
-        self.target_hints.clear();
-        self.accessibility.clear();
-        self.structures.clear();
-        self.frame_ids.clear();
-        self.authored_hidden.clear();
-        self.geometry_hidden.clear();
-        {
-            let mut cursor = 0usize;
-            while let Some((id, node)) = dom.next_with_checkpoint(&mut cursor, check)? {
-                check()?;
-                let NodeKind::Element { name } = &node.kind else {
-                    continue;
-                };
-                if matches!(
-                    name.local.as_ref(),
-                    "html" | "head" | "body" | "meta" | "title" | "script" | "style"
-                ) {
-                    continue;
-                }
-                self.refresh_node_with_checkpoint(dom, id, check)?;
-                check()?;
-            }
-        }
-        check()?;
-        self.rebuild_dependencies_with_checkpoint(dom, check)?;
-        check()?;
-        self.rebuild_accessibility_with_checkpoint(dom, check)?;
-        check()?;
-        self.rebuild_structures_with_checkpoint(dom, check)?;
-        check()?;
-        for node in self.full.values() {
-            check()?;
-            self.pending_removed.remove(&node.semantic_ref);
-            self.pending_upserts.insert(node.semantic_ref, node.clone());
-        }
-        self.semantic_revision = self.semantic_revision.saturating_add(1);
-        Ok(())
+        self.shared_reset(dom, generation, &mut OrdinarySemanticProducer, check)
     }
 
     pub(crate) fn apply_mutations_with_checkpoint(
@@ -3002,488 +494,7 @@ impl SemanticGraph {
         mutations: &[crate::dom::Mutation],
         check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
     ) -> Result<(), crate::dom::DomError> {
-        check()?;
-        let projection = self.layout_projection_with_checkpoint(dom, check)?;
-        self.apply_projected_mutations_with_checkpoint(
-            projection.as_ref().unwrap_or(dom),
-            mutations,
-            check,
-        )
-    }
-
-    fn apply_projected_mutations_with_checkpoint(
-        &mut self,
-        dom: &DomArena,
-        mutations: &[crate::dom::Mutation],
-        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-    ) -> Result<(), crate::dom::DomError> {
-        check()?;
-        if !mutations.is_empty() {
-            self.native_control_cursor = None;
-        }
-        use crate::dom::Mutation;
-        let mut dirty = BTreeSet::new();
-        let mut dependency_change = false;
-        // Modal accessibility scope affects siblings, not only descendants of
-        // the changed dialog. Include the prior scope when a modal is removed.
-        let mut modal = false;
-        if !mutations.is_empty() {
-            for node in self.accessibility.values() {
-                check()?;
-                if node.exclusion_reason.as_deref() == Some("aria_modal_scope") {
-                    modal = true;
-                    break;
-                }
-            }
-            if !modal {
-                {
-                    let mut cursor = 0usize;
-                    while let Some((_, node)) = dom.next_with_checkpoint(&mut cursor, check)? {
-                        check()?;
-                        if node
-                            .accessibility_attribute("aria-modal")
-                            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
-                        {
-                            modal = true;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        if modal {
-            {
-                let mut cursor = 0usize;
-                while let Some((id, _)) = dom.next_with_checkpoint(&mut cursor, check)? {
-                    check()?;
-                    dirty.insert(id);
-                }
-            }
-        }
-        for mutation in mutations {
-            check()?;
-            match mutation {
-                Mutation::HostedDocument { frame }
-                | Mutation::DocumentOwnership { node: frame, .. } => {
-                    // Association changes are not DOM child-list mutations.
-                    // Reconcile old retained documents as well as the new tree.
-                    dirty.insert(*frame);
-                    for id in self.full.keys() {
-                        check()?;
-                        dirty.insert(*id);
-                    }
-                    {
-                        let mut cursor = 0usize;
-                        while let Some((id, _)) = dom.next_with_checkpoint(&mut cursor, check)? {
-                            check()?;
-                            dirty.insert(id);
-                        }
-                    }
-                    dependency_change = true;
-                }
-                Mutation::Inserted { node, parent, .. } => {
-                    dirty.insert(*node);
-                    for id in
-                        cancellation_or_default(descendants_with_checkpoint(dom, *node, check))?
-                    {
-                        check()?;
-                        dirty.insert(id);
-                    }
-                    dirty.extend(parent.iter().copied());
-                    dependency_change = true;
-                }
-                Mutation::Removed {
-                    node,
-                    former_parent,
-                    ..
-                } => {
-                    self.remove_subtree_with_checkpoint(*node, check)?;
-                    dirty.extend(former_parent.iter().copied());
-                    dependency_change = true;
-                }
-                // Compound records only describe observer delivery; the native
-                // insert/remove entries above already update semantic structure.
-                Mutation::ChildrenReplaced { .. } => {}
-                Mutation::Attribute { node, name, .. } => {
-                    dirty.insert(*node);
-                    // These ancestor properties affect descendant visibility,
-                    // accessibility and action availability. Refreshing only
-                    // the container leaves controls in a stale hidden state.
-                    if matches!(
-                        name.as_str(),
-                        "style"
-                            | "class"
-                            | "hidden"
-                            | "aria-hidden"
-                            | "aria-readonly"
-                            | "role"
-                            | "inert"
-                            | "disabled"
-                    ) {
-                        dirty.insert(*node);
-                        for id in
-                            cancellation_or_default(descendants_with_checkpoint(dom, *node, check))?
-                        {
-                            check()?;
-                            dirty.insert(id);
-                        }
-                    }
-                    dependency_change |= matches!(
-                        name.as_str(),
-                        "id" | "for"
-                            | "type"
-                            | "slot"
-                            | "name"
-                            | "aria-label"
-                            | "aria-labelledby"
-                            | "aria-describedby"
-                            | "aria-errormessage"
-                            | "aria-actions"
-                            | "aria-owns"
-                            | "role"
-                            | "hidden"
-                            | "aria-hidden"
-                            | "style"
-                            | "class"
-                    );
-                }
-                Mutation::CharacterData { node, .. } => {
-                    dirty.insert(*node);
-                    dependency_change = true;
-                }
-                Mutation::StyleSheets { node } => {
-                    dirty.insert(*node);
-                    for id in
-                        cancellation_or_default(descendants_with_checkpoint(dom, *node, check))?
-                    {
-                        check()?;
-                        dirty.insert(id);
-                    }
-                    dependency_change = true;
-                }
-                Mutation::FormState { node } => {
-                    dirty.insert(*node);
-                    // Native FACE registration can change a label's owner.
-                    dependency_change = true;
-                    let revision = dom
-                        .get(*node)
-                        .map(|node| node.accessibility_reference_revision())
-                        .unwrap_or(0);
-                    if self
-                        .accessibility_state_revisions
-                        .get(node)
-                        .copied()
-                        .unwrap_or(0)
-                        != revision
-                    {
-                        dirty.insert(*node);
-                        for id in
-                            cancellation_or_default(descendants_with_checkpoint(dom, *node, check))?
-                        {
-                            check()?;
-                            dirty.insert(id);
-                        }
-                        dependency_change = true;
-                    }
-                }
-                Mutation::ImageResource { node } | Mutation::EventListener { node, .. } => {
-                    dirty.insert(*node);
-                }
-                Mutation::Focus { previous, current } => {
-                    dirty.extend(previous.iter().copied());
-                    dirty.extend(current.iter().copied());
-                }
-                Mutation::ShadowAttached { host, root, .. } => {
-                    dirty.insert(*host);
-                    dirty.insert(*root);
-                    dependency_change = true;
-                }
-            }
-        }
-        let mut pending = Vec::new();
-        for id in &dirty {
-            check()?;
-            pending.push(*id);
-        }
-        while let Some(node) = pending.pop() {
-            check()?;
-            let related = cancellation_or_default(ancestors_with_checkpoint(dom, node, check))?
-                .into_iter()
-                .chain(self.referenced_by.get(&node).into_iter().flatten().copied());
-            for target in related {
-                check()?;
-                if dirty.insert(target) {
-                    pending.push(target);
-                }
-            }
-        }
-        if dependency_change {
-            // Declared IDREF edges can remain identical while document order or
-            // visibility changes which competing aria-owns edge is accepted.
-            // Refresh both former and new owners before propagating name users.
-            let current_owners = accepted_aria_owners_with_checkpoint(dom, check)?;
-            let mut previous_owners = BTreeMap::new();
-            for (target, node) in &self.accessibility {
-                check()?;
-                if let Some(owner) = node.owned_by {
-                    previous_owners.insert(*target, unpack_node_ref(owner.node));
-                }
-            }
-            for target in previous_owners.keys().chain(current_owners.keys()) {
-                check()?;
-                if previous_owners.get(target) != current_owners.get(target) {
-                    dirty.insert(*target);
-                    dirty.extend(previous_owners.get(target).copied());
-                    dirty.extend(current_owners.get(target).copied());
-                }
-            }
-            let mut previous_dependencies = BTreeMap::new();
-            for (id, targets) in &self.referenced_by {
-                check()?;
-                let mut copied = BTreeSet::new();
-                for target in targets {
-                    check()?;
-                    copied.insert(*target);
-                }
-                previous_dependencies.insert(*id, copied);
-            }
-            self.rebuild_dependencies_with_checkpoint(dom, check)?;
-            let mut targets = BTreeSet::new();
-            for target in previous_dependencies
-                .keys()
-                .chain(self.referenced_by.keys())
-            {
-                check()?;
-                targets.insert(*target);
-            }
-            for target in targets {
-                check()?;
-                let previous = previous_dependencies.get(&target);
-                let current = self.referenced_by.get(&target);
-                if previous == current {
-                    continue;
-                }
-                dirty.insert(target);
-                if let Some(dependents) = previous {
-                    for id in dependents {
-                        check()?;
-                        dirty.insert(*id);
-                    }
-                }
-                if let Some(dependents) = current {
-                    for id in dependents {
-                        check()?;
-                        dirty.insert(*id);
-                    }
-                }
-            }
-            // A newly resolved reference may name an ancestor of its owner.
-            // Propagate through the rebuilt graph, not only the old edges.
-            let mut pending = Vec::new();
-            for id in &dirty {
-                check()?;
-                pending.push(*id);
-            }
-            while let Some(node) = pending.pop() {
-                check()?;
-                let related = cancellation_or_default(ancestors_with_checkpoint(dom, node, check))?
-                    .into_iter()
-                    .chain(self.referenced_by.get(&node).into_iter().flatten().copied());
-                for target in related {
-                    check()?;
-                    if dirty.insert(target) {
-                        pending.push(target);
-                    }
-                }
-            }
-        }
-        for node in dirty {
-            check()?;
-            self.refresh_node_with_checkpoint(dom, node, check)?;
-            self.refresh_accessibility_with_checkpoint(dom, node, check)?;
-        }
-        if dependency_change {
-            self.rebuild_accessibility_ownership_with_checkpoint(dom, check)?;
-            self.rebuild_structures_with_checkpoint(dom, check)?;
-        }
-        if !mutations.is_empty() {
-            self.semantic_revision = self.semantic_revision.saturating_add(1);
-        }
-        check()?;
-        Ok(())
-    }
-
-    fn rebuild_accessibility_with_checkpoint(
-        &mut self,
-        dom: &DomArena,
-        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-    ) -> Result<(), crate::dom::DomError> {
-        check()?;
-        let mut previous = BTreeSet::new();
-        for id in self.accessibility.keys() {
-            check()?;
-            previous.insert(*id);
-        }
-        let mut current = Vec::new();
-        for id in self.full.keys() {
-            check()?;
-            current.push(*id);
-        }
-        for id in current {
-            check()?;
-            self.refresh_accessibility_with_checkpoint(dom, id, check)?;
-        }
-        for id in previous {
-            check()?;
-            if !self.full.contains_key(&id)
-                && let Some(node) = self.accessibility.remove(&id)
-            {
-                self.pending_accessibility_upserts
-                    .remove(&node.semantic_ref);
-                self.pending_accessibility_removed.insert(node.semantic_ref);
-            }
-        }
-        self.rebuild_accessibility_ownership_with_checkpoint(dom, check)?;
-        check()?;
-        Ok(())
-    }
-
-    fn rebuild_accessibility_ownership_with_checkpoint(
-        &mut self,
-        dom: &DomArena,
-        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-    ) -> Result<(), crate::dom::DomError> {
-        check()?;
-        let mut previous = BTreeMap::new();
-        for (id, node) in &self.accessibility {
-            check()?;
-            previous.insert(*id, node.clone());
-        }
-        self.diagnostics.clear();
-        let mut available = BTreeSet::new();
-        for node in self.accessibility.values() {
-            check()?;
-            available.insert(node.semantic_ref);
-        }
-        for node in self.accessibility.values_mut() {
-            check()?;
-            node.owned_by = None;
-            for targets in node.relationships.values_mut() {
-                check()?;
-                let mut kept = Vec::new();
-                for target in targets.iter() {
-                    check()?;
-                    if available.contains(target) {
-                        kept.push(*target);
-                    }
-                }
-                *targets = kept;
-            }
-            node.relationships.retain(|_, targets| !targets.is_empty());
-        }
-        let accepted_owners = accepted_aria_owners_with_checkpoint(dom, check)?;
-        let mut owner_by_target = BTreeMap::new();
-        let mut ownership = Vec::new();
-        for node in self.accessibility.values() {
-            check()?;
-            if let Some(targets) = node.relationships.get(&AccessibilityRelation::Owns) {
-                let mut copied = Vec::new();
-                for target in targets {
-                    check()?;
-                    copied.push(*target);
-                }
-                ownership.push((node.semantic_ref, copied));
-            }
-        }
-        for (owner, targets) in ownership {
-            check()?;
-            let owner_id = unpack_node_ref(owner.node);
-            let mut accepted = Vec::new();
-            for target in targets {
-                check()?;
-                let target_id = unpack_node_ref(target.node);
-                let cycle =
-                    ownership_cycle_with_checkpoint(&owner_by_target, owner, target, check)?
-                        || cancellation_or_default(ancestors_with_checkpoint(
-                            dom, owner_id, check,
-                        ))?
-                        .contains(&target_id);
-                if cycle
-                    || owner_by_target.contains_key(&target)
-                    || accepted_owners.get(&target_id) != Some(&owner_id)
-                {
-                    self.diagnostics.push(format!(
-                        "ignored invalid aria-owns edge {} -> {}",
-                        owner.node, target.node
-                    ));
-                    continue;
-                }
-                owner_by_target.insert(target, owner);
-                accepted.push(target);
-            }
-            if let Some(node) = self.accessibility.get_mut(&owner_id) {
-                node.relationships
-                    .insert(AccessibilityRelation::Owns, accepted);
-            }
-        }
-        for (target, owner) in owner_by_target {
-            check()?;
-            if let Some(node) = self.accessibility.get_mut(&unpack_node_ref(target.node)) {
-                node.owned_by = Some(owner);
-            }
-        }
-        for (id, node) in &self.accessibility {
-            check()?;
-            if previous.get(id) != Some(node) {
-                self.pending_accessibility_upserts
-                    .insert(node.semantic_ref, node.clone());
-            }
-        }
-        check()?;
-        Ok(())
-    }
-
-    fn rebuild_structures_with_checkpoint(
-        &mut self,
-        dom: &DomArena,
-        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-    ) -> Result<(), crate::dom::DomError> {
-        check()?;
-        let mut refs_by_dom_id = BTreeMap::new();
-        for (id, node) in &self.full {
-            check()?;
-            refs_by_dom_id.insert(*id, node.semantic_ref);
-        }
-        let mut accessibility = Vec::new();
-        for node in self.accessibility.values() {
-            check()?;
-            accessibility.push(node.clone());
-        }
-        let mut next = BTreeMap::new();
-        for structure in
-            project_structures_with_checkpoint(dom, &accessibility, &refs_by_dom_id, check)?
-        {
-            check()?;
-            next.insert(structure.structure_id.clone(), structure);
-        }
-        for id in self.structures.keys() {
-            check()?;
-            if !next.contains_key(id) {
-                self.pending_structure_upserts.remove(id);
-                self.pending_structure_removed.insert(id.clone());
-            }
-        }
-        for (id, structure) in &next {
-            check()?;
-            if self.structures.get(id) != Some(structure) {
-                self.pending_structure_removed.remove(id);
-                self.pending_structure_upserts
-                    .insert(id.clone(), structure.clone());
-            }
-        }
-        self.structures = next;
-        check()?;
-        Ok(())
+        self.shared_apply_mutations(dom, mutations, &mut OrdinarySemanticProducer, check)
     }
 
     fn remove_subtree_with_checkpoint(
@@ -3536,9 +547,12 @@ impl SemanticGraph {
         for id in ids {
             check()?;
             if let Some(node) = self.accessibility.remove(&id) {
-                self.pending_accessibility_upserts
-                    .remove(&node.semantic_ref);
+                drop(AccessibilityOwner(
+                    self.pending_accessibility_upserts
+                        .remove(&node.semantic_ref),
+                ));
                 self.pending_accessibility_removed.insert(node.semantic_ref);
+                drop(AccessibilityOwner(Some(node)));
             }
         }
         check()?;
@@ -3603,64 +617,12 @@ impl SemanticGraph {
 
     /// Clone retained graph collections incrementally. The caller owns the
     /// draft and publishes it only after all fallible projection work succeeds.
+    #[cfg(test)]
     pub(crate) fn try_clone_with_checkpoint(
         &self,
         check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
     ) -> Result<Self, crate::dom::DomError> {
-        fn map<K: Ord + Clone, V: Clone>(
-            source: &BTreeMap<K, V>,
-            check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-        ) -> Result<BTreeMap<K, V>, crate::dom::DomError> {
-            let mut target = BTreeMap::new();
-            for (key, value) in source {
-                check()?;
-                target.insert(key.clone(), value.clone());
-            }
-            Ok(target)
-        }
-        fn set<K: Ord + Clone>(
-            source: &BTreeSet<K>,
-            check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-        ) -> Result<BTreeSet<K>, crate::dom::DomError> {
-            let mut target = BTreeSet::new();
-            for value in source {
-                check()?;
-                target.insert(value.clone());
-            }
-            Ok(target)
-        }
-        check()?;
-        let mut target = Self::new(self.page_id, self.document_generation);
-        target.full = map(&self.full, check)?;
-        target.compact = set(&self.compact, check)?;
-        target.target_hints = map(&self.target_hints, check)?;
-        for (id, references) in &self.referenced_by {
-            check()?;
-            target.referenced_by.insert(*id, set(references, check)?);
-        }
-        target.accessibility_state_revisions = map(&self.accessibility_state_revisions, check)?;
-        target.accessibility = map(&self.accessibility, check)?;
-        target.structures = map(&self.structures, check)?;
-        target.frame_ids = map(&self.frame_ids, check)?;
-        target.authored_hidden = set(&self.authored_hidden, check)?;
-        target.geometry_hidden = set(&self.geometry_hidden, check)?;
-        target.semantic_revision = self.semantic_revision;
-        target.native_control_cursor = self.native_control_cursor;
-        target.generated_content = map(&self.generated_content, check)?;
-        target.computed_visibility = map(&self.computed_visibility, check)?;
-        target.computed_text_style = map(&self.computed_text_style, check)?;
-        target.pending_upserts = map(&self.pending_upserts, check)?;
-        target.pending_removed = set(&self.pending_removed, check)?;
-        target.pending_accessibility_upserts = map(&self.pending_accessibility_upserts, check)?;
-        target.pending_accessibility_removed = set(&self.pending_accessibility_removed, check)?;
-        target.pending_structure_upserts = map(&self.pending_structure_upserts, check)?;
-        target.pending_structure_removed = set(&self.pending_structure_removed, check)?;
-        for diagnostic in &self.diagnostics {
-            check()?;
-            target.diagnostics.push(diagnostic.clone());
-        }
-        check()?;
-        Ok(target)
+        self.shared_graph_clone(&mut OrdinarySemanticProducer, check)
     }
 
     fn layout_projection_with_checkpoint(
@@ -4012,7 +974,12 @@ impl SemanticGraph {
             let focused = dom.focused() == Some(id);
             let disabled = if control || record.submit_behavior.is_some() {
                 dom.control_disabled_with_checkpoint(id, check)?
-                    || aria_true(&record.accessibility_attributes(), "aria-disabled")
+                    || aria_true(
+                        record
+                            .accessibility_attributes_with_checkpoint(check)?
+                            .as_ref(),
+                        "aria-disabled",
+                    )
             } else {
                 node.states.contains(&NodeState::Disabled)
             };
@@ -4033,7 +1000,10 @@ impl SemanticGraph {
             } else {
                 node.states.remove(&NodeState::Focused);
             }
-            self.pending_upserts.insert(node.semantic_ref, node.clone());
+            self.pending_upserts.insert(
+                node.semantic_ref,
+                clone_semantic_node_with_checkpoint(node, check)?,
+            );
             changed = true;
         }
         for (&id, accessible) in &mut self.accessibility {
@@ -4088,13 +1058,19 @@ impl SemanticGraph {
                     } else {
                         accessible.properties.remove(key);
                     }
-                    self.pending_accessibility_upserts
-                        .insert(accessible.semantic_ref, accessible.clone());
+                    drop(AccessibilityOwner(
+                        self.pending_accessibility_upserts.insert(
+                            accessible.semantic_ref,
+                            clone_accessibility_with_checkpoint(accessible, check)?,
+                        ),
+                    ));
                     changed = true;
                 }
             }
 
-            let invoker = record.accessibility_attribute("aria-expanded").is_none()
+            let invoker = record
+                .accessibility_attribute_with_checkpoint("aria-expanded", check)?
+                .is_none()
                 && ((dom.is_element(id, "http://www.w3.org/1999/xhtml", "button")
                     || dom.is_element(id, "http://www.w3.org/1999/xhtml", "input"))
                     && dom
@@ -4114,8 +1090,12 @@ impl SemanticGraph {
                 let value = serde_json::Value::Bool(expanded);
                 if accessible.properties.get("expanded") != Some(&value) {
                     accessible.properties.insert("expanded".into(), value);
-                    self.pending_accessibility_upserts
-                        .insert(accessible.semantic_ref, accessible.clone());
+                    drop(AccessibilityOwner(
+                        self.pending_accessibility_upserts.insert(
+                            accessible.semantic_ref,
+                            clone_accessibility_with_checkpoint(accessible, check)?,
+                        ),
+                    ));
                     changed = true;
                 }
                 if let Some(node) = self.full.get_mut(&id) {
@@ -4126,7 +1106,10 @@ impl SemanticGraph {
                         } else {
                             node.states.remove(&NodeState::Expanded);
                         }
-                        self.pending_upserts.insert(node.semantic_ref, node.clone());
+                        self.pending_upserts.insert(
+                            node.semantic_ref,
+                            clone_semantic_node_with_checkpoint(node, check)?,
+                        );
                         changed = true;
                     }
                 }
@@ -4168,8 +1151,12 @@ impl SemanticGraph {
                             .relationships
                             .insert(AccessibilityRelation::ActiveDescendant, desired);
                     }
-                    self.pending_accessibility_upserts
-                        .insert(accessible.semantic_ref, accessible.clone());
+                    drop(AccessibilityOwner(
+                        self.pending_accessibility_upserts.insert(
+                            accessible.semantic_ref,
+                            clone_accessibility_with_checkpoint(accessible, check)?,
+                        ),
+                    ));
                     changed = true;
                 }
             }
@@ -4180,12 +1167,21 @@ impl SemanticGraph {
                     .is_some_and(|node| node.validation.is_some())
             {
                 let disabled = dom.control_disabled_with_checkpoint(id, check)?
-                    || aria_true(&record.accessibility_attributes(), "aria-disabled");
+                    || aria_true(
+                        record
+                            .accessibility_attributes_with_checkpoint(check)?
+                            .as_ref(),
+                        "aria-disabled",
+                    );
                 let value = serde_json::Value::Bool(disabled);
                 if accessible.properties.get("disabled") != Some(&value) {
                     accessible.properties.insert("disabled".into(), value);
-                    self.pending_accessibility_upserts
-                        .insert(accessible.semantic_ref, accessible.clone());
+                    drop(AccessibilityOwner(
+                        self.pending_accessibility_upserts.insert(
+                            accessible.semantic_ref,
+                            clone_accessibility_with_checkpoint(accessible, check)?,
+                        ),
+                    ));
                     changed = true;
                 }
             }
@@ -4194,14 +1190,22 @@ impl SemanticGraph {
             if inert && !accessible.excluded {
                 accessible.excluded = true;
                 accessible.exclusion_reason = Some("native_inert".into());
-                self.pending_accessibility_upserts
-                    .insert(accessible.semantic_ref, accessible.clone());
+                drop(AccessibilityOwner(
+                    self.pending_accessibility_upserts.insert(
+                        accessible.semantic_ref,
+                        clone_accessibility_with_checkpoint(accessible, check)?,
+                    ),
+                ));
                 changed = true;
             } else if !inert && was_native {
                 accessible.excluded = false;
                 accessible.exclusion_reason = None;
-                self.pending_accessibility_upserts
-                    .insert(accessible.semantic_ref, accessible.clone());
+                drop(AccessibilityOwner(
+                    self.pending_accessibility_upserts.insert(
+                        accessible.semantic_ref,
+                        clone_accessibility_with_checkpoint(accessible, check)?,
+                    ),
+                ));
                 changed = true;
             }
         }
@@ -4267,7 +1271,10 @@ impl SemanticGraph {
             } else {
                 self.compact.remove(&id);
             }
-            self.pending_upserts.insert(node.semantic_ref, node.clone());
+            self.pending_upserts.insert(
+                node.semantic_ref,
+                clone_semantic_node_with_checkpoint(node, check)?,
+            );
             if let Some(accessible) = self.accessibility.get_mut(&id) {
                 let structural = accessible.exclusion_reason.clone().filter(|reason| {
                     !matches!(reason.as_str(), "computed_style_hidden" | "hidden_subtree")
@@ -4282,8 +1289,12 @@ impl SemanticGraph {
                         }
                     })
                 });
-                self.pending_accessibility_upserts
-                    .insert(accessible.semantic_ref, accessible.clone());
+                drop(AccessibilityOwner(
+                    self.pending_accessibility_upserts.insert(
+                        accessible.semantic_ref,
+                        clone_accessibility_with_checkpoint(accessible, check)?,
+                    ),
+                ));
             }
             changed = true;
         }
@@ -4838,215 +1849,18 @@ impl SemanticGraph {
         reference: SemanticRef,
         semantic: SemanticNodeView,
     ) -> Option<SemanticNodeV6> {
-        let id = unpack_node_ref(reference.node);
-        let accessible = self.accessibility.get(&id);
-        let structure_ids: Vec<String> = self
-            .structures
-            .values()
-            .filter(|structure| {
-                structure.root == reference || structure.members.contains(&reference)
-            })
-            .map(|structure| structure.structure_id.clone())
-            .collect();
-        let deterministic = |field| SemanticFieldEvidence {
-            field,
-            trust: ContentTrust::PageAuthored,
-            provenance: Provenance::BrowserDeterministic,
-            evidence: Vec::new(),
-        };
-        let mut field_evidence = vec![
-            deterministic(SemanticField::Role),
-            deterministic(SemanticField::State),
-            deterministic(SemanticField::Action),
-            deterministic(SemanticField::Visibility),
-        ];
-        if semantic.value.is_some() {
-            field_evidence.push(deterministic(SemanticField::Value));
-        }
-        if !structure_ids.is_empty() {
-            field_evidence.push(deterministic(SemanticField::Structure));
-        }
-        if let Some(accessible) = accessible {
-            field_evidence.push(SemanticFieldEvidence {
-                field: SemanticField::Name,
-                trust: ContentTrust::PageAuthored,
-                provenance: accessible.provenance.clone(),
-                evidence: accessible.evidence.clone(),
-            });
-            if accessible.description.is_some() {
-                field_evidence.push(SemanticFieldEvidence {
-                    field: SemanticField::Description,
-                    trust: ContentTrust::PageAuthored,
-                    provenance: accessible.provenance.clone(),
-                    evidence: accessible.evidence.clone(),
-                });
-            }
-            if !accessible.relationships.is_empty() {
-                field_evidence.push(deterministic(SemanticField::Relationship));
-            }
-        }
-        Some(SemanticNodeV6 {
-            semantic,
-            frame_id: self.frame_ids.get(&id).copied(),
-            relationships: accessible
-                .map(|node| node.relationships.clone())
-                .unwrap_or_default(),
-            accessibility_properties: accessible
-                .map(|node| node.properties.clone())
-                .unwrap_or_default(),
-            structure_ids,
-            geometry: None,
-            field_evidence,
-        })
+        self.projected_v6_with_checkpoint(reference, &semantic, &mut || Ok(()))
+            .ok()
     }
 
+    #[cfg(test)]
     fn refresh_node_with_checkpoint(
         &mut self,
         dom: &DomArena,
         id: NodeId,
         check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
     ) -> Result<(), crate::dom::DomError> {
-        check()?;
-        let previous = self.full.get(&id).cloned();
-        let projected = if dom.get(id).is_ok_and(|node| matches!(&node.kind, NodeKind::Element { name }
-            if !matches!(name.local.as_ref(), "html" | "head" | "body" | "meta" | "title" | "script" | "style"))) {
-            project_element_with_checkpoint(dom, id, self.page_id, self.document_generation, id.slot.saturating_add(1), check)?
-        } else { None };
-        match projected {
-            Some(node) => {
-                let mut hints = Vec::new();
-                if let Ok(record) = dom.get(id) {
-                    for (attribute, factor) in [
-                        ("id", "exact_element_id"),
-                        ("placeholder", "exact_placeholder"),
-                    ] {
-                        if let Some(value) = record
-                            .attributes
-                            .get_null(attribute)
-                            .filter(|value| !value.trim().is_empty())
-                        {
-                            hints.push((value.clone(), factor));
-                        }
-                    }
-                    if node.actions.contains(&SemanticAction::Click) {
-                        // Read content below the root so an aria-label on a
-                        // button doesn't erase its visible '+' / '×' label.
-                        let text = target_content_text_with_checkpoint(dom, id, check)?;
-                        if !text.trim().is_empty() {
-                            hints.push((
-                                normalize_text_with_checkpoint(&text, check)?,
-                                "exact_content_label",
-                            ));
-                        }
-                    }
-                }
-                self.target_hints.insert(id, hints);
-                if node.states.contains(&NodeState::Hidden) {
-                    self.authored_hidden.insert(id);
-                } else {
-                    self.authored_hidden.remove(&id);
-                }
-                let mut node = node;
-                if self.geometry_hidden.contains(&id) {
-                    node.states.remove(&NodeState::Visible);
-                    node.states.insert(NodeState::Hidden);
-                }
-                if is_compact_semantic(&node) {
-                    self.compact.insert(id);
-                } else {
-                    self.compact.remove(&id);
-                }
-                if previous.as_ref() != Some(&node) {
-                    self.pending_removed.remove(&node.semantic_ref);
-                    self.pending_upserts.insert(node.semantic_ref, node.clone());
-                }
-                self.full.insert(id, node);
-            }
-            None => {
-                self.target_hints.remove(&id);
-                if let Some(previous) = self.full.remove(&id) {
-                    self.pending_upserts.remove(&previous.semantic_ref);
-                    self.pending_removed.insert(previous.semantic_ref);
-                }
-                self.compact.remove(&id);
-                self.authored_hidden.remove(&id);
-                self.geometry_hidden.remove(&id);
-            }
-        }
-        Ok(())
-    }
-
-    fn refresh_accessibility_with_checkpoint(
-        &mut self,
-        dom: &DomArena,
-        id: NodeId,
-        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-    ) -> Result<(), crate::dom::DomError> {
-        check()?;
-        let Some(semantic) = self.full.get(&id) else {
-            if let Some(previous) = self.accessibility.remove(&id) {
-                self.pending_accessibility_upserts
-                    .remove(&previous.semantic_ref);
-                self.pending_accessibility_removed
-                    .insert(previous.semantic_ref);
-            }
-            return Ok(());
-        };
-        let Ok(node) = dom.get(id) else {
-            return Ok(());
-        };
-        let NodeKind::Element { name } = &node.kind else {
-            return Ok(());
-        };
-        let role = computed_role_for_node_with_checkpoint(dom, id, check)?;
-        let named = accessible_semantics_with_checkpoint(
-            dom,
-            id,
-            name.local.as_ref(),
-            &role,
-            self.page_id,
-            self.document_generation,
-            check,
-        )?;
-        let exclusion_reason = tree_exclusion_reason_with_checkpoint(dom, id, &role, check)?;
-        let mut diagnostics = Vec::new();
-        let accessible = AccessibilityNode {
-            semantic_ref: semantic.semantic_ref,
-            excluded: exclusion_reason.is_some(),
-            exclusion_reason,
-            role,
-            name: named.name,
-            description: named.description,
-            relationships: accessibility_relationships_with_checkpoint(
-                dom,
-                id,
-                node,
-                self.page_id,
-                self.document_generation,
-                &mut diagnostics,
-                check,
-            )?,
-            properties: accessibility_properties_with_checkpoint(
-                dom,
-                id,
-                name.local.as_ref(),
-                node,
-                check,
-            )?,
-            owned_by: None,
-            content_trust: ContentTrust::PageAuthored,
-            provenance: named.provenance,
-            evidence: named.evidence,
-        };
-        self.diagnostics.extend(diagnostics);
-        if self.accessibility.get(&id) != Some(&accessible) {
-            self.pending_accessibility_removed
-                .remove(&accessible.semantic_ref);
-            self.pending_accessibility_upserts
-                .insert(accessible.semantic_ref, accessible.clone());
-            self.accessibility.insert(id, accessible);
-        }
-        Ok(())
+        self.shared_refresh_node(dom, id, &mut OrdinarySemanticProducer, check)
     }
 }
 
@@ -5147,174 +1961,20 @@ fn accepted_aria_owners_with_checkpoint(
     Ok(accepted)
 }
 
+#[cfg(any(test, feature = "semantic-oracle"))]
 fn project_structures_with_checkpoint(
     dom: &DomArena,
     accessibility: &[AccessibilityNode],
     refs_by_dom_id: &BTreeMap<NodeId, SemanticRef>,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<Vec<SemanticStructure>, crate::dom::DomError> {
-    check()?;
-    let mut accessible_by_ref = BTreeMap::new();
-    for node in accessibility {
-        check()?;
-        accessible_by_ref.insert(node.semantic_ref, node);
-    }
-    let mut structures = Vec::new();
-    for root in accessibility.iter().filter(|node| !node.excluded) {
-        check()?;
-        let id = unpack_node_ref(root.semantic_ref.node);
-        let Ok(dom_node) = dom.get(id) else {
-            continue;
-        };
-        let NodeKind::Element { name } = &dom_node.kind else {
-            continue;
-        };
-        let Some(kind) = structure_kind(name.local.as_ref(), &root.role, &dom_node.attributes)
-        else {
-            continue;
-        };
-        let descendants = descendants_with_checkpoint(dom, id, check)?;
-        let mut members = Vec::new();
-        for child in &descendants {
-            check()?;
-            if let Some(reference) = refs_by_dom_id.get(child).copied()
-                && accessible_by_ref
-                    .get(&reference)
-                    .is_some_and(|node| !node.excluded)
-            {
-                members.push(reference);
-            }
-        }
-        let groups = structure_groups_with_checkpoint(
-            dom,
-            kind,
-            &descendants,
-            refs_by_dom_id,
-            &accessible_by_ref,
-            check,
-        )?;
-        let mut properties = BTreeMap::new();
-        properties.insert("member_count".into(), serde_json::json!(members.len()));
-        if kind == SemanticStructureKind::Form {
-            if let Some(method) = dom_node.attributes.get_null("method") {
-                properties.insert("method".into(), serde_json::json!(method));
-            }
-            if let Some(action) = dom_node.attributes.get_null("action") {
-                properties.insert("action".into(), serde_json::json!(action));
-            }
-        }
-        if kind == SemanticStructureKind::List {
-            properties.insert(
-                "ordered".into(),
-                serde_json::json!(name.local.as_ref() == "ol"),
-            );
-        }
-        if kind == SemanticStructureKind::LiveRegion {
-            properties.insert(
-                "politeness".into(),
-                root.properties
-                    .get("live")
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::json!(implicit_live_politeness(&root.role))),
-            );
-        }
-        structures.push(SemanticStructure {
-            structure_id: format!("{:?}:{}", kind, root.semantic_ref.node).to_ascii_lowercase(),
-            kind,
-            root: root.semantic_ref,
-            parent_structure_id: None,
-            name: root.name.clone(),
-            members,
-            groups,
-            properties,
-            content_trust: ContentTrust::PageAuthored,
-            provenance: Provenance::BrowserDeterministic,
-            evidence: vec![AccessibilityEvidence {
-                kind: AccessibilityEvidenceKind::StructuralInference,
-                source: format!("element:{};role:{}", name.local, root.role),
-                references: vec![root.semantic_ref],
-            }],
-        });
-    }
-    let mut roots = BTreeMap::new();
-    for structure in &structures {
-        check()?;
-        roots.insert(structure.root, structure.structure_id.clone());
-    }
-    for structure in &mut structures {
-        check()?;
-        let id = unpack_node_ref(structure.root.node);
-        structure.parent_structure_id =
-            cancellation_or_default(ancestors_with_checkpoint(dom, id, check))?
-                .into_iter()
-                .filter_map(|ancestor| refs_by_dom_id.get(&ancestor))
-                .find_map(|reference| roots.get(reference).cloned());
-    }
-    check()?;
-    Ok(structures)
-}
-
-fn structure_groups_with_checkpoint(
-    dom: &DomArena,
-    kind: SemanticStructureKind,
-    descendant_ids: &[NodeId],
-    refs_by_dom_id: &BTreeMap<NodeId, SemanticRef>,
-    accessible_by_ref: &BTreeMap<SemanticRef, &AccessibilityNode>,
-    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
-) -> Result<Vec<SemanticGroup>, crate::dom::DomError> {
-    check()?;
-    let group_role = match kind {
-        SemanticStructureKind::Table | SemanticStructureKind::Grid => Some("row"),
-        SemanticStructureKind::List => Some("listitem"),
-        SemanticStructureKind::Menu => Some("menuitem"),
-        SemanticStructureKind::Tree => Some("treeitem"),
-        SemanticStructureKind::TabSet => Some("tab"),
-        _ => None,
-    };
-    let Some(group_role) = group_role else {
-        return Ok(Vec::new());
-    };
-    let mut groups = Vec::new();
-    for id in descendant_ids {
-        check()?;
-        let Some(reference) = refs_by_dom_id.get(id).copied() else {
-            continue;
-        };
-        if !accessible_by_ref
-            .get(&reference)
-            .is_some_and(|node| !node.excluded && node.role == group_role)
-        {
-            continue;
-        }
-        let mut members = vec![reference];
-        if group_role == "row" {
-            for child in descendants_with_checkpoint(dom, *id, check)? {
-                check()?;
-                let Some(child) = refs_by_dom_id.get(&child).copied() else {
-                    continue;
-                };
-                if accessible_by_ref.get(&child).is_some_and(|node| {
-                    !node.excluded
-                        && matches!(
-                            node.role.as_str(),
-                            "cell" | "gridcell" | "rowheader" | "columnheader"
-                        )
-                }) {
-                    members.push(child);
-                }
-            }
-        }
-        groups.push(SemanticGroup {
-            kind: group_role.into(),
-            name: accessible_by_ref
-                .get(&reference)
-                .map(|node| node.name.clone())
-                .filter(|name| !name.is_empty()),
-            members,
-        });
-    }
-    check()?;
-    Ok(groups)
+    shared_project_structures(
+        dom,
+        accessibility,
+        refs_by_dom_id,
+        &mut OrdinarySemanticProducer,
+        check,
+    )
 }
 
 fn descendants_with_checkpoint(
@@ -5373,9 +2033,10 @@ fn cancellation_or_default<T: Default>(
     result: Result<T, crate::dom::DomError>,
 ) -> Result<T, crate::dom::DomError> {
     match result {
-        Err(crate::dom::DomError::ProjectionCancelled) => {
-            Err(crate::dom::DomError::ProjectionCancelled)
-        }
+        Err(
+            error @ (crate::dom::DomError::ProjectionCancelled
+            | crate::dom::DomError::SemanticProjectionCapacity),
+        ) => Err(error),
         Err(_) => Ok(T::default()),
         Ok(value) => Ok(value),
     }
@@ -5559,108 +2220,6 @@ struct NameTraversal {
     owners: Option<BTreeMap<NodeId, NodeId>>,
 }
 
-fn accessible_text_run_separator(dom: &DomArena, id: NodeId) -> bool {
-    let Ok(node) = dom.get(id) else {
-        return false;
-    };
-    let NodeKind::Element { name } = &node.kind else {
-        return false;
-    };
-    if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
-        && matches!(name.local.as_ref(), "br" | "input" | "select" | "textarea")
-    {
-        return true;
-    }
-    if let Some((display, _)) = dom.accessibility_computed_text_style(id) {
-        return !matches!(display, "inline" | "contents" | "none");
-    }
-    if let Some(display) = inline_style_value(node, "display") {
-        return !matches!(display.trim(), "inline" | "contents" | "none");
-    }
-    name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
-        && matches!(
-            name.local.as_ref(),
-            "div"
-                | "p"
-                | "section"
-                | "article"
-                | "aside"
-                | "header"
-                | "footer"
-                | "main"
-                | "nav"
-                | "li"
-                | "ul"
-                | "ol"
-                | "blockquote"
-                | "h1"
-                | "h2"
-                | "h3"
-                | "h4"
-                | "h5"
-                | "h6"
-                | "table"
-                | "tr"
-                | "td"
-                | "th"
-        )
-}
-
-fn inline_style_value<'a>(node: &'a crate::dom::Node, property: &str) -> Option<&'a str> {
-    node.attributes
-        .get_null("style")?
-        .split(';')
-        .find_map(|declaration| {
-            let (name, value) = declaration.split_once(':')?;
-            name.trim()
-                .eq_ignore_ascii_case(property)
-                .then(|| value.trim())
-        })
-}
-
-fn subtree_excluded_without_visibility(node: &crate::dom::Node) -> bool {
-    node.attributes.contains_null("hidden")
-        || node
-            .accessibility_attribute("aria-hidden")
-            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
-        || inline_style_value(node, "display")
-            .is_some_and(|value| value.eq_ignore_ascii_case("none"))
-}
-
-fn subtree_excluded_at(dom: &DomArena, id: NodeId) -> bool {
-    let Ok(node) = dom.get(id) else {
-        return false;
-    };
-    match dom.accessibility_computed_visibility(id) {
-        Some((display_none, _)) => {
-            display_none
-                || node
-                    .accessibility_attribute("aria-hidden")
-                    .is_some_and(|value| value.eq_ignore_ascii_case("true"))
-        }
-        None => subtree_excluded_without_visibility(node),
-    }
-}
-fn accessibility_hidden_at(dom: &DomArena, id: NodeId) -> bool {
-    match dom.accessibility_computed_visibility(id) {
-        Some((_, visibility_hidden)) => subtree_excluded_at(dom, id) || visibility_hidden,
-        None => dom.get(id).is_ok_and(accessibility_hidden),
-    }
-}
-fn visibility_hidden_at(dom: &DomArena, id: NodeId) -> bool {
-    match dom.accessibility_computed_visibility(id) {
-        Some((_, hidden)) => hidden && !subtree_excluded_at(dom, id),
-        None => dom.get(id).is_ok_and(visibility_hidden_only),
-    }
-}
-
-fn visibility_hidden_only(node: &crate::dom::Node) -> bool {
-    !subtree_excluded_without_visibility(node)
-        && inline_style_value(node, "visibility").is_some_and(|value| {
-            value.eq_ignore_ascii_case("hidden") || value.eq_ignore_ascii_case("collapse")
-        })
-}
-
 // Follow accepted accessibility-parent edges as well as DOM ancestry. A
 // cross-reference cycle can involve siblings and is invisible to DOM ancestry.
 #[cfg(any(test, feature = "semantic-oracle"))]
@@ -5707,26 +2266,6 @@ fn owned_accessible_children(
 #[cfg(test)]
 fn aria_owner(dom: &DomArena, target: NodeId) -> Option<NodeId> {
     accepted_aria_owners(dom).get(&target).copied()
-}
-
-fn accessibility_hidden(node: &crate::dom::Node) -> bool {
-    if node.attributes.contains_null("hidden")
-        || node
-            .accessibility_attribute("aria-hidden")
-            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
-    {
-        return true;
-    }
-    node.attributes.get_null("style").is_some_and(|style| {
-        style.split(';').any(|declaration| {
-            declaration.split_once(':').is_some_and(|(name, value)| {
-                let name = name.trim().to_ascii_lowercase();
-                let value = value.trim().to_ascii_lowercase();
-                (name == "display" && value == "none")
-                    || (name == "visibility" && matches!(value.as_str(), "hidden" | "collapse"))
-            })
-        })
-    })
 }
 
 fn name_from_content(local_name: &str, role: &str) -> bool {
@@ -5967,17 +2506,6 @@ fn accessibility_properties(
         .unwrap_or_default()
 }
 
-fn semantic_property_value(value: &str) -> serde_json::Value {
-    match value.to_ascii_lowercase().as_str() {
-        "true" => serde_json::Value::Bool(true),
-        "false" => serde_json::Value::Bool(false),
-        _ => value
-            .parse::<i64>()
-            .map(serde_json::Value::from)
-            .unwrap_or_else(|_| serde_json::Value::String(value.into())),
-    }
-}
-
 #[cfg(any(test, feature = "semantic-oracle"))]
 fn project_structures(
     dom: &DomArena,
@@ -6118,6 +2646,7 @@ pub(crate) fn computed_role_for_node(dom: &DomArena, id: NodeId) -> String {
         .unwrap_or_else(|_| "generic".into())
 }
 
+#[cfg(test)]
 fn computed_role(local_name: &str, attributes: &oryn_dom::AttributeList) -> String {
     if let Some(role) = attributes.get_null("role").and_then(|roles| {
         roles
@@ -6135,6 +2664,7 @@ fn computed_role(local_name: &str, attributes: &oryn_dom::AttributeList) -> Stri
     implicit_role(local_name, attributes)
 }
 
+#[cfg(test)]
 fn explicit_role_value(
     local_name: &str,
     attributes: &oryn_dom::AttributeList,
@@ -6158,6 +2688,7 @@ fn explicit_role_value(
     }
 }
 
+#[cfg(test)]
 fn implicit_role(local_name: &str, attributes: &oryn_dom::AttributeList) -> String {
     match local_name {
         "a" | "area" if attributes.contains_null("href") => "link",
@@ -6392,24 +2923,6 @@ fn is_compact_semantic(node: &SemanticNodeView) -> bool {
 
 pub(crate) fn is_hidden(dom: &DomArena, id: NodeId) -> bool {
     is_hidden_with_checkpoint(dom, id, &mut || Ok(())).unwrap_or(false)
-}
-
-fn update_visibility(hidden: &mut Option<bool>, declarations: &str) {
-    for declaration in declarations.split(';') {
-        let Some((property, value)) = declaration.split_once(':') else {
-            continue;
-        };
-        match property.trim().to_ascii_lowercase().as_str() {
-            "display" => *hidden = Some(value.trim().eq_ignore_ascii_case("none")),
-            "visibility" => {
-                *hidden = Some(matches!(
-                    value.trim().to_ascii_lowercase().as_str(),
-                    "hidden" | "collapse"
-                ))
-            }
-            _ => {}
-        }
-    }
 }
 
 pub fn empty_observation(
@@ -7048,8 +3561,6 @@ mod tests {
             );
         }
     }
-
-    use super::*;
 
     #[test]
     fn missing_geometry_drops_only_previous_geometry_exclusion() {
@@ -9509,5 +6020,8349 @@ mod native_numeric_ax_inventory_tests {
             graph.accessibility[&r].properties["native_value_now"],
             serde_json::json!(8.)
         );
+    }
+}
+
+fn naming_ascii_lowercase_with_checkpoint(
+    value: &str,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, crate::dom::DomError> {
+    let mut result = String::new();
+    for character in value.chars() {
+        check()?;
+        result.push(character.to_ascii_lowercase());
+    }
+    check()?;
+    Ok(result)
+}
+
+#[cfg(test)]
+mod naming_value_controls {
+    use super::*;
+    #[test]
+    fn signed_integer_parity_and_long_zero_cancellation() {
+        for text in [
+            "",
+            "+",
+            "-",
+            "-0",
+            "+0",
+            "2147483647",
+            "-2147483648",
+            "2147483648",
+            "-2147483649",
+            "  12  ",
+            "α",
+            "00",
+        ] {
+            assert_eq!(
+                naming_i32_with_checkpoint(text, &mut || Ok(())).unwrap(),
+                text.trim().parse::<i32>().ok()
+            );
+        }
+        let text = "0".repeat(8192);
+        let mut calls = 0;
+        let result = naming_i32_with_checkpoint(&text, &mut || {
+            calls += 1;
+            if calls == 64 {
+                Err(crate::dom::DomError::ProjectionCancelled)
+            } else {
+                Ok(())
+            }
+        });
+        assert!(matches!(
+            result,
+            Err(crate::dom::DomError::ProjectionCancelled)
+        ));
+        assert_eq!(calls, 64);
+    }
+    #[test]
+    fn long_slot_value_comparison_cancels() {
+        let text = "x".repeat(8192);
+        let mut calls = 0;
+        let result = naming_equal_with_checkpoint(&text, &text, &mut || {
+            calls += 1;
+            if calls == 64 {
+                Err(crate::dom::DomError::ProjectionCancelled)
+            } else {
+                Ok(())
+            }
+        });
+        assert!(matches!(
+            result,
+            Err(crate::dom::DomError::ProjectionCancelled)
+        ));
+        assert_eq!(calls, 64);
+    }
+}
+
+pub(crate) fn naming_clone_with_checkpoint(
+    value: &str,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, crate::dom::DomError> {
+    OrdinarySemanticProducer.text(value, check)
+}
+
+fn naming_trim_with_checkpoint<'a>(
+    value: &'a str,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<&'a str, crate::dom::DomError> {
+    let mut start = value.len();
+    let mut end = 0;
+    for (index, character) in value.char_indices() {
+        check()?;
+        if !character.is_whitespace() {
+            start = start.min(index);
+            end = index + character.len_utf8();
+        }
+    }
+    check()?;
+    Ok(if end == 0 {
+        &value[value.len()..]
+    } else {
+        &value[start..end]
+    })
+}
+
+fn naming_equal_with_checkpoint(
+    left: &str,
+    right: &str,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, crate::dom::DomError> {
+    check()?;
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    for (left, right) in left.bytes().zip(right.bytes()) {
+        check()?;
+        if left != right {
+            return Ok(false);
+        }
+    }
+    check()?;
+    Ok(true)
+}
+fn naming_i32_with_checkpoint(
+    value: &str,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Option<i32>, crate::dom::DomError> {
+    let value = naming_trim_with_checkpoint(value, check)?;
+    let mut digits = value.bytes();
+    let first = digits.next();
+    check()?;
+    let negative = first == Some(b'-');
+    let mut result = 0i32;
+    let mut count = 0usize;
+    let rest = if matches!(first, Some(b'+' | b'-')) {
+        None
+    } else {
+        first
+    };
+    for digit in rest.into_iter().chain(digits) {
+        check()?;
+        if !digit.is_ascii_digit() {
+            return Ok(None);
+        }
+        count += 1;
+        let digit = i32::from(digit - b'0');
+        result = match result.checked_mul(10).and_then(|n| {
+            if negative {
+                n.checked_sub(digit)
+            } else {
+                n.checked_add(digit)
+            }
+        }) {
+            Some(n) => n,
+            None => return Ok(None),
+        };
+    }
+    check()?;
+    Ok((count > 0).then_some(result))
+}
+
+fn naming_span_with_checkpoint(
+    node: &crate::dom::Node,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<u64, crate::dom::DomError> {
+    let parsed = match node.attributes.get_null_with_checkpoint("span", check)? {
+        Some(value) => naming_u64_with_checkpoint(value, check)?,
+        None => None,
+    };
+    Ok(parsed.filter(|span| *span > 0).unwrap_or(1).min(1000))
+}
+fn naming_u64_with_checkpoint(
+    value: &str,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Option<u64>, crate::dom::DomError> {
+    let mut result = 0u64;
+    let mut saw = false;
+    let mut first = true;
+    for byte in value.bytes() {
+        check()?;
+        if first && byte == b'+' {
+            first = false;
+            continue;
+        }
+        first = false;
+        if !byte.is_ascii_digit() {
+            return Ok(None);
+        }
+        saw = true;
+        result = match result
+            .checked_mul(10)
+            .and_then(|n| n.checked_add(u64::from(byte - b'0')))
+        {
+            Some(n) => n,
+            None => return Ok(None),
+        };
+    }
+    check()?;
+    Ok(saw.then_some(result))
+}
+
+fn subtree_excluded_at_with_checkpoint(
+    dom: &DomArena,
+    id: NodeId,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, crate::dom::DomError> {
+    check()?;
+    let Ok(node) = dom.get(id) else {
+        return Ok(false);
+    };
+    let aria = node
+        .accessibility_attribute_with_checkpoint("aria-hidden", check)?
+        .is_some_and(|value| value.eq_ignore_ascii_case("true"));
+    if let Some((display_none, _)) = dom.accessibility_computed_visibility(id) {
+        return Ok(display_none || aria);
+    }
+    if node
+        .attributes
+        .contains_null_with_checkpoint("hidden", check)?
+        || aria
+    {
+        return Ok(true);
+    }
+    if let Some(style) = node.attributes.get_null_with_checkpoint("style", check)? {
+        for declaration in checked_name_tokens(style, |character| character == ';', check)? {
+            let tokens = checked_name_tokens(declaration, |character| character == ':', check)?;
+            if tokens.len() < 2 {
+                continue;
+            }
+            if naming_trim_with_checkpoint(tokens[0], check)?.eq_ignore_ascii_case("display") {
+                return Ok(naming_trim_with_checkpoint(
+                    &declaration[tokens[0].len() + 1..],
+                    check,
+                )?
+                .eq_ignore_ascii_case("none"));
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn naming_visibility_hidden_with_checkpoint(
+    dom: &DomArena,
+    id: NodeId,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, crate::dom::DomError> {
+    check()?;
+    if let Some((_, hidden)) = dom.accessibility_computed_visibility(id) {
+        return Ok(hidden);
+    }
+    let Ok(node) = dom.get(id) else {
+        return Ok(false);
+    };
+    if let Some(style) = node.attributes.get_null_with_checkpoint("style", check)? {
+        for declaration in checked_name_tokens(style, |character| character == ';', check)? {
+            let tokens = checked_name_tokens(declaration, |character| character == ':', check)?;
+            if tokens.len() > 1
+                && naming_trim_with_checkpoint(tokens[0], check)?.eq_ignore_ascii_case("visibility")
+            {
+                let value =
+                    naming_trim_with_checkpoint(&declaration[tokens[0].len() + 1..], check)?;
+                return Ok(
+                    value.eq_ignore_ascii_case("hidden") || value.eq_ignore_ascii_case("collapse")
+                );
+            }
+        }
+    }
+    Ok(false)
+}
+fn accessibility_hidden_at_with_checkpoint(
+    dom: &DomArena,
+    id: NodeId,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, crate::dom::DomError> {
+    Ok(subtree_excluded_at_with_checkpoint(dom, id, check)?
+        || naming_visibility_hidden_with_checkpoint(dom, id, check)?)
+}
+
+fn clone_semantic_node_with_checkpoint(
+    node: &SemanticNodeView,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<SemanticNodeView, crate::dom::DomError> {
+    shared_semantic_node(node, &mut OrdinarySemanticProducer, check)
+}
+
+fn semantic_node_equal_with_checkpoint(
+    left: &SemanticNodeView,
+    right: &SemanticNodeView,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, crate::dom::DomError> {
+    check()?;
+    if left.semantic_ref != right.semantic_ref
+        || left.parent != right.parent
+        || left.document_order != right.document_order
+        || left.alias != right.alias
+        || left.validation != right.validation
+        || left.states != right.states
+        || left.actions != right.actions
+        || left.content_trust != right.content_trust
+    {
+        return Ok(false);
+    }
+    if !provenance_equal_with_checkpoint(&left.provenance, &right.provenance, check)? {
+        return Ok(false);
+    }
+    for (left, right) in [(&left.role, &right.role), (&left.name, &right.name)] {
+        if !naming_equal_with_checkpoint(left, right, check)? {
+            return Ok(false);
+        }
+    }
+    for (left, right) in [
+        (&left.selector, &right.selector),
+        (&left.value, &right.value),
+        (&left.description, &right.description),
+    ] {
+        match (left, right) {
+            (None, None) => {}
+            (Some(left), Some(right)) => {
+                if !naming_equal_with_checkpoint(left, right, check)? {
+                    return Ok(false);
+                }
+            }
+            _ => return Ok(false),
+        }
+    }
+    check()?;
+    Ok(true)
+}
+#[cfg(test)]
+mod json_depth_controls {
+    use super::*;
+
+    #[test]
+    fn iterative_json_clone_preserves_order_and_nested_values() {
+        let input = serde_json::json!({"first":[1,{"nested":[true,null,"text"]}],"second":2});
+        let result = clone_json_iterative_with_checkpoint(&input, &mut || Ok(())).unwrap();
+        assert_eq!(result, input);
+        assert_eq!(result.to_string(), input.to_string());
+    }
+
+    #[test]
+    fn deeply_assembled_json_cancellation_drops_iteratively() {
+        // Use a dedicated small stack: recursive cleanup of this chain would
+        // overflow. Both the source and successful probe use iterative owners.
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(|| {
+                let mut input = serde_json::Value::String("leaf".into());
+                for _ in 0..16384 {
+                    input = serde_json::Value::Array(vec![input]);
+                }
+                let source = JsonValuesGuard(vec![input]);
+                let mut count = 0usize;
+                let probe = clone_json_iterative_with_checkpoint(&source.0[0], &mut || {
+                    count += 1;
+                    Ok(())
+                })
+                .unwrap();
+                let _probe_owner = JsonValuesGuard(vec![probe]);
+                // Near final publication, children are already fully assembled.
+                for boundary in [count - 1, count] {
+                    let mut calls = 0usize;
+                    let result = clone_json_iterative_with_checkpoint(&source.0[0], &mut || {
+                        calls += 1;
+                        if calls == boundary {
+                            Err(crate::dom::DomError::ProjectionCancelled)
+                        } else {
+                            Ok(())
+                        }
+                    });
+                    assert!(matches!(
+                        result,
+                        Err(crate::dom::DomError::ProjectionCancelled)
+                    ));
+                    assert_eq!(calls, boundary);
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn cancellation_during_object_and_array_assembly_preserves_source() {
+        let input = serde_json::json!({"a":[[1],[2]],"b":{"c":[3],"d":[4]}});
+        let before = input.to_string();
+        let mut total = 0usize;
+        let _ = clone_json_iterative_with_checkpoint(&input, &mut || {
+            total += 1;
+            Ok(())
+        })
+        .unwrap();
+        for boundary in 1..=total {
+            let mut calls = 0usize;
+            let result = clone_json_iterative_with_checkpoint(&input, &mut || {
+                calls += 1;
+                if calls == boundary {
+                    Err(crate::dom::DomError::ProjectionCancelled)
+                } else {
+                    Ok(())
+                }
+            });
+            assert!(matches!(
+                result,
+                Err(crate::dom::DomError::ProjectionCancelled)
+            ));
+            assert_eq!(input.to_string(), before);
+        }
+    }
+}
+
+fn clone_provenance_with_checkpoint(
+    value: &Provenance,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Provenance, crate::dom::DomError> {
+    shared_provenance(value, &mut OrdinarySemanticProducer, check)
+}
+fn provenance_equal_with_checkpoint(
+    left: &Provenance,
+    right: &Provenance,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, crate::dom::DomError> {
+    check()?;
+    Ok(match (left, right) {
+        (Provenance::BrowserDeterministic, Provenance::BrowserDeterministic) => true,
+        (
+            Provenance::Heuristic { confidence: left },
+            Provenance::Heuristic { confidence: right },
+        ) => left == right,
+        (
+            Provenance::Model {
+                confidence: left,
+                model_id: a,
+            },
+            Provenance::Model {
+                confidence: right,
+                model_id: b,
+            },
+        ) => left == right && naming_equal_with_checkpoint(a, b, check)?,
+        _ => false,
+    })
+}
+
+fn clone_json_with_checkpoint(
+    value: &serde_json::Value,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<serde_json::Value, crate::dom::DomError> {
+    clone_json_iterative_with_checkpoint(value, check)
+}
+
+#[cfg(test)]
+mod deep_cancellation_controls {
+    use super::*;
+    #[test]
+    fn cancelled_node_refresh_preserves_graph() {
+        let dom = crate::html::parse("<button id=one>one</button>")
+            .into_runtime()
+            .unwrap();
+        let mut graph = SemanticGraph::new(PageId(31), 9);
+        graph.reset(dom.arena(), 9);
+        let id = *graph.full.keys().next().unwrap();
+        let before = format!("{graph:?}");
+        let mut total = 0;
+        let mut probe = graph.clone();
+        probe
+            .refresh_node_with_checkpoint(dom.arena(), id, &mut || {
+                total += 1;
+                Ok(())
+            })
+            .unwrap();
+        for boundary in 1..=total {
+            let mut draft = graph.clone();
+            let mut calls = 0;
+            let result = draft.refresh_node_with_checkpoint(dom.arena(), id, &mut || {
+                calls += 1;
+                if calls == boundary {
+                    Err(crate::dom::DomError::ProjectionCancelled)
+                } else {
+                    Ok(())
+                }
+            });
+            assert!(result.is_err());
+            assert_eq!(format!("{draft:?}"), before);
+        }
+    }
+    #[test]
+    fn nested_json_long_string_cancels() {
+        let value = serde_json::json!({"key":["x".repeat(8192)]});
+        let mut calls = 0;
+        let result = clone_json_with_checkpoint(&value, &mut || {
+            calls += 1;
+            if calls == 64 {
+                Err(crate::dom::DomError::ProjectionCancelled)
+            } else {
+                Ok(())
+            }
+        });
+        assert!(matches!(
+            result,
+            Err(crate::dom::DomError::ProjectionCancelled)
+        ));
+        assert_eq!(calls, 64);
+    }
+}
+
+pub(crate) fn clone_accessibility_with_checkpoint(
+    node: &AccessibilityNode,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<AccessibilityNode, crate::dom::DomError> {
+    shared_accessibility(node, &mut OrdinarySemanticProducer, check)
+}
+
+fn clone_evidence_with_checkpoint(
+    values: &[AccessibilityEvidence],
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Vec<AccessibilityEvidence>, crate::dom::DomError> {
+    shared_evidence(values, &mut OrdinarySemanticProducer, check)
+}
+pub(crate) fn clone_structure_with_checkpoint(
+    value: &SemanticStructure,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<SemanticStructure, crate::dom::DomError> {
+    shared_structure(value, &mut OrdinarySemanticProducer, check)
+}
+
+fn clone_json_iterative_with_checkpoint(
+    value: &serde_json::Value,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<serde_json::Value, crate::dom::DomError> {
+    shared_json(value, &mut OrdinarySemanticProducer, check)
+}
+
+struct JsonValuesGuard(Vec<serde_json::Value>);
+impl Drop for JsonValuesGuard {
+    fn drop(&mut self) {
+        while let Some(value) = self.0.pop() {
+            match value {
+                serde_json::Value::Array(values) => self.0.extend(values),
+                serde_json::Value::Object(values) => self.0.extend(values.into_values()),
+                _ => {}
+            }
+        }
+    }
+}
+/// A graph draft may contain deeply nested property values. Disposal is an
+/// ownership operation, not a projection pass: it must finish even after the
+/// callback has requested cancellation, without recursive JSON destruction.
+impl Drop for SemanticGraph {
+    fn drop(&mut self) {
+        let mut values = JsonValuesGuard(Vec::new());
+        for node in self.accessibility.values_mut() {
+            for (_, value) in std::mem::take(&mut node.properties) {
+                values.0.push(value);
+            }
+        }
+        for node in self.pending_accessibility_upserts.values_mut() {
+            for (_, value) in std::mem::take(&mut node.properties) {
+                values.0.push(value);
+            }
+        }
+        for node in self.structures.values_mut() {
+            for (_, value) in std::mem::take(&mut node.properties) {
+                values.0.push(value);
+            }
+        }
+        for node in self.pending_structure_upserts.values_mut() {
+            for (_, value) in std::mem::take(&mut node.properties) {
+                values.0.push(value);
+            }
+        }
+        // The guard now owns every JSON property. Other fields have no recursive
+        // Value ownership and retain their standard destruction behavior.
+    }
+}
+
+struct JsonPropertiesGuard(BTreeMap<String, serde_json::Value>);
+impl std::ops::Deref for JsonPropertiesGuard {
+    type Target = BTreeMap<String, serde_json::Value>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for JsonPropertiesGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+struct AccessibilityOwner(Option<AccessibilityNode>);
+impl Drop for AccessibilityOwner {
+    fn drop(&mut self) {
+        if let Some(mut node) = self.0.take() {
+            drop(JsonPropertiesGuard(std::mem::take(&mut node.properties)));
+        }
+    }
+}
+impl Drop for JsonPropertiesGuard {
+    fn drop(&mut self) {
+        let mut values = JsonValuesGuard(Vec::new());
+        for (_, value) in std::mem::take(&mut self.0) {
+            values.0.push(value);
+        }
+    }
+}
+
+#[cfg(test)]
+mod graph_disposal_controls {
+    use super::*;
+    #[test]
+    fn graph_drop_dismantles_deep_properties_without_recursion() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(|| {
+                let dom = crate::html::parse("<button>one</button>")
+                    .into_runtime()
+                    .unwrap();
+                let mut graph = SemanticGraph::new(PageId(31), 9);
+                graph.reset(dom.arena(), 9);
+                let node = graph.accessibility.values_mut().next().unwrap();
+                let mut value = serde_json::Value::Null;
+                for _ in 0..16384 {
+                    value = serde_json::Value::Array(vec![value]);
+                }
+                node.properties.insert("deep".into(), value);
+                drop(graph);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+}
+fn json_equal_with_checkpoint(
+    left: &serde_json::Value,
+    right: &serde_json::Value,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, crate::dom::DomError> {
+    let mut pairs = vec![(left, right)];
+    while let Some((left, right)) = pairs.pop() {
+        check()?;
+        match (left, right) {
+            (serde_json::Value::Null, serde_json::Value::Null) => {}
+            (serde_json::Value::Bool(left), serde_json::Value::Bool(right)) if left == right => {}
+            (serde_json::Value::Number(left), serde_json::Value::Number(right))
+                if left == right => {}
+            (serde_json::Value::String(left), serde_json::Value::String(right)) => {
+                if !naming_equal_with_checkpoint(left, right, check)? {
+                    return Ok(false);
+                }
+            }
+            (serde_json::Value::Array(left), serde_json::Value::Array(right)) => {
+                if left.len() != right.len() {
+                    return Ok(false);
+                }
+                for pair in left.iter().zip(right) {
+                    check()?;
+                    pairs.push(pair);
+                }
+            }
+            (serde_json::Value::Object(left), serde_json::Value::Object(right)) => {
+                if left.len() != right.len() {
+                    return Ok(false);
+                }
+                let left = json_ordered_entries_with_checkpoint(left, check)?;
+                let right = json_ordered_entries_with_checkpoint(right, check)?;
+                for ((key, value), (other_key, other)) in left.into_iter().zip(right) {
+                    check()?;
+                    if !naming_equal_with_checkpoint(key, other_key, check)? {
+                        return Ok(false);
+                    }
+                    pairs.push((value, other));
+                }
+            }
+            _ => return Ok(false),
+        }
+    }
+    check()?;
+    Ok(true)
+}
+
+fn accessibility_equal_with_checkpoint(
+    left: &AccessibilityNode,
+    right: &AccessibilityNode,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, crate::dom::DomError> {
+    check()?;
+    if left.semantic_ref != right.semantic_ref
+        || left.excluded != right.excluded
+        || left.owned_by != right.owned_by
+        || left.content_trust != right.content_trust
+        || left.relationships.len() != right.relationships.len()
+        || left.properties.len() != right.properties.len()
+        || left.evidence.len() != right.evidence.len()
+    {
+        return Ok(false);
+    }
+    for (left, right) in [(&left.role, &right.role), (&left.name, &right.name)] {
+        if !naming_equal_with_checkpoint(left, right, check)? {
+            return Ok(false);
+        }
+    }
+    for (left, right) in [
+        (&left.description, &right.description),
+        (&left.exclusion_reason, &right.exclusion_reason),
+    ] {
+        match (left, right) {
+            (None, None) => {}
+            (Some(left), Some(right)) => {
+                if !naming_equal_with_checkpoint(left, right, check)? {
+                    return Ok(false);
+                }
+            }
+            _ => return Ok(false),
+        }
+    }
+    if !provenance_equal_with_checkpoint(&left.provenance, &right.provenance, check)? {
+        return Ok(false);
+    }
+    for ((lk, lv), (rk, rv)) in left.relationships.iter().zip(&right.relationships) {
+        check()?;
+        if lk != rk || lv.len() != rv.len() {
+            return Ok(false);
+        }
+        for (left, right) in lv.iter().zip(rv) {
+            check()?;
+            if left != right {
+                return Ok(false);
+            }
+        }
+    }
+    for ((lk, lv), (rk, rv)) in left.properties.iter().zip(&right.properties) {
+        check()?;
+        if !naming_equal_with_checkpoint(lk, rk, check)?
+            || !json_equal_with_checkpoint(lv, rv, check)?
+        {
+            return Ok(false);
+        }
+    }
+    for (left, right) in left.evidence.iter().zip(&right.evidence) {
+        check()?;
+        if left.kind != right.kind
+            || left.references.len() != right.references.len()
+            || !naming_equal_with_checkpoint(&left.source, &right.source, check)?
+        {
+            return Ok(false);
+        }
+        for (left, right) in left.references.iter().zip(&right.references) {
+            check()?;
+            if left != right {
+                return Ok(false);
+            }
+        }
+    }
+    check()?;
+    Ok(true)
+}
+fn structure_equal_with_checkpoint(
+    left: &SemanticStructure,
+    right: &SemanticStructure,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, crate::dom::DomError> {
+    check()?;
+    if left.kind != right.kind
+        || left.root != right.root
+        || left.content_trust != right.content_trust
+        || left.members.len() != right.members.len()
+        || left.groups.len() != right.groups.len()
+        || left.properties.len() != right.properties.len()
+        || left.evidence.len() != right.evidence.len()
+    {
+        return Ok(false);
+    }
+    for (left, right) in [
+        (&left.structure_id, &right.structure_id),
+        (&left.name, &right.name),
+    ] {
+        if !naming_equal_with_checkpoint(left, right, check)? {
+            return Ok(false);
+        }
+    }
+    match (&left.parent_structure_id, &right.parent_structure_id) {
+        (None, None) => {}
+        (Some(left), Some(right)) => {
+            if !naming_equal_with_checkpoint(left, right, check)? {
+                return Ok(false);
+            }
+        }
+        _ => return Ok(false),
+    }
+    if !provenance_equal_with_checkpoint(&left.provenance, &right.provenance, check)? {
+        return Ok(false);
+    }
+    for (left, right) in left.members.iter().zip(&right.members) {
+        check()?;
+        if left != right {
+            return Ok(false);
+        }
+    }
+    for (left, right) in left.groups.iter().zip(&right.groups) {
+        check()?;
+        if left.members.len() != right.members.len()
+            || !naming_equal_with_checkpoint(&left.kind, &right.kind, check)?
+        {
+            return Ok(false);
+        }
+        match (&left.name, &right.name) {
+            (None, None) => {}
+            (Some(left), Some(right)) => {
+                if !naming_equal_with_checkpoint(left, right, check)? {
+                    return Ok(false);
+                }
+            }
+            _ => return Ok(false),
+        }
+        for (left, right) in left.members.iter().zip(&right.members) {
+            check()?;
+            if left != right {
+                return Ok(false);
+            }
+        }
+    }
+    for ((lk, lv), (rk, rv)) in left.properties.iter().zip(&right.properties) {
+        check()?;
+        if !naming_equal_with_checkpoint(lk, rk, check)?
+            || !json_equal_with_checkpoint(lv, rv, check)?
+        {
+            return Ok(false);
+        }
+    }
+    for (left, right) in left.evidence.iter().zip(&right.evidence) {
+        check()?;
+        if left.kind != right.kind
+            || left.references.len() != right.references.len()
+            || !naming_equal_with_checkpoint(&left.source, &right.source, check)?
+        {
+            return Ok(false);
+        }
+        for (left, right) in left.references.iter().zip(&right.references) {
+            check()?;
+            if left != right {
+                return Ok(false);
+            }
+        }
+    }
+    check()?;
+    Ok(true)
+}
+
+struct AccessibilityListOwner(Vec<AccessibilityNode>);
+impl Drop for AccessibilityListOwner {
+    fn drop(&mut self) {
+        for mut node in self.0.drain(..) {
+            drop(JsonPropertiesGuard(std::mem::take(&mut node.properties)));
+        }
+    }
+}
+struct StructureMapOwner(BTreeMap<String, SemanticStructure>);
+struct StructureListOwner(Vec<SemanticStructure>);
+impl Drop for StructureListOwner {
+    fn drop(&mut self) {
+        for mut node in self.0.drain(..) {
+            drop(JsonPropertiesGuard(std::mem::take(&mut node.properties)));
+        }
+    }
+}
+impl Drop for StructureMapOwner {
+    fn drop(&mut self) {
+        for (_, mut node) in std::mem::take(&mut self.0) {
+            drop(JsonPropertiesGuard(std::mem::take(&mut node.properties)));
+        }
+    }
+}
+/// Private native custody only. Public common records retain movable fields;
+/// serialized representation delegates to the unchanged record.
+pub(crate) struct OwnedSemanticChanges(
+    Option<oryn_common::v6::SemanticGraphChanges>,
+    Option<usize>,
+    Vec<SemanticAllocationReceipt>,
+);
+pub(crate) fn dispose_owned_properties(properties: &mut BTreeMap<String, serde_json::Value>) {
+    drop(JsonPropertiesGuard(std::mem::take(properties)));
+}
+impl OwnedSemanticChanges {
+    pub(crate) fn new(changes: oryn_common::v6::SemanticGraphChanges) -> Self {
+        Self(Some(changes), None, Vec::new())
+    }
+    #[cfg(test)]
+    pub(crate) fn with_verified_bytes(
+        changes: oryn_common::v6::SemanticGraphChanges,
+        bytes: usize,
+    ) -> Self {
+        Self(Some(changes), Some(bytes), Vec::new())
+    }
+    pub(crate) fn verified_bytes(&self) -> usize {
+        self.1
+            .expect("cache owner requires verified byte admission")
+    }
+}
+impl std::ops::Deref for OwnedSemanticChanges {
+    type Target = oryn_common::v6::SemanticGraphChanges;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().unwrap()
+    }
+}
+impl serde::Serialize for OwnedSemanticChanges {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.as_ref().unwrap().serialize(serializer)
+    }
+}
+impl Drop for OwnedSemanticChanges {
+    fn drop(&mut self) {
+        if let Some(mut changes) = self.0.take() {
+            for mut node in changes.upserted_nodes.drain(..) {
+                drop(JsonPropertiesGuard(std::mem::take(
+                    &mut node.accessibility_properties,
+                )));
+            }
+            drop(AccessibilityListOwner(std::mem::take(
+                &mut changes.upserted_accessibility,
+            )));
+            for mut structure in changes.upserted_structures.drain(..) {
+                drop(JsonPropertiesGuard(std::mem::take(
+                    &mut structure.properties,
+                )));
+            }
+        }
+    }
+}
+
+pub(crate) fn dispose_semantic_observation(mut observation: oryn_common::v6::SemanticObservation) {
+    for mut node in observation.nodes.drain(..) {
+        drop(JsonPropertiesGuard(std::mem::take(
+            &mut node.accessibility_properties,
+        )));
+    }
+    drop(AccessibilityListOwner(std::mem::take(
+        &mut observation.accessibility,
+    )));
+    for mut structure in observation.structures.drain(..) {
+        drop(JsonPropertiesGuard(std::mem::take(
+            &mut structure.properties,
+        )));
+    }
+}
+fn json_ordered_entries_with_checkpoint<'a>(
+    values: &'a serde_json::Map<String, serde_json::Value>,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Vec<(&'a str, &'a serde_json::Value)>, crate::dom::DomError> {
+    let mut entries = Vec::new();
+    for (key, value) in values {
+        check()?;
+        entries.push((key.as_str(), value));
+    }
+    // Callback-aware bottom-up merge sort on borrowed entries. Works for both
+    // BTreeMap and preserve_order maps without copying keys or changing JSON.
+    let mut width = 1usize;
+    while width < entries.len() {
+        let mut merged = Vec::new();
+        let mut start = 0usize;
+        while start < entries.len() {
+            check()?;
+            let mid = start.saturating_add(width).min(entries.len());
+            let end = mid.saturating_add(width).min(entries.len());
+            let (mut left, mut right) = (start, mid);
+            while left < mid || right < end {
+                check()?;
+                let take_left = if right == end {
+                    true
+                } else if left == mid {
+                    false
+                } else {
+                    json_key_order_with_checkpoint(entries[left].0, entries[right].0, check)?
+                        != std::cmp::Ordering::Greater
+                };
+                if take_left {
+                    merged.push(entries[left]);
+                    left += 1;
+                } else {
+                    merged.push(entries[right]);
+                    right += 1;
+                }
+            }
+            start = end;
+        }
+        entries = merged;
+        width = width.saturating_mul(2);
+    }
+    check()?;
+    Ok(entries)
+}
+
+fn json_key_order_with_checkpoint(
+    left: &str,
+    right: &str,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<std::cmp::Ordering, crate::dom::DomError> {
+    let mut left = left.bytes();
+    let mut right = right.bytes();
+    loop {
+        check()?;
+        match (left.next(), right.next()) {
+            (Some(left), Some(right)) if left == right => {}
+            (Some(left), Some(right)) => return Ok(left.cmp(&right)),
+            (None, None) => return Ok(std::cmp::Ordering::Equal),
+            (None, Some(_)) => return Ok(std::cmp::Ordering::Less),
+            (Some(_), None) => return Ok(std::cmp::Ordering::Greater),
+        }
+    }
+}
+#[cfg(test)]
+mod private_ownership_controls {
+    use super::*;
+    #[test]
+    fn private_changes_preserve_wire_shape_and_deep_disposal() {
+        let changes = oryn_common::v6::SemanticGraphChanges::default();
+        let before = serde_json::to_vec(&changes).unwrap();
+        let owner = OwnedSemanticChanges::new(changes);
+        assert_eq!(serde_json::to_vec(&owner).unwrap(), before);
+    }
+    #[test]
+    fn key_sort_is_order_independent_and_cancellable() {
+        let value = serde_json::json!({"z":0,"a":1,"中":2});
+        let map = value.as_object().unwrap();
+        let entries = json_ordered_entries_with_checkpoint(map, &mut || Ok(())).unwrap();
+        assert_eq!(
+            entries.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
+            ["a", "z", "中"]
+        );
+        let mut calls = 0;
+        assert!(
+            json_ordered_entries_with_checkpoint(map, &mut || {
+                calls += 1;
+                if calls == 4 {
+                    Err(crate::dom::DomError::ProjectionCancelled)
+                } else {
+                    Ok(())
+                }
+            })
+            .is_err()
+        );
+    }
+}
+pub(crate) fn clone_delta_node_with_checkpoint(
+    node: &oryn_common::v6::SemanticNode,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<oryn_common::v6::SemanticNode, crate::dom::DomError> {
+    let semantic = clone_semantic_node_with_checkpoint(&node.semantic, check)?;
+    let mut relationships = BTreeMap::new();
+    for (key, values) in &node.relationships {
+        let mut copied = Vec::new();
+        for value in values {
+            check()?;
+            copied.push(*value);
+        }
+        relationships.insert(key.clone(), copied);
+    }
+    let mut properties = JsonPropertiesGuard(BTreeMap::new());
+    for (key, value) in &node.accessibility_properties {
+        check()?;
+        properties.0.insert(
+            naming_clone_with_checkpoint(key, check)?,
+            clone_json_with_checkpoint(value, check)?,
+        );
+    }
+    let mut structure_ids = Vec::new();
+    for value in &node.structure_ids {
+        structure_ids.push(naming_clone_with_checkpoint(value, check)?);
+    }
+    let mut field_evidence = Vec::new();
+    for value in &node.field_evidence {
+        check()?;
+        field_evidence.push(SemanticFieldEvidence {
+            field: value.field,
+            trust: value.trust,
+            provenance: clone_provenance_with_checkpoint(&value.provenance, check)?,
+            evidence: clone_evidence_with_checkpoint(&value.evidence, check)?,
+        });
+    }
+    let geometry = node
+        .geometry
+        .as_ref()
+        .map(|value| {
+            let mut client_rects = Vec::new();
+            for rect in &value.client_rects {
+                check()?;
+                client_rects.push(*rect);
+            }
+            Ok::<_, crate::dom::DomError>(oryn_common::v4::NodeGeometry {
+                availability: value.availability,
+                box_model: value.box_model.clone(),
+                client_rects,
+                in_viewport: value.in_viewport,
+                interactable: value.interactable,
+                diagnostic: value
+                    .diagnostic
+                    .as_ref()
+                    .map(|value| naming_clone_with_checkpoint(value, check))
+                    .transpose()?,
+            })
+        })
+        .transpose()?;
+    check()?;
+    Ok(oryn_common::v6::SemanticNode {
+        semantic,
+        frame_id: node.frame_id,
+        relationships,
+        accessibility_properties: std::mem::take(&mut properties.0),
+        structure_ids,
+        geometry,
+        field_evidence,
+    })
+}
+
+pub(crate) struct DeltaAssembly {
+    pub(crate) nodes: BTreeMap<SemanticRef, oryn_common::v6::SemanticNode>,
+    pub(crate) accessibility: BTreeMap<SemanticRef, AccessibilityNode>,
+    pub(crate) structures: BTreeMap<String, SemanticStructure>,
+}
+impl DeltaAssembly {
+    pub(crate) fn new() -> Self {
+        Self {
+            nodes: BTreeMap::new(),
+            accessibility: BTreeMap::new(),
+            structures: BTreeMap::new(),
+        }
+    }
+}
+impl Drop for DeltaAssembly {
+    fn drop(&mut self) {
+        for node in self.nodes.values_mut() {
+            dispose_owned_properties(&mut node.accessibility_properties);
+        }
+        for node in self.accessibility.values_mut() {
+            dispose_owned_properties(&mut node.properties);
+        }
+        for node in self.structures.values_mut() {
+            dispose_owned_properties(&mut node.properties);
+        }
+    }
+}
+#[cfg(test)]
+pub(crate) fn deep_changes_for_test() -> oryn_common::v6::SemanticGraphChanges {
+    let dom = crate::html::parse("<button>deep</button>")
+        .into_runtime()
+        .unwrap();
+    let mut graph = SemanticGraph::new(PageId(31), 9);
+    graph.reset(dom.arena(), 9);
+    let mut changes = graph.take_v6_changes();
+    let mut value = serde_json::Value::Null;
+    for _ in 0..16384 {
+        value = serde_json::Value::Array(vec![value]);
+    }
+    changes
+        .upserted_accessibility
+        .first_mut()
+        .unwrap()
+        .properties
+        .insert("deep".into(), value);
+    changes
+}
+
+#[cfg(test)]
+mod private_depth_controls {
+    use super::*;
+    #[test]
+    fn cache_eviction_drops_deep_private_changes_on_small_stack() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(|| {
+                let mut cache = BTreeMap::new();
+                cache.insert(1, OwnedSemanticChanges::new(deep_changes_for_test()));
+                drop(cache.remove(&1));
+                cache.insert(2, OwnedSemanticChanges::new(deep_changes_for_test()));
+                drop(cache);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    fn failed_actor_delivery_drops_deep_changes_on_small_stack() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(|| {
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                drop(receiver);
+                let unsent = sender.send(deep_changes_for_test()).unwrap_err();
+                drop(OwnedSemanticChanges::new(unsent));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+}
+/// Nonrecursive JSON wire traversal. Scalar serialization delegates to the
+/// existing serde_json numeric/string formatter; container depth is iterative.
+#[cfg(test)]
+fn write_json_value_iterative(
+    writer: &mut impl std::io::Write,
+    value: &serde_json::Value,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    write_json_cursor(writer, value, check)
+}
+
+fn write_json_string_checked(
+    writer: &mut impl std::io::Write,
+    value: &str,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    writer.write_all(b"\"")?;
+    for ch in value.chars() {
+        check()?;
+        match ch {
+            '"' => writer.write_all(b"\\\"")?,
+            '\\' => writer.write_all(b"\\\\")?,
+            '\u{8}' => writer.write_all(b"\\b")?,
+            '\u{c}' => writer.write_all(b"\\f")?,
+            '\n' => writer.write_all(b"\\n")?,
+            '\r' => writer.write_all(b"\\r")?,
+            '\t' => writer.write_all(b"\\t")?,
+            ch if ch <= '\u{1f}' => {
+                let hex = b"0123456789abcdef";
+                let byte = ch as u8;
+                writer.write_all(&[
+                    b'\\',
+                    b'u',
+                    b'0',
+                    b'0',
+                    hex[(byte >> 4) as usize],
+                    hex[(byte & 15) as usize],
+                ])?;
+            }
+            ch => {
+                let mut bytes = [0; 4];
+                writer.write_all(ch.encode_utf8(&mut bytes).as_bytes())?;
+            }
+        }
+    }
+    check()?;
+    writer.write_all(b"\"")
+}
+
+#[cfg(test)]
+mod iterative_wire_controls {
+    use super::*;
+    #[test]
+    fn exact_scalar_container_wire_parity() {
+        let values = [
+            serde_json::json!({"z":[null,true,false,1,-1,1.25],"escape":"\u{0}\u{8}\u{c}\n\r\t\\\"中😀"}),
+            serde_json::json!([]),
+            serde_json::json!({}),
+        ];
+        for value in values {
+            let mut bytes = Vec::new();
+            write_json_value_iterative(&mut bytes, &value, &mut || Ok(())).unwrap();
+            assert_eq!(bytes, serde_json::to_vec(&value).unwrap());
+        }
+    }
+    #[test]
+    fn successful_deep_wire_on_small_stack() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(|| {
+                let mut value = serde_json::Value::Null;
+                for _ in 0..16384 {
+                    value = serde_json::Value::Array(vec![value]);
+                }
+                let owner = JsonValuesGuard(vec![value]);
+                let mut bytes = Vec::new();
+                write_json_value_iterative(&mut bytes, &owner.0[0], &mut || Ok(())).unwrap();
+                assert_eq!(bytes.len(), 32772);
+                assert_eq!(&bytes[16384..16388], b"null");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    fn cancellation_stops_actual_wire_loop() {
+        let value = serde_json::Value::String("x".repeat(8192));
+        let mut calls = 0;
+        let mut bytes = Vec::new();
+        let error = write_json_value_iterative(&mut bytes, &value, &mut || {
+            calls += 1;
+            if calls == 64 {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "cancelled",
+                ))
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+        assert!(bytes.len() < 64);
+    }
+}
+fn write_properties_iterative(
+    writer: &mut impl std::io::Write,
+    properties: &BTreeMap<String, serde_json::Value>,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    writer.write_all(b"{")?;
+    let mut first = true;
+    for (key, value) in properties {
+        check()?;
+        if !first {
+            writer.write_all(b",")?;
+        }
+        first = false;
+        write_json_string_checked(writer, key, check)?;
+        writer.write_all(b":")?;
+        write_json_cursor(writer, value, check)?;
+    }
+    writer.write_all(b"}")
+}
+
+fn write_accessibility_record_iterative(
+    writer: &mut impl std::io::Write,
+    node: &AccessibilityNode,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    writer.write_all(b"{")?;
+    let mut first = true;
+    macro_rules! field {
+        ($name:literal, $value:expr) => {{
+            check()?;
+            if !first {
+                writer.write_all(b",")?;
+            }
+            first = false;
+            writer.write_all(concat!("\"", $name, "\":").as_bytes())?;
+            write_checked_serde(writer, $value, check)?;
+        }};
+    }
+    field!("semantic_ref", &node.semantic_ref);
+    field!("excluded", &node.excluded);
+    if let Some(value) = &node.exclusion_reason {
+        field!("exclusion_reason", value);
+    }
+    field!("role", &node.role);
+    field!("name", &node.name);
+    if let Some(value) = &node.description {
+        field!("description", value);
+    }
+    if !node.relationships.is_empty() {
+        field!("relationships", &node.relationships);
+    }
+    if !node.properties.is_empty() {
+        check()?;
+        if !first {
+            writer.write_all(b",")?;
+        }
+        first = false;
+        writer.write_all(b"\"properties\":")?;
+        write_properties_iterative(writer, &node.properties, check)?;
+    }
+    if let Some(value) = &node.owned_by {
+        field!("owned_by", value);
+    }
+    field!("content_trust", &node.content_trust);
+    field!("provenance", &node.provenance);
+    if !node.evidence.is_empty() {
+        field!("evidence", &node.evidence);
+    }
+    let _ = first;
+    writer.write_all(b"}")
+}
+
+#[cfg(test)]
+mod accessibility_wire_controls {
+    use super::*;
+    #[test]
+    fn accessibility_record_exact_wire_parity() {
+        let dom = crate::html::parse("<button aria-label=one>two</button>")
+            .into_runtime()
+            .unwrap();
+        let mut graph = SemanticGraph::new(PageId(31), 9);
+        graph.reset(dom.arena(), 9);
+        for node in graph.accessibility.values() {
+            let mut bytes = Vec::new();
+            write_accessibility_record_iterative(&mut bytes, node, &mut || Ok(())).unwrap();
+            assert_eq!(bytes, serde_json::to_vec(node).unwrap());
+        }
+    }
+}
+struct WireObject<'a, W: std::io::Write, C: FnMut() -> std::io::Result<()>> {
+    writer: &'a mut W,
+    check: &'a mut C,
+    first: bool,
+}
+impl<'a, W: std::io::Write, C: FnMut() -> std::io::Result<()>> WireObject<'a, W, C> {
+    fn new(writer: &'a mut W, check: &'a mut C) -> std::io::Result<Self> {
+        check()?;
+        writer.write_all(b"{")?;
+        Ok(Self {
+            writer,
+            check,
+            first: true,
+        })
+    }
+    fn key(&mut self, key: &str) -> std::io::Result<()> {
+        (self.check)()?;
+        if !self.first {
+            self.writer.write_all(b",")?;
+        }
+        self.first = false;
+        write_json_string_checked(self.writer, key, self.check)?;
+        self.writer.write_all(b":")
+    }
+    fn field<T: serde::Serialize + ?Sized>(&mut self, key: &str, value: &T) -> std::io::Result<()> {
+        self.key(key)?;
+        write_checked_serde(self.writer, value, self.check)?;
+        Ok(())
+    }
+    fn string(&mut self, key: &str, value: &str) -> std::io::Result<()> {
+        self.key(key)?;
+        write_json_string_checked(self.writer, value, self.check)
+    }
+    fn properties(
+        &mut self,
+        key: &str,
+        value: &BTreeMap<String, serde_json::Value>,
+    ) -> std::io::Result<()> {
+        self.key(key)?;
+        write_properties_iterative(self.writer, value, self.check)
+    }
+    fn finish(self) -> std::io::Result<()> {
+        (self.check)()?;
+        self.writer.write_all(b"}")
+    }
+}
+fn write_structure_wire(
+    writer: &mut impl std::io::Write,
+    node: &SemanticStructure,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let mut out = WireObject::new(writer, check)?;
+    out.field("structure_id", &node.structure_id)?;
+    out.field("kind", &node.kind)?;
+    out.field("root", &node.root)?;
+    if let Some(value) = &node.parent_structure_id {
+        out.field("parent_structure_id", value)?;
+    }
+    out.field("name", &node.name)?;
+    if !node.members.is_empty() {
+        out.field("members", &node.members)?;
+    }
+    if !node.groups.is_empty() {
+        out.field("groups", &node.groups)?;
+    }
+    if !node.properties.is_empty() {
+        out.properties("properties", &node.properties)?;
+    }
+    out.field("content_trust", &node.content_trust)?;
+    out.field("provenance", &node.provenance)?;
+    out.field("evidence", &node.evidence)?;
+    out.finish()
+}
+fn write_v6_node_wire(
+    writer: &mut impl std::io::Write,
+    node: &oryn_common::v6::SemanticNode,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    // Flattened v3 semantic has no JSON values or recursive record ownership.
+    let mut out = WireObject::new(writer, check)?;
+    write_v3_semantic_fields(&mut out, &node.semantic)?;
+    if let Some(value) = &node.frame_id {
+        out.field("frame_id", value)?;
+    }
+    if !node.relationships.is_empty() {
+        out.field("relationships", &node.relationships)?;
+    }
+    if !node.accessibility_properties.is_empty() {
+        out.properties("accessibility_properties", &node.accessibility_properties)?;
+    }
+    if !node.structure_ids.is_empty() {
+        out.field("structure_ids", &node.structure_ids)?;
+    }
+    if let Some(value) = &node.geometry {
+        out.field("geometry", value)?;
+    }
+    if !node.field_evidence.is_empty() {
+        out.field("field_evidence", &node.field_evidence)?;
+    }
+    out.finish()
+}
+fn write_wire_array<T, W: std::io::Write, C: FnMut() -> std::io::Result<()>>(
+    writer: &mut W,
+    values: &[T],
+    check: &mut C,
+    mut element: impl FnMut(&mut W, &T, &mut C) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    writer.write_all(b"[")?;
+    for (index, value) in values.iter().enumerate() {
+        check()?;
+        if index != 0 {
+            writer.write_all(b",")?;
+        }
+        element(writer, value, check)?;
+    }
+    writer.write_all(b"]")
+}
+pub(crate) fn write_changes_wire(
+    writer: &mut impl std::io::Write,
+    changes: &oryn_common::v6::SemanticGraphChanges,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let mut out = WireObject::new(writer, check)?;
+    if !changes.upserted_nodes.is_empty() {
+        out.key("upserted_nodes")?;
+        write_wire_array(
+            out.writer,
+            &changes.upserted_nodes,
+            out.check,
+            write_v6_node_wire,
+        )?;
+    }
+    if !changes.removed_nodes.is_empty() {
+        out.field("removed_nodes", &changes.removed_nodes)?;
+    }
+    if !changes.upserted_accessibility.is_empty() {
+        out.key("upserted_accessibility")?;
+        write_wire_array(
+            out.writer,
+            &changes.upserted_accessibility,
+            out.check,
+            write_accessibility_record_iterative,
+        )?;
+    }
+    if !changes.removed_accessibility.is_empty() {
+        out.field("removed_accessibility", &changes.removed_accessibility)?;
+    }
+    if !changes.upserted_structures.is_empty() {
+        out.key("upserted_structures")?;
+        write_wire_array(
+            out.writer,
+            &changes.upserted_structures,
+            out.check,
+            write_structure_wire,
+        )?;
+    }
+    if !changes.removed_structures.is_empty() {
+        out.field("removed_structures", &changes.removed_structures)?;
+    }
+    out.finish()
+}
+#[cfg(test)]
+pub(crate) fn semantic_changes_bytes(
+    changes: &oryn_common::v6::SemanticGraphChanges,
+) -> std::io::Result<usize> {
+    semantic_changes_bytes_with_checkpoint(changes, &mut || Ok(()))
+}
+pub(crate) fn semantic_changes_bytes_with_checkpoint(
+    changes: &oryn_common::v6::SemanticGraphChanges,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<usize> {
+    struct Counter(usize);
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self
+                .0
+                .checked_add(bytes.len())
+                .ok_or_else(|| std::io::Error::other("semantic size overflow"))?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut counter = Counter(0);
+    write_changes_wire(&mut counter, changes, check)?;
+    Ok(counter.0)
+}
+#[cfg(test)]
+mod changes_wire_controls {
+    use super::*;
+    #[test]
+    fn deep_changes_successful_wire_and_count_small_stack() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(|| {
+                let owner = OwnedSemanticChanges::new(deep_changes_for_test());
+                let mut bytes = Vec::new();
+                write_changes_wire(&mut bytes, &owner, &mut || Ok(())).unwrap();
+                assert_eq!(bytes.len(), semantic_changes_bytes(&owner).unwrap());
+                assert!(bytes.len() > 32768);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    fn actual_changes_wire_parity() {
+        let dom = crate::html::parse("<form><button>one</button></form>")
+            .into_runtime()
+            .unwrap();
+        let mut graph = SemanticGraph::new(PageId(31), 9);
+        graph.reset(dom.arena(), 9);
+        let owner = OwnedSemanticChanges::new(graph.take_v6_changes());
+        let mut bytes = Vec::new();
+        write_changes_wire(&mut bytes, &owner, &mut || Ok(())).unwrap();
+        assert_eq!(bytes, serde_json::to_vec(&owner).unwrap());
+    }
+}
+pub(crate) fn write_observation_v6_wire(
+    writer: &mut impl std::io::Write,
+    node: &oryn_common::v6::SemanticObservation,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let mut out = WireObject::new(writer, check)?;
+    out.field("contract_version", &node.contract_version)?;
+    out.field("page", &node.page)?;
+    out.field("revision", &node.revision)?;
+    out.field("semantic_revision", &node.semantic_revision)?;
+    out.field("profile", &node.profile)?;
+    out.field("source", &node.source)?;
+    out.key("nodes")?;
+    write_wire_array(out.writer, &node.nodes, out.check, write_v6_node_wire)?;
+    if !node.accessibility.is_empty() {
+        out.key("accessibility")?;
+        write_wire_array(
+            out.writer,
+            &node.accessibility,
+            out.check,
+            write_accessibility_record_iterative,
+        )?;
+    }
+    if !node.structures.is_empty() {
+        out.key("structures")?;
+        write_wire_array(
+            out.writer,
+            &node.structures,
+            out.check,
+            write_structure_wire,
+        )?;
+    }
+    out.field("projection", &node.projection)?;
+    if !node.capabilities.is_empty() {
+        out.field("capabilities", &node.capabilities)?;
+    }
+    if !node.diagnostics.is_empty() {
+        out.field("diagnostics", &node.diagnostics)?;
+    }
+    out.field("execution_domain", &node.execution_domain)?;
+    out.finish()
+}
+pub(crate) fn write_observation_v5_wire(
+    writer: &mut impl std::io::Write,
+    node: &oryn_common::v5::SemanticObservation,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let mut out = WireObject::new(writer, check)?;
+    out.field("contract_version", &node.contract_version)?;
+    out.field("observation", &node.observation)?;
+    out.key("accessibility")?;
+    write_wire_array(
+        out.writer,
+        &node.accessibility,
+        out.check,
+        write_accessibility_record_iterative,
+    )?;
+    out.key("structures")?;
+    write_wire_array(
+        out.writer,
+        &node.structures,
+        out.check,
+        write_structure_wire,
+    )?;
+    if !node.diagnostics.is_empty() {
+        out.field("diagnostics", &node.diagnostics)?;
+    }
+    out.finish()
+}
+pub(crate) fn write_delta_wire(
+    writer: &mut impl std::io::Write,
+    node: &oryn_common::v6::SemanticDelta,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let mut out = WireObject::new(writer, check)?;
+    out.field("contract_version", &node.contract_version)?;
+    out.field("page_id", &node.page_id)?;
+    out.field("from_revision", &node.from_revision)?;
+    out.field("to_revision", &node.to_revision)?;
+    out.field("semantic_revision", &node.semantic_revision)?;
+    out.key("changes")?;
+    write_changes_wire(out.writer, &node.changes, out.check)?;
+    if !node.diagnostics.is_empty() {
+        out.field("diagnostics", &node.diagnostics)?;
+    }
+    out.finish()
+}
+fn write_json_cursor(
+    writer: &mut impl std::io::Write,
+    value: &serde_json::Value,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    enum Cursor<'a> {
+        Array(std::slice::Iter<'a, serde_json::Value>, bool),
+        Object(serde_json::map::Iter<'a>, bool),
+    }
+    let mut stack = Vec::new();
+    let mut next = Some(value);
+    loop {
+        check()?;
+        if let Some(value) = next.take() {
+            match value {
+                serde_json::Value::Array(values) => {
+                    writer.write_all(b"[")?;
+                    stack
+                        .try_reserve(1)
+                        .map_err(|error| std::io::Error::other(error.to_string()))?;
+                    stack.push(Cursor::Array(values.iter(), true));
+                }
+                serde_json::Value::Object(values) => {
+                    writer.write_all(b"{")?;
+                    stack
+                        .try_reserve(1)
+                        .map_err(|error| std::io::Error::other(error.to_string()))?;
+                    stack.push(Cursor::Object(values.iter(), true));
+                }
+                serde_json::Value::String(value) => {
+                    write_json_string_checked(writer, value, check)?
+                }
+                value => serde_json::to_writer(&mut *writer, value)?,
+            }
+        }
+        match stack.last_mut() {
+            Some(Cursor::Array(values, first)) => {
+                if let Some(value) = values.next() {
+                    if !*first {
+                        writer.write_all(b",")?;
+                    }
+                    *first = false;
+                    next = Some(value);
+                } else {
+                    writer.write_all(b"]")?;
+                    stack.pop();
+                }
+            }
+            Some(Cursor::Object(values, first)) => {
+                if let Some((key, value)) = values.next() {
+                    if !*first {
+                        writer.write_all(b",")?;
+                    }
+                    *first = false;
+                    write_json_string_checked(writer, key, check)?;
+                    writer.write_all(b":")?;
+                    next = Some(value);
+                } else {
+                    writer.write_all(b"}")?;
+                    stack.pop();
+                }
+            }
+            None => break,
+        }
+    }
+    check()
+}
+fn write_v3_semantic_fields<W: std::io::Write, C: FnMut() -> std::io::Result<()>>(
+    out: &mut WireObject<'_, W, C>,
+    node: &SemanticNodeView,
+) -> std::io::Result<()> {
+    out.field("semantic_ref", &node.semantic_ref)?;
+    if let Some(value) = &node.parent {
+        out.field("parent", value)?;
+    }
+    out.field("document_order", &node.document_order)?;
+    out.field("alias", &node.alias)?;
+    out.string("role", &node.role)?;
+    out.string("name", &node.name)?;
+    if let Some(value) = &node.selector {
+        out.string("selector", value)?;
+    }
+    if let Some(value) = &node.value {
+        out.string("value", value)?;
+    }
+    if let Some(value) = &node.description {
+        out.string("description", value)?;
+    }
+    if let Some(value) = &node.validation {
+        out.field("validation", value)?;
+    }
+    if !node.states.is_empty() {
+        out.field("states", &node.states)?;
+    }
+    if !node.actions.is_empty() {
+        out.field("actions", &node.actions)?;
+    }
+    out.field("content_trust", &node.content_trust)?;
+    out.field("provenance", &node.provenance)?;
+    Ok(())
+}
+impl SemanticGraph {
+    pub(crate) fn pending_changes_with_checkpoint(
+        &self,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<OwnedSemanticChanges, crate::dom::DomError> {
+        self.shared_pending(&mut OrdinarySemanticProducer, check)
+    }
+}
+#[cfg(test)]
+mod pending_only_controls {
+    use super::*;
+    #[test]
+    fn pending_builder_matches_take_and_failure_preserves_journal() {
+        let dom = crate::html::parse("<form><button>one</button></form>")
+            .into_runtime()
+            .unwrap();
+        let mut graph = SemanticGraph::new(PageId(31), 9);
+        graph.reset(dom.arena(), 9);
+        let before = format!("{graph:?}");
+        let prepared = graph
+            .pending_changes_with_checkpoint(&mut || Ok(()))
+            .unwrap();
+        let mut copy = graph.clone();
+        let taken = OwnedSemanticChanges::new(copy.take_v6_changes());
+        assert_eq!(
+            serde_json::to_vec(&prepared).unwrap(),
+            serde_json::to_vec(&taken).unwrap()
+        );
+        let mut calls = 0;
+        let failed = graph.pending_changes_with_checkpoint(&mut || {
+            calls += 1;
+            if calls == 16 {
+                Err(crate::dom::DomError::ProjectionCancelled)
+            } else {
+                Ok(())
+            }
+        });
+        assert!(failed.is_err());
+        assert_eq!(format!("{graph:?}"), before);
+    }
+}
+#[cfg(test)]
+mod verified_bytes_controls {
+    use super::*;
+    #[test]
+    fn stored_size_matches_wire_and_avoids_recount_on_eviction() {
+        let changes = oryn_common::v6::SemanticGraphChanges::default();
+        let size = semantic_changes_bytes_with_checkpoint(&changes, &mut || Ok(())).unwrap();
+        let owner = OwnedSemanticChanges::with_verified_bytes(changes, size);
+        assert_eq!(owner.verified_bytes(), 2);
+        let mut calls = 0;
+        let failed = semantic_changes_bytes_with_checkpoint(&owner, &mut || {
+            calls += 1;
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "retired",
+            ))
+        });
+        assert!(failed.is_err());
+        assert_eq!(calls, 1);
+        assert_eq!(owner.verified_bytes(), size);
+    }
+    #[test]
+    fn cursor_serializes_wide_payload_without_sibling_stack() {
+        let value = serde_json::Value::Array((0..65536).map(|_| serde_json::Value::Null).collect());
+        let mut bytes = Vec::new();
+        write_json_cursor(&mut bytes, &value, &mut || Ok(())).unwrap();
+        assert_eq!(bytes.len(), 327681);
+        assert_eq!(bytes, serde_json::to_vec(&value).unwrap());
+    }
+}
+#[cfg(test)]
+mod empty_wire_checkpoint_controls {
+    use super::*;
+    #[test]
+    fn capacity_and_cancellation_are_not_defaulted() {
+        for error in [
+            crate::dom::DomError::ProjectionCancelled,
+            crate::dom::DomError::SemanticProjectionCapacity,
+        ] {
+            assert!(cancellation_or_default::<String>(Err(error)).is_err());
+        }
+        assert_eq!(
+            cancellation_or_default::<String>(Err(crate::dom::DomError::Cycle)).unwrap(),
+            ""
+        );
+    }
+    #[test]
+    fn cancelled_empty_changes_never_writes_opening_token() {
+        let changes = oryn_common::v6::SemanticGraphChanges::default();
+        let mut bytes = Vec::new();
+        let result = write_changes_wire(&mut bytes, &changes, &mut || {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "cancelled",
+            ))
+        });
+        assert!(result.is_err());
+        assert!(bytes.is_empty());
+    }
+    #[test]
+    fn empty_changes_final_checkpoint_is_enforced() {
+        let changes = oryn_common::v6::SemanticGraphChanges::default();
+        let mut bytes = Vec::new();
+        let mut calls = 0;
+        let result = write_changes_wire(&mut bytes, &changes, &mut || {
+            calls += 1;
+            if calls == 2 {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "cancelled",
+                ))
+            } else {
+                Ok(())
+            }
+        });
+        assert!(result.is_err());
+        assert_eq!(calls, 2);
+        assert_eq!(bytes, b"{");
+    }
+}
+impl SemanticGraph {
+    fn projected_v6_with_checkpoint(
+        &self,
+        reference: SemanticRef,
+        node: &SemanticNodeView,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<SemanticNodeV6, crate::dom::DomError> {
+        self.shared_projected_v6(reference, node, &mut OrdinarySemanticProducer, check)
+    }
+}
+impl OwnedSemanticChanges {
+    pub(crate) fn set_verified_bytes(&mut self, bytes: usize) {
+        self.1 = Some(bytes);
+    }
+    pub(crate) fn legacy_changes_with_checkpoint(
+        &self,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<SemanticGraphChanges, crate::dom::DomError> {
+        self.shared_legacy(&mut OrdinarySemanticProducer, check)
+    }
+}
+impl SemanticGraph {
+    pub(crate) fn commit_prepared_journal(&mut self) {
+        // Caller owns exclusive &mut graph and has completed every fallible
+        // preparation; clear each journal exactly once, with depth-safe custody.
+        self.pending_upserts.clear();
+        self.pending_removed.clear();
+        for (_, mut node) in std::mem::take(&mut self.pending_accessibility_upserts) {
+            dispose_owned_properties(&mut node.properties);
+        }
+        self.pending_accessibility_removed.clear();
+        drop(StructureMapOwner(std::mem::take(
+            &mut self.pending_structure_upserts,
+        )));
+        self.pending_structure_removed.clear();
+    }
+}
+struct CheckedSerdeWriter<'a, W: std::io::Write, C: FnMut() -> std::io::Result<()>> {
+    writer: &'a mut W,
+    check: &'a mut C,
+}
+impl<W: std::io::Write, C: FnMut() -> std::io::Result<()>> std::io::Write
+    for CheckedSerdeWriter<'_, W, C>
+{
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        (self.check)()?;
+        self.writer.write(bytes)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        (self.check)()?;
+        self.writer.flush()
+    }
+}
+fn write_checked_serde<T: serde::Serialize + ?Sized>(
+    writer: &mut impl std::io::Write,
+    value: &T,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    serde_json::to_writer(CheckedSerdeWriter { writer, check }, value)?;
+    Ok(())
+}
+
+pub(crate) enum SemanticPreparationError {
+    Dom(crate::dom::DomError),
+    Host(crate::host::HostError),
+    Admission(String),
+    Allocation(std::collections::TryReserveError),
+    Capacity,
+}
+impl std::fmt::Debug for SemanticPreparationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Dom(error) => f.debug_tuple("Dom").field(error).finish(),
+            Self::Host(error) => f.debug_tuple("Host").field(error).finish(),
+            Self::Admission(error) => f.debug_tuple("Admission").field(error).finish(),
+            Self::Allocation(error) => f.debug_tuple("Allocation").field(error).finish(),
+            Self::Capacity => f.write_str("Capacity"),
+        }
+    }
+}
+impl From<crate::dom::DomError> for SemanticPreparationError {
+    fn from(value: crate::dom::DomError) -> Self {
+        Self::Dom(value)
+    }
+}
+struct SemanticLeaseOwner<'a> {
+    admission: &'a dyn oryn_layout::cssom::native_import_graph::ImportAdmission,
+    leases: Vec<SemanticAllocationReceipt>,
+}
+struct SemanticAllocationReceipt {
+    payload: Option<std::sync::Arc<dyn Send + Sync>>,
+    _metadata: Option<std::sync::Arc<dyn Send + Sync>>,
+}
+
+struct SemanticMetadataAdmission<'a> {
+    admission: &'a dyn oryn_layout::cssom::native_import_graph::ImportAdmission,
+    receipt: Option<std::sync::Arc<dyn Send + Sync>>,
+}
+impl crate::dom::projection_allocation::ProjectionAllocation for SemanticMetadataAdmission<'_> {
+    type Error = SemanticPreparationError;
+    fn reserve(&mut self, bytes: usize) -> Result<(), Self::Error> {
+        self.admission
+            .checkpoint()
+            .map_err(SemanticPreparationError::Admission)?;
+        self.receipt = Some(
+            self.admission
+                .reserve(bytes)
+                .map_err(SemanticPreparationError::Admission)?,
+        );
+        Ok(())
+    }
+    fn allocation_error(&self, error: std::collections::TryReserveError) -> Self::Error {
+        SemanticPreparationError::Allocation(error)
+    }
+}
+
+impl SemanticLeaseOwner<'_> {
+    fn reserve(&mut self, bytes: usize) -> Result<(), SemanticPreparationError> {
+        // Preserve canonical infrastructure/expired/retired error text as an
+        // admission error. Do not manufacture owner cancellation from strings.
+        self.admission
+            .checkpoint()
+            .map_err(SemanticPreparationError::Admission)?;
+        let needed = self
+            .leases
+            .len()
+            .checked_add(1)
+            .ok_or(SemanticPreparationError::Capacity)?;
+        // Admit payload first: a later metadata-allocation error drops this
+        // temporary receipt, while a successful vector growth is immediately
+        // followed by an infallible push retaining its metadata receipt.
+        let receipt = self
+            .admission
+            .reserve(bytes)
+            .map_err(SemanticPreparationError::Admission)?;
+        // Reserve receipt-vector metadata through the same geometric engine
+        // as every other producer. This adapter must not recurse into self.
+        let mut metadata = SemanticMetadataAdmission {
+            admission: self.admission,
+            receipt: None,
+        };
+        crate::dom::projection_allocation::reserve_vector(&mut self.leases, needed, &mut metadata)?;
+        let metadata_receipt = metadata.receipt;
+        self.leases.push(SemanticAllocationReceipt {
+            payload: Some(receipt),
+            _metadata: metadata_receipt,
+        });
+        Ok(())
+    }
+    fn retain_on(
+        mut self,
+        result: &mut OwnedSemanticChanges,
+    ) -> Result<(), SemanticPreparationError> {
+        // Charge ownership travels with the returned private cache record.
+        // This is a move, not a temporary scope that releases living payloads.
+        // This producer creates a fresh unpublished owner. Refuse replacement
+        // rather than silently releasing charges for an already-live payload.
+        if !result.2.is_empty() {
+            return Err(SemanticPreparationError::Admission(
+                "allocation receipts already installed".into(),
+            ));
+        }
+        result.2 = std::mem::take(&mut self.leases);
+        Ok(())
+    }
+}
+
+// staging source: shared-context-v40.rs
+trait SemanticProducer {
+    type Error: From<crate::dom::DomError>;
+    fn receipt_mark(&self) -> usize {
+        0
+    }
+    fn release_scratch(&mut self, _: usize) {}
+    fn release_receipt_range(&mut self, _: std::ops::Range<usize>) {}
+    fn ordinary_dom_error(error: Self::Error) -> Result<crate::dom::DomError, Self::Error>;
+    fn reserve(&mut self, bytes: usize) -> Result<(), Self::Error>;
+    fn allocation_error(&self, error: std::collections::TryReserveError) -> Self::Error;
+    fn text(
+        &mut self,
+        value: &str,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<String, Self::Error> {
+        check().map_err(Self::Error::from)?;
+        self.reserve(value.len())?;
+        let mut result = String::new();
+        result
+            .try_reserve_exact(value.len())
+            .map_err(|error| self.allocation_error(error))?;
+        for character in value.chars() {
+            check().map_err(Self::Error::from)?;
+            result.push(character);
+        }
+        check().map_err(Self::Error::from)?;
+        Ok(result)
+    }
+    fn vector<T>(&mut self, length: usize) -> Result<Vec<T>, Self::Error> {
+        let bytes = length
+            .checked_mul(std::mem::size_of::<T>())
+            .ok_or_else(|| Self::Error::from(crate::dom::DomError::SemanticProjectionCapacity))?;
+        self.reserve(bytes)?;
+        let mut result = Vec::new();
+        result
+            .try_reserve_exact(length)
+            .map_err(|error| self.allocation_error(error))?;
+        Ok(result)
+    }
+}
+struct OrdinarySemanticProducer;
+impl SemanticProducer for OrdinarySemanticProducer {
+    type Error = crate::dom::DomError;
+    fn ordinary_dom_error(error: Self::Error) -> Result<crate::dom::DomError, Self::Error> {
+        Ok(error)
+    }
+    fn reserve(&mut self, _: usize) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn allocation_error(&self, _: std::collections::TryReserveError) -> Self::Error {
+        crate::dom::DomError::SemanticProjectionCapacity
+    }
+}
+impl SemanticProducer for SemanticLeaseOwner<'_> {
+    type Error = SemanticPreparationError;
+    fn receipt_mark(&self) -> usize {
+        self.leases.len()
+    }
+    fn release_scratch(&mut self, mark: usize) {
+        self.release_receipt_range(mark..self.leases.len())
+    }
+    fn release_receipt_range(&mut self, range: std::ops::Range<usize>) {
+        for receipt in &mut self.leases[range] {
+            receipt.payload.take();
+        }
+    }
+    fn ordinary_dom_error(error: Self::Error) -> Result<crate::dom::DomError, Self::Error> {
+        match error {
+            SemanticPreparationError::Dom(error) => Ok(error),
+            error => Err(error),
+        }
+    }
+    fn reserve(&mut self, bytes: usize) -> Result<(), Self::Error> {
+        SemanticLeaseOwner::reserve(self, bytes)
+    }
+    fn allocation_error(&self, error: std::collections::TryReserveError) -> Self::Error {
+        SemanticPreparationError::Allocation(error)
+    }
+}
+fn shared_provenance<P: SemanticProducer>(
+    value: &Provenance,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Provenance, P::Error> {
+    check().map_err(P::Error::from)?;
+    Ok(match value {
+        Provenance::BrowserDeterministic => Provenance::BrowserDeterministic,
+        Provenance::Heuristic { confidence } => Provenance::Heuristic {
+            confidence: *confidence,
+        },
+        Provenance::Model {
+            confidence,
+            model_id,
+        } => Provenance::Model {
+            confidence: *confidence,
+            model_id: producer.text(model_id, check)?,
+        },
+    })
+}
+fn shared_semantic_node<P: SemanticProducer>(
+    node: &SemanticNodeView,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<SemanticNodeView, P::Error> {
+    check().map_err(P::Error::from)?;
+    let mut states = BTreeSet::new();
+    for state in &node.states {
+        check().map_err(P::Error::from)?;
+        states.insert(*state);
+    }
+    let mut actions = BTreeSet::new();
+    for action in &node.actions {
+        check().map_err(P::Error::from)?;
+        actions.insert(*action);
+    }
+    let role = producer.text(&node.role, check)?;
+    let name = producer.text(&node.name, check)?;
+    let selector = node
+        .selector
+        .as_ref()
+        .map(|value| producer.text(value, check))
+        .transpose()?;
+    let value = node
+        .value
+        .as_ref()
+        .map(|value| producer.text(value, check))
+        .transpose()?;
+    let description = node
+        .description
+        .as_ref()
+        .map(|value| producer.text(value, check))
+        .transpose()?;
+    let provenance = shared_provenance(&node.provenance, producer, check)?;
+    check().map_err(P::Error::from)?;
+    Ok(SemanticNodeView {
+        semantic_ref: node.semantic_ref,
+        parent: node.parent,
+        document_order: node.document_order,
+        alias: node.alias,
+        role,
+        name,
+        selector,
+        value,
+        description,
+        validation: node.validation.clone(),
+        states,
+        actions,
+        content_trust: node.content_trust,
+        provenance,
+    })
+}
+
+fn shared_json<P: SemanticProducer>(
+    value: &serde_json::Value,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<serde_json::Value, P::Error> {
+    enum Frame<'a> {
+        Array(std::slice::Iter<'a, serde_json::Value>),
+        Object(serde_json::map::Iter<'a>, Option<String>),
+    }
+    let mut stack: Vec<(Frame<'_>, JsonValuesGuard)> = producer.vector(1)?;
+    let mut next = Some(value);
+    let mut completed = JsonValuesGuard(producer.vector(1)?);
+    loop {
+        check().map_err(P::Error::from)?;
+        if let Some(value) = next.take() {
+            match value {
+                serde_json::Value::Array(values) => {
+                    let children = producer.vector(values.len())?;
+                    shared_vector_push(
+                        &mut stack,
+                        (Frame::Array(values.iter()), JsonValuesGuard(children)),
+                        producer,
+                        check,
+                    )?;
+                }
+                serde_json::Value::Object(values) => {
+                    let mut owner = producer.vector(1)?;
+                    owner.push(serde_json::Value::Object(serde_json::Map::new()));
+                    shared_vector_push(
+                        &mut stack,
+                        (Frame::Object(values.iter(), None), JsonValuesGuard(owner)),
+                        producer,
+                        check,
+                    )?;
+                }
+                serde_json::Value::String(value) => completed
+                    .0
+                    .push(serde_json::Value::String(producer.text(value, check)?)),
+                value => completed.0.push(value.clone()),
+            }
+        }
+        if let Some(value) = completed.0.pop() {
+            if let Some((frame, owner)) = stack.last_mut() {
+                match frame {
+                    Frame::Array(_) => owner.0.push(value),
+                    Frame::Object(_, key) => {
+                        if let serde_json::Value::Object(map) = &mut owner.0[0] {
+                            map.insert(key.take().expect("visited object key"), value);
+                        }
+                    }
+                }
+            } else {
+                return Ok(value);
+            }
+        }
+        let Some((frame, owner)) = stack.last_mut() else {
+            continue;
+        };
+        match frame {
+            Frame::Array(values) => {
+                if let Some(value) = values.next() {
+                    next = Some(value);
+                } else {
+                    let values = std::mem::take(&mut owner.0);
+                    stack.pop();
+                    completed.0.push(serde_json::Value::Array(values));
+                }
+            }
+            Frame::Object(values, key) => {
+                if let Some((name, value)) = values.next() {
+                    *key = Some(producer.text(name, check)?);
+                    next = Some(value);
+                } else {
+                    if let Some(value) = owner.0.pop() {
+                        completed.0.push(value);
+                    }
+                    stack.pop();
+                }
+            }
+        }
+    }
+}
+
+fn shared_evidence<P: SemanticProducer>(
+    values: &[AccessibilityEvidence],
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Vec<AccessibilityEvidence>, P::Error> {
+    let mut result = producer.vector(values.len())?;
+    for value in values {
+        check().map_err(P::Error::from)?;
+        let mut references = producer.vector(value.references.len())?;
+        for reference in &value.references {
+            check().map_err(P::Error::from)?;
+            references.push(*reference);
+        }
+        result.push(AccessibilityEvidence {
+            kind: value.kind.clone(),
+            source: producer.text(&value.source, check)?,
+            references,
+        });
+    }
+    Ok(result)
+}
+fn shared_accessibility<P: SemanticProducer>(
+    node: &AccessibilityNode,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<AccessibilityNode, P::Error> {
+    check().map_err(P::Error::from)?;
+    let mut relationships = BTreeMap::new();
+    for (key, values) in &node.relationships {
+        let mut refs = producer.vector(values.len())?;
+        for value in values {
+            check().map_err(P::Error::from)?;
+            refs.push(*value);
+        }
+        relationships.insert(key.clone(), refs);
+    }
+    let mut properties = JsonPropertiesGuard(BTreeMap::new());
+    for (key, value) in &node.properties {
+        check().map_err(P::Error::from)?;
+        properties.0.insert(
+            producer.text(key, check)?,
+            shared_json(value, producer, check)?,
+        );
+    }
+    let exclusion_reason = node
+        .exclusion_reason
+        .as_ref()
+        .map(|value| producer.text(value, check))
+        .transpose()?;
+    let role = producer.text(&node.role, check)?;
+    let name = producer.text(&node.name, check)?;
+    let description = node
+        .description
+        .as_ref()
+        .map(|value| producer.text(value, check))
+        .transpose()?;
+    let provenance = shared_provenance(&node.provenance, producer, check)?;
+    let evidence = shared_evidence(&node.evidence, producer, check)?;
+    check().map_err(P::Error::from)?;
+    Ok(AccessibilityNode {
+        semantic_ref: node.semantic_ref,
+        excluded: node.excluded,
+        exclusion_reason,
+        role,
+        name,
+        description,
+        relationships,
+        owned_by: node.owned_by,
+        content_trust: node.content_trust,
+        provenance,
+        evidence,
+        properties: std::mem::take(&mut properties.0),
+    })
+}
+fn shared_structure<P: SemanticProducer>(
+    node: &SemanticStructure,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<SemanticStructure, P::Error> {
+    let structure_id = producer.text(&node.structure_id, check)?;
+    let name = producer.text(&node.name, check)?;
+    let parent_structure_id = node
+        .parent_structure_id
+        .as_ref()
+        .map(|value| producer.text(value, check))
+        .transpose()?;
+    let mut members = producer.vector(node.members.len())?;
+    for member in &node.members {
+        check().map_err(P::Error::from)?;
+        members.push(*member);
+    }
+    let mut groups = producer.vector(node.groups.len())?;
+    for group in &node.groups {
+        let mut members = producer.vector(group.members.len())?;
+        for member in &group.members {
+            check().map_err(P::Error::from)?;
+            members.push(*member);
+        }
+        groups.push(SemanticGroup {
+            kind: producer.text(&group.kind, check)?,
+            name: group
+                .name
+                .as_ref()
+                .map(|value| producer.text(value, check))
+                .transpose()?,
+            members,
+        });
+    }
+    let mut properties = JsonPropertiesGuard(BTreeMap::new());
+    for (key, value) in &node.properties {
+        check().map_err(P::Error::from)?;
+        properties.0.insert(
+            producer.text(key, check)?,
+            shared_json(value, producer, check)?,
+        );
+    }
+    let provenance = shared_provenance(&node.provenance, producer, check)?;
+    let evidence = shared_evidence(&node.evidence, producer, check)?;
+    check().map_err(P::Error::from)?;
+    Ok(SemanticStructure {
+        structure_id,
+        kind: node.kind,
+        root: node.root,
+        parent_structure_id,
+        name,
+        members,
+        groups,
+        content_trust: node.content_trust,
+        provenance,
+        evidence,
+        properties: std::mem::take(&mut properties.0),
+    })
+}
+
+impl SemanticGraph {
+    fn shared_projected_v6<P: SemanticProducer>(
+        &self,
+        reference: SemanticRef,
+        node: &SemanticNodeView,
+        producer: &mut P,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<SemanticNodeV6, P::Error> {
+        let id = unpack_node_ref(reference.node);
+        let semantic = shared_semantic_node(node, producer, check)?;
+        let mut relationships = BTreeMap::new();
+        let mut properties = JsonPropertiesGuard(BTreeMap::new());
+        let mut field_evidence = producer.vector(9)?;
+        for field in [
+            SemanticField::Role,
+            SemanticField::State,
+            SemanticField::Action,
+            SemanticField::Visibility,
+        ] {
+            field_evidence.push(SemanticFieldEvidence {
+                field,
+                trust: ContentTrust::PageAuthored,
+                provenance: Provenance::BrowserDeterministic,
+                evidence: Vec::new(),
+            });
+        }
+        if node.value.is_some() {
+            field_evidence.push(SemanticFieldEvidence {
+                field: SemanticField::Value,
+                trust: ContentTrust::PageAuthored,
+                provenance: Provenance::BrowserDeterministic,
+                evidence: Vec::new(),
+            });
+        }
+        let mut structure_ids = producer.vector(self.structures.len())?;
+        for structure in self.structures.values() {
+            check().map_err(P::Error::from)?;
+            let mut contains = structure.root == reference;
+            if !contains {
+                for member in &structure.members {
+                    check().map_err(P::Error::from)?;
+                    if *member == reference {
+                        contains = true;
+                        break;
+                    }
+                }
+            }
+            if contains {
+                structure_ids.push(producer.text(&structure.structure_id, check)?);
+            }
+        }
+        if !structure_ids.is_empty() {
+            field_evidence.push(SemanticFieldEvidence {
+                field: SemanticField::Structure,
+                trust: ContentTrust::PageAuthored,
+                provenance: Provenance::BrowserDeterministic,
+                evidence: Vec::new(),
+            });
+        }
+        if let Some(accessible) = self.accessibility.get(&id) {
+            for (key, values) in &accessible.relationships {
+                let mut refs = producer.vector(values.len())?;
+                for value in values {
+                    check().map_err(P::Error::from)?;
+                    refs.push(*value);
+                }
+                relationships.insert(key.clone(), refs);
+            }
+            for field in [
+                Some(SemanticField::Name),
+                accessible
+                    .description
+                    .as_ref()
+                    .map(|_| SemanticField::Description),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                field_evidence.push(SemanticFieldEvidence {
+                    field,
+                    trust: ContentTrust::PageAuthored,
+                    provenance: shared_provenance(&accessible.provenance, producer, check)?,
+                    evidence: shared_evidence(&accessible.evidence, producer, check)?,
+                });
+            }
+            if !accessible.relationships.is_empty() {
+                field_evidence.push(SemanticFieldEvidence {
+                    field: SemanticField::Relationship,
+                    trust: ContentTrust::PageAuthored,
+                    provenance: Provenance::BrowserDeterministic,
+                    evidence: Vec::new(),
+                });
+            }
+            for (key, value) in &accessible.properties {
+                check().map_err(P::Error::from)?;
+                properties.0.insert(
+                    producer.text(key, check)?,
+                    shared_json(value, producer, check)?,
+                );
+            }
+        }
+        check().map_err(P::Error::from)?;
+        Ok(SemanticNodeV6 {
+            semantic,
+            frame_id: self.frame_ids.get(&id).copied(),
+            relationships,
+            structure_ids,
+            geometry: None,
+            field_evidence,
+            accessibility_properties: std::mem::take(&mut properties.0),
+        })
+    }
+}
+
+impl SemanticGraph {
+    fn shared_pending<P: SemanticProducer>(
+        &self,
+        producer: &mut P,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<OwnedSemanticChanges, P::Error> {
+        let mut result = OwnedSemanticChanges::new(V6Changes::default());
+        let changes = result.0.as_mut().unwrap();
+        changes.upserted_nodes = producer.vector(self.pending_upserts.len())?;
+        changes.removed_nodes = producer.vector(self.pending_removed.len())?;
+        changes.upserted_accessibility =
+            producer.vector(self.pending_accessibility_upserts.len())?;
+        changes.removed_accessibility =
+            producer.vector(self.pending_accessibility_removed.len())?;
+        changes.upserted_structures = producer.vector(self.pending_structure_upserts.len())?;
+        changes.removed_structures = producer.vector(self.pending_structure_removed.len())?;
+        for node in self.pending_upserts.values() {
+            check().map_err(P::Error::from)?;
+            changes.upserted_nodes.push(self.shared_projected_v6(
+                node.semantic_ref,
+                node,
+                producer,
+                check,
+            )?);
+        }
+        // Stable projection order matches existing native journal publication.
+        let scratch_mark = producer.receipt_mark();
+        let order = shared_order(&changes.upserted_nodes, producer, check, |left, right| {
+            left.semantic
+                .document_order
+                .cmp(&right.semantic.document_order)
+        })?;
+        shared_reorder(&mut changes.upserted_nodes, order, producer, check)?;
+        producer.release_scratch(scratch_mark);
+        for reference in &self.pending_removed {
+            check().map_err(P::Error::from)?;
+            changes.removed_nodes.push(*reference);
+        }
+        for node in self.pending_accessibility_upserts.values() {
+            changes
+                .upserted_accessibility
+                .push(shared_accessibility(node, producer, check)?);
+        }
+        let scratch_mark = producer.receipt_mark();
+        let order = shared_order(
+            &changes.upserted_accessibility,
+            producer,
+            check,
+            |left, right| {
+                let order = |node: &AccessibilityNode| {
+                    self.full
+                        .get(&unpack_node_ref(node.semantic_ref.node))
+                        .map_or(u32::MAX, |node| node.document_order)
+                };
+                order(left).cmp(&order(right))
+            },
+        )?;
+        shared_reorder(&mut changes.upserted_accessibility, order, producer, check)?;
+        producer.release_scratch(scratch_mark);
+        for reference in &self.pending_accessibility_removed {
+            check().map_err(P::Error::from)?;
+            changes.removed_accessibility.push(*reference);
+        }
+        for node in self.pending_structure_upserts.values() {
+            changes
+                .upserted_structures
+                .push(shared_structure(node, producer, check)?);
+        }
+        for key in &self.pending_structure_removed {
+            changes.removed_structures.push(producer.text(key, check)?);
+        }
+        check().map_err(P::Error::from)?;
+        Ok(result)
+    }
+}
+fn shared_order<T, P: SemanticProducer>(
+    values: &[T],
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    mut compare: impl FnMut(&T, &T) -> std::cmp::Ordering,
+) -> Result<Vec<usize>, P::Error> {
+    let mut indices = producer.vector(values.len())?;
+    for index in 0..values.len() {
+        check().map_err(P::Error::from)?;
+        indices.push(index);
+    }
+    let mut merged = producer.vector(indices.len())?;
+    let mut width = 1usize;
+    while width < indices.len() {
+        merged.clear();
+        let mut start = 0usize;
+        while start < indices.len() {
+            let middle = start.saturating_add(width).min(indices.len());
+            let end = middle.saturating_add(width).min(indices.len());
+            let (mut left, mut right) = (start, middle);
+            while left < middle || right < end {
+                check().map_err(P::Error::from)?;
+                if right == end
+                    || (left < middle
+                        && compare(&values[indices[left]], &values[indices[right]])
+                            != std::cmp::Ordering::Greater)
+                {
+                    merged.push(indices[left]);
+                    left += 1;
+                } else {
+                    merged.push(indices[right]);
+                    right += 1;
+                }
+            }
+            start = end;
+        }
+        std::mem::swap(&mut indices, &mut merged);
+        width = width.saturating_mul(2);
+    }
+    Ok(indices)
+}
+fn shared_reorder<T, P: SemanticProducer>(
+    values: &mut [T],
+    indices: Vec<usize>,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<(), P::Error> {
+    let mut positions = producer.vector(values.len())?;
+    let mut locations = producer.vector(values.len())?;
+    for index in 0..values.len() {
+        check().map_err(P::Error::from)?;
+        positions.push(index);
+        locations.push(index);
+    }
+    for (target, original) in indices.into_iter().enumerate() {
+        check().map_err(P::Error::from)?;
+        let source = locations[original];
+        let displaced = positions[target];
+        values.swap(target, source);
+        positions.swap(target, source);
+        locations[original] = target;
+        locations[displaced] = source;
+    }
+    check().map_err(P::Error::from)
+}
+
+impl SemanticGraph {
+    pub(crate) fn prepare_admitted_pending(
+        &self,
+        admission: &dyn oryn_layout::cssom::native_import_graph::ImportAdmission,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<(OwnedSemanticChanges, SemanticGraphChanges), SemanticPreparationError> {
+        let mut producer = SemanticLeaseOwner {
+            admission,
+            leases: Vec::new(),
+        };
+        let mut result = self.shared_pending(&mut producer, check)?;
+        let legacy = result.shared_legacy(&mut producer, check)?;
+        check()?;
+        producer.retain_on(&mut result)?;
+        Ok((result, legacy))
+    }
+}
+
+impl OwnedSemanticChanges {
+    fn shared_legacy<P: SemanticProducer>(
+        &self,
+        producer: &mut P,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<SemanticGraphChanges, P::Error> {
+        let mut upserted = producer.vector(self.upserted_nodes.len())?;
+        let mut removed = producer.vector(self.removed_nodes.len())?;
+        for node in &self.upserted_nodes {
+            upserted.push(shared_semantic_node(&node.semantic, producer, check)?);
+        }
+        for reference in &self.removed_nodes {
+            check().map_err(P::Error::from)?;
+            removed.push(*reference);
+        }
+        check().map_err(P::Error::from)?;
+        Ok(SemanticGraphChanges { upserted, removed })
+    }
+}
+
+#[cfg(test)]
+mod shared_admission_controls {
+    use super::*;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    struct Receipt(Arc<AtomicUsize>);
+    impl Drop for Receipt {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+    struct Admission {
+        live: Arc<AtomicUsize>,
+        calls: AtomicUsize,
+        fail: usize,
+    }
+    impl oryn_layout::cssom::native_import_graph::ImportAdmission for Admission {
+        fn checkpoint(&self) -> Result<(), String> {
+            Ok(())
+        }
+        fn reserve(&self, _: usize) -> Result<Arc<dyn Send + Sync>, String> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+            if call == self.fail {
+                return Err("expired authority control".into());
+            }
+            self.live.fetch_add(1, Ordering::SeqCst);
+            Ok(Arc::new(Receipt(self.live.clone())))
+        }
+    }
+    fn fixture() -> SemanticGraph {
+        let document=crate::html::parse("<form><fieldset><legend>Group</legend><label for=x>Name</label><input id=x value=hello><button>Go</button></fieldset></form>").into_runtime().unwrap();
+        let mut graph = SemanticGraph::new(PageId(63), 7);
+        graph.reset(document.arena(), 7);
+        graph
+    }
+    #[test]
+    fn admitted_projection_preserves_wire_and_receipt_custody() {
+        let graph = fixture();
+        let admission = Admission {
+            live: Arc::new(AtomicUsize::new(0)),
+            calls: AtomicUsize::new(0),
+            fail: usize::MAX,
+        };
+        let ordinary = graph
+            .pending_changes_with_checkpoint(&mut || Ok(()))
+            .unwrap();
+        let (admitted, legacy) = graph
+            .prepare_admitted_pending(&admission, &mut || Ok(()))
+            .unwrap();
+        assert_eq!(
+            serde_json::to_vec(&*ordinary).unwrap(),
+            serde_json::to_vec(&*admitted).unwrap()
+        );
+        assert_eq!(
+            ordinary
+                .legacy_changes_with_checkpoint(&mut || Ok(()))
+                .unwrap(),
+            legacy
+        );
+        assert!(admission.live.load(Ordering::SeqCst) > 0);
+        drop(legacy);
+        assert!(admission.live.load(Ordering::SeqCst) > 0);
+        drop(admitted);
+        assert_eq!(admission.live.load(Ordering::SeqCst), 0);
+    }
+    #[test]
+    fn admission_failure_preserves_journal_and_releases_every_receipt() {
+        let graph = fixture();
+        let before = format!("{graph:?}");
+        let probe = Admission {
+            live: Arc::new(AtomicUsize::new(0)),
+            calls: AtomicUsize::new(0),
+            fail: usize::MAX,
+        };
+        drop(
+            graph
+                .prepare_admitted_pending(&probe, &mut || Ok(()))
+                .unwrap(),
+        );
+        let total = probe.calls.load(Ordering::SeqCst);
+        for boundary in 1..=total {
+            let admission = Admission {
+                live: Arc::new(AtomicUsize::new(0)),
+                calls: AtomicUsize::new(0),
+                fail: boundary,
+            };
+            assert!(matches!(
+                graph.prepare_admitted_pending(&admission, &mut || Ok(())),
+                Err(SemanticPreparationError::Admission(_))
+            ));
+            assert_eq!(admission.live.load(Ordering::SeqCst), 0);
+            assert_eq!(format!("{graph:?}"), before);
+        }
+    }
+}
+
+// staging source: shared-default-error-v94.rs
+fn shared_default<T: Default, P: SemanticProducer>(
+    result: Result<T, P::Error>,
+) -> Result<T, P::Error> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) => match P::ordinary_dom_error(error) {
+            Ok(crate::dom::DomError::ProjectionCancelled) => {
+                Err(P::Error::from(crate::dom::DomError::ProjectionCancelled))
+            }
+            Ok(crate::dom::DomError::SemanticProjectionCapacity) => Err(P::Error::from(
+                crate::dom::DomError::SemanticProjectionCapacity,
+            )),
+            Ok(_) => Ok(T::default()),
+            Err(error) => Err(error),
+        },
+    }
+}
+// Add to SemanticProducer: fn ordinary_dom_error(error:Self::Error)
+//     ->Result<crate::dom::DomError,Self::Error>;
+// Ordinary implementation returns Ok(error).
+// Admitted implementation matches SemanticPreparationError::Dom(error)=>Ok(error),
+// all Host/Admission/Allocation/Capacity variants=>Err(original).
+
+// staging source: native-dom-adapter-v66.rs
+struct SemanticDomAllocation<'a, P: SemanticProducer>(&'a mut P);
+impl<P: SemanticProducer> crate::dom::projection_allocation::ProjectionAllocation
+    for SemanticDomAllocation<'_, P>
+{
+    type Error = P::Error;
+    fn scratch_mark(&self) -> usize {
+        self.0.receipt_mark()
+    }
+    fn release_scratch(&mut self, mark: usize) {
+        self.0.release_scratch(mark)
+    }
+    fn release_scratch_range(&mut self, range: std::ops::Range<usize>) {
+        self.0.release_receipt_range(range)
+    }
+    fn reserve(&mut self, bytes: usize) -> Result<(), Self::Error> {
+        self.0.reserve(bytes)
+    }
+    fn allocation_error(&self, error: std::collections::TryReserveError) -> Self::Error {
+        self.0.allocation_error(error)
+    }
+}
+fn shared_dom_text<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    dom.text_content_with_allocation(id, &mut SemanticDomAllocation(producer), check)
+}
+fn shared_select_options<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Vec<NodeId>, P::Error> {
+    dom.select_options_with_allocation(id, &mut SemanticDomAllocation(producer), check)
+}
+
+// staging source: shared-geometric-producers-v132.rs
+fn shared_vector_push<T, P: SemanticProducer>(
+    values: &mut Vec<T>,
+    value: T,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<(), P::Error> {
+    check().map_err(P::Error::from)?;
+    let needed = values
+        .len()
+        .checked_add(1)
+        .ok_or_else(|| P::Error::from(crate::dom::DomError::SemanticProjectionCapacity))?;
+    crate::dom::projection_allocation::reserve_vector(
+        values,
+        needed,
+        &mut SemanticDomAllocation(producer),
+    )?;
+    values.push(value);
+    Ok(())
+}
+
+// staging source: shared-css-strip-v46.rs
+fn shared_strip_css_comments<P: SemanticProducer>(
+    sheet: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    check().map_err(P::Error::from)?;
+    producer.reserve(sheet.len())?;
+    let mut output = String::new();
+    output
+        .try_reserve_exact(sheet.len())
+        .map_err(|error| producer.allocation_error(error))?;
+    let mut chars = sheet.chars().peekable();
+    let mut comment = false;
+    while let Some(character) = chars.next() {
+        check().map_err(P::Error::from)?;
+        if comment {
+            if character == '*' && chars.peek() == Some(&'/') {
+                check().map_err(P::Error::from)?;
+                chars.next();
+                comment = false;
+            }
+        } else if character == '/' && chars.peek() == Some(&'*') {
+            check().map_err(P::Error::from)?;
+            chars.next();
+            comment = true;
+        } else {
+            output.push(character);
+        }
+    }
+    Ok(output)
+}
+
+// staging source: shared-lowercase-v50.rs
+fn shared_ascii_lowercase<P: SemanticProducer>(
+    value: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    check().map_err(P::Error::from)?;
+    producer.reserve(value.len())?;
+    let mut result = String::new();
+    result
+        .try_reserve_exact(value.len())
+        .map_err(|error| producer.allocation_error(error))?;
+    for character in value.chars() {
+        check().map_err(P::Error::from)?;
+        result.push(character.to_ascii_lowercase());
+    }
+    check().map_err(P::Error::from)?;
+    Ok(result)
+}
+
+// staging source: shared-surround-v50.rs
+fn shared_surround<P: SemanticProducer>(
+    prefix: &str,
+    value: &str,
+    suffix: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    let length = prefix
+        .len()
+        .checked_add(value.len())
+        .and_then(|n| n.checked_add(suffix.len()))
+        .ok_or_else(|| P::Error::from(crate::dom::DomError::SemanticProjectionCapacity))?;
+    check().map_err(P::Error::from)?;
+    producer.reserve(length)?;
+    let mut result = String::new();
+    result
+        .try_reserve_exact(length)
+        .map_err(|error| producer.allocation_error(error))?;
+    for part in [prefix, value, suffix] {
+        for character in part.chars() {
+            check().map_err(P::Error::from)?;
+            result.push(character);
+        }
+    }
+    check().map_err(P::Error::from)?;
+    Ok(result)
+}
+
+// staging source: shared-join-v53.rs
+fn shared_join<P: SemanticProducer>(
+    values: &[String],
+    separator: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    let mut size = 0usize;
+    for (index, value) in values.iter().enumerate() {
+        check().map_err(P::Error::from)?;
+        if index > 0 {
+            size = size
+                .checked_add(separator.len())
+                .ok_or_else(|| P::Error::from(crate::dom::DomError::SemanticProjectionCapacity))?;
+        }
+        size = size
+            .checked_add(value.len())
+            .ok_or_else(|| P::Error::from(crate::dom::DomError::SemanticProjectionCapacity))?;
+    }
+    producer.reserve(size)?;
+    let mut result = String::new();
+    result
+        .try_reserve_exact(size)
+        .map_err(|error| producer.allocation_error(error))?;
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            shared_append_text(&mut result, separator, producer, check)?;
+        }
+        shared_append_text(&mut result, value, producer, check)?;
+    }
+    check().map_err(P::Error::from)?;
+    Ok(result)
+}
+
+// staging source: shared-basic-roles-v86.rs
+fn shared_first_supported_role_with_checkpoint<P: SemanticProducer>(
+    value: Option<&String>,
+    exclude_named: bool,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Option<String>, P::Error> {
+    let Some(value) = value else {
+        check()?;
+        return Ok(None);
+    };
+    let tokens_start = producer.receipt_mark();
+    let tokens = shared_name_tokens(
+        value,
+        |character| character.is_ascii_whitespace(),
+        producer,
+        check,
+    )?;
+    let tokens_end = producer.receipt_mark();
+    for token in &tokens {
+        check()?;
+        if token.is_empty() {
+            continue;
+        }
+        let role_start = producer.receipt_mark();
+        let role = shared_ascii_lowercase(token, producer, check)?;
+        if supported_aria_role(&role)
+            && (!exclude_named || !matches!(role.as_str(), "form" | "region"))
+        {
+            check()?;
+            drop(tokens);
+            producer.release_receipt_range(tokens_start..tokens_end);
+            return Ok(Some(role));
+        }
+        drop(role);
+        producer.release_scratch(role_start);
+    }
+    drop(tokens);
+    producer.release_receipt_range(tokens_start..tokens_end);
+    check()?;
+    Ok(None)
+}
+
+fn shared_implicit_role_with_checkpoint<P: SemanticProducer>(
+    local_name: &str,
+    attributes: &oryn_dom::AttributeList,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    check()?;
+    let role = match local_name {
+        "a" | "area" if attributes.contains_null_with_checkpoint("href", check)? => "link",
+        "input" => match attributes
+            .get_null_with_checkpoint("type", check)?
+            .map(|kind| shared_ascii_lowercase(kind, producer, check))
+            .transpose()?
+            .as_deref()
+        {
+            Some("checkbox") => "checkbox",
+            Some("radio") => "radio",
+            Some("range") => "slider",
+            Some("number") => "spinbutton",
+            Some("search") => "searchbox",
+            Some("button" | "submit" | "reset" | "file" | "image") => "button",
+            Some("color") => "colorwell",
+            _ => "textbox",
+        },
+        "textarea" => "textbox",
+        "select"
+            if attributes.contains_null_with_checkpoint("multiple", check)?
+                || attributes
+                    .get_null_with_checkpoint("size", check)?
+                    .map(|value| {
+                        naming_u64_with_checkpoint(value, check)
+                            .map(|value| value.and_then(|n| u32::try_from(n).ok()))
+                    })
+                    .transpose()?
+                    .flatten()
+                    .is_some_and(|size| size > 1) =>
+        {
+            "listbox"
+        }
+        "select" => "combobox",
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => "heading",
+        "output" => "status",
+        "img"
+            if attributes
+                .get_null_with_checkpoint("alt", check)?
+                .is_some_and(String::is_empty) =>
+        {
+            "none"
+        }
+        "img" => "image",
+        "nav" => "navigation",
+        "main" => "main",
+        "aside" => "complementary",
+        "header" => "banner",
+        "footer" => "contentinfo",
+        "form"
+            if attributes.contains_null_with_checkpoint("aria-label", check)?
+                || attributes.contains_null_with_checkpoint("aria-labelledby", check)? =>
+        {
+            "form"
+        }
+        "form" => "generic",
+        "ul" | "ol" | "menu" | "dir" => "list",
+        "li" => "listitem",
+        "table" => "table",
+        "tr" => "row",
+        "th" => match attributes
+            .get_null_with_checkpoint("scope", check)?
+            .map(|scope| shared_ascii_lowercase(scope, producer, check))
+            .transpose()?
+            .as_deref()
+        {
+            Some("row") | Some("rowgroup") => "rowheader",
+            _ => "columnheader",
+        },
+        "td" => "cell",
+        "dialog" => "dialog",
+        "summary" => "button",
+        "option" => "option",
+        "progress" => "progressbar",
+        "search" => "search",
+        "details" => "group",
+        "datalist" => "listbox",
+        "blockquote" => "blockquote",
+        "caption" => "caption",
+        "code" => "code",
+        "del" | "s" => "deletion",
+        "em" => "emphasis",
+        "ins" => "insertion",
+        "p" => "paragraph",
+        "strong" => "strong",
+        "sub" => "subscript",
+        "sup" => "superscript",
+        "time" => "time",
+        "address" | "fieldset" | "hgroup" | "optgroup" => "group",
+        "cite" => "html-cite",
+        "dd" => "definition",
+        "dt" | "dfn" => "term",
+        "hr" => "separator",
+        "thead" | "tbody" | "tfoot" => "rowgroup",
+        "button" | "article" | "figure" | "mark" | "meter" => local_name,
+        "div" | "span" => "generic",
+        "section"
+            if attributes.contains_null_with_checkpoint("aria-label", check)?
+                || attributes.contains_null_with_checkpoint("aria-labelledby", check)? =>
+        {
+            "region"
+        }
+        _ => "generic",
+    };
+    producer.text(role, check)
+}
+
+fn shared_explicit_role_value_with_checkpoint<P: SemanticProducer>(
+    local_name: &str,
+    attributes: &oryn_dom::AttributeList,
+    role: String,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    check()?;
+    let mut global = false;
+    for entry in attributes.records() {
+        check()?;
+        if entry.namespace.is_none() && is_global_aria_attribute(&entry.local_name) {
+            global = true;
+            break;
+        }
+    }
+    let conflict = matches!(role.as_str(), "none" | "presentation")
+        && (matches!(local_name, "button" | "input" | "select" | "textarea")
+            || (local_name == "a" && attributes.contains_null_with_checkpoint("href", check)?)
+            || attributes.contains_null_with_checkpoint("tabindex", check)?
+            || global);
+    if conflict {
+        return shared_implicit_role_with_checkpoint(local_name, attributes, producer, check);
+    }
+    match role.as_str() {
+        "img" | "image" => producer.text("image", check),
+        "directory" => producer.text("list", check),
+        "presentation" => producer.text("none", check),
+        _ => Ok(role),
+    }
+}
+
+fn shared_computed_role_with_checkpoint<P: SemanticProducer>(
+    local_name: &str,
+    attributes: &oryn_dom::AttributeList,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    if let Some(role) = shared_first_supported_role_with_checkpoint(
+        attributes.get_null_with_checkpoint("role", check)?,
+        false,
+        producer,
+        check,
+    )? && (!matches!(role.as_str(), "form" | "region")
+        || attributes.contains_null_with_checkpoint("aria-label", check)?
+        || attributes.contains_null_with_checkpoint("aria-labelledby", check)?)
+    {
+        return shared_explicit_role_value_with_checkpoint(
+            local_name, attributes, role, producer, check,
+        );
+    }
+    shared_implicit_role_with_checkpoint(local_name, attributes, producer, check)
+}
+
+// staging source: shared-lineage-v135.rs
+fn shared_descendants_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    root: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Vec<NodeId>, P::Error> {
+    check()?;
+    let mut pending = producer.vector(0)?;
+    if let Ok(node) = dom.get(root) {
+        for child in node.children.iter().rev() {
+            check()?;
+            shared_vector_push(&mut pending, *child, producer, check)?;
+        }
+    }
+    let mut output = producer.vector(0)?;
+    let mut seen = BTreeSet::from([root]);
+    while let Some(id) = pending.pop() {
+        check()?;
+        if !seen.insert(id) {
+            return Err(P::Error::from(crate::dom::DomError::Cycle));
+        }
+        shared_vector_push(&mut output, id, producer, check)?;
+        if let Ok(node) = dom.get(id) {
+            for child in node.children.iter().rev() {
+                check()?;
+                shared_vector_push(&mut pending, *child, producer, check)?;
+            }
+        }
+    }
+    check()?;
+    Ok(output)
+}
+
+fn shared_ancestors_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    node: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Vec<NodeId>, P::Error> {
+    check()?;
+    let mut output = producer.vector(0)?;
+    let mut seen = BTreeSet::from([node]);
+    let mut parent = dom.get(node)?.parent;
+    while let Some(id) = parent {
+        check()?;
+        if !seen.insert(id) {
+            return Err(P::Error::from(crate::dom::DomError::Cycle));
+        }
+        shared_vector_push(&mut output, id, producer, check)?;
+        parent = dom.get(id)?.parent;
+    }
+    Ok(output)
+}
+
+fn shared_copy_name_children<P: SemanticProducer>(
+    children: &[NodeId],
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Vec<NodeId>, P::Error> {
+    let mut result = producer.vector(children.len())?;
+    for child in children {
+        check()?;
+        result.push(*child);
+    }
+    Ok(result)
+}
+
+fn shared_accessible_children_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Vec<NodeId>, P::Error> {
+    check()?;
+    let Ok(node) = dom.get(id) else {
+        return Ok(Vec::new());
+    };
+    for child in &node.children {
+        check()?;
+        if let Ok(root) = dom.get(*child)
+            && matches!(root.kind, NodeKind::ShadowRoot { .. })
+        {
+            return shared_copy_name_children(&root.children, producer, check);
+        }
+    }
+    let slot = matches!(&node.kind, NodeKind::Element { name }
+        if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "slot");
+    if slot && let Some(assigned) = &node.native_resolved_slot_nodes {
+        return shared_copy_name_children(
+            if assigned.is_empty() {
+                &node.children
+            } else {
+                assigned
+            },
+            producer,
+            check,
+        );
+    }
+    if slot
+        && let Some(root_id) = tree_scope_with_checkpoint(dom, id, check)?
+        && let Ok(root) = dom.get(root_id)
+        && matches!(root.kind, NodeKind::ShadowRoot { .. })
+        && let Some(host) = root.parent.and_then(|host| dom.get(host).ok())
+    {
+        let slot_name = node
+            .attributes
+            .get_null_with_checkpoint("name", check)?
+            .map(String::as_str)
+            .unwrap_or("");
+        let mut first_slot = None;
+        for candidate in shared_descendants_with_checkpoint(dom, root_id, producer, check)? {
+            check()?;
+            if tree_scope_with_checkpoint(dom, candidate, check)? == Some(root_id)
+                && let Ok(candidate_node) = dom.get(candidate)
+                && matches!(&candidate_node.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="slot")
+                && naming_equal_with_checkpoint(
+                    candidate_node
+                        .attributes
+                        .get_null_with_checkpoint("name", check)?
+                        .map(String::as_str)
+                        .unwrap_or(""),
+                    slot_name,
+                    check,
+                )?
+            {
+                first_slot = Some(candidate);
+                break;
+            }
+        }
+        if first_slot == Some(id) {
+            let mut assigned = producer.vector(0)?;
+            for child in &host.children {
+                check()?;
+                if let Ok(child_node) = dom.get(*child)
+                    && matches!(
+                        child_node.kind,
+                        NodeKind::Element { .. } | NodeKind::Text { .. }
+                    )
+                    && naming_equal_with_checkpoint(
+                        child_node
+                            .attributes
+                            .get_null_with_checkpoint("slot", check)?
+                            .map(String::as_str)
+                            .unwrap_or(""),
+                        slot_name,
+                        check,
+                    )?
+                {
+                    shared_vector_push(&mut assigned, *child, producer, check)?;
+                }
+            }
+            if !assigned.is_empty() {
+                return Ok(assigned);
+            }
+        }
+    }
+    shared_copy_name_children(&node.children, producer, check)
+}
+
+// staging source: shared-visibility-v105.rs
+fn shared_subtree_excluded_at_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, P::Error> {
+    check()?;
+    let Ok(node) = dom.get(id) else {
+        return Ok(false);
+    };
+    let aria = node
+        .accessibility_attribute_with_checkpoint("aria-hidden", check)?
+        .is_some_and(|value| value.eq_ignore_ascii_case("true"));
+    if let Some((display_none, _)) = dom.accessibility_computed_visibility(id) {
+        return Ok(display_none || aria);
+    }
+    if node
+        .attributes
+        .contains_null_with_checkpoint("hidden", check)?
+        || aria
+    {
+        return Ok(true);
+    }
+    if let Some(style) = node.attributes.get_null_with_checkpoint("style", check)? {
+        for declaration in shared_name_tokens(style, |character| character == ';', producer, check)?
+        {
+            let tokens =
+                shared_name_tokens(declaration, |character| character == ':', producer, check)?;
+            if tokens.len() < 2 {
+                continue;
+            }
+            if naming_trim_with_checkpoint(tokens[0], check)?.eq_ignore_ascii_case("display") {
+                return Ok(naming_trim_with_checkpoint(
+                    &declaration[tokens[0].len() + 1..],
+                    check,
+                )?
+                .eq_ignore_ascii_case("none"));
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn shared_naming_visibility_hidden_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, P::Error> {
+    check()?;
+    if let Some((_, hidden)) = dom.accessibility_computed_visibility(id) {
+        return Ok(hidden);
+    }
+    let Ok(node) = dom.get(id) else {
+        return Ok(false);
+    };
+    if let Some(style) = node.attributes.get_null_with_checkpoint("style", check)? {
+        for declaration in shared_name_tokens(style, |character| character == ';', producer, check)?
+        {
+            let tokens =
+                shared_name_tokens(declaration, |character| character == ':', producer, check)?;
+            if tokens.len() > 1
+                && naming_trim_with_checkpoint(tokens[0], check)?.eq_ignore_ascii_case("visibility")
+            {
+                let value =
+                    naming_trim_with_checkpoint(&declaration[tokens[0].len() + 1..], check)?;
+                return Ok(
+                    value.eq_ignore_ascii_case("hidden") || value.eq_ignore_ascii_case("collapse")
+                );
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn shared_accessibility_hidden_at_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, P::Error> {
+    Ok(
+        shared_subtree_excluded_at_with_checkpoint(dom, id, producer, check)?
+            || shared_naming_visibility_hidden_with_checkpoint(dom, id, producer, check)?,
+    )
+}
+
+fn shared_visibility_hidden_at_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, P::Error> {
+    Ok(
+        !shared_subtree_excluded_at_with_checkpoint(dom, id, producer, check)?
+            && shared_naming_visibility_hidden_with_checkpoint(dom, id, producer, check)?,
+    )
+}
+
+fn shared_inline_style_value_with_checkpoint<'a, P: SemanticProducer>(
+    node: &'a crate::dom::Node,
+    property: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Option<&'a str>, P::Error> {
+    check()?;
+    let Some(style) = node.attributes.get_null_with_checkpoint("style", check)? else {
+        return Ok(None);
+    };
+    for declaration in shared_name_tokens(style, |character| character == ';', producer, check)? {
+        let parts = shared_name_tokens(declaration, |character| character == ':', producer, check)?;
+        if parts.len() < 2 {
+            continue;
+        }
+        if naming_trim_with_checkpoint(parts[0], check)?.eq_ignore_ascii_case(property) {
+            return Ok(Some(naming_trim_with_checkpoint(
+                &declaration[parts[0].len() + 1..],
+                check,
+            )?));
+        }
+    }
+    check()?;
+    Ok(None)
+}
+
+fn shared_accessible_text_run_separator_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, P::Error> {
+    check()?;
+    let Ok(node) = dom.get(id) else {
+        return Ok(false);
+    };
+    let NodeKind::Element { name } = &node.kind else {
+        return Ok(false);
+    };
+    if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+        && matches!(name.local.as_ref(), "br" | "input" | "select" | "textarea")
+    {
+        return Ok(true);
+    }
+    if let Some((display, _)) = dom.accessibility_computed_text_style(id) {
+        return Ok(!matches!(display, "inline" | "contents" | "none"));
+    }
+    if let Some(display) =
+        shared_inline_style_value_with_checkpoint(node, "display", producer, check)?
+    {
+        return Ok(!matches!(
+            naming_trim_with_checkpoint(display, check)?,
+            "inline" | "contents" | "none"
+        ));
+    }
+    Ok(name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+        && matches!(
+            name.local.as_ref(),
+            "div"
+                | "p"
+                | "section"
+                | "article"
+                | "aside"
+                | "header"
+                | "footer"
+                | "main"
+                | "nav"
+                | "li"
+                | "ul"
+                | "ol"
+                | "blockquote"
+                | "h1"
+                | "h2"
+                | "h3"
+                | "h4"
+                | "h5"
+                | "h6"
+                | "table"
+                | "tr"
+                | "td"
+                | "th"
+        ))
+}
+
+// staging source: shared-root-hidden-v107.rs
+fn shared_referenced_root_hidden<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, P::Error> {
+    let mut cursor = Some(id);
+    let mut seen = BTreeSet::new();
+    let mut visibility = None;
+    while let Some(id) = cursor {
+        check()?;
+        if !seen.insert(id) {
+            break;
+        }
+        let Ok(node) = dom.get(id) else {
+            break;
+        };
+        if shared_subtree_excluded_at_with_checkpoint(dom, id, producer, check)? {
+            return Ok(true);
+        }
+        if visibility.is_none() {
+            if let Some((_, hidden)) = dom.accessibility_computed_visibility(id) {
+                visibility = Some(hidden);
+            } else if let Some(value) =
+                shared_inline_style_value_with_checkpoint(node, "visibility", producer, check)?
+            {
+                if value.eq_ignore_ascii_case("visible") {
+                    visibility = Some(false);
+                } else if value.eq_ignore_ascii_case("hidden")
+                    || value.eq_ignore_ascii_case("collapse")
+                {
+                    visibility = Some(true);
+                }
+            }
+        }
+        cursor = node.parent;
+    }
+    Ok(visibility.unwrap_or(false))
+}
+
+// staging source: shared-case-text-v133.rs
+fn shared_case_text<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    data: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    check()?;
+    let scratch_start = producer.receipt_mark();
+    let mut lineage = Vec::new();
+    let mut cursor = dom.get(id).ok().and_then(|node| node.parent);
+    let mut ancestors_seen = BTreeSet::from([id]);
+    while let Some(parent) = cursor {
+        check()?;
+        if !ancestors_seen.insert(parent) {
+            lineage.clear();
+            break;
+        }
+        shared_vector_push(&mut lineage, parent, producer, check)?;
+        cursor = dom.get(parent).ok().and_then(|node| node.parent);
+    }
+    let mut transform = None;
+    let mut language = None;
+    let mut root = None;
+    for parent in &lineage {
+        check()?;
+        if transform.is_none() {
+            if let Some((_, value)) = dom.accessibility_computed_text_style(*parent) {
+                transform = Some(producer.text(value, check)?);
+            } else if let Ok(node) = dom.get(*parent)
+                && let Some(value) = shared_inline_style_value_with_checkpoint(
+                    node,
+                    "text-transform",
+                    producer,
+                    check,
+                )?
+            {
+                transform = Some(producer.text(value, check)?);
+            }
+        }
+        if language.is_none()
+            && let Ok(node) = dom.get(*parent)
+            && let Some(value) = node.attributes.get_null_with_checkpoint("lang", check)?
+        {
+            language = Some(producer.text(value, check)?);
+        }
+        if root.is_none()
+            && shared_accessible_text_run_separator_with_checkpoint(dom, *parent, producer, check)?
+        {
+            root = Some(*parent);
+        }
+    }
+    let transform = match transform {
+        Some(value) => value,
+        None => producer.text("none", check)?,
+    };
+    let mut transforms = false;
+    for token in shared_name_tokens(
+        &transform,
+        |character| character.is_ascii_whitespace(),
+        producer,
+        check,
+    )? {
+        check()?;
+        transforms |= matches!(token, "uppercase" | "lowercase" | "capitalize");
+    }
+    if !transforms {
+        let scratch_end = producer.receipt_mark();
+        let result = producer.text(data, check)?;
+        drop(lineage);
+        drop(transform);
+        drop(language);
+        producer.release_receipt_range(scratch_start..scratch_end);
+        return Ok(result);
+    }
+    let language = language.unwrap_or_default();
+    let root = root.or_else(|| lineage.last().copied()).unwrap_or(id);
+    let mut pending = producer.vector(1)?;
+    pending.push((root, false));
+    let mut seen = BTreeSet::new();
+    let mut context = String::new();
+    let mut offset = 0;
+    let mut range = None;
+    while let Some((node_id, after)) = pending.pop() {
+        check()?;
+        if after {
+            shared_append_text(&mut context, " ", producer, check)?;
+            offset += 1;
+            continue;
+        }
+        if !seen.insert(node_id) {
+            continue;
+        }
+        let Ok(node) = dom.get(node_id) else {
+            continue;
+        };
+        if matches!(&node.kind,NodeKind::Element{name}if matches!(name.local.as_ref(),"script"|"style"|"template"))
+        {
+            continue;
+        }
+        if let NodeKind::Text { data } = &node.kind {
+            let mut end = offset;
+            for ch in data.chars() {
+                check()?;
+                let mut buffer = [0u8; 4];
+                shared_append_text(&mut context, ch.encode_utf8(&mut buffer), producer, check)?;
+                end += 1;
+            }
+            if node_id == id {
+                range = Some((offset, end));
+            }
+            offset = end;
+        } else {
+            if node_id != root
+                && shared_accessible_text_run_separator_with_checkpoint(
+                    dom, node_id, producer, check,
+                )?
+            {
+                shared_append_text(&mut context, " ", producer, check)?;
+                offset += 1;
+                shared_vector_push(&mut pending, (node_id, true), producer, check)?;
+            }
+            for child in shared_accessible_children_with_checkpoint(dom, node_id, producer, check)?
+                .into_iter()
+                .rev()
+            {
+                shared_vector_push(&mut pending, (child, false), producer, check)?;
+            }
+        }
+    }
+    let scratch_end = producer.receipt_mark();
+    let result = if let Some((start, end)) = range {
+        shared_case_fragment(&context, start, end, &transform, &language, producer, check)?
+    } else {
+        let mut count = 0usize;
+        for _ in data.chars() {
+            check()?;
+            count += 1;
+        }
+        shared_case_fragment(data, 0, count, &transform, &language, producer, check)?
+    };
+    drop(context);
+    drop(pending);
+    drop(lineage);
+    drop(transform);
+    drop(language);
+    producer.release_receipt_range(scratch_start..scratch_end);
+    check()?;
+    Ok(result)
+}
+
+fn shared_case_fragment<P: SemanticProducer>(
+    text: &str,
+    start: usize,
+    end: usize,
+    transform: &str,
+    language: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    oryn_layout::accessibility_case_fragment_with_allocation(
+        text,
+        start,
+        end,
+        transform,
+        language,
+        &mut SemanticDomAllocation(producer),
+        check,
+    )
+    .map_err(|error| match error {
+        oryn_layout::CasePreparationError::Checkpoint(error) => P::Error::from(error),
+        oryn_layout::CasePreparationError::Allocation(error) => error,
+    })
+}
+
+// staging source: shared-role-entry-v134.rs
+fn shared_role_for_node<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    check()?;
+    let role = shared_unpromoted_role_for_node_with_checkpoint(dom, id, producer, check)?;
+    let mut promotion = false;
+    if let Ok(node) = dom.get(id) {
+        for attribute in ["autofocus", "draggable", "popover"] {
+            check()?;
+            if node
+                .attributes
+                .contains_null_with_checkpoint(attribute, check)?
+            {
+                promotion = true;
+                break;
+            }
+        }
+    }
+    if matches!(role.as_str(), "generic" | "none") && promotion {
+        producer.text("group", check)
+    } else {
+        Ok(role)
+    }
+}
+
+// staging source: shared-text-entry-v69-v108.rs
+fn shared_accessible_text<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    include_hidden_root: bool,
+    excluded: Option<NodeId>,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    let hidden = include_hidden_root && shared_referenced_root_hidden(dom, id, producer, check)?;
+    shared_accessible_text_walk(
+        dom,
+        id,
+        include_hidden_root,
+        excluded,
+        hidden,
+        &mut NameTraversal::default(),
+        producer,
+        check,
+    )
+}
+
+// staging source: shared-visible-text-v68-v103-v106-v108-v135.rs
+fn shared_visible_text<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    excluded: Option<NodeId>,
+    traversal: &mut NameTraversal,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    check()?;
+    if Some(id) == excluded {
+        return Ok(String::new());
+    }
+    let Ok(node) = dom.get(id) else {
+        return Ok(String::new());
+    };
+    if shared_subtree_excluded_at_with_checkpoint(dom, id, producer, check)? {
+        return Ok(String::new());
+    }
+    if dom
+        .accessibility_computed_visibility(id)
+        .is_some_and(|(_, hidden)| !hidden)
+        || (dom.accessibility_computed_visibility(id).is_none()
+            && shared_inline_style_value_with_checkpoint(node, "visibility", producer, check)?
+                .is_some_and(|value| value.eq_ignore_ascii_case("visible")))
+    {
+        return shared_accessible_text_walk(
+            dom,
+            id,
+            true,
+            excluded,
+            shared_referenced_root_hidden(dom, id, producer, check)?,
+            traversal,
+            producer,
+            check,
+        );
+    }
+    let mut parts = producer.vector(0)?;
+    for child in &node.children {
+        check()?;
+        let value = shared_visible_text(dom, *child, excluded, traversal, producer, check)?;
+        if !value.is_empty() {
+            shared_vector_push(&mut parts, value, producer, check)?;
+        }
+    }
+    shared_join(&parts, " ", producer, check)
+}
+
+// staging source: shared-accessible-walk-v57-v103-v106-v108-v135-v143.rs
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Recursive accname traversal keeps node/exclusion/hidden flags distinct from mutable traversal and producer checkpoints."
+)]
+fn shared_accessible_text_walk<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    include_hidden_root: bool,
+    excluded: Option<NodeId>,
+    include_hidden_subtree: bool,
+    traversal: &mut NameTraversal,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    check()?;
+    if Some(id) == excluded {
+        return if dom.get(id).is_ok_and(|node| matches!(&node.kind, NodeKind::Element { name }
+            if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && matches!(name.local.as_ref(), "input" | "select" | "textarea"))) { producer.text(" ",check) } else { Ok(String::new()) };
+    }
+    let Ok(node) = dom.get(id) else {
+        return Ok(String::new());
+    };
+    if matches!(&node.kind, NodeKind::Element { name }
+        if (name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && matches!(name.local.as_ref(), "script" | "style" | "template"))
+            || (name.ns.as_ref() == "http://www.w3.org/2000/svg" && matches!(name.local.as_ref(), "script" | "style")))
+    {
+        return Ok(String::new());
+    }
+    if !include_hidden_root
+        && !include_hidden_subtree
+        && shared_accessibility_hidden_at_with_checkpoint(dom, id, producer, check)?
+    {
+        if shared_visibility_hidden_at_with_checkpoint(dom, id, producer, check)? {
+            let mut parts = producer.vector(0)?;
+            for child in shared_accessible_children_with_checkpoint(dom, id, producer, check)? {
+                let text = shared_visible_text(dom, child, excluded, traversal, producer, check)?;
+                if !text.is_empty() {
+                    shared_vector_push(&mut parts, text, producer, check)?;
+                }
+            }
+            return shared_join(&parts, " ", producer, check);
+        }
+        return Ok(String::new());
+    }
+    if !traversal.seen.insert(id) {
+        return Ok(String::new());
+    }
+    let is_shadow_slot = matches!(&node.kind, NodeKind::Element { name }
+        if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "slot")
+        && tree_scope_with_checkpoint(dom, id, check)?.is_some_and(|root| {
+            dom.get(root)
+                .is_ok_and(|root| matches!(root.kind, NodeKind::ShadowRoot { .. }))
+        });
+    let role = shared_role_for_node(dom, id, producer, check)?;
+    let embedded = matches!(&node.kind, NodeKind::Element { .. })
+        && matches!(
+            role.as_str(),
+            "textbox" | "searchbox" | "combobox" | "listbox" | "menu" | "slider" | "spinbutton"
+        );
+    if !is_shadow_slot
+        && !embedded
+        && traversal.reference_depth == 0
+        && let Some(targets) = shared_relation(dom, id, "aria-labelledby", producer, check)?
+            .filter(|targets| !targets.is_empty())
+    {
+        traversal.reference_depth += 1;
+        let result = (|| {
+            let mut parts = producer.vector(0)?;
+            let mut self_reference = false;
+            for target in targets {
+                check()?;
+                if target == id && !self_reference {
+                    traversal.seen.remove(&id);
+                    self_reference = true;
+                }
+                let text = shared_accessible_text_walk(
+                    dom,
+                    target,
+                    true,
+                    excluded,
+                    shared_referenced_root_hidden(dom, target, producer, check)?,
+                    traversal,
+                    producer,
+                    check,
+                )?;
+                if !text.is_empty() {
+                    shared_vector_push(&mut parts, text, producer, check)?;
+                }
+            }
+            shared_normalize_text(&shared_join(&parts, " ", producer, check)?, producer, check)
+        })();
+        traversal.reference_depth -= 1;
+        return result;
+    }
+    if !is_shadow_slot
+        && !embedded
+        && let Some(label) = node
+            .accessibility_attribute_with_checkpoint("aria-label", check)?
+            .map(|label| shared_normalize_text(label, producer, check))
+            .transpose()?
+            .filter(|label| !label.is_empty())
+    {
+        return Ok(label);
+    }
+    if let Some(title) =
+        shared_svg_child_alternative_with_checkpoint(dom, id, "title", producer, check)?
+    {
+        return Ok(title);
+    }
+    match &node.kind {
+        NodeKind::Text { data } => {
+            return shared_case_text(dom, id, data, producer, check);
+        }
+        NodeKind::Element { .. } if role == "menu" => return Ok(String::new()),
+        NodeKind::Element { name }
+            if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                && name.local.as_ref() == "br" =>
+        {
+            return producer.text(" ", check);
+        }
+        NodeKind::Element { name } if name.local.as_ref() == "img" => {
+            return match node.attributes.get_null_with_checkpoint("alt", check)? {
+                Some(value) => producer.text(value, check),
+                None => Ok(String::new()),
+            };
+        }
+        NodeKind::Element { name } if name.local.as_ref() == "input" => {
+            let kind = node
+                .attributes
+                .get_null_with_checkpoint("type", check)?
+                .map(|kind| shared_ascii_lowercase(kind, producer, check))
+                .transpose()?;
+            let value = match node.value.as_ref() {
+                Some(value) => Some(value),
+                None => node.attributes.get_null_with_checkpoint("value", check)?,
+            };
+            if matches!(kind.as_deref(), Some("button" | "submit" | "reset")) {
+                return match value {
+                    Some(value) => producer.text(value, check),
+                    None => producer.text(
+                        match kind.as_deref() {
+                            Some("reset") => "Reset",
+                            Some("submit") => "Submit",
+                            _ => "",
+                        },
+                        check,
+                    ),
+                };
+            }
+            let value = if matches!(role.as_str(), "slider" | "spinbutton") {
+                match node.accessibility_attribute_with_checkpoint("aria-valuetext", check)? {
+                    Some(value) => Some(value),
+                    None => match node
+                        .accessibility_attribute_with_checkpoint("aria-valuenow", check)?
+                    {
+                        Some(value) => Some(value),
+                        None => value,
+                    },
+                }
+            } else {
+                value
+            };
+            return match value {
+                Some(value) => producer.text(value, check),
+                None => Ok(String::new()),
+            };
+        }
+        NodeKind::Element { name } if name.local.as_ref() == "textarea" => {
+            return if node.dirty_value {
+                match node.value.as_ref() {
+                    Some(value) => producer.text(value, check),
+                    None => Ok(String::new()),
+                }
+            } else {
+                shared_default::<String, P>(shared_dom_text(dom, id, producer, check))
+            };
+        }
+        NodeKind::Element { name } if name.local.as_ref() == "select" => {
+            let options =
+                shared_default::<Vec<NodeId>, P>(shared_select_options(dom, id, producer, check))?;
+            let mut selected = producer.vector(0)?;
+            let mut initialized = false;
+            for option in &options {
+                check()?;
+                if let Ok(option_node) = dom.get(*option) {
+                    if option_node.selected_with_checkpoint(check)? {
+                        shared_vector_push(&mut selected, *option, producer, check)?;
+                    }
+                    initialized |= option_node.selectedness.is_some();
+                } else {
+                    initialized = true;
+                }
+            }
+            if selected.is_empty()
+                && !initialized
+                && !node
+                    .attributes
+                    .contains_null_with_checkpoint("multiple", check)?
+                && node
+                    .attributes
+                    .get_null_with_checkpoint("size", check)?
+                    .and_then(|size| size.parse::<u32>().ok())
+                    .unwrap_or(0)
+                    <= 1
+            {
+                for option in &options {
+                    check()?;
+                    let Ok(option_record) = dom.get(*option) else {
+                        continue;
+                    };
+                    if option_record
+                        .attributes
+                        .contains_null_with_checkpoint("disabled", check)?
+                    {
+                        continue;
+                    }
+                    let mut disabled = false;
+                    for ancestor in shared_default::<Vec<NodeId>, P>(
+                        shared_ancestors_with_checkpoint(dom, *option, producer, check),
+                    )? {
+                        check()?;
+                        if ancestor == id {
+                            break;
+                        }
+                        if let Ok(node) = dom.get(ancestor)
+                            && matches!(&node.kind,NodeKind::Element{name}if name.local.as_ref()=="optgroup")
+                        {
+                            disabled |= node
+                                .attributes
+                                .contains_null_with_checkpoint("disabled", check)?;
+                        }
+                    }
+                    if !disabled {
+                        shared_vector_push(&mut selected, *option, producer, check)?;
+                        break;
+                    }
+                }
+            }
+            let mut parts = producer.vector(0)?;
+            for option in selected {
+                check()?;
+                let label = if let Ok(node) = dom.get(option) {
+                    let explicit = node
+                        .accessibility_attribute_with_checkpoint("aria-label", check)?
+                        .map(|label| shared_normalize_text(label, producer, check))
+                        .transpose()?
+                        .filter(|label| !label.is_empty());
+                    match explicit {
+                        Some(label) => Some(label),
+                        None => node
+                            .attributes
+                            .get_null_with_checkpoint("label", check)?
+                            .map(|label| shared_normalize_text(label, producer, check))
+                            .transpose()?
+                            .filter(|label| !label.is_empty()),
+                    }
+                } else {
+                    None
+                };
+                let text = match label {
+                    Some(label) => label,
+                    None => shared_accessible_text_walk(
+                        dom,
+                        option,
+                        false,
+                        excluded,
+                        include_hidden_subtree,
+                        traversal,
+                        producer,
+                        check,
+                    )?,
+                };
+                if !text.is_empty() {
+                    shared_vector_push(&mut parts, text, producer, check)?;
+                }
+            }
+            return shared_join(&parts, " ", producer, check);
+        }
+        NodeKind::Element { .. } if matches!(role.as_str(), "listbox" | "combobox") => {
+            let selected = shared_embedded_selected_options(dom, id, producer, check)?;
+            let join = !selected.is_empty();
+            let children = if join {
+                selected
+            } else if role == "combobox" {
+                shared_accessible_children_with_checkpoint(dom, id, producer, check)?
+            } else {
+                Vec::new()
+            };
+            let mut parts = producer.vector(0)?;
+            for child in children {
+                check()?;
+                let text = shared_accessible_text_walk(
+                    dom,
+                    child,
+                    false,
+                    excluded,
+                    include_hidden_subtree,
+                    traversal,
+                    producer,
+                    check,
+                )?;
+                if !text.is_empty() {
+                    shared_vector_push(&mut parts, text, producer, check)?;
+                }
+            }
+            return shared_join(&parts, if join { " " } else { "" }, producer, check);
+        }
+        NodeKind::Element { .. } if matches!(role.as_str(), "slider" | "spinbutton") => {
+            let value =
+                match node.accessibility_attribute_with_checkpoint("aria-valuetext", check)? {
+                    Some(value) => Some(value),
+                    None => node.accessibility_attribute_with_checkpoint("aria-valuenow", check)?,
+                };
+            return match value {
+                Some(value) => producer.text(value, check),
+                None => Ok(String::new()),
+            };
+        }
+        _ => {}
+    }
+    let mut action_targets = BTreeSet::new();
+    for target in shared_relation(dom, id, "aria-actions", producer, check)?.unwrap_or_default() {
+        check()?;
+        action_targets.insert(target);
+    }
+    if traversal.owners.is_none() {
+        traversal.owners = Some(accepted_aria_owners_with_checkpoint(dom, check)?);
+    }
+    let mut value = String::new();
+    for child in shared_accessible_children_with_checkpoint(dom, id, producer, check)? {
+        check()?;
+        if traversal
+            .owners
+            .as_ref()
+            .is_some_and(|owners| owners.contains_key(&child))
+            || action_targets.contains(&child)
+        {
+            continue;
+        }
+        let text = shared_accessible_text_walk(
+            dom,
+            child,
+            false,
+            excluded,
+            include_hidden_subtree,
+            traversal,
+            producer,
+            check,
+        )?;
+        if !text.is_empty() {
+            if shared_accessible_text_run_separator_with_checkpoint(dom, child, producer, check)? {
+                shared_append_text(&mut value, " ", producer, check)?;
+                shared_append_text(&mut value, &text, producer, check)?;
+                shared_append_text(&mut value, " ", producer, check)?;
+            } else {
+                shared_append_text(&mut value, &text, producer, check)?;
+            }
+        }
+    }
+    if let Some(owned) = shared_relation(dom, id, "aria-owns", producer, check)? {
+        for owned_id in owned {
+            check()?;
+            if owned_id == id
+                || traversal
+                    .owners
+                    .as_ref()
+                    .and_then(|owners| owners.get(&owned_id))
+                    .copied()
+                    != Some(id)
+            {
+                continue;
+            }
+            let text = shared_accessible_text_walk(
+                dom,
+                owned_id,
+                true,
+                excluded,
+                include_hidden_subtree
+                    || shared_accessibility_hidden_at_with_checkpoint(
+                        dom, owned_id, producer, check,
+                    )?,
+                traversal,
+                producer,
+                check,
+            )?;
+            if !text.is_empty() {
+                if !value.is_empty() {
+                    shared_append_text(&mut value, " ", producer, check)?;
+                }
+                shared_append_text(&mut value, &text, producer, check)?;
+            }
+        }
+    }
+    if excluded.is_some()
+        && shared_normalize_text(&value, producer, check)?.is_empty()
+        && matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "label")
+        && let Some(title) = node
+            .attributes
+            .get_null_with_checkpoint("title", check)?
+            .map(|title| shared_normalize_text(title, producer, check))
+            .transpose()?
+            .filter(|title| !title.is_empty())
+    {
+        value = shared_surround(" ", &title, " ", producer, check)?;
+    }
+    if let Some((before, after)) = dom.accessibility_generated_content(id) {
+        value = shared_surround(before, &value, after, producer, check)?;
+    }
+    Ok(value)
+}
+
+// staging source: shared-name-closure-v101-v103-v106-v108-v135-v143.rs
+fn shared_svg_child_alternative_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    local: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Option<String>, P::Error> {
+    check()?;
+    let Ok(node) = dom.get(id) else {
+        return Ok(None);
+    };
+    if !matches!(&node.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/2000/svg")
+    {
+        return Ok(None);
+    }
+    for child in &node.children {
+        check()?;
+        if dom.get(*child).is_ok_and(|node| {
+            matches!(&node.kind, NodeKind::Element { name }
+            if name.ns.as_ref() == "http://www.w3.org/2000/svg" && name.local.as_ref() == local)
+        }) {
+            let text = shared_normalize_text(
+                &shared_default::<String, P>(shared_dom_text(dom, *child, producer, check))?,
+                producer,
+                check,
+            )?;
+            return Ok((!text.is_empty()).then_some(text));
+        }
+    }
+    Ok(None)
+}
+
+fn shared_host_label_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Option<(String, Vec<NodeId>)>, P::Error> {
+    check()?;
+    if !dom.is_labelable(id) {
+        return Ok(None);
+    }
+    let Some(root) = tree_scope_with_checkpoint(dom, id, check)? else {
+        return Ok(None);
+    };
+    let mut labels = producer.vector(0)?;
+    let mut candidates = producer.vector(1)?;
+    candidates.push(root);
+    for child in shared_descendants_with_checkpoint(dom, root, producer, check)? {
+        check()?;
+        shared_vector_push(&mut candidates, child, producer, check)?;
+    }
+    for candidate in candidates {
+        check()?;
+        if tree_scope_with_checkpoint(dom, candidate, check)? == Some(root)
+            && cancellation_or_default(dom.label_control_with_checkpoint(candidate, check))?
+                == Some(id)
+        {
+            let text = shared_normalize_text(
+                &shared_accessible_text(dom, candidate, true, Some(id), producer, check)?,
+                producer,
+                check,
+            )?;
+            shared_vector_push(&mut labels, (candidate, text), producer, check)?;
+        }
+    }
+    if labels.is_empty() {
+        return Ok(None);
+    }
+    let mut parts = producer.vector(labels.len())?;
+    let mut references = producer.vector(labels.len())?;
+    for (label, text) in labels {
+        check()?;
+        references.push(label);
+        if !text.is_empty() {
+            parts.push(text);
+        }
+    }
+    Ok(Some((
+        shared_join(&parts, " ", producer, check)?,
+        references,
+    )))
+}
+
+fn shared_referenced_nodes_text_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    targets: &[NodeId],
+    page_id: PageId,
+    document_generation: u64,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<(String, Vec<SemanticRef>), P::Error> {
+    let mut values = producer.vector(targets.len())?;
+    let mut references = producer.vector(targets.len())?;
+    for &id in targets {
+        check()?;
+        let explicit = match dom.get(id) {
+            Ok(node) => node.accessibility_attribute_with_checkpoint("aria-label", check)?,
+            Err(_) => None,
+        }
+        .map(|label| shared_normalize_text(label, producer, check))
+        .transpose()?
+        .filter(|label| !label.is_empty());
+        let mut text = if let Some(label) = explicit {
+            label
+        } else if let Some((label, _)) =
+            shared_host_label_with_checkpoint(dom, id, producer, check)?
+        {
+            label
+        } else {
+            shared_normalize_text(
+                &shared_accessible_text_walk(
+                    dom,
+                    id,
+                    true,
+                    None,
+                    shared_referenced_root_hidden(dom, id, producer, check)?,
+                    &mut NameTraversal {
+                        seen: BTreeSet::new(),
+                        reference_depth: 1,
+                        ..Default::default()
+                    },
+                    producer,
+                    check,
+                )?,
+                producer,
+                check,
+            )?
+        };
+        if text.is_empty() {
+            text = match dom.get(id) {
+                Ok(node) => node.attributes.get_null_with_checkpoint("title", check)?,
+                Err(_) => None,
+            }
+            .map(|title| shared_normalize_text(title, producer, check))
+            .transpose()?
+            .unwrap_or_default();
+        }
+        if dom.get(id).is_ok() {
+            references.push(semantic_ref_for(id, page_id, document_generation));
+        }
+        if !text.is_empty() {
+            values.push(text);
+        }
+    }
+    Ok((shared_join(&values, " ", producer, check)?, references))
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Accname inputs include stable page/generation identity alongside separate fallible producer and checkpoint owners."
+)]
+fn shared_accessible_semantics_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    local_name: &str,
+    role: &str,
+    page_id: PageId,
+    document_generation: u64,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<AccessibleSemantics, P::Error> {
+    check()?;
+    let Ok(node) = dom.get(id) else {
+        return Ok(AccessibleSemantics {
+            name: String::new(),
+            description: None,
+            provenance: Provenance::Heuristic { confidence: 0.0 },
+            evidence: Vec::new(),
+        });
+    };
+    let mut evidence = producer.vector(0)?;
+    let mut provenance = Provenance::BrowserDeterministic;
+    let name = if let Some(targets) = shared_relation(dom, id, "aria-labelledby", producer, check)?
+        .filter(|targets| !targets.is_empty())
+    {
+        let (value, references) = shared_referenced_nodes_text_with_checkpoint(
+            dom,
+            &targets,
+            page_id,
+            document_generation,
+            producer,
+            check,
+        )?;
+        shared_vector_push(
+            &mut evidence,
+            AccessibilityEvidence {
+                kind: AccessibilityEvidenceKind::ReferencedContent,
+                source: producer.text("aria-labelledby", check)?,
+                references,
+            },
+            producer,
+            check,
+        )?;
+        // A valid reference wins even when its text alternative is empty.
+        Some(value)
+    } else {
+        None
+    };
+    let name = if let Some(name) = name {
+        name
+    } else if let Some(label) = node
+        .accessibility_attribute_with_checkpoint("aria-label", check)?
+        .map(|value| shared_normalize_text(value, producer, check))
+        .transpose()?
+        .filter(|value| !value.is_empty())
+    {
+        shared_vector_push(
+            &mut evidence,
+            AccessibilityEvidence {
+                kind: AccessibilityEvidenceKind::ExplicitAria,
+                source: producer.text("aria-label", check)?,
+                references: Vec::new(),
+            },
+            producer,
+            check,
+        )?;
+        label
+    } else if let Some((label, references)) =
+        shared_host_label_with_checkpoint(dom, id, producer, check)?
+    {
+        let mut semantic_references = producer.vector(references.len())?;
+        for reference in references {
+            check()?;
+            semantic_references.push(semantic_ref_for(reference, page_id, document_generation));
+        }
+        shared_vector_push(
+            &mut evidence,
+            AccessibilityEvidence {
+                kind: AccessibilityEvidenceKind::HostLanguage,
+                source: producer.text("label", check)?,
+                references: semantic_references,
+            },
+            producer,
+            check,
+        )?;
+        label
+    } else if let Some((value, source)) =
+        shared_host_language_name_with_checkpoint(dom, id, local_name, role, producer, check)?
+    {
+        shared_vector_push(
+            &mut evidence,
+            AccessibilityEvidence {
+                kind: AccessibilityEvidenceKind::HostLanguage,
+                source,
+                references: Vec::new(),
+            },
+            producer,
+            check,
+        )?;
+        value
+    } else if let Some(title) = node
+        .attributes
+        .get_null_with_checkpoint("title", check)?
+        .map(|value| shared_normalize_text(value, producer, check))
+        .transpose()?
+        .filter(|value| !value.is_empty())
+    {
+        shared_vector_push(
+            &mut evidence,
+            AccessibilityEvidence {
+                kind: AccessibilityEvidenceKind::HostLanguage,
+                source: producer.text("title", check)?,
+                references: Vec::new(),
+            },
+            producer,
+            check,
+        )?;
+        title
+    } else if let Some(placeholder) = node
+        .attributes
+        .get_null_with_checkpoint("placeholder", check)?
+        .map(|value| shared_normalize_text(value, producer, check))
+        .transpose()?
+        .filter(|value| !value.is_empty())
+    {
+        provenance = Provenance::Heuristic { confidence: 0.65 };
+        shared_vector_push(
+            &mut evidence,
+            AccessibilityEvidence {
+                kind: AccessibilityEvidenceKind::PlaceholderFallback,
+                source: producer.text("placeholder", check)?,
+                references: Vec::new(),
+            },
+            producer,
+            check,
+        )?;
+        placeholder
+    } else {
+        String::new()
+    };
+
+    let description = if let Some(targets) =
+        shared_relation(dom, id, "aria-describedby", producer, check)?
+            .filter(|targets| !targets.is_empty())
+    {
+        let (value, references) = shared_referenced_nodes_text_with_checkpoint(
+            dom,
+            &targets,
+            page_id,
+            document_generation,
+            producer,
+            check,
+        )?;
+        if value.is_empty() {
+            None
+        } else {
+            shared_vector_push(
+                &mut evidence,
+                AccessibilityEvidence {
+                    kind: AccessibilityEvidenceKind::ReferencedContent,
+                    source: producer.text("aria-describedby", check)?,
+                    references,
+                },
+                producer,
+                check,
+            )?;
+            Some(value)
+        }
+    } else if let Some(value) = node
+        .accessibility_attribute_with_checkpoint("aria-description", check)?
+        .map(|value| shared_normalize_text(value, producer, check))
+        .transpose()?
+        .filter(|value| !value.is_empty())
+    {
+        shared_vector_push(
+            &mut evidence,
+            AccessibilityEvidence {
+                kind: AccessibilityEvidenceKind::ExplicitAria,
+                source: producer.text("aria-description", check)?,
+                references: Vec::new(),
+            },
+            producer,
+            check,
+        )?;
+        Some(value)
+    } else if let Some(value) =
+        shared_svg_child_alternative_with_checkpoint(dom, id, "desc", producer, check)?
+    {
+        shared_vector_push(
+            &mut evidence,
+            AccessibilityEvidence {
+                kind: AccessibilityEvidenceKind::HostLanguage,
+                source: producer.text("svg-desc", check)?,
+                references: Vec::new(),
+            },
+            producer,
+            check,
+        )?;
+        Some(value)
+    } else {
+        // Tooltip text is a description only when it did not supply the name.
+        // Equal strings from independent naming sources still qualify.
+        let title_used_for_name = evidence.iter().any(|item| {
+            item.kind == AccessibilityEvidenceKind::HostLanguage && item.source == "title"
+        });
+        let title = node
+            .attributes
+            .get_null_with_checkpoint("title", check)?
+            .map(|value| shared_normalize_text(value, producer, check))
+            .transpose()?
+            .filter(|value| !value.is_empty() && !title_used_for_name);
+        if title.is_some() {
+            shared_vector_push(
+                &mut evidence,
+                AccessibilityEvidence {
+                    kind: AccessibilityEvidenceKind::HostLanguage,
+                    source: producer.text("title-description", check)?,
+                    references: Vec::new(),
+                },
+                producer,
+                check,
+            )?;
+        }
+        title
+    };
+
+    Ok(AccessibleSemantics {
+        name,
+        description,
+        provenance,
+        evidence,
+    })
+}
+
+fn shared_host_language_name_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    local_name: &str,
+    role: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Option<(String, String)>, P::Error> {
+    check()?;
+    let Ok(node) = dom.get(id) else {
+        return Ok(None);
+    };
+    if let Some(title) =
+        shared_svg_child_alternative_with_checkpoint(dom, id, "title", producer, check)?
+    {
+        return Ok(Some((title, producer.text("svg-title", check)?)));
+    }
+    let html = matches!(&node.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/1999/xhtml");
+    let input_type = node
+        .attributes
+        .get_null_with_checkpoint("type", check)?
+        .map(|kind| shared_ascii_lowercase(kind, producer, check))
+        .transpose()?;
+    let attribute = match if html { local_name } else { "" } {
+        "img" | "area" => Some(("alt", "alt")),
+        "input" if input_type.as_deref() == Some("image") => Some(("alt", "input-alt")),
+        "input" if matches!(input_type.as_deref(), Some("button" | "submit" | "reset")) => {
+            Some(("value", "input-value"))
+        }
+        _ => None,
+    };
+    if let Some((attribute, source)) = attribute
+        && let Some(value) = (if attribute == "value" {
+            match node.value.as_ref() {
+                Some(value) => Some(value),
+                None => node.attributes.get_null_with_checkpoint(attribute, check)?,
+            }
+        } else {
+            node.attributes.get_null_with_checkpoint(attribute, check)?
+        })
+    {
+        // An explicitly empty host-language alternative is authoritative and
+        // must suppress lower-priority title/placeholder fallbacks.
+        return Ok(Some((
+            shared_normalize_text(value, producer, check)?,
+            producer.text(source, check)?,
+        )));
+    }
+    if html && local_name == "input" && matches!(input_type.as_deref(), Some("submit" | "reset")) {
+        return Ok(Some((
+            producer.text(
+                if input_type.as_deref() == Some("reset") {
+                    "Reset"
+                } else {
+                    "Submit"
+                },
+                check,
+            )?,
+            producer.text("input-default-value", check)?,
+        )));
+    }
+    if html
+        && local_name == "img"
+        && node
+            .attributes
+            .get_null_with_checkpoint("title", check)?
+            .map(|title| shared_normalize_text(title,producer, check)).transpose()?.is_none_or(|title| title.is_empty())
+        && let Some(parent)=node.parent.and_then(|parent|dom.get(parent).ok()).filter(|parent|matches!(&parent.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="figure")) {
+            let mut caption=None;let mut eligible=true;
+            for child in &parent.children {check()?;if *child==id{continue;}let Ok(child_node)=dom.get(*child)else{eligible=false;break;};match &child_node.kind{
+                NodeKind::Element{name} if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="figcaption"=>{if caption.replace(*child).is_some(){eligible=false;}},
+                NodeKind::Text{data}|NodeKind::CDataSection{data} if data.chars().all(|ch|matches!(ch,' '|'\t'|'\r'|'\n'|'\u{c}'))=>{},
+                NodeKind::Comment{..}=>{},_=>eligible=false,
+            }}
+            if eligible&& let Some(caption)=caption {return Ok(Some((shared_normalize_text(&shared_accessible_text(dom,caption,false,None,producer,check)?,producer, check)?,producer.text("figcaption-image",check)?)));}
+        }
+    let named_child = match if html { local_name } else { "" } {
+        "fieldset" => Some(("legend", "legend")),
+        "table" => Some(("caption", "caption")),
+        _ => None,
+    };
+    if let Some((child_name, source)) = named_child {
+        for child in &node.children {
+            check()?;
+            if dom.get(*child).is_ok_and(|node| matches!(&node.kind, NodeKind::Element { name }
+                if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == child_name))
+            {
+                let text = shared_normalize_text(&shared_accessible_text(dom,*child,false,None,producer,check)?,producer,check)?;
+                if !text.is_empty() { return Ok(Some((text, producer.text(source,check)?))); }
+                break;
+            }
+        }
+    }
+    // Name-from-heading selects the first exposed heading in depth-first
+    // flat-tree order. Dialogs and articles share this algorithm; looking only
+    // at immediate children would skip headings inside native layout wrappers.
+    if matches!(role, "article" | "dialog" | "alertdialog") {
+        let mut pending = shared_accessible_children_with_checkpoint(dom, id, producer, check)?;
+        pending.reverse();
+        let mut seen = BTreeSet::new();
+        while let Some(candidate) = pending.pop() {
+            check()?;
+            if !seen.insert(candidate)
+                || shared_subtree_excluded_at_with_checkpoint(dom, candidate, producer, check)?
+            {
+                continue;
+            }
+            if !shared_accessibility_hidden_at_with_checkpoint(dom, candidate, producer, check)?
+                && shared_role_for_node(dom, candidate, producer, check)? == "heading"
+            {
+                let text = shared_normalize_text(
+                    &shared_accessible_text(dom, candidate, false, None, producer, check)?,
+                    producer,
+                    check,
+                )?;
+                if !text.is_empty() {
+                    return Ok(Some((text, producer.text("heading", check)?)));
+                }
+                break;
+            }
+            for child in
+                shared_accessible_children_with_checkpoint(dom, candidate, producer, check)?
+                    .into_iter()
+                    .rev()
+            {
+                shared_vector_push(&mut pending, child, producer, check)?;
+            }
+        }
+    }
+    if name_from_content(local_name, role)
+        || node
+            .attributes
+            .contains_null_with_checkpoint("onclick", check)?
+        || node.event_listeners.contains("click")
+    {
+        let text = shared_normalize_text(
+            &shared_accessible_text(dom, id, true, None, producer, check)?,
+            producer,
+            check,
+        )?;
+        if !text.is_empty() {
+            return Ok(Some((text, producer.text("text-content", check)?)));
+        }
+    }
+    Ok(None)
+}
+
+fn shared_role_has_name_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    local: &str,
+    base: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, P::Error> {
+    let key = (dom as *const DomArena as usize, id);
+    if !ROLE_NAME_STACK.with(|stack| stack.borrow_mut().insert(key)) {
+        return Ok(false);
+    }
+    struct Guard((usize, NodeId));
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            ROLE_NAME_STACK.with(|stack| {
+                stack.borrow_mut().remove(&self.0);
+            });
+        }
+    }
+    let _guard = Guard(key);
+    let mark = producer.receipt_mark();
+    let named = shared_accessible_semantics_with_checkpoint(
+        dom,
+        id,
+        local,
+        base,
+        PageId(1),
+        1,
+        producer,
+        check,
+    )?;
+    let result = !named.name.is_empty();
+    drop(named);
+    producer.release_scratch(mark);
+    Ok(result)
+}
+
+fn shared_unpromoted_role_for_node_with_checkpoint<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    check()?;
+    let Ok(node) = dom.get(id) else {
+        return producer.text("generic", check);
+    };
+    let NodeKind::Element { name } = &node.kind else {
+        return producer.text("generic", check);
+    };
+    let local = name.local.as_ref();
+    let attributes =
+        node.accessibility_attributes_with_allocation(&mut SemanticDomAllocation(producer), check)?;
+    let base = shared_computed_role_with_checkpoint(local, &attributes, producer, check)?;
+    let explicit = shared_first_supported_role_with_checkpoint(
+        attributes.get_null_with_checkpoint("role", check)?,
+        false,
+        producer,
+        check,
+    )?;
+    if explicit
+        .as_deref()
+        .is_some_and(|role| !matches!(role, "none" | "presentation" | "form" | "region"))
+    {
+        return Ok(base);
+    }
+    let base = if matches!(explicit.as_deref(), Some("form" | "region")) {
+        if shared_role_has_name_with_checkpoint(dom, id, local, &base, producer, check)? {
+            return Ok(explicit.unwrap());
+        }
+        if let Some(fallback) = shared_first_supported_role_with_checkpoint(
+            attributes.get_null_with_checkpoint("role", check)?,
+            true,
+            producer,
+            check,
+        )? {
+            return shared_explicit_role_value_with_checkpoint(
+                local,
+                &attributes,
+                fallback,
+                producer,
+                check,
+            );
+        }
+        shared_implicit_role_with_checkpoint(local, &attributes, producer, check)?
+    } else {
+        producer.text(&base, check)?
+    };
+    if matches!(explicit.as_deref(), Some("none" | "presentation")) && base == "none" {
+        return Ok(base);
+    }
+    if name.ns.as_ref() != "http://www.w3.org/1999/xhtml" {
+        return Ok(base);
+    }
+    // Native required-owned descendants inherit their container's effective
+    // presentation. Global ARIA properties on the descendant do not cancel
+    // inherited presentation; an explicit role or focusability does.
+    if attributes
+        .get_null_with_checkpoint("tabindex", check)?
+        .map(|value| naming_i32_with_checkpoint(value, check))
+        .transpose()?
+        .flatten()
+        .is_none()
+        && let Some(parent) = node.parent
+    {
+        let required_parent = dom.get(parent).is_ok_and(|parent| match &parent.kind {
+            NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" => {
+                match local {
+                    "thead" | "tbody" | "tfoot" | "caption" => name.local.as_ref() == "table",
+                    "tr" => {
+                        matches!(name.local.as_ref(), "table" | "thead" | "tbody" | "tfoot")
+                    }
+                    "td" | "th" => name.local.as_ref() == "tr",
+                    _ => false,
+                }
+            }
+            _ => false,
+        });
+        if required_parent && shared_role_for_node(dom, parent, producer, check)? == "none" {
+            return producer.text("none", check);
+        }
+    }
+    let mut sectioning = false;
+    let mut below_main = false;
+    for ancestor in shared_default::<Vec<NodeId>, P>(shared_ancestors_with_checkpoint(
+        dom, id, producer, check,
+    ))? {
+        check()?;
+        if let Ok(node) = dom.get(ancestor)
+            && let NodeKind::Element { name } = &node.kind
+            && name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+        {
+            sectioning |= matches!(name.local.as_ref(), "article" | "aside" | "nav" | "section");
+            below_main |= name.local.as_ref() == "main";
+        }
+    }
+    let mut row_has_cell = false;
+    if local == "th"
+        && let Some(row) = node.parent.and_then(|parent| dom.get(parent).ok())
+    {
+        for child in &row.children {
+            check()?;
+            if dom.get(*child).is_ok_and(|node| matches!(&node.kind, NodeKind::Element { name }
+                if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "td")) {
+                row_has_cell = true;
+                break;
+            }
+        }
+    }
+    let explicit_scope = if local == "th" {
+        attributes
+            .get_null_with_checkpoint("scope", check)?
+            .map(|scope| shared_ascii_lowercase(scope, producer, check))
+            .transpose()?
+    } else {
+        None
+    };
+    Ok(match local {
+        "th" if explicit_scope
+            .as_deref()
+            .is_none_or(|scope| !matches!(scope, "row" | "rowgroup" | "col" | "colgroup")) =>
+        {
+            if row_has_cell {
+                producer.text("rowheader", check)?
+            } else {
+                producer.text("columnheader", check)?
+            }
+        }
+        "li" => {
+            let mut cursor = accepted_aria_owners_with_checkpoint(dom, check)?
+                .get(&id)
+                .copied()
+                .or(node.parent);
+            let mut seen = BTreeSet::new();
+            while let Some(parent) = cursor {
+                check()?;
+                if !seen.insert(parent) {
+                    break;
+                }
+                let role = shared_role_for_node(dom, parent, producer, check)?;
+                if role == "list" {
+                    return producer.text("listitem", check);
+                }
+                if !matches!(role.as_str(), "generic" | "none") {
+                    break;
+                }
+                cursor = dom.get(parent).ok().and_then(|parent| parent.parent);
+            }
+            producer.text("generic", check)?
+        }
+        "aside"
+            if sectioning
+                && !shared_role_has_name_with_checkpoint(
+                    dom, id, local, &base, producer, check,
+                )? =>
+        {
+            producer.text("generic", check)?
+        }
+        "header" | "footer" if sectioning || below_main => {
+            if local == "header" {
+                producer.text("sectionheader", check)?
+            } else {
+                producer.text("sectionfooter", check)?
+            }
+        }
+        "section" => {
+            if shared_role_has_name_with_checkpoint(dom, id, local, &base, producer, check)? {
+                producer.text("region", check)?
+            } else {
+                producer.text("generic", check)?
+            }
+        }
+        "form" => {
+            if shared_role_has_name_with_checkpoint(dom, id, local, &base, producer, check)? {
+                producer.text("form", check)?
+            } else {
+                producer.text("generic", check)?
+            }
+        }
+        "img"
+            if attributes
+                .get_null_with_checkpoint("alt", check)?
+                .map(|alt| shared_normalize_text(alt, producer, check))
+                .transpose()?
+                .is_some_and(|alt| alt.is_empty()) =>
+        {
+            if (attributes.contains_null_with_checkpoint("aria-label", check)?
+                || shared_relation(dom, id, "aria-labelledby", producer, check)?
+                    .is_some_and(|targets| !targets.is_empty()))
+                && shared_role_has_name_with_checkpoint(dom, id, local, &base, producer, check)?
+            {
+                producer.text("image", check)?
+            } else {
+                producer.text("none", check)?
+            }
+        }
+        "img"
+            if !attributes
+                .get_null_with_checkpoint("src", check)?
+                .is_some_and(|value| !value.is_empty())
+                && !attributes
+                    .get_null_with_checkpoint("srcset", check)?
+                    .is_some_and(|value| !value.is_empty())
+                && !shared_role_has_name_with_checkpoint(
+                    dom, id, local, &base, producer, check,
+                )? =>
+        {
+            producer.text("none", check)?
+        }
+        "input"
+            if attributes
+                .get_null_with_checkpoint("type", check)?
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("checkbox"))
+                && attributes.contains_null_with_checkpoint("switch", check)? =>
+        {
+            producer.text("switch", check)?
+        }
+        _ => base,
+    })
+}
+
+// staging source: shared-embedded-selected-v138-v143.rs
+fn shared_embedded_selected_options<P: SemanticProducer>(
+    dom: &DomArena,
+    root: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Vec<NodeId>, P::Error> {
+    let root_is_combobox = shared_role_for_node(dom, root, producer, check)? == "combobox";
+    let owners = accepted_aria_owners_with_checkpoint(dom, check)?;
+    let mut pending = producer.vector(1)?;
+    pending.push(root);
+    let mut seen = BTreeSet::new();
+    let mut selected = producer.vector(0)?;
+    while let Some(id) = pending.pop() {
+        check()?;
+        if !seen.insert(id) {
+            continue;
+        }
+        let Ok(node) = dom.get(id) else {
+            continue;
+        };
+        if id != root && matches!(&node.kind, NodeKind::Element { .. }) {
+            let role = shared_role_for_node(dom, id, producer, check)?;
+            if role == "option" {
+                if node
+                    .accessibility_attribute_with_checkpoint("aria-selected", check)?
+                    .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+                {
+                    shared_vector_push(&mut selected, id, producer, check)?;
+                }
+                continue;
+            }
+            if role == "combobox" || (role == "listbox" && !root_is_combobox) {
+                continue;
+            }
+        }
+        let mut children = producer.vector(0)?;
+        for child in shared_accessible_children_with_checkpoint(dom, id, producer, check)? {
+            check()?;
+            if !owners.contains_key(&child) {
+                shared_vector_push(&mut children, child, producer, check)?;
+            }
+        }
+        let mut children_seen = BTreeSet::new();
+        for child in &children {
+            check()?;
+            children_seen.insert(*child);
+        }
+        if let Some(owned) = shared_relation(dom, id, "aria-owns", producer, check)? {
+            for child in owned {
+                check()?;
+                if owners.get(&child) == Some(&id) && children_seen.insert(child) {
+                    shared_vector_push(&mut children, child, producer, check)?;
+                }
+            }
+        }
+        for child in children.into_iter().rev() {
+            check()?;
+            shared_vector_push(&mut pending, child, producer, check)?;
+        }
+    }
+    Ok(selected)
+}
+
+// staging source: shared-relation-adapter-v143.rs
+fn shared_relation<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    name: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Option<Vec<NodeId>>, P::Error> {
+    dom.accessibility_relation_with_allocation(
+        id,
+        name,
+        &mut SemanticDomAllocation(producer),
+        check,
+    )
+}
+
+// staging source: shared-readonly-v146.rs
+fn shared_accessibility_readonly<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, P::Error> {
+    let mark = producer.receipt_mark();
+    let result = (|| {
+        check()?;
+        let Ok(node) = dom.get(id) else {
+            return Ok(true);
+        };
+        if let Some(value) = node.accessibility_attribute_with_checkpoint("aria-readonly", check)? {
+            return Ok(value.eq_ignore_ascii_case("true"));
+        }
+        if matches!(
+            shared_role_for_node(dom, id, producer, check)?.as_str(),
+            "gridcell" | "columnheader" | "rowheader"
+        ) {
+            let owners = accepted_aria_owners_with_checkpoint(dom, check)?;
+            let mut cursor = owners.get(&id).copied().or(node.parent);
+            let mut seen = BTreeSet::from([id]);
+            while let Some(parent) = cursor {
+                check()?;
+                if !seen.insert(parent) {
+                    break;
+                }
+                if matches!(
+                    shared_role_for_node(dom, parent, producer, check)?.as_str(),
+                    "grid" | "treegrid"
+                ) {
+                    return match dom.get(parent) {
+                        Ok(parent) => Ok(parent
+                            .accessibility_attribute_with_checkpoint("aria-readonly", check)?
+                            .is_some_and(|value| value.eq_ignore_ascii_case("true"))),
+                        Err(_) => Ok(false),
+                    };
+                }
+                cursor = owners
+                    .get(&parent)
+                    .copied()
+                    .or_else(|| dom.get(parent).ok().and_then(|node| node.parent));
+            }
+        }
+        Ok(false)
+    })();
+    producer.release_scratch(mark);
+    result
+}
+
+// staging source: shared-hidden-v148.rs
+fn shared_is_hidden<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, P::Error> {
+    let mark = producer.receipt_mark();
+    let result = (|| {
+        check()?;
+        let mut lineage = producer.vector(1)?;
+        lineage.push(id);
+        for ancestor in shared_default::<Vec<NodeId>, P>(shared_ancestors_with_checkpoint(
+            dom, id, producer, check,
+        ))? {
+            check()?;
+            shared_vector_push(&mut lineage, ancestor, producer, check)?;
+        }
+        if let Some((_, visibility_hidden)) = dom.accessibility_computed_visibility(id) {
+            if visibility_hidden {
+                return Ok(true);
+            }
+            for candidate in lineage {
+                check()?;
+                if shared_subtree_excluded_at_with_checkpoint(dom, candidate, producer, check)? {
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
+        }
+        let mut rules = producer.vector(0)?;
+        {
+            let mut cursor = 0usize;
+            while let Some((style_id, node)) = dom.next_with_checkpoint(&mut cursor, check)? {
+                check()?;
+                if !matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "style")
+                {
+                    continue;
+                }
+                let sheet =
+                    shared_default::<String, P>(shared_dom_text(dom, style_id, producer, check))?;
+                let sheet = shared_strip_css_comments(&sheet, producer, check)?;
+                for rule in shared_name_tokens(&sheet, |ch| ch == '}', producer, check)? {
+                    check()?;
+                    if let Some(split) = shared_first_delimiter::<P>(rule, '{', check)? {
+                        let selectors = &rule[..split];
+                        let declarations = &rule[split + 1..];
+                        for selector in
+                            shared_name_tokens(selectors, |ch| ch == ',', producer, check)?
+                        {
+                            check()?;
+                            let selector = producer
+                                .text(naming_trim_with_checkpoint(selector, check)?, check)?;
+                            let declarations = producer.text(declarations, check)?;
+                            shared_vector_push(
+                                &mut rules,
+                                (selector, declarations),
+                                producer,
+                                check,
+                            )?;
+                        }
+                    }
+                }
+            }
+        }
+        for candidate in lineage {
+            check()?;
+            let Ok(node) = dom.get(candidate) else {
+                continue;
+            };
+            if node
+                .attributes
+                .contains_null_with_checkpoint("hidden", check)?
+                || node
+                    .accessibility_attribute_with_checkpoint("aria-hidden", check)?
+                    .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+            {
+                return Ok(true);
+            }
+            let mut hidden = None;
+            for (selector, declarations) in &rules {
+                check()?;
+                if shared_matches_selector(dom, candidate, selector, producer, check)? {
+                    shared_update_visibility(&mut hidden, declarations, producer, check)?;
+                }
+            }
+            if let Some(style) = node.attributes.get_null_with_checkpoint("style", check)? {
+                shared_update_visibility(&mut hidden, style, producer, check)?;
+            }
+            if hidden.unwrap_or(false) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })();
+    producer.release_scratch(mark);
+    result
+}
+
+fn shared_first_delimiter<P: SemanticProducer>(
+    value: &str,
+    delimiter: char,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Option<usize>, P::Error> {
+    for (index, ch) in value.char_indices() {
+        check()?;
+        if ch == delimiter {
+            return Ok(Some(index));
+        }
+    }
+    check()?;
+    Ok(None)
+}
+
+// staging source: shared-selector-v149.rs
+fn shared_matches_selector<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    selector: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, P::Error> {
+    let mark = producer.receipt_mark();
+    let result = (|| {
+        check()?;
+        let mut segments = producer.vector(0)?;
+        for segment in shared_name_tokens(selector, char::is_whitespace, producer, check)? {
+            check()?;
+            if !segment.is_empty() && segment != ">" {
+                shared_vector_push(&mut segments, segment, producer, check)?;
+            }
+        }
+        let Some(subject) = segments.last() else {
+            return Ok(false);
+        };
+        let Ok(node) = dom.get(id) else {
+            return Ok(false);
+        };
+        if !shared_matches_simple_selector(node, subject, producer, check)? {
+            return Ok(false);
+        }
+        let ancestors = shared_default::<Vec<NodeId>, P>(shared_ancestors_with_checkpoint(
+            dom, id, producer, check,
+        ))?;
+        let mut index = 0;
+        for segment in segments[..segments.len() - 1].iter().rev() {
+            check()?;
+            let mut found = false;
+            while index < ancestors.len() {
+                check()?;
+                let ancestor = ancestors[index];
+                index += 1;
+                if let Ok(node) = dom.get(ancestor)
+                    && shared_matches_simple_selector(node, segment, producer, check)?
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    })();
+    producer.release_scratch(mark);
+    result
+}
+
+// staging source: shared-simple-selector-v150.rs
+fn shared_matches_simple_selector<P: SemanticProducer>(
+    node: &crate::dom::Node,
+    selector: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, P::Error> {
+    let mark = producer.receipt_mark();
+    let result = (|| {
+        check()?;
+        let NodeKind::Element { name } = &node.kind else {
+            return Ok(false);
+        };
+        let selector =
+            shared_name_tokens(selector, |character| character == ':', producer, check)?[0];
+        let mut attribute_start = None;
+        for (index, character) in selector.char_indices() {
+            check()?;
+            if character == '[' {
+                attribute_start = Some(index);
+                break;
+            }
+        }
+        let simple = &selector[..attribute_start.unwrap_or(selector.len())];
+        if let Some(index) = attribute_start
+            && let Some(selector) = selector.strip_suffix(']')
+        {
+            let attribute = &selector[index + 1..];
+            let mut equal = None;
+            for (index, character) in attribute.char_indices() {
+                check()?;
+                if character == '=' {
+                    equal = Some(index);
+                    break;
+                }
+            }
+            let (key, expected) = match equal {
+                Some(index) => (
+                    &attribute[..index],
+                    Some(shared_trim_quotes::<P>(&attribute[index + 1..], check)?),
+                ),
+                None => (attribute, None),
+            };
+            let Some(actual) = node.attributes.get_null_with_checkpoint(key, check)? else {
+                return Ok(false);
+            };
+            if let Some(expected) = expected
+                && !naming_equal_with_checkpoint(actual, expected, check)?
+            {
+                return Ok(false);
+            }
+        }
+        let mut tag_end = simple.len();
+        let mut id_start = None;
+        for (index, character) in simple.char_indices() {
+            check()?;
+            if matches!(character, '#' | '.') {
+                tag_end = tag_end.min(index);
+            }
+            if character == '#' && id_start.is_none() {
+                id_start = Some(index);
+            }
+        }
+        let tag = &simple[..tag_end];
+        if !tag.is_empty() && !shared_ascii_equal::<P>(name.local.as_ref(), tag, check)? {
+            return Ok(false);
+        }
+        if let Some(start) = id_start {
+            let id = shared_name_tokens(
+                &simple[start + 1..],
+                |character| character == '.',
+                producer,
+                check,
+            )?[0];
+            let actual = node.attributes.get_null_with_checkpoint("id", check)?;
+            if match actual {
+                Some(value) => !naming_equal_with_checkpoint(value, id, check)?,
+                None => true,
+            } {
+                return Ok(false);
+            }
+        }
+        for class in shared_name_tokens(simple, |character| character == '.', producer, check)?
+            .into_iter()
+            .skip(1)
+        {
+            check()?;
+            let Some(value) = node.attributes.get_null_with_checkpoint("class", check)? else {
+                return Ok(false);
+            };
+            let mut found = false;
+            for token in shared_name_tokens(value, char::is_whitespace, producer, check)? {
+                check()?;
+                if !token.is_empty() && naming_equal_with_checkpoint(token, class, check)? {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    })();
+    producer.release_scratch(mark);
+    result
+}
+
+fn shared_trim_quotes<'a, P: SemanticProducer>(
+    value: &'a str,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<&'a str, P::Error> {
+    let mut start = 0;
+    let mut end = value.len();
+    while start < end {
+        check()?;
+        if !matches!(value.as_bytes()[start], b'"' | b'\'') {
+            break;
+        }
+        start += 1;
+    }
+    while end > start {
+        check()?;
+        if !matches!(value.as_bytes()[end - 1], b'"' | b'\'') {
+            break;
+        }
+        end -= 1;
+    }
+    check()?;
+    Ok(&value[start..end])
+}
+fn shared_ascii_equal<P: SemanticProducer>(
+    left: &str,
+    right: &str,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<bool, P::Error> {
+    check()?;
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    for (left, right) in left.bytes().zip(right.bytes()) {
+        check()?;
+        if !left.eq_ignore_ascii_case(&right) {
+            return Ok(false);
+        }
+    }
+    check()?;
+    Ok(true)
+}
+
+// staging source: shared-project-element-v148.rs
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Projection carries node, page/generation, authored/geometry visibility and independent producer/checkpoint ownership."
+)]
+fn shared_project_element<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    page_id: PageId,
+    document_generation: u64,
+    alias: u32,
+    bypass_visibility: bool,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Option<SemanticNodeView>, P::Error> {
+    check()?;
+    let Ok(node) = dom.get(id) else {
+        return Ok(None);
+    };
+    let NodeKind::Element { name } = &node.kind else {
+        return Ok(None);
+    };
+    let ancestors = match shared_ancestors_with_checkpoint(dom, id, producer, check) {
+        Ok(value) => value,
+        Err(error) => match P::ordinary_dom_error(error) {
+            Ok(crate::dom::DomError::ProjectionCancelled) => {
+                return Err(P::Error::from(crate::dom::DomError::ProjectionCancelled));
+            }
+            Ok(crate::dom::DomError::SemanticProjectionCapacity) => {
+                return Err(P::Error::from(
+                    crate::dom::DomError::SemanticProjectionCapacity,
+                ));
+            }
+            Ok(_) => return Ok(None),
+            Err(error) => return Err(error),
+        },
+    };
+    let mut owner = id;
+    let mut owner_seen = BTreeSet::new();
+    loop {
+        check()?;
+        if !owner_seen.insert(owner) {
+            // Hosted-document cycles have no live browsing-context projection.
+            return Ok(None);
+        }
+        let Some(document) = shared_default::<Vec<NodeId>, P>(shared_ancestors_with_checkpoint(
+            dom, owner, producer, check,
+        ))?
+        .into_iter()
+        .find(|ancestor| {
+            dom.get(*ancestor)
+                .is_ok_and(|node| matches!(node.kind, NodeKind::Document))
+        }) else {
+            return Ok(None);
+        };
+        if dom.document_is_retired(document) {
+            return Ok(None);
+        }
+        match dom.document_host(document) {
+            Some(frame) => owner = frame,
+            None => break,
+        }
+    }
+    if ancestors
+        .iter()
+        .any(|document| dom.document_is_retired(*document))
+    {
+        return Ok(None);
+    }
+    // Wrapper leases deliberately keep detached nodes alive, but detached
+    // records are not part of the document's semantic projection. Publishing
+    // them allowed OIL to resolve a freshly replaced list item to an old,
+    // disconnected NodeId and then correctly reject it as stale at dispatch.
+    if !ancestors.iter().any(|ancestor| {
+        matches!(
+            dom.get(*ancestor).ok().map(|node| &node.kind),
+            Some(NodeKind::Document)
+        )
+    }) {
+        return Ok(None);
+    }
+    if ancestors.iter().any(|ancestor| {
+        matches!(
+            dom.get(*ancestor).ok().map(|node| &node.kind),
+            Some(NodeKind::ShadowRoot {
+                mode: crate::dom::ShadowMode::Closed,
+                ..
+            })
+        )
+    }) {
+        return Ok(None);
+    }
+    let local_name = name.local.as_ref();
+    let parent = ancestors
+        .iter()
+        .copied()
+        .find_map(|ancestor| {
+            matches!(dom.get(ancestor).ok()?.kind, NodeKind::Element { .. }).then_some(
+                SemanticRef {
+                    page_id,
+                    document_generation,
+                    node: (u64::from(ancestor.generation) << 32) | u64::from(ancestor.slot),
+                },
+            )
+        })
+        .or_else(|| {
+            ancestors.iter().find_map(|document| {
+                let frame = dom.document_host(*document)?;
+                Some(SemanticRef {
+                    page_id,
+                    document_generation,
+                    node: (u64::from(frame.generation) << 32) | u64::from(frame.slot),
+                })
+            })
+        });
+    let role = shared_role_for_node(dom, id, producer, check)?;
+    let mut accessible = shared_accessible_semantics_with_checkpoint(
+        dom,
+        id,
+        local_name,
+        &role,
+        page_id,
+        document_generation,
+        producer,
+        check,
+    )?;
+    if accessible.name.is_empty() && matches!(role.as_str(), "status" | "alert" | "log") {
+        let text = shared_normalize_text(
+            &shared_accessible_text(dom, id, false, None, producer, check)?,
+            producer,
+            check,
+        )?;
+        if !text.is_empty() {
+            // Compatibility observations historically surface live-region
+            // content as the node's agent-facing name. Contract v5 keeps the
+            // accessibility name and live content distinct.
+            accessible.name = text;
+            accessible.provenance = Provenance::Heuristic { confidence: 0.8 };
+        }
+    }
+    let accessible_name = accessible.name;
+    let input_kind = node
+        .attributes
+        .get_null_with_checkpoint("type", check)?
+        .map(|kind| shared_ascii_lowercase(kind, producer, check))
+        .transpose()?;
+    let input_kind = match input_kind {
+        Some(value) => value,
+        None => producer.text("text", check)?,
+    };
+    let native_readonly = local_name == "textarea"
+        || (local_name == "input"
+            && !matches!(
+                input_kind.as_str(),
+                "hidden"
+                    | "range"
+                    | "color"
+                    | "checkbox"
+                    | "radio"
+                    | "file"
+                    | "button"
+                    | "submit"
+                    | "reset"
+                    | "image"
+            ));
+    let attribute_mark = producer.receipt_mark();
+    let effective_attributes =
+        node.accessibility_attributes_with_allocation(&mut SemanticDomAllocation(producer), check)?;
+    let attribute_end = producer.receipt_mark();
+    let mut actions = BTreeSet::new();
+    let mut states = BTreeSet::new();
+    if shared_is_hidden(dom, id, producer, check)? {
+        states.insert(NodeState::Hidden);
+    } else {
+        states.insert(NodeState::Visible);
+    }
+    for (present, state) in [
+        (
+            node.attributes
+                .contains_null_with_checkpoint("disabled", check)?
+                || aria_true(effective_attributes.as_ref(), "aria-disabled"),
+            NodeState::Disabled,
+        ),
+        (
+            node.attributes
+                .contains_null_with_checkpoint("required", check)?
+                || aria_true(effective_attributes.as_ref(), "aria-required"),
+            NodeState::Required,
+        ),
+        (
+            (native_readonly
+                && node
+                    .attributes
+                    .contains_null_with_checkpoint("readonly", check)?)
+                || shared_accessibility_readonly(dom, id, producer, check)?,
+            NodeState::Readonly,
+        ),
+        (
+            node.attributes
+                .contains_null_with_checkpoint("data-oryn-focused", check)?,
+            NodeState::Focused,
+        ),
+        (
+            node.checked_with_checkpoint(check)?
+                || aria_true(effective_attributes.as_ref(), "aria-checked"),
+            NodeState::Checked,
+        ),
+        (
+            node.attributes
+                .contains_null_with_checkpoint("selected", check)?
+                || aria_true(effective_attributes.as_ref(), "aria-selected"),
+            NodeState::Selected,
+        ),
+        (
+            aria_true(effective_attributes.as_ref(), "aria-expanded")
+                || (local_name == "details"
+                    && node
+                        .attributes
+                        .contains_null_with_checkpoint("open", check)?),
+            NodeState::Expanded,
+        ),
+    ] {
+        if present {
+            states.insert(state);
+        }
+    }
+    if !states.contains(&NodeState::Disabled)
+        && (bypass_visibility || !states.contains(&NodeState::Hidden))
+    {
+        if node
+            .attributes
+            .get_null_with_checkpoint("tabindex", check)?
+            .map(|value| naming_i32_with_checkpoint(value, check))
+            .transpose()?
+            .flatten()
+            .is_some()
+            || node
+                .attributes
+                .get_null_with_checkpoint("contenteditable", check)?
+                .is_some_and(|value| {
+                    value.is_empty()
+                        || value.eq_ignore_ascii_case("true")
+                        || value.eq_ignore_ascii_case("plaintext-only")
+                })
+        {
+            actions.insert(SemanticAction::Focus);
+        }
+        if matches!(local_name, "button" | "a") {
+            actions.extend([
+                SemanticAction::Click,
+                SemanticAction::Focus,
+                SemanticAction::Hover,
+            ]);
+        }
+        if local_name == "textarea" {
+            if !states.contains(&NodeState::Readonly) {
+                actions.extend([SemanticAction::Type, SemanticAction::Clear]);
+            }
+            actions.extend([
+                SemanticAction::Click,
+                SemanticAction::Focus,
+                SemanticAction::Hover,
+            ]);
+        }
+        if local_name == "input" {
+            match Some(input_kind.as_str()) {
+                Some("checkbox" | "radio") => actions.extend([
+                    SemanticAction::Click,
+                    SemanticAction::Check,
+                    SemanticAction::Uncheck,
+                ]),
+                Some("button" | "submit" | "reset" | "image" | "file") => {
+                    actions.insert(SemanticAction::Click);
+                }
+                _ if !states.contains(&NodeState::Readonly) => {
+                    actions.extend([SemanticAction::Type, SemanticAction::Clear]);
+                }
+                _ => {}
+            }
+            actions.extend([
+                SemanticAction::Click,
+                SemanticAction::Focus,
+                SemanticAction::Hover,
+            ]);
+        }
+        if local_name == "select" {
+            actions.extend([
+                SemanticAction::Click,
+                SemanticAction::Select,
+                SemanticAction::Focus,
+            ]);
+        }
+        // A visible label that wraps a visually-hidden checkbox or radio is
+        // the actual pointer affordance used by many component libraries.
+        // Keep the hidden control out of the compact visual projection, but
+        // expose the label as clickable so OIL does not resolve its text-only
+        // descendant and then report a non-actionable alias.
+        if local_name == "label" {
+            let mut label_click = false;
+            for input in shared_descendants_with_checkpoint(dom, id, producer, check)? {
+                check()?;
+                if let Ok(input) = dom.get(input)
+                    && matches!(&input.kind,NodeKind::Element{name}if name.local.as_ref()=="input")
+                    && input
+                        .attributes
+                        .get_null_with_checkpoint("type", check)?
+                        .is_some_and(|kind| {
+                            kind.eq_ignore_ascii_case("checkbox")
+                                || kind.eq_ignore_ascii_case("radio")
+                        })
+                {
+                    label_click = true;
+                    break;
+                }
+            }
+            if label_click {
+                actions.extend([SemanticAction::Click, SemanticAction::Focus]);
+            }
+        }
+        if local_name == "form"
+            || matches!(
+                node.attributes
+                    .get_null_with_checkpoint("type", check)?
+                    .map(String::as_str),
+                Some("submit")
+            )
+        {
+            actions.insert(SemanticAction::Submit);
+        }
+        if node
+            .attributes
+            .contains_null_with_checkpoint("onclick", check)?
+            || node.event_listeners.contains("click")
+        {
+            actions.extend([SemanticAction::Click, SemanticAction::Focus]);
+        }
+        match role.as_str() {
+            "button" | "tab" | "menuitem" | "treeitem" | "link" | "option" => {
+                actions.extend([SemanticAction::Click, SemanticAction::Focus]);
+            }
+            "checkbox" | "radio" | "switch" | "menuitemcheckbox" | "menuitemradio" => {
+                actions.extend([
+                    SemanticAction::Click,
+                    SemanticAction::Check,
+                    SemanticAction::Uncheck,
+                    SemanticAction::Focus,
+                ]);
+            }
+            "textbox" | "searchbox" => {
+                if !states.contains(&NodeState::Readonly) {
+                    actions.extend([SemanticAction::Type, SemanticAction::Clear]);
+                }
+                actions.extend([SemanticAction::Click, SemanticAction::Focus]);
+            }
+            "combobox" | "listbox" | "radiogroup" => {
+                actions.extend([
+                    SemanticAction::Click,
+                    SemanticAction::Select,
+                    SemanticAction::Focus,
+                ]);
+            }
+            "slider" | "spinbutton" | "gridcell" | "columnheader" | "rowheader" => {
+                if !states.contains(&NodeState::Readonly) {
+                    actions.insert(SemanticAction::Type);
+                }
+                actions.extend([SemanticAction::Click, SemanticAction::Focus]);
+            }
+            _ => {}
+        }
+    }
+    drop(effective_attributes);
+    producer.release_receipt_range(attribute_mark..attribute_end);
+    let description = accessible.description;
+    let selector = if let Some(value) = node.attributes.get_null_with_checkpoint("id", check)? {
+        Some(shared_surround("#", value, "", producer, check)?)
+    } else if let Some(value) = node
+        .attributes
+        .get_null_with_checkpoint("data-testid", check)?
+    {
+        Some(shared_surround(
+            "[data-testid=\"",
+            value,
+            "\"]",
+            producer,
+            check,
+        )?)
+    } else {
+        None
+    };
+    let redacted = node.sensitive_value
+        || (local_name == "input"
+            && node
+                .attributes
+                .get_null_with_checkpoint("type", check)?
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("password")));
+    let value = if redacted {
+        if node.value.is_some() || node.sensitive_value {
+            Some(producer.text("[REDACTED]", check)?)
+        } else {
+            None
+        }
+    } else {
+        match node.value.as_ref() {
+            Some(value) => Some(producer.text(value, check)?),
+            None => node
+                .attributes
+                .get_null_with_checkpoint("value", check)?
+                .map(|value| producer.text(value, check))
+                .transpose()?,
+        }
+    };
+    Ok(Some(SemanticNodeView {
+        validation: None,
+        semantic_ref: SemanticRef {
+            page_id,
+            document_generation,
+            node: (u64::from(id.generation) << 32) | u64::from(id.slot),
+        },
+        parent,
+        document_order: id.slot,
+        alias,
+        role,
+        name: accessible_name,
+        selector,
+        value,
+        description,
+        states,
+        actions,
+        content_trust: ContentTrust::PageAuthored,
+        // This projection currently has node-level provenance. Accessible-name
+        // fallback and visibility both use deliberately bounded heuristics, so
+        // the whole node must be conservatively labelled until field-level
+        // provenance is introduced.
+        provenance: accessible.provenance,
+    }))
+}
+
+fn shared_append_text<P: SemanticProducer>(
+    target: &mut String,
+    value: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<(), P::Error> {
+    check().map_err(P::Error::from)?;
+    let needed = target
+        .len()
+        .checked_add(value.len())
+        .ok_or_else(|| P::Error::from(crate::dom::DomError::SemanticProjectionCapacity))?;
+    crate::dom::projection_allocation::reserve_string(
+        target,
+        needed,
+        &mut SemanticDomAllocation(producer),
+    )?;
+    for character in value.chars() {
+        check().map_err(P::Error::from)?;
+        target.push(character);
+    }
+    check().map_err(P::Error::from)
+}
+
+fn shared_name_tokens<'a, P: SemanticProducer>(
+    value: &'a str,
+    delimiter: impl Fn(char) -> bool,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Vec<&'a str>, P::Error> {
+    check().map_err(P::Error::from)?;
+    let mut tokens = producer.vector(0)?;
+    let mut start = 0;
+    for (index, character) in value.char_indices() {
+        check().map_err(P::Error::from)?;
+        if delimiter(character) {
+            shared_vector_push(&mut tokens, &value[start..index], producer, check)?;
+            start = index + character.len_utf8();
+        }
+    }
+    shared_vector_push(&mut tokens, &value[start..], producer, check)?;
+    Ok(tokens)
+}
+
+fn shared_normalize_text<P: SemanticProducer>(
+    value: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    check().map_err(P::Error::from)?;
+    producer.reserve(value.len())?;
+    let mut output = String::new();
+    output
+        .try_reserve_exact(value.len())
+        .map_err(|error| producer.allocation_error(error))?;
+    let mut pending_space = false;
+    for character in value.chars() {
+        check().map_err(P::Error::from)?;
+        if matches!(character, ' ' | '\t' | '\n' | '\r' | '\u{000c}') {
+            pending_space = !output.is_empty();
+        } else {
+            if pending_space {
+                output.push(' ');
+                pending_space = false;
+            }
+            output.push(character);
+        }
+    }
+    check().map_err(P::Error::from)?;
+    Ok(output)
+}
+
+fn shared_update_visibility<P: SemanticProducer>(
+    hidden: &mut Option<bool>,
+    declarations: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<(), P::Error> {
+    for declaration in
+        shared_name_tokens(declarations, |character| character == ';', producer, check)?
+    {
+        let tokens =
+            shared_name_tokens(declaration, |character| character == ':', producer, check)?;
+        if tokens.len() < 2 {
+            continue;
+        }
+        let property = shared_ascii_lowercase(
+            naming_trim_with_checkpoint(tokens[0], check)?,
+            producer,
+            check,
+        )?;
+        let value = shared_ascii_lowercase(
+            naming_trim_with_checkpoint(&declaration[tokens[0].len() + 1..], check)?,
+            producer,
+            check,
+        )?;
+        match property.as_str() {
+            "display" => *hidden = Some(value == "none"),
+            "visibility" => *hidden = Some(matches!(value.as_str(), "hidden" | "collapse")),
+            _ => {}
+        }
+    }
+    check()?;
+    Ok(())
+}
+
+impl SemanticGraph {
+    fn shared_graph_clone<P: SemanticProducer>(
+        &self,
+        producer: &mut P,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<Self, P::Error> {
+        fn map<K: Ord + Clone, V: Clone>(
+            source: &BTreeMap<K, V>,
+            check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+        ) -> Result<BTreeMap<K, V>, crate::dom::DomError> {
+            let mut target = BTreeMap::new();
+            for (key, value) in source {
+                check()?;
+                target.insert(key.clone(), value.clone());
+            }
+            Ok(target)
+        }
+        fn set<K: Ord + Clone>(
+            source: &BTreeSet<K>,
+            check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+        ) -> Result<BTreeSet<K>, crate::dom::DomError> {
+            let mut target = BTreeSet::new();
+            for value in source {
+                check()?;
+                target.insert(value.clone());
+            }
+            Ok(target)
+        }
+        check().map_err(P::Error::from)?;
+        let mut target = Self::new(self.page_id, self.document_generation);
+        for (id, node) in &self.full {
+            check().map_err(P::Error::from)?;
+            target
+                .full
+                .insert(*id, shared_semantic_node(node, producer, check)?);
+        }
+        target.compact = set(&self.compact, check).map_err(P::Error::from)?;
+        for (id, hints) in &self.target_hints {
+            let mut copied = producer.vector(hints.len())?;
+            for (value, factor) in hints {
+                check().map_err(P::Error::from)?;
+                copied.push((producer.text(value, check)?, *factor));
+            }
+            target.target_hints.insert(*id, copied);
+        }
+        for (id, references) in &self.referenced_by {
+            check().map_err(P::Error::from)?;
+            target
+                .referenced_by
+                .insert(*id, set(references, check).map_err(P::Error::from)?);
+        }
+        target.accessibility_state_revisions =
+            map(&self.accessibility_state_revisions, check).map_err(P::Error::from)?;
+        for (id, node) in &self.accessibility {
+            check().map_err(P::Error::from)?;
+            target
+                .accessibility
+                .insert(*id, shared_accessibility(node, producer, check)?);
+        }
+        for (key, value) in &self.structures {
+            check().map_err(P::Error::from)?;
+            target.structures.insert(
+                producer.text(key, check)?,
+                shared_structure(value, producer, check)?,
+            );
+        }
+        target.frame_ids = map(&self.frame_ids, check).map_err(P::Error::from)?;
+        target.authored_hidden = set(&self.authored_hidden, check).map_err(P::Error::from)?;
+        target.geometry_hidden = set(&self.geometry_hidden, check).map_err(P::Error::from)?;
+        target.semantic_revision = self.semantic_revision;
+        target.native_control_cursor = self.native_control_cursor;
+        for (id, (before, after)) in &self.generated_content {
+            check().map_err(P::Error::from)?;
+            target.generated_content.insert(
+                *id,
+                (producer.text(before, check)?, producer.text(after, check)?),
+            );
+        }
+        target.computed_visibility =
+            map(&self.computed_visibility, check).map_err(P::Error::from)?;
+        for (id, (display, transform)) in &self.computed_text_style {
+            check().map_err(P::Error::from)?;
+            target.computed_text_style.insert(
+                *id,
+                (
+                    producer.text(display, check)?,
+                    producer.text(transform, check)?,
+                ),
+            );
+        }
+        for (id, node) in &self.pending_upserts {
+            check().map_err(P::Error::from)?;
+            target
+                .pending_upserts
+                .insert(*id, shared_semantic_node(node, producer, check)?);
+        }
+        target.pending_removed = set(&self.pending_removed, check).map_err(P::Error::from)?;
+        for (id, node) in &self.pending_accessibility_upserts {
+            check().map_err(P::Error::from)?;
+            target
+                .pending_accessibility_upserts
+                .insert(*id, shared_accessibility(node, producer, check)?);
+        }
+        target.pending_accessibility_removed =
+            set(&self.pending_accessibility_removed, check).map_err(P::Error::from)?;
+        for (key, value) in &self.pending_structure_upserts {
+            check().map_err(P::Error::from)?;
+            target.pending_structure_upserts.insert(
+                producer.text(key, check)?,
+                shared_structure(value, producer, check)?,
+            );
+        }
+        for key in &self.pending_structure_removed {
+            check().map_err(P::Error::from)?;
+            target
+                .pending_structure_removed
+                .insert(producer.text(key, check)?);
+        }
+        target.diagnostics = producer.vector(self.diagnostics.len())?;
+        for diagnostic in &self.diagnostics {
+            check().map_err(P::Error::from)?;
+            target.diagnostics.push(producer.text(diagnostic, check)?);
+        }
+        check().map_err(P::Error::from)?;
+        Ok(target)
+    }
+}
+
+fn shared_target_content_text<P: SemanticProducer>(
+    dom: &DomArena,
+    root: NodeId,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    let mut pending = shared_accessible_children_with_checkpoint(dom, root, producer, check)?;
+    pending.reverse();
+    let mut seen = BTreeSet::new();
+    let mut parts = producer.vector(0)?;
+    while let Some(id) = pending.pop() {
+        check()?;
+        if !seen.insert(id) || shared_is_hidden(dom, id, producer, check)? {
+            continue;
+        }
+        let Ok(node) = dom.get(id) else {
+            continue;
+        };
+        match &node.kind {
+            NodeKind::Text { data } => {
+                let data = producer.text(data, check)?;
+                shared_vector_push(&mut parts, data, producer, check)?;
+            }
+            NodeKind::Element { name }
+                if matches!(
+                    name.local.as_ref(),
+                    "input" | "textarea" | "select" | "script" | "style" | "template"
+                ) => {}
+            _ => {
+                for child in shared_accessible_children_with_checkpoint(dom, id, producer, check)?
+                    .into_iter()
+                    .rev()
+                {
+                    check()?;
+                    shared_vector_push(&mut pending, child, producer, check)?;
+                }
+            }
+        }
+    }
+    shared_normalize_text(&shared_join(&parts, " ", producer, check)?, producer, check)
+}
+
+impl SemanticGraph {
+    fn shared_refresh_node<P: SemanticProducer>(
+        &mut self,
+        dom: &DomArena,
+        id: NodeId,
+        producer: &mut P,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<(), P::Error> {
+        check()?;
+        let previous = self
+            .full
+            .get(&id)
+            .map(|node| shared_semantic_node(node, producer, check))
+            .transpose()?;
+        let projected = if dom.get(id).is_ok_and(|node| matches!(&node.kind, NodeKind::Element { name }
+            if !matches!(name.local.as_ref(), "html" | "head" | "body" | "meta" | "title" | "script" | "style"))) {
+            shared_project_element(dom, id, self.page_id, self.document_generation, id.slot.saturating_add(1), false, producer, check)?
+        } else { None };
+        match projected {
+            Some(node) => {
+                let mut hints = producer.vector(0)?;
+                if let Ok(record) = dom.get(id) {
+                    for (attribute, factor) in [
+                        ("id", "exact_element_id"),
+                        ("placeholder", "exact_placeholder"),
+                    ] {
+                        if let Some(value) = record
+                            .attributes
+                            .get_null_with_checkpoint(attribute, check)?
+                            .map(|value| {
+                                naming_trim_with_checkpoint(value, check)
+                                    .map(|trimmed| (!trimmed.is_empty()).then_some(value))
+                            })
+                            .transpose()?
+                            .flatten()
+                        {
+                            let value = producer.text(value, check)?;
+                            shared_vector_push(&mut hints, (value, factor), producer, check)?;
+                        }
+                    }
+                    if node.actions.contains(&SemanticAction::Click) {
+                        // Read content below the root so an aria-label on a
+                        // button doesn't erase its visible '+' / '×' label.
+                        let text = shared_target_content_text(dom, id, producer, check)?;
+                        if !naming_trim_with_checkpoint(&text, check)?.is_empty() {
+                            let text = shared_normalize_text(&text, producer, check)?;
+                            shared_vector_push(
+                                &mut hints,
+                                (text, "exact_content_label"),
+                                producer,
+                                check,
+                            )?;
+                        }
+                    }
+                }
+                let authored_hidden = node.states.contains(&NodeState::Hidden);
+                let mut node = node;
+                if self.geometry_hidden.contains(&id) {
+                    node.states.remove(&NodeState::Visible);
+                    node.states.insert(NodeState::Hidden);
+                }
+                let compact = is_compact_semantic(&node);
+                let changed = match previous.as_ref() {
+                    Some(previous) => !semantic_node_equal_with_checkpoint(previous, &node, check)?,
+                    None => true,
+                };
+                let upsert = if changed {
+                    Some(shared_semantic_node(&node, producer, check)?)
+                } else {
+                    None
+                };
+                check()?;
+                self.target_hints.insert(id, hints);
+                if authored_hidden {
+                    self.authored_hidden.insert(id);
+                } else {
+                    self.authored_hidden.remove(&id);
+                }
+                if compact {
+                    self.compact.insert(id);
+                } else {
+                    self.compact.remove(&id);
+                }
+                if let Some(upsert) = upsert {
+                    self.pending_removed.remove(&node.semantic_ref);
+                    self.pending_upserts.insert(node.semantic_ref, upsert);
+                }
+                self.full.insert(id, node);
+            }
+            None => {
+                self.target_hints.remove(&id);
+                if let Some(previous) = self.full.remove(&id) {
+                    self.pending_upserts.remove(&previous.semantic_ref);
+                    self.pending_removed.insert(previous.semantic_ref);
+                }
+                self.compact.remove(&id);
+                self.authored_hidden.remove(&id);
+                self.geometry_hidden.remove(&id);
+            }
+        }
+        Ok(())
+    }
+}
+
+fn shared_tree_exclusion<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    role: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Option<String>, P::Error> {
+    check()?;
+    let Ok(node) = dom.get(id) else {
+        return Ok(None);
+    };
+    if matches!(role, "none" | "presentation") {
+        return Ok(Some(producer.text("presentational_role", check)?));
+    }
+    if matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "input")
+        && node
+            .attributes
+            .get_null_with_checkpoint("type", check)?
+            .is_some_and(|value| value.eq_ignore_ascii_case("hidden"))
+    {
+        return Ok(Some(producer.text("hidden_input", check)?));
+    }
+    let mut lineage = producer.vector(1)?;
+    lineage.push(id);
+    for ancestor in shared_default::<Vec<NodeId>, P>(shared_ancestors_with_checkpoint(
+        dom, id, producer, check,
+    ))? {
+        check()?;
+        shared_vector_push(&mut lineage, ancestor, producer, check)?;
+    }
+    for candidate in &lineage {
+        check()?;
+        if let Ok(node) = dom.get(*candidate)
+            && node
+                .attributes
+                .contains_null_with_checkpoint("inert", check)?
+        {
+            return Ok(Some(producer.text("inert_subtree", check)?));
+        }
+    }
+    let document = lineage.iter().copied().find(|candidate| {
+        dom.get(*candidate)
+            .is_ok_and(|node| matches!(node.kind, NodeKind::Document))
+    });
+    if let Some(document) = document {
+        let mut candidates = producer.vector(1)?;
+        candidates.push(document);
+        for descendant in shared_descendants_with_checkpoint(dom, document, producer, check)? {
+            check()?;
+            shared_vector_push(&mut candidates, descendant, producer, check)?;
+        }
+        let mut modal = None;
+        for candidate in candidates.into_iter().rev() {
+            check()?;
+            if let Ok(candidate_node) = dom.get(candidate)
+                && candidate_node
+                    .accessibility_attribute_with_checkpoint("aria-modal", check)?
+                    .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+                && !shared_is_hidden(dom, candidate, producer, check)?
+                && matches!(
+                    shared_role_for_node(dom, candidate, producer, check)?.as_str(),
+                    "dialog" | "alertdialog"
+                )
+            {
+                modal = Some(candidate);
+                break;
+            }
+        }
+        if let Some(modal) = modal {
+            let owners = accepted_aria_owners_with_checkpoint(dom, check)?;
+            if !shared_accessibility_ancestors(dom, id, &owners, producer, check)?.contains(&modal)
+                && id != modal
+                && !shared_accessibility_ancestors(dom, modal, &owners, producer, check)?
+                    .contains(&id)
+            {
+                return Ok(Some(producer.text("aria_modal_scope", check)?));
+            }
+        }
+    }
+    if shared_is_hidden(dom, id, producer, check)? {
+        Ok(Some(producer.text("hidden_subtree", check)?))
+    } else {
+        Ok(None)
+    }
+}
+
+fn shared_accessibility_ancestors<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    owners: &BTreeMap<NodeId, NodeId>,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Vec<NodeId>, P::Error> {
+    let mut result = producer.vector(0)?;
+    let mut seen = BTreeSet::from([id]);
+    let mut cursor = owners
+        .get(&id)
+        .copied()
+        .or_else(|| dom.get(id).ok().and_then(|node| node.parent));
+    while let Some(parent) = cursor {
+        check()?;
+        if !seen.insert(parent) {
+            break;
+        }
+        shared_vector_push(&mut result, parent, producer, check)?;
+        cursor = owners
+            .get(&parent)
+            .copied()
+            .or_else(|| dom.get(parent).ok().and_then(|node| node.parent));
+    }
+    Ok(result)
+}
+
+fn shared_accessibility_properties<P: SemanticProducer>(
+    dom: &DomArena,
+    id: NodeId,
+    local_name: &str,
+    node: &crate::dom::Node,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<BTreeMap<String, serde_json::Value>, P::Error> {
+    check()?;
+    let attribute_start = producer.receipt_mark();
+    let effective_attributes =
+        node.accessibility_attributes_with_allocation(&mut SemanticDomAllocation(producer), check)?;
+    let attribute_end = producer.receipt_mark();
+    let attributes = &effective_attributes;
+    let mut properties = JsonPropertiesGuard(BTreeMap::new());
+    for attribute in [
+        "aria-expanded",
+        "aria-checked",
+        "aria-selected",
+        "aria-disabled",
+        "aria-required",
+        "aria-readonly",
+        "aria-pressed",
+        "aria-current",
+        "aria-invalid",
+        "aria-busy",
+        "aria-modal",
+        "aria-multiline",
+        "aria-orientation",
+        "aria-level",
+        "aria-posinset",
+        "aria-setsize",
+        "aria-rowcount",
+        "aria-colcount",
+        "aria-rowindex",
+        "aria-colindex",
+        "aria-rowspan",
+        "aria-colspan",
+        "aria-live",
+        "aria-atomic",
+        "aria-relevant",
+        "aria-roledescription",
+        "aria-valuetext",
+        "aria-haspopup",
+    ] {
+        if let Some(value) = attributes.get_null_with_checkpoint(attribute, check)? {
+            properties.insert(
+                shared_property_key(attribute, producer, check)?,
+                shared_property_value(value, producer, check)?,
+            );
+        }
+    }
+    for attribute in ["aria-valuetext", "aria-roledescription"] {
+        if let Some(value) = attributes.get_null_with_checkpoint(attribute, check)? {
+            properties.insert(
+                producer.text(attribute.trim_start_matches("aria-"), check)?,
+                serde_json::Value::String(producer.text(value, check)?),
+            );
+        }
+    }
+    for attribute in ["aria-valuemin", "aria-valuemax", "aria-valuenow"] {
+        if let Some(value) = attributes
+            .get_null_with_checkpoint(attribute, check)?
+            .and_then(|value| oryn_dom::parse_html_floating_point(value))
+            .and_then(serde_json::Number::from_f64)
+        {
+            properties.insert(
+                producer.text(attribute.trim_start_matches("aria-"), check)?,
+                serde_json::Value::Number(value),
+            );
+        }
+    }
+    let placeholder_value = match attributes.get_null_with_checkpoint("placeholder", check)? {
+        Some(value) => Some(value),
+        None => attributes.get_null_with_checkpoint("aria-placeholder", check)?,
+    };
+    if let Some(value) = placeholder_value {
+        properties.insert(
+            producer.text("placeholder", check)?,
+            serde_json::Value::String(producer.text(value, check)?),
+        );
+    }
+    if attributes
+        .get_null_with_checkpoint("aria-invalid", check)?
+        .is_some_and(|value| !value.is_empty() && !value.eq_ignore_ascii_case("false"))
+        && let Some(targets) = shared_relation(dom, id, "aria-errormessage", producer, check)?
+    {
+        let mut visible_targets = producer.vector(0)?;
+        for target in targets {
+            check()?;
+            if !shared_is_hidden(dom, target, producer, check)? {
+                shared_vector_push(&mut visible_targets, target, producer, check)?;
+            }
+        }
+        let (message, _) = shared_referenced_nodes_text_with_checkpoint(
+            dom,
+            &visible_targets,
+            PageId(1),
+            1,
+            producer,
+            check,
+        )?;
+        if !message.is_empty() {
+            properties.insert(
+                producer.text("validation_error", check)?,
+                serde_json::Value::String(message),
+            );
+        }
+    }
+    let role = shared_role_for_node(dom, id, producer, check)?;
+    if matches!(
+        role.as_str(),
+        "slider" | "scrollbar" | "separator" | "spinbutton"
+    ) {
+        let spin = role == "spinbutton";
+        let minimum = properties
+            .get("valuemin")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(if spin { -9007199254740992. } else { 0. });
+        let maximum = properties
+            .get("valuemax")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(if spin { 9007199254740992. } else { 100. });
+        let current = properties
+            .get("valuenow")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or_else(|| {
+                if spin {
+                    0.
+                } else if maximum < minimum {
+                    minimum
+                } else {
+                    minimum / 2. + maximum / 2.
+                }
+            });
+        for (key, value) in [
+            ("valuemin", minimum),
+            ("valuemax", maximum),
+            ("valuenow", current),
+        ] {
+            properties.insert(producer.text(key, check)?, serde_json::json!(value));
+        }
+    }
+    if shared_accessibility_readonly(dom, id, producer, check)? {
+        properties.insert(producer.text("readonly", check)?, serde_json::json!(true));
+    }
+    if matches!(
+        role.as_str(),
+        "checkbox" | "menuitemcheckbox" | "radio" | "menuitemradio" | "switch"
+    ) {
+        let value = attributes
+            .get_null_with_checkpoint("aria-checked", check)?
+            .map(|value| shared_ascii_lowercase(value, producer, check))
+            .transpose()?;
+        let checked = match value.as_deref() {
+            Some("true") => serde_json::Value::Bool(true),
+            Some("mixed") if matches!(role.as_str(), "checkbox" | "menuitemcheckbox") => {
+                serde_json::Value::String(producer.text("mixed", check)?)
+            }
+            _ => serde_json::Value::Bool(false),
+        };
+        properties.insert(producer.text("checked", check)?, checked);
+    }
+    if role == "button" {
+        let pressed = match attributes
+            .get_null_with_checkpoint("aria-pressed", check)?
+            .map(|value| shared_ascii_lowercase(value, producer, check))
+            .transpose()?
+            .as_deref()
+        {
+            Some("true") => serde_json::Value::Bool(true),
+            Some("false") => serde_json::Value::Bool(false),
+            Some("mixed") => serde_json::Value::String(producer.text("mixed", check)?),
+            _ => serde_json::Value::String(producer.text("undefined", check)?),
+        };
+        properties.insert(producer.text("pressed", check)?, pressed);
+    }
+    if local_name == "input"
+        && attributes
+            .get_null_with_checkpoint("type", check)?
+            .is_some_and(|kind| {
+                kind.eq_ignore_ascii_case("checkbox") || kind.eq_ignore_ascii_case("radio")
+            })
+    {
+        properties.insert(
+            producer.text("checked", check)?,
+            if node.indeterminate
+                && attributes
+                    .get_null_with_checkpoint("type", check)?
+                    .is_some_and(|kind| kind.eq_ignore_ascii_case("checkbox"))
+            {
+                serde_json::Value::String(producer.text("mixed", check)?)
+            } else {
+                serde_json::Value::Bool(node.checked_with_checkpoint(check)?)
+            },
+        );
+    }
+    for attribute in [
+        "disabled", "required", "readonly", "checked", "selected", "open",
+    ] {
+        let kind = attributes
+            .get_null_with_checkpoint("type", check)?
+            .map(|kind| shared_ascii_lowercase(kind, producer, check))
+            .transpose()?;
+        let kind = match kind {
+            Some(value) => value,
+            None => producer.text("text", check)?,
+        };
+        let applicable = match attribute {
+            "readonly" => {
+                local_name == "textarea"
+                    || (local_name == "input"
+                        && !matches!(
+                            kind.as_str(),
+                            "hidden"
+                                | "range"
+                                | "color"
+                                | "checkbox"
+                                | "radio"
+                                | "file"
+                                | "button"
+                                | "submit"
+                                | "reset"
+                                | "image"
+                        ))
+            }
+            "required" => {
+                matches!(local_name, "textarea" | "select")
+                    || (local_name == "input"
+                        && !matches!(
+                            kind.as_str(),
+                            "hidden" | "range" | "color" | "button" | "submit" | "reset" | "image"
+                        ))
+            }
+            "checked" => local_name == "input" && matches!(kind.as_str(), "checkbox" | "radio"),
+            "selected" => local_name == "option",
+            "open" => matches!(local_name, "details" | "dialog"),
+            "disabled" => matches!(
+                local_name,
+                "input" | "button" | "select" | "textarea" | "fieldset" | "optgroup" | "option"
+            ),
+            _ => false,
+        };
+        if applicable && attributes.contains_null_with_checkpoint(attribute, check)? {
+            properties
+                .entry(producer.text(attribute, check)?)
+                .or_insert(serde_json::Value::Bool(true));
+        }
+    }
+    if local_name == "table" {
+        properties.insert(
+            producer.text("native_table", check)?,
+            serde_json::Value::Bool(true),
+        );
+        let mut groups = producer.vector(0)?;
+        let mut start = 0u64;
+        for child in &node.children {
+            check()?;
+            let Ok(group) = dom.get(*child) else {
+                continue;
+            };
+            if !matches!(&group.kind,NodeKind::Element{name} if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="colgroup")
+            {
+                continue;
+            }
+            let mut columns = producer.vector(0)?;
+            for child in &group.children {
+                check()?;
+                if let Ok(column) = dom.get(*child)
+                    && matches!(&column.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "col")
+                {
+                    shared_vector_push(&mut columns, column, producer, check)?;
+                }
+            }
+            let width = if columns.is_empty() {
+                naming_span_with_checkpoint(group, check)?
+            } else {
+                let mut width = 0;
+                for column in columns {
+                    check()?;
+                    width += naming_span_with_checkpoint(column, check)?;
+                }
+                width
+            };
+            let mut pair = producer.vector(2)?;
+            pair.push(serde_json::Value::from(start));
+            pair.push(serde_json::Value::from(width));
+            shared_vector_push(&mut groups, serde_json::Value::Array(pair), producer, check)?;
+            start = start.saturating_add(width);
+        }
+        if !groups.is_empty() {
+            properties.insert(
+                producer.text("native_column_groups", check)?,
+                serde_json::Value::Array(groups),
+            );
+        }
+    }
+    if matches!(local_name, "td" | "th") {
+        properties.insert(
+            producer.text("native_header", check)?,
+            serde_json::Value::Bool(local_name == "th"),
+        );
+        let mut empty = true;
+        for child in &node.children {
+            check()?;
+            let Ok(child) = dom.get(*child) else {
+                empty = false;
+                break;
+            };
+            match &child.kind {
+                NodeKind::Element { .. } => {
+                    empty = false;
+                    break;
+                }
+                NodeKind::Text { data } | NodeKind::CDataSection { data } => {
+                    for ch in data.chars() {
+                        check()?;
+                        if !matches!(ch, '\t' | '\n' | '\u{c}' | '\r' | ' ') {
+                            empty = false;
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if !empty {
+                break;
+            }
+        }
+        properties.insert(
+            producer.text("native_empty_cell", check)?,
+            serde_json::Value::Bool(empty),
+        );
+        if let Some(headers) = attributes.get_null_with_checkpoint("headers", check)? {
+            let mut targets = producer.vector(0)?;
+            for token in shared_name_tokens(
+                headers,
+                |character| character.is_ascii_whitespace(),
+                producer,
+                check,
+            )?
+            .into_iter()
+            .filter(|token| !token.is_empty())
+            {
+                check()?;
+                if let Some(target) = find_element_by_id_scoped_with_checkpoint(dom, id, token, check)?
+                    && target != id && dom.get(target).is_ok_and(|node| matches!(&node.kind, NodeKind::Element { name }
+                        if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && matches!(name.local.as_ref(), "td" | "th")))
+                { shared_vector_push(&mut targets, serde_json::Value::from((u64::from(target.generation) << 32) | u64::from(target.slot)), producer, check)?; }
+            }
+            properties.insert(
+                producer.text("native_headers", check)?,
+                serde_json::Value::Array(targets),
+            );
+        }
+        if local_name == "th"
+            && let Some(scope) = attributes
+                .get_null_with_checkpoint("scope", check)?
+                .map(|scope| shared_ascii_lowercase(scope, producer, check))
+                .transpose()?
+                .filter(|scope| matches!(scope.as_str(), "row" | "col" | "rowgroup" | "colgroup"))
+        {
+            properties.insert(
+                producer.text("native_scope", check)?,
+                serde_json::Value::String(scope),
+            );
+        }
+        for (name, maximum, allow_zero) in
+            [("rowspan", 65534u64, true), ("colspan", 1000u64, false)]
+        {
+            let parsed = attributes
+                .get_null_with_checkpoint(name, check)?
+                .map(|value| {
+                    naming_u64_with_checkpoint(naming_trim_with_checkpoint(value, check)?, check)
+                })
+                .transpose()?
+                .flatten()
+                .unwrap_or(1);
+            let value = if parsed == 0 && !allow_zero {
+                1
+            } else {
+                parsed.min(maximum)
+            };
+            properties.insert(
+                shared_surround("native_", name, "", producer, check)?,
+                serde_json::json!(value),
+            );
+            properties.insert(
+                shared_surround("native_", name, "_explicit", producer, check)?,
+                serde_json::json!(attributes.contains_null_with_checkpoint(name, check)?),
+            );
+        }
+    }
+    if role == "heading"
+        && properties
+            .get("level")
+            .and_then(serde_json::Value::as_i64)
+            .is_none_or(|level| level < 1)
+    {
+        let level = if matches!(local_name, "h1" | "h2" | "h3" | "h4" | "h5" | "h6") {
+            local_name[1..].parse::<u8>().unwrap_or(2)
+        } else {
+            2
+        };
+        properties.insert(producer.text("level", check)?, serde_json::json!(level));
+    }
+    check()?;
+    drop(effective_attributes);
+    producer.release_receipt_range(attribute_start..attribute_end);
+    Ok(std::mem::take(&mut properties.0))
+}
+
+fn shared_i64<P: SemanticProducer>(
+    value: &str,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Option<i64>, P::Error> {
+    let mut digits = value.bytes();
+    let first = digits.next();
+    check()?;
+    let negative = first == Some(b'-');
+    let mut result = 0i64;
+    let mut count = 0usize;
+    let rest = if matches!(first, Some(b'+' | b'-')) {
+        None
+    } else {
+        first
+    };
+    for digit in rest.into_iter().chain(digits) {
+        check()?;
+        if !digit.is_ascii_digit() {
+            return Ok(None);
+        }
+        count += 1;
+        let digit = i64::from(digit - b'0');
+        result = match result.checked_mul(10).and_then(|n| {
+            if negative {
+                n.checked_sub(digit)
+            } else {
+                n.checked_add(digit)
+            }
+        }) {
+            Some(n) => n,
+            None => return Ok(None),
+        };
+    }
+    check()?;
+    Ok((count > 0).then_some(result))
+}
+
+fn shared_property_value<P: SemanticProducer>(
+    value: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<serde_json::Value, P::Error> {
+    if shared_ascii_equal::<P>(value, "true", check)? {
+        return Ok(serde_json::Value::Bool(true));
+    }
+    if shared_ascii_equal::<P>(value, "false", check)? {
+        return Ok(serde_json::Value::Bool(false));
+    }
+    match shared_i64::<P>(value, check)? {
+        Some(value) => Ok(serde_json::Value::from(value)),
+        None => Ok(serde_json::Value::String(producer.text(value, check)?)),
+    }
+}
+
+fn shared_property_key<P: SemanticProducer>(
+    attribute: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    let mut output = String::new();
+    for ch in attribute.strip_prefix("aria-").unwrap_or(attribute).chars() {
+        check()?;
+        let ch = if ch == '-' { '_' } else { ch };
+        let mut bytes = [0u8; 4];
+        shared_append_text(&mut output, ch.encode_utf8(&mut bytes), producer, check)?;
+    }
+    Ok(output)
+}
+
+struct SemanticFormatWriter<'a, P: SemanticProducer, C> {
+    output: String,
+    producer: &'a mut P,
+    check: &'a mut C,
+    error: Option<P::Error>,
+}
+impl<P: SemanticProducer, C: FnMut() -> Result<(), crate::dom::DomError>> std::fmt::Write
+    for SemanticFormatWriter<'_, P, C>
+{
+    fn write_str(&mut self, value: &str) -> std::fmt::Result {
+        if self.error.is_some() {
+            return Err(std::fmt::Error);
+        }
+        match shared_append_text(&mut self.output, value, self.producer, self.check) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.error = Some(error);
+                Err(std::fmt::Error)
+            }
+        }
+    }
+}
+fn shared_missing_id_diagnostic<P: SemanticProducer>(
+    attribute: &str,
+    idref: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    use std::fmt::Write;
+    let mut writer = SemanticFormatWriter {
+        output: String::new(),
+        producer,
+        check,
+        error: None,
+    };
+    let written = write!(writer, "{attribute} references missing id {idref:?}");
+    if let Some(error) = writer.error {
+        return Err(error);
+    }
+    debug_assert!(
+        written.is_ok(),
+        "only the checked sink can fail String formatting"
+    );
+    Ok(writer.output)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Relationship resolution carries source/node, page/generation, diagnostic journal and producer/checkpoint ownership."
+)]
+fn shared_accessibility_relationships<P: SemanticProducer>(
+    dom: &DomArena,
+    source: NodeId,
+    node: &crate::dom::Node,
+    page_id: PageId,
+    document_generation: u64,
+    diagnostics: &mut Vec<String>,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<BTreeMap<AccessibilityRelation, Vec<SemanticRef>>, P::Error> {
+    let mut relationships = BTreeMap::new();
+    for (attribute, relation) in [
+        ("aria-labelledby", AccessibilityRelation::LabelledBy),
+        ("aria-describedby", AccessibilityRelation::DescribedBy),
+        ("aria-controls", AccessibilityRelation::Controls),
+        ("aria-owns", AccessibilityRelation::Owns),
+        (
+            "aria-activedescendant",
+            AccessibilityRelation::ActiveDescendant,
+        ),
+        ("aria-details", AccessibilityRelation::Details),
+        ("aria-errormessage", AccessibilityRelation::ErrorMessage),
+        ("aria-flowto", AccessibilityRelation::FlowTo),
+    ] {
+        check()?;
+        if node.explicit_accessibility_references(attribute).is_none()
+            && let Some(idrefs) = node.attributes.get_null_with_checkpoint(attribute, check)?
+        {
+            for idref in shared_name_tokens(idrefs, char::is_whitespace, producer, check)?
+                .into_iter()
+                .filter(|token| !token.is_empty())
+            {
+                check()?;
+                if find_element_by_id_scoped_with_checkpoint(dom, source, idref, check)?.is_none() {
+                    let diagnostic =
+                        shared_missing_id_diagnostic(attribute, idref, producer, check)?;
+                    shared_vector_push(diagnostics, diagnostic, producer, check)?;
+                }
+            }
+        }
+        if let Some(nodes) = shared_relation(dom, source, attribute, producer, check)? {
+            let mut targets = producer.vector(0)?;
+            for id in nodes {
+                check()?;
+                shared_vector_push(
+                    &mut targets,
+                    semantic_ref_for(id, page_id, document_generation),
+                    producer,
+                    check,
+                )?;
+            }
+            if !targets.is_empty() {
+                relationships.insert(relation, targets);
+            }
+        }
+    }
+    Ok(relationships)
+}
+
+impl SemanticGraph {
+    fn shared_refresh_accessibility<P: SemanticProducer>(
+        &mut self,
+        dom: &DomArena,
+        id: NodeId,
+        producer: &mut P,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<(), P::Error> {
+        check()?;
+        let Some(semantic) = self.full.get(&id) else {
+            if let Some(previous) = self.accessibility.remove(&id) {
+                drop(AccessibilityOwner(
+                    self.pending_accessibility_upserts
+                        .remove(&previous.semantic_ref),
+                ));
+                self.pending_accessibility_removed
+                    .insert(previous.semantic_ref);
+                drop(AccessibilityOwner(Some(previous)));
+            }
+            return Ok(());
+        };
+        let Ok(node) = dom.get(id) else {
+            return Ok(());
+        };
+        let NodeKind::Element { name } = &node.kind else {
+            return Ok(());
+        };
+        let role = shared_role_for_node(dom, id, producer, check)?;
+        let named = shared_accessible_semantics_with_checkpoint(
+            dom,
+            id,
+            name.local.as_ref(),
+            &role,
+            self.page_id,
+            self.document_generation,
+            producer,
+            check,
+        )?;
+        let exclusion_reason = shared_tree_exclusion(dom, id, &role, producer, check)?;
+        let mut diagnostics = producer.vector(0)?;
+        let accessible = AccessibilityNode {
+            semantic_ref: semantic.semantic_ref,
+            excluded: exclusion_reason.is_some(),
+            exclusion_reason,
+            role,
+            name: named.name,
+            description: named.description,
+            relationships: shared_accessibility_relationships(
+                dom,
+                id,
+                node,
+                self.page_id,
+                self.document_generation,
+                &mut diagnostics,
+                producer,
+                check,
+            )?,
+            properties: shared_accessibility_properties(
+                dom,
+                id,
+                name.local.as_ref(),
+                node,
+                producer,
+                check,
+            )?,
+            owned_by: None,
+            content_trust: ContentTrust::PageAuthored,
+            provenance: named.provenance,
+            evidence: named.evidence,
+        };
+        let mut candidate = AccessibilityOwner(Some(accessible));
+        let accessible = candidate.0.as_ref().unwrap();
+        let changed = match self.accessibility.get(&id) {
+            Some(previous) => !accessibility_equal_with_checkpoint(previous, accessible, check)?,
+            None => true,
+        };
+        let mut pending = if changed {
+            AccessibilityOwner(Some(shared_accessibility(accessible, producer, check)?))
+        } else {
+            AccessibilityOwner(None)
+        };
+        check()?;
+        let needed = self
+            .diagnostics
+            .len()
+            .checked_add(diagnostics.len())
+            .ok_or_else(|| P::Error::from(crate::dom::DomError::SemanticProjectionCapacity))?;
+        crate::dom::projection_allocation::reserve_vector(
+            &mut self.diagnostics,
+            needed,
+            &mut SemanticDomAllocation(producer),
+        )?;
+        check()?;
+        self.diagnostics.extend(diagnostics);
+        if changed {
+            let accessible = candidate.0.take().unwrap();
+            self.pending_accessibility_removed
+                .remove(&accessible.semantic_ref);
+            drop(AccessibilityOwner(
+                self.pending_accessibility_upserts
+                    .insert(accessible.semantic_ref, pending.0.take().unwrap()),
+            ));
+            drop(AccessibilityOwner(
+                self.accessibility.insert(id, accessible),
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn shared_structure_groups<P: SemanticProducer>(
+    dom: &DomArena,
+    kind: SemanticStructureKind,
+    descendant_ids: &[NodeId],
+    refs_by_dom_id: &BTreeMap<NodeId, SemanticRef>,
+    accessible_by_ref: &BTreeMap<SemanticRef, &AccessibilityNode>,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Vec<SemanticGroup>, P::Error> {
+    check()?;
+    let group_role = match kind {
+        SemanticStructureKind::Table | SemanticStructureKind::Grid => Some("row"),
+        SemanticStructureKind::List => Some("listitem"),
+        SemanticStructureKind::Menu => Some("menuitem"),
+        SemanticStructureKind::Tree => Some("treeitem"),
+        SemanticStructureKind::TabSet => Some("tab"),
+        _ => None,
+    };
+    let Some(group_role) = group_role else {
+        return Ok(Vec::new());
+    };
+    let mut groups = producer.vector(0)?;
+    for id in descendant_ids {
+        check()?;
+        let Some(reference) = refs_by_dom_id.get(id).copied() else {
+            continue;
+        };
+        if !accessible_by_ref
+            .get(&reference)
+            .is_some_and(|node| !node.excluded && node.role == group_role)
+        {
+            continue;
+        }
+        let mut members = producer.vector(1)?;
+        members.push(reference);
+        if group_role == "row" {
+            for child in shared_descendants_with_checkpoint(dom, *id, producer, check)? {
+                check()?;
+                let Some(child) = refs_by_dom_id.get(&child).copied() else {
+                    continue;
+                };
+                if accessible_by_ref.get(&child).is_some_and(|node| {
+                    !node.excluded
+                        && matches!(
+                            node.role.as_str(),
+                            "cell" | "gridcell" | "rowheader" | "columnheader"
+                        )
+                }) {
+                    shared_vector_push(&mut members, child, producer, check)?;
+                }
+            }
+        }
+        let group = SemanticGroup {
+            kind: producer.text(group_role, check)?,
+            name: accessible_by_ref
+                .get(&reference)
+                .map(|node| producer.text(&node.name, check))
+                .transpose()?
+                .filter(|name| !name.is_empty()),
+            members,
+        };
+        shared_vector_push(&mut groups, group, producer, check)?;
+    }
+    check()?;
+    Ok(groups)
+}
+
+fn shared_project_structures<P: SemanticProducer>(
+    dom: &DomArena,
+    accessibility: &[AccessibilityNode],
+    refs_by_dom_id: &BTreeMap<NodeId, SemanticRef>,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<Vec<SemanticStructure>, P::Error> {
+    check()?;
+    let mut accessible_by_ref = BTreeMap::new();
+    for node in accessibility {
+        check()?;
+        accessible_by_ref.insert(node.semantic_ref, node);
+    }
+    let mut structures = StructureListOwner(producer.vector(0)?);
+    for root in accessibility.iter().filter(|node| !node.excluded) {
+        check()?;
+        let id = unpack_node_ref(root.semantic_ref.node);
+        let Ok(dom_node) = dom.get(id) else {
+            continue;
+        };
+        let NodeKind::Element { name } = &dom_node.kind else {
+            continue;
+        };
+        let Some(kind) = structure_kind(name.local.as_ref(), &root.role, &dom_node.attributes)
+        else {
+            continue;
+        };
+        let descendants = shared_descendants_with_checkpoint(dom, id, producer, check)?;
+        let mut members = producer.vector(0)?;
+        for child in &descendants {
+            check()?;
+            if let Some(reference) = refs_by_dom_id.get(child).copied()
+                && accessible_by_ref
+                    .get(&reference)
+                    .is_some_and(|node| !node.excluded)
+            {
+                shared_vector_push(&mut members, reference, producer, check)?;
+            }
+        }
+        let groups = shared_structure_groups(
+            dom,
+            kind,
+            &descendants,
+            refs_by_dom_id,
+            &accessible_by_ref,
+            producer,
+            check,
+        )?;
+        let mut properties = JsonPropertiesGuard(BTreeMap::new());
+        properties.insert(
+            producer.text("member_count", check)?,
+            serde_json::json!(members.len()),
+        );
+        if kind == SemanticStructureKind::Form {
+            if let Some(method) = dom_node
+                .attributes
+                .get_null_with_checkpoint("method", check)?
+            {
+                properties.insert(
+                    producer.text("method", check)?,
+                    serde_json::Value::String(producer.text(method, check)?),
+                );
+            }
+            if let Some(action) = dom_node
+                .attributes
+                .get_null_with_checkpoint("action", check)?
+            {
+                properties.insert(
+                    producer.text("action", check)?,
+                    serde_json::Value::String(producer.text(action, check)?),
+                );
+            }
+        }
+        if kind == SemanticStructureKind::List {
+            properties.insert(
+                producer.text("ordered", check)?,
+                serde_json::json!(name.local.as_ref() == "ol"),
+            );
+        }
+        if kind == SemanticStructureKind::LiveRegion {
+            properties.insert(
+                producer.text("politeness", check)?,
+                match root.properties.get("live") {
+                    Some(value) => shared_json(value, producer, check)?,
+                    None => serde_json::Value::String(
+                        producer.text(implicit_live_politeness(&root.role), check)?,
+                    ),
+                },
+            );
+        }
+        let mut references = producer.vector(1)?;
+        references.push(root.semantic_ref);
+        let mut evidence = producer.vector(1)?;
+        evidence.push(AccessibilityEvidence {
+            kind: AccessibilityEvidenceKind::StructuralInference,
+            source: shared_structure_evidence_source(
+                name.local.as_ref(),
+                &root.role,
+                producer,
+                check,
+            )?,
+            references,
+        });
+        let structure = SemanticStructure {
+            structure_id: shared_structure_id(kind, root.semantic_ref.node, producer, check)?,
+            kind,
+            root: root.semantic_ref,
+            parent_structure_id: None,
+            name: producer.text(&root.name, check)?,
+            members,
+            groups,
+            content_trust: ContentTrust::PageAuthored,
+            provenance: Provenance::BrowserDeterministic,
+            evidence,
+            properties: std::mem::take(&mut properties.0),
+        };
+        shared_vector_push(&mut structures.0, structure, producer, check)?;
+    }
+    let mut roots = BTreeMap::new();
+    for structure in &structures.0 {
+        check()?;
+        roots.insert(
+            structure.root,
+            producer.text(&structure.structure_id, check)?,
+        );
+    }
+    for structure in &mut structures.0 {
+        check()?;
+        let id = unpack_node_ref(structure.root.node);
+        structure.parent_structure_id = None;
+        for ancestor in shared_default::<Vec<NodeId>, P>(shared_ancestors_with_checkpoint(
+            dom, id, producer, check,
+        ))? {
+            check()?;
+            if let Some(value) = refs_by_dom_id
+                .get(&ancestor)
+                .and_then(|reference| roots.get(reference))
+            {
+                structure.parent_structure_id = Some(producer.text(value, check)?);
+                break;
+            }
+        }
+    }
+    check()?;
+    Ok(std::mem::take(&mut structures.0))
+}
+
+fn shared_structure_evidence_source<P: SemanticProducer>(
+    local: &str,
+    role: &str,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    let mut source = String::new();
+    for part in ["element:", local, ";role:", role] {
+        shared_append_text(&mut source, part, producer, check)?;
+    }
+    Ok(source)
+}
+fn shared_structure_id<P: SemanticProducer>(
+    kind: SemanticStructureKind,
+    node: u64,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    use std::fmt::Write;
+    let mut writer = SemanticFormatWriter {
+        output: String::new(),
+        producer,
+        check,
+        error: None,
+    };
+    let written = write!(writer, "{kind:?}:{node}");
+    if let Some(error) = writer.error {
+        return Err(error);
+    }
+    debug_assert!(written.is_ok());
+    // SAFETY: ASCII lowercasing changes only ASCII code points and therefore
+    // preserves UTF-8; checkpoints never access or expose the buffer.
+    for byte in unsafe { writer.output.as_bytes_mut() } {
+        (writer.check)()?;
+        byte.make_ascii_lowercase();
+    }
+    Ok(writer.output)
+}
+
+impl SemanticGraph {
+    fn shared_rebuild_structures<P: SemanticProducer>(
+        &mut self,
+        dom: &DomArena,
+        producer: &mut P,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<(), P::Error> {
+        check()?;
+        let mut refs_by_dom_id = BTreeMap::new();
+        for (id, node) in &self.full {
+            check()?;
+            refs_by_dom_id.insert(*id, node.semantic_ref);
+        }
+        let mut accessibility = AccessibilityListOwner(producer.vector(0)?);
+        for node in self.accessibility.values() {
+            check()?;
+            let node = shared_accessibility(node, producer, check)?;
+            shared_vector_push(&mut accessibility.0, node, producer, check)?;
+        }
+        let mut next = StructureMapOwner(BTreeMap::new());
+        for structure in
+            shared_project_structures(dom, &accessibility.0, &refs_by_dom_id, producer, check)?
+        {
+            // This collection is owned before the next fallible checkpoint.
+            next.0
+                .insert(producer.text(&structure.structure_id, check)?, structure);
+        }
+        let mut removed = producer.vector(0)?;
+        let mut upserts = StructureMapOwner(BTreeMap::new());
+        for id in self.structures.keys() {
+            check()?;
+            if !next.0.contains_key(id) {
+                let id = producer.text(id, check)?;
+                shared_vector_push(&mut removed, id, producer, check)?;
+            }
+        }
+        for (id, structure) in &next.0 {
+            check()?;
+            let changed = match self.structures.get(id) {
+                Some(previous) => !structure_equal_with_checkpoint(previous, structure, check)?,
+                None => true,
+            };
+            if changed {
+                upserts.0.insert(
+                    producer.text(id, check)?,
+                    shared_structure(structure, producer, check)?,
+                );
+            }
+        }
+        check()?;
+        for id in removed {
+            if let Some(mut old) = self.pending_structure_upserts.remove(&id) {
+                drop(JsonPropertiesGuard(std::mem::take(&mut old.properties)));
+            }
+            self.pending_structure_removed.insert(id);
+        }
+        for (id, structure) in std::mem::take(&mut upserts.0) {
+            self.pending_structure_removed.remove(&id);
+            if let Some(mut old) = self.pending_structure_upserts.insert(id, structure) {
+                drop(JsonPropertiesGuard(std::mem::take(&mut old.properties)));
+            }
+        }
+        drop(StructureMapOwner(std::mem::replace(
+            &mut self.structures,
+            std::mem::take(&mut next.0),
+        )));
+        Ok(())
+    }
+}
+
+impl SemanticGraph {
+    fn shared_rebuild_accessibility<P: SemanticProducer>(
+        &mut self,
+        dom: &DomArena,
+        producer: &mut P,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<(), P::Error> {
+        check()?;
+        let mut previous = BTreeSet::new();
+        for id in self.accessibility.keys() {
+            check()?;
+            previous.insert(*id);
+        }
+        let mut current = producer.vector(0)?;
+        for id in self.full.keys() {
+            check()?;
+            shared_vector_push(&mut current, *id, producer, check)?;
+        }
+        for id in current {
+            check()?;
+            self.shared_refresh_accessibility(dom, id, producer, check)?;
+        }
+        for id in previous {
+            check()?;
+            if !self.full.contains_key(&id)
+                && let Some(node) = self.accessibility.remove(&id)
+            {
+                drop(AccessibilityOwner(
+                    self.pending_accessibility_upserts
+                        .remove(&node.semantic_ref),
+                ));
+                self.pending_accessibility_removed.insert(node.semantic_ref);
+                drop(AccessibilityOwner(Some(node)));
+            }
+        }
+        self.shared_rebuild_ownership(dom, producer, check)?;
+        check()?;
+        Ok(())
+    }
+}
+
+impl SemanticGraph {
+    fn shared_rebuild_ownership<P: SemanticProducer>(
+        &mut self,
+        dom: &DomArena,
+        producer: &mut P,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<(), P::Error> {
+        check()?;
+        let mut previous = BTreeMap::new();
+        for (id, node) in &self.accessibility {
+            check()?;
+            previous.insert(*id, shared_accessibility(node, producer, check)?);
+        }
+        self.diagnostics.clear();
+        let mut available = BTreeSet::new();
+        for node in self.accessibility.values() {
+            check()?;
+            available.insert(node.semantic_ref);
+        }
+        for node in self.accessibility.values_mut() {
+            check()?;
+            node.owned_by = None;
+            for targets in node.relationships.values_mut() {
+                check()?;
+                let mut kept = producer.vector(0)?;
+                for target in targets.iter() {
+                    check()?;
+                    if available.contains(target) {
+                        shared_vector_push(&mut kept, *target, producer, check)?;
+                    }
+                }
+                *targets = kept;
+            }
+            node.relationships.retain(|_, targets| !targets.is_empty());
+        }
+        let accepted_owners = accepted_aria_owners_with_checkpoint(dom, check)?;
+        let mut owner_by_target = BTreeMap::new();
+        let mut ownership = producer.vector(0)?;
+        for node in self.accessibility.values() {
+            check()?;
+            if let Some(targets) = node.relationships.get(&AccessibilityRelation::Owns) {
+                let mut copied = producer.vector(0)?;
+                for target in targets {
+                    check()?;
+                    shared_vector_push(&mut copied, *target, producer, check)?;
+                }
+                shared_vector_push(&mut ownership, (node.semantic_ref, copied), producer, check)?;
+            }
+        }
+        for (owner, targets) in ownership {
+            check()?;
+            let owner_id = unpack_node_ref(owner.node);
+            let mut accepted = producer.vector(0)?;
+            for target in targets {
+                check()?;
+                let target_id = unpack_node_ref(target.node);
+                let cycle =
+                    ownership_cycle_with_checkpoint(&owner_by_target, owner, target, check)?
+                        || shared_default::<Vec<NodeId>, P>(shared_ancestors_with_checkpoint(
+                            dom, owner_id, producer, check,
+                        ))?
+                        .contains(&target_id);
+                if cycle
+                    || owner_by_target.contains_key(&target)
+                    || accepted_owners.get(&target_id) != Some(&owner_id)
+                {
+                    let diagnostic =
+                        shared_invalid_owner_diagnostic(owner.node, target.node, producer, check)?;
+                    shared_vector_push(&mut self.diagnostics, diagnostic, producer, check)?;
+                    continue;
+                }
+                owner_by_target.insert(target, owner);
+                shared_vector_push(&mut accepted, target, producer, check)?;
+            }
+            if let Some(node) = self.accessibility.get_mut(&owner_id) {
+                node.relationships
+                    .insert(AccessibilityRelation::Owns, accepted);
+            }
+        }
+        for (target, owner) in owner_by_target {
+            check()?;
+            if let Some(node) = self.accessibility.get_mut(&unpack_node_ref(target.node)) {
+                node.owned_by = Some(owner);
+            }
+        }
+        for (id, node) in &self.accessibility {
+            check()?;
+            if match previous.get(id) {
+                Some(previous) => !accessibility_equal_with_checkpoint(previous, node, check)?,
+                None => true,
+            } {
+                self.pending_accessibility_upserts.insert(
+                    node.semantic_ref,
+                    shared_accessibility(node, producer, check)?,
+                );
+            }
+        }
+        check()?;
+        Ok(())
+    }
+}
+
+fn shared_invalid_owner_diagnostic<P: SemanticProducer>(
+    owner: u64,
+    target: u64,
+    producer: &mut P,
+    check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+) -> Result<String, P::Error> {
+    use std::fmt::Write;
+    let mut writer = SemanticFormatWriter {
+        output: String::new(),
+        producer,
+        check,
+        error: None,
+    };
+    let written = write!(writer, "ignored invalid aria-owns edge {owner} -> {target}");
+    if let Some(error) = writer.error {
+        return Err(error);
+    }
+    debug_assert!(written.is_ok());
+    Ok(writer.output)
+}
+
+impl SemanticGraph {
+    fn shared_reset<P: SemanticProducer>(
+        &mut self,
+        dom: &DomArena,
+        generation: u64,
+        producer: &mut P,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<(), P::Error> {
+        check()?;
+        if self.document_generation != generation {
+            self.generated_content.clear();
+            self.computed_visibility.clear();
+            self.computed_text_style.clear();
+        }
+        let projection = self.layout_projection_with_checkpoint(dom, check)?;
+        let dom = projection.as_ref().unwrap_or(dom);
+        self.native_control_cursor = None;
+        for node in self.full.values() {
+            check()?;
+            self.pending_removed.insert(node.semantic_ref);
+        }
+        for node in self.accessibility.values() {
+            check()?;
+            self.pending_accessibility_removed.insert(node.semantic_ref);
+        }
+        for id in self.structures.keys() {
+            check()?;
+            self.pending_structure_removed
+                .insert(producer.text(id, check)?);
+        }
+        self.document_generation = generation;
+        self.full.clear();
+        self.compact.clear();
+        self.target_hints.clear();
+        for (_, node) in std::mem::take(&mut self.accessibility) {
+            drop(AccessibilityOwner(Some(node)));
+        }
+        drop(StructureMapOwner(std::mem::take(&mut self.structures)));
+        self.frame_ids.clear();
+        self.authored_hidden.clear();
+        self.geometry_hidden.clear();
+        {
+            let mut cursor = 0usize;
+            while let Some((id, node)) = dom.next_with_checkpoint(&mut cursor, check)? {
+                check()?;
+                let NodeKind::Element { name } = &node.kind else {
+                    continue;
+                };
+                if matches!(
+                    name.local.as_ref(),
+                    "html" | "head" | "body" | "meta" | "title" | "script" | "style"
+                ) {
+                    continue;
+                }
+                self.shared_refresh_node(dom, id, producer, check)?;
+                check()?;
+            }
+        }
+        check()?;
+        self.rebuild_dependencies_with_checkpoint(dom, check)?;
+        check()?;
+        self.shared_rebuild_accessibility(dom, producer, check)?;
+        check()?;
+        self.shared_rebuild_structures(dom, producer, check)?;
+        check()?;
+        for node in self.full.values() {
+            check()?;
+            self.pending_removed.remove(&node.semantic_ref);
+            self.pending_upserts.insert(
+                node.semantic_ref,
+                shared_semantic_node(node, producer, check)?,
+            );
+        }
+        self.semantic_revision = self.semantic_revision.saturating_add(1);
+        Ok(())
+    }
+}
+
+impl SemanticGraph {
+    fn shared_apply_mutations<P: SemanticProducer>(
+        &mut self,
+        dom: &DomArena,
+        mutations: &[crate::dom::Mutation],
+        producer: &mut P,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<(), P::Error> {
+        check()?;
+        let projection = self.layout_projection_with_checkpoint(dom, check)?;
+        self.shared_apply_projected_mutations(
+            projection.as_ref().unwrap_or(dom),
+            mutations,
+            producer,
+            check,
+        )
+    }
+
+    fn shared_apply_projected_mutations<P: SemanticProducer>(
+        &mut self,
+        dom: &DomArena,
+        mutations: &[crate::dom::Mutation],
+        producer: &mut P,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<(), P::Error> {
+        check()?;
+        if !mutations.is_empty() {
+            self.native_control_cursor = None;
+        }
+        use crate::dom::Mutation;
+        let mut dirty = BTreeSet::new();
+        let mut dependency_change = false;
+        // Modal accessibility scope affects siblings, not only descendants of
+        // the changed dialog. Include the prior scope when a modal is removed.
+        let mut modal = false;
+        if !mutations.is_empty() {
+            for node in self.accessibility.values() {
+                check()?;
+                if node.exclusion_reason.as_deref() == Some("aria_modal_scope") {
+                    modal = true;
+                    break;
+                }
+            }
+            if !modal {
+                {
+                    let mut cursor = 0usize;
+                    while let Some((_, node)) = dom.next_with_checkpoint(&mut cursor, check)? {
+                        check()?;
+                        if node
+                            .accessibility_attribute_with_checkpoint("aria-modal", check)?
+                            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+                        {
+                            modal = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if modal {
+            {
+                let mut cursor = 0usize;
+                while let Some((id, _)) = dom.next_with_checkpoint(&mut cursor, check)? {
+                    check()?;
+                    dirty.insert(id);
+                }
+            }
+        }
+        for mutation in mutations {
+            check()?;
+            match mutation {
+                Mutation::HostedDocument { frame }
+                | Mutation::DocumentOwnership { node: frame, .. } => {
+                    // Association changes are not DOM child-list mutations.
+                    // Reconcile old retained documents as well as the new tree.
+                    dirty.insert(*frame);
+                    for id in self.full.keys() {
+                        check()?;
+                        dirty.insert(*id);
+                    }
+                    {
+                        let mut cursor = 0usize;
+                        while let Some((id, _)) = dom.next_with_checkpoint(&mut cursor, check)? {
+                            check()?;
+                            dirty.insert(id);
+                        }
+                    }
+                    dependency_change = true;
+                }
+                Mutation::Inserted { node, parent, .. } => {
+                    dirty.insert(*node);
+                    for id in
+                        cancellation_or_default(descendants_with_checkpoint(dom, *node, check))?
+                    {
+                        check()?;
+                        dirty.insert(id);
+                    }
+                    dirty.extend(parent.iter().copied());
+                    dependency_change = true;
+                }
+                Mutation::Removed {
+                    node,
+                    former_parent,
+                    ..
+                } => {
+                    self.remove_subtree_with_checkpoint(*node, check)?;
+                    dirty.extend(former_parent.iter().copied());
+                    dependency_change = true;
+                }
+                // Compound records only describe observer delivery; the native
+                // insert/remove entries above already update semantic structure.
+                Mutation::ChildrenReplaced { .. } => {}
+                Mutation::Attribute { node, name, .. } => {
+                    dirty.insert(*node);
+                    // These ancestor properties affect descendant visibility,
+                    // accessibility and action availability. Refreshing only
+                    // the container leaves controls in a stale hidden state.
+                    if matches!(
+                        name.as_str(),
+                        "style"
+                            | "class"
+                            | "hidden"
+                            | "aria-hidden"
+                            | "aria-readonly"
+                            | "role"
+                            | "inert"
+                            | "disabled"
+                    ) {
+                        dirty.insert(*node);
+                        for id in
+                            cancellation_or_default(descendants_with_checkpoint(dom, *node, check))?
+                        {
+                            check()?;
+                            dirty.insert(id);
+                        }
+                    }
+                    dependency_change |= matches!(
+                        name.as_str(),
+                        "id" | "for"
+                            | "type"
+                            | "slot"
+                            | "name"
+                            | "aria-label"
+                            | "aria-labelledby"
+                            | "aria-describedby"
+                            | "aria-errormessage"
+                            | "aria-actions"
+                            | "aria-owns"
+                            | "role"
+                            | "hidden"
+                            | "aria-hidden"
+                            | "style"
+                            | "class"
+                    );
+                }
+                Mutation::CharacterData { node, .. } => {
+                    dirty.insert(*node);
+                    dependency_change = true;
+                }
+                Mutation::StyleSheets { node } => {
+                    dirty.insert(*node);
+                    for id in
+                        cancellation_or_default(descendants_with_checkpoint(dom, *node, check))?
+                    {
+                        check()?;
+                        dirty.insert(id);
+                    }
+                    dependency_change = true;
+                }
+                Mutation::FormState { node } => {
+                    dirty.insert(*node);
+                    // Native FACE registration can change a label's owner.
+                    dependency_change = true;
+                    let revision = dom
+                        .get(*node)
+                        .map(|node| node.accessibility_reference_revision())
+                        .unwrap_or(0);
+                    if self
+                        .accessibility_state_revisions
+                        .get(node)
+                        .copied()
+                        .unwrap_or(0)
+                        != revision
+                    {
+                        dirty.insert(*node);
+                        for id in
+                            cancellation_or_default(descendants_with_checkpoint(dom, *node, check))?
+                        {
+                            check()?;
+                            dirty.insert(id);
+                        }
+                        dependency_change = true;
+                    }
+                }
+                Mutation::ImageResource { node } | Mutation::EventListener { node, .. } => {
+                    dirty.insert(*node);
+                }
+                Mutation::Focus { previous, current } => {
+                    dirty.extend(previous.iter().copied());
+                    dirty.extend(current.iter().copied());
+                }
+                Mutation::ShadowAttached { host, root, .. } => {
+                    dirty.insert(*host);
+                    dirty.insert(*root);
+                    dependency_change = true;
+                }
+            }
+        }
+        let mut pending = producer.vector(0)?;
+        for id in &dirty {
+            check()?;
+            shared_vector_push(&mut pending, *id, producer, check)?;
+        }
+        while let Some(node) = pending.pop() {
+            check()?;
+            let related = shared_default::<Vec<NodeId>, P>(shared_ancestors_with_checkpoint(
+                dom, node, producer, check,
+            ))?
+            .into_iter()
+            .chain(self.referenced_by.get(&node).into_iter().flatten().copied());
+            for target in related {
+                check()?;
+                if dirty.insert(target) {
+                    shared_vector_push(&mut pending, target, producer, check)?;
+                }
+            }
+        }
+        if dependency_change {
+            // Declared IDREF edges can remain identical while document order or
+            // visibility changes which competing aria-owns edge is accepted.
+            // Refresh both former and new owners before propagating name users.
+            let current_owners = accepted_aria_owners_with_checkpoint(dom, check)?;
+            let mut previous_owners = BTreeMap::new();
+            for (target, node) in &self.accessibility {
+                check()?;
+                if let Some(owner) = node.owned_by {
+                    previous_owners.insert(*target, unpack_node_ref(owner.node));
+                }
+            }
+            for target in previous_owners.keys().chain(current_owners.keys()) {
+                check()?;
+                if previous_owners.get(target) != current_owners.get(target) {
+                    dirty.insert(*target);
+                    dirty.extend(previous_owners.get(target).copied());
+                    dirty.extend(current_owners.get(target).copied());
+                }
+            }
+            let mut previous_dependencies = BTreeMap::new();
+            for (id, targets) in &self.referenced_by {
+                check()?;
+                let mut copied = BTreeSet::new();
+                for target in targets {
+                    check()?;
+                    copied.insert(*target);
+                }
+                previous_dependencies.insert(*id, copied);
+            }
+            self.rebuild_dependencies_with_checkpoint(dom, check)?;
+            let mut targets = BTreeSet::new();
+            for target in previous_dependencies
+                .keys()
+                .chain(self.referenced_by.keys())
+            {
+                check()?;
+                targets.insert(*target);
+            }
+            for target in targets {
+                check()?;
+                let previous = previous_dependencies.get(&target);
+                let current = self.referenced_by.get(&target);
+                if previous == current {
+                    continue;
+                }
+                dirty.insert(target);
+                if let Some(dependents) = previous {
+                    for id in dependents {
+                        check()?;
+                        dirty.insert(*id);
+                    }
+                }
+                if let Some(dependents) = current {
+                    for id in dependents {
+                        check()?;
+                        dirty.insert(*id);
+                    }
+                }
+            }
+            // A newly resolved reference may name an ancestor of its owner.
+            // Propagate through the rebuilt graph, not only the old edges.
+            let mut pending = producer.vector(0)?;
+            for id in &dirty {
+                check()?;
+                shared_vector_push(&mut pending, *id, producer, check)?;
+            }
+            while let Some(node) = pending.pop() {
+                check()?;
+                let related = shared_default::<Vec<NodeId>, P>(shared_ancestors_with_checkpoint(
+                    dom, node, producer, check,
+                ))?
+                .into_iter()
+                .chain(self.referenced_by.get(&node).into_iter().flatten().copied());
+                for target in related {
+                    check()?;
+                    if dirty.insert(target) {
+                        shared_vector_push(&mut pending, target, producer, check)?;
+                    }
+                }
+            }
+        }
+        for node in dirty {
+            check()?;
+            self.shared_refresh_node(dom, node, producer, check)?;
+            self.shared_refresh_accessibility(dom, node, producer, check)?;
+        }
+        if dependency_change {
+            self.shared_rebuild_ownership(dom, producer, check)?;
+            self.shared_rebuild_structures(dom, producer, check)?;
+        }
+        if !mutations.is_empty() {
+            self.semantic_revision = self.semantic_revision.saturating_add(1);
+        }
+        check()?;
+        Ok(())
+    }
+}
+
+struct SemanticGraphAllocations {
+    receipts: Vec<SemanticAllocationReceipt>,
+}
+impl std::fmt::Debug for SemanticGraphAllocations {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SemanticGraphAllocations")
+            .field("receipts", &self.receipts.len())
+            .finish()
+    }
+}
+impl SemanticGraph {
+    pub(crate) fn prepare_admitted_sync(
+        &self,
+        dom: &DomArena,
+        generation: u64,
+        mutations: &[crate::dom::Mutation],
+        truncated: bool,
+        admission: &dyn oryn_layout::cssom::native_import_graph::ImportAdmission,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<Self, SemanticPreparationError> {
+        let mut producer = SemanticLeaseOwner {
+            admission,
+            leases: Vec::new(),
+        };
+        let mut graph = self.shared_graph_clone(&mut producer, check)?;
+        if truncated {
+            graph.shared_reset(dom, generation, &mut producer, check)?;
+        } else if !mutations.is_empty() {
+            graph.shared_apply_mutations(dom, mutations, &mut producer, check)?;
+        }
+        producer.reserve(
+            std::mem::size_of::<SemanticGraphAllocations>() + 2 * std::mem::size_of::<usize>(),
+        )?;
+        check()?;
+        // The cloned draft owns independent buffers, so it does not retain the
+        // previous graph's payload receipts after the old graph is retired.
+        graph.allocation_receipts = Some(std::sync::Arc::new(SemanticGraphAllocations {
+            receipts: std::mem::take(&mut producer.leases),
+        }));
+        Ok(graph)
+    }
+}
+
+#[cfg(test)]
+mod admitted_sync_controls {
+    use super::*;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    struct Receipt(Arc<AtomicUsize>);
+    impl Drop for Receipt {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+    struct Admission {
+        calls: AtomicUsize,
+        live: Arc<AtomicUsize>,
+        fail: usize,
+    }
+    #[test]
+    fn receipt_growth_charges_full_geometric_metadata_capacity() {
+        use std::sync::Mutex;
+        struct Ledger(Mutex<Vec<usize>>);
+        impl oryn_layout::cssom::native_import_graph::ImportAdmission for Ledger {
+            fn checkpoint(&self) -> Result<(), String> {
+                Ok(())
+            }
+            fn reserve(&self, bytes: usize) -> Result<Arc<dyn Send + Sync>, String> {
+                self.0.lock().unwrap().push(bytes);
+                Ok(Arc::new(()))
+            }
+        }
+        let ledger = Ledger(Mutex::new(Vec::new()));
+        let mut owner = SemanticLeaseOwner {
+            admission: &ledger,
+            leases: Vec::new(),
+        };
+        for _ in 0..4096 {
+            owner.reserve(1).unwrap();
+        }
+        let charges = ledger.0.lock().unwrap();
+        let metadata: Vec<usize> = charges
+            .iter()
+            .copied()
+            .filter(|bytes| *bytes != 1)
+            .collect();
+        assert!(metadata.len() <= 12);
+        assert_eq!(
+            metadata.iter().sum::<usize>(),
+            owner.leases.capacity() * std::mem::size_of::<SemanticAllocationReceipt>()
+        );
+        assert_eq!(
+            owner
+                .leases
+                .iter()
+                .filter(|receipt| receipt._metadata.is_some())
+                .count(),
+            metadata.len()
+        );
+    }
+    impl oryn_layout::cssom::native_import_graph::ImportAdmission for Admission {
+        fn checkpoint(&self) -> Result<(), String> {
+            Ok(())
+        }
+        fn reserve(&self, _: usize) -> Result<Arc<dyn Send + Sync>, String> {
+            let boundary = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+            if boundary == self.fail {
+                return Err("expired test owner".into());
+            }
+            self.live.fetch_add(1, Ordering::SeqCst);
+            Ok(Arc::new(Receipt(self.live.clone())))
+        }
+    }
+    #[test]
+    fn admitted_reset_preserves_projection_and_failed_source_journals() {
+        let document = crate::html::parse(
+            "<form><label for=x>Name</label><input id=x value=hello><button>Go</button></form>",
+        )
+        .into_runtime()
+        .unwrap();
+        let mut graph = SemanticGraph::new(PageId(63), 7);
+        graph.reset(document.arena(), 7);
+        let before = format!("{graph:?}");
+        let mut ordinary = graph.try_clone_with_checkpoint(&mut || Ok(())).unwrap();
+        ordinary
+            .reset_with_checkpoint(document.arena(), 7, &mut || Ok(()))
+            .unwrap();
+        let probe = Admission {
+            calls: AtomicUsize::new(0),
+            live: Arc::new(AtomicUsize::new(0)),
+            fail: usize::MAX,
+        };
+        let admitted = graph
+            .prepare_admitted_sync(document.arena(), 7, &[], true, &probe, &mut || Ok(()))
+            .unwrap();
+        assert_eq!(
+            admitted.nodes(ProjectionProfile::Full),
+            ordinary.nodes(ProjectionProfile::Full)
+        );
+        assert_eq!(admitted.semantic_revision(), ordinary.semantic_revision());
+        assert!(probe.live.load(Ordering::SeqCst) > 0);
+        drop(admitted);
+        assert_eq!(probe.live.load(Ordering::SeqCst), 0);
+        for fail in 1..=probe.calls.load(Ordering::SeqCst) {
+            let owner = Admission {
+                calls: AtomicUsize::new(0),
+                live: Arc::new(AtomicUsize::new(0)),
+                fail,
+            };
+            assert!(matches!(
+                graph.prepare_admitted_sync(document.arena(), 7, &[], true, &owner, &mut || Ok(())),
+                Err(SemanticPreparationError::Admission(_))
+            ));
+            assert_eq!(owner.live.load(Ordering::SeqCst), 0);
+            assert_eq!(format!("{graph:?}"), before);
+        }
+    }
+    #[test]
+    fn property_signed_integer_matches_original_rust_parser() {
+        for value in [
+            "",
+            "+",
+            "-",
+            " 1",
+            "1 ",
+            "+0",
+            "-0",
+            "00001",
+            "9223372036854775807",
+            "-9223372036854775808",
+            "9223372036854775808",
+            "-9223372036854775809",
+        ] {
+            assert_eq!(
+                shared_i64::<OrdinarySemanticProducer>(value, &mut || Ok(())).unwrap(),
+                value.parse::<i64>().ok(),
+                "{value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn admitted_json_clone_deep_stack_and_cancellation_dispose_iteratively() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(|| {
+                let mut value = serde_json::Value::String("leaf".into());
+                for depth in 0..16_384 {
+                    value = if depth % 2 == 0 {
+                        serde_json::Value::Array(vec![value])
+                    } else {
+                        let mut map = serde_json::Map::new();
+                        map.insert("key".into(), value);
+                        serde_json::Value::Object(map)
+                    };
+                }
+                let input = JsonValuesGuard(vec![value]);
+                let admission = Admission {
+                    calls: AtomicUsize::new(0),
+                    live: Arc::new(AtomicUsize::new(0)),
+                    fail: usize::MAX,
+                };
+                let mut producer = SemanticLeaseOwner {
+                    admission: &admission,
+                    leases: Vec::new(),
+                };
+                let copied = shared_json(&input.0[0], &mut producer, &mut || Ok(())).unwrap();
+                let copied = JsonValuesGuard(vec![copied]);
+                let mut cursor = &copied.0[0];
+                let mut count = 0;
+                loop {
+                    cursor = match cursor {
+                        serde_json::Value::Array(values) => &values[0],
+                        serde_json::Value::Object(values) => values.get("key").unwrap(),
+                        serde_json::Value::String(value) => {
+                            assert_eq!(value, "leaf");
+                            break;
+                        }
+                        _ => panic!("unexpected copied value"),
+                    };
+                    count += 1;
+                }
+                assert_eq!(count, 16_384);
+                drop(copied);
+                drop(producer);
+                assert_eq!(admission.live.load(Ordering::SeqCst), 0);
+                let admission = Admission {
+                    calls: AtomicUsize::new(0),
+                    live: Arc::new(AtomicUsize::new(0)),
+                    fail: usize::MAX,
+                };
+                let mut producer = SemanticLeaseOwner {
+                    admission: &admission,
+                    leases: Vec::new(),
+                };
+                let mut calls = 0;
+                assert!(
+                    shared_json(&input.0[0], &mut producer, &mut || {
+                        calls += 1;
+                        if calls == 4096 {
+                            Err(crate::dom::DomError::ProjectionCancelled)
+                        } else {
+                            Ok(())
+                        }
+                    })
+                    .is_err()
+                );
+                drop(producer);
+                assert_eq!(admission.live.load(Ordering::SeqCst), 0);
+                drop(input);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }

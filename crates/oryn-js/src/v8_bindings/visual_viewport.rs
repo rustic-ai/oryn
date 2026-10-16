@@ -263,7 +263,7 @@ pub(super) fn object<'s>(
     if state.visual_viewport_observed.get().is_none() {
         state
             .visual_viewport_observed
-            .set(Some(observation(state)?));
+            .set(Some(observation(scope, state)?));
     }
     new_platform_object(scope, state, "VisualViewport", id)
 }
@@ -283,7 +283,7 @@ pub(super) fn get<'s>(
     if state.execution_retired() {
         return Ok(v8::Number::new(scope, 0.).into());
     }
-    let geometry = state.native_visual_viewport_geometry()?;
+    let geometry = state.native_visual_viewport_geometry_in_scope(scope)?;
     let root = state
         .dom
         .borrow()
@@ -309,8 +309,11 @@ pub(super) struct Observation {
     geometry: Geometry,
     page: (f64, f64),
 }
-fn observation(state: &V8BindingState) -> Result<Observation, V8BindingError> {
-    let geometry = state.native_visual_viewport_geometry()?;
+fn observation(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+) -> Result<Observation, V8BindingError> {
+    let geometry = state.native_visual_viewport_geometry_in_scope(scope)?;
     let root = state
         .dom
         .borrow()
@@ -341,7 +344,7 @@ pub fn poll(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<usiz
     let Some(id) = id else {
         return Ok(0);
     };
-    let next = observation(state)?;
+    let next = observation(scope, state)?;
     let Some(previous) = state.visual_viewport_observed.replace(Some(next)) else {
         return Ok(0);
     };

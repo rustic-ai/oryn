@@ -15,8 +15,8 @@ pub(super) struct Deliveries {
 enum Step {
     ConnectionPrepare(u64, u64, u64, Option<u64>),
     ConnectionAck {
-        token: String,
-        name: String,
+        token: Arc<crate::idb_owned_admission::Text>,
+        name: Arc<crate::idb_owned_admission::Text>,
         event: u64,
     },
     FinalizeOpen(u64, u64, u64),
@@ -29,16 +29,16 @@ enum Step {
     TerminalAfter(u64, &'static str),
     Retire {
         database: u64,
-        token: String,
-        name: String,
+        token: Arc<crate::idb_owned_admission::Text>,
+        name: Arc<crate::idb_owned_admission::Text>,
     },
     LegacyCheck {
-        name: String,
+        name: Arc<crate::idb_owned_admission::Text>,
         version: Option<u64>,
         old: u64,
     },
     WaitLegacy {
-        name: String,
+        name: Arc<crate::idb_owned_admission::Text>,
     },
     Event(u64, &'static str, Option<(u64, Option<u64>)>),
     AfterRequest {
@@ -60,7 +60,7 @@ struct Event {
 struct Task {
     resolver: Option<v8::Global<v8::PromiseResolver>>,
     request: u64,
-    action: IdbCompletionAction,
+    action: Arc<owned_action::OwnedAction>,
     response: Result<IdbHostResponse, String>,
     steps: VecDeque<Step>,
     value: Option<v8::Global<v8::Value>>,
@@ -98,7 +98,7 @@ pub(super) fn pending(state: &V8BindingState) -> bool {
 pub(super) fn enqueue(
     state: &V8BindingState,
     request: u64,
-    action: IdbCompletionAction,
+    action: Arc<owned_action::OwnedAction>,
     response: Result<IdbHostResponse, String>,
 ) {
     state.idb_deliveries.queue.borrow_mut().push_back(Task {
@@ -128,7 +128,7 @@ pub(super) fn databases(
     state.idb_deliveries.queue.borrow_mut().push_back(Task {
         resolver: Some(resolver),
         request: 0,
-        action: IdbCompletionAction::Unit,
+        action: owned_action::OwnedAction::unit(),
         response,
         steps: VecDeque::from([Step::Databases]),
         value: None,
@@ -157,7 +157,7 @@ pub(super) fn finalize(
     state.idb_deliveries.queue.borrow_mut().push_back(Task {
         resolver: None,
         request: transaction,
-        action: IdbCompletionAction::Unit,
+        action: owned_action::OwnedAction::unit(),
         response: Ok(IdbHostResponse::default()),
         steps: VecDeque::from([step]),
         value: None,
@@ -184,7 +184,7 @@ pub(super) fn connection_events(state: &V8BindingState, database: u64, response:
     state.idb_deliveries.queue.borrow_mut().push_back(Task {
         resolver: None,
         request: database,
-        action: IdbCompletionAction::Unit,
+        action: owned_action::OwnedAction::unit(),
         response: Ok(IdbHostResponse::default()),
         steps,
         value: None,
@@ -204,7 +204,7 @@ pub(super) fn terminal(state: &V8BindingState, target: u64, name: &'static str) 
     state.idb_deliveries.queue.borrow_mut().push_back(Task {
         resolver: None,
         request: target,
-        action: IdbCompletionAction::Unit,
+        action: owned_action::OwnedAction::unit(),
         response: Ok(IdbHostResponse::default()),
         steps: VecDeque::from([Step::TerminalPrepare(target, name)]),
         value: None,
@@ -224,7 +224,7 @@ pub(super) fn blocked(state: &V8BindingState, request: u64, old: u64, new: Optio
     state.idb_deliveries.queue.borrow_mut().push_back(Task {
         resolver: None,
         request,
-        action: IdbCompletionAction::Unit,
+        action: owned_action::OwnedAction::unit(),
         response: Ok(IdbHostResponse::default()),
         steps: VecDeque::from([Step::Event(request, "blocked", Some((old, new)))]),
         value: None,
@@ -254,7 +254,7 @@ pub(super) fn deferred_failure(state: &V8BindingState, request: u64, open: bool)
     let task = Task {
         resolver: None,
         request,
-        action: IdbCompletionAction::Unit,
+        action: owned_action::OwnedAction::unit(),
         response: Err("AbortError".into()),
         steps: VecDeque::from([
             Step::Event(request, "error", None),
@@ -301,13 +301,16 @@ pub(super) fn drain(
         let Some(mut task) = state.idb_deliveries.queue.borrow_mut().pop_front() else {
             return Ok(());
         };
+        idb_stage_diagnostic::record(idb_stage_diagnostic::Stage::Delivery,task.request,0);
         match task.poll(scope, state) {
-            Ok(true) => {}
+            Ok(true) => {idb_stage_diagnostic::record(idb_stage_diagnostic::Stage::Delivered,task.request,0);}
             Ok(false) => {
+                idb_stage_diagnostic::record(idb_stage_diagnostic::Stage::Suspended,task.request,0);
                 state.idb_deliveries.queue.borrow_mut().push_front(task);
                 return Ok(());
             }
             Err(error) => {
+                idb_stage_diagnostic::record(idb_stage_diagnostic::Stage::Failure,task.request,0);
                 state.idb_deliveries.queue.borrow_mut().push_front(task);
                 return Err(error);
             }
@@ -315,6 +318,32 @@ pub(super) fn drain(
     }
 }
 impl Task {
+    fn admitted_name(
+        scope: &mut v8::PinScope,
+        state: &V8BindingState,
+        name: &str,
+    ) -> Result<Arc<crate::idb_owned_admission::Text>, V8BindingError> {
+        let heap = scope.get_heap_statistics();
+        let used = heap
+            .used_heap_size()
+            .checked_add(heap.external_memory())
+            .ok_or(V8BindingError::Allocation("IDB step names accounting"))?;
+        let text = owned_names::Names::copy_text(
+            name,
+            &state.idb_payload_ledger,
+            heap.heap_size_limit(),
+            used,
+            &mut || scope.is_execution_terminating() || state.execution_retired(),
+        )
+        .map_err(|_| {
+            if scope.is_execution_terminating() || state.execution_retired() {
+                V8BindingError::JavaScriptException
+            } else {
+                V8BindingError::Allocation("IDB step name")
+            }
+        })?;
+        Ok(Arc::new(text))
+    }
     fn roots(&self) -> Vec<u64> {
         let mut roots = vec![self.request];
         for step in &self.steps {
@@ -329,9 +358,9 @@ impl Task {
             request_id,
             database_id,
             transaction_id,
-        } = self.action
+        } = self.action.value()
         {
-            roots.extend([request_id, database_id, transaction_id]);
+            roots.extend([*request_id, *database_id, *transaction_id]);
         }
         roots
     }
@@ -366,18 +395,35 @@ impl Task {
             let Some(step) = self.steps.front().cloned() else {
                 return Ok(true);
             };
+            let stage=match &step {
+                Step::Prepare=>idb_stage_diagnostic::Stage::Prepare,
+                Step::Publish=>idb_stage_diagnostic::Stage::Publish,
+                Step::Event(_,"upgradeneeded",_)=>idb_stage_diagnostic::Stage::UpgradeEvent,
+                Step::Event(_,"success",_)=>idb_stage_diagnostic::Stage::SuccessEvent,
+                Step::Event(_,"error",_)=>idb_stage_diagnostic::Stage::ErrorEvent,
+                Step::FinalizeOpen(..)=>idb_stage_diagnostic::Stage::FinalizeOpen,
+                Step::FinalizeTransaction(..)=>idb_stage_diagnostic::Stage::FinalizeTransaction,
+                Step::Finish(_)=>idb_stage_diagnostic::Stage::Finish,
+                Step::Flush=>idb_stage_diagnostic::Stage::Flush,
+                Step::Poll=>idb_stage_diagnostic::Stage::Poll,
+                Step::Checkpoint=>idb_stage_diagnostic::Stage::Checkpoint,
+                _=>idb_stage_diagnostic::Stage::Other,
+            };
+            idb_stage_diagnostic::record(stage,self.request,self.transaction.unwrap_or(0));
             match step {
                 Step::ConnectionPrepare(database, event, old, new) => {
                     let connection = match &*platform_object(state, database)? {
-                        PlatformObjectRecord::IdbDatabase(record) if !record.closed => {
-                            record.connection.clone().map(|token| {
-                                (
-                                    token,
-                                    record.name.clone(),
+                        PlatformObjectRecord::IdbDatabase(record) if !record.closed => record
+                            .connection
+                            .as_ref()
+                            .map(|token| {
+                                Ok::<_, V8BindingError>((
+                                    Self::admitted_name(scope, state, token)?,
+                                    Self::admitted_name(scope, state, record.name.as_str())?,
                                     event > record.last_versionchange_event,
-                                )
+                                ))
                             })
-                        }
+                            .transpose()?,
                         _ => None,
                     };
                     if let Some((token, name, fresh)) = connection {
@@ -403,14 +449,107 @@ impl Task {
                     }
                 }
                 Step::ConnectionAck { token, name, event } => {
-                    submit_platform_operation(
-                        state,
-                        PlatformHostRequest::IndexedDb {
-                            origin: current_platform_origin(state),
-                            command: IdbHostCommand::AcknowledgeConnection { token, name, event },
-                        },
-                        PendingPlatformOperation::WebSocketCommand,
-                    )?;
+                    let heap = scope.get_heap_statistics();
+                    let used = heap
+                        .used_heap_size()
+                        .checked_add(heap.external_memory())
+                        .ok_or(V8BindingError::Allocation("IDB ack heap"))?;
+                    let token = crate::idb_owned_admission::Text::copy_string_cancelled(
+                        &state.idb_payload_ledger,
+                        token.as_str(),
+                        heap.heap_size_limit(),
+                        used,
+                        &mut || scope.is_execution_terminating() || state.execution_retired(),
+                    )
+                    .map_err(|_| {
+                        if scope.is_execution_terminating() || state.execution_retired() {
+                            V8BindingError::JavaScriptException
+                        } else {
+                            V8BindingError::Allocation("IDB ack token")
+                        }
+                    })?;
+                    let name = crate::idb_owned_admission::Text::copy_string_cancelled(
+                        &state.idb_payload_ledger,
+                        name.as_str(),
+                        heap.heap_size_limit(),
+                        used,
+                        &mut || scope.is_execution_terminating() || state.execution_retired(),
+                    )
+                    .map_err(|_| {
+                        if scope.is_execution_terminating() || state.execution_retired() {
+                            V8BindingError::JavaScriptException
+                        } else {
+                            V8BindingError::Allocation("IDB ack name")
+                        }
+                    })?;
+                    let (token, token_lease) = token.into_parts();
+                    let (name, name_lease) = name.into_parts();
+                    let command = IdbHostCommand::AcknowledgeConnection { token, name, event };
+                    let admission = crate::idb_owned_admission::Admission::metadata(
+                        &command,
+                        &state.idb_payload_ledger,
+                        heap.heap_size_limit(),
+                        used,
+                        || scope.is_execution_terminating() || state.execution_retired(),
+                    )
+                    .map_err(|_| {
+                        if scope.is_execution_terminating() || state.execution_retired() {
+                            V8BindingError::JavaScriptException
+                        } else {
+                            V8BindingError::Allocation("IDB ack metadata")
+                        }
+                    })?;
+                    drop(command);
+                    let prepared = admission
+                        .prepare_cancelled(
+                            &state.idb_payload_ledger,
+                            heap.heap_size_limit(),
+                            used,
+                            || scope.is_execution_terminating() || state.execution_retired(),
+                        )
+                        .map_err(|_| {
+                            if scope.is_execution_terminating() || state.execution_retired() {
+                                V8BindingError::JavaScriptException
+                            } else {
+                                V8BindingError::Allocation("IDB ack preparation")
+                            }
+                        })?;
+                    if state.pending_platform_operations.borrow().len()
+                        >= crate::platform_admission::PENDING_LIMIT
+                    {
+                        return Err(V8BindingError::Allocation("IDB ack admission count"));
+                    }
+                    let id = HostOperationId(state.next_platform_operation_id.get());
+                    let next =
+                        id.0.checked_add(1)
+                            .ok_or(V8BindingError::Allocation("IDB ack identity"))?;
+                    let host = state
+                        .platform_host
+                        .borrow()
+                        .clone()
+                        .ok_or(V8BindingError::Allocation("IDB ack host"))?;
+                    state
+                        .pending_platform_operations
+                        .borrow_mut()
+                        .insert(id, PendingPlatformOperation::WebSocketCommand);
+                    if let Err(error) = host.submit_owned_idb_admission(
+                        id,
+                        current_platform_origin(state),
+                        prepared,
+                    ) {
+                        state.pending_platform_operations.borrow_mut().remove(&id);
+                        return Err(match error {
+                            crate::platform::OwnedIdbSubmitError::Busy => {
+                                V8BindingError::Allocation("IDB ack busy")
+                            }
+                            crate::platform::OwnedIdbSubmitError::Failure(message) => {
+                                V8BindingError::Message(message)
+                            }
+                        });
+                    }
+                    state.next_platform_operation_id.set(next);
+                    drop(token_lease);
+                    drop(name_lease);
                     self.steps.pop_front();
                 }
                 Step::FinalizeOpen(request, database, transaction) => {
@@ -424,10 +563,8 @@ impl Task {
                         ]);
                         continue;
                     }
-                    let name = match &*platform_object(state, database)? {
-                        PlatformObjectRecord::IdbDatabase(record) => record.name.clone(),
-                        _ => return Err(V8BindingError::Allocation("IDB finalize database")),
-                    };
+                    let name = owned_database_name::snapshot(scope, state, database)?;
+                    let (name, _name_custody) = name.into_parts();
                     let hidden = *self
                         .cleanup
                         .get_or_insert_with(|| new_internal_idb_request(state, None));
@@ -453,10 +590,8 @@ impl Task {
                         PlatformObjectRecord::IdbTransaction(record) => record.database_id,
                         _ => return Err(V8BindingError::Allocation("IDB finalize transaction")),
                     };
-                    let database = match &*platform_object(state, database)? {
-                        PlatformObjectRecord::IdbDatabase(record) => record.name.clone(),
-                        _ => return Err(V8BindingError::Allocation("IDB finalize database")),
-                    };
+                    let database = owned_database_name::snapshot(scope, state, database)?;
+                    let (database, _database_custody) = database.into_parts();
                     let token = format!("{}:{transaction}", state.instance_id);
                     let command = if commit {
                         IdbHostCommand::CommitTransaction { token, database }
@@ -486,7 +621,7 @@ impl Task {
                                 let array = v8::Array::new(scope, response.databases.len() as i32);
                                 for (index, database) in response.databases.iter().enumerate() {
                                     let value = v8::Object::new(scope);
-                                    let name = v8_string(scope, &database.name)?;
+                                    let name = v8_string(scope, database.name.as_str())?;
                                     set_object_property(scope, value, "name", name)?;
                                     let version =
                                         v8::Number::new(scope, database.version as f64).into();
@@ -582,6 +717,41 @@ impl Task {
                     let hidden = *self
                         .cleanup
                         .get_or_insert_with(|| new_internal_idb_request(state, None));
+                    let heap = scope.get_heap_statistics();
+                    let used = heap
+                        .used_heap_size()
+                        .checked_add(heap.external_memory())
+                        .ok_or(V8BindingError::Allocation("IDB retire heap"))?;
+                    let token = crate::idb_owned_admission::Text::copy_string_cancelled(
+                        &state.idb_payload_ledger,
+                        token.as_str(),
+                        heap.heap_size_limit(),
+                        used,
+                        &mut || scope.is_execution_terminating() || state.execution_retired(),
+                    )
+                    .map_err(|_| {
+                        if scope.is_execution_terminating() || state.execution_retired() {
+                            V8BindingError::JavaScriptException
+                        } else {
+                            V8BindingError::Allocation("IDB retire token")
+                        }
+                    })?;
+                    let name = crate::idb_owned_admission::Text::copy_string_cancelled(
+                        &state.idb_payload_ledger,
+                        name.as_str(),
+                        heap.heap_size_limit(),
+                        used,
+                        &mut || scope.is_execution_terminating() || state.execution_retired(),
+                    )
+                    .map_err(|_| {
+                        if scope.is_execution_terminating() || state.execution_retired() {
+                            V8BindingError::JavaScriptException
+                        } else {
+                            V8BindingError::Allocation("IDB retire name")
+                        }
+                    })?;
+                    let (token, token_lease) = token.into_parts();
+                    let (name, name_lease) = name.into_parts();
                     queue_idb(
                         scope,
                         state,
@@ -589,6 +759,8 @@ impl Task {
                         IdbHostCommand::RetireConnection { token, name },
                         IdbCompletionAction::Unit,
                     )?;
+                    drop(token_lease);
+                    drop(name_lease);
                     if let PlatformObjectRecord::IdbDatabase(database) =
                         &mut *platform_object_mut(state, database)?
                     {
@@ -598,7 +770,7 @@ impl Task {
                 }
                 Step::LegacyCheck { name, version, old } => {
                     self.steps.pop_front();
-                    if state.idb_database_blocks_change(&name) {
+                    if state.idb_database_blocks_change(name.as_str()) {
                         self.add_front([
                             Step::Event(self.request, "blocked", Some((old, version))),
                             Step::WaitLegacy { name },
@@ -608,7 +780,7 @@ impl Task {
                     }
                 }
                 Step::WaitLegacy { name } => {
-                    if state.idb_database_blocks_change(&name) {
+                    if state.idb_database_blocks_change(name.as_str()) {
                         if let PlatformObjectRecord::IdbRequest(request) =
                             &mut *platform_object_mut(state, self.request)?
                         {
@@ -744,6 +916,7 @@ impl Task {
                     let transaction = Self::transaction_of(state, request)?;
                     if !self.finish_accounted.contains(&request) {
                         state.active_idb_connections.borrow_mut().remove(&request);
+                        state.owned_active_connections.borrow_mut().remove(&request);
                         remove_idb_request_from_queue(state, request)?;
                         if let Some(id) = transaction
                             && let PlatformObjectRecord::IdbTransaction(transaction) =
@@ -776,10 +949,11 @@ impl Task {
                 }
                 Step::Flush => {
                     state.flush_queued_idb_operations()?;
+                    flush_owned_idb(scope, state)?;
                     self.steps.pop_front();
                 }
                 Step::Poll => {
-                    state.poll_idb_connections()?;
+                    state.poll_idb_connections(scope)?;
                     self.steps.pop_front();
                 }
                 Step::Checkpoint => {
@@ -809,8 +983,11 @@ impl Task {
                     request_id: original,
                     database_id,
                     transaction_id,
-                } = self.action.clone()
+                } = self.action.value()
                 {
+                    let original = *original;
+                    let database_id = *database_id;
+                    let transaction_id = *transaction_id;
                     let connection = {
                         let mut record = platform_object_mut(state, database_id)?;
                         let PlatformObjectRecord::IdbDatabase(database) = &mut *record else {
@@ -820,8 +997,14 @@ impl Task {
                         database.upgrade_transaction_id = None;
                         database
                             .connection
-                            .clone()
-                            .map(|token| (token, database.name.clone()))
+                            .as_ref()
+                            .map(|token| {
+                                Ok::<_, V8BindingError>((
+                                    Self::admitted_name(scope, state, token)?,
+                                    Self::admitted_name(scope, state, database.name.as_str())?,
+                                ))
+                            })
+                            .transpose()?
                     };
                     if let PlatformObjectRecord::IdbTransaction(transaction) =
                         &mut *platform_object_mut(state, transaction_id)?
@@ -871,11 +1054,14 @@ impl Task {
                 return Ok(());
             }
         };
-        let change = match &self.action {
+        let action_owner = self.action.clone();
+        let change = match action_owner.value() {
             IdbCompletionAction::Open { name } if response.upgrade_needed => {
-                Some((name.clone(), response.version))
+                Some((Self::admitted_name(scope, state, name)?, response.version))
             }
-            IdbCompletionAction::DeleteDatabase { name } => Some((name.clone(), None)),
+            IdbCompletionAction::DeleteDatabase { name } => {
+                Some((Self::admitted_name(scope, state, name)?, None))
+            }
             _ => None,
         };
         if !response.connection_managed
@@ -895,7 +1081,7 @@ impl Task {
                     .iter()
                     .filter_map(|(id, record)| match record {
                         PlatformObjectRecord::IdbDatabase(database)
-                            if database.name == name && !database.closed =>
+                            if database.name.as_str() == name.as_str() && !database.closed =>
                         {
                             Some((*id, database.version))
                         }
@@ -922,17 +1108,75 @@ impl Task {
             });
             return Ok(());
         }
-        match self.action.clone() {
+        let action_owner = self.action.clone();
+        match action_owner.value() {
             IdbCompletionAction::Open { name } => {
                 let database_id = if let Some(id) = self.created {
                     id
                 } else {
-                    let definitions = response
-                        .object_store_definitions
-                        .iter()
-                        .cloned()
-                        .map(|definition| (definition.name.clone(), definition))
-                        .collect::<BTreeMap<_, _>>();
+                    let heap = scope.get_heap_statistics();
+                    let used = heap
+                        .used_heap_size()
+                        .checked_add(heap.external_memory())
+                        .ok_or(V8BindingError::Allocation("IDB definition accounting"))?;
+                    let definitions = owned_store_map::StoreMap::from_wire(
+                        &response.object_store_definitions,
+                        &state.idb_payload_ledger,
+                        heap.heap_size_limit(),
+                        used,
+                        &mut || scope.is_execution_terminating() || state.execution_retired(),
+                    )
+                    .map_err(|_| {
+                        if scope.is_execution_terminating() || state.execution_retired() {
+                            V8BindingError::JavaScriptException
+                        } else {
+                            V8BindingError::Allocation("IDB database definitions")
+                        }
+                    })?;
+                    let rollback_definitions = definitions
+                        .copy_admitted(
+                            &state.idb_payload_ledger,
+                            heap.heap_size_limit(),
+                            used,
+                            &mut || scope.is_execution_terminating() || state.execution_retired(),
+                        )
+                        .map_err(|_| {
+                            if scope.is_execution_terminating() || state.execution_retired() {
+                                V8BindingError::JavaScriptException
+                            } else {
+                                V8BindingError::Allocation("IDB rollback definitions")
+                            }
+                        })?;
+                    let names = owned_names::Names::from_strings(
+                        &response.object_stores,
+                        &state.idb_payload_ledger,
+                        heap.heap_size_limit(),
+                        used,
+                        &mut || scope.is_execution_terminating() || state.execution_retired(),
+                    )
+                    .map_err(|_| {
+                        if scope.is_execution_terminating() || state.execution_retired() {
+                            V8BindingError::JavaScriptException
+                        } else {
+                            V8BindingError::Allocation("IDB store names")
+                        }
+                    })?;
+                    let rollback_names = names
+                        .copy_admitted(
+                            &state.idb_payload_ledger,
+                            heap.heap_size_limit(),
+                            used,
+                            &mut || scope.is_execution_terminating() || state.execution_retired(),
+                        )
+                        .map_err(|_| {
+                            if scope.is_execution_terminating() || state.execution_retired() {
+                                V8BindingError::JavaScriptException
+                            } else {
+                                V8BindingError::Allocation("IDB rollback names")
+                            }
+                        })?;
+                    let database_name = owned_database_name::text(scope, state, name)?;
+                    let (database_name, database_name_custody) = database_name.into_parts();
                     let id = register_platform_object(
                         state,
                         PlatformObjectRecord::IdbDatabase(IdbDatabaseRecord {
@@ -940,13 +1184,14 @@ impl Task {
                                 format!("{}:connection:{}", state.instance_id, self.request)
                             }),
                             last_versionchange_event: 0,
-                            name,
+                            name: database_name,
+                            _name_custody: Some(database_name_custody),
                             version: response.version.unwrap_or(1),
                             old_version: response.old_version.unwrap_or(0),
-                            object_stores: response.object_stores.clone(),
-                            object_store_definitions: definitions.clone(),
-                            upgrade_base_object_stores: response.object_stores.clone(),
-                            upgrade_base_definitions: definitions,
+                            object_stores: names,
+                            object_store_definitions: definitions,
+                            _upgrade_base_object_stores: rollback_names,
+                            upgrade_base_definitions: rollback_definitions,
                             upgrade_transaction_id: None,
                             closed: false,
                         }),
@@ -955,6 +1200,26 @@ impl Task {
                     id
                 };
                 if response.upgrade_needed && self.transaction.is_none() {
+                    let heap = scope.get_heap_statistics();
+                    let used = heap
+                        .used_heap_size()
+                        .checked_add(heap.external_memory())
+                        .ok_or(V8BindingError::Allocation("IDB upgrade scope accounting"))?;
+                    let (names, custody) = crate::idb_owned_admission::Scope::copy_names_cancelled(
+                        &state.idb_payload_ledger,
+                        &response.object_stores,
+                        heap.heap_size_limit(),
+                        used,
+                        &mut || scope.is_execution_terminating() || state.execution_retired(),
+                    )
+                    .map_err(|_| {
+                        if scope.is_execution_terminating() || state.execution_retired() {
+                            V8BindingError::JavaScriptException
+                        } else {
+                            V8BindingError::Allocation("IDB upgrade scope")
+                        }
+                    })?
+                    .into_parts();
                     let id = register_platform_object(
                         state,
                         PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
@@ -965,8 +1230,8 @@ impl Task {
                             request_id: Some(self.request),
                             mode: "versionchange".into(),
                             durability: "default".into(),
-                            object_stores: response.object_stores.clone(),
-                            scope_custody: None,
+                            object_stores: names,
+                            scope_custody: Some(custody),
                             aborted: false,
                             error: None,
                             pending_requests: 0,
@@ -1033,6 +1298,9 @@ impl Task {
                 database_id,
                 transaction_id,
             } => {
+                let original = *original;
+                let database_id = *database_id;
+                let transaction_id = *transaction_id;
                 let closed = match &mut *platform_object_mut(state, database_id)? {
                     PlatformObjectRecord::IdbDatabase(database) => {
                         database.upgrade_transaction_id = None;
@@ -1069,6 +1337,8 @@ impl Task {
                 transaction_id,
                 event_type,
             } => {
+                let transaction_id = *transaction_id;
+                let event_type = *event_type;
                 if let PlatformObjectRecord::IdbTransaction(transaction) =
                     &mut *platform_object_mut(state, transaction_id)?
                 {
@@ -1085,9 +1355,9 @@ impl Task {
                     Step::Flush,
                 ]);
             }
-            action => {
+            _ => {
                 if self.value.is_none() {
-                    let value = self.build_value(scope, state, action, response)?;
+                    let value = self.build_value(scope, state, action_owner.clone(), response)?;
                     self.value = Some(v8::Global::new(scope, value));
                 }
                 self.steps.extend([
@@ -1106,11 +1376,11 @@ impl Task {
         &mut self,
         scope: &mut v8::PinScope<'s, '_>,
         state: &Rc<V8BindingState>,
-        action: IdbCompletionAction,
+        action: Arc<owned_action::OwnedAction>,
         response: IdbHostResponse,
     ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
         let request_id = self.request;
-        Ok(match action {
+        Ok(match action.value() {
             IdbCompletionAction::Unit => v8::undefined(scope).into(),
             IdbCompletionAction::Value => {
                 if response.value_present {
@@ -1140,7 +1410,7 @@ impl Task {
                 direction,
                 kind,
             } => {
-                let records = normalize_idb_cursor_records(response.records, &direction);
+                let records = normalize_idb_cursor_records(response.records, direction);
                 let limit = count
                     .filter(|count| *count != 0)
                     .unwrap_or(records.len())
@@ -1196,14 +1466,36 @@ impl Task {
             )
             .into(),
             IdbCompletionAction::CursorRefresh { cursor_id } => {
+                let cursor_id = *cursor_id;
+                let heap = scope.get_heap_statistics();
+                let used = heap
+                    .used_heap_size()
+                    .checked_add(heap.external_memory())
+                    .ok_or(V8BindingError::Allocation("IDB direction accounting"))?;
                 let (direction, with_value) = {
                     let record = platform_object(state, cursor_id)?;
                     let PlatformObjectRecord::IdbCursor(cursor) = &*record else {
                         return Err(V8BindingError::Allocation("IDBCursor record"));
                     };
-                    (cursor.direction.clone(), cursor.with_value)
+                    (
+                        crate::idb_owned_admission::Text::copy_string_cancelled(
+                            &state.idb_payload_ledger,
+                            &cursor.direction,
+                            heap.heap_size_limit(),
+                            used,
+                            &mut || scope.is_execution_terminating() || state.execution_retired(),
+                        )
+                        .map_err(|_| {
+                            if scope.is_execution_terminating() || state.execution_retired() {
+                                V8BindingError::JavaScriptException
+                            } else {
+                                V8BindingError::Allocation("IDB direction")
+                            }
+                        })?,
+                        cursor.with_value,
+                    )
                 };
-                let records = normalize_idb_cursor_records(response.records, &direction);
+                let records = normalize_idb_cursor_records(response.records, direction.as_str());
                 let next_index = (!records.is_empty()).then_some(0);
                 {
                     let mut record = platform_object_mut(state, cursor_id)?;
@@ -1239,20 +1531,48 @@ impl Task {
                 query,
                 with_value,
             } => {
-                let records = normalize_idb_cursor_records(response.records, &direction);
+                let source_id = *source_id;
+                let with_value = *with_value;
+                let records = normalize_idb_cursor_records(response.records, direction);
                 if records.is_empty() {
                     v8::null(scope).into()
                 } else {
                     let cursor_id = if let Some(id) = self.created {
                         id
                     } else {
+                        let heap = scope.get_heap_statistics();
+                        let used = heap
+                            .used_heap_size()
+                            .checked_add(heap.external_memory())
+                            .ok_or(V8BindingError::Allocation(
+                                "IDB cursor direction accounting",
+                            ))?;
+                        let (direction, direction_custody) =
+                            crate::idb_owned_admission::Text::copy_string_cancelled(
+                                &state.idb_payload_ledger,
+                                direction,
+                                heap.heap_size_limit(),
+                                used,
+                                &mut || {
+                                    scope.is_execution_terminating() || state.execution_retired()
+                                },
+                            )
+                            .map_err(|_| {
+                                if scope.is_execution_terminating() || state.execution_retired() {
+                                    V8BindingError::JavaScriptException
+                                } else {
+                                    V8BindingError::Allocation("IDB cursor direction")
+                                }
+                            })?
+                            .into_parts();
                         let id = register_platform_object(
                             state,
                             PlatformObjectRecord::IdbCursor(IdbCursorRecord {
                                 request_id,
                                 source_id,
                                 direction,
-                                query,
+                                _direction_custody: Some(direction_custody),
+                                query: query.clone(),
                                 records,
                                 index: 0,
                                 got_value: true,
@@ -1295,18 +1615,61 @@ mod tests {
             .unwrap()
     }
     fn records(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> (u64, u64, u64) {
+        let heap = scope.get_heap_statistics();
+        let used = heap
+            .used_heap_size()
+            .checked_add(heap.external_memory())
+            .unwrap();
+        let definitions = owned_store_map::StoreMap::empty(
+            &state.idb_payload_ledger,
+            heap.heap_size_limit(),
+            used,
+            &mut || false,
+        )
+        .unwrap();
+        let rollback_definitions = owned_store_map::StoreMap::empty(
+            &state.idb_payload_ledger,
+            heap.heap_size_limit(),
+            used,
+            &mut || false,
+        )
+        .unwrap();
+        let database_name = owned_names::Names::copy_text(
+            "db",
+            &state.idb_payload_ledger,
+            heap.heap_size_limit(),
+            used,
+            &mut || scope.is_execution_terminating() || state.execution_retired(),
+        )
+        .unwrap();
+        let (database_name, database_name_custody) = database_name.into_parts();
         let database = register_platform_object(
             state,
             PlatformObjectRecord::IdbDatabase(IdbDatabaseRecord {
                 connection: None,
                 last_versionchange_event: 0,
-                name: "db".into(),
+                name: database_name,
+                _name_custody: Some(database_name_custody),
                 version: 1,
                 old_version: 1,
-                object_stores: vec!["records".into()],
-                object_store_definitions: BTreeMap::new(),
-                upgrade_base_object_stores: Vec::new(),
-                upgrade_base_definitions: BTreeMap::new(),
+                object_stores: owned_names::Names::from_strings(
+                    &["records".into()],
+                    &state.idb_payload_ledger,
+                    heap.heap_size_limit(),
+                    used,
+                    &mut || false,
+                )
+                .unwrap(),
+                object_store_definitions: definitions,
+                _upgrade_base_object_stores: owned_names::Names::from_strings(
+                    &[],
+                    &state.idb_payload_ledger,
+                    heap.heap_size_limit(),
+                    used,
+                    &mut || false,
+                )
+                .unwrap(),
+                upgrade_base_definitions: rollback_definitions,
                 upgrade_transaction_id: None,
                 closed: false,
             }),
@@ -1354,6 +1717,17 @@ mod tests {
         events: RefCell<Vec<u64>>,
     }
     impl PlatformHost for AckHost {
+        fn submit_owned_idb_admission(
+            &self,
+            id: HostOperationId,
+            origin: String,
+            prepared: crate::idb_owned_admission::PreparedAdmission,
+        ) -> Result<(), crate::platform::OwnedIdbSubmitError> {
+            let (command, custody) = prepared.into_command();
+            let result = self.submit(id, PlatformHostRequest::IndexedDb { origin, command });
+            drop(custody);
+            result.map_err(crate::platform::OwnedIdbSubmitError::Failure)
+        }
         fn submit(&self, _: HostOperationId, request: PlatformHostRequest) -> Result<(), String> {
             if let PlatformHostRequest::IndexedDb {
                 command: IdbHostCommand::AcknowledgeConnection { event, .. },
@@ -1464,6 +1838,17 @@ mod tests {
             commits: Cell<usize>,
         }
         impl PlatformHost for Host {
+            fn submit_owned_idb_admission(
+                &self,
+                id: HostOperationId,
+                origin: String,
+                prepared: crate::idb_owned_admission::PreparedAdmission,
+            ) -> Result<(), crate::platform::OwnedIdbSubmitError> {
+                let (command, custody) = prepared.into_command();
+                let result = self.submit(id, PlatformHostRequest::IndexedDb { origin, command });
+                drop(custody);
+                result.map_err(crate::platform::OwnedIdbSubmitError::Failure)
+            }
             fn submit(
                 &self,
                 _: HostOperationId,
@@ -1507,7 +1892,7 @@ mod tests {
         *state.platform_host.borrow_mut() = Some(host.clone());
         finalize(&state, transaction, None, true);
         assert!(drain(scope, &state).is_err());
-        assert_eq!(state.queued_idb_operations.borrow().len(), 1);
+        assert_eq!(state.queued_owned_idb.borrow().len(), 1);
         let hidden = state
             .idb_deliveries
             .queue
@@ -1516,11 +1901,21 @@ mod tests {
             .unwrap()
             .cleanup
             .unwrap();
+        assert_eq!(state.queued_owned_idb.borrow()[0].request_id, hidden);
+        let original = state.queued_owned_idb.borrow()[0].admission.clone();
         drain(scope, &state).unwrap();
         assert!(!pending(&state));
         assert_eq!(host.commits.get(), 1);
         assert!(state.pending_platform_operations.borrow().values().any(|operation|matches!(operation,PendingPlatformOperation::IndexedDb{request_id,..}if *request_id==hidden)));
-        assert!(state.queued_idb_operations.borrow().is_empty());
+        assert!(state.queued_owned_idb.borrow().is_empty());
+        assert!(
+            state
+                .pending_owned_idb
+                .borrow()
+                .iter()
+                .any(|(_, op)| op.request_id == hidden
+                    && std::sync::Arc::ptr_eq(&op.admission, &original))
+        );
     }
     #[test]
     fn result_event_and_accounting_failures_resume_without_repeating_author_prefix() {
@@ -1541,7 +1936,7 @@ mod tests {
         enqueue(
             &state,
             request,
-            IdbCompletionAction::Value,
+            owned_action::OwnedAction::control(IdbCompletionAction::Value).unwrap(),
             Ok(IdbHostResponse {
                 value_present: true,
                 value: Some(serde_json::json!({"answer":42})),
@@ -1590,7 +1985,7 @@ mod tests {
         enqueue(
             &state,
             request,
-            IdbCompletionAction::Unit,
+            owned_action::OwnedAction::unit(),
             Err("ConstraintError".into()),
         );
         publication::fail_after_next_callback();
@@ -1630,7 +2025,7 @@ mod tests {
         enqueue(
             &state,
             request,
-            IdbCompletionAction::Unit,
+            owned_action::OwnedAction::unit(),
             Ok(IdbHostResponse::default()),
         );
         publication::fail_after_next_callback();

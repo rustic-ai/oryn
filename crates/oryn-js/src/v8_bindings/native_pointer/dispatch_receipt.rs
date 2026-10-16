@@ -56,7 +56,7 @@ impl Range {
             match self.phase {
                 0 => {
                     let Some(changed) =
-                        prepare_range_input(&self.owner, self.node, self.x, self.y)?
+                        prepare_range_input(scope, &self.owner, self.node, self.x, self.y)?
                     else {
                         self.result = Some(false);
                         return Ok(self.result);
@@ -121,6 +121,7 @@ impl Range {
 }
 
 fn pointer_focus(
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     target: NodeId,
 ) -> Result<Option<retained_focus::Transition>, V8BindingError> {
@@ -163,10 +164,10 @@ fn pointer_focus(
         found
     };
     let Some(node) = node else { return Ok(None) };
-    let Some(node) = focus_navigation::delegated_target(state, node)? else {
+    let Some(node) = focus_navigation::delegated_target(scope, state, node)? else {
         return Ok(None);
     };
-    if css_suppresses_focus(state, node)? {
+    if css_suppresses_focus_in_scope(scope, state, node)? {
         return Ok(None);
     }
     let job = retained_focus::Transition::new(state, Some(node))?;
@@ -471,7 +472,7 @@ impl NativePointerDispatch {
     }
     fn focus(&mut self, scope: &mut v8::PinScope, target: NodeId) -> Result<bool, V8BindingError> {
         if !self.focus_started {
-            self.focus = allocation::try_optional(|| pointer_focus(&self.state, target))?;
+            self.focus = allocation::try_optional(|| pointer_focus(scope, &self.state, target))?;
             self.focus_started = true;
         }
         if let Some(focus) = &mut self.focus
@@ -531,7 +532,12 @@ impl NativePointerDispatch {
             }
             match self.phase {
                 Phase::Prepare => {
-                    self.hit = hit_test(&state, state.document_root(), input.x, input.y, false)?
+                    refresh_layout_in_scope(scope, &state)?;
+                    if !self.owner.current() {
+                        self.cancel();
+                        return Ok(self.result);
+                    }
+                    self.hit = hit_test_snapshot(&state, state.document_root(), input.x, input.y, false)?
                         .first()
                         .copied();
                     if input.device == NativePointerDevice::Touch
@@ -545,7 +551,7 @@ impl NativePointerDispatch {
                         && action == NativePointerAction::Down
                     {
                         self.hit
-                            .map(|target| native_touch::policy(&state, target))
+                            .map(|target| native_touch::policy(scope, &state, target))
                             .transpose()?
                     } else {
                         None
@@ -612,7 +618,7 @@ impl NativePointerDispatch {
                     }
                     let (target, pending) = *self.scrollbar.as_ref().unwrap();
                     if let Some((gesture, next)) = pending {
-                        commit_scrollbar_offset(&state, gesture, next)?;
+                        commit_scrollbar_offset(scope, &state, gesture, next)?;
                     }
                     if let Some(target) = target {
                         speculation_registry::clear_interest(&state);
@@ -1018,7 +1024,7 @@ impl NativePointerDispatch {
                             .get(&input.id)
                             .is_some_and(|pointer| pointer.range.is_some())
                     {
-                        prepare_pinch(scope, &state);
+                        prepare_pinch(scope, &state)?;
                     }
                     self.mouse = input.primary
                         && !state
@@ -1162,6 +1168,7 @@ impl NativePointerDispatch {
                                 .unwrap_or(1);
                             self.selection = allocation::try_optional(|| {
                                 native_pointer_selection::Selection::begin(
+                                    scope,
                                     &state,
                                     self.target.unwrap(),
                                     input.x,
@@ -1253,6 +1260,7 @@ impl NativePointerDispatch {
                             gesture
                                 .map(|gesture| {
                                     native_pointer_selection::Selection::update(
+                                        scope,
                                         &state,
                                         gesture,
                                         self.target.unwrap(),

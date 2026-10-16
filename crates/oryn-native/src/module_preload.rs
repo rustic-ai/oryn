@@ -148,9 +148,7 @@ fn capture_module_preloads_inner(
             continue;
         }
         if !attributes.5.is_empty()
-            && !state
-                .native_media_matches(&attributes.5)
-                .map_err(V8BindingError::EventCallback)?
+            && !oryn_js::v8_bindings::native_media_matches_in_scope(scope, state, &attributes.5)?
         {
             queue.borrow_mut().seen.remove(&(environment.id, node));
             continue;
@@ -791,9 +789,8 @@ impl RawV8Host {
         let queue = module_preloads(scope);
         for mut key in keys {
             if !key.media.is_empty()
-                && !state
-                    .native_media_matches(&key.media)
-                    .map_err(HostError::Execution)?
+                && !oryn_js::v8_bindings::native_media_matches_in_scope(scope, &state, &key.media)
+                    .map_err(|error| HostError::Execution(error.to_string()))?
             {
                 continue;
             }

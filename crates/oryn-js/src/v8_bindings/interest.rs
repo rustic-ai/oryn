@@ -65,7 +65,7 @@ fn delay_for(state: &V8BindingState, node: NodeId, gain: bool) -> Duration {
         .unwrap_or(0.5);
     Duration::from_secs_f64(seconds.min(86400.))
 }
-fn reconcile(state: &Rc<V8BindingState>) -> Result<(), V8BindingError> {
+fn reconcile(scope: &mut v8::PinScope, state: &Rc<V8BindingState>) -> Result<(), V8BindingError> {
     let (hovered, active, sticky) = {
         let registry = state.interests.borrow();
         (
@@ -101,7 +101,7 @@ fn reconcile(state: &Rc<V8BindingState>) -> Result<(), V8BindingError> {
     // Release the DOM borrow before layout, which may reconcile native state.
     drop(dom);
     if !inputs.is_empty() || !active.is_empty() || !sticky.is_empty() {
-        refresh_layout(state)?;
+        refresh_layout_in_scope(scope, state)?;
     }
     let dom = state.dom.borrow();
     let mut registry = state.interests.borrow_mut();
@@ -596,7 +596,7 @@ pub(super) fn poll(
         retire(state);
     }
     state.interests.borrow_mut().epoch = Some(epoch);
-    reconcile(state)?;
+    reconcile(scope, state)?;
     if state
         .interests
         .borrow()
@@ -650,7 +650,7 @@ pub(super) fn poll(
         if state.execution_retired() || state.execution_tasks_stopped() {
             break;
         }
-        reconcile(state)?;
+        reconcile(scope, state)?;
     }
     state.interests.borrow_mut().observed = state.dom.borrow().mutation_cursor();
     Ok(count)

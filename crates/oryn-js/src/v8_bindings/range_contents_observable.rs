@@ -49,7 +49,7 @@ fn clone_shell<'s>(
     state
         .range_clone_completions
         .borrow_mut()
-        .push(Rc::new(RangeCloneCompletion {
+        .push_back(Rc::new(RangeCloneCompletion {
             source,
             target,
             deep: false,
@@ -65,12 +65,11 @@ pub(super) fn collect<'s>(
     mode: RangeContentsMode,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
     if mode == RangeContentsMode::Clone {
-        let prior = state.range_clone_completions.borrow().clone();
+        let prior_len = state.range_clone_completions.borrow().len();
         let fragment = range_contents_for_edit(&mut state.dom.borrow_mut(), state, range, mode)?;
-        for job in state.range_clone_completions.borrow().iter() {
-            if !prior.iter().any(|old| Rc::ptr_eq(old, job)) {
-                job.background.set(true);
-            }
+        // Native collection invokes no author callbacks across this boundary.
+        for job in state.range_clone_completions.borrow().iter().skip(prior_len) {
+            job.background.set(true);
         }
         let output = wrap_node(scope, state, fragment)?;
         complete_editing_range_clones(scope, state)?;

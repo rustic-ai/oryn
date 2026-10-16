@@ -233,6 +233,23 @@ impl RawV8Host {
             dom.borrow_mut()
                 .release_mutation_roots(&mutations)
                 .map_err(|error| HostError::Execution(error.to_string()))?;
+            if crate::native_timing::enabled() {
+                // Observe only after exact lease acknowledgement has succeeded.
+                let realm = self.active_realm;
+                if let Some(state) = self.binding_states.get(&realm)
+                    && !self.realm_is_parked(realm)
+                    && !state.execution_retired()
+                    && !state.execution_suspended()
+                    && !state.execution_tasks_stopped()
+                    && std::rc::Rc::ptr_eq(&state.dom(), &dom)
+                    && let Some(context) = self.contexts.get(&realm)
+                {
+                    v8::scope!(let handles, &mut self.isolate);
+                    let context = v8::Local::new(handles, context);
+                    let scope = &mut v8::ContextScope::new(handles, context);
+                    oryn_js::v8_bindings::publish_native_binding_memory(scope, "post_removal_release");
+                }
+            }
             if dom.borrow().mutation_cursor() == cursor {
                 crate::native_timing::count("host.observers.delivered", delivered as u64);
                 return Ok(delivered);
@@ -425,19 +442,29 @@ impl RawV8Host {
             registry.scheduler.advance_to(now_ms);
         }
         let mut delivered = external_delivered;
-        for state in self
+        let input_realms = self
             .binding_states
             .iter()
             .filter(|(realm, _)| !self.realm_is_parked(**realm))
-            .map(|(_, state)| state)
-            .filter(|state| !state.is_unloading())
-        {
+            .filter(|(_, state)| !state.is_unloading())
+            .map(|(realm, state)| (*realm, state.clone()))
+            .collect::<Vec<_>>();
+        for (realm, state) in input_realms {
             let _phase = crate::ipc_progress::close_admission::phase("timer_input_defaults");
             if retired() {
                 return Ok(delivered);
             }
-            delivered += oryn_js::v8_bindings::poll_native_input_defaults(state, Instant::now())
-                .map_err(|error| HostError::Execution(error.to_string()))?;
+            let context = self
+                .contexts
+                .get(&realm)
+                .cloned()
+                .ok_or(HostError::CachedAuthorityExpired)?;
+            v8::scope!(let handles, &mut self.isolate);
+            let context = v8::Local::new(handles, &context);
+            let scope = &mut v8::ContextScope::new(handles, context);
+            delivered +=
+                oryn_js::v8_bindings::poll_native_input_defaults(scope, &state, Instant::now())
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
         }
         let selection_realms = self
             .binding_states
@@ -893,7 +920,7 @@ impl RawV8Host {
                 .binding_states
                 .iter()
                 .filter_map(|(realm, state)| {
-                    if self.realm_is_parked(*realm) {
+                    if state.execution_retired() || self.realm_is_parked(*realm) {
                         return None;
                     }
                     self.contexts
@@ -903,6 +930,11 @@ impl RawV8Host {
                 })
                 .collect::<Vec<_>>();
             for (context, state) in scheduled {
+                // Earlier completion callbacks may synchronously retire another
+                // scheduled owner. Never resume its discarded execution queues.
+                if state.execution_retired() {
+                    continue;
+                }
                 let _execution_deadline = ExecutionDeadline::arm(
                     &self.isolate,
                     deadline.saturating_duration_since(Instant::now()),

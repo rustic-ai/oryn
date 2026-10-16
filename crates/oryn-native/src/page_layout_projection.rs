@@ -90,7 +90,7 @@ impl PageState {
             &self.web_fonts,
         );
         input.scrollbar_width = self.config.native_scrollbar_width;
-        if let Some(executable) = self.executable.as_ref() {
+        if let Some(executable) = self.executable.as_mut() {
             input.element_scrolls = executable
                 .element_scroll_offsets()
                 .map_err(map_host_error)?
@@ -500,7 +500,7 @@ impl PageState {
     ) -> Result<ScrollState, RuntimeError> {
         self.validate_target(target)?;
         #[cfg(feature = "v8-host")]
-        if let Some(executable) = self.executable.as_ref() {
+        if let Some(executable) = self.executable.as_mut() {
             executable
                 .scroll_node_into_view(crate::semantic::unpack_node_ref(target.node))
                 .map_err(map_host_error)?;

@@ -6,6 +6,7 @@ pub trait BindingStylesheetLifecycle {
 
 struct WeakBindingStylesheetLifecycle {
     state: std::rc::Weak<V8BindingState>,
+    _allocation: Option<std::sync::Arc<dyn Send + Sync>>,
 }
 impl BindingStylesheetLifecycle for WeakBindingStylesheetLifecycle {
     fn current(&self, owner: BindingStylesheetDocumentOwner) -> bool {
@@ -18,7 +19,13 @@ impl BindingStylesheetLifecycle for WeakBindingStylesheetLifecycle {
     }
 }
 impl V8BindingState {
-    pub fn stylesheet_lifecycle(self: &Rc<Self>) -> Rc<dyn BindingStylesheetLifecycle> {
-        Rc::new(WeakBindingStylesheetLifecycle { state: Rc::downgrade(self) })
+    pub fn stylesheet_lifecycle(&self) -> Rc<dyn BindingStylesheetLifecycle> {
+        Rc::new(WeakBindingStylesheetLifecycle { state: self.stylesheet_execution_owner.borrow().clone(), _allocation: None })
+    }
+    fn stylesheet_lifecycle_admitted(&self, allocation: &BindingRetainedAllocation) -> Result<Rc<dyn BindingStylesheetLifecycle>, String> {
+        let bytes = std::mem::size_of::<WeakBindingStylesheetLifecycle>()
+            .checked_add(2 * std::mem::size_of::<usize>()).ok_or("inline lifecycle size overflow")?;
+        let charge = allocation.reserve(bytes)?;
+        Ok(Rc::new(WeakBindingStylesheetLifecycle { state: self.stylesheet_execution_owner.borrow().clone(), _allocation: Some(charge) }))
     }
 }

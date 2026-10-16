@@ -82,11 +82,11 @@ impl InvalidControls {
                         && !dom.control_validity(node)?
                         && !dom.is_inert(node)?
                 };
-                if !available || css_suppresses_focus(&owner, node)? {
+                if !available || css_suppresses_focus_in_scope(scope, &owner, node)? {
                     continue;
                 }
                 let anchor = custom_elements::validation_anchor(scope, &owner, node)?;
-                if css_suppresses_focus(&owner, anchor)? {
+                if css_suppresses_focus_in_scope(scope, &owner, anchor)? {
                     continue;
                 }
                 let focus = retained_focus::Transition::new(&owner, Some(anchor))?;

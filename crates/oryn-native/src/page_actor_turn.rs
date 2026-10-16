@@ -383,11 +383,14 @@ pub(super) fn dispatch(
             );
         }
         PageCommand::ObserveSemanticV6 { options, reply } => {
-            let _ = reply.send(
+            let result = reply.send(
                 state
                     .refresh_semantic_observation()
                     .and_then(|_| state.semantic_observation_v6(options)),
             );
+            if let Err(Ok(observation)) = result {
+                crate::semantic::dispose_semantic_observation(observation);
+            }
         }
         PageCommand::ComputedStyle { target, reply } => {
             let _ = reply.send(
@@ -533,11 +536,14 @@ pub(super) fn dispatch(
             );
         }
         PageCommand::ObserveSemanticDelta { from, reply } => {
-            let _ = reply.send(
+            let result = reply.send(
                 state
                     .refresh_semantic_observation()
                     .and_then(|_| state.semantic_delta_from(from)),
             );
+            if let Err(Ok(delta)) = result {
+                drop(crate::semantic::OwnedSemanticChanges::new(delta.changes));
+            }
         }
         PageCommand::Trace { reply } => {
             #[cfg(feature = "v8-host")]

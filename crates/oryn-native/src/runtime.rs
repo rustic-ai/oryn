@@ -14508,6 +14508,8 @@ pub enum RuntimeError {
     CertificateRejected(String),
     #[error("network navigation failed: {0}")]
     Network(String),
+    #[error(transparent)]
+    StylesheetFailure(crate::script_load_failure::ScriptLoadFailure),
     #[error("{namespace} identity space is exhausted")]
     IdentityExhausted { namespace: String },
     #[error("navigation history has no entry in that direction")]
@@ -14856,7 +14858,7 @@ struct PageState {
     #[cfg(feature = "v8-host")]
     retired_agent_documents: std::collections::VecDeque<RetiredAgentDocument>,
     semantic_deltas: BTreeMap<u64, crate::semantic::SemanticGraphChanges>,
-    semantic_v6_deltas: BTreeMap<u64, oryn_common::v6::SemanticGraphChanges>,
+    semantic_v6_deltas: BTreeMap<u64, crate::semantic::OwnedSemanticChanges>,
     semantic_delta_bytes: usize,
     trace: TraceLog,
     history: Vec<NavigationHistoryEntry>,
@@ -16126,6 +16128,16 @@ impl PageState {
         }
     }
 
+    /// Direct native fixtures explicitly own their publication controller.
+    /// Production pages bind the parent-owned controller through the actor.
+    #[cfg(all(test, feature = "v8-host"))]
+    fn bind_direct_fixture_terminal_owner(&self) {
+        #[cfg(unix)]
+        assert!(self.context_client.is_none(), "routed fixtures must bind parent authority");
+        assert!(self.page_task_terminal_control.controller().is_none());
+        assert!(self.page_task_terminal_control.bind(Arc::new(oryn_js::prompts::PromptController::new())));
+    }
+
     fn set_challenge_assessment(&mut self, assessment: ChallengeAssessment) {
         self.trace.push(
             Revision(self.revision),
@@ -16899,7 +16911,7 @@ impl PageState {
             if !self.terminal_close_requested() {
                 self.sync_executable_semantics()?;
                 if self.refresh_page_task_layout()? {
-                    self.record_snapshot();
+                    self.record_snapshot()?;
                 }
             }
         }
@@ -18020,7 +18032,7 @@ impl PageState {
         }
         #[cfg(all(unix, feature = "v8-host"))]
         self.record_committed_navigation_progress(NavigationReadinessStage::LayoutCompleted);
-        self.record_snapshot();
+        self.record_snapshot()?;
         self.trace.push(
             Revision(self.revision),
             None,
@@ -19260,7 +19272,7 @@ impl PageState {
                 self.poll_history_publications()?;
                 self.sync_executable_semantics()?;
             }
-            self.record_snapshot();
+            self.record_snapshot()?;
             self.trace.push(
                 Revision(self.revision),
                 None,
@@ -20593,9 +20605,9 @@ impl PageState {
         if resource_kind == "stylesheet"
             && !oryn_net::stylesheet_response_allowed(&response.headers, false, false)
         {
-            return Err(RuntimeError::Network(
+            return Err(RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch(
                 "stylesheet response blocked by MIME type or nosniff".into(),
-            ));
+            )));
         }
         let kind = if resource_kind == "stylesheet" {
             oryn_net::TextResourceKind::Css
@@ -20731,7 +20743,13 @@ impl PageState {
             // The synchronous operation has terminated on both success and
             // failure. A transport error must not leave this request busy.
             self.network_quiet_since = Some(Instant::now());
-            let response = response.map_err(|error| RuntimeError::Network(error.to_string()))?;
+            let response = response.map_err(|error| {
+                if resource_kind == "stylesheet" {
+                    RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::network(error))
+                } else {
+                    RuntimeError::Network(error.to_string())
+                }
+            })?;
             self.trace.push(
                 Revision(self.revision),
                 None,
@@ -21662,7 +21680,7 @@ impl PageState {
             let after = self.semantic_graph.semantic_revision();
             if before != after {
                 self.revision += 1;
-                self.record_snapshot();
+                self.record_snapshot()?;
                 self.trace.push(
                     Revision(self.revision),
                     None,
@@ -21703,6 +21721,12 @@ impl PageState {
         print_media: bool,
         defer_frame_images: bool,
     ) -> Result<PaintSnapshotPlan, RuntimeError> {
+        if let Some(page) = self.executable.as_mut() {
+            page.sample_paint_environment_in_scope()
+                .map_err(map_host_error)?;
+        }
+        // Sampling can execute providers and reenter document lifetimes. Only
+        // after it completes acquire the final layout used by this capture.
         self.refresh_layout()?;
         let document = self
             .document
@@ -21752,7 +21776,7 @@ impl PageState {
         if !print_media {
             plan.snapshot.visual_viewport = self
                 .executable
-                .as_ref()
+                .as_mut()
                 .map(|executable| executable.paint_visual_viewport())
                 .transpose()
                 .map_err(map_host_error)?
@@ -24142,7 +24166,7 @@ impl PageState {
             diagnostics: Vec::new(),
             execution_domain: ExecutionDomain::Native,
         };
-        self.record_snapshot();
+        self.record_snapshot()?;
         let trace_kind = if mutated {
             TraceEventKind::Mutation {
                 summary: summary.into(),
@@ -24179,7 +24203,7 @@ impl PageState {
             // but its box belongs to its own document's native layout provider.
             if self
                 .executable
-                .as_ref()
+                .as_mut()
                 .ok_or(RuntimeError::EvaluationUnavailable)?
                 .hosted_semantic_pointer_ready(crate::semantic::unpack_node_ref(target.node))
                 .map_err(map_host_error)?
@@ -24549,7 +24573,7 @@ impl PageState {
                 diagnostics,
                 execution_domain: ExecutionDomain::Native,
             };
-            self.record_snapshot();
+            self.record_snapshot()?;
             self.trace.push_causal(
                 Revision(self.revision),
                 Some(result.action_id),
@@ -26097,6 +26121,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://inventory.test/".into(),
             "<p>Ready</p>",
@@ -32540,6 +32565,7 @@ mod tests {
                 #[cfg(unix)]
                 None,
             );
+            page.bind_direct_fixture_terminal_owner();
             page.load_document(
                 "https://mime.test/source".into(),
                 "<p>source</p>",
@@ -34241,6 +34267,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document("https://timing.test/root".into(),r#"<!doctype html><iframe srcdoc="&lt;script>parent.frameTiming=performance.getEntriesByType('navigation')[0];parent.frameOrigin=performance.timeOrigin;&lt;/script>&lt;p>child&lt;/p>"></iframe>"#,None,None,HistoryUpdate::Push,&BTreeMap::new(),Vec::new()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
         while page
@@ -36997,6 +37024,175 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn computed_style_fresh_owner_follows_foreign_node_adoption() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://editing.example.test/computed-owner",
+            "<!doctype html><style>body{color:rgb(1,2,3)}</style><iframe></iframe>",
+        )
+        .await
+        .unwrap();
+        let result = page.evaluate(r#"(() => {
+            const check=(ok,message)=>{if(!ok)throw Error(message)};
+            const frame=document.querySelector('iframe'), foreign=frame.contentDocument;
+            const style=foreign.createElement('style');style.textContent='body{color:rgb(4,5,6)}';foreign.head.append(style);
+            const node=foreign.createElement('div');foreign.body.append(node);
+            const live=getComputedStyle(node);
+            check(live.color==='rgb(4, 5, 6)','foreign provider owner');
+            check(live.getPropertyValue({toString(){node.nodeName;return 'color'}})==='rgb(4, 5, 6)','foreign postconversion receipt');
+            const sentinel={};let original=false;
+            try{live.getPropertyValue({toString(){throw sentinel;}});}catch(error){original=error===sentinel;}
+            check(original,'property conversion exception identity');
+            check(live.getPropertyValue({toString(){
+                document.body.append(document.adoptNode(node));return 'color';
+            }})==='rgb(1, 2, 3)','owner resolved after property adoption');
+            check(live.getPropertyValue({toString(){
+                foreign.body.append(foreign.adoptNode(node));return 'color';
+            }})==='rgb(4, 5, 6)','owner resolved after reverse property adoption');
+            document.body.append(document.adoptNode(node));
+            check(getComputedStyle(node).color==='rgb(1, 2, 3)','adopted provider owner');
+            check(live.getPropertyValue({toString(){node.nodeName;return 'color'}})==='rgb(1, 2, 3)','retained declaration follows adoption');
+            return 'passed';
+        })()"#).await.unwrap();
+        assert_eq!(result, "passed");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn retained_allocation_computed_style_admits_after_pseudo_conversion() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://editing.example.test/retained-computed",
+            "<!doctype html><head></head><body><div id=editor>abc</div></body>",
+        )
+        .await
+        .unwrap();
+        let result = page.evaluate(r#"(() => {
+          const e=document.getElementById('editor');let calls=0;
+          const check=(ok,label)=>{if(!ok)throw Error(label)};
+          check(getComputedStyle(e).display==='block','unscoped computed style');
+          const pseudo={toString(){calls++;check(e.nodeName==='DIV','nested generated getter');
+            e.style.color='rgb(1, 2, 3)';return '';}};
+          check(getComputedStyle(e,pseudo).color==='rgb(1, 2, 3)','fresh after author conversion');
+          check(calls===1,'one pseudo conversion');
+          let threw=false;
+          try{getComputedStyle(e,{toString(){throw Error('original pseudo');}});}catch(error){threw=error.message==='original pseudo';}
+          check(threw,'conversion exception preserved');
+          check(getComputedStyle(e).color==='rgb(1, 2, 3)','next native entry remains usable');
+          return 'passed';
+        })()"#).await.unwrap();
+        assert_eq!(result, "passed");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn retained_allocation_pre_linebreak_generated_boundaries_remain_live() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html("https://editing.example.test/retained-pre",
+            "<!doctype html><style>body{margin:0}div{white-space:pre}</style><div id=editor contenteditable>abc</div>")
+            .await.unwrap();
+        let result = page.evaluate(r#"(() => {
+          const e=document.getElementById('editor'),s=getSelection();
+          const check=(ok,label)=>{if(!ok)throw Error(label)};
+          for(const separator of ['div','p'])for(const display of ['block','inline','inline-block']){
+            check(document.execCommand('defaultparagraphseparator',false,separator),'separator');
+            e.style.whiteSpace='pre';e.style.display=display;e.textContent='abc';
+            s.collapse(e.firstChild,3);
+            const r=e.getBoundingClientRect();check(Number.isFinite(r.width),'layout before command');
+            check(document.execCommand('insertlinebreak'),'linebreak accepted');
+            check(['abc\n\n','abc\n<br>'].includes(e.innerHTML),'linebreak source: '+e.innerHTML);
+            check(Number.isFinite(e.getBoundingClientRect().width),'layout after command');
+          }
+          return 'passed';
+        })()"#).await.unwrap();
+        assert_eq!(result, "passed");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn frame_provider_scoped_insert_preserves_undo_after_parent_resize() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html("https://editing.example.test/frame-undo",
+            "<!doctype html><style>body{margin:0}iframe{width:240px;height:120px}</style><iframe></iframe>")
+            .await.unwrap();
+        let result = page.evaluate(r#"(() => {
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            const f=document.querySelector('iframe'),d=f.contentDocument;
+            d.body.innerHTML='<div id=editor contenteditable>before</div>';
+            const e=d.getElementById('editor'),s=f.contentWindow.getSelection();
+            s.collapse(e.firstChild,0);
+            check(Number.isFinite(e.getBoundingClientRect().width),'child provider geometry');
+            f.style.width='320px';
+            check(d.execCommand('insertText',false,'x'),'insert');
+            check(e.textContent==='xbefore','inserted');
+            check(Number.isFinite(e.getBoundingClientRect().height),'post insert geometry');
+            check(d.execCommand('undo'),'undo');
+            check(e.textContent==='before','undo source');
+            check(d.execCommand('redo'),'redo');
+            check(e.textContent==='xbefore','redo source');
+            return 'passed';
+        })()"#).await.unwrap();
+        assert_eq!(result,"passed");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn frame_interest_poll_uses_current_scope_after_focus_event_layout() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html("https://interest.example.test/frame",
+            "<!doctype html><iframe id=f srcdoc='<button id=b interestfor=t>source</button><div id=t>target</div>'></iframe>").await.unwrap();
+        let result = page.evaluate(r#"(() => {
+            const d=document.getElementById('f').contentDocument;
+            const b=d.getElementById('b');
+            let calls=0;
+            b.addEventListener('focus',()=>{ calls++; b.getBoundingClientRect(); });
+            b.focus();
+            if(calls!==1 || d.activeElement!==b)throw Error('focus custody');
+            if(!Number.isFinite(b.getBoundingClientRect().width))throw Error('geometry');
+            return 'passed';
+        })()"#).await.unwrap();
+        assert_eq!(result,"passed");
+        page.wait_for(WaitPredicate::SelectorExists("#f".into())).await.unwrap();
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn settings_value_conversion_cannot_mutate_replaced_frame_document() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html("https://editing.example.test/settings-owner",
+            "<!doctype html><iframe></iframe>").await.unwrap();
+        let result = page.evaluate(r#"(() => {
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            const commands=['styleWithCSS','useCSS','defaultParagraphSeparator'];
+            document.execCommand('styleWithCSS',false,'false');
+            document.execCommand('defaultParagraphSeparator',false,'div');
+            for(const command of commands) {
+                let frame=document.querySelector('iframe');
+                if(!frame){frame=document.createElement('iframe');document.body.append(frame);}
+                const old=frame.contentDocument;
+                check(old.queryCommandEnabled(command),'connected child settings enabled');
+                check(old.execCommand('styleWithCSS',false,'false'),'child baseline');
+                check(old.execCommand('defaultParagraphSeparator',false,'div'),'child separator baseline');
+                let calls=0,replacement;
+                const value={toString(){calls++;frame.remove();replacement=document.createElement('iframe');
+                    document.body.append(replacement);return command==='defaultParagraphSeparator'?'p':command==='useCSS'?'false':'true';}};
+                check(old.execCommand(command,false,value)===false,'retired conversion rejected: '+command);
+                check(calls===1,'single conversion');
+                const current=replacement.contentDocument;
+                check(!current.queryCommandState('styleWithCSS'),'replacement CSS unchanged');
+                check(current.queryCommandValue('defaultParagraphSeparator')==='div','replacement separator unchanged');
+                check(!document.queryCommandState('styleWithCSS'),'parent CSS unchanged');
+                check(document.queryCommandValue('defaultParagraphSeparator')==='div','parent separator unchanged');
+                check(current.execCommand(command,false,command==='defaultParagraphSeparator'?'p':'true'),'next live receiver executes');
+                replacement.remove();
+            }
+            return 'passed';
+        })()"#).await.unwrap();
+        assert_eq!(result, "passed");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn editing_typing_consumes_terminal_placeholders_and_keeps_visible_breaks() {
         let page = Browser::new().new_context().new_page();
         page.load_html(
@@ -37332,6 +37528,411 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn editing_historical_inline_div_newline_observations() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        page.load_html("https://editing.example.test/historical-six", "<!doctype html><body></body>").await.unwrap();
+        page.evaluate(r#"globalThis.historicalEditing = (function* () {
+          for (const tag of ['p','span']) for (const display of ['block','inline','inline-block']) for (const explicit of [false,true]) {
+            const record = {tag,display,explicit,failures:[]};
+            const check = (ok,message) => {if (!ok) record.failures.push(message);};
+            let host;
+            try {
+              host = document.createElement(tag);
+              host.contentEditable = true;
+              host.style.whiteSpace = 'normal'; host.style.display = display;
+              document.body.appendChild(host);
+              const attrs = explicit ? 'display:inline;white-space:normal' : 'display:inline';
+              host.innerHTML = '<div style="' + attrs + '">a[]b</div>';
+              host.focus();
+              check(host.children.length === 1 && host.firstChild.localName === 'div' && host.firstChild.parentNode === host,'invalid-content setter structure changed');
+              const text = host.firstChild.firstChild;
+              check(text.nodeType === 3 && text.data === 'a[]b','marker parse changed');
+              text.data = text.data.substring(0,1) + text.data.substring(2,2) + text.data.substring(3);
+              check(host.innerHTML === '<div style="' + attrs + '">ab</div>','setup serialization changed');
+              const range = document.createRange();
+              range.setStart(text,1); range.setEnd(text,1);
+              const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+              check(selection.rangeCount === 1 && selection.anchorNode === text && selection.anchorOffset === 1,'setup selection changed');
+              host.getBoundingClientRect();
+              const describe = element => ({node:element.localName,whiteSpace:getComputedStyle(element).whiteSpace,display:getComputedStyle(element).display,declaredWhiteSpace:element.style.whiteSpace,declaredDisplay:element.style.display});
+              record.computedBefore = {host:describe(host),child:describe(text.parentElement)};
+              check(document.execCommand('insertText',false,'\n'),'command rejected');
+              record.computedAfter = {host:describe(host),child:describe(host.firstChild),anchorNode:selection.anchorNode?.nodeName,anchorOffset:selection.anchorOffset};
+              record.expected = '<div style="' + attrs + '">' + (explicit ? 'a<br>b' : 'a\nb') + '</div>';
+              record.actual = host.innerHTML;
+              check(record.actual === record.expected,'original innerHTML assertion failed');
+              check(selection.isCollapsed && host.contains(selection.anchorNode),'caret escaped');
+            } catch (error) {
+              record.failures.push('exception: ' + String(error));
+            } finally {
+              if (host) try { host.remove(); } catch (error) { record.failures.push('cleanup: ' + String(error)); }
+            }
+            yield record;
+          }
+          return 'complete';
+        })(); 'ready'"#).await.expect("initialize historical editing controls");
+        let mut records = Vec::new();
+        let mut errors = Vec::new();
+        for tag in ["p", "span"] {
+            for display in ["block", "inline", "inline-block"] {
+                for explicit in [false, true] {
+                    match page.evaluate("JSON.stringify(globalThis.historicalEditing.next())").await {
+                        Ok(raw) => {
+                            eprintln!("historical-editing-observation {raw}");
+                            match serde_json::from_str::<serde_json::Value>(&raw) {
+                                Ok(observation) => {
+                                    let record = &observation["value"];
+                                    if observation["done"] != false || record["tag"] != tag || record["display"] != display || record["explicit"] != explicit {
+                                        errors.push(format!("identity mismatch {tag}/{display}/{explicit}: {raw}"));
+                                    }
+                                    if !record["failures"].as_array().is_some_and(Vec::is_empty) {
+                                        errors.push(raw.clone());
+                                    }
+                                    records.push(observation);
+                                }
+                                Err(error) => errors.push(format!("invalid observation {tag}/{display}/{explicit}: {error}: {raw}")),
+                            }
+                        }
+                        Err(error) => errors.push(format!("missing observation {tag}/{display}/{explicit}: {error:?}")),
+                    }
+                }
+            }
+        }
+        match page.evaluate("const end = globalThis.historicalEditing.next(); delete globalThis.historicalEditing; JSON.stringify(end)").await {
+            Ok(raw) if raw == r#"{"value":"complete","done":true}"# => {}
+            result => errors.push(format!("incomplete generator: {result:?}")),
+        }
+        assert_eq!(records.len(), 12, "required historical observations missing: {errors:?}");
+        assert!(errors.is_empty(), "historical editing failures after all 12 observations: {errors:?}");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn editing_line_break_canonicalizes_visible_whitespace_suffix() {
+        let context=Browser::new().new_context();let page=context.new_page();
+        page.load_html("https://editing.example.test/linebreak-suffix","<!doctype html><div id=editor contenteditable></div>").await.unwrap();
+        run_editing_matrix(&page,11,r#"(function*(){const editor=document.getElementById('editor');let count=0;
+          for(let offset=0;offset<=10;offset++){
+            editor.innerHTML='a'+ '\u00a0'.repeat(9)+'b';editor.focus();getSelection().collapse(editor.firstChild,offset);
+            document.execCommand('insertLineBreak');
+            let expected;
+            if(offset===0)expected='<br>a'+'&nbsp;'.repeat(9)+'b';
+            else{let suffix='';for(let i=0;i<10-offset;i++)suffix+=i%2?' ':'&nbsp;';expected='a'+'&nbsp;'.repeat(offset-1)+'<br>'+suffix+'b';}
+            if(editor.innerHTML!==expected)throw Error('original suffix '+JSON.stringify({offset,expected,actual:editor.innerHTML}));
+            if(!getSelection().isCollapsed||!editor.contains(getSelection().anchorNode))throw Error('caret');
+            yield ++count;
+          }return String(count);
+        })()"#).await;
+    }
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn editing_line_break_suffix_respects_preserved_modes_and_islands() {
+        let context=Browser::new().new_context();let page=context.new_page();
+        page.load_html("https://editing.example.test/linebreak-negative","<!doctype html><div id=editor contenteditable></div>").await.unwrap();
+        run_editing_matrix(&page,6,r#"(function*(){const editor=document.getElementById('editor');let count=0;
+          for(const mode of ['pre','pre-wrap','break-spaces']){
+            editor.style.whiteSpace=mode;editor.innerHTML='a'+ '\u00a0'.repeat(4)+'b';editor.focus();getSelection().collapse(editor.firstChild,1);document.execCommand('insertLineBreak');
+            if(editor.textContent!=='a\n'+ '\u00a0'.repeat(4)+'b'||editor.querySelector('br'))throw Error('preserved whitespace '+mode);
+            yield ++count;
+          }
+          editor.style.whiteSpace='normal';editor.innerHTML='a<span id=left>&nbsp;&nbsp;</span><i id=right>&nbsp;&nbsp;b</i>';
+          const left=document.getElementById('left'),right=document.getElementById('right'),leftText=left.firstChild,rightText=right.firstChild;
+          const kept=document.createRange();kept.setStart(rightText,2);kept.collapse(true);
+          editor.focus();getSelection().collapse(editor.firstChild,1);document.execCommand('insertLineBreak');
+          if(left.firstChild!==leftText||right.firstChild!==rightText||leftText.data!=='\u00a0 '||rightText.data!=='\u00a0 b'||kept.startContainer!==rightText||kept.startOffset!==2)throw Error('inline node/range boundaries');
+          yield ++count;
+          editor.innerHTML='a<span id=island contenteditable=false>&nbsp;&nbsp;</span>&nbsp;&nbsp;b';const island=document.getElementById('island');
+          editor.focus();getSelection().collapse(editor.firstChild,1);document.execCommand('insertLineBreak');
+          if(document.getElementById('island')!==island||island.textContent!=='\u00a0\u00a0'||editor.lastChild.data!=='\u00a0\u00a0b')throw Error('protected island');
+          yield ++count;
+          editor.innerHTML='a'+ '\u00a0'.repeat(4096)+'b';editor.focus();getSelection().collapse(editor.firstChild,1);document.execCommand('insertLineBreak');
+          const suffix=editor.lastChild.data;if(suffix.length!==4097||suffix.at(-1)!=='b'||Array.from(suffix.slice(0,-1)).some((unit,index)=>unit!==(index%2?' ':'\u00a0')))throw Error('long run');
+          yield ++count;return String(count);
+        })()"#).await;
+    }
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn editing_line_break_space_mutations_publish_complete_records_and_allow_author_selection() {
+        let context=Browser::new().new_context();let page=context.new_page();
+        page.load_html("https://editing.example.test/linebreak-observer","<!doctype html><div id=editor contenteditable></div>").await.unwrap();
+        page.evaluate(r#"(()=>{
+          const editor=document.getElementById('editor');editor.innerHTML='a&nbsp;&nbsp;&nbsp;&nbsp;b';editor.focus();getSelection().collapse(editor.firstChild,1);
+          globalThis.suffixObserverResult={received:false,error:null,oldValues:[]};const observer=new MutationObserver(records=>{
+            suffixObserverResult.oldValues.push(...records.filter(record=>record.type==='characterData').map(record=>record.oldValue));
+            if(!records.some(record=>record.type==='characterData'))return;
+            suffixObserverResult.received=true;
+            if(editor.lastChild.data!=='\u00a0 \u00a0 b')suffixObserverResult.error='observer saw partial normalization';
+            getSelection().collapse(editor.lastChild,editor.lastChild.length);
+          });observer.observe(editor,{subtree:true,childList:true,characterData:true,characterDataOldValue:true});
+          globalThis.suffixObserver=observer;document.execCommand('insertLineBreak');return 'ready';
+        })()"#).await.unwrap();
+        assert_eq!(page.evaluate("suffixObserver.disconnect();String(suffixObserverResult.received&&suffixObserverResult.error===null&&getSelection().anchorNode===document.getElementById('editor').lastChild&&getSelection().anchorOffset===5)").await.unwrap(),"true");
+        assert_eq!(page.evaluate(r#"String(suffixObserverResult.oldValues.length===5&&suffixObserverResult.oldValues[0]==='a\u00a0\u00a0\u00a0\u00a0b'&&JSON.stringify(suffixObserverResult.oldValues.slice(1))===JSON.stringify(['\u00a0\u00a0\u00a0\u00a0b','\u00a0 \u00a0\u00a0\u00a0b','\u00a0 \u00a0\u00a0b','\u00a0 \u00a0 \u00a0b']))"#).await.unwrap(),"true");
+    }
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn editing_bold_partitions_selected_text_around_noneditable_islands() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        page.load_html("https://editing.example.test/bold-islands", "<!doctype html><div id=editor contenteditable></div>").await.unwrap();
+        run_editing_matrix(&page, 4, r#"(function*(){
+          const editor=document.getElementById('editor');let count=0;
+          for(const css of [false,true])for(const reversed of [false,true]) {
+            editor.innerHTML='foo<span id=island contenteditable=false>bar</span>baz';
+            const island=document.getElementById('island'),s=getSelection();editor.focus();
+            s.setBaseAndExtent(editor.firstChild,2,editor.lastChild,1);
+            if(reversed)s.setBaseAndExtent(s.focusNode,s.focusOffset,s.anchorNode,s.anchorOffset);
+            document.execCommand('styleWithCSS',false,String(css));document.execCommand('bold');
+            const children=Array.from(editor.childNodes),left=children[1],right=children[3];
+            if(children.length!==5||children[0].nodeType!==3||children[0].data!=='fo'||children[2]!==island||children[4].nodeType!==3||children[4].data!=='az'||left.localName!==(css?'span':'b')||right.localName!==(css?'span':'b')||left.childNodes.length!==1||left.firstChild.nodeType!==3||left.firstChild.data!=='o'||right.childNodes.length!==1||right.firstChild.nodeType!==3||right.firstChild.data!=='b')throw Error('noneditable partition '+editor.innerHTML);
+            if(css?(left.attributes.length!==1||right.attributes.length!==1||left.style.length!==1||right.style.length!==1||left.style.fontWeight!=='bold'||right.style.fontWeight!=='bold'):(left.attributes.length!==0||right.attributes.length!==0))throw Error('partition wrapper formatting '+editor.innerHTML);
+            if(document.getElementById('island')!==island||getComputedStyle(island).fontWeight==='700'||getComputedStyle(island).fontWeight==='bold')throw Error('island inherited formatting');
+            if(s.toString()!=='obarb')throw Error('selection lost island extent');
+            yield ++count;
+          }return String(count);
+        })()"#).await;
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn editing_bold_clear_preserves_unrelated_semantics_and_attributes() {
+        let context=Browser::new().new_context();let page=context.new_page();
+        page.load_html("https://editing.example.test/command-clear", "<!doctype html><div id=editor contenteditable></div>").await.unwrap();
+        run_editing_matrix(&page,2,r#"(function*(){
+          const editor=document.getElementById('editor');let count=0;
+          for(const html of ['<i style="font-weight:bold">abc</i>','<strong id=retained style="color:red">abc</strong>']){
+            editor.innerHTML=html;editor.focus();const element=editor.firstChild,text=element.firstChild,s=getSelection();s.setBaseAndExtent(text,0,text,3);
+            document.execCommand('bold');
+            if(editor.textContent!=='abc')throw Error('text changed');
+            if(element.localName==='i'){
+              if(!editor.querySelector('i')||getComputedStyle(editor.querySelector('i')).fontStyle!=='italic')throw Error('italic erased');
+            }else{
+              const retained=document.getElementById('retained');if(!retained||retained.localName!=='span'||getComputedStyle(retained).color!=='rgb(255, 0, 0)')throw Error('attributes lost');
+            }
+            const target=editor.querySelector('i')||document.getElementById('retained');
+            if(['bold','700'].includes(getComputedStyle(target).fontWeight))throw Error('bold not cleared');
+            yield ++count;
+          }return String(count);
+        })()"#).await;
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn editing_tag_replacement_preserves_container_and_sibling_range_boundaries() {
+        let context=Browser::new().new_context();let page=context.new_page();
+        page.load_html("https://editing.example.test/tag-range", "<!doctype html><div id=editor contenteditable>x<strong id=old style='color:red'>abc</strong>y</div>").await.unwrap();
+        run_editing_matrix(&page,1,r#"(function*(){
+          const editor=document.getElementById('editor'),old=document.getElementById('old'),text=old.firstChild;
+          const before=document.createRange();before.setStart(editor,1);before.collapse(true);
+          const after=document.createRange();after.setStart(editor,2);after.collapse(true);
+          const inside=document.createRange();inside.setStart(old,0);inside.setEnd(old,1);
+          const s=getSelection();editor.focus();s.setBaseAndExtent(text,0,text,3);document.execCommand('bold');
+          const replacement=document.getElementById('old');
+          if(!replacement||replacement.localName!=='span'||replacement.firstChild!==text)throw Error('replacement custody');
+          if(before.startContainer!==editor||before.startOffset!==1||after.startContainer!==editor||after.startOffset!==2)throw Error('sibling boundaries '+JSON.stringify({beforeEditor:before.startContainer===editor,beforeTag:before.startContainer.nodeName,beforeOffset:before.startOffset,afterEditor:after.startContainer===editor,afterTag:after.startContainer.nodeName,afterOffset:after.startOffset,insideTag:inside.startContainer.nodeName,insideStart:inside.startOffset,insideEnd:inside.endOffset,html:editor.innerHTML}));
+          if(inside.startContainer!==replacement||inside.startOffset!==0||inside.endContainer!==replacement||inside.endOffset!==1||inside.toString()!=='abc')throw Error('container boundary retarget');
+          yield 1;return '1';
+        })()"#).await;
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn editing_partial_bold_clear_preserves_protected_block_effective_value() {
+        let context=Browser::new().new_context();let page=context.new_page();
+        page.load_html("https://editing.example.test/propagate-block", "<!doctype html><div id=editor contenteditable></div>").await.unwrap();
+        run_editing_matrix(&page,1,r#"(function*(){
+          const editor=document.getElementById('editor');
+          // Programmatic setup preserves a block inside the semantic formatting
+          // ancestor without invoking parser correction of invalid markup.
+          const bold=document.createElement('b'),selected=document.createTextNode('selected'),block=document.createElement('div'),tail=document.createTextNode('protected');
+          block.contentEditable='false';block.append(tail);bold.append(selected,block);editor.append(bold);editor.focus();
+          const before=getComputedStyle(block).fontWeight,s=getSelection();s.setBaseAndExtent(selected,0,selected,8);document.execCommand('bold');
+          if(!editor.contains(block)||block.firstChild.textContent!=='protected'||block.contentEditable!=='false')throw Error('protected block custody');
+          if(!block.contains(tail)||getComputedStyle(tail.parentNode).fontWeight!==before)throw Error('protected text inherited value changed');
+          if(['bold','700'].includes(getComputedStyle(selected.parentNode).fontWeight))throw Error('selected value not cleared');
+          if(s.toString()!=='selected')throw Error('selected extent changed');
+          yield 1;return '1';
+        })()"#).await;
+    }
+
+#[cfg(feature="v8-host")]
+#[tokio::test(flavor="current_thread")]
+async fn create_link_updates_partial_editable_ancestor_without_nested_anchor() {
+    let context=Browser::new().new_context();let page=context.new_page();
+    page.load_html("https://editing.example.test/partial-link","<!doctype html><body>").await.unwrap();
+    run_editing_matrix(&page,2,r#"(function*(){let count=0;
+      for(const reversed of [false,true]){
+        document.body.innerHTML='<div contenteditable><a id="link" href="old" data-custody="keep">abc</a></div>';
+        const link=document.getElementById('link'),text=link.firstChild,sel=getSelection();
+        sel.setBaseAndExtent(text,reversed?2:1,text,reversed?1:2);
+        const before=sel.toString();document.execCommand('createLink',false,'new');
+        if(document.querySelectorAll('a').length!==1||link.getAttribute('href')!=='new'||link.getAttribute('data-custody')!=='keep'||link.firstChild!==text)throw Error('partial ancestor custody');
+        if(sel.rangeCount!==1||!link.contains(sel.anchorNode)||!link.contains(sel.focusNode)||sel.anchorNode.ownerDocument!==document||sel.focusNode.ownerDocument!==document)throw Error('partial selection owner');
+        const anchor=document.createRange(),focus=document.createRange();
+        anchor.setStart(sel.anchorNode,sel.anchorOffset);anchor.collapse(true);
+        focus.setStart(sel.focusNode,sel.focusOffset);focus.collapse(true);
+        const anchorPosition=document.createRange(),focusPosition=document.createRange();
+        anchorPosition.setStart(link,0);anchorPosition.setEnd(sel.anchorNode,sel.anchorOffset);
+        focusPosition.setStart(link,0);focusPosition.setEnd(sel.focusNode,sel.focusOffset);
+        if(sel.toString()!==before||link.textContent!=='abc'||anchorPosition.toString()!==(reversed?'ab':'a')||focusPosition.toString()!==(reversed?'a':'ab')||anchor.compareBoundaryPoints(Range.START_TO_START,focus)!==(reversed?1:-1))throw Error('partial selection '+JSON.stringify({before,after:sel.toString(),reversed,anchorPrefix:anchorPosition.toString(),focusPrefix:focusPosition.toString(),anchorOffset:sel.anchorOffset,focusOffset:sel.focusOffset,html:link.parentNode.innerHTML}));
+        yield ++count;
+      }return String(count);
+    })()"#).await;
+}
+
+#[cfg(feature="v8-host")]
+#[tokio::test(flavor="current_thread")]
+async fn formatting_default_medium_preserves_dom_and_selection_when_loosely_equivalent() {
+    let context=Browser::new().new_context();let page=context.new_page();
+    page.load_html("https://editing.example.test/default-size-noop","<!doctype html><body>").await.unwrap();
+    run_editing_matrix(&page,2,r#"(function*(){let count=0;
+      for(const css of [false,true]){
+        document.body.innerHTML='<div contenteditable>abc</div><font size="3">reference</font>';
+        const editor=document.body.firstChild,text=editor.firstChild,reference=editor.nextSibling,s=getSelection();
+        if(getComputedStyle(editor).fontSize!==getComputedStyle(reference).fontSize)throw Error('fixture must start loosely equivalent to FONT size 3');
+        editor.focus();document.execCommand('styleWithCSS',false,String(css));s.setBaseAndExtent(text,0,text,3);
+        document.execCommand('fontSize',false,'3');
+        if(editor.childNodes.length!==1||editor.firstChild!==text||text.data!=='abc'||s.anchorNode!==text||s.anchorOffset!==0||s.focusNode!==text||s.focusOffset!==3)throw Error('default medium no-op lost DOM/selection');
+        yield ++count;
+      }document.execCommand('styleWithCSS',false,'false');return String(count);
+    })()"#).await;
+}
+#[cfg(feature="v8-host")]
+#[tokio::test(flavor="current_thread")]
+async fn html_font_face_hint_is_native_live_and_yields_to_author_css() {
+    let context=Browser::new().new_context();let page=context.new_page();
+    page.load_html("https://editing.example.test/font-face","<!doctype html><body>").await.unwrap();
+    run_editing_matrix(&page,5,r#"(function*(){let count=0;
+      for(const family of ['serif','sans-serif','cursive','fantasy','monospace']){
+        const font=document.createElement('font');font.setAttribute('face',family);document.body.append(font);
+        if(getComputedStyle(font).fontFamily!==family)throw Error('face '+family);
+        font.style.fontFamily='fantasy';if(getComputedStyle(font).fontFamily!=='fantasy')throw Error('author priority');
+        font.style.fontFamily='';font.setAttribute('face','monospace');if(getComputedStyle(font).fontFamily!=='monospace')throw Error('face mutation');
+        font.removeAttribute('face');if(getComputedStyle(font).fontFamily!==getComputedStyle(document.body).fontFamily)throw Error('face removal');
+        font.remove();yield ++count;
+      }return String(count);
+    })()"#).await;
+}
+
+#[cfg(feature="v8-host")]
+#[tokio::test(flavor="current_thread")]
+async fn formatting_font_name_uses_font_face_or_css_span() {
+    let context=Browser::new().new_context();let page=context.new_page();
+    page.load_html("https://editing.example.test/font-name","<!doctype html><body>").await.unwrap();
+    run_editing_matrix(&page,2,r#"(function*(){let count=0;
+      for(const css of [false,true]){
+        document.body.innerHTML='<div contenteditable><p>foo</p><p>bar</p></div>';
+        const editor=document.body.firstChild,first=editor.firstChild.firstChild,last=editor.lastChild.firstChild,s=getSelection();
+        editor.focus();document.execCommand('styleWithCSS',false,String(css));s.setBaseAndExtent(first,0,last,3);document.execCommand('fontName',false,'sans-serif');
+        const wrappers=[editor.firstChild.firstChild,editor.lastChild.firstChild];
+        for(const wrapper of wrappers){
+          if(css?wrapper.localName!=='span'||wrapper.style.fontFamily!=='sans-serif':wrapper.localName!=='font'||wrapper.getAttribute('face')!=='sans-serif')throw Error('family serialization');
+          if(getComputedStyle(wrapper).fontFamily!=='sans-serif')throw Error('family hint');
+        }
+        if(wrappers[0].firstChild!==first||wrappers[1].firstChild!==last||s.toString().replace(/\n/g,'')!=='foobar')throw Error('family identity/selection');
+        yield ++count;
+      }document.execCommand('styleWithCSS',false,'false');return String(count);
+    })()"#).await;
+}
+#[cfg(feature="v8-host")]
+#[tokio::test(flavor="current_thread")]
+async fn font_face_hint_survives_move_adoption_and_ignores_foreign_namespace() {
+    let context=Browser::new().new_context();let page=context.new_page();
+    page.load_html("https://editing.example.test/font-face-life","<!doctype html><body>").await.unwrap();
+    run_editing_matrix(&page,1,r#"(function*(){
+      const font=document.createElement('font');font.setAttribute('face','monospace');font.append('x');document.body.append(font);
+      const holder=document.createElement('div');document.body.append(holder);holder.append(font);
+      if(getComputedStyle(font).fontFamily!=='monospace')throw Error('face move');
+      font.remove();font.setAttribute('face','sans-serif');document.body.append(font);
+      if(getComputedStyle(font).fontFamily!=='sans-serif')throw Error('face reconnect');
+      const foreign=document.implementation.createHTMLDocument('owner');foreign.adoptNode(font);foreign.body.append(font);
+      document.adoptNode(font);document.body.append(font);if(getComputedStyle(font).fontFamily!=='sans-serif'||font.ownerDocument!==document)throw Error('face adoption');
+      const alien=document.createElementNS('urn:foreign','font');alien.setAttribute('face','monospace');document.body.append(alien);
+      if(getComputedStyle(alien).fontFamily!==getComputedStyle(document.body).fontFamily)throw Error('foreign face hint');
+      font.setAttribute('face','');if(getComputedStyle(font).fontFamily!==getComputedStyle(document.body).fontFamily)throw Error('emptyface');
+      yield 1;return '1';
+    })()"#).await;
+}
+#[cfg(feature="v8-host")]
+#[tokio::test(flavor="current_thread")]
+async fn font_face_hint_parses_quoted_lists_and_rejects_empty_invalid_values() {
+    let context=Browser::new().new_context();let page=context.new_page();
+    page.load_html("https://editing.example.test/font-face-list","<!doctype html><body>").await.unwrap();
+    run_editing_matrix(&page,4,r#"(function*(){let count=0;
+      for(const face of ['"Oryn Missing Family", serif','Oryn Missing Family, monospace','','"unterminated']){
+        const font=document.createElement('font'),reference=document.createElement('span');
+        font.setAttribute('face',face);reference.style.fontFamily=face;document.body.append(font,reference);
+        if(getComputedStyle(font).fontFamily!==getComputedStyle(reference).fontFamily)throw Error('native face family-list parsing '+JSON.stringify({face,actual:getComputedStyle(font).fontFamily,expected:getComputedStyle(reference).fontFamily}));
+        if(font.hasAttribute('style')||font.getAttribute('face')!==face)throw Error('hint must not synthesize author style or rewrite content');
+        font.remove();reference.remove();yield ++count;
+      }return String(count);
+    })()"#).await;
+}
+#[cfg(feature="v8-host")]
+#[tokio::test(flavor="current_thread")]
+async fn formatting_font_size_css_flag_uses_span_except_legacy_seven() {
+    let context=Browser::new().new_context();let page=context.new_page();
+    page.load_html("https://editing.example.test/size-css","<!doctype html><body>").await.unwrap();
+    run_editing_matrix(&page,14,r#"(function*(){let count=0;
+      for(const css of [false,true])for(let size=1;size<=7;size++){
+        // Exercise wrapper production, not a loosely equivalent no-op. Prove
+        // this fixture differs from each actual owning FONT size before edit.
+        document.body.innerHTML='<div contenteditable style="font-size:11px">abc</div>';
+        const editor=document.body.firstChild,text=editor.firstChild,s=getSelection();
+        editor.focus();document.execCommand('styleWithCSS',false,String(css));s.setBaseAndExtent(text,0,text,3);
+        const reference=document.createElement('font');reference.setAttribute('size',String(size));document.body.append(reference);
+        if(getComputedStyle(editor).fontSize===getComputedStyle(reference).fontSize)throw Error('wrapper fixture unexpectedly loosely equivalent '+size);
+        reference.remove();
+        document.execCommand('fontSize',false,String(size));
+        const wrapper=editor.firstChild;
+        if(css&&size!==7){
+          if(wrapper.localName!=='span'||wrapper.style.fontSize!==['x-small','small','medium','large','x-large','xx-large'][size-1]||editor.querySelector('font'))throw Error('CSS size wrapper '+size);
+        }else if(wrapper.localName!=='font'||wrapper.getAttribute('size')!==String(size))throw Error('legacy size wrapper '+JSON.stringify({size,css,html:editor.innerHTML,font:getComputedStyle(editor).fontSize,selected:s.toString(),wrapperType:wrapper.nodeType,wrapperTag:wrapper.nodeName}));
+        if(wrapper.firstChild!==text||s.toString()!=='abc'||editor.textContent!=='abc')throw Error('size identity/selection');
+        yield ++count;
+      }document.execCommand('styleWithCSS',false,'false');return String(count);
+    })()"#).await;
+}
+#[cfg(feature="v8-host")]
+#[tokio::test(flavor="current_thread")]
+async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection() {
+    let context=Browser::new().new_context();let page=context.new_page();
+    page.load_html("https://editing.example.test/size-format","<!doctype html><body>").await.unwrap();
+    run_editing_matrix(&page,7,r#"(function*(){let count=0;
+      for(let size=1;size<=7;size++){
+        document.body.innerHTML='<div contenteditable><font id="font" size="'+size+'">abc</font></div>';
+        const font=document.getElementById('font'),text=font.firstChild,editor=font.parentNode,s=getSelection();
+        editor.focus();s.setBaseAndExtent(text,0,text,3);const before=getComputedStyle(font).fontSize;
+        document.execCommand('fontSize',false,String(size));
+        if(editor.textContent!=='abc'||s.toString()!=='abc')throw Error('size text/selection');
+        const nativeFont=editor.querySelector('font');
+        if(!nativeFont||nativeFont.getAttribute('size')!==String(size))throw Error('native FONT serialization');
+        const current=s.anchorNode.nodeType===3?s.anchorNode.parentNode:s.anchorNode;
+        if(getComputedStyle(current).fontSize!==before)throw Error('size changed '+JSON.stringify({size,before,actual:getComputedStyle(current).fontSize}));
+        yield ++count;
+      }return String(count);
+    })()"#).await;
+}
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn html_font_size_hints_parse_clamp_and_yield_to_author_cascade() {
+        let context=Browser::new().new_context();let page=context.new_page();
+        page.load_html("https://editing.example.test/font-size-hints","<!doctype html><body></body>").await.unwrap();
+        run_editing_matrix(&page,18,r#"(function*(){
+          const cases=[['0',1],['1',1],['7',7],['+0',3],['-0',3],['+4',7],['-4',1],['999999999999999999999999',7],['-999999999999999999999999',1],['+999999999999999999999999',7],[' \t3',3],['3junk',3],['+2junk',5],['',null],[' ',null],['+',null],['-',null],['junk',null]];
+          const keywords=['x-small','small','medium','large','x-large','xx-large','xxx-large'];let count=0;
+          for(const [input,size] of cases){
+            const font=document.createElement('font'),reference=document.createElement('span');font.setAttribute('size',input);reference.style.fontSize=size===null?'medium':keywords[size-1];document.body.append(font,reference);
+            const actual=getComputedStyle(font).fontSize,expected=getComputedStyle(reference).fontSize;
+            if(actual!==expected)throw Error('FONT size '+JSON.stringify({input,attribute:font.getAttribute('size'),actual,expected}));
+            font.style.setProperty('font-size','31px','important');if(getComputedStyle(font).fontSize!=='31px')throw Error('author override');
+            font.remove();reference.remove();yield ++count;
+          }return String(count);
+        })()"#).await;
+    }
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn editing_paragraphs_split_computed_blocks_and_keep_inline_formatting() {
         let context = Browser::new().new_context();
         let page = context.new_page();
@@ -37472,8 +38073,34 @@ mod tests {
         page.goto("https://styles.encoding.test/root")
             .await
             .unwrap();
-        assert_eq!(page.evaluate("[document.characterSet,getComputedStyle(document.getElementById('latin')).width,getComputedStyle(document.getElementById('cyrillic')).height].join('|')")
-            .await.unwrap(), "windows-1252|17px|23px");
+        let actual = page.evaluate("[document.characterSet,getComputedStyle(document.getElementById('latin')).width,getComputedStyle(document.getElementById('cyrillic')).height].join('|')").await.unwrap();
+        let expected = "windows-1252|17px|23px";
+        if actual != expected {
+            // Capture only after the original result: diagnostic evaluation
+            // may advance native work, but cannot change this assertion's value.
+            let sheets = page.evaluate(r#"JSON.stringify((()=>{
+                let remaining=8;
+                function sheet(s,depth){
+                    if(!s)return null;
+                    const out={href:s.href,disabled:s.disabled,media:s.media.mediaText};
+                    try{out.rules=[];const list=s.cssRules;
+                        for(let i=0;i<list.length&&remaining>0;i++){
+                            remaining--;const r=list[i];
+                            const v={type:r.type,text:r.cssText,selector:r.selectorText};
+                            if(r.type===3){v.href=r.href;v.child=depth<2?sheet(r.styleSheet,depth+1):'depth-limit';}
+                            out.rules.push(v);
+                        }
+                    }catch(e){out.error=e.name;}
+                    return out;
+                }
+                return {latin:document.getElementById('latin').className,
+                    cyrillic:document.getElementById('cyrillic').className,
+                    sheets:Array.from(document.styleSheets).slice(0,2).map(s=>sheet(s,0))};
+            })())"#).await;
+            let trace = page.trace().await;
+            assert_eq!(actual, expected, "stylesheet/import publication={sheets:?}; trace={trace:?}");
+        }
+        assert_eq!(actual, expected);
     }
 
     #[cfg(feature = "v8-host")]
@@ -37933,7 +38560,7 @@ mod tests {
         );
         for revision in 1..=4 {
             page.revision = revision;
-            page.record_snapshot();
+            page.record_snapshot().unwrap();
         }
         assert_eq!(
             page.semantic_deltas.keys().copied().collect::<Vec<_>>(),
@@ -44657,6 +45284,7 @@ mod semantic_sync_faults {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://semantics.test/frames".into(),
             "<iframe srcdoc='<p>First</p>'></iframe><iframe srcdoc='<p>Second</p>'></iframe>",
@@ -44754,6 +45382,8 @@ mod semantic_sync_faults {
     #[test]
     fn selected_frame_projection_does_not_reuse_a_different_document_authority() {
         let mut page = page();
+        // Direct fixtures have no parent actor to bind publication authority.
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://semantics.test/frames".into(),
             "<iframe srcdoc='<button>Frame</button>'></iframe>",
@@ -46682,3 +47312,70 @@ mod navigation_settlement_error_tests;
 #[cfg(all(test, unix, feature = "v8-host", feature = "in-process-probe"))]
 #[path = "javascript_navigation_tests.rs"]
 mod javascript_navigation_regressions;
+#[cfg(test)]
+mod snapshot_publication_controls {
+    use super::*;
+    fn page() -> PageState {
+        let mut page = PageState::new(
+            PageId(944),
+            None,
+            BrowserConfig::default(),
+            ContextOptions::default(),
+            None,
+            #[cfg(all(unix, feature = "v8-host"))]
+            None,
+        );
+        let dom = crate::html::parse("<form><button>pending</button></form>")
+            .into_runtime()
+            .unwrap();
+        page.semantic_graph
+            .reset(dom.arena(), page.document_generation);
+        page
+    }
+    #[test]
+    fn cancelled_count_preserves_whole_page_publication() {
+        let mut probe = page();
+        let mut total = 0;
+        probe
+            .record_snapshot_with_checkpoint(&mut || {
+                total += 1;
+                Ok(())
+            })
+            .unwrap();
+        assert!(total > 0);
+        for boundary in 1..=total {
+            let mut page = page();
+            page.record_snapshot_with_checkpoint(&mut || Ok(()))
+                .unwrap();
+            let dom = crate::html::parse("<form><button>new pending</button></form>")
+                .into_runtime()
+                .unwrap();
+            page.semantic_graph
+                .reset(dom.arena(), page.document_generation);
+            page.semantic_publication_pending = true;
+            let before_graph = format!("{:?}", page.semantic_graph);
+            let before_revision = page.revision;
+            let before_bytes = page.semantic_delta_bytes;
+            let before_keys = page.semantic_v6_deltas.keys().copied().collect::<Vec<_>>();
+            let mut calls = 0;
+            let result = page.record_snapshot_with_checkpoint(&mut || {
+                calls += 1;
+                if calls == boundary {
+                    Err(crate::dom::DomError::ProjectionCancelled)
+                } else {
+                    Ok(())
+                }
+            });
+            assert!(result.is_err());
+            assert_eq!(format!("{:?}", page.semantic_graph), before_graph);
+            assert_eq!(page.revision, before_revision);
+            assert_eq!(page.semantic_delta_bytes, before_bytes);
+            assert_eq!(
+                page.semantic_v6_deltas.keys().copied().collect::<Vec<_>>(),
+                before_keys
+            );
+            assert!(!page.semantic_deltas.is_empty());
+            assert!(page.semantic_publication_pending);
+        }
+    }
+}

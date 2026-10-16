@@ -279,7 +279,7 @@ pub(super) fn get<'s>(
         .into());
     }
     if matches!(member, "isValid" | "invalidReason") {
-        let reason = invalid_reason(state, node)?;
+        let reason = invalid_reason(scope, state, node)?;
         return if member == "isValid" {
             Ok(v8::Boolean::new(scope, reason.is_empty()).into())
         } else {
@@ -612,7 +612,11 @@ pub(super) fn constraints(
         .constraints = serde_json::Value::Object(result);
     Ok(())
 }
-fn invalid_reason(state: &V8BindingState, node: NodeId) -> Result<String, V8BindingError> {
+fn invalid_reason(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    node: NodeId,
+) -> Result<String, V8BindingError> {
     if state.execution_retired() || !state.dom.borrow().is_connected(node)? {
         return Ok("unsuccessful_registration".into());
     }
@@ -633,7 +637,7 @@ fn invalid_reason(state: &V8BindingState, node: NodeId) -> Result<String, V8Bind
             _ => return Err(fail("InvalidStateError")),
         }
     }
-    let (viewport, rect) = native_input_geometry(state, Some(node))?;
+    let (viewport, rect) = native_input_geometry(scope, state, Some(node))?;
     let style = state.layout.borrow().styles.get(&node_key(node)).cloned();
     if let Some(style) = &style
         && !matches!(
@@ -1107,7 +1111,7 @@ fn poll_inner(
             return Ok(0);
         }
     }
-    permission_prompt::fixup(state)?;
+    permission_prompt::fixup(scope, state)?;
     let cursor = state.dom.borrow().mutation_cursor();
     {
         let dom = state.dom.borrow();
@@ -1299,8 +1303,13 @@ fn poll_inner(
             let pending = if hidden { None } else { element.pending };
             (pending, automatic && !hidden)
         };
-        let reason =
-            invalid_reason(state, node).unwrap_or_else(|_| "unsuccessful_registration".into());
+        let reason = match invalid_reason(scope, state, node) {
+            Ok(reason) => reason,
+            Err(error @ (V8BindingError::Allocation(_) | V8BindingError::JavaScriptException)) => {
+                return Err(error);
+            }
+            Err(_) => "unsuccessful_registration".into(),
+        };
         let valid = reason.is_empty();
         let changed = {
             let mut registry = state.permission_elements.borrow_mut();
@@ -1852,7 +1861,7 @@ mod tests {
             .get_mut(&node)
             .unwrap()
             .attached = old;
-        let _ = invalid_reason(&state, node);
+        let _ = invalid_reason(scope, &state, node);
         {
             let mut registry = state.permission_elements.borrow_mut();
             let element = registry.elements.get_mut(&node).unwrap();
@@ -1863,7 +1872,7 @@ mod tests {
             scope,
             "globalThis.u=document.getElementById('u');globalThis.captureEvents=[];u.onstream=e=>captureEvents.push('stream');u.onerror=e=>captureEvents.push('error');u.oncancel=e=>captureEvents.push('cancel')",
         );
-        assert!(invalid_reason(&state, node).unwrap().is_empty());
+        assert!(invalid_reason(scope, &state, node).unwrap().is_empty());
         activate(&state, node, true).unwrap();
         native_platform::poll(scope, &state).unwrap();
         assert!(eval(scope,"u.isValid&&u.invalidReason===''&&u.stream===null&&u.error===null&&captureEvents.length===0").is_true());

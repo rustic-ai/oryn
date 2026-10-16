@@ -7,11 +7,21 @@ impl RawV8Host {
         revision: u64,
         dependencies: &mut Option<crate::executable::CssDependencies>,
     ) -> Result<bool, HostError> {
+        self.queue_owned_css_dependencies_with_receipt(node,revision,dependencies,&mut None)
+    }
+    pub(crate) fn queue_owned_css_dependencies_with_receipt(
+        &mut self,
+        node: oryn_dom::NodeId,
+        revision: u64,
+        dependencies: &mut Option<crate::executable::CssDependencies>,
+        allocation: &mut Option<Arc<dyn Send + Sync>>,
+    ) -> Result<bool, HostError> {
         let Some(payload) = dependencies.as_ref() else {
             return Ok(true);
         };
         if payload.is_empty() {
             dependencies.take();
+            allocation.take();
             return Ok(true);
         }
         let epoch = self
@@ -71,6 +81,7 @@ impl RawV8Host {
             revision,
             epoch,
             dependencies,
+            _allocation: allocation.take(),
             _bytes: reservation,
         });
         Ok(true)

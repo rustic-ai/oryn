@@ -563,7 +563,7 @@ pub(super) fn image_map_suffix(
     let y = native_input_property(scope, event, "MouseEvent", "clientY")?
         .number_value(scope)
         .ok_or(V8BindingError::JavaScriptException)?;
-    let rect = match geometry_for_node(state, target)? {
+    let rect = match geometry_for_node(scope, state, target)? {
         BindingGeometry::Available(rect) => rect,
         BindingGeometry::Hidden => return Ok(Some("?0,0".into())),
         BindingGeometry::Unsupported(detail) => {
@@ -612,7 +612,7 @@ fn select_image_coordinate(
     let y = native_input_property(scope, event, "MouseEvent", "clientY")?
         .number_value(scope)
         .ok_or(V8BindingError::JavaScriptException)?;
-    let rect = match geometry_for_node(state, node)? {
+    let rect = match geometry_for_node(scope, state, node)? {
         BindingGeometry::Available(rect) => rect,
         BindingGeometry::Hidden => return Ok(()),
         BindingGeometry::Unsupported(detail) => {

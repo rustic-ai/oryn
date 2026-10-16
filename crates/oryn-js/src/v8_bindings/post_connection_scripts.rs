@@ -551,6 +551,27 @@ fn capture_batch(
             }
         }
     }
+    // Imported replacement roots may be only Text nodes. Resource preparation
+    // still belongs to the connected stylesheet parent whose source revision
+    // changes, rather than to the child fragment's own (empty) subtree.
+    if let Some(parent) = changed_parent {
+        let owner = destination.unwrap_or(state);
+        if owner.dom.borrow().arena().is_css_stylesheet_owner(parent)? {
+            let count = resources.len().checked_add(jobs.len())
+                .and_then(|n| n.checked_add(1))
+                .ok_or(V8BindingError::Allocation("stylesheet children-changed capacity"))?;
+            if count > 4096 {
+                return Err(V8BindingError::Allocation("post-connection admission capacity"));
+            }
+            resources.try_reserve(1)
+                .map_err(|_| V8BindingError::Allocation("stylesheet children-changed resource"))?;
+            if let Some(job) = job(scope, owner, parent, false)? {
+                resources.push_back(Resource {
+                    prepared_document: job.document, job, stage: 0,
+                });
+            }
+        }
+    }
     // Children-changed preparation belongs to the connected parent script,
     // independently of whether any inserted root is itself a script.
     if let Some(parent) = changed_parent

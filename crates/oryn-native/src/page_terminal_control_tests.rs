@@ -626,6 +626,8 @@ fn page_owner_early_reply_handoff_retains_later_replies_and_skips_task_drain() {
     for retire in [false, true] {
         let (mut root, _sender) = timer_root(if retire { 820 } else { 821 });
         let control = close_yield_control(&mut root);
+        // Loading commits the executable; this control requires published Load.
+        root.state.sync_executable_semantics().unwrap();
         let mut receivers = Vec::new();
         for _ in 0..2 {
             let (reply, received) = oneshot::channel();

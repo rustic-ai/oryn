@@ -698,7 +698,7 @@ fn cancel_source_resources(
     source
         .prepared_stylesheets
         .borrow_mut()
-        .retain(|node| !nodes.contains(node));
+        .retain(|node, _| !nodes.contains(node));
     source
         .pending_dynamic_frames
         .borrow_mut()

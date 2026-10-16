@@ -1210,6 +1210,84 @@ mod tests {
     }
     #[derive(Default)]
     struct Memory(Mutex<ClipboardData>);
+    #[test]
+    fn trusted_backward_text_target_matches_native_code_point_deletion() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(oryn_dom::html::parse(
+            "<div id=editor contenteditable><p>abc</p></div>"
+        ).into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(236), 4).unwrap();
+        let target = state.dom.borrow().find_by_id("editor").unwrap();
+        // The three Indic/jamo cases retain the pinned fixture's code-point
+        // deletion granularity; the algorithm does not invent grapheme deletion.
+        for (data, caret, start, expected) in [
+            ("abc", 1, 0, "bc"),
+            ("abc", 2, 1, "ac"),
+            ("abc", 3, 2, "ab"),
+            ("a😀b", 3, 1, "ab"),
+            ("ที่", 3, 2, "ที"),
+            ("क्षि", 4, 3, "क्ष"),
+            ("각", 3, 2, "가"),
+        ] {
+            let setup = format!(
+                "globalThis.editor=document.getElementById('editor');editor.innerHTML='<p></p>';globalThis.text=document.createTextNode({data:?});editor.firstChild.appendChild(text);editor.focus();getSelection().collapse(text,{caret});globalThis.savedRange=null;globalThis.beforeCount=0;globalThis.before=e=>{{beforeCount++;savedRange=e.getTargetRanges()[0];if(!e.isTrusted||!(savedRange instanceof StaticRange)||savedRange!==e.getTargetRanges()[0]||savedRange.startContainer!==text||savedRange.endContainer!==text||savedRange.startOffset!=={start}||savedRange.endOffset!=={caret})throw Error('target extent');if(text.data!=={data:?}||getSelection().anchorNode!==text||getSelection().anchorOffset!=={caret})throw Error('early mutation')}};editor.addEventListener('beforeinput',before);"
+            );
+            eval(scope, &setup);
+            let mut notification = ClipboardNotification::editing(scope, &state, target,
+                "beforeinput", "deleteContentBackward", None, None).unwrap();
+            let mut outcome = None;
+            for _ in 0..64 {
+                outcome = notification.poll(scope, &state).unwrap();
+                if outcome.is_some() { break; }
+            }
+            assert_eq!(outcome, Some(true));
+            // execCommand uses the same native Delete primitive as keyboard
+            // Command::Delete { forward:false, unit:None }; not a JS substitute.
+            eval(scope, &format!("editor.removeEventListener('beforeinput',before);document.execCommand('delete');if(beforeCount!==1||text.data!=={expected:?}||savedRange.startOffset!=={start}||savedRange.endOffset!=={caret}||getSelection().anchorNode!==text||getSelection().anchorOffset!=={start})throw Error('deletion/snapshot');"));
+            let event = input_event(scope, &state, target, "input", "deleteContentBackward", None, None).unwrap();
+            let key = v8_string(scope, "inputUnderTest").unwrap();
+            context.global(scope).set(scope, key.into(), event.into()).unwrap();
+            eval(scope, "if(inputUnderTest.getTargetRanges().length!==0)throw Error('input ranges')");
+        }
+        eval(scope, "editor.innerHTML='<p>a😀b</p>';text=editor.firstChild.firstChild;getSelection().collapse(text,3);globalThis.cancelBefore=e=>{savedRange=e.getTargetRanges()[0];e.preventDefault()};editor.addEventListener('beforeinput',cancelBefore);");
+        let mut notification = ClipboardNotification::editing(scope, &state, target,
+            "beforeinput", "deleteContentBackward", None, None).unwrap();
+        let mut outcome = None;
+        for _ in 0..64 {
+            outcome = notification.poll(scope, &state).unwrap();
+            if outcome.is_some() { break; }
+        }
+        assert_eq!(outcome, Some(false));
+        eval(scope, "if(text.data!=='a😀b'||getSelection().anchorNode!==text||getSelection().anchorOffset!==3||savedRange.startOffset!==1||savedRange.endOffset!==3)throw Error('cancellation');editor.removeEventListener('beforeinput',cancelBefore);");
+    }
+    #[test]
+    fn trusted_delete_target_range_cancellation_keeps_dom_and_selection() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<main id=editor contenteditable>abc<br><br><div id=child>def<br>ghi</div></main>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(235), 4).unwrap();
+        eval(scope, "globalThis.editor=document.getElementById('editor');globalThis.child=document.getElementById('child');getSelection().collapse(child.firstChild,0);globalThis.originalHTML=editor.innerHTML;globalThis.originalNode=getSelection().anchorNode;editor.addEventListener('beforeinput',e=>{if(!e.isTrusted)throw Error('untrusted');globalThis.savedRange=e.getTargetRanges()[0];if(!savedRange||savedRange.startContainer!==editor||savedRange.startOffset!==2||savedRange.endContainer!==editor||savedRange.endOffset!==3)throw Error('wrong nested BR extent');if(savedRange!==e.getTargetRanges()[0])throw Error('unstable StaticRange identity');e.preventDefault()});");
+        let target = state.dom.borrow().find_by_id("editor").unwrap();
+        let mut notification = ClipboardNotification::editing(scope, &state, target, "beforeinput", "deleteContentBackward", None, None).unwrap();
+        let mut outcome = None;
+        for _ in 0..64 {
+            outcome = notification.poll(scope, &state).unwrap();
+            if outcome.is_some() { break; }
+        }
+        assert_eq!(outcome, Some(false));
+        eval(scope, "if(editor.innerHTML!==originalHTML||getSelection().anchorNode!==originalNode||getSelection().anchorOffset!==0)throw Error('canceled notification mutated state');child.firstChild.data='changed';if(savedRange.startContainer!==editor||savedRange.startOffset!==2||savedRange.endContainer!==editor||savedRange.endOffset!==3)throw Error('snapshot changed after mutation');");
+        let event = input_event(scope, &state, target, "input", "deleteContentBackward", None, None).unwrap();
+        let key = v8_string(scope, "inputUnderTest").unwrap();
+        context.global(scope).set(scope, key.into(), event.into()).unwrap();
+        eval(scope, "if(inputUnderTest.getTargetRanges().length!==0)throw Error('input exposed ranges')");
+    }
     impl crate::clipboard::ClipboardBackend for Memory {
         fn read(&self) -> Result<ClipboardData, ClipboardError> {
             Ok(self.0.lock().unwrap().clone())

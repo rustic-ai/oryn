@@ -16,6 +16,7 @@ fn page(broker: Option<SharedNetworkBroker>) -> PageState {
         #[cfg(unix)]
         None,
     );
+    page.bind_direct_fixture_terminal_owner();
     page.load_document(
         "http://runner.test/source".into(),
         "<title>Source</title>",

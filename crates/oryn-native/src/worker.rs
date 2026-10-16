@@ -443,6 +443,7 @@ pub struct WorkerCodeIdentity {
 }
 
 struct PageSession {
+    wire_limits: WorkerLimits,
     parent_policy_authority: bool,
     page: PageHandle,
     oil: NativeOilSession,
@@ -479,6 +480,7 @@ impl PageSession {
         opener_page_id: Option<PageId>,
         related_actor: Option<WorkerRoute>,
     ) -> Result<Self, crate::runtime::RuntimeError> {
+        let wire_limits = WorkerLimits::from(&config);
         #[cfg(unix)]
         let parent_policy_authority = broker.is_some() && context_client.is_some();
         #[cfg(not(unix))]
@@ -515,6 +517,7 @@ impl PageSession {
         };
         let oil = NativeOilSession::new(page.clone());
         Ok(Self {
+            wire_limits,
             page,
             oil,
             parent_policy_authority,
@@ -565,6 +568,19 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
         }
 
         if let Ok(envelope) = serde_json::from_slice::<HostEnvelope>(&line) {
+            let request_started = std::time::Instant::now();
+            let wire_limits = match &envelope.command {
+                WorkerRequest::Initialize { limits, .. } => {
+                    WorkerLimits::from(&limits.browser_config())
+                }
+                _ => envelope
+                    .route
+                    .as_ref()
+                    .and_then(|route| sessions.get(&route.environment))
+                    .and_then(Option::as_ref)
+                    .map(|session| session.wire_limits.clone())
+                    .unwrap_or_else(|| WorkerLimits::from(&BrowserConfig::default())),
+            };
             // Diagnostic identities do not authorize requests; normal validation follows.
             let progress_scope = envelope.route.as_ref().map(|route| {
                 crate::ipc_progress::request(route, envelope.message_id, &envelope.command)
@@ -699,15 +715,32 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             }
             let reset = matches!(response, WorkerResponse::ResetReady { .. });
             let exiting = matches!(response, WorkerResponse::Exiting);
-            let response = WorkerEnvelope {
+            let response = OwnedWorkerEnvelope(WorkerEnvelope {
                 protocol_version: WORKER_PROTOCOL_VERSION,
                 route: envelope.route,
                 session_id: envelope.session_id,
                 message_id: envelope.message_id,
                 correlation_id: envelope.message_id,
                 response,
-            };
-            serde_json::to_writer(&mut writer, &response)?;
+            });
+            let deadline = request_started + Duration::from_millis(wire_limits.command_wall_ms);
+            if matches!(
+                &response.0.response,
+                WorkerResponse::SemanticObservation { .. }
+                    | WorkerResponse::SemanticObservationV6 { .. }
+                    | WorkerResponse::SemanticDelta { .. }
+            ) {
+                let mut budget = WireBudgetWriter {
+                    writer: &mut writer,
+                    remaining: wire_limits.ipc_frame_bytes.saturating_sub(1),
+                    deadline,
+                };
+                write_envelope_deep_safe_checked(&mut budget, &response.0, &mut || {
+                    semantic_wire_checkpoint(deadline)
+                })?;
+            } else {
+                serde_json::to_writer(&mut writer, &response)?;
+            }
             writer.write_all(b"\n")?;
             writer.flush()?;
             crate::ipc_progress::record(
@@ -747,7 +780,8 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             },
         };
         let exiting = matches!(response, WorkerResponse::Exiting);
-        write_legacy(&mut writer, &response)?;
+        let response = OwnedWorkerResponse(Some(response));
+        write_legacy(&mut writer, response.0.as_ref().unwrap())?;
         if exiting {
             break;
         }
@@ -778,7 +812,7 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
 }
 
 fn write_legacy(writer: &mut impl Write, response: &WorkerResponse) -> std::io::Result<()> {
-    serde_json::to_writer(&mut *writer, response)?;
+    write_response_deep_safe(&mut *writer, response)?;
     writer.write_all(b"\n")?;
     writer.flush()
 }
@@ -2017,5 +2051,270 @@ mod nested_command_wire_tests {
             .unwrap(),
             serde_json::json!({"command":"goto","url":"https://example.test/"})
         );
+    }
+}
+struct OwnedWorkerResponse(Option<WorkerResponse>);
+impl serde::Serialize for OwnedWorkerResponse {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.as_ref().unwrap().serialize(serializer)
+    }
+}
+impl Drop for OwnedWorkerResponse {
+    fn drop(&mut self) {
+        if let Some(response) = self.0.take() {
+            dispose_worker_response(response);
+        }
+    }
+}
+struct OwnedWorkerEnvelope(WorkerEnvelope);
+impl serde::Serialize for OwnedWorkerEnvelope {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
+}
+impl Drop for OwnedWorkerEnvelope {
+    fn drop(&mut self) {
+        let response = std::mem::replace(&mut self.0.response, WorkerResponse::Exiting);
+        dispose_worker_response(response);
+    }
+}
+fn dispose_worker_response(response: WorkerResponse) {
+    match response {
+        WorkerResponse::SemanticObservationV6 { observation } => {
+            crate::semantic::dispose_semantic_observation(observation)
+        }
+        WorkerResponse::SemanticObservation { mut observation } => {
+            for mut node in observation.accessibility.drain(..) {
+                crate::semantic::dispose_owned_properties(&mut node.properties);
+            }
+            for mut node in observation.structures.drain(..) {
+                crate::semantic::dispose_owned_properties(&mut node.properties);
+            }
+        }
+        WorkerResponse::SemanticDelta { delta } => {
+            drop(crate::semantic::OwnedSemanticChanges::new(delta.changes))
+        }
+        _ => {}
+    }
+}
+#[cfg(test)]
+mod response_depth_controls {
+    use super::*;
+    struct FailWriter;
+    impl std::io::Write for FailWriter {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("expected writer failure"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    fn response() -> WorkerResponse {
+        WorkerResponse::SemanticDelta {
+            delta: oryn_common::v6::SemanticDelta {
+                contract_version: 6,
+                page_id: oryn_common::v3::PageId(31),
+                from_revision: oryn_common::v3::Revision(1),
+                to_revision: oryn_common::v3::Revision(2),
+                semantic_revision: 2,
+                changes: crate::semantic::deep_changes_for_test(),
+                diagnostics: Vec::new(),
+            },
+        }
+    }
+    #[test]
+    fn failed_framed_writer_drops_deep_response_on_small_stack() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(|| {
+                let owner = OwnedWorkerEnvelope(WorkerEnvelope {
+                    protocol_version: WORKER_PROTOCOL_VERSION,
+                    route: None,
+                    session_id: 1,
+                    message_id: 2,
+                    correlation_id: 2,
+                    response: response(),
+                });
+                assert!(serde_json::to_writer(FailWriter, &owner).is_err());
+                drop(owner);
+                let owner = OwnedWorkerResponse(Some(response()));
+                assert!(write_legacy(&mut FailWriter, owner.0.as_ref().unwrap()).is_err());
+                drop(owner);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+}
+fn write_response_deep_safe(
+    writer: &mut impl std::io::Write,
+    response: &WorkerResponse,
+) -> std::io::Result<()> {
+    write_response_deep_safe_checked(writer, response, &mut || Ok(()))
+}
+fn write_response_deep_safe_checked(
+    writer: &mut impl Write,
+    response: &WorkerResponse,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    match response {
+        WorkerResponse::SemanticObservation { observation } => {
+            writer.write_all(b"{\"status\":\"semantic_observation\",\"observation\":")?;
+            crate::semantic::write_observation_v5_wire(writer, observation, check)?;
+            writer.write_all(b"}")
+        }
+        WorkerResponse::SemanticObservationV6 { observation } => {
+            writer.write_all(b"{\"status\":\"semantic_observation_v6\",\"observation\":")?;
+            crate::semantic::write_observation_v6_wire(writer, observation, check)?;
+            writer.write_all(b"}")
+        }
+        WorkerResponse::SemanticDelta { delta } => {
+            writer.write_all(b"{\"status\":\"semantic_delta\",\"delta\":")?;
+            crate::semantic::write_delta_wire(writer, delta, check)?;
+            writer.write_all(b"}")
+        }
+        response => {
+            serde_json::to_writer(writer, response)?;
+            Ok(())
+        }
+    }
+}
+#[cfg(test)]
+fn write_envelope_deep_safe(
+    writer: &mut impl std::io::Write,
+    envelope: &WorkerEnvelope,
+) -> std::io::Result<()> {
+    write_envelope_deep_safe_checked(writer, envelope, &mut || Ok(()))
+}
+fn write_envelope_deep_safe_checked(
+    writer: &mut impl Write,
+    envelope: &WorkerEnvelope,
+    check: &mut impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    writer.write_all(b"{\"protocol_version\":")?;
+    serde_json::to_writer(&mut *writer, &envelope.protocol_version)?;
+    writer.write_all(b",\"route\":")?;
+    serde_json::to_writer(&mut *writer, &envelope.route)?;
+    writer.write_all(b",\"session_id\":")?;
+    serde_json::to_writer(&mut *writer, &envelope.session_id)?;
+    writer.write_all(b",\"message_id\":")?;
+    serde_json::to_writer(&mut *writer, &envelope.message_id)?;
+    writer.write_all(b",\"correlation_id\":")?;
+    serde_json::to_writer(&mut *writer, &envelope.correlation_id)?;
+    writer.write_all(b",\"response\":")?;
+    write_response_deep_safe_checked(writer, &envelope.response, check)?;
+    writer.write_all(b"}")
+}
+#[cfg(test)]
+mod successful_semantic_wire_controls {
+    use super::*;
+    fn response(deep: bool) -> OwnedWorkerResponse {
+        let changes = if deep {
+            crate::semantic::deep_changes_for_test()
+        } else {
+            oryn_common::v6::SemanticGraphChanges::default()
+        };
+        OwnedWorkerResponse(Some(WorkerResponse::SemanticDelta {
+            delta: oryn_common::v6::SemanticDelta {
+                contract_version: 6,
+                page_id: oryn_common::v3::PageId(31),
+                from_revision: oryn_common::v3::Revision(1),
+                to_revision: oryn_common::v3::Revision(2),
+                semantic_revision: 2,
+                changes,
+                diagnostics: Vec::new(),
+            },
+        }))
+    }
+    #[test]
+    fn shallow_response_exact_wire() {
+        let response = response(false);
+        let mut bytes = Vec::new();
+        write_response_deep_safe(&mut bytes, response.0.as_ref().unwrap()).unwrap();
+        assert_eq!(
+            bytes,
+            serde_json::to_vec(response.0.as_ref().unwrap()).unwrap()
+        );
+        let envelope = OwnedWorkerEnvelope(WorkerEnvelope {
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            route: None,
+            session_id: 1,
+            message_id: 2,
+            correlation_id: 2,
+            response: response.0.as_ref().unwrap().clone(),
+        });
+        let mut bytes = Vec::new();
+        write_envelope_deep_safe(&mut bytes, &envelope.0).unwrap();
+        assert_eq!(bytes, serde_json::to_vec(&envelope.0).unwrap());
+    }
+    #[test]
+    fn successful_deep_response_and_real_writer_limit() {
+        struct Limited {
+            remaining: usize,
+        }
+        impl Write for Limited {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if bytes.len() > self.remaining {
+                    return Err(std::io::Error::other("output bound"));
+                }
+                self.remaining -= bytes.len();
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(|| {
+                let response = response(true);
+                let mut bytes = Vec::new();
+                write_response_deep_safe(&mut bytes, response.0.as_ref().unwrap()).unwrap();
+                assert!(bytes.len() > 32768);
+                assert!(
+                    write_response_deep_safe(
+                        &mut Limited { remaining: 1024 },
+                        response.0.as_ref().unwrap()
+                    )
+                    .is_err()
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+}
+struct WireBudgetWriter<'a, W: Write> {
+    writer: &'a mut W,
+    remaining: usize,
+    deadline: std::time::Instant,
+}
+impl<W: Write> Write for WireBudgetWriter<'_, W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if std::time::Instant::now() >= self.deadline {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "semantic response deadline",
+            ));
+        }
+        if bytes.len() > self.remaining {
+            return Err(std::io::Error::other("semantic response IPC limit"));
+        }
+        let count = self.writer.write(bytes)?;
+        self.remaining -= count;
+        Ok(count)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
+}
+fn semantic_wire_checkpoint(deadline: std::time::Instant) -> std::io::Result<()> {
+    if std::time::Instant::now() >= deadline {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "semantic response deadline",
+        ))
+    } else {
+        Ok(())
     }
 }

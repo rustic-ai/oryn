@@ -15,7 +15,10 @@ impl ParserResourceScheduler {
                 break;
             };
             match publish_ready_retained_stylesheet(&mut custody.completion, host, arena) {
-                Ok(true) => self.complete_render_stylesheet(key.0, key.1),
+                Ok(true) => {
+                    self.complete_render_stylesheet(key.0, key.1);
+                    custody.complete_request();
+                }
                 Ok(false) => {
                     self.retained_ready.insert(key, custody);
                     break;
@@ -55,6 +58,8 @@ impl ParserResourceScheduler {
                     tree.cancel_proofs();
                 }
                 self.complete_render_stylesheet(key.0, key.1);
+                let retired_request = self.local_stylesheets.remove(&key);
+                drop(retired_request);
                 return Ok(true);
             }
             Err(error) => {
@@ -103,14 +108,22 @@ impl ParserResourceScheduler {
                     return Err(error);
                 }
             };
+            if !self.local_stylesheets.contains_key(&key) {
+                self.retry_completion(ParserResourceCompletion::RetainedStylesheet(
+                    ready.take().expect("missing request preserves reply custody"),
+                ));
+                return Err(HostError::Execution("retained response request custody missing".into()));
+            }
             let completion = ready
                 .take()
                 .expect("admitted retained source")
                 .into_completion(arena);
+            let request = self.local_stylesheets.remove(&key).expect("checked exact request custody");
             self.retained_ready.insert(
                 key,
                 RetainedReadyCustody {
                     completion,
+                    _request: request,
                     _allocation: charge,
                 },
             );
@@ -125,6 +138,7 @@ impl ParserResourceScheduler {
         match result {
             Ok(true) => {
                 self.complete_render_stylesheet(key.0, key.1);
+                completion.complete_request();
                 Ok(true)
             }
             Ok(false) => {

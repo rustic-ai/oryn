@@ -274,27 +274,29 @@ impl ScrollRestore {
                 !self.honor_manual || entry.snapshot.scroll.mode == HistoryScrollMode::Auto
             })
     }
-    fn apply(&self, state: &V8BindingState) -> Result<(), V8BindingError> {
+    fn apply(&self, scope: &mut v8::PinScope, state: &V8BindingState) -> Result<(), V8BindingError> {
         if !self.allowed(state) {
             return Ok(());
         }
         let previous = state.navigation_api.borrow().restoring_scroll;
         state.navigation_api.borrow_mut().restoring_scroll = true;
         let result: Result<(), V8BindingError> = (|| {
+            refresh_layout_in_scope(scope, state)?;
+            if !self.allowed(state) { return Ok(()); }
             if let Some((x, y)) = self.position {
                 let root = {
                     let dom = state.dom.borrow();
                     document_scrolling_element(&dom, &state.layout.borrow(), state.document_root())
                 };
                 if let Some(root) = root {
-                    perform_scroll(state, root, (Some(x), Some(y)), false)?;
+                    perform_scroll_in_scope(scope, state, root, (Some(x), Some(y)), false)?;
                 }
             } else if state
                 .navigation_history_snapshot()
                 .and_then(|entry| Url::parse(&entry.url).ok())
                 .is_some_and(|url| url.fragment().is_some())
             {
-                perform_navigation_scroll(state)?;
+                perform_navigation_scroll(scope, state)?;
             }
             Ok(())
         })();
@@ -342,7 +344,8 @@ pub(super) fn cancel_scroll_restoration(state: &V8BindingState) {
         navigation.growing_scroll = None;
     }
 }
-pub(super) fn retry_scroll_restoration(state: &V8BindingState) -> Result<(), V8BindingError> {
+pub(super) fn retry_scroll_restoration(scope: &mut v8::PinScope, state: &V8BindingState) -> Result<(), V8BindingError> {
+    if state.navigation_api.borrow().restoring_scroll { return Ok(()); }
     let pending = state.navigation_api.borrow().growing_scroll.clone();
     let Some((restore, deadline)) = pending else {
         return Ok(());
@@ -351,7 +354,7 @@ pub(super) fn retry_scroll_restoration(state: &V8BindingState) -> Result<(), V8B
         state.navigation_api.borrow_mut().growing_scroll = None;
         return Ok(());
     }
-    restore.apply(state)
+    restore.apply(scope, state)
 }
 pub(super) fn record_layout_scroll(state: &V8BindingState, position: (f64, f64)) {
     if state.navigation_api.borrow().growing_scroll.is_none() {
@@ -672,7 +675,7 @@ pub(super) fn poll_publications(
                     .as_ref()
                     .is_some_and(|restore| restore.after_events == 0)
                 {
-                    pending.scroll_restore.as_ref().unwrap().apply(state)?;
+                    pending.scroll_restore.as_ref().unwrap().apply(scope, state)?;
                     pending.scroll_restore = None;
                 }
                 let Some(event) = pending.events.front_mut() else {
@@ -4214,7 +4217,7 @@ fn event_operation<'s>(
         }
         event.scrolled = true;
         drop(navigation);
-        perform_navigation_scroll(state)?;
+        perform_navigation_scroll(scope, state)?;
         return Ok(());
     }
     if member != "intercept" {
@@ -4871,7 +4874,7 @@ impl Completion {
                             })
                             .unwrap_or(false);
                         if scroll && state.navigation_api.borrow().pending.is_none() {
-                            perform_navigation_scroll(state)?;
+                            perform_navigation_scroll(scope, state)?;
                         }
                     }
                     self.stage = 7;
@@ -4996,8 +4999,8 @@ fn complete_navigation(
             };
             if autofocus
                 && focus_navigation::eligible_for(state, node, false)?
-                && !css_suppresses_focus(state, node)?
-                && let Some(node) = focus_navigation::delegated_target(state, node)?
+                && !css_suppresses_focus_in_scope(scope, state, node)?
+                && let Some(node) = focus_navigation::delegated_target(scope, state, node)?
             {
                 target = node;
                 break;
@@ -5083,7 +5086,7 @@ fn complete_navigation(
     poll_publications(scope, state).map(|_| ())
 }
 
-fn perform_navigation_scroll(state: &V8BindingState) -> Result<(), V8BindingError> {
+fn perform_navigation_scroll(scope: &mut v8::PinScope, state: &V8BindingState) -> Result<(), V8BindingError> {
     let fragment = state
         .navigation_history_snapshot()
         .and_then(|entry| Url::parse(&entry.url).ok())
@@ -5106,7 +5109,7 @@ fn perform_navigation_scroll(state: &V8BindingState) -> Result<(), V8BindingErro
             target
         };
         if let Some(target) = target {
-            return state.scroll_node_into_view(target);
+            return state.scroll_node_into_view_in_scope(scope, target);
         }
         if !fragment.is_empty() && !fragment.eq_ignore_ascii_case("top") {
             return Ok(());
@@ -5895,7 +5898,7 @@ fn begin_location_navigation_with_source(
         state.commit_location(url.as_str())?;
         sync_history(scope, entries, selected, kind)?;
         publish_history_update(state, kind);
-        perform_navigation_scroll(state)?;
+        perform_navigation_scroll(scope, state)?;
         publish_fragment_events(
             scope,
             state,
@@ -6071,7 +6074,7 @@ fn begin_location_navigation_with_source(
             },
         )?;
         if same_document && !intercepted {
-            perform_navigation_scroll(state)?;
+            perform_navigation_scroll(scope, state)?;
             publish_fragment_events(scope, state, &current.url, url.as_str(), None)?;
         }
         Ok(false)
@@ -9335,7 +9338,7 @@ mod native_source_origin_admission_tests {
             document_scroll_size: Some((400.0, 500.0)),
             ..Default::default()
         });
-        retry_scroll_restoration(&state).unwrap();
+        retry_scroll_restoration(scope, &state).unwrap();
         assert_eq!(state.document_scroll_offset(), (300.0, 400.0));
         assert_eq!(
             state
@@ -9352,7 +9355,7 @@ mod native_source_origin_admission_tests {
             document_scroll_size: Some((2000.0, 2000.0)),
             ..Default::default()
         });
-        retry_scroll_restoration(&state).unwrap();
+        retry_scroll_restoration(scope, &state).unwrap();
         assert_eq!(state.document_scroll_offset(), (600.0, 800.0));
         assert!(state.navigation_api.borrow().growing_scroll.is_none());
         assert!(eval(scope, "pops===1").is_true());
@@ -9399,7 +9402,7 @@ mod native_source_origin_admission_tests {
                 document_scroll_size: Some((2000.0, 2000.0)),
                 ..Default::default()
             });
-            retry_scroll_restoration(&state).unwrap();
+            retry_scroll_restoration(scope, &state).unwrap();
             assert_eq!(state.document_scroll_offset(), position);
         }
     }

@@ -42,7 +42,7 @@ impl ImportWalk<'_> {
 
     fn validate_response(&self, response: &RetainedStylesheetResponse) -> Result<(), HostError> {
         self.budget.check()?;
-        if matches!(response.proof, NativeStylesheetResponseAuthority::Inline(_)) {
+        if !matches!(response.proof, NativeStylesheetResponseAuthority::Fetched(_)) {
             return Ok(()); // Exact inline owner is revalidated on owning realm.
         }
         let verified = response
@@ -197,7 +197,7 @@ impl RetainedStylesheetSource {
     /// validation and graph-issued occurrence identity validation.
     fn validate_responses(&self) -> Result<bool, HostError> {
         for response in &self.responses {
-            if matches!(response.proof, NativeStylesheetResponseAuthority::Inline(_)) {
+            if !matches!(response.proof, NativeStylesheetResponseAuthority::Fetched(_)) {
                 continue;
             }
             let result = response

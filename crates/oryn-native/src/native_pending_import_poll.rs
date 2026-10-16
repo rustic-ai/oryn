@@ -7,6 +7,9 @@ impl ParserResourceScheduler {
         let Some(job) = self.native_pending_imports.get_mut(&key) else {
             return Ok(());
         };
+        if job.failure.is_some() || job.failed || job.reply.is_some() || job.prepared.is_some() || job.committed {
+            return Ok(()); // A duplicate reply cannot replace owned terminal custody.
+        }
         match result {
             Ok(reply)
                 if reply.key == key
@@ -17,21 +20,22 @@ impl ParserResourceScheduler {
             {
                 match reply.result {
                     Ok(source) => job.reply = Some(source),
-                    Err(error) => {
-                        job.failure = Some(HostError::Execution(error));
+                    Err(RetainedStylesheetFailure::Operational(error)) => {
+                        job.failure.get_or_insert(error);
+                    }
+                    Err(RetainedStylesheetFailure::Web) => {
                         job.failed = true;
                     }
                 }
             }
             Ok(_) => {
-                job.failed = true;
+                job.failure.get_or_insert("pending import response owner mismatch".into());
                 return Err(HostError::Execution(
                     "pending import response owner mismatch".into(),
                 ));
             }
             Err(error) => {
-                job.failure = Some(HostError::Execution(error));
-                job.failed = true;
+                job.failure.get_or_insert(error);
             }
         }
         Ok(())
@@ -64,7 +68,14 @@ impl ParserResourceScheduler {
             };
             // Retirement is ordinary cancellation, not a failed attempt to
             // refresh a now-unavailable realm's allocation receipt.
-            if job.request.publication.owner_publication_retired()? {
+            let retired = match job.request.publication.owner_publication_retired() {
+                Ok(retired) => retired,
+                Err(error) => {
+                    self.native_pending_imports.insert(key, job);
+                    return Err(error);
+                }
+            };
+            if retired {
                 continue;
             }
             let identity = job.request.publication.owner.document;
@@ -99,6 +110,14 @@ impl ParserResourceScheduler {
                     restored?;
                 }
                 Err(error) => {
+                    // Settlement ran already; retain its first failures
+                    // without overwriting or reclassifying the primary.
+                    if job.settlement_failures.0.is_none() {
+                        job.settlement_failures.0 = invalidated.err();
+                    }
+                    if job.settlement_failures.1.is_none() {
+                        job.settlement_failures.1 = restored.err();
+                    }
                     self.native_pending_imports.insert(key, job);
                     return Err(error);
                 }

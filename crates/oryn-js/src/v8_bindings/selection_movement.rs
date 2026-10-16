@@ -876,13 +876,14 @@ fn control_carets(state: &V8BindingState, node: NodeId, value: &str) -> Vec<Care
 /// selection. Deletion uses this after beforeinput so cancellation and undo
 /// retain the original native selection, including soft-wrap affinity.
 pub(super) fn control_line_boundary(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     node: NodeId,
     value: &str,
     offset: u32,
     forward: bool,
 ) -> Result<Option<u32>, V8BindingError> {
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     if state.execution_retired()
         || !state.dom.borrow().is_editable_text_control(node)
         || state.dom.borrow().control_edit_value(node)? != value
@@ -923,12 +924,13 @@ pub(super) fn control_line_boundary(
 /// input host has already hit-tested the target; this never guesses from string
 /// length or uses public author-replaceable caret/selection methods.
 pub(super) fn drop_caret(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     target: NodeId,
     x: f64,
     y: f64,
 ) -> Result<Option<BoundaryPoint>, V8BindingError> {
-    caret_at_native_point(state, target, x, y, true)
+    caret_at_native_point(scope, state, target, x, y, true)
 }
 
 fn pointer_word_span(text: &str, offset: usize) -> (usize, usize) {
@@ -1124,16 +1126,17 @@ pub(super) fn pointer_unit(
 /// Pointer selection can enter ordinary document text as well as editable
 /// content. Drop insertion remains constrained to the native editing host.
 pub(super) fn pointer_caret(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     target: NodeId,
     x: f64,
     y: f64,
 ) -> Result<Option<BoundaryPoint>, V8BindingError> {
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     if pointer_exclusion(state, target)?.is_some() {
         return Ok(None);
     }
-    caret_at_native_point(state, target, x, y, false)
+    caret_at_native_point_snapshot(state, target, x, y, false)
 }
 
 fn pointer_exclusion(
@@ -1162,11 +1165,12 @@ fn pointer_exclusion(
 /// Extending an existing gesture into an unselectable subtree selects up to
 /// its near edge. Dropping the update would leave an unrelated old endpoint.
 pub(super) fn pointer_exclusion_boundary(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     target: NodeId,
     anchor: BoundaryPoint,
 ) -> Result<Option<BoundaryPoint>, V8BindingError> {
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     let Some(excluded) = pointer_exclusion(state, target)? else {
         return Ok(None);
     };
@@ -1195,6 +1199,16 @@ pub(super) fn pointer_exclusion_boundary(
 }
 
 fn caret_at_native_point(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    target: NodeId, x: f64, y: f64, editing_only: bool,
+) -> Result<Option<BoundaryPoint>, V8BindingError> {
+    if !x.is_finite() || !y.is_finite() || state.execution_retired() { return Ok(None); }
+    refresh_layout_in_scope(scope, state)?;
+    caret_at_native_point_snapshot(state, target, x, y, editing_only)
+}
+
+fn caret_at_native_point_snapshot(
     state: &V8BindingState,
     target: NodeId,
     x: f64,
@@ -1204,7 +1218,6 @@ fn caret_at_native_point(
     if !x.is_finite() || !y.is_finite() || state.execution_retired() {
         return Ok(None);
     }
-    refresh_layout(state)?;
     let (is_control, host) = {
         let dom = state.dom.borrow();
         if !dom.is_connected(target)?
@@ -1261,6 +1274,10 @@ fn caret_at_native_point(
 pub(super) struct ControlMovement {
     node: NodeId,
     old: (u32, u32, String),
+    value: String,
+    generation: u64,
+    epoch: u64,
+    authority: u64,
     next: (u32, u32, String),
     goal: Option<((f64, f64), (u64, usize))>,
 }
@@ -1273,6 +1290,20 @@ impl ControlMovement {
         scope: &mut v8::PinScope,
         state: &Rc<V8BindingState>,
     ) -> Result<(), V8BindingError> {
+if state.execution_retired() || state.execution_suspended()
+    || state.document_generation() != self.generation
+    || state.document_stream_epoch() != self.epoch
+    || state.document_authority_epoch() != self.authority
+{ return Ok(()); }
+let dom = state.dom.borrow();
+if !dom.is_connected(self.node)? || dom.node_document(self.node)? != Some(state.document_root())
+    || dom.control_disabled(self.node)? || dom.control_edit_value(self.node)? != self.value
+{ return Ok(()); }
+drop(dom);
+let length = oryn_dom::dom_string::len(&self.value) as u32;
+let current = state.text_control_selections.borrow().get(&self.node).cloned()
+    .unwrap_or((length, length, "none".into()));
+if current != self.old { return Ok(()); }
         if self.next != self.old {
             queue_control_select(scope, state, self.node)?;
             state
@@ -1287,6 +1318,7 @@ impl ControlMovement {
     }
 }
 pub(super) fn prepare_control_movement(
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     node: NodeId,
     alter: &str,
@@ -1295,6 +1327,11 @@ pub(super) fn prepare_control_movement(
 ) -> Result<Option<ControlMovement>, V8BindingError> {
     if state.execution_retired() {
         return Ok(None);
+    }
+    if matches!(granularity, "line" | "paragraph" | "lineboundary" | "page")
+        || (matches!(granularity, "character" | "word") && matches!(direction, "left" | "right"))
+    {
+        refresh_layout_in_scope(scope, state)?;
     }
     let dom = state.dom.borrow();
     if !dom.is_editable_text_control(node) {
@@ -1325,7 +1362,6 @@ pub(super) fn prepare_control_movement(
     let mut next_goal = None;
     let target = match granularity {
         "line" | "paragraph" | "lineboundary" | "page" => {
-            refresh_layout(state)?;
             let carets = control_carets(state, node, &value);
             let remembered = state
                 .control_modify_goal
@@ -1385,7 +1421,6 @@ pub(super) fn prepare_control_movement(
         "documentboundary" => Some(if forward { length } else { 0 }),
         "character" if alter == "move" && start != end => Some(if forward { end } else { start }),
         "character" | "word" if matches!(direction, "left" | "right") => {
-            refresh_layout(state)?;
             let carets = control_carets(state, node, &value);
             let remembered = state
                 .control_modify_goal
@@ -1492,6 +1527,10 @@ pub(super) fn prepare_control_movement(
     Ok(Some(ControlMovement {
         node,
         old,
+        value,
+        generation: state.document_generation(),
+        epoch: state.document_stream_epoch(),
+        authority: state.document_authority_epoch(),
         next,
         goal: next_goal,
     }))
@@ -1512,13 +1551,14 @@ pub(super) fn modify_control(
     if !state.dom.borrow().is_editable_text_control(node) {
         return Ok(false);
     }
-    if let Some(plan) = prepare_control_movement(state, node, alter, direction, granularity)? {
+    if let Some(plan) = prepare_control_movement(scope, state, node, alter, direction, granularity)? {
         plan.commit(scope, state)?;
     }
     Ok(true)
 }
 
 pub(super) fn modify(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     alter: &str,
     direction: &str,
@@ -1527,7 +1567,7 @@ pub(super) fn modify(
     if granularity == "page" {
         return Ok(());
     }
-    modify_admitted(state, alter, direction, granularity, |_, _| Ok(true))
+    modify_admitted(scope, state, alter, direction, granularity, |_, _| Ok(true))
 }
 /// Compute the native destination before dispatching selectstart. The admission
 /// callback runs before Range replacement or caret-affinity publication.
@@ -1560,13 +1600,14 @@ impl PreparedMovement {
     }
 }
 pub(super) fn modify_admitted(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     alter: &str,
     direction: &str,
     granularity: &str,
     mut admit: impl FnMut(BoundaryPoint, BoundaryPoint) -> Result<bool, V8BindingError>,
 ) -> Result<(), V8BindingError> {
-    let Some(plan) = prepare_movement(state, alter, direction, granularity)? else {
+    let Some(plan) = prepare_movement(scope, state, alter, direction, granularity)? else {
         return Ok(());
     };
     if let Some((anchor, focus)) = plan.boundaries
@@ -1577,6 +1618,49 @@ pub(super) fn modify_admitted(
     plan.commit(state)
 }
 pub(super) fn prepare_movement(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    alter: &str,
+    direction: &str,
+    granularity: &str,
+) -> Result<Option<PreparedMovement>, V8BindingError> {
+    synchronize_selection_range(state)?;
+    let original = selection_snapshot(state);
+    let associated = state.selection_range.get();
+    let generation = state.document_generation();
+    let epoch = state.document_stream_epoch();
+    let authority = state.document_authority_epoch();
+    let boundaries = state.dom.borrow().boundary_revision();
+    if state.execution_retired() { return Ok(None); }
+    refresh_layout_in_scope(scope, state)?;
+    synchronize_selection_range(state)?;
+    if state.execution_retired() || state.execution_suspended()
+        || generation != state.document_generation()
+        || epoch != state.document_stream_epoch()
+        || authority != state.document_authority_epoch()
+        || boundaries != state.dom.borrow().boundary_revision()
+        || associated != state.selection_range.get()
+        || original != selection_snapshot(state)
+    { return Ok(None); }
+    prepare_movement_snapshot(state, alter, direction, granularity)
+}
+
+// Consumes a layout explicitly prepared by the editing continuation's
+// scoped Layout operation. Never invokes provider/ancestor calculations.
+pub(super) fn modify_snapshot(
+    state: &V8BindingState,
+    alter: &str,
+    direction: &str,
+    granularity: &str,
+) -> Result<(), V8BindingError> {
+    if granularity == "page" { return Ok(()); }
+    if let Some(plan) = prepare_movement_snapshot(state, alter, direction, granularity)? {
+        plan.commit(state)?;
+    }
+    Ok(())
+}
+
+pub(super) fn prepare_movement_snapshot(
     state: &V8BindingState,
     alter: &str,
     direction: &str,
@@ -1611,7 +1695,6 @@ pub(super) fn prepare_movement(
     let Some(root) = scope_root(state, focus)? else {
         return Ok(None);
     };
-    refresh_layout(state)?;
     let carets = carets(state, root)?;
     let logical_forward = matches!(direction, "forward" | "right");
     let affinity = state
@@ -1857,6 +1940,44 @@ mod tests {
     }
 
     #[test]
+fn selection_snapshot_movement_rejects_retired_owner_without_projection() {
+    super::super::tests::initialize_v8();
+    let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<body>text</body>").into_runtime().unwrap()));
+    let mut isolate = v8::Isolate::new(Default::default());
+    v8::scope!(let scope, &mut isolate);
+    let context = v8::Context::new(scope, Default::default());
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let state = install_generated_bindings(scope, context, dom, RealmId(219), 1).unwrap();
+    state.retire_execution();
+    assert!(prepare_movement_snapshot(&state, "extend", "forward", "character").unwrap().is_none());
+    assert!(modify_snapshot(&state, "extend", "forward", "character").is_ok());
+    assert!(state.selection_anchor.get().is_none());
+}
+
+#[test]
+fn control_movement_does_not_overwrite_retargeted_value_or_selection() {
+    super::super::tests::initialize_v8();
+    let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<input id=x value=abcdef>").into_runtime().unwrap()));
+    let node = dom.borrow().find_by_id("x").unwrap();
+    let mut isolate = v8::Isolate::new(Default::default());
+    v8::scope!(let scope, &mut isolate);
+    let context = v8::Context::new(scope, Default::default());
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let state = install_generated_bindings(scope, context, dom, RealmId(220), 1).unwrap();
+    state.text_control_selections.borrow_mut().insert(node, (0,0,"none".into()));
+    let plan = prepare_control_movement(scope, &state, node, "move", "forward", "character").unwrap().unwrap();
+    state.text_control_selections.borrow_mut().insert(node, (4,4,"none".into()));
+    plan.commit(scope, &state).unwrap();
+    assert_eq!(state.text_control_selections.borrow().get(&node).unwrap().0, 4);
+    let plan = prepare_control_movement(scope, &state, node, "move", "forward", "character").unwrap().unwrap();
+    let code = v8::String::new(scope, "document.getElementById('x').value='z'").unwrap();
+    v8::Script::compile(scope,code,None).unwrap().run(scope).unwrap();
+    let observed = state.text_control_selections.borrow().get(&node).cloned();
+    plan.commit(scope, &state).unwrap();
+    assert_eq!(state.text_control_selections.borrow().get(&node).cloned(), observed);
+}
+
+#[test]
     fn native_point_caret_rejects_disabled_detached_and_nonfinite_targets() {
         super::super::tests::initialize_v8();
         let dom = Rc::new(RefCell::new(
@@ -1875,34 +1996,34 @@ mod tests {
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         assert_eq!(
-            pointer_caret(&state, enabled, 5., 5.).unwrap(),
+            pointer_caret(scope, &state, enabled, 5., 5.).unwrap(),
             Some(BoundaryPoint {
                 container: enabled,
                 offset: 0
             })
         );
         assert_eq!(
-            drop_caret(&state, enabled, 5., 5.).unwrap(),
+            drop_caret(scope, &state, enabled, 5., 5.).unwrap(),
             Some(BoundaryPoint {
                 container: enabled,
                 offset: 0
             })
         );
-        assert!(pointer_caret(&state, disabled, 5., 5.).unwrap().is_none());
+        assert!(pointer_caret(scope, &state, disabled, 5., 5.).unwrap().is_none());
         assert!(
-            pointer_caret(&state, enabled, f64::NAN, 5.)
+            pointer_caret(scope, &state, enabled, f64::NAN, 5.)
                 .unwrap()
                 .is_none()
         );
-        assert!(drop_caret(&state, plain, 5., 5.).unwrap().is_none());
+        assert!(drop_caret(scope, &state, plain, 5., 5.).unwrap().is_none());
         let source = v8::String::new(scope, "document.getElementById('enabled').remove()").unwrap();
         v8::Script::compile(scope, source, None)
             .unwrap()
             .run(scope)
             .unwrap();
-        assert!(pointer_caret(&state, enabled, 5., 5.).unwrap().is_none());
+        assert!(pointer_caret(scope, &state, enabled, 5., 5.).unwrap().is_none());
         state.retire_execution();
-        assert!(pointer_caret(&state, plain, 5., 5.).unwrap().is_none());
+        assert!(pointer_caret(scope, &state, plain, 5., 5.).unwrap().is_none());
     }
 
     #[test]
@@ -1923,10 +2044,10 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
-        assert!(pointer_caret(&state, inside, 1., 1.).unwrap().is_none());
+        assert!(pointer_caret(scope, &state, inside, 1., 1.).unwrap().is_none());
         assert_eq!(
             pointer_exclusion_boundary(
-                &state,
+                scope, &state,
                 inside,
                 BoundaryPoint {
                     container: after,
@@ -1941,7 +2062,7 @@ mod tests {
         );
         assert_eq!(
             pointer_exclusion_boundary(
-                &state,
+                scope, &state,
                 inside,
                 BoundaryPoint {
                     container: parent,

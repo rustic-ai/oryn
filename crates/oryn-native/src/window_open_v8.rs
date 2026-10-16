@@ -437,7 +437,9 @@ fn native_window_open_callback(
                 _ => Err("invalid Window.open response".into()),
             };
         }
-        let selected = match standalone_window_open_target(scope, window, name)? {
+        let existing = standalone_window_open_target(scope, window, name)?;
+        let created = existing.is_none();
+        let selected = match existing {
             Some(target) => Some(target),
             None => create_standalone_auxiliary_root(
                 scope,
@@ -461,7 +463,11 @@ fn native_window_open_callback(
                 .map_err(|error| error.to_string())?;
         }
 
-        if let (Some(target), Some(url)) = (selected, url) {
+        // A newly created auxiliary already exposes its initial about:blank
+        // Document. Do not replace it and discard synchronous author edits.
+        // Existing targets, including named targets, still navigate normally.
+        let retain_initial_blank = created && url.as_deref() == Some("about:blank");
+        if !retain_initial_blank && let (Some(target), Some(url)) = (selected, url) {
             let target_context = target
                 .get_creation_context(scope)
                 .ok_or_else(|| "Window.open target context missing".to_string())?;

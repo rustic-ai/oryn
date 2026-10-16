@@ -735,13 +735,21 @@ mod tests {
         state.set_native_platform_backend(backend.clone());
         let node = dom.borrow().find_by_id("v").unwrap();
         assert!(eval(scope,r#"(()=>{
-   for(const [method,receiver] of [[HTMLVideoElement.prototype.requestPictureInPicture,{}],[HTMLVideoElement.prototype.requestPictureInPicture,document.createElement('audio')],[Document.prototype.exitPictureInPicture,document.createElement('div')]]){let rejected=false;try{method.call(receiver)}catch(error){rejected=error instanceof TypeError}if(!rejected)return false}
+   globalThis.badReceiverResults=[];
+   for(const [method,receiver] of [[HTMLVideoElement.prototype.requestPictureInPicture,{}],[HTMLVideoElement.prototype.requestPictureInPicture,document.createElement('audio')],[Document.prototype.exitPictureInPicture,document.createElement('div')]]){
+     let result;try{result=method.call(receiver)}catch(error){return false}
+     if(!(result instanceof Promise))return false;
+     result.then(()=>badReceiverResults.push(false),error=>badReceiverResults.push(error instanceof TypeError));
+   }
    const request=HTMLVideoElement.prototype.requestPictureInPicture;
    if(request.length!==0||request.name!=='requestPictureInPicture'||Object.hasOwn(request,'prototype'))return false;
    const result=document.exitPictureInPicture();globalThis.emptyExit='pending';result.catch(error=>emptyExit=error.name);return result instanceof Promise;
   })()"#).is_true());
         scope.perform_microtask_checkpoint();
         assert!(eval(scope, "emptyExit==='InvalidStateError'").is_true());
+        assert!(eval(scope, "badReceiverResults.length===3&&badReceiverResults.every(Boolean)").is_true());
+        assert!(backend.commands.lock().unwrap().is_empty());
+        assert!(!*backend.open.lock().unwrap());
         eval(
             scope,
             "globalThis.failure='';document.getElementById('v').requestPictureInPicture().catch(e=>failure=e.name)",

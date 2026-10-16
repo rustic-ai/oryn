@@ -9,6 +9,8 @@ pub(super) struct State {
     timelines: BTreeMap<NodeId, u64>,
     rendering_time: Option<f64>,
     dirty_samples: bool,
+    mutation_revision: u64,
+    paint_sample: Rc<Vec<u8>>,
     observed_css: BTreeMap<u64, ObservedCss>,
     contributors: Vec<RcWeak<RefCell<Animation>>>,
     settlements: VecDeque<Settlement>,
@@ -198,7 +200,9 @@ fn next_render_id() -> Result<u64, V8BindingError> {
 fn invalidate_samples(state: &V8BindingState) {
     state.layout_cache_key.borrow_mut().take();
     if state.layout_provider.borrow().is_some() {
-        state.web_animations.borrow_mut().dirty_samples = true;
+        let mut animations = state.web_animations.borrow_mut();
+        animations.mutation_revision = animations.mutation_revision.saturating_add(1);
+        animations.dirty_samples = true;
     }
 }
 fn invalidate_effect_target(effect: &Effect) {
@@ -316,6 +320,33 @@ pub(super) fn migrate_targets(
 }
 fn failed() -> V8BindingError {
     V8BindingError::Allocation("native animation")
+}
+#[derive(Default)]
+pub(super) struct FailureDiagnostic {
+    sink: Cell<Option<fn(u8)>>,
+    count: Cell<u16>,
+}
+impl FailureDiagnostic {
+    pub(super) fn install(&self, sink: fn(u8)) {
+        if self.sink.get().is_none() {
+            self.sink.set(Some(sink));
+        }
+    }
+    fn error(&self, reason: u8) -> V8BindingError {
+        if let Some(sink) = self.sink.get()
+            && self.count.get() < 128
+        {
+            self.count.set(self.count.get() + 1);
+            // No borrow is held across the sink; recursive diagnostics consume
+            // the same finite budget before invoking the embedding callback.
+            sink(reason);
+        }
+        failed()
+    }
+}
+fn failure_reason(state: &V8BindingState, reason: u8) -> V8BindingError {
+    if state.execution_retired() { return failed(); }
+    state.animation_failure_diagnostic.error(reason)
 }
 fn type_error() -> V8BindingError {
     V8BindingError::Unsupported {
@@ -1824,16 +1855,26 @@ fn collect_css_events(
 ) -> Result<(), V8BindingError> {
     {
         let _profile = native_binding_stage(scope, "deep.animation_layout_flush");
-        refresh_layout(state)?;
+        refresh_layout_in_scope(scope, state)?;
     }
-    let snapshots = state
-        .layout_provider
-        .borrow()
-        .as_ref()
-        .map(|provider| provider.css_animations())
-        .transpose()
-        .map_err(|_| failed())?
-        .unwrap_or_default();
+    let snapshots = {
+        let context = state.realm_context.to_local(scope).ok_or_else(|| failure_reason(state, 8))?;
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _retained_scope = state.enter_retained_allocation(scope)?;
+        let provider = state.layout_provider.borrow().clone();
+        provider
+            .as_ref()
+            .map(|provider| provider.css_animations())
+            .transpose()
+            .map_err(|_| failure_reason(state, 9))?
+            .unwrap_or_default()
+    };
+    // Provider admission has ended; wrapper/event publication is a separate
+    // retained boundary. This function only prepares notifications, and drops
+    // the receipt before its caller dispatches author events.
+    let context = state.realm_context.to_local(scope).ok_or_else(|| failure_reason(state, 10))?;
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let _retained_scope = state.enter_retained_allocation(scope)?;
     let previous = state.web_animations.borrow().observed_css.clone();
     let mut next = BTreeMap::new();
     let mut notifications = Vec::new();
@@ -2348,7 +2389,7 @@ fn finish_animation(
     Ok(())
 }
 fn commit_styles(
-    _scope: &mut v8::PinScope,
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     record: &Rc<RefCell<Animation>>,
 ) -> Result<(), V8BindingError> {
@@ -2378,14 +2419,16 @@ fn commit_styles(
     if pseudo.is_some() || !owner.dom.borrow().is_connected(node)? {
         return Err(dom_error("NoModificationAllowedError"));
     }
-    refresh_layout(&owner)?;
-    let values = owner
-        .layout_provider
-        .borrow()
-        .as_ref()
-        .ok_or_else(failed)?
-        .animation_style_values(id, css)
-        .map_err(|_| failed())?;
+    refresh_layout_in_scope(scope, &owner)?;
+    let values = {
+        let context = owner.realm_context.to_local(scope).ok_or_else(failed)?;
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _retained_scope = owner.enter_retained_allocation(scope)?;
+        let provider = owner.layout_provider.borrow().clone().ok_or_else(failed)?;
+        provider
+            .animation_style_values(id, css)
+            .map_err(|_| failed())?
+    };
     let current = owner
         .dom
         .borrow()
@@ -2655,6 +2698,14 @@ fn operation<'s>(
     }
 }
 pub(super) fn publish(state: &V8BindingState) -> Result<(), V8BindingError> {
+    let lifetime = (
+        state.document_root(),
+        state.document_generation(),
+        state.document_stream_epoch(),
+        state.document_authority_epoch(),
+    );
+    let revision = state.web_animations.borrow().mutation_revision;
+    if revision == u64::MAX { return Err(failure_reason(state, 1)); }
     let provider = state.layout_provider.borrow().clone();
     let Some(provider) = provider else {
         return Ok(());
@@ -2691,17 +2742,86 @@ pub(super) fn publish(state: &V8BindingState) -> Result<(), V8BindingError> {
             composite: effect.composite.clone(),
         });
     }
+    // Preserve the exact last published sample; polling must not advance the
+    // clock or ask an uncached provider to calculate another frame.
+    let sample = effects
+        .iter()
+        .map(|effect| {
+            (
+                effect.id,
+                node_key(effect.target),
+                effect.pseudo.clone(),
+                effect.progress,
+                effect.current_iteration,
+                effect.composite.clone(),
+                effect
+                    .keyframes
+                    .iter()
+                    .map(|frame| {
+                        (
+                            frame.offset,
+                            frame.easing.clone(),
+                            frame.composite.clone(),
+                            frame.properties.clone(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let sample = Rc::new(serde_json::to_vec(&sample).map_err(|_| failure_reason(state, 2))?);
+    if state.execution_tasks_stopped() {
+        return Err(failure_reason(state, 3));
+    }
+    // All fallible sample preparation precedes the provider commit. A provider
+    // failure retains the old fingerprint; successful publication has only an
+    // infallible local pointer assignment left.
     provider
         .publish_animation_effects(&effects)
-        .map_err(|_| failed())?;
-    state.web_animations.borrow_mut().dirty_samples = false;
+        .map_err(|_| failure_reason(state, 4))?;
+    // Provider callbacks may replace the provider without mutating an effect.
+    // Resolve identity after the callback and before borrowing animations.
+    let provider_current = state.layout_provider.borrow().as_ref()
+        .is_some_and(|current| Rc::ptr_eq(current, &provider));
+    if !provider_current {
+        let mut animations = state.web_animations.borrow_mut();
+        animations.dirty_samples = true;
+        animations.mutation_revision = animations.mutation_revision.saturating_add(1);
+        drop(animations);
+        return Err(failure_reason(state, 5));
+    }
+    let mut animations = state.web_animations.borrow_mut();
+    if state.execution_tasks_stopped()
+        || lifetime
+            != (
+                state.document_root(),
+                state.document_generation(),
+                state.document_stream_epoch(),
+                state.document_authority_epoch(),
+            )
+        || animations.mutation_revision != revision
+    {
+        animations.dirty_samples = true;
+        drop(animations);
+        return Err(failure_reason(state, 6));
+    }
+    animations.paint_sample = sample;
+    animations.dirty_samples = false;
     Ok(())
+}
+
+pub(super) fn paint_fingerprint(state: &V8BindingState) -> (bool, Rc<Vec<u8>>) {
+    let animations = state.web_animations.borrow();
+    (animations.dirty_samples, animations.paint_sample.clone())
 }
 fn css_effect(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     css: &BindingCssAnimation,
 ) -> Result<Rc<RefCell<Effect>>, V8BindingError> {
+    let context = state.realm_context.to_local(scope).ok_or_else(failed)?;
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let _retained_scope = state.enter_retained_allocation(scope)?;
     let wrapper = wrap_node(scope, state, css.target)?;
     let options = v8::Object::new(scope);
     for (name, value) in [
@@ -2733,16 +2853,24 @@ fn get_animations<'s>(
     node: NodeId,
     subtree: bool,
 ) -> Result<v8::Local<'s, v8::Array>, V8BindingError> {
-    refresh_layout(state)?;
-    let snapshots = state
-        .layout_provider
-        .borrow()
-        .as_ref()
-        .map(|provider| provider.css_animations())
-        .transpose()
-        .map_err(|_| failed())?
-        .unwrap_or_default();
+    refresh_layout_in_scope(scope, state)?;
+    let snapshots = {
+        let context = state.realm_context.to_local(scope).ok_or_else(failed)?;
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _retained_scope = state.enter_retained_allocation(scope)?;
+        let provider = state.layout_provider.borrow().clone();
+        provider
+            .as_ref()
+            .map(|provider| provider.css_animations())
+            .transpose()
+            .map_err(|_| failed())?
+            .unwrap_or_default()
+    };
+    let context = state.realm_context.to_local(scope).ok_or_else(failed)?;
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let _retained_scope = state.enter_retained_allocation(scope)?;
     for css in snapshots {
+        let _iteration_scope = state.enter_retained_allocation(scope)?;
         let existing = state.web_animations.borrow().css.get(&css.id).copied();
         if let Some(id) = existing
             && let Some(PlatformObjectRecord::WebAnimation(animation)) =
@@ -2753,6 +2881,9 @@ fn get_animations<'s>(
         }
         let timeline = default_timeline(scope, state)?;
         let effect = css_effect(scope, state, &css)?;
+        // css_effect's receipt Drop invalidates the outer receipt. Never
+        // restore it; admit animation-wrapper publication afresh.
+        let _publication_scope = state.enter_retained_allocation(scope)?;
         let (wrapper, animation) = create_animation(
             scope,
             state,
@@ -2770,6 +2901,7 @@ fn get_animations<'s>(
             update_root(scope, state, wrapper, &animation);
         }
     }
+    let _output_scope = state.enter_retained_allocation(scope)?;
     let records = contributing_records(state);
     let mut values = Vec::new();
     for record in records {
@@ -2818,6 +2950,7 @@ fn get_animations<'s>(
     Ok(v8::Array::new_with_elements(scope, &values))
 }
 pub(super) fn publish_rendering_samples(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     rendering_time: Instant,
 ) -> Result<(), V8BindingError> {
@@ -2842,6 +2975,9 @@ pub(super) fn publish_rendering_samples(
         .rendering_time
         .replace((elapsed.as_micros() / 100) as f64 / 10.);
     let _clock = Clock { state, previous };
+    let context = state.realm_context.to_local(scope).ok_or_else(|| failure_reason(state, 7))?;
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let _retained_scope = state.enter_retained_allocation(scope)?;
     publish(state)
 }
 pub(super) fn tick(
@@ -2899,7 +3035,12 @@ pub(super) fn tick(
     if state.execution_tasks_stopped() {
         return Ok(());
     }
-    publish(state)?;
+    {
+        let context = state.realm_context.to_local(scope).ok_or_else(failed)?;
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _retained_scope = state.enter_retained_allocation(scope)?;
+        publish(state)?;
+    }
     collect_css_events(scope, state)?;
     drain_events(scope, state)
 }
@@ -3185,6 +3326,42 @@ pub(super) fn release_collected(state: &V8BindingState, id: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn animation_failure_diagnostic_is_disabled_bounded_reentrant_and_owner_local() {
+        thread_local! {
+            static ACTIVE: RefCell<Option<Rc<FailureDiagnostic>>> = const { RefCell::new(None) };
+            static ROWS: Cell<u16> = const { Cell::new(0) };
+        }
+        fn sink(reason: u8) {
+            assert_eq!(reason, 4);
+            ROWS.with(|rows| rows.set(rows.get() + 1));
+            let diagnostic = ACTIVE.with(|active| active.borrow().clone());
+            if let Some(diagnostic) = diagnostic {
+                assert!(matches!(diagnostic.error(reason), V8BindingError::Allocation("native animation")));
+            }
+        }
+        let disabled = FailureDiagnostic::default();
+        assert!(matches!(disabled.error(4), V8BindingError::Allocation("native animation")));
+        assert_eq!(disabled.count.get(), 0);
+        ROWS.with(|rows| assert_eq!(rows.get(), 0));
+        let enabled = Rc::new(FailureDiagnostic::default());
+        enabled.install(sink);
+        ACTIVE.with(|active| *active.borrow_mut() = Some(enabled.clone()));
+        assert!(matches!(enabled.error(4), V8BindingError::Allocation("native animation")));
+        assert_eq!(enabled.count.get(), 128);
+        ROWS.with(|rows| assert_eq!(rows.get(), 128));
+        for _ in 0..256 { let _ = enabled.error(4); }
+        ROWS.with(|rows| assert_eq!(rows.get(), 128));
+        ACTIVE.with(|active| *active.borrow_mut() = None);
+        let weak = Rc::downgrade(&enabled);
+        drop(enabled);
+        assert!(weak.upgrade().is_none());
+        // A new owner has no inherited sink or budget after enabled teardown.
+        let next = FailureDiagnostic::default();
+        assert!(matches!(next.error(4), V8BindingError::Allocation("native animation")));
+        assert_eq!(next.count.get(), 0);
+        ROWS.with(|rows| assert_eq!(rows.get(), 128));
+    }
     fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, source: &str) -> v8::Local<'s, v8::Value> {
         let source = v8::String::new(scope, source).unwrap();
         v8::Script::compile(scope, source, None)

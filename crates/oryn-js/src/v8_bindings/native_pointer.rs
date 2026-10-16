@@ -116,6 +116,7 @@ struct ScrollbarGesture {
 }
 
 fn prepare_range_input(
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     node: NodeId,
     x: f64,
@@ -139,7 +140,7 @@ fn prepare_range_input(
             return Ok(None);
         }
     }
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     let fraction = {
         let layout = state.layout.borrow();
         let Some(projection) = layout.hit_projections.get(&node_key(node)) else {
@@ -224,7 +225,7 @@ fn scrollbar_surface(
         ));
     }
     let visual = if viewport {
-        Some(state.native_visual_viewport_geometry().ok()?)
+        Some(state.native_visual_viewport_geometry_snapshot().ok()?)
     } else {
         None
     };
@@ -273,15 +274,43 @@ fn picker_gesture_current(state: &V8BindingState, gesture: ScrollbarGesture) -> 
     })
 }
 fn commit_scrollbar_offset(
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     gesture: ScrollbarGesture,
     total: f64,
 ) -> Result<(), V8BindingError> {
+    let lifetime = (
+        state.document_root(),
+        state.document_generation(),
+        state.document_stream_epoch(),
+        state.document_authority_epoch(),
+    );
+    refresh_layout_in_scope(scope, state)?;
+    if state.execution_retired()
+        || lifetime
+            != (
+                state.document_root(),
+                state.document_generation(),
+                state.document_stream_epoch(),
+                state.document_authority_epoch(),
+            )
+    {
+        return Err(V8BindingError::Allocation(
+            "scrollbar gesture document retired",
+        ));
+    }
+    {
+        let dom = state.dom.borrow();
+        if !dom.is_connected(gesture.node)? || dom.node_document(gesture.node)? != Some(lifetime.0)
+        {
+            return Ok(());
+        }
+    }
     if gesture.picker {
         if !picker_gesture_current(state, gesture) {
             return Ok(());
         }
-        return select_picker_scroll::scrollbar_offset(
+        return select_picker_scroll::scrollbar_offset_snapshot(
             state,
             gesture.node,
             gesture.horizontal,
@@ -289,7 +318,7 @@ fn commit_scrollbar_offset(
         );
     }
     if !gesture.viewport {
-        return perform_scroll(
+        return perform_scroll_from_snapshot(
             state,
             gesture.node,
             if gesture.horizontal {
@@ -300,7 +329,7 @@ fn commit_scrollbar_offset(
             false,
         );
     }
-    let mut visual = state.native_visual_viewport_geometry()?;
+    let mut visual = state.native_visual_viewport_geometry_snapshot()?;
     let current = state.document_scroll_offset();
     let split = {
         let layout = state.layout.borrow();
@@ -319,7 +348,7 @@ fn commit_scrollbar_offset(
     let Some((offset, pan)) = split else {
         return Ok(());
     };
-    perform_scroll(
+    perform_scroll_from_snapshot(
         state,
         gesture.node,
         if gesture.horizontal {
@@ -649,6 +678,7 @@ pub fn poll_native_selection_defaults(
     Ok(changed)
 }
 pub fn poll_native_input_defaults(
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     now: std::time::Instant,
 ) -> Result<usize, V8BindingError> {
@@ -689,7 +719,7 @@ pub fn poll_native_input_defaults(
             }
             continue;
         }
-        refresh_layout(state)?;
+        refresh_layout_in_scope(scope, state)?;
         let Some((bars, x, y)) = scrollbar_surface(
             state,
             gesture.node,
@@ -722,7 +752,7 @@ pub fn poll_native_input_defaults(
         let next = (bar.offset + gesture.repeat_direction * bar.page_step)
             .clamp(bar.min_offset, bar.max_offset);
         if next != bar.offset {
-            commit_scrollbar_offset(state, gesture, next)?;
+            commit_scrollbar_offset(scope, state, gesture, next)?;
             changed += 1;
         }
     }
@@ -844,7 +874,7 @@ pub(super) fn context_menu_from_keyboard(
         state.document_generation(),
         state.document_stream_epoch(),
     );
-    let rect = client_rects_for_node(state, target)?
+    let rect = client_rects_for_node(scope, state, target)?
         .first()
         .copied()
         .unwrap_or_default();
@@ -1165,13 +1195,17 @@ pub fn abandon_native_pointer_drag(state: &V8BindingState, id: i32) {
 }
 
 pub fn native_pointer_physical_target(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     x: f64,
     y: f64,
 ) -> Result<Option<NodeId>, V8BindingError> {
-    Ok(hit_test(state, state.document_root(), x, y, false)?
-        .first()
-        .copied())
+    refresh_layout_in_scope(scope, state)?;
+    Ok(
+        hit_test_snapshot(state, state.document_root(), x, y, false)?
+            .first()
+            .copied(),
+    )
 }
 
 /// Dispatch native pointer and compatibility mouse transitions. Drag and touch
@@ -1295,7 +1329,7 @@ fn pinch_contacts(state: &V8BindingState) -> Vec<(i32, native_touch::Contact, Na
         })
         .collect()
 }
-fn prepare_pinch(scope: &mut v8::PinScope, state: &V8BindingState) {
+fn prepare_pinch(scope: &mut v8::PinScope, state: &V8BindingState) -> Result<(), V8BindingError> {
     // The native realm descriptor, never an author parent/top property, grants
     // ownership of the top-level visual viewport.
     if !scope
@@ -1303,20 +1337,30 @@ fn prepare_pinch(scope: &mut v8::PinScope, state: &V8BindingState) {
         .get_slot::<crate::realm::RealmDescriptor>()
         .is_some_and(|realm| realm.frame_id.is_none())
     {
-        return;
+        return Ok(());
     }
     if state.native_pointers.borrow().pinch.is_some() {
-        return;
+        return Ok(());
     }
     let contacts = pinch_contacts(state);
     if contacts.len() != 2 {
-        return;
+        return Ok(());
     }
+    let registry = registry_owner(state);
+    let lifetime = (state.document_root(), state.document_generation(),
+        state.document_stream_epoch(), state.document_authority_epoch());
+    refresh_layout_in_scope(scope, state)?;
+    let geometry = state.native_visual_viewport_geometry_snapshot()?;
+    if !registry_owner_current(state, &registry) || state.execution_retired()
+        || lifetime != (state.document_root(), state.document_generation(),
+            state.document_stream_epoch(), state.document_authority_epoch()) {
+        return Err(V8BindingError::Allocation("pinch preparation owner retired"));
+    }
+    if state.native_pointers.borrow().pinch.is_some() { return Ok(()); }
+    let contacts = pinch_contacts(state);
+    if contacts.len() != 2 { return Ok(()); }
     let a = &contacts[0];
     let b = &contacts[1];
-    let Ok(geometry) = state.native_visual_viewport_geometry() else {
-        return;
-    };
     let candidate = native_touch::PinchCandidate::begin(
         geometry,
         Default::default(),
@@ -1324,6 +1368,7 @@ fn prepare_pinch(scope: &mut v8::PinScope, state: &V8BindingState) {
         (&b.1, b.0, b.2.x, b.2.y),
     );
     state.native_pointers.borrow_mut().pinch = candidate;
+    Ok(())
 }
 /// Compatibility entry point. Production input owners retain the same receipt
 /// across Pending/errors instead of constructing another physical sample.
@@ -1572,6 +1617,7 @@ pub fn native_pointer_owns_routing(state: &V8BindingState, id: i32) -> bool {
 /// Captured pointers may lie outside a frame's content box. Only native frame
 /// ancestry grants this mapping; ordinary hit testing uses the bounded variant.
 pub fn native_frame_pointer_coordinates(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     frame: NodeId,
     x: f64,
@@ -1589,7 +1635,7 @@ pub fn native_frame_pointer_coordinates(
     if !state.dom.borrow().is_connected(frame)? {
         return Ok(None);
     }
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     let Some(identity) = state.native_input_frame_identity(frame) else {
         return Ok(None);
     };
@@ -1620,6 +1666,7 @@ pub fn native_frame_pointer_coordinates(
 /// Map child viewport coordinates to its native embedding document, including
 /// out-of-box positions used for pointerout/leave after a frame exit.
 pub fn native_frame_pointer_parent_coordinates(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     frame: NodeId,
     x: f64,
@@ -1630,7 +1677,7 @@ pub fn native_frame_pointer_parent_coordinates(
     if state.execution_retired() || !state.dom.borrow().is_connected(frame)? {
         return Ok(None);
     }
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     let Some(identity) = state.native_input_frame_identity(frame) else {
         return Ok(None);
     };
@@ -1668,6 +1715,7 @@ pub fn native_frame_pointer_parent_coordinates(
 /// Frame descent uses the frontmost native hit and its content box. Border,
 /// padding and viewport chrome stay in the embedding document.
 pub fn native_frame_pointer_target(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     id: Option<i32>,
     x: f64,
@@ -1689,7 +1737,8 @@ pub fn native_frame_pointer_target(
     }) {
         return Ok(None);
     }
-    let hit = hit_test(state, state.document_root(), x, y, false)?
+    refresh_layout_in_scope(scope, state)?;
+    let hit = hit_test_snapshot(state, state.document_root(), x, y, false)?
         .first()
         .copied();
     let Some(frame) = hit else {
@@ -1734,7 +1783,20 @@ pub fn native_frame_pointer_target(
     }))
 }
 
+#[cfg(test)]
 pub(super) fn hit_test(
+    state: &V8BindingState,
+    root: NodeId,
+    x: f64,
+    y: f64,
+    retarget: bool,
+) -> Result<Vec<NodeId>, V8BindingError> {
+    refresh_layout(state)?;
+    hit_test_snapshot(state, root, x, y, retarget)
+}
+
+/// Consume the same admitted layout snapshot as an input geometry read.
+pub(super) fn hit_test_snapshot(
     state: &V8BindingState,
     root: NodeId,
     x: f64,
@@ -1744,7 +1806,6 @@ pub(super) fn hit_test(
     if state.execution_retired() || !x.is_finite() || !y.is_finite() {
         return Ok(Vec::new());
     }
-    refresh_layout(state)?;
     let dom = state.dom.borrow();
     let layout = state.layout.borrow();
     if x < 0.
@@ -1982,10 +2043,11 @@ pub fn dispatch_native_wheel(
     dispatch_native_wheel_with_remainder(scope, state, input).map(|result| result.allowed)
 }
 fn wheel_target(
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     input: &NativeWheelInput,
 ) -> Result<NodeId, V8BindingError> {
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     let cached = input.transaction.as_ref().and_then(|transaction| {
         transaction
             .target
@@ -2035,7 +2097,7 @@ fn wheel_target(
             return Ok(target);
         }
     }
-    let target = hit_test(state, state.document_root(), input.x, input.y, false)?
+    let target = hit_test_snapshot(state, state.document_root(), input.x, input.y, false)?
         .first()
         .copied()
         .ok_or(V8BindingError::Allocation(
@@ -2097,13 +2159,13 @@ pub fn dispatch_native_wheel_with_remainder(
     if !live() {
         return Err(V8BindingError::Allocation("native wheel document retired"));
     }
-    if !input.control && temporal_picker::wheel(state, input.x, input.y, input.delta_y)? {
+    if !input.control && temporal_picker::wheel(scope, state, input.x, input.y, input.delta_y)? {
         return Ok(NativeWheelResult {
             allowed: true,
             remaining: (0., 0.),
         });
     }
-    let target = wheel_target(state, input)?;
+    let target = wheel_target(scope, state, input)?;
     let event = create_native_input_event(
         scope,
         state,
@@ -2144,7 +2206,8 @@ pub fn dispatch_native_wheel_with_remainder(
         ));
     }
     let remaining = if allowed && state.dom.borrow().is_connected(target)? {
-        if let Some(remaining) = select_picker_scroll::wheel_surface(
+        refresh_layout_in_scope(scope, state)?;
+        if let Some(remaining) = select_picker_scroll::wheel_surface_snapshot(
             state,
             target,
             input.x,
@@ -2153,7 +2216,13 @@ pub fn dispatch_native_wheel_with_remainder(
         )? {
             remaining
         } else {
-            apply_native_wheel_default(state, target, input.delta_x, input.delta_y)?
+            apply_native_wheel_default_from_snapshot(
+                scope,
+                state,
+                target,
+                input.delta_x,
+                input.delta_y,
+            )?
         }
     } else {
         (0., 0.)
@@ -2164,6 +2233,88 @@ pub fn dispatch_native_wheel_with_remainder(
 #[cfg(test)]
 mod click_history_tests {
     use super::*;
+
+    #[test]
+    fn pinch_provider_removes_contact_without_resetting_registry() {
+        struct Provider {
+            owner: RcWeak<V8BindingState>,
+            calls: Rc<Cell<usize>>,
+        }
+        impl BindingLayoutProvider for Provider {
+            fn compute_layout(
+                &self,
+                _: &BTreeMap<NodeId, BTreeSet<String>>,
+            ) -> Result<BindingLayout, String> {
+                self.calls.set(self.calls.get() + 1);
+                self.owner
+                    .upgrade()
+                    .unwrap()
+                    .native_pointers
+                    .borrow_mut()
+                    .pointers
+                    .remove(&2);
+                Ok(BindingLayout {
+                    viewport: Some((400., 300.)),
+                    ..Default::default()
+                })
+            }
+        }
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body><div id=t></div></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let target = dom.borrow().find_by_id("t").unwrap();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        context.set_slot(Rc::new(crate::realm::RealmDescriptor {
+            id: RealmId(0),
+            origin: crate::origin::Origin::from_url("https://example.test"),
+            document_generation: 1,
+            frame_id: None,
+        }));
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        // Production dispatch synchronizes the registry before installing
+        // contacts. Do that first here; synchronization clears stale records.
+        let registry = registry_owner(&state);
+        for (id, x) in [(1, 100.), (2, 200.)] {
+            let input = NativePointerInput {
+                id,
+                device: NativePointerDevice::Touch,
+                x,
+                y: 100.,
+                buttons: 1,
+                ..Default::default()
+            };
+            let contact = native_touch::Contact::new(&state, target, x, 100., Default::default());
+            state.native_pointers.borrow_mut().pointers.insert(
+                id,
+                PointerRecord {
+                    buttons: 1,
+                    touch_contact: Some(contact),
+                    last_input: Some(input),
+                    ..Default::default()
+                },
+            );
+        }
+        assert_eq!(pinch_contacts(&state).len(), 2);
+        let calls = Rc::new(Cell::new(0));
+        state.set_layout_provider(Rc::new(Provider {
+            owner: Rc::downgrade(&state),
+            calls: calls.clone(),
+        }));
+        prepare_pinch(scope, &state).unwrap();
+        assert_eq!(calls.get(), 1);
+        assert!(registry_owner_current(&state, &registry));
+        assert_eq!(pinch_contacts(&state).len(), 1);
+        assert!(
+            state.native_pointers.borrow().pinch.is_none(),
+            "same-registry removal during provider layout must not publish stale contacts"
+        );
+    }
 
     #[test]
     fn zoomed_chrome_commits_visual_pan_and_layout_scroll_from_shared_offsets() {
@@ -2233,10 +2384,10 @@ mod click_history_tests {
             (bar.track.x, bar.track.height, bar.page_step, bar.max_offset),
             (90., 80., 40., 140.)
         );
-        commit_scrollbar_offset(&state, gesture, 40.).unwrap();
+        commit_scrollbar_offset(scope, &state, gesture, 40.).unwrap();
         assert_eq!(state.document_scroll_offset().1, 0.);
         assert_eq!(state.native_visual_viewport.borrow().offset_y, 40.);
-        commit_scrollbar_offset(&state, gesture, 140.).unwrap();
+        commit_scrollbar_offset(scope, &state, gesture, 140.).unwrap();
         assert_eq!(state.document_scroll_offset().1, 100.);
         assert_eq!(state.native_visual_viewport.borrow().offset_y, 40.);
         let visual = *state.native_visual_viewport.borrow();
@@ -2244,7 +2395,7 @@ mod click_history_tests {
         let (bars, _, _) = scrollbar_surface(&state, root, true, false, point.0, point.1).unwrap();
         assert_eq!(bars[0].offset, 140.);
         assert!((bars[0].offset_at_thumb_origin(bars[0].thumb.y).unwrap() - 140.).abs() < 0.01);
-        commit_scrollbar_offset(&state, gesture, 0.).unwrap();
+        commit_scrollbar_offset(scope, &state, gesture, 0.).unwrap();
         assert_eq!(state.document_scroll_offset().1, 0.);
         assert_eq!(state.native_visual_viewport.borrow().offset_y, 0.);
     }
@@ -2666,7 +2817,8 @@ mod click_history_tests {
             .unwrap()
             .repeat_at;
         assert_eq!(
-            poll_native_input_defaults(&state, due - std::time::Duration::from_millis(1)).unwrap(),
+            poll_native_input_defaults(scope, &state, due - std::time::Duration::from_millis(1))
+                .unwrap(),
             0
         );
         state
@@ -2678,19 +2830,20 @@ mod click_history_tests {
             .scroll
             .offset_y = 80.;
         let late = due + std::time::Duration::from_secs(10);
-        assert_eq!(poll_native_input_defaults(&state, late).unwrap(), 1);
+        assert_eq!(poll_native_input_defaults(scope, &state, late).unwrap(), 1);
         assert_eq!(state.scroll_offsets.borrow()[&root].1, 160.);
         assert_eq!(
             native_input_delay(&state, late),
             Some(std::time::Duration::from_millis(50))
         );
-        assert_eq!(poll_native_input_defaults(&state, late).unwrap(), 0);
+        assert_eq!(poll_native_input_defaults(scope, &state, late).unwrap(), 0);
         input.buttons = 0;
         input.pressure = 0.;
         dispatch_native_pointer(scope, &state, &input, NativePointerAction::Up).unwrap();
         assert_eq!(native_input_delay(&state, late), None);
         assert_eq!(
-            poll_native_input_defaults(&state, late + std::time::Duration::from_secs(1)).unwrap(),
+            poll_native_input_defaults(scope, &state, late + std::time::Duration::from_secs(1))
+                .unwrap(),
             0
         );
     }

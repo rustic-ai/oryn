@@ -462,7 +462,15 @@ impl PageState {
                 self.sync_executable_semantics()?;
             }
             Ok(!self.terminal_close_requested())
-        })()?;
+        })();
+        let ready = match ready {
+            Ok(ready) => ready,
+            // Retirement during projection is a terminal handoff, not loss of
+            // the signals already extracted above. Unbound/nonterminal yields
+            // and real errors retain their original failure behavior.
+            Err(RuntimeError::PageTaskYield) if self.terminal_close_requested() => false,
+            Err(error) => return Err(error),
+        };
         if !ready {
             self.terminal_page_task_signals = Some(signals);
             return Ok(());
@@ -511,7 +519,7 @@ impl PageState {
                 return Ok(());
             }
             self.revision += 1;
-            self.record_snapshot();
+            self.record_snapshot()?;
             self.trace.push(
                 Revision(self.revision),
                 None,
@@ -695,7 +703,7 @@ mod tests {
     use std::{cell::Cell, rc::Rc, task::Poll};
 
     fn page() -> PageState {
-        PageState::new(
+        let page = PageState::new(
             PageId(829),
             None,
             BrowserConfig::default(),
@@ -703,10 +711,14 @@ mod tests {
             None,
             #[cfg(unix)]
             None,
-        )
+        );
+        page.bind_direct_fixture_terminal_owner();
+        page
     }
 
     fn settled_page() -> PageState {
+        // This fixture explicitly binds its owner; unknown ownership must still
+        // fail closed in the separate negative below.
         let mut page = page();
         page.load_document(
             "https://projection.test/".into(),
@@ -852,6 +864,23 @@ mod tests {
     }
 
     #[test]
+    fn unbound_semantic_publication_is_not_successful_terminal_handoff() {
+        let mut page = PageState::new(
+            PageId(839), None, BrowserConfig::default(), ContextOptions::default(),
+            None, #[cfg(unix)] None,
+        );
+        page.load_document("https://projection.test/unbound".into(), "<p>Unbound</p>",
+            None, None, HistoryUpdate::Push, &BTreeMap::new(), Vec::new()).unwrap();
+        assert!(page.page_task_terminal_control.controller().is_none());
+        assert!(!page.terminal_close_requested());
+        let cursor = page.executable.as_ref().unwrap().semantic_mutations().next;
+        assert!(matches!(page.poll_page_tasks_inner(), Err(RuntimeError::PageTaskYield)));
+        assert!(page.terminal_page_task_signals.is_none());
+        assert_eq!(page.executable.as_ref().unwrap().semantic_mutations().next, cursor);
+        assert!(!page.terminal_close_requested());
+    }
+
+    #[test]
     fn pending_parser_response_retains_capture_and_followup_projection() {
         let (mut page, polls) = waiting_page();
         let capture = response(&mut page, false);
@@ -910,8 +939,7 @@ mod tests {
     fn retirement_during_response_step_retains_pending_capture_and_signals() {
         let (mut page, _) = waiting_page();
         let capture = response(&mut page, false);
-        let control = Arc::new(oryn_js::prompts::PromptController::new());
-        assert!(page.page_task_terminal_control.bind(control.clone()));
+        let control = page.page_task_terminal_control.controller().cloned().unwrap();
         let (result, labels) =
             crate::ipc_progress::close_admission::capture_test_phase_labels_with_hook(
                 || page.poll_page_tasks_inner(),

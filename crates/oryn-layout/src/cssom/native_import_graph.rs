@@ -3336,3 +3336,573 @@ mod prepared_completion_tests {
         assert!(graph.occurrence(OccurrenceId(1)).unwrap().child.is_none());
     }
 }
+
+pub struct PreparedRuleInsertion {
+    sheet: NativeSheet,
+    index: usize,
+    rule: CssRule,
+    expected_next: u64,
+    expected_contents: Arc<style::stylesheets::StylesheetContents>,
+    expected_rules: Vec<CssRule>,
+    replacement_rules: Vec<CssRule>,
+    occurrences: Vec<NativeImport>,
+    leases: Vec<LeaseArc<dyn Send + Sync>>,
+    charges: Vec<LeaseArc<dyn Send + Sync>>,
+    next: u64,
+    id: Option<OccurrenceId>,
+}
+fn insertion_capacity(current: usize, additional: usize) -> Result<usize, RuleMutationError> {
+    current
+        .checked_add(additional)
+        .ok_or_else(|| RuleMutationError::InvalidContext("insertion capacity overflow".into()))
+}
+impl ImportCompletionContext {
+    pub fn prepare_rule_insertion(
+        &self,
+        sheet: &NativeSheet,
+        index: usize,
+        text: &str,
+        admission: &dyn ImportAdmission,
+    ) -> Result<PreparedRuleInsertion, RuleMutationError> {
+        let graph = &self.snapshot;
+        let invalid = |s: String| RuleMutationError::InvalidContext(s);
+        admission.checkpoint().map_err(invalid)?;
+        if !LeaseArc::ptr_eq(&sheet.leases, &graph.leases) {
+            return Err(invalid("foreign graph sheet".into()));
+        }
+        let source = admission.reserve(text.len()).map_err(invalid)?;
+        let loader = Loader {
+            admission,
+            imports: RefCell::new(Vec::new()),
+            error: RefCell::new(None),
+        };
+        let list = sheet.sheet.contents(&graph.lock.read()).rules.clone();
+        let isolated = SharedRwLock::new();
+        let (metadata_bytes, context_count, expected_contents) = {
+            let guard = graph.lock.read();
+            let contents = sheet.sheet.contents(&guard);
+            (
+                contents
+                    .insertion_metadata_bytes()
+                    .ok_or_else(|| invalid("insertion metadata overflow".into()))?,
+                list.read_with(&guard).0.len(),
+                sheet.sheet.contents.read_with(&guard).clone(),
+            )
+        };
+        let metadata_charge = admission.reserve(metadata_bytes).map_err(invalid)?;
+        let context_bytes = context_count
+            .checked_mul(std::mem::size_of::<CssRule>())
+            .ok_or_else(|| invalid("insertion context overflow".into()))?;
+        let context_charge = admission.reserve(context_bytes).map_err(invalid)?;
+        let mut parse_rules = Vec::new();
+        parse_rules
+            .try_reserve_exact(context_count)
+            .map_err(|e| invalid(e.to_string()))?;
+        for i in 0..context_count {
+            admission.checkpoint().map_err(invalid)?;
+            let guard = graph.lock.read();
+            parse_rules.push(
+                list.read_with(&guard)
+                    .0
+                    .get(i)
+                    .ok_or_else(|| invalid("insertion context changed".into()))?
+                    .clone(),
+            );
+        }
+        let metadata = expected_contents
+            .insertion_metadata_cancellable(&isolated, || admission.checkpoint())
+            .map_err(invalid)?;
+        if index > parse_rules.len() {
+            return Err(RuleMutationError::IndexSize);
+        }
+        let parsed_rule = CssRule::parse(
+            text,
+            style::stylesheets::InsertRuleContext {
+                rule_list: &parse_rules,
+                index,
+                containing_rule_types: style::stylesheets::CssRuleTypes::default(),
+                parse_relative_rule_type: None,
+            },
+            &metadata,
+            &isolated,
+            Some(&loader),
+            AllowImportRules::Yes,
+        )?;
+        if let Some(error) = loader.error.into_inner() {
+            return Err(invalid(error));
+        }
+        use style::shared_lock::DeepCloneWithLock;
+        let rule = parsed_rule.deep_clone_with_lock(&graph.lock, &isolated.read());
+        let mut imports = loader.imports.into_inner();
+        // Loader handles belong to isolated parser lock. Only transferred
+        // original rule/media Arcs may enter the live graph occurrence index.
+        if let CssRule::Import(transferred) = &rule
+            && let Some(parsed) = imports.first_mut()
+        {
+            parsed.rule = transferred.clone();
+            parsed.media = Arc::new(
+                graph
+                    .lock
+                    .wrap(parsed.media.read_with(&isolated.read()).clone()),
+            );
+        }
+        if imports.len() > 1 {
+            return Err(invalid(
+                "single inserted rule produced multiple imports".into(),
+            ));
+        }
+        let next = graph
+            .next
+            .checked_add(imports.len() as u64)
+            .ok_or_else(|| invalid("import identity overflow".into()))?;
+        let depth = graph
+            .occurrences
+            .values()
+            .find(|entry| {
+                entry
+                    .child
+                    .as_ref()
+                    .is_some_and(|child| child.same_sheet(sheet))
+            })
+            .map_or(Some(1), |entry| entry.depth.checked_add(1))
+            .ok_or_else(|| invalid("import depth overflow".into()))?;
+        let rule_count = parse_rules.len();
+        let lease_count = graph
+            .leases
+            .lock()
+            .map_err(|_| invalid("import ledger poisoned".into()))?
+            .len();
+        let charge_count = graph
+            .occurrences
+            .charges
+            .lock()
+            .map_err(|_| invalid("occurrence ledger poisoned".into()))?
+            .len();
+        let occurrence_count = graph
+            .occurrences
+            .len()
+            .checked_add(imports.len())
+            .ok_or_else(|| invalid("occurrence count overflow".into()))?;
+        let rule_capacity = insertion_capacity(rule_count, 1)?;
+        let lease_capacity = lease_count
+            .checked_add(imports.len())
+            .and_then(|n| n.checked_add(3))
+            .ok_or_else(|| invalid("lease capacity overflow".into()))?;
+        let charge_capacity = charge_count
+            .checked_add(1)
+            .ok_or_else(|| invalid("charge capacity overflow".into()))?;
+        let combined_capacity = lease_capacity
+            .checked_add(charge_capacity)
+            .ok_or_else(|| invalid("combined capacity overflow".into()))?;
+        let bytes = rule_capacity
+            .checked_mul(2 * std::mem::size_of::<CssRule>())
+            .and_then(|n| {
+                n.checked_add(occurrence_count.checked_mul(std::mem::size_of::<NativeImport>())?)
+            })
+            .and_then(|n| {
+                n.checked_add(
+                    combined_capacity
+                        .checked_mul(std::mem::size_of::<LeaseArc<dyn Send + Sync>>())?,
+                )
+            })
+            .ok_or_else(|| invalid("insertion metadata overflow".into()))?;
+        let allocation = admission.reserve(bytes).map_err(invalid)?;
+        let expected_rules = parse_rules;
+        let mut replacement_rules = Vec::new();
+        replacement_rules
+            .try_reserve_exact(rule_capacity)
+            .map_err(|e| invalid(e.to_string()))?;
+        let mut occurrences = Vec::new();
+        occurrences
+            .try_reserve_exact(occurrence_count)
+            .map_err(|e| invalid(e.to_string()))?;
+        let mut leases = Vec::new();
+        leases
+            .try_reserve_exact(lease_capacity)
+            .map_err(|e| invalid(e.to_string()))?;
+        let mut charges = Vec::new();
+        charges
+            .try_reserve_exact(charge_capacity)
+            .map_err(|e| invalid(e.to_string()))?;
+        for entry in &graph.occurrences.entries {
+            admission.checkpoint().map_err(invalid)?;
+            occurrences.push(entry.clone());
+        }
+        for entry in &mut occurrences {
+            admission.checkpoint().map_err(invalid)?;
+            if entry.parent.same_sheet(sheet) && entry.index != usize::MAX && entry.index >= index {
+                entry.index = entry
+                    .index
+                    .checked_add(1)
+                    .filter(|v| *v != usize::MAX)
+                    .ok_or_else(|| invalid("import index overflow".into()))?;
+            }
+        }
+        let mut id = None;
+        for parsed in imports {
+            let guard = graph.lock.read();
+            let state = if matches!(
+                parsed.rule.read_with(&guard).stylesheet,
+                ImportSheet::Refused
+            ) {
+                ImportState::Refused
+            } else {
+                ImportState::Pending
+            };
+            id = Some(OccurrenceId(graph.next));
+            leases.push(parsed.lease);
+            occurrences.push(NativeImport {
+                id: id.unwrap(),
+                rule: parsed.rule,
+                parent: sheet.clone(),
+                child: None,
+                media: parsed.media,
+                state,
+                index,
+                depth,
+            });
+        }
+        leases.push(source);
+        leases.push(metadata_charge);
+        leases.push(context_charge);
+        charges.push(allocation);
+        admission.checkpoint().map_err(invalid)?;
+        Ok(PreparedRuleInsertion {
+            sheet: sheet.clone(),
+            index,
+            rule,
+            expected_next: graph.next,
+            expected_contents,
+            expected_rules,
+            replacement_rules,
+            occurrences,
+            leases,
+            charges,
+            next,
+            id,
+        })
+    }
+}
+impl ImportGraph {
+    pub fn commit_rule_insertion(
+        &mut self,
+        prepared: &mut PreparedRuleInsertion,
+    ) -> Result<Option<OccurrenceId>, RuleMutationError> {
+        let invalid = |s: &str| RuleMutationError::InvalidContext(s.into());
+        if self.next != prepared.expected_next {
+            return Err(invalid("insertion graph changed"));
+        }
+        let list = prepared
+            .sheet
+            .sheet
+            .contents(&self.lock.read())
+            .rules
+            .clone();
+        if !Arc::ptr_eq(
+            &prepared.expected_contents,
+            prepared.sheet.sheet.contents.read_with(&self.lock.read()),
+        ) {
+            return Err(invalid("insertion contents changed"));
+        }
+        let mut leases = self
+            .leases
+            .lock()
+            .map_err(|_| invalid("import ledger poisoned"))?;
+        let mut charges = self
+            .occurrences
+            .charges
+            .lock()
+            .map_err(|_| invalid("occurrence ledger poisoned"))?;
+        let required_leases = leases
+            .len()
+            .checked_add(prepared.leases.len())
+            .ok_or_else(|| invalid("final lease count overflow"))?;
+        let required_charges = charges
+            .len()
+            .checked_add(prepared.charges.len())
+            .ok_or_else(|| invalid("final charge count overflow"))?;
+        if prepared.leases.capacity() < required_leases
+            || prepared.charges.capacity() < required_charges
+        {
+            return Err(invalid("insertion capacity changed"));
+        }
+        let mut guard = self.lock.write();
+        let rules = list.write_with(&mut guard);
+        if rules.0.len() != prepared.expected_rules.len()
+            || rules
+                .0
+                .iter()
+                .zip(&prepared.expected_rules)
+                .any(|(a, b)| !NativeRule::same_native_rule(a, b))
+        {
+            return Err(invalid("insertion rule list changed"));
+        }
+        prepared.replacement_rules.append(&mut rules.0);
+        prepared
+            .replacement_rules
+            .insert(prepared.index, prepared.rule.clone());
+        std::mem::swap(&mut rules.0, &mut prepared.replacement_rules);
+        std::mem::swap(&mut self.occurrences.entries, &mut prepared.occurrences);
+        prepared.leases.append(&mut leases);
+        std::mem::swap(&mut *leases, &mut prepared.leases);
+        prepared.charges.append(&mut charges);
+        std::mem::swap(&mut *charges, &mut prepared.charges);
+        self.next = prepared.next;
+        Ok(prepared.id)
+    }
+}
+
+#[cfg(test)]
+mod prepared_insert_controls {
+    use super::*;
+    #[test]
+    fn namespace_metadata_copy_cancels_during_prefix_walk() {
+        let graph = ImportGraph::parse(
+            "@namespace a url(urn:a); @namespace b url(urn:b); @namespace c url(urn:c);",
+            "https://example.test/",
+            false,
+            8,
+            SharedRwLock::new(),
+            &Allowed,
+        )
+        .unwrap();
+        let contents = graph
+            .root
+            .sheet
+            .contents
+            .read_with(&graph.lock.read())
+            .clone();
+        let mut calls = 0usize;
+        let result = contents.insertion_metadata_cancellable(&SharedRwLock::new(), || {
+            calls += 1;
+            if calls == 3 {
+                Err("namespace walk cancelled".into())
+            } else {
+                Ok(())
+            }
+        });
+        assert!(result.is_err());
+        assert_eq!(calls, 3);
+        assert_eq!(contents.namespaces.prefixes.len(), 3);
+        assert_eq!(graph.rule_count(&graph.root).unwrap(), 3);
+    }
+    struct Allowed;
+    impl ImportAdmission for Allowed {
+        fn checkpoint(&self) -> Result<(), String> {
+            Ok(())
+        }
+        fn reserve(&self, _: usize) -> Result<LeaseArc<dyn Send + Sync>, String> {
+            Ok(LeaseArc::new(()))
+        }
+    }
+    #[test]
+    fn isolated_namespace_parse_and_import_transfer_use_original_live_arcs() {
+        let mut graph = ImportGraph::parse(
+            "@namespace svg url(http://www.w3.org/2000/svg);",
+            "https://example.test/",
+            false,
+            8,
+            SharedRwLock::new(),
+            &Allowed,
+        )
+        .unwrap();
+        let root = graph.root();
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(graph.completion_context_count())
+            .unwrap();
+        let context = graph.completion_context(entries).unwrap();
+        let mut selector = context
+            .prepare_rule_insertion(&root, 1, "svg|circle{color:red}", &Allowed)
+            .unwrap();
+        graph.commit_rule_insertion(&mut selector).unwrap();
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(graph.completion_context_count())
+            .unwrap();
+        let context = graph.completion_context(entries).unwrap();
+        let mut imported = context
+            .prepare_rule_insertion(&root, 0, "@import 'a.css' screen;", &Allowed)
+            .unwrap();
+        let id = graph.commit_rule_insertion(&mut imported).unwrap().unwrap();
+        let original = graph.rule_at(&root, &[], 0, &Allowed).unwrap();
+        assert!(graph
+            .import_for_rule(&original)
+            .unwrap()
+            .same_rule(&graph.occurrence(id).unwrap()));
+        assert_eq!(graph.occurrence(id).unwrap().media_text(), "screen");
+    }
+    #[test]
+    fn changed_original_parse_context_rejects_insertion() {
+        let mut graph = ImportGraph::parse(
+            "p{}",
+            "https://example.test/",
+            false,
+            8,
+            SharedRwLock::new(),
+            &Allowed,
+        )
+        .unwrap();
+        let root = graph.root();
+        let mut entries = Vec::new();
+        entries.try_reserve_exact(0).unwrap();
+        let context = graph.completion_context(entries).unwrap();
+        let mut prepared = context
+            .prepare_rule_insertion(&root, 0, "q{}", &Allowed)
+            .unwrap();
+        graph.insert_rule(&root, 0, "r{}", true, &Allowed).unwrap();
+        assert!(graph.commit_rule_insertion(&mut prepared).is_err());
+        assert_eq!(graph.rule_count(&root).unwrap(), 2);
+    }
+    #[test]
+    fn admission_reenters_live_rule_mutation_without_publishing_prepared_rule() {
+        struct Reentrant {
+            lock: SharedRwLock,
+            list: Arc<Locked<style::stylesheets::CssRules>>,
+            calls: std::cell::Cell<usize>,
+            armed: std::cell::Cell<bool>,
+        }
+        impl ImportAdmission for Reentrant {
+            fn checkpoint(&self) -> Result<(), String> {
+                let n = self.calls.get() + 1;
+                self.calls.set(n);
+                if self.armed.get() && n == 3 {
+                    self.list.write_with(&mut self.lock.write()).0.clear();
+                }
+                Ok(())
+            }
+            fn reserve(&self, _: usize) -> Result<LeaseArc<dyn Send + Sync>, String> {
+                Ok(LeaseArc::new(()))
+            }
+        }
+        let mut graph = ImportGraph::parse(
+            "p{} q{}",
+            "https://example.test/",
+            false,
+            8,
+            SharedRwLock::new(),
+            &Allowed,
+        )
+        .unwrap();
+        let root = graph.root();
+        let list = root.sheet.contents(&graph.lock.read()).rules.clone();
+        let admission = Reentrant {
+            lock: graph.lock.clone(),
+            list,
+            calls: std::cell::Cell::new(0),
+            armed: std::cell::Cell::new(true),
+        };
+        let context = graph.completion_context(Vec::new()).unwrap();
+        let result = context.prepare_rule_insertion(&root, 0, "r{}", &admission);
+        if let Ok(mut prepared) = result {
+            assert!(graph.commit_rule_insertion(&mut prepared).is_err());
+        }
+        assert_eq!(graph.rule_count(&root).unwrap(), 0);
+        assert_eq!(graph.occurrences.len(), 0);
+    }
+    struct Cancelled;
+    impl ImportAdmission for Cancelled {
+        fn checkpoint(&self) -> Result<(), String> {
+            Err("cancelled".into())
+        }
+        fn reserve(&self, _: usize) -> Result<LeaseArc<dyn Send + Sync>, String> {
+            self.checkpoint()?;
+            Ok(LeaseArc::new(()))
+        }
+    }
+    #[test]
+    fn cancelled_prepare_does_not_publish_rule_or_occurrence() {
+        struct Allowed;
+        impl ImportAdmission for Allowed {
+            fn checkpoint(&self) -> Result<(), String> {
+                Ok(())
+            }
+            fn reserve(&self, _: usize) -> Result<LeaseArc<dyn Send + Sync>, String> {
+                Ok(LeaseArc::new(()))
+            }
+        }
+        let graph = ImportGraph::parse(
+            "p{}",
+            "https://example.test/",
+            false,
+            8,
+            SharedRwLock::new(),
+            &Allowed,
+        )
+        .unwrap();
+        let root = graph.root();
+        let before = graph.rule_count(&root).unwrap();
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(graph.completion_context_count())
+            .unwrap();
+        let context = graph.completion_context(entries).unwrap();
+        assert!(context
+            .prepare_rule_insertion(&root, 0, "@import 'a.css';", &Cancelled)
+            .is_err());
+        assert_eq!(graph.rule_count(&root).unwrap(), before);
+        assert_eq!(graph.occurrences.len(), 0);
+    }
+    #[test]
+    fn prospective_count_overflow_is_rejected() {
+        assert!(insertion_capacity(usize::MAX, 1).is_err());
+        assert_eq!(insertion_capacity(7, 1).unwrap(), 8);
+    }
+    #[test]
+    fn cancellation_after_parse_during_rule_copy_preserves_graph() {
+        struct Counter {
+            calls: std::cell::Cell<usize>,
+            stop: std::cell::Cell<usize>,
+        }
+        impl ImportAdmission for Counter {
+            fn checkpoint(&self) -> Result<(), String> {
+                let n = self.calls.get() + 1;
+                self.calls.set(n);
+                if n == self.stop.get() {
+                    Err("late cancel".into())
+                } else {
+                    Ok(())
+                }
+            }
+            fn reserve(&self, _: usize) -> Result<LeaseArc<dyn Send + Sync>, String> {
+                Ok(LeaseArc::new(()))
+            }
+        }
+        let admission = Counter {
+            calls: std::cell::Cell::new(0),
+            stop: std::cell::Cell::new(usize::MAX),
+        };
+        let graph = ImportGraph::parse(
+            "p{} q{} r{} s{}",
+            "https://example.test/",
+            false,
+            8,
+            SharedRwLock::new(),
+            &admission,
+        )
+        .unwrap();
+        let root = graph.root();
+        let before = graph.rule_count(&root).unwrap();
+        let next = graph.next;
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(graph.completion_context_count())
+            .unwrap();
+        let context = graph.completion_context(entries).unwrap();
+        admission.calls.set(0);
+        let prepared = context
+            .prepare_rule_insertion(&root, 0, "div{}", &admission)
+            .unwrap();
+        let total = admission.calls.get();
+        drop(prepared);
+        assert!(total > 2);
+        admission.calls.set(0);
+        admission.stop.set(total - 1);
+        assert!(context
+            .prepare_rule_insertion(&root, 0, "div{}", &admission)
+            .is_err());
+        assert_eq!(graph.rule_count(&root).unwrap(), before);
+        assert_eq!(graph.next, next);
+        assert_eq!(graph.occurrences.len(), 0);
+    }
+}

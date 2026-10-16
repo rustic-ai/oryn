@@ -501,7 +501,14 @@ impl RawV8Host {
                     let local = v8::Local::new(scope, &context);
                     if let Some(lifecycle) = lifecycle {
                         if sever {
-                            lifecycle.closed.set(true)
+                            lifecycle.closed.set(true);
+                            // A new browsing-context group changes proxy
+                            // identity, not this native page's terminal owner.
+                            local.set_slot(Rc::new(NativeWindowLifecycle {
+                                closed: std::cell::Cell::new(false),
+                                discarded: std::cell::Cell::new(false),
+                                page_controller: lifecycle.page_controller.clone(),
+                            }));
                         } else {
                             local.set_slot(lifecycle);
                         }

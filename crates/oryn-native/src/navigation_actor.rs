@@ -712,7 +712,7 @@ impl PageState {
                     .map_err(map_host_error)?;
                 self.sync_executable_semantics()?;
             }
-            self.record_snapshot();
+            self.record_snapshot()?;
             self.trace.push(
                 Revision(self.revision),
                 None,
@@ -2105,7 +2105,7 @@ impl PageState {
                 }
                 match ready {
                     Ok(true) => {
-                        self.record_snapshot();
+                        if let Err(error)=self.record_snapshot(){return Poll::Ready(Err(error));}
                         result.revision = Revision(self.revision);
                         if !restored {
                             result.lifecycle = self.lifecycle.clone();
@@ -3438,6 +3438,7 @@ mod retained_navigation_history_tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://retained.test/old".into(),
             "<input id=value value=old>",
@@ -3754,6 +3755,7 @@ mod settled_navigation_result_tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://settlement.test/current".into(),
             "<title>Loaded title</title>",
@@ -3835,6 +3837,7 @@ mod settled_navigation_result_tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://settlement.test/current".into(),
             "<title>Loaded title</title><p>Loaded document</p>",

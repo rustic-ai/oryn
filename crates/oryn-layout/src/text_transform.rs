@@ -39,258 +39,6 @@ impl CaseContext {
             Err(never) => match never {},
         }
     }
-
-    fn build_with_checkpoint<E>(
-        text: &str,
-        greek_eligible: Option<&[bool]>,
-        checkpoint: &mut impl FnMut() -> Result<(), E>,
-    ) -> Result<Self, E> {
-        checkpoint()?;
-        let mut chars = Vec::new();
-        for ch in text.chars() {
-            checkpoint()?;
-            chars.push(ch);
-        }
-        let count = chars.len();
-        let mut context = Self {
-            chars,
-            greek_upper: std::collections::BTreeMap::new(),
-            word_initial: vec![false; count],
-            initial_grapheme: vec![false; count],
-            before_cased: vec![false; count],
-            after_cased: vec![false; count],
-            after_i: vec![false; count],
-            after_soft_dotted: vec![false; count],
-            more_above: vec![false; count],
-            before_dot: vec![false; count],
-        };
-        let cased = CodePointSetData::new::<Cased>();
-        // Segment the complete paragraph so inline/style boundaries cannot
-        // accidentally start a new capitalized word. Numbers consume the initial
-        // typographic unit too; initial punctuation does not.
-        let mut offset = 0;
-        for word in text.split_word_bounds() {
-            checkpoint()?;
-            let mut found = false;
-            for ch in word.chars() {
-                checkpoint()?;
-                if !found
-                    && !unicode_normalization::char::is_combining_mark(ch)
-                    && (ch.is_alphanumeric() || cased.contains(ch))
-                {
-                    context.word_initial[offset] = true;
-                    found = true;
-                }
-                offset += 1;
-            }
-        }
-        let mut first = 0;
-        for grapheme in text.graphemes(true) {
-            checkpoint()?;
-            let mut end = first;
-            for _ in grapheme.chars() {
-                checkpoint()?;
-                end += 1;
-            }
-            if context.word_initial[first..end]
-                .iter()
-                .any(|&initial| initial)
-            {
-                context.initial_grapheme[first..end].fill(true);
-            }
-            first = end;
-        }
-        let ignorable = CodePointSetData::new::<CaseIgnorable>();
-        let soft_dotted = CodePointSetData::new::<SoftDotted>();
-        let combining = CodePointMapData::<CanonicalCombiningClass>::new();
-        let (mut preceding_cased, mut preceding_i, mut preceding_soft) = (false, false, false);
-        for (index, &ch) in context.chars.iter().enumerate() {
-            checkpoint()?;
-            context.before_cased[index] = preceding_cased;
-            context.after_i[index] = preceding_i;
-            context.after_soft_dotted[index] = preceding_soft;
-            if !ignorable.contains(ch) {
-                preceding_cased = cased.contains(ch);
-            }
-            let class = combining.get(ch).to_icu4c_value();
-            if class == 0 || class == 230 {
-                preceding_i = ch == 'I';
-                preceding_soft = soft_dotted.contains(ch);
-            }
-        }
-        let (mut following_cased, mut above, mut dot) = (false, false, false);
-        for (index, &ch) in context.chars.iter().enumerate().rev() {
-            checkpoint()?;
-            context.after_cased[index] = following_cased;
-            context.more_above[index] = above;
-            context.before_dot[index] = dot;
-            if !ignorable.contains(ch) {
-                following_cased = cased.contains(ch);
-            }
-            let class = combining.get(ch).to_icu4c_value();
-            if class == 0 {
-                above = false;
-            } else if class == 230 {
-                above = true;
-            }
-            if ch == '\u{0307}' {
-                dot = true;
-            } else if class == 0 || class == 230 {
-                dot = false;
-            }
-        }
-        context.greek_upper = crate::greek_upper::replacements_with_checkpoint(
-            &context.chars,
-            &context.before_cased,
-            &context.after_cased,
-            greek_eligible,
-            checkpoint,
-        )?;
-        Ok(context)
-    }
-
-    pub fn convert(&self, index: usize, transform: &str, language: &str) -> String {
-        let width = transform
-            .split_ascii_whitespace()
-            .any(|token| token == "full-width");
-        let kana = transform
-            .split_ascii_whitespace()
-            .any(|token| token == "full-size-kana");
-        self.convert_case(index, transform, language)
-            .chars()
-            .map(|ch| {
-                let ch = if width { full_width(ch) } else { ch };
-                if kana { full_size_kana(ch) } else { ch }
-            })
-            .collect()
-    }
-
-    fn convert_case(&self, index: usize, transform: &str, language: &str) -> String {
-        let ch = self.chars[index];
-        let turkic = language.eq_ignore_ascii_case("tr") || language.eq_ignore_ascii_case("az");
-        let lithuanian = language.eq_ignore_ascii_case("lt");
-        // Combined CSS values still select at most one case transformation.
-        let uppercase = transform
-            .split_ascii_whitespace()
-            .any(|token| token == "uppercase");
-        let lowercase = transform
-            .split_ascii_whitespace()
-            .any(|token| token == "lowercase");
-        let capitalize = transform
-            .split_ascii_whitespace()
-            .any(|token| token == "capitalize");
-        if capitalize {
-            // Titlecasing affects the initial typographic unit, including its
-            // dependent marks, but never recases the remainder of the word.
-            if lithuanian
-                && ch == '\u{0307}'
-                && self.initial_grapheme[index]
-                && self.after_soft_dotted[index]
-            {
-                return String::new();
-            }
-            let dutch_ij = language.eq_ignore_ascii_case("nl")
-                && index > 0
-                && matches!(ch, 'j' | 'J')
-                && matches!(self.chars[index - 1], 'i' | 'I')
-                && self.word_initial[index - 1];
-            if self.word_initial[index] || dutch_ij {
-                if turkic && ch == 'i' {
-                    return "İ".into();
-                }
-                return titlecase(ch);
-            }
-            return ch.to_string();
-        }
-        if uppercase {
-            if language.eq_ignore_ascii_case("el")
-                && let Some(rendered) = self.greek_upper.get(&index)
-            {
-                return rendered.clone();
-            }
-            if turkic && ch == 'i' {
-                return "İ".into();
-            }
-            if lithuanian && ch == '\u{0307}' && self.after_soft_dotted[index] {
-                return String::new();
-            }
-            return ch.to_uppercase().collect();
-        }
-        if lowercase {
-            if ch == 'Σ' && self.before_cased[index] && !self.after_cased[index] {
-                return "ς".into();
-            }
-            if turkic {
-                match ch {
-                    'İ' => return "i".into(),
-                    'I' if !self.before_dot[index] => return "ı".into(),
-                    '\u{0307}' if self.after_i[index] => return String::new(),
-                    _ => {}
-                }
-            }
-            if lithuanian {
-                match ch {
-                    'I' | 'J' | 'Į' if self.more_above[index] => {
-                        let mut result: String = ch.to_lowercase().collect();
-                        result.push('\u{0307}');
-                        return result;
-                    }
-                    'Ì' => return "i\u{0307}\u{0300}".into(),
-                    'Í' => return "i\u{0307}\u{0301}".into(),
-                    'Ĩ' => return "i\u{0307}\u{0303}".into(),
-                    _ => {}
-                }
-            }
-            return ch.to_lowercase().collect();
-        }
-        ch.to_string()
-    }
-}
-
-/// Unicode titlecase differs from uppercase for digraphs, case expansions,
-/// Greek prosgegrammeni and Georgian Mkhedruli. Preserve the remainder of the
-/// original word; only the initial typographic unit passes through this mapping.
-fn titlecase(ch: char) -> String {
-    let scalar = match ch as u32 {
-        0x01c4..=0x01c6 => Some(0x01c5),
-        0x01c7..=0x01c9 => Some(0x01c8),
-        0x01ca..=0x01cc => Some(0x01cb),
-        0x01f1..=0x01f3 => Some(0x01f2),
-        0x10d0..=0x10fa | 0x10fd..=0x10ff => return ch.to_string(),
-        0x1f80..=0x1f87 | 0x1f90..=0x1f97 | 0x1fa0..=0x1fa7 => Some(ch as u32 + 8),
-        0x1f88..=0x1f8f | 0x1f98..=0x1f9f | 0x1fa8..=0x1faf => return ch.to_string(),
-        0x1fb3 | 0x1fbc => Some(0x1fbc),
-        0x1fc3 | 0x1fcc => Some(0x1fcc),
-        0x1ff3 | 0x1ffc => Some(0x1ffc),
-        _ => None,
-    };
-    if let Some(scalar) = scalar {
-        return char::from_u32(scalar).unwrap().to_string();
-    }
-    match ch {
-        '\u{1fb2}' => return "\u{1fba}\u{345}".into(),
-        '\u{1fb4}' => return "\u{386}\u{345}".into(),
-        '\u{1fb7}' => return "Α\u{342}\u{345}".into(),
-        '\u{1fc2}' => return "\u{1fca}\u{345}".into(),
-        '\u{1fc4}' => return "\u{389}\u{345}".into(),
-        '\u{1fc7}' => return "Η\u{342}\u{345}".into(),
-        '\u{1ff2}' => return "\u{1ffa}\u{345}".into(),
-        '\u{1ff4}' => return "\u{38f}\u{345}".into(),
-        '\u{1ff7}' => return "Ω\u{342}\u{345}".into(),
-        _ => {}
-    }
-    let cased = CodePointSetData::new::<Cased>();
-    let mut first_cased = false;
-    let mut result = String::new();
-    for upper in ch.to_uppercase() {
-        if first_cased {
-            result.extend(upper.to_lowercase());
-        } else {
-            result.push(upper);
-            first_cased = cased.contains(upper);
-        }
-    }
-    result
 }
 
 /// Unicode narrow decomposition mappings and the inverse wide mappings. This
@@ -663,40 +411,6 @@ pub fn accessibility_case_fragment(
 
 /// The same case algorithm with caller-owned terminal cancellation checkpoints.
 /// Cancellation never produces an empty or partially transformed speech value.
-pub fn accessibility_case_fragment_with_checkpoint<E>(
-    text: &str,
-    start: usize,
-    end: usize,
-    transform: &str,
-    language: &str,
-    checkpoint: &mut impl FnMut() -> Result<(), E>,
-) -> Result<String, E> {
-    checkpoint()?;
-    let mut case = "none";
-    for token in transform.split_ascii_whitespace() {
-        checkpoint()?;
-        if matches!(token, "uppercase" | "lowercase" | "capitalize") {
-            case = token;
-            break;
-        }
-    }
-    let mut count = 0;
-    let mut eligible = Vec::new();
-    for _ in text.chars() {
-        checkpoint()?;
-        count += 1;
-        eligible.push(case == "uppercase");
-    }
-    let start = start.min(count);
-    let end = end.min(count).max(start);
-    let context = CaseContext::build_with_checkpoint(text, Some(&eligible), checkpoint)?;
-    let mut output = String::new();
-    for index in start..end {
-        checkpoint()?;
-        output.push_str(&context.convert(index, case, language));
-    }
-    Ok(output)
-}
 
 #[cfg(test)]
 mod accessibility_tests {
@@ -756,4 +470,698 @@ mod accessibility_tests {
             "びょういん"
         );
     }
+}
+
+#[derive(Debug)]
+pub enum CasePreparationError<C, A> {
+    Checkpoint(C),
+    Allocation(A),
+}
+pub(super) fn case_push<T, C, A: oryn_dom::projection_allocation::ProjectionAllocation>(
+    values: &mut Vec<T>,
+    value: T,
+    allocation: &mut A,
+    check: &mut impl FnMut() -> Result<(), C>,
+) -> Result<(), CasePreparationError<C, A::Error>> {
+    check().map_err(CasePreparationError::Checkpoint)?;
+    let needed = values.len().checked_add(1).ok_or_else(|| {
+        CasePreparationError::Allocation(A::Error::from(
+            oryn_dom::DomError::SemanticProjectionCapacity,
+        ))
+    })?;
+    oryn_dom::projection_allocation::reserve_vector(values, needed, allocation)
+        .map_err(CasePreparationError::Allocation)?;
+    values.push(value);
+    Ok(())
+}
+pub(super) fn case_append<C, A: oryn_dom::projection_allocation::ProjectionAllocation>(
+    values: &mut String,
+    value: &str,
+    allocation: &mut A,
+    check: &mut impl FnMut() -> Result<(), C>,
+) -> Result<(), CasePreparationError<C, A::Error>> {
+    check().map_err(CasePreparationError::Checkpoint)?;
+    let needed = values.len().checked_add(value.len()).ok_or_else(|| {
+        CasePreparationError::Allocation(A::Error::from(
+            oryn_dom::DomError::SemanticProjectionCapacity,
+        ))
+    })?;
+    oryn_dom::projection_allocation::reserve_string(values, needed, allocation)
+        .map_err(CasePreparationError::Allocation)?;
+    for ch in value.chars() {
+        check().map_err(CasePreparationError::Checkpoint)?;
+        values.push(ch);
+    }
+    Ok(())
+}
+
+impl CaseContext {
+    fn build_with_allocation<C, A: oryn_dom::projection_allocation::ProjectionAllocation>(
+        text: &str,
+        greek_eligible: Option<&[bool]>,
+        allocation: &mut A,
+        checkpoint: &mut impl FnMut() -> Result<(), C>,
+    ) -> Result<Self, CasePreparationError<C, A::Error>> {
+        checkpoint().map_err(CasePreparationError::Checkpoint)?;
+        let mut chars = Vec::new();
+        for ch in text.chars() {
+            checkpoint().map_err(CasePreparationError::Checkpoint)?;
+            case_push(&mut chars, ch, allocation, checkpoint)?;
+        }
+        let count = chars.len();
+        let mut context = Self {
+            chars,
+            greek_upper: std::collections::BTreeMap::new(),
+            word_initial: case_flags(count, allocation, checkpoint)?,
+            initial_grapheme: case_flags(count, allocation, checkpoint)?,
+            before_cased: case_flags(count, allocation, checkpoint)?,
+            after_cased: case_flags(count, allocation, checkpoint)?,
+            after_i: case_flags(count, allocation, checkpoint)?,
+            after_soft_dotted: case_flags(count, allocation, checkpoint)?,
+            more_above: case_flags(count, allocation, checkpoint)?,
+            before_dot: case_flags(count, allocation, checkpoint)?,
+        };
+        let cased = CodePointSetData::new::<Cased>();
+        // Segment the complete paragraph so inline/style boundaries cannot
+        // accidentally start a new capitalized word. Numbers consume the initial
+        // typographic unit too; initial punctuation does not.
+        let mut offset = 0;
+        for word in text.split_word_bounds() {
+            checkpoint().map_err(CasePreparationError::Checkpoint)?;
+            let mut found = false;
+            for ch in word.chars() {
+                checkpoint().map_err(CasePreparationError::Checkpoint)?;
+                if !found
+                    && !unicode_normalization::char::is_combining_mark(ch)
+                    && (ch.is_alphanumeric() || cased.contains(ch))
+                {
+                    context.word_initial[offset] = true;
+                    found = true;
+                }
+                offset += 1;
+            }
+        }
+        let mut first = 0;
+        for grapheme in text.graphemes(true) {
+            checkpoint().map_err(CasePreparationError::Checkpoint)?;
+            let mut end = first;
+            for _ in grapheme.chars() {
+                checkpoint().map_err(CasePreparationError::Checkpoint)?;
+                end += 1;
+            }
+            let mut initial = false;
+            for value in &context.word_initial[first..end] {
+                checkpoint().map_err(CasePreparationError::Checkpoint)?;
+                if *value {
+                    initial = true;
+                    break;
+                }
+            }
+            if initial {
+                for value in &mut context.initial_grapheme[first..end] {
+                    checkpoint().map_err(CasePreparationError::Checkpoint)?;
+                    *value = true;
+                }
+            }
+            first = end;
+        }
+        let ignorable = CodePointSetData::new::<CaseIgnorable>();
+        let soft_dotted = CodePointSetData::new::<SoftDotted>();
+        let combining = CodePointMapData::<CanonicalCombiningClass>::new();
+        let (mut preceding_cased, mut preceding_i, mut preceding_soft) = (false, false, false);
+        for (index, &ch) in context.chars.iter().enumerate() {
+            checkpoint().map_err(CasePreparationError::Checkpoint)?;
+            context.before_cased[index] = preceding_cased;
+            context.after_i[index] = preceding_i;
+            context.after_soft_dotted[index] = preceding_soft;
+            if !ignorable.contains(ch) {
+                preceding_cased = cased.contains(ch);
+            }
+            let class = combining.get(ch).to_icu4c_value();
+            if class == 0 || class == 230 {
+                preceding_i = ch == 'I';
+                preceding_soft = soft_dotted.contains(ch);
+            }
+        }
+        let (mut following_cased, mut above, mut dot) = (false, false, false);
+        for (index, &ch) in context.chars.iter().enumerate().rev() {
+            checkpoint().map_err(CasePreparationError::Checkpoint)?;
+            context.after_cased[index] = following_cased;
+            context.more_above[index] = above;
+            context.before_dot[index] = dot;
+            if !ignorable.contains(ch) {
+                following_cased = cased.contains(ch);
+            }
+            let class = combining.get(ch).to_icu4c_value();
+            if class == 0 {
+                above = false;
+            } else if class == 230 {
+                above = true;
+            }
+            if ch == '\u{0307}' {
+                dot = true;
+            } else if class == 0 || class == 230 {
+                dot = false;
+            }
+        }
+        context.greek_upper = crate::greek_upper::replacements_with_allocation(
+            &context.chars,
+            &context.before_cased,
+            &context.after_cased,
+            greek_eligible,
+            allocation,
+            checkpoint,
+        )?;
+        Ok(context)
+    }
+}
+fn case_flags<C, A: oryn_dom::projection_allocation::ProjectionAllocation>(
+    count: usize,
+    allocation: &mut A,
+    checkpoint: &mut impl FnMut() -> Result<(), C>,
+) -> Result<Vec<bool>, CasePreparationError<C, A::Error>> {
+    checkpoint().map_err(CasePreparationError::Checkpoint)?;
+    let mut values = Vec::new();
+    oryn_dom::projection_allocation::reserve_vector(&mut values, count, allocation)
+        .map_err(CasePreparationError::Allocation)?;
+    for _ in 0..count {
+        checkpoint().map_err(CasePreparationError::Checkpoint)?;
+        values.push(false);
+    }
+    Ok(values)
+}
+
+fn case_text<C, A: oryn_dom::projection_allocation::ProjectionAllocation>(
+    value: &str,
+    allocation: &mut A,
+    check: &mut impl FnMut() -> Result<(), C>,
+) -> Result<String, CasePreparationError<C, A::Error>> {
+    let mut output = String::new();
+    case_append(&mut output, value, allocation, check)?;
+    Ok(output)
+}
+fn case_scalar<C, A: oryn_dom::projection_allocation::ProjectionAllocation>(
+    value: char,
+    allocation: &mut A,
+    check: &mut impl FnMut() -> Result<(), C>,
+) -> Result<String, CasePreparationError<C, A::Error>> {
+    let mut buffer = [0u8; 4];
+    case_text(value.encode_utf8(&mut buffer), allocation, check)
+}
+fn case_append_scalar<C, A: oryn_dom::projection_allocation::ProjectionAllocation>(
+    output: &mut String,
+    value: char,
+    allocation: &mut A,
+    check: &mut impl FnMut() -> Result<(), C>,
+) -> Result<(), CasePreparationError<C, A::Error>> {
+    let mut buffer = [0u8; 4];
+    case_append(output, value.encode_utf8(&mut buffer), allocation, check)
+}
+
+fn titlecase_with_allocation<C, A: oryn_dom::projection_allocation::ProjectionAllocation>(
+    ch: char,
+    allocation: &mut A,
+    checkpoint: &mut impl FnMut() -> Result<(), C>,
+) -> Result<String, CasePreparationError<C, A::Error>> {
+    let scalar = match ch as u32 {
+        0x01c4..=0x01c6 => Some(0x01c5),
+        0x01c7..=0x01c9 => Some(0x01c8),
+        0x01ca..=0x01cc => Some(0x01cb),
+        0x01f1..=0x01f3 => Some(0x01f2),
+        0x10d0..=0x10fa | 0x10fd..=0x10ff => return case_scalar(ch, allocation, checkpoint),
+        0x1f80..=0x1f87 | 0x1f90..=0x1f97 | 0x1fa0..=0x1fa7 => Some(ch as u32 + 8),
+        0x1f88..=0x1f8f | 0x1f98..=0x1f9f | 0x1fa8..=0x1faf => {
+            return case_scalar(ch, allocation, checkpoint);
+        }
+        0x1fb3 | 0x1fbc => Some(0x1fbc),
+        0x1fc3 | 0x1fcc => Some(0x1fcc),
+        0x1ff3 | 0x1ffc => Some(0x1ffc),
+        _ => None,
+    };
+    if let Some(scalar) = scalar {
+        return case_scalar(char::from_u32(scalar).unwrap(), allocation, checkpoint);
+    }
+    match ch {
+        '\u{1fb2}' => return case_text("\u{1fba}\u{345}", allocation, checkpoint),
+        '\u{1fb4}' => return case_text("\u{386}\u{345}", allocation, checkpoint),
+        '\u{1fb7}' => return case_text("Α\u{342}\u{345}", allocation, checkpoint),
+        '\u{1fc2}' => return case_text("\u{1fca}\u{345}", allocation, checkpoint),
+        '\u{1fc4}' => return case_text("\u{389}\u{345}", allocation, checkpoint),
+        '\u{1fc7}' => return case_text("Η\u{342}\u{345}", allocation, checkpoint),
+        '\u{1ff2}' => return case_text("\u{1ffa}\u{345}", allocation, checkpoint),
+        '\u{1ff4}' => return case_text("\u{38f}\u{345}", allocation, checkpoint),
+        '\u{1ff7}' => return case_text("Ω\u{342}\u{345}", allocation, checkpoint),
+        _ => {}
+    }
+    let cased = CodePointSetData::new::<Cased>();
+    let mut first_cased = false;
+    let mut result = String::new();
+    for upper in ch.to_uppercase() {
+        if first_cased {
+            for lower in upper.to_lowercase() {
+                case_append_scalar(&mut result, lower, allocation, checkpoint)?;
+            }
+        } else {
+            case_append_scalar(&mut result, upper, allocation, checkpoint)?;
+            first_cased = cased.contains(upper);
+        }
+    }
+    Ok(result)
+}
+
+impl CaseContext {
+    fn convert_case_with_allocation<C, A: oryn_dom::projection_allocation::ProjectionAllocation>(
+        &self,
+        index: usize,
+        transform: &str,
+        language: &str,
+        allocation: &mut A,
+        checkpoint: &mut impl FnMut() -> Result<(), C>,
+    ) -> Result<String, CasePreparationError<C, A::Error>> {
+        let ch = self.chars[index];
+        let turkic = case_language(language, "tr", checkpoint)
+            .map_err(CasePreparationError::Checkpoint)?
+            || case_language(language, "az", checkpoint)
+                .map_err(CasePreparationError::Checkpoint)?;
+        let lithuanian =
+            case_language(language, "lt", checkpoint).map_err(CasePreparationError::Checkpoint)?;
+        // Combined CSS values still select at most one case transformation.
+        let uppercase = case_has_token(transform, "uppercase", checkpoint)
+            .map_err(CasePreparationError::Checkpoint)?;
+        let lowercase = case_has_token(transform, "lowercase", checkpoint)
+            .map_err(CasePreparationError::Checkpoint)?;
+        let capitalize = case_has_token(transform, "capitalize", checkpoint)
+            .map_err(CasePreparationError::Checkpoint)?;
+        if capitalize {
+            // Titlecasing affects the initial typographic unit, including its
+            // dependent marks, but never recases the remainder of the word.
+            if lithuanian
+                && ch == '\u{0307}'
+                && self.initial_grapheme[index]
+                && self.after_soft_dotted[index]
+            {
+                return Ok(String::new());
+            }
+            let dutch_ij = case_language(language, "nl", checkpoint)
+                .map_err(CasePreparationError::Checkpoint)?
+                && index > 0
+                && matches!(ch, 'j' | 'J')
+                && matches!(self.chars[index - 1], 'i' | 'I')
+                && self.word_initial[index - 1];
+            if self.word_initial[index] || dutch_ij {
+                if turkic && ch == 'i' {
+                    return case_text("İ", allocation, checkpoint);
+                }
+                return titlecase_with_allocation(ch, allocation, checkpoint);
+            }
+            return case_scalar(ch, allocation, checkpoint);
+        }
+        if uppercase {
+            if case_language(language, "el", checkpoint)
+                .map_err(CasePreparationError::Checkpoint)?
+                && let Some(rendered) = self.greek_upper.get(&index)
+            {
+                return case_text(rendered, allocation, checkpoint);
+            }
+            if turkic && ch == 'i' {
+                return case_text("İ", allocation, checkpoint);
+            }
+            if lithuanian && ch == '\u{0307}' && self.after_soft_dotted[index] {
+                return Ok(String::new());
+            }
+            let mut result = String::new();
+            for upper in ch.to_uppercase() {
+                case_append_scalar(&mut result, upper, allocation, checkpoint)?;
+            }
+            return Ok(result);
+        }
+        if lowercase {
+            if ch == 'Σ' && self.before_cased[index] && !self.after_cased[index] {
+                return case_text("ς", allocation, checkpoint);
+            }
+            if turkic {
+                match ch {
+                    'İ' => return case_text("i", allocation, checkpoint),
+                    'I' if !self.before_dot[index] => {
+                        return case_text("ı", allocation, checkpoint);
+                    }
+                    '\u{0307}' if self.after_i[index] => return Ok(String::new()),
+                    _ => {}
+                }
+            }
+            if lithuanian {
+                match ch {
+                    'I' | 'J' | 'Į' if self.more_above[index] => {
+                        let mut result = String::new();
+                        for lower in ch.to_lowercase() {
+                            case_append_scalar(&mut result, lower, allocation, checkpoint)?;
+                        }
+                        case_append_scalar(&mut result, '\u{0307}', allocation, checkpoint)?;
+                        return Ok(result);
+                    }
+                    'Ì' => return case_text("i\u{0307}\u{0300}", allocation, checkpoint),
+                    'Í' => return case_text("i\u{0307}\u{0301}", allocation, checkpoint),
+                    'Ĩ' => return case_text("i\u{0307}\u{0303}", allocation, checkpoint),
+                    _ => {}
+                }
+            }
+            let mut result = String::new();
+            for lower in ch.to_lowercase() {
+                case_append_scalar(&mut result, lower, allocation, checkpoint)?;
+            }
+            return Ok(result);
+        }
+        case_scalar(ch, allocation, checkpoint)
+    }
+}
+
+fn case_has_token<C>(
+    value: &str,
+    wanted: &str,
+    check: &mut impl FnMut() -> Result<(), C>,
+) -> Result<bool, C> {
+    let mut start = None;
+    for (index, ch) in value.char_indices() {
+        check()?;
+        if ch.is_ascii_whitespace() {
+            if let Some(first) = start.take()
+                && &value[first..index] == wanted
+            {
+                return Ok(true);
+            }
+        } else if start.is_none() {
+            start = Some(index);
+        }
+    }
+    check()?;
+    Ok(start.is_some_and(|first| &value[first..] == wanted))
+}
+fn case_language<C>(
+    value: &str,
+    wanted: &str,
+    check: &mut impl FnMut() -> Result<(), C>,
+) -> Result<bool, C> {
+    check()?;
+    if value.len() != wanted.len() {
+        return Ok(false);
+    }
+    for (left, right) in value.bytes().zip(wanted.bytes()) {
+        check()?;
+        if !left.eq_ignore_ascii_case(&right) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+impl CaseContext {
+    fn convert_with_allocation<C, A: oryn_dom::projection_allocation::ProjectionAllocation>(
+        &self,
+        index: usize,
+        transform: &str,
+        language: &str,
+        allocation: &mut A,
+        check: &mut impl FnMut() -> Result<(), C>,
+    ) -> Result<String, CasePreparationError<C, A::Error>> {
+        let width = case_has_token(transform, "full-width", check)
+            .map_err(CasePreparationError::Checkpoint)?;
+        let kana = case_has_token(transform, "full-size-kana", check)
+            .map_err(CasePreparationError::Checkpoint)?;
+        let converted =
+            self.convert_case_with_allocation(index, transform, language, allocation, check)?;
+        let mut output = String::new();
+        for ch in converted.chars() {
+            check().map_err(CasePreparationError::Checkpoint)?;
+            let ch = if width { full_width(ch) } else { ch };
+            let ch = if kana { full_size_kana(ch) } else { ch };
+            case_append_scalar(&mut output, ch, allocation, check)?;
+        }
+        Ok(output)
+    }
+}
+
+pub fn accessibility_case_fragment_with_allocation<
+    C,
+    A: oryn_dom::projection_allocation::ProjectionAllocation,
+>(
+    text: &str,
+    start: usize,
+    end: usize,
+    transform: &str,
+    language: &str,
+    allocation: &mut A,
+    check: &mut impl FnMut() -> Result<(), C>,
+) -> Result<String, CasePreparationError<C, A::Error>> {
+    check().map_err(CasePreparationError::Checkpoint)?;
+    let mut case = "none";
+    let mut first = None;
+    for (index, ch) in transform
+        .char_indices()
+        .chain(std::iter::once((transform.len(), ' ')))
+    {
+        check().map_err(CasePreparationError::Checkpoint)?;
+        if ch.is_ascii_whitespace() {
+            if let Some(start) = first.take() {
+                let token = &transform[start..index];
+                if matches!(token, "uppercase" | "lowercase" | "capitalize") {
+                    case = token;
+                    break;
+                }
+            }
+        } else if first.is_none() {
+            first = Some(index);
+        }
+    }
+    let context_start = allocation.scratch_mark();
+    let mut count = 0usize;
+    let mut eligible = Vec::new();
+    for _ in text.chars() {
+        check().map_err(CasePreparationError::Checkpoint)?;
+        count = count.checked_add(1).ok_or_else(|| {
+            CasePreparationError::Allocation(A::Error::from(
+                oryn_dom::DomError::SemanticProjectionCapacity,
+            ))
+        })?;
+        case_push(&mut eligible, case == "uppercase", allocation, check)?;
+    }
+    let start = start.min(count);
+    let end = end.min(count).max(start);
+    let context = CaseContext::build_with_allocation(text, Some(&eligible), allocation, check)?;
+    let context_end = allocation.scratch_mark();
+    let mut output = String::new();
+    for index in start..end {
+        check().map_err(CasePreparationError::Checkpoint)?;
+        let mark = allocation.scratch_mark();
+        let value = context.convert_with_allocation(index, case, language, allocation, check)?;
+        let end = allocation.scratch_mark();
+        case_append(&mut output, &value, allocation, check)?;
+        drop(value);
+        allocation.release_scratch_range(mark..end);
+    }
+    drop(context);
+    drop(eligible);
+    allocation.release_scratch_range(context_start..context_end);
+    Ok(output)
+}
+
+pub(super) fn ordinary_case_result<T, C>(
+    result: Result<T, CasePreparationError<C, oryn_dom::DomError>>,
+) -> Result<T, C> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(CasePreparationError::Checkpoint(error)) => Err(error),
+        Err(CasePreparationError::Allocation(error)) => {
+            panic!("ordinary case capacity failure: {error}")
+        }
+    }
+}
+impl CaseContext {
+    fn build_with_checkpoint<E>(
+        text: &str,
+        eligible: Option<&[bool]>,
+        checkpoint: &mut impl FnMut() -> Result<(), E>,
+    ) -> Result<Self, E> {
+        ordinary_case_result(Self::build_with_allocation(
+            text,
+            eligible,
+            &mut oryn_dom::projection_allocation::OrdinaryProjectionAllocation,
+            checkpoint,
+        ))
+    }
+    pub fn convert(&self, index: usize, transform: &str, language: &str) -> String {
+        match ordinary_case_result(self.convert_with_allocation(
+            index,
+            transform,
+            language,
+            &mut oryn_dom::projection_allocation::OrdinaryProjectionAllocation,
+            &mut || Ok::<_, std::convert::Infallible>(()),
+        )) {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
+    }
+}
+pub fn accessibility_case_fragment_with_checkpoint<E>(
+    text: &str,
+    start: usize,
+    end: usize,
+    transform: &str,
+    language: &str,
+    checkpoint: &mut impl FnMut() -> Result<(), E>,
+) -> Result<String, E> {
+    ordinary_case_result(accessibility_case_fragment_with_allocation(
+        text,
+        start,
+        end,
+        transform,
+        language,
+        &mut oryn_dom::projection_allocation::OrdinaryProjectionAllocation,
+        checkpoint,
+    ))
+}
+#[cfg(test)]
+fn titlecase(ch: char) -> String {
+    match ordinary_case_result(titlecase_with_allocation(
+        ch,
+        &mut oryn_dom::projection_allocation::OrdinaryProjectionAllocation,
+        &mut || Ok::<_, std::convert::Infallible>(()),
+    )) {
+        Ok(value) => value,
+        Err(never) => match never {},
+    }
+}
+
+#[cfg(test)]
+mod case_allocation_controls {
+    use super::*;
+    #[derive(Debug)]
+    struct Error;
+    impl From<oryn_dom::DomError> for Error {
+        fn from(_: oryn_dom::DomError) -> Self {
+            Self
+        }
+    }
+    struct Allocation {
+        calls: usize,
+        fail: usize,
+    }
+    impl oryn_dom::projection_allocation::ProjectionAllocation for Allocation {
+        type Error = Error;
+        fn reserve(&mut self, _: usize) -> Result<(), Error> {
+            self.calls += 1;
+            if self.calls == self.fail {
+                Err(Error)
+            } else {
+                Ok(())
+            }
+        }
+        fn allocation_error(&self, _: std::collections::TryReserveError) -> Error {
+            Error
+        }
+    }
+    #[test]
+    fn multilingual_allocated_case_matches_ordinary_and_preserves_source() {
+        for (text, transform, language) in [
+            ("hello world", "capitalize", "en"),
+            ("ΟΣ ΟΣΑ", "lowercase", "el"),
+            ("ή άι α\u{301}ι", "uppercase", "el"),
+            ("I\u{307} İ", "lowercase", "tr"),
+            ("I\u{301}", "lowercase", "lt"),
+        ] {
+            let mut allocation = Allocation {
+                calls: 0,
+                fail: usize::MAX,
+            };
+            let value = accessibility_case_fragment_with_allocation(
+                text,
+                0,
+                text.chars().count(),
+                transform,
+                language,
+                &mut allocation,
+                &mut || Ok::<_, oryn_dom::DomError>(()),
+            )
+            .unwrap();
+            assert_eq!(
+                value,
+                accessibility_case_fragment(text, 0, text.chars().count(), transform, language)
+            );
+            let count = allocation.calls;
+            for fail in 1..=count {
+                let mut allocation = Allocation { calls: 0, fail };
+                assert!(
+                    accessibility_case_fragment_with_allocation(
+                        text,
+                        0,
+                        text.chars().count(),
+                        transform,
+                        language,
+                        &mut allocation,
+                        &mut || Ok::<_, oryn_dom::DomError>(())
+                    )
+                    .is_err()
+                );
+            }
+        }
+    }
+    #[test]
+    fn long_fragment_cancellation_preserves_entry_loop() {
+        let text = "a\u{301}".repeat(8192);
+        let mut allocation = Allocation {
+            calls: 0,
+            fail: usize::MAX,
+        };
+        let mut calls = 0;
+        let result = accessibility_case_fragment_with_allocation(
+            &text,
+            0,
+            16384,
+            "uppercase",
+            "el",
+            &mut allocation,
+            &mut || {
+                calls += 1;
+                if calls == 64 {
+                    Err(oryn_dom::DomError::ProjectionCancelled)
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(CasePreparationError::Checkpoint(
+                oryn_dom::DomError::ProjectionCancelled
+            ))
+        ));
+        assert_eq!(calls, 64);
+    }
+    #[test]
+    fn greek_combining_loop_cancels_without_fragment_prescan() {
+        let chars: Vec<char> = format!("α{}", "\u{301}".repeat(8192)).chars().collect();
+        let before = vec![false; chars.len()];
+        let after = vec![false; chars.len()];
+        let mut allocation = Allocation { calls: 0, fail: usize::MAX };
+        let mut calls = 0;
+        let result = crate::greek_upper::replacements_with_allocation(
+            &chars, &before, &after, None, &mut allocation, &mut || {
+                calls += 1;
+                if calls == 64 { Err(oryn_dom::DomError::ProjectionCancelled) } else { Ok(()) }
+            });
+        assert!(matches!(result, Err(CasePreparationError::Checkpoint(
+            oryn_dom::DomError::ProjectionCancelled))));
+        assert_eq!(calls, 64);
+        assert!(allocation.calls > 0, "decomposition was reached");
+    }
+
+    #[test]
+    fn flag_allocation_observes_entry_cancellation_even_when_empty() {
+        let mut allocation = Allocation { calls: 0, fail: usize::MAX };
+        let result = case_flags(0, &mut allocation, &mut ||
+            Err(oryn_dom::DomError::ProjectionCancelled));
+        assert!(matches!(result, Err(CasePreparationError::Checkpoint(
+            oryn_dom::DomError::ProjectionCancelled))));
+        assert_eq!(allocation.calls, 0);
+    }
+
 }

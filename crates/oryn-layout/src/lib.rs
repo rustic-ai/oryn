@@ -90,6 +90,7 @@ mod ruby;
 mod text_transform;
 pub use text_transform::{
     accessibility_case_fragment, accessibility_case_fragment_with_checkpoint,
+    accessibility_case_fragment_with_allocation, CasePreparationError,
 };
 mod greek_upper;
 
@@ -647,7 +648,26 @@ pub struct StyleEngine {
     retained_sheets: Option<RetainedCascadeSheets>,
 }
 
+pub use blitz_dom::html_font_size_hint_keyword;
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum LegacyFontKeyword{XSmall,Small,Medium,Large,XLarge,XXLarge,XXXLarge}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct LegacyFontDemand{pub body:u64,pub keyword:LegacyFontKeyword}
+#[derive(Clone,Copy,Debug,PartialEq)]
+pub struct LegacyFontResolution{pub demand:LegacyFontDemand,pub pixels:f32}
 impl StyleEngine {
+pub fn resolve_legacy_font_at_controlled(
+    &mut self,input:&LayoutInput,limits:&LayoutLimits,now:f64,
+    demand:LegacyFontDemand,cancelled:Option<Arc<dyn Fn()->bool+Send+Sync>>,
+)->Result<LegacyFontResolution,LayoutError>{
+    layout_checkpoint(&cancelled)?;validate(input,limits)?;
+    let mut result=None;
+    stylo_computed_values_with_instances_controlled(input,false,now,
+        Some(&mut self.continuity),&self.effects,Some(&mut self.samples),
+        StyloControlledOptions{instances:None,cancelled:cancelled.clone(),retained:self.retained_sheets.as_ref(),legacy_font:Some((demand,&mut result))})?;
+    layout_checkpoint(&cancelled)?;
+    result.ok_or_else(||LayoutError::StyleTraversal("missing owning body font resolution".into()))
+}
     /// Snapshot of the last successful layout's native animation session.
     pub fn instance_style_sample(&self) -> Option<svg_instances::StyleSample> {
         self.instance_sample.clone()
@@ -747,6 +767,7 @@ impl StyleEngine {
                 Some(&mut self.samples),
                 StyloControlledOptions {
                     instances: None,
+                    legacy_font: None,
                     cancelled: cancelled.clone(),
                     retained: self.retained_sheets.as_ref(),
                 },
@@ -5888,6 +5909,7 @@ fn stylo_computed_values_with_instances(
         samples,
         StyloControlledOptions {
             instances,
+            legacy_font: None,
             cancelled: None,
             retained: None,
         },
@@ -5895,6 +5917,7 @@ fn stylo_computed_values_with_instances(
 }
 
 struct StyloControlledOptions<'a> {
+    legacy_font: Option<(LegacyFontDemand, &'a mut Option<LegacyFontResolution>)>,
     instances: Option<(
         &'a [svg_instances::StyleInstance],
         &'a mut svg_instances::InstanceProjection,
@@ -5915,6 +5938,7 @@ fn stylo_computed_values_with_instances_controlled(
 ) -> Result<StyloStyleProjection, LayoutError> {
     let StyloControlledOptions {
         instances,
+        legacy_font,
         cancelled,
         retained,
     } = options;
@@ -6607,6 +6631,16 @@ fn stylo_computed_values_with_instances_controlled(
     }
 
     let mut output = ComputedStyles::new();
+    if let Some((demand,result))=legacy_font {
+        let body=mirror_ids.get(&demand.body).copied().ok_or_else(||LayoutError::StyleTraversal("legacy font body outside owner snapshot".into()))?;
+        let native=by_id.get(&demand.body).ok_or_else(||LayoutError::StyleTraversal("legacy font body absent".into()))?;
+        if !matches!(native.tag.as_str(),"body"|"frameset") {return Err(LayoutError::StyleTraversal("legacy font demand requires document body".into()))}
+        use style::values::specified::font::FontSizeKeyword as K;
+        let keyword=match demand.keyword{LegacyFontKeyword::XSmall=>K::XSmall,LegacyFontKeyword::Small=>K::Small,LegacyFontKeyword::Medium=>K::Medium,LegacyFontKeyword::Large=>K::Large,LegacyFontKeyword::XLarge=>K::XLarge,LegacyFontKeyword::XXLarge=>K::XXLarge,LegacyFontKeyword::XXXLarge=>K::XXXLarge};
+        let pixels=document.resolve_legacy_font_keyword(body,keyword).ok_or_else(||LayoutError::StyleTraversal("legacy font body unresolved".into()))?;
+        if !pixels.is_finite()||pixels<=0.{return Err(LayoutError::StyleTraversal("invalid legacy font result".into()))}
+        *result=Some(LegacyFontResolution{demand,pixels});
+    }
     let mut shared_styles = BTreeSet::<ComputedStyle>::new();
     let mut author_whitespace = BTreeSet::new();
     let mut pending = BTreeSet::new();
@@ -9034,15 +9068,13 @@ fn block_inline_margins(
 
 /// Relative insets move the painted box while its normal-flow allocation stays
 /// unchanged. Overconstrained inline insets use the containing block direction.
-fn relative_position_offset(
+fn relative_inset_lengths(
     style: &BTreeMap<String, String>,
     width: f64,
     height: Option<f64>,
-    containing_rtl: bool,
-    writing_mode: &str,
     font_size: f64,
     viewport: ViewportState,
-) -> (f64, f64) {
+) -> [Option<f64>; 4] {
     let resolve = |property, basis: Option<f64>| {
         let value = style_value(style, property, "auto");
         if value.contains('%') && basis.is_none() {
@@ -9064,6 +9096,18 @@ fn relative_position_offset(
     let right = resolve("right", Some(width));
     let top = resolve("top", height);
     let bottom = resolve("bottom", height);
+    [left, right, top, bottom]
+}
+fn relative_position_offset(
+    style: &BTreeMap<String, String>,
+    width: f64,
+    height: Option<f64>,
+    containing_rtl: bool,
+    writing_mode: &str,
+    font_size: f64,
+    viewport: ViewportState,
+) -> (f64, f64) {
+    let [left, right, top, bottom] = relative_inset_lengths(style, width, height, font_size, viewport);
     let axes = writing_mode::Axes::new(writing_mode, containing_rtl);
     let x = if axes.x_reverse {
         right.map(|value| -value).or(left)
@@ -21442,6 +21486,45 @@ mod tests {
         assert!(validate_custom_property(&invalid).is_ok());
     }
 
+#[test]
+fn owning_legacy_font_query_matches_actual_font_hints_with_family_zoom_and_invalidation() {
+    use LegacyFontKeyword as K;
+    let keywords=[K::XSmall,K::Small,K::Medium,K::Large,K::XLarge,K::XXLarge,K::XXXLarge];
+    for family in ["serif","monospace"] {
+        for zoom in ["1","1.5"] {
+            let mut body=node(2,Some(1),"body","");
+            body.children=(3..10).collect();
+            let mut nodes=vec![body];
+            for size in 1..=7 {
+                let mut font=node(size+2,Some(2),"font","");
+                font.attributes.insert("size".into(),size.to_string());
+                nodes.push(font);
+            }
+            let mut input=column_fixture(&format!("body{{font-family:{family};zoom:{zoom}}}"),nodes);
+            input.nodes[0].tag="html".into();
+            input.nodes[0].children=vec![2];
+            input.nodes[0].content=Some(vec![LayoutContent::Element(2)]);
+            let mut engine=StyleEngine::default();
+            let output=engine.compute(&input,&LayoutLimits::default()).unwrap();
+            for (index,keyword) in keywords.into_iter().enumerate() {
+                let demand=LegacyFontDemand{body:2,keyword};
+                let resolved=engine.resolve_legacy_font_at_controlled(&input,&LayoutLimits::default(),0.,demand,None).unwrap();
+                let actual=output.computed_styles[&(index as u64+3)]["font-size"].strip_suffix("px").unwrap().parse::<f32>().unwrap();
+                assert_eq!(resolved.demand,demand);
+                assert_eq!(resolved.pixels,actual,"family={family},zoom={zoom},size={}",index+1);
+            }
+            input.stylesheets[0]="body{font-family:monospace;zoom:2}".into();
+            let changed=engine.compute(&input,&LayoutLimits::default()).unwrap();
+            let demand=LegacyFontDemand{body:2,keyword:K::Medium};
+            let resolved=engine.resolve_legacy_font_at_controlled(&input,&LayoutLimits::default(),0.,demand,None).unwrap();
+            let actual=changed.computed_styles[&5]["font-size"].strip_suffix("px").unwrap().parse::<f32>().unwrap();
+            let mut fresh_engine=StyleEngine::default();
+            let fresh=fresh_engine.compute(&input,&LayoutLimits::default()).unwrap();
+            let fresh_resolved=fresh_engine.resolve_legacy_font_at_controlled(&input,&LayoutLimits::default(),0.,demand,None).unwrap();
+            assert_eq!(resolved.pixels,actual,"initial family={family} zoom={zoom}; reused body={:?},font={:?}; fresh body={:?},font={:?},query={:?}",changed.computed_styles[&2],changed.computed_styles[&5],fresh.computed_styles[&2],fresh.computed_styles[&5],fresh_resolved);
+        }
+    }
+}
     #[test]
     fn anchors_resolve_projected_geometry_and_recompute_on_name_changes() {
         let mut anchor = node(2, Some(1), "button", "");
@@ -21646,3 +21729,5 @@ mod top_layer_clipping_tests;
 
 #[cfg(test)]
 mod repair42_layout_tests;
+#[cfg(test)]
+include!("cssom_relative_inset_tests.rs");

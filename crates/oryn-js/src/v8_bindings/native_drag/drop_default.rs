@@ -133,7 +133,7 @@ impl DropDefault {
                         continue;
                     }
                     let Some(caret) =
-                        selection_movement::drop_caret(&state, self.target, self.x, self.y)?
+                        selection_movement::drop_caret(scope, &state, self.target, self.x, self.y)?
                     else {
                         self.cancel();
                         continue;

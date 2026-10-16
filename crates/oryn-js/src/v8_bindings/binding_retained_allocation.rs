@@ -3,10 +3,15 @@
 pub struct BindingRetainedAllocation {
     ledger: std::sync::Arc<crate::idb_owned_admission::Ledger>,
     retired: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    snapshot: std::sync::Mutex<Option<(usize, usize)>>,
+    snapshot: std::sync::Mutex<Option<crate::idb_owned_admission::HeapReceipt>>,
     owner_thread: std::thread::ThreadId,
 }
 impl BindingRetainedAllocation {
+    /// Pure parent-owned cancellation observation; never runs allocation,
+    /// author callbacks or native admission while a style engine is borrowed.
+    pub fn owner_cancelled(&self) -> bool {
+        self.retired.load(std::sync::atomic::Ordering::Acquire)
+    }
     pub fn invalidate(&self) -> Result<(), String> {
         *self
             .snapshot
@@ -27,20 +32,19 @@ impl BindingRetainedAllocation {
         if std::thread::current().id() != self.owner_thread {
             return Err("retained allocation requires owning native scope".into());
         }
-        let (limit, used) = self
+        let snapshot = self
             .snapshot
             .lock()
-            .map_err(|_| "retained allocation snapshot poisoned")?
-            .ok_or("retained allocation snapshot expired")?;
-        let lease = self.ledger.reserve(
+            .map_err(|_| "retained allocation snapshot poisoned")?.clone();
+        let receipt = snapshot.ok_or("retained allocation snapshot expired")?;
+        let lease = self.ledger.reserve_from_receipt(
             bytes
                 .checked_add(2 * std::mem::size_of::<usize>())
                 .and_then(|bytes| {
                     bytes.checked_add(std::mem::size_of::<crate::idb_owned_admission::Lease>())
                 })
                 .ok_or("retained allocation metadata overflow")?,
-            limit,
-            used,
+            &receipt,
         )?;
         if self.retired.load(Ordering::Acquire) {
             return Err("native allocation owner retired".into());
@@ -55,12 +59,12 @@ impl BindingRetainedAllocation {
         if std::thread::current().id() != self.owner_thread {
             return Err("retained text requires owning native scope".into());
         }
-        let (limit, used) = self
+        let snapshot = self
             .snapshot
             .lock()
-            .map_err(|_| "retained allocation snapshot poisoned")?
-            .ok_or("retained allocation snapshot expired")?;
-        let text = crate::idb_owned_admission::Text::copy_string(&self.ledger, source, limit, used)
+            .map_err(|_| "retained allocation snapshot poisoned")?.clone();
+        let receipt = snapshot.ok_or("retained allocation snapshot expired")?;
+        let text = crate::idb_owned_admission::Text::copy_string_from_receipt(&self.ledger, source, &receipt, || self.retired.load(Ordering::Acquire))
             .map_err(str::to_owned)?;
         if self.retired.load(Ordering::Acquire) {
             return Err("native allocation owner retired".into());
@@ -98,7 +102,7 @@ impl BindingRetainedAllocation {
             return Err(V8BindingError::JavaScriptException);
         }
         let heap = scope.get_heap_statistics();
-        let used = heap
+        let _used = heap
             .used_heap_size()
             .checked_add(heap.external_memory())
             .ok_or(V8BindingError::Allocation(
@@ -108,7 +112,8 @@ impl BindingRetainedAllocation {
             .snapshot
             .lock()
             .map_err(|_| V8BindingError::Allocation("retained snapshot lock"))? =
-            Some((heap.heap_size_limit(), used));
+            Some(self.ledger.heap_receipt_with_statistics(heap.heap_size_limit(),
+                heap.used_heap_size(),heap.external_memory()).map_err(V8BindingError::EventCallback)?);
         Ok(())
     }
 }

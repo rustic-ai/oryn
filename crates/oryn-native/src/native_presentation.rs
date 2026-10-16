@@ -158,6 +158,8 @@ impl PageState {
                 .executable
                 .as_mut()
                 .ok_or(RuntimeError::EvaluationUnavailable)?;
+            page.sample_paint_environment_in_scope()
+                .map_err(map_host_error)?;
             let before = page.selected_accessibility_stamp();
             let delivered = page.broadcast_resize_observers().map_err(map_host_error)?;
             if delivered || page.selected_accessibility_stamp() != before {
@@ -309,6 +311,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://presentation.test/".into(),
             source,
@@ -600,6 +603,7 @@ mod frame_tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://presentation.test/frames".into(),
             "<body><iframe srcdoc='<p>child scene</p>'></iframe></body>",
@@ -658,6 +662,7 @@ mod composed_custody_tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document("https://presentation.test/".into(),&format!("<body><div id=container style='{style}'><iframe srcdoc='<p>child content</p>'></iframe></div></body>"),None,None,HistoryUpdate::Push,&BTreeMap::new(),Vec::new()).unwrap();
         page
     }
@@ -925,6 +930,7 @@ mod composed_custody_tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document("https://presentation.test/styles".into(),"<style>p { width: 211px }</style><body><p>root</p><iframe srcdoc='<style>p { width: 37px }</style><p>child</p>'></iframe>",None,None,HistoryUpdate::Push,&BTreeMap::new(),Vec::new()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {

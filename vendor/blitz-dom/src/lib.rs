@@ -60,6 +60,7 @@ mod animation_bridge;
 pub use animation_bridge::{NativeAnimationEffect,NativeAnimationKeyframe,NativeCssAnimation,NativeCssAnimationControl};
 mod stylo;
 pub use stylo::StyleContinuity;
+pub use stylo::html_font_size_hint_keyword;
 pub mod shadow_style;
 mod stylo_device;
 mod stylo_to_cursor_icon;

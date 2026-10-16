@@ -61,7 +61,8 @@ impl Command {
                     if let Some(unit) = unit
                         && state.selection_anchor.get() == state.selection_focus.get()
                     {
-                        selection_movement::modify(
+                        context.layout().await?;
+                        selection_movement::modify_snapshot(
                             state,
                             "extend",
                             if forward { "forward" } else { "backward" },

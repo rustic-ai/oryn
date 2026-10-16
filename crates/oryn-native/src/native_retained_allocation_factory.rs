@@ -3,14 +3,11 @@ impl RawV8Host {
         self.binding_states.get(&realm).cloned().ok_or(HostError::CachedAuthorityExpired)
     }
     #[cfg(unix)]
-    pub(crate) fn retained_stylesheet_resource_endpoint(
-        &self,
-        realm: RealmId,
-    ) -> Result<(crate::context_service::SharedContextClient, PageId), HostError> {
-        let endpoint = self
-            .context_endpoint_for_realm(realm)
-            .ok_or(HostError::CachedAuthorityExpired)?;
-        Ok((endpoint.client, endpoint.page_id))
+    pub(crate) fn optional_retained_stylesheet_resource_endpoint(
+        &self, realm: RealmId,
+    ) -> Option<(crate::context_service::SharedContextClient, PageId)> {
+        self.context_endpoint_for_realm(realm)
+            .map(|endpoint| (endpoint.client, endpoint.page_id))
     }
 
     pub(crate) fn refresh_native_retained_allocation(

@@ -5,11 +5,12 @@
 struct RetainedStylesheetSourceEnvelope {
     tree: Option<StylesheetSourceTree>,
     reservations: Vec<ScriptSourceReservation>,
+    _allocation: Option<Arc<dyn Send + Sync>>,
 }
 
 impl RetainedStylesheetSourceEnvelope {
     fn new(tree: StylesheetSourceTree, reservations: Vec<ScriptSourceReservation>) -> Self {
-        Self { tree: Some(tree), reservations }
+        Self { tree: Some(tree), reservations, _allocation: None }
     }
 
     /// One-shot move, not a source/response-guard clone. The caller must stage

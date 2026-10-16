@@ -357,7 +357,8 @@
 +    println!("cargo:rustc-link-lib=framework=Security");
 +    println!("cargo:rustc-link-lib=framework=CoreFoundation");
 +  }
-   println!("cargo:rerun-if-changed=.gn");
+-  println!("cargo:rerun-if-changed=.gn");
++  // Archive-only subset has no upstream .gn; watching it forces perpetual rebuilds.
    println!("cargo:rerun-if-changed=BUILD.gn");
    println!("cargo:rerun-if-changed=src/binding.cc");
 --- a/Cargo.toml

@@ -73,6 +73,7 @@ fn stylesheet_text(dom: &DomRuntime, node: NodeId) -> Result<String, V8BindingEr
 }
 impl V8BindingState {
     pub fn set_inline_style_policy(&self, policy: InlineStylePolicy) {
+        self.inline_publication_cursor.set(None);
         *self.inline_style_policy.borrow_mut() = Some(policy);
     }
     pub fn stage_snapshot_inline_styles(&self, nodes: &[NodeId]) -> Result<(), V8BindingError> {
@@ -82,6 +83,7 @@ impl V8BindingState {
             ));
         }
         let mut pending = self.snapshot_inline_styles.borrow_mut();
+        self.inline_publication_cursor.set(None);
         let mut dom = self.dom.borrow_mut();
         for node in nodes {
             let revision = dom.arena().stylesheet_revision(*node)?;
@@ -98,6 +100,7 @@ impl V8BindingState {
         Ok(())
     }
     pub fn release_snapshot_inline_style(&self, node: NodeId) -> Result<(), V8BindingError> {
+        self.inline_publication_cursor.set(None);
         if self
             .snapshot_inline_styles
             .borrow_mut()
@@ -139,6 +142,7 @@ impl V8BindingState {
                     continue;
                 }
                 self.snapshot_inline_styles.borrow_mut().remove(&node);
+                self.inline_publication_cursor.set(None);
                 self.dom
                     .borrow_mut()
                     .arena_mut()
@@ -255,6 +259,7 @@ impl V8BindingState {
                         record.stylesheet_policy_allowed = allowed;
                     }
                 }
+                self.inline_publication_cursor.set(None);
                 self.layout_cache_key.borrow_mut().take();
                 self.inline_style_checks.borrow_mut().insert(key, check);
             }

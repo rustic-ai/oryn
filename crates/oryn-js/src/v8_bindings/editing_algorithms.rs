@@ -168,6 +168,787 @@ pub(super) async fn apply_block_command_at_boundary(
     Ok(())
 }
 
+// Native CSS parser access: never split declaration strings or retain V8 scope.
+struct EditingFormatAdmission {
+    association:Option<u64>,revision:u64,
+    start:Option<editing_continuation::Marker>,end:Option<editing_continuation::Marker>,
+}
+impl EditingFormatAdmission {
+    fn capture(context:&Context)->Result<Self,V8BindingError>{
+        let state=&context.state;let association=state.selection_range.get();
+        let (start,end)=if let Some(id)=association{
+            let range=state.dom.borrow().live_range(LiveRangeId(id))?;
+            let marker=|point:BoundaryPoint|context.marker(RangeRecord{start_container:point.container,start_offset:point.offset,end_container:point.container,end_offset:point.offset});
+            (Some(marker(range.start)?),Some(marker(range.end)?))
+        }else{(None,None)};
+        Ok(Self{association,revision:state.selection_revision.get(),start,end})
+    }
+    fn current(&self,state:&V8BindingState)->Result<bool,V8BindingError>{
+        if state.selection_range.get()!=self.association||state.selection_revision.get()!=self.revision{return Ok(false)}
+        let Some(id)=self.association else{return Ok(true)};
+        let live=state.dom.borrow().live_range(LiveRangeId(id))?;
+        let a=self.start.as_ref().ok_or(V8BindingError::Allocation("format start marker"))?.range()?;
+        let b=self.end.as_ref().ok_or(V8BindingError::Allocation("format end marker"))?.range()?;
+        Ok(live.start.container==a.start_container&&live.start.offset==a.start_offset&&live.end.container==b.start_container&&live.end.offset==b.start_offset)
+    }
+}
+fn editing_command_property(command:&str)->Option<&'static str>{
+    match command {
+        "bold"=>Some("font-weight"),"italic"=>Some("font-style"),
+        "underline"|"strikethrough"=>Some("text-decoration-line"),
+        "subscript"|"superscript"=>Some("vertical-align"),
+        "fontname"=>Some("font-family"),"fontsize"=>Some("font-size"),
+        "forecolor"=>Some("color"),"backcolor"|"hilitecolor"=>Some("background-color"),_=>None,
+    }
+}
+fn editing_specified_command_value(state:&V8BindingState,node:NodeId,command:&str)->Result<Option<String>,V8BindingError>{
+    if matches!(command,"subscript"|"superscript"){
+        let dom=state.dom.borrow();let value=if dom.is_element(node,"http://www.w3.org/1999/xhtml","sup"){Some("superscript")}
+            else if dom.is_element(node,"http://www.w3.org/1999/xhtml","sub"){Some("subscript")}else{None};
+        return Ok(value.map(str::to_owned))
+    }
+    if matches!(command,"underline"|"strikethrough") {
+        let parsed=editing_parsed_declaration(state,node,"text-decoration-line")?.value;
+        if !parsed.is_empty() {
+            let token=if command=="underline"{"underline"}else{"line-through"};
+            return Ok(parsed.split_ascii_whitespace().any(|value|value==token).then(||token.to_owned()));
+        }
+    }
+    if matches!(command,"backcolor"|"hilitecolor") && state.layout.borrow().styles.get(&node_key(node)).and_then(|s|s.get("display")).is_none_or(|v|v!="inline"){return Ok(None)}
+    if let Some(property)=editing_command_property(command){
+        let parsed=editing_parsed_declaration(state,node,property)?;
+        if !parsed.value.is_empty(){return Ok(Some(parsed.value))}
+    }
+    let dom=state.dom.borrow();let record=dom.arena().get(node)?;
+    let NodeKind::Element{name}=&record.kind else{return Ok(None)};
+    if name.ns.as_ref()!="http://www.w3.org/1999/xhtml"{return Ok(None)}
+    if command=="fontsize"&&name.local.as_ref()=="font" {
+        return Ok(record.attributes.get_null("size")
+            .and_then(|value|oryn_layout::html_font_size_hint_keyword(value)).map(str::to_owned));
+    }
+    let value=match (command,name.local.as_ref()){
+        ("bold","b"|"strong")=>Some("bold"),("italic","i"|"em")=>Some("italic"),
+        ("underline","u")=>Some("underline"),("strikethrough","s"|"strike")=>Some("line-through"),
+        ("subscript","sub")=>Some("sub"),("superscript","sup")=>Some("super"),
+        ("createlink"|"unlink","a")=>record.attributes.get_null("href").map(String::as_str),
+        ("forecolor","font")=>record.attributes.get_null("color").map(String::as_str),
+        ("fontname","font")=>record.attributes.get_null("face").map(String::as_str),
+        ("fontsize","font")=>record.attributes.get_null("size").map(String::as_str),_=>None,
+    };
+    Ok(value.map(str::to_owned))
+}
+
+fn editing_parsed_declaration(
+    state: &V8BindingState, node: NodeId, property: &str,
+) -> Result<oryn_layout::cssom::DeclarationView,V8BindingError> {
+    let base=state.native_document_base_url(true)?;
+    let dom=state.dom.borrow();
+    let record=dom.arena().get(node)?;
+    let document=dom.arena().node_document(node)?.ok_or(V8BindingError::Allocation("editing declaration document"))?;
+    if document!=state.document_root(){return Err(V8BindingError::Unsupported{interface:"Document".into(),member:"AbortError".into()})}
+    let quirks=dom.arena().get(document)?.document_metadata.as_ref().is_some_and(|m|m.quirks);
+    let css=record.attributes.get_null("style").map_or("",String::as_str);
+    // Parse-only access does not resolve or fetch URLs; effective values are
+    // supplied by the owning native layout, never this declaration reader.
+    oryn_layout::cssom::read_declaration(css,property,&base,quirks).map_err(V8BindingError::EventCallback)
+}
+
+async fn editing_replace_tag_preserving_attributes(
+    context:&Context,node:NodeId,tag:&str,
+) -> Result<Option<NodeId>,V8BindingError> {
+    let state=&context.state;
+    let association=state.selection_range.get();let revision=state.selection_revision.get();
+    let admission=EditingFormatAdmission::capture(context)?;
+    let (parent,owner,attributes)={
+        let dom=state.dom.borrow();
+        let Some(parent)=dom.parent(node)? else{return Ok(None)};
+        (parent,editing_host_for_node(&dom,Some(node),state.design_mode_enabled(),state.document_root())?,dom.arena().get(node)?.attributes.clone())
+    };
+    if !owner.is_some_and(|host|host!=node){return Ok(None)}
+    let _node=context.lease(node)?;let _parent=context.lease(parent)?;
+    let replacement=state.dom.borrow_mut().create_element(tag);
+    let _replacement=context.lease(replacement)?;
+    let admitted=||->Result<bool,V8BindingError>{
+        let dom=state.dom.borrow();
+        Ok(admission.current(state)? && state.selection_range.get()==association && state.selection_revision.get()==revision
+            && dom.parent(node)?==Some(parent)
+            && dom.parent(replacement)?==Some(parent)
+            && element_local_name(&dom,replacement)==Some(tag)
+            && editing_host_for_node(&dom,Some(node),state.design_mode_enabled(),state.document_root())?==owner)
+    };
+    context.append(parent,replacement,Some(node)).await?;
+    if !admitted()?{
+        if state.dom.borrow().parent(replacement)?==Some(parent) && light_children(&state.dom.borrow(),replacement)?.is_empty(){context.remove(replacement).await?;}
+        return Ok(None)
+    }
+    for (index,attribute) in attributes.records().enumerate(){
+        context.attribute(replacement,attribute.namespace.clone(),attribute.name.clone(),attribute.value.clone()).await?;
+        if !admitted()?{
+            if state.dom.borrow().parent(replacement)?==Some(parent)&&light_children(&state.dom.borrow(),replacement)?.is_empty(){context.remove(replacement).await?;}
+            return Ok(None)
+        }
+        {let dom=state.dom.borrow();let current=&dom.arena().get(replacement)?.attributes;
+            if current.records().count()!=index+1
+                || attributes.records().take(index+1).any(|expected|!current.records().any(|actual|
+                    actual.namespace==expected.namespace&&actual.name==expected.name&&actual.value==expected.value)) {
+                return Ok(None)
+            }
+        }
+    }
+    let child_ids={let dom=state.dom.borrow();light_children(&dom,node)?};
+    for child in child_ids {
+        if !admitted()?{return Ok(None)}
+        {let dom=state.dom.borrow();let current=&dom.arena().get(replacement)?.attributes;
+            if current.records().count()!=attributes.records().count()
+                || attributes.records().any(|expected|!current.records().any(|actual|
+                    actual.namespace==expected.namespace&&actual.name==expected.name&&actual.value==expected.value)) {
+                return Ok(None)
+            }
+        }
+        if state.dom.borrow().parent(child)?!=Some(node){continue}
+        let offset=boundary_length(&state.dom.borrow(),replacement)?;
+        context.move_preserving_ranges(child,replacement,offset).await?;
+    }
+    if !admitted()?{return Ok(None)}
+    if state.dom.borrow().arena().get(replacement)?.attributes!=attributes{return Ok(None)}
+    // Child moves transfer old-parent offsets through the shared all-range
+    // move algorithm. An empty old container has no such move, so transfer its
+    // surviving zero boundaries before ordinary removal can collapse them.
+    if light_children(&state.dom.borrow(),node)?.is_empty() {
+        synchronize_live_ranges(state)?;
+        let ranges=state.ranges.borrow().iter()
+            .filter(|(id,_)|!state.static_ranges.borrow().contains(id))
+            .filter(|(_,range)|range.start_container==node||range.end_container==node)
+            .map(|(id,range)|(*id,range.clone())).collect::<Vec<_>>();
+        for (id,expected) in ranges {
+            let mut dom=state.dom.borrow_mut();
+            let current=dom.live_range(LiveRangeId(id))?;
+            if current.start.container!=expected.start_container||current.start.offset!=expected.start_offset
+                ||current.end.container!=expected.end_container||current.end.offset!=expected.end_offset {continue}
+            let start=if current.start.container==node{BoundaryPoint{container:replacement,offset:current.start.offset}}else{current.start};
+            let end=if current.end.container==node{BoundaryPoint{container:replacement,offset:current.end.offset}}else{current.end};
+            dom.set_live_range(LiveRangeId(id),start,end)?;
+        }
+        synchronize_live_ranges(state)?;
+    }
+    context.remove(node).await?;
+    synchronize_live_ranges(state)?;
+    Ok(Some(replacement))
+}
+
+async fn editing_clear_command_value(context:&Context,node:NodeId,command:&str)->Result<(),V8BindingError>{
+    let state=&context.state;
+    if editing_specified_command_value(state,node,command)?.is_none(){return Ok(())}
+    let (owner,attributes,tag)={let dom=state.dom.borrow();
+        (editing_host_for_node(&dom,Some(node),state.design_mode_enabled(),state.document_root())?,dom.arena().get(node)?.attributes.clone(),element_local_name(&dom,node).map(str::to_owned))};
+    if !owner.is_some_and(|host|host!=node){return Ok(())}
+    let association=state.selection_range.get();let revision=state.selection_revision.get();
+    let admission=EditingFormatAdmission::capture(context)?;
+    let admitted=||->Result<bool,V8BindingError>{Ok(admission.current(state)? && state.selection_range.get()==association && state.selection_revision.get()==revision
+        && editing_host_for_node(&state.dom.borrow(),Some(node),state.design_mode_enabled(),state.document_root())?==owner)};
+    let parsed=editing_parsed_declaration(state,node,"")?;
+    let html_element=matches!(&state.dom.borrow().arena().get(node)?.kind,NodeKind::Element{name} if name.ns.as_ref()=="http://www.w3.org/1999/xhtml");
+    let simple_tag=html_element && matches!(tag.as_deref(),Some("a"|"b"|"em"|"font"|"i"|"s"|"span"|"strike"|"strong"|"sub"|"sup"|"u"));
+    // Normative simple-modifiable classification belongs to the element,
+    // not the currently requested command. I with font-weight is NOT simple:
+    // unwrapping it while clearing bold would erase unrelated italic semantics.
+    let style_property=parsed.names.first().map(String::as_str);
+    let single_style=parsed.names.len()==1 && match tag.as_deref(){
+        Some("b"|"strong")=>style_property==Some("font-weight"),
+        Some("i"|"em")=>style_property==Some("font-style"),
+        Some("a"|"font"|"span")=>style_property!=Some("text-decoration") && style_property!=Some("text-decoration-line"),
+        _=>false,
+    };
+    let decoration=editing_parsed_declaration(state,node,"text-decoration")?;
+    let single_decoration=parsed.names.len()==1 && matches!(tag.as_deref(),Some("a"|"font"|"s"|"span"|"strike"|"u"))
+        && matches!(style_property,Some("text-decoration"|"text-decoration-line"))
+        && matches!(decoration.value.as_str(),"line-through"|"underline"|"overline"|"none");
+    let simple_style=attributes.len()==1 && attributes.get_null("style").is_some()
+        && (parsed.names.is_empty() || single_style || single_decoration);
+    let simple_attribute=attributes.len()==1 && match tag.as_deref(){Some("a")=>attributes.get_null("href").is_some(),Some("font")=>["color","face","size"].iter().any(|n|attributes.get_null(n).is_some()),_=>false};
+    if simple_tag && (attributes.is_empty()||simple_style||simple_attribute){
+        let parent=state.dom.borrow().parent(node)?.ok_or_else(hierarchy_request_error)?;
+        let _parent=context.lease(parent)?;let _node=context.lease(node)?;
+        let child_ids={let dom=state.dom.borrow();light_children(&dom,node)?};
+        for child in child_ids {
+            if !admitted()?||state.dom.borrow().parent(node)?!=Some(parent){return Ok(())}
+            if state.dom.borrow().parent(child)?!=Some(node){continue}
+            let (_,index)=relative_boundary(&state.dom.borrow(),node,false)?;
+            context.move_preserving_ranges(child,parent,index).await?;
+        }
+        if admitted()?&&state.dom.borrow().parent(node)?==Some(parent){context.remove(node).await?;}
+        return Ok(())
+    }
+    if let Some(property)=editing_command_property(command){
+        if matches!(command,"underline"|"strikethrough"){
+            let old=editing_parsed_declaration(state,node,"text-decoration-line")?.value;
+            let remove=if command=="underline"{"underline"}else{"line-through"};
+            let remaining=old.split_ascii_whitespace().filter(|value|*value!=remove).collect::<Vec<_>>().join(" ");
+            context.style(node,property,remaining).await?;
+        }else{context.style(node,property,"").await?;}
+        if !admitted()?{return Ok(())}
+        if editing_parsed_declaration(state,node,"")?.names.is_empty() && state.dom.borrow().arena().get(node)?.attributes.get_null("style").is_some(){
+            context.remove_attribute(node,"style").await?;
+            if !admitted()?{return Ok(())}
+        }
+    }
+    let attribute=match (command,tag.as_deref()){("forecolor",Some("font"))=>Some("color"),("fontname",Some("font"))=>Some("face"),("fontsize",Some("font"))=>Some("size"),("createlink"|"unlink",Some("a"))=>Some("href"),_=>None};
+    if let Some(attribute)=attribute{context.remove_attribute(node,attribute).await?;if !admitted()?{return Ok(())}}
+    if editing_specified_command_value(state,node,command)?.is_some(){let _replacement=editing_replace_tag_preserving_attributes(context,node,"span").await?;}
+    Ok(())
+}
+
+fn editing_effective_command_value(state:&V8BindingState,node:NodeId,command:&str)->Result<Option<String>,V8BindingError>{
+    if matches!(command,"backcolor"|"hilitecolor") {
+        let dom=state.dom.borrow();let layout=state.layout.borrow();
+        let mut current=Some(node);let mut result=None;
+        while let Some(node)=current {
+            let record=dom.arena().get(node)?;
+            if matches!(record.kind,NodeKind::Element{..}) {
+                let value=layout.styles.get(&node_key(node)).and_then(|s|s.get("background-color")).cloned();
+                let transparent=value.as_deref().is_none_or(|value|value=="transparent"||value.is_empty()||value=="rgba(0, 0, 0, 0)");
+                result=value;
+                if !transparent {break}
+            }
+            let parent=record.parent;
+            if let Some(parent)=parent && !matches!(dom.arena().get(parent)?.kind,NodeKind::Element{..}){break}
+            current=parent;
+        }
+        return Ok(result)
+    }
+    if matches!(command,"subscript"|"superscript"){
+        let dom=state.dom.borrow();let layout=state.layout.borrow();let mut current=Some(node);let mut sub=false;let mut sup=false;
+        while let Some(node)=current{
+            let record=dom.arena().get(node)?;
+            if matches!(record.kind,NodeKind::Element{..}) && layout.styles.get(&node_key(node)).and_then(|s|s.get("display")).is_none_or(|d|d!="inline"){break}
+            if dom.is_element(node,"http://www.w3.org/1999/xhtml","sub"){sub=true}
+            if dom.is_element(node,"http://www.w3.org/1999/xhtml","sup"){sup=true}
+            current=record.parent;
+        }
+        return Ok(match (sub,sup){(true,true)=>Some("mixed"),(true,false)=>Some("subscript"),(false,true)=>Some("superscript"),_=>None}.map(str::to_owned))
+    }
+    if matches!(command,"underline"|"strikethrough"){
+        let token=if command=="underline"{"underline"}else{"line-through"};
+        let dom=state.dom.borrow();let layout=state.layout.borrow();let mut current=Some(node);
+        while let Some(node)=current{
+            if layout.styles.get(&node_key(node)).and_then(|s|s.get("text-decoration-line")).is_some_and(|v|v.split_ascii_whitespace().any(|v|v==token)){return Ok(Some(token.into()))}
+            current=dom.parent(node)?;
+        }
+        return Ok(None)
+    }
+    let Some(property)=editing_command_property(command) else {
+        let mut current=Some(node);
+        while let Some(node)=current{
+            if let Some(value)=editing_specified_command_value(state,node,command)?{return Ok(Some(value))}
+            current=state.dom.borrow().parent(node)?;
+        }
+        return Ok(None)
+    };
+    let dom=state.dom.borrow();let mut current=Some(node);
+    while let Some(node)=current{
+        if let Some(value)=state.layout.borrow().styles.get(&node_key(node)).and_then(|s|s.get(property)){return Ok(Some(value.clone()))}
+        current=dom.parent(node)?;
+    }
+    Ok(None)
+}
+fn editing_command_values_equivalent(command:&str,a:Option<&str>,b:Option<&str>)->bool{
+    if a==b{return true}
+    match command {
+        "bold"=>matches!((a,b),(Some("bold"),Some("700"))|(Some("700"),Some("bold"))|(Some("normal"),Some("400"))|(Some("400"),Some("normal"))),
+        "forecolor"|"backcolor"|"hilitecolor"=>match (a,b){
+            (Some(a),Some(b))=>match (oryn_common::color::parse_color(a),oryn_common::color::parse_color(b)){
+                (Some(a),Some(b))=>a==b,_=>false,
+            },_=>false,
+        },
+        _=>false,
+    }
+}
+// Force uses native CSSOM and mutation producers. Sibling coalescing and
+// semantic-wrapper preference are supplied by the selected-run engine.
+async fn editing_force_command_value(context:&Context,node:NodeId,command:&str,new_value:Option<&str>)->Result<(),V8BindingError>{
+    let state=&context.state;
+    let Some(value)=new_value else{return Ok(())};
+    let admission=EditingFormatAdmission::capture(context)?;
+    let association=state.selection_range.get();let revision=state.selection_revision.get();
+    let endpoints=association.map(|id|state.dom.borrow().live_range(LiveRangeId(id))).transpose()?;
+    context.layout().await?;
+    if state.selection_range.get()!=association || state.selection_revision.get()!=revision
+        || association.map(|id|state.dom.borrow().live_range(LiveRangeId(id))).transpose()?!=endpoints{return Ok(())}
+    {let dom=state.dom.borrow();let layout=state.layout.borrow();let mut current=Some(node);
+        while let Some(current_node)=current{
+            if layout.styles.get(&node_key(current_node)).and_then(|s|s.get("display")).is_some_and(|d|d=="none"){return Ok(())}
+            current=dom.parent(current_node)?;
+        }
+    }
+    if editing_command_values_loosely_equivalent(context,command,editing_effective_command_value(state,node,command)?.as_deref(),Some(value)).await?{return Ok(())}
+    if !admission.current(state)?{return Ok(())}
+    if matches!(command,"createlink"|"unlink") {
+        let mut parent=state.dom.borrow().parent(node)?;
+        while let Some(ancestor)=parent {
+            if !admission.current(state)?{return Ok(())}
+            let next=state.dom.borrow().parent(ancestor)?;
+            if state.dom.borrow().is_element(ancestor,"http://www.w3.org/1999/xhtml","a") {
+                let _ancestor=context.lease(ancestor)?;
+                if editing_replace_tag_preserving_attributes(context,ancestor,"span").await?.is_none(){return Ok(())}
+            }
+            parent=next;
+        }
+    }
+    let property=editing_command_property(command);
+    if property.is_none()&&command!="createlink"&&command!="unlink"{return Err(V8BindingError::Unsupported{interface:"Document".into(),member:"native formatting command value".into()})}
+    let allowed={let dom=state.dom.borrow();match &dom.arena().get(node)?.kind{
+        NodeKind::Document|NodeKind::DocumentFragment|NodeKind::DocumentType{..}=>false,
+        NodeKind::Element{name} if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"=>!matches!(name.local.as_ref(),
+            "address"|"article"|"aside"|"blockquote"|"body"|"caption"|"center"|"col"|"colgroup"|"dd"|"details"|"dir"|"div"|"dl"|"dt"|"fieldset"|"figcaption"|"figure"|"footer"|"form"|"frame"|"frameset"|"h1"|"h2"|"h3"|"h4"|"h5"|"h6"|"head"|"header"|"hgroup"|"hr"|"html"|"li"|"listing"|"menu"|"nav"|"ol"|"p"|"plaintext"|"pre"|"section"|"summary"|"table"|"tbody"|"td"|"tfoot"|"th"|"thead"|"tr"|"ul"|"xmp"),_=>true}};
+    if !allowed {
+        // forceValue propagation recursively preserves the inherited value
+        // when the block cannot be an inline wrapper child. This operation is
+        // never the selected-node eligibility predicate: selection application
+        // supplies only editable candidates, while pushDown supplies siblings.
+        let owner=editing_host_for_node(&state.dom.borrow(),Some(node),state.design_mode_enabled(),state.document_root())?;
+        let parent=state.dom.borrow().parent(node)?;
+        let _node=context.lease(node)?;
+        let child_ids={let dom=state.dom.borrow();light_children(&dom,node)?};
+        let children=child_ids.into_iter().map(|node|context.lease(node)).collect::<Result<Vec<_>,_>>()?;
+        for child in children{let (dom,child)=child.current();if !Rc::ptr_eq(&dom,&state.dom){return Ok(())}
+            if !admission.current(state)?{return Ok(())}
+            if state.dom.borrow().parent(node)?!=parent || editing_host_for_node(&state.dom.borrow(),Some(node),state.design_mode_enabled(),state.document_root())?!=owner{return Ok(())}
+            if state.dom.borrow().parent(child)?!=Some(node){continue}
+            if let Some(specified)=editing_specified_command_value(state,child,command)? && !editing_command_values_equivalent(command,Some(&specified),Some(value)){continue}
+            Box::pin(editing_force_command_value(context,child,command,Some(value))).await?;
+        }
+        return Ok(())
+    }
+    let (parent,owner)={let dom=state.dom.borrow();(dom.parent(node)?,editing_host_for_node(&dom,Some(node),state.design_mode_enabled(),state.document_root())?)};
+    let Some(parent)=parent else{return Ok(())};
+    let expected_parent_owner=editing_host_for_node(&state.dom.borrow(),Some(parent),state.design_mode_enabled(),state.document_root())?;
+    let admitted=||->Result<bool,V8BindingError>{
+        let dom=state.dom.borrow();
+        Ok(admission.current(state)? && state.selection_range.get()==association && state.selection_revision.get()==revision
+            && dom.parent(node)?==Some(parent)
+            && editing_host_for_node(&dom,Some(node),state.design_mode_enabled(),state.document_root())?==owner
+            && editing_host_for_node(&dom,Some(parent),state.design_mode_enabled(),state.document_root())?==expected_parent_owner)
+    };
+    // Selection admission excludes noneditable islands. Native push-down may
+    // still restore their previous inherited value; disallowed block children
+    // are processed by the same normative force-value recursion above.
+    let _parent=context.lease(parent)?;let _node=context.lease(node)?;
+    let legacy_size=if command=="fontsize"&&(!state.style_with_css.get()||value=="xxx-large") {
+        match value{"x-small"=>Some("1"),"small"=>Some("2"),"medium"=>Some("3"),"large"=>Some("4"),"x-large"=>Some("5"),"xx-large"=>Some("6"),"xxx-large"=>Some("7"),_=>None}
+    }else{None};
+    let semantic=match command{
+        "fontname" if !state.style_with_css.get()=>Some("font"),
+        "fontsize" if legacy_size.is_some()=>Some("font"),
+        "createlink"=>Some("a"),"subscript"|"superscript" if value=="subscript"=>Some("sub"),"subscript"|"superscript" if value=="superscript"=>Some("sup"),
+        _ if !state.style_with_css.get()=>match (command,value){("bold","bold"|"700")=>Some("b"),("italic","italic")=>Some("i"),("underline","underline")=>Some("u"),("strikethrough","line-through")=>Some("s"),_=>None},_=>None};
+    let wrapper=state.dom.borrow_mut().create_element(semantic.unwrap_or("span"));let _wrapper=context.lease(wrapper)?;
+    if command=="createlink"{context.attribute(wrapper,None,"href",value).await?;}
+    else if command=="fontname"&&semantic==Some("font"){context.attribute(wrapper,None,"face",value).await?;}
+    else if let Some(size)=legacy_size{context.attribute(wrapper,None,"size",size).await?;}
+    else if semantic.is_none() && let Some(property)=property{context.style(wrapper,property,value).await?;}
+    if !admitted()?{return Ok(())}
+    context.append(parent,wrapper,Some(node)).await?;
+    if !admitted()?{
+        if state.dom.borrow().parent(wrapper)?==Some(parent)&&light_children(&state.dom.borrow(),wrapper)?.is_empty(){context.remove(wrapper).await?;}
+        return Ok(())
+    }
+    let position=boundary_length(&state.dom.borrow(),wrapper)?;
+    context.move_preserving_ranges(node,wrapper,position).await?;
+    Ok(())
+}
+
+async fn editing_push_down_command_value(context:&Context,node:NodeId,command:&str,new_value:Option<&str>)->Result<(),V8BindingError>{
+    let state=&context.state;
+    let admission=EditingFormatAdmission::capture(context)?;
+    context.layout().await?;
+    if !admission.current(state)?{return Ok(())}
+    if editing_command_values_loosely_equivalent(context,command,editing_effective_command_value(state,node,command)?.as_deref(),new_value).await?{return Ok(())}
+    if !admission.current(state)?{return Ok(())}
+    let mut ancestors=Vec::new();let mut current=state.dom.borrow().parent(node)?;
+    while let Some(ancestor)=current{
+        let eligible={
+            let dom=state.dom.borrow();
+            let owner=editing_host_for_node(&dom,Some(ancestor),state.design_mode_enabled(),state.document_root())?;
+            owner.is_some_and(|owner|owner!=ancestor)&&matches!(dom.arena().get(ancestor)?.kind,NodeKind::Element{..})
+        };
+        if !eligible{break}
+        if editing_command_values_loosely_equivalent(context,command,editing_effective_command_value(state,ancestor,command)?.as_deref(),new_value).await?{break}
+        if !admission.current(state)?{return Ok(())}
+        ancestors.push(context.lease(ancestor)?);
+        current=state.dom.borrow().parent(ancestor)?;
+    }
+    let Some(last)=ancestors.last()else{return Ok(())};
+    let (_,last)=last.current();
+    let propagated=editing_specified_command_value(state,last,command)?;
+    if propagated.is_none() && new_value.is_some(){return Ok(())}
+    let mut propagated=propagated;
+    let parent=state.dom.borrow().parent(last)?;
+    let Some(parent)=parent else{return Ok(())};
+    if new_value.is_some() && !editing_command_values_loosely_equivalent(context,command,editing_effective_command_value(state,parent,command)?.as_deref(),new_value).await?{return Ok(())}
+    if !admission.current(state)?{return Ok(())}
+    while let Some(lease)=ancestors.pop(){
+        if !admission.current(state)?{return Ok(())}
+        let (dom,ancestor)=lease.current();
+        if !Rc::ptr_eq(&dom,&state.dom){return Ok(())}
+        let specified=editing_specified_command_value(state,ancestor,command)?;
+        if let Some(specified)=specified.as_ref(){propagated=Some(specified.clone());}
+        let child_ids={let dom=dom.borrow();light_children(&dom,ancestor)?};
+        let children=child_ids.into_iter().map(|child|context.lease(child)).collect::<Result<Vec<_>,_>>()?;
+        if specified.is_some(){editing_clear_command_value(context,ancestor,command).await?;}
+        if !admission.current(state)?{return Ok(())}
+        let next=ancestors.last().map(|lease|lease.current().1);
+        for child in children {
+            if !admission.current(state)?{return Ok(())}
+            let (dom,child)=child.current();
+            if !Rc::ptr_eq(&dom,&state.dom)||child==node||Some(child)==next{continue}
+            if let Some(specified)=editing_specified_command_value(state,child,command)?
+                && !editing_command_values_equivalent(command,Some(&specified),propagated.as_deref()){continue}
+            editing_force_command_value(context,child,command,propagated.as_deref()).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn editing_command_values_loosely_equivalent(
+    context:&Context,command:&str,a:Option<&str>,b:Option<&str>,
+)->Result<bool,V8BindingError>{
+    if editing_command_values_equivalent(command,a,b){return Ok(true)}
+    if command!="fontsize" {return Ok(false)}
+    fn keyword(value:&str)->Option<BindingLegacyFontKeyword>{
+        use BindingLegacyFontKeyword as K;
+        Some(match value{"x-small"=>K::XSmall,"small"=>K::Small,"medium"=>K::Medium,
+            "large"=>K::Large,"x-large"=>K::XLarge,"xx-large"=>K::XXLarge,"xxx-large"=>K::XXXLarge,_=>return None})
+    }
+    let Some((keyword,pixels))=a.zip(b).and_then(|(a,b)|{
+        keyword(a).map(|k|(k,b)).or_else(||keyword(b).map(|k|(k,a)))
+    })else{return Ok(false)};
+    // Both values here originate from the native CSSOM specified/effective
+    // descriptors. Require an actual resolved pixel value, never map arbitrary
+    // relative units or unsupported colors through guessed conversion.
+    let Some(pixels)=pixels.strip_suffix("px").and_then(|n|n.parse::<f32>().ok())
+        .filter(|n|n.is_finite()&&*n>=0.)else{return Ok(false)};
+    let state=&context.state;
+    let admission=EditingFormatAdmission::capture(context)?;
+    let resolved=context.legacy_font(keyword).await?;
+    if !admission.current(state)?{return Ok(false)}
+    Ok(pixels==resolved.pixels)
+}
+
+// Draft integration helper: selected editable runs are wrapped in place, never
+// extracted across a noneditable island. Caller must supply post-layout live
+// range, original host and command attributes after endpoint normalization.
+fn formatting_equivalent_boundary(dom:&DomRuntime,container:NodeId,offset:u32)->Result<(NodeId,u32),V8BindingError>{
+    if matches!(dom.arena().get(container)?.kind,NodeKind::Text{..}){
+        if offset==0{return relative_boundary(dom,container,false)}
+        if offset==boundary_length(dom,container)?{return relative_boundary(dom,container,true)}
+    }
+    Ok((container,offset))
+}
+struct SelectedFormatOptions<'a> {
+    command: &'a str,
+    value: &'a str,
+    tag: &'a str,
+    attributes: &'a [(&'a str, &'a str)],
+    planned_toggle: Option<bool>,
+}
+async fn format_selected_editable_runs(
+    context: &Context, range: &RangeRecord, host: NodeId,
+    options: SelectedFormatOptions<'_>,
+) -> Result<(), V8BindingError> {
+    let SelectedFormatOptions{command,value,tag,attributes,planned_toggle}=options;
+    let state = &context.state;
+    let revision = state.selection_revision.get();
+    let association = state.selection_range.get();
+    let backward = state.selection_backward.get();
+    let start = context.marker(RangeRecord {
+        start_container:range.start_container, start_offset:range.start_offset,
+        end_container:range.start_container, end_offset:range.start_offset,
+    })?;
+    let end = context.marker(RangeRecord {
+        start_container:range.end_container, start_offset:range.end_offset,
+        end_container:range.end_container, end_offset:range.end_offset,
+    })?;
+    let admitted = || -> Result<bool,V8BindingError> {
+        if state.selection_revision.get()!=revision || state.selection_range.get()!=association { return Ok(false); }
+        let Some(id)=association else { return Ok(false); };
+        let live=state.dom.borrow().live_range(LiveRangeId(id))?;
+        let a=start.range()?;let b=end.range()?;
+        Ok(live.start.container==a.start_container && live.start.offset==a.start_offset
+            && live.end.container==b.start_container && live.end.offset==b.start_offset)
+    };
+    // Split end before start so same-text offsets remain valid. Context::split
+    // uses native live-range mutation bookkeeping and callback custody.
+    for (node, offset) in [(range.end_container,range.end_offset),(range.start_container,range.start_offset)] {
+        let length = boundary_length(&state.dom.borrow(),node)?;
+        if matches!(state.dom.borrow().arena().get(node)?.kind,NodeKind::Text{..}) && offset > 0 && offset < length {
+            context.split(node,offset).await?;
+        }
+        if !admitted()? { return Ok(()); }
+    }
+    let mut a = start.range()?; let mut b = end.range()?;
+    // splitText leaves a boundary at the old text's length attached to the
+    // old text. Its equivalent parent boundary includes the selected tail.
+    for point in [&mut a,&mut b] {
+        let dom=state.dom.borrow();
+        let (container,offset)=formatting_equivalent_boundary(&dom,point.start_container,point.start_offset)?;
+        point.start_container=container;point.start_offset=offset;
+    }
+    // One postorder projection, not a subtree scan for every candidate.
+    let mut owners=BTreeMap::new();let mut uniform=BTreeMap::new();
+    let order=traversal_nodes(&state.dom.borrow(),host)?;
+    for node in &order {
+        let dom=state.dom.borrow();let record=dom.arena().get(*node)?;
+        let inherited=record.parent.and_then(|parent|owners.get(&parent).copied()).flatten();
+        let owner=if *node==host { Some(host) } else {
+            match record.attributes.get_null("contenteditable").map(|v|v.to_ascii_lowercase()).as_deref() {
+                Some("false")=>None,
+                Some(""|"true"|"plaintext-only")=>inherited.or(Some(*node)),
+                _=>inherited,
+            }
+        };
+        owners.insert(*node,owner);
+    }
+    for node in order.iter().rev() {
+        let owner=owners[node];
+        let same=light_children(&state.dom.borrow(),*node)?.iter().all(|child|owners.get(child)==Some(&owner) && uniform.get(child)==Some(&true));
+        uniform.insert(*node,same);
+    }
+    let mut selected = Vec::new();
+    let mut pending = light_children(&state.dom.borrow(),host)?.into_iter().rev().collect::<Vec<_>>();
+    while let Some(node) = pending.pop() {
+        let dom = state.dom.borrow();
+        let before = relative_boundary(&dom,node,false)?;
+        let after = relative_boundary(&dom,node,true)?;
+        let intersects = compare_boundary_points(&dom,(b.start_container,b.start_offset),before)? > 0
+            && compare_boundary_points(&dom,(a.start_container,a.start_offset),after)? < 0;
+        if !intersects { continue; }
+        let owner = owners[&node];
+        let text = matches!(dom.arena().get(node)?.kind,NodeKind::Text{..});
+        let fully = (compare_boundary_points(&dom,(a.start_container,a.start_offset),before)? <= 0
+            || (text && a.start_container==node && a.start_offset==0))
+            && (compare_boundary_points(&dom,after,(b.start_container,b.start_offset))? <= 0
+            || (text && b.start_container==node && b.start_offset==boundary_length(&dom,node)?));
+        // Editing specification's allowed child of span check: HTML content
+        // model, not a rendering/tag guess about which nodes happen to be bold.
+        let allowed = match &dom.arena().get(node)?.kind {
+            NodeKind::Document|NodeKind::DocumentFragment|NodeKind::DocumentType{..}=>false,
+            NodeKind::Element{name} if name.ns.as_ref()=="http://www.w3.org/1999/xhtml" => !matches!(name.local.as_ref(),
+                "address"|"article"|"aside"|"blockquote"|"body"|"caption"|"center"|"col"|"colgroup"|"dd"|"details"|"dir"|"div"|"dl"|"dt"|"fieldset"|"figcaption"|"figure"|"footer"|"form"|"frame"|"frameset"|"h1"|"h2"|"h3"|"h4"|"h5"|"h6"|"head"|"header"|"hgroup"|"hr"|"html"|"li"|"listing"|"menu"|"nav"|"ol"|"p"|"plaintext"|"pre"|"section"|"summary"|"table"|"tbody"|"td"|"tfoot"|"th"|"thead"|"tr"|"ul"|"xmp"),
+            _=>true,
+        };
+        if fully && allowed && owner.is_some_and(|owner|owner!=node) && uniform[&node] {
+            // Invisible selected subtrees do not acquire an applied value.
+            let mut ancestor=Some(node);let mut hidden=false;
+            while let Some(current)=ancestor {
+                if state.layout.borrow().styles.get(&node_key(current)).and_then(|s|s.get("display")).is_some_and(|d|d=="none") { hidden=true;break; }
+                if current==host { break; }
+                ancestor=dom.parent(current)?;
+            }
+            if hidden { continue; }
+            drop(dom);
+            selected.push((context.lease(node)?,owner));
+        } else {
+            // Descend even through false islands: nested explicitly editable
+            // hosts must receive their own per-host formatting traversal.
+            pending.extend(light_children(&dom,node)?.into_iter().rev());
+        }
+    }
+    let boolean=matches!(command,"bold"|"italic"|"underline"|"strikethrough"|"subscript"|"superscript");
+    let activated=match command{"bold"=>"bold","italic"=>"italic","underline"=>"underline","strikethrough"=>"line-through","subscript"=>"subscript","superscript"=>"superscript",_=>""};
+    let mut toggle_off=boolean && !selected.is_empty();
+    for (lease,_) in &selected{
+        let (_,node)=lease.current();
+        if !editing_command_values_equivalent(command,editing_effective_command_value(state,node,command)?.as_deref(),Some(activated)){toggle_off=false;break}
+    }
+    if let Some(planned)=planned_toggle { toggle_off=planned; }
+    else {
+        if command=="createlink" {
+            let mut ancestors=BTreeSet::new();
+            for (lease,_) in &selected {
+                let (_,node)=lease.current();
+                let mut parent=state.dom.borrow().parent(node)?;
+                while let Some(node)=parent {
+                    let dom=state.dom.borrow();
+                    let owner=editing_host_for_node(&dom,Some(node),state.design_mode_enabled(),state.document_root())?;
+                    if owner.is_some_and(|owner|owner!=node)
+                        && dom.is_element(node,"http://www.w3.org/1999/xhtml","a")
+                        && dom.arena().get(node)?.attributes.get_null("href").is_some() {
+                        ancestors.insert(node);
+                    }
+                    parent=dom.parent(node)?;
+                }
+            }
+            let ancestors=order.iter().filter(|node|ancestors.contains(node)).map(|node|context.lease(*node)).collect::<Result<Vec<_>,_>>()?;
+            for lease in ancestors {
+                if !admitted()?{return Ok(())}
+                let (_,node)=lease.current();
+                let eligible={let dom=state.dom.borrow();
+                    let owner=editing_host_for_node(&dom,Some(node),state.design_mode_enabled(),state.document_root())?;
+                    let mut contains_selected=false;
+                    for (lease,_) in &selected {
+                        let (_,selected)=lease.current();
+                        let live_a=start.range()?;let live_b=end.range()?;
+                        let a=formatting_equivalent_boundary(&dom,live_a.start_container,live_a.start_offset)?;
+                        let b=formatting_equivalent_boundary(&dom,live_b.start_container,live_b.start_offset)?;
+                        let before=relative_boundary(&dom,selected,false)?;
+                        let after=relative_boundary(&dom,selected,true)?;
+                        if compare_boundary_points(&dom,a,before)?>0 || compare_boundary_points(&dom,after,b)?>0 {continue}
+                        let mut current=Some(selected);
+                        while let Some(current_node)=current {
+                            if current_node==node {contains_selected=true;break}
+                            current=dom.parent(current_node)?;
+                        }
+                        if contains_selected {break}
+                    }
+                    owner.is_some_and(|owner|owner!=node)
+                        && dom.is_element(node,"http://www.w3.org/1999/xhtml","a")
+                        && dom.arena().get(node)?.attributes.get_null("href").is_some()
+                        && contains_selected
+                };
+                if eligible {context.attribute(node,None,"href",value).await?;}
+            }
+            if !admitted()?{return Ok(())}
+        }
+        // Preserve the pre-clear command state, then discard every structural
+        // plan after native clear callbacks. Re-enter once with live endpoints
+        // so renamed/unwrapped elements cannot leave stale candidate ownership.
+        let mut clear=Vec::new();
+        for node in &order {
+            let dom=state.dom.borrow();
+            if !matches!(dom.arena().get(*node)?.kind,NodeKind::Element{..}) || !owners[node].is_some_and(|owner|owner!=*node){continue}
+            let before=relative_boundary(&dom,*node,false)?;let after=relative_boundary(&dom,*node,true)?;
+            if compare_boundary_points(&dom,(a.start_container,a.start_offset),before)?<=0 && compare_boundary_points(&dom,after,(b.start_container,b.start_offset))?<=0{
+                drop(dom);
+                clear.push((context.lease(*node)?,owners[node]));
+            }
+        }
+        for (lease,expected_owner) in clear {
+            if !admitted()? { return Ok(()); }
+            let (dom,node)=lease.current();
+            if !Rc::ptr_eq(&dom,&state.dom){return Ok(())}
+            let still_contained={
+                let dom=state.dom.borrow();let live_a=start.range()?;let live_b=end.range()?;
+                let current_start=formatting_equivalent_boundary(&dom,live_a.start_container,live_a.start_offset)?;
+                let current_end=formatting_equivalent_boundary(&dom,live_b.start_container,live_b.start_offset)?;
+                let owner=editing_host_for_node(&dom,Some(node),state.design_mode_enabled(),state.document_root())?;
+                if !dom.is_connected(node)?||owner!=expected_owner||!owner.is_some_and(|owner|owner!=node){false}else{
+                    let before=relative_boundary(&dom,node,false)?;let after=relative_boundary(&dom,node,true)?;
+                    compare_boundary_points(&dom,current_start,before)?<=0
+                        && compare_boundary_points(&dom,after,current_end)?<=0
+                }
+            };
+            if still_contained{editing_clear_command_value(context,node,command).await?;}
+        }
+        if !admitted()? { return Ok(()); }
+        context.layout().await?;
+        if !admitted()? { return Ok(()); }
+        let Some(id)=association else{return Ok(())};
+        let live:RangeRecord=state.dom.borrow().live_range(LiveRangeId(id))?.into();
+        return Box::pin(format_selected_editable_runs(context,&live,host,SelectedFormatOptions{command,value,tag,attributes,planned_toggle:Some(toggle_off)})).await;
+    }
+    if toggle_off {
+        // Apply command removal to formattable descendants rather than a
+        // wrapper that clearValue may itself unwrap and retire.
+        let mut targets=Vec::new();
+        for (lease,_) in selected{
+            let (_,node)=lease.current();
+            let descendants={let dom=state.dom.borrow();traversal_nodes(&dom,node)?};
+            for target in descendants {
+                let dom=state.dom.borrow();
+                let formattable=matches!(&dom.arena().get(target)?.kind,NodeKind::Text{..})
+                    || matches!(element_local_name(&dom,target),Some("br"|"img"));
+                let eligible=formattable && editing_host_for_node(&dom,Some(target),state.design_mode_enabled(),state.document_root())?.is_some();
+                drop(dom);
+                if eligible {targets.push(context.lease(target)?);}
+            }
+        }
+        let neutral=if matches!(command,"underline"|"strikethrough"|"subscript"|"superscript"){None}else{Some("normal")};
+        for lease in targets{
+            if !admitted()?{return Ok(())}
+            let (_,node)=lease.current();
+            editing_push_down_command_value(context,node,command,neutral).await?;
+            if !admitted()?{return Ok(())}
+            if state.dom.borrow().arena().get(node).is_ok(){
+                editing_force_command_value(context,node,command,neutral).await?;
+            }
+        }
+        if admitted()?{
+            let a=start.range()?;let b=end.range()?;
+            let a=BoundaryPoint{container:a.start_container,offset:a.start_offset};let b=BoundaryPoint{container:b.start_container,offset:b.start_offset};
+            set_selection_boundaries(state,if backward{b}else{a},if backward{a}else{b})?;
+        }
+        return Ok(())
+    }
+    let mut previous:Option<(NodeId,NodeId,Option<NodeId>)>=None;
+    for (lease,expected_owner) in selected {
+        let (dom,node) = lease.current();
+        if !Rc::ptr_eq(&dom,&state.dom) || !admitted()? { return Ok(()); }
+        if editing_host_for_node(&dom.borrow(),Some(node),state.design_mode_enabled(),state.document_root())? != expected_owner { continue; }
+        let normalized;
+        let target_value=if boolean{activated}else if command=="fontname"&&tag=="font" {value}
+        else if command=="fontsize"&&tag=="font" {
+            let size=attributes.iter().find(|(name,_)|*name=="size").map_or(value,|(_,value)|*value);
+            oryn_layout::html_font_size_hint_keyword(size).unwrap_or(value)
+        }else if let Some(property)=editing_command_property(command){
+            let css=attributes.iter().find(|(name,_)|*name=="style").map_or("",|(_,value)|*value);
+            let quirks=state.dom.borrow().arena().get(state.document_root())?.document_metadata.as_ref().is_some_and(|m|m.quirks);
+            normalized=oryn_layout::cssom::read_declaration(css,property,&state.native_document_base_url(true)?,quirks).map_err(V8BindingError::EventCallback)?.value;
+            if normalized.is_empty(){value}else{&normalized}
+        }else{value};
+        if editing_command_values_loosely_equivalent(context,command,editing_effective_command_value(state,node,command)?.as_deref(),Some(target_value)).await?{continue}
+        if !admitted()?{return Ok(())}
+        if editing_host_for_node(&dom.borrow(),Some(node),state.design_mode_enabled(),state.document_root())? != expected_owner {continue}
+        editing_push_down_command_value(context,node,command,Some(target_value)).await?;
+        if !admitted()?{return Ok(())}
+        let parent = dom.borrow().parent(node)?.ok_or_else(hierarchy_request_error)?;
+        let _parent=context.lease(parent)?;
+        if let Some((prior_parent,wrapper,owner))=previous {
+            let adjacent={let dom=dom.borrow();let children=dom.children(parent)?;
+                children.iter().position(|n|*n==wrapper).is_some_and(|index|children.get(index+1)==Some(&node))};
+            let wrapper_matches={let dom=dom.borrow();let record=dom.arena().get(wrapper)?;
+                element_local_name(&dom,wrapper)==Some(tag)
+                    && record.attributes.len()==attributes.len()
+                    && attributes.iter().all(|(name,value)|record.attributes.get_null(name).is_some_and(|current|current==value))
+                    && editing_host_for_node(&dom,Some(wrapper),state.design_mode_enabled(),state.document_root())?==expected_owner
+                    && dom.parent(wrapper)?==Some(parent)};
+            if prior_parent==parent && owner==expected_owner && adjacent && wrapper_matches {
+                let index=boundary_length(&dom.borrow(),wrapper)?;
+                context.move_preserving_ranges(node,wrapper,index).await?;
+                continue;
+            }
+        }
+        let wrapper = dom.borrow_mut().create_element(tag);
+        let _wrapper=context.lease(wrapper)?;
+        for (name,value) in attributes {
+            context.attribute(wrapper,None,*name,*value).await?;
+            if !admitted()? { return Ok(()); }
+            if dom.borrow().parent(node)?!=Some(parent) || editing_host_for_node(&dom.borrow(),Some(node),state.design_mode_enabled(),state.document_root())?!=expected_owner{return Ok(())}
+        }
+        if !admitted()? { return Ok(()); }
+        if dom.borrow().parent(node)?!=Some(parent) || !dom.borrow().is_connected(parent)?
+            || editing_host_for_node(&dom.borrow(),Some(node),state.design_mode_enabled(),state.document_root())? != expected_owner { continue; }
+        context.append(parent,wrapper,Some(node)).await?;
+        if !admitted()? {
+            if dom.borrow().parent(wrapper)?==Some(parent) && light_children(&dom.borrow(),wrapper)?.is_empty() { context.remove(wrapper).await?; }
+            return Ok(());
+        }
+        if dom.borrow().parent(node)? != Some(parent)
+            || editing_host_for_node(&dom.borrow(),Some(node),state.design_mode_enabled(),state.document_root())? != expected_owner {
+            if dom.borrow().parent(wrapper)?==Some(parent) && light_children(&dom.borrow(),wrapper)?.is_empty() { context.remove(wrapper).await?; }
+            continue;
+        }
+        let index=boundary_length(&dom.borrow(),wrapper)?;
+        context.move_preserving_ranges(node,wrapper,index).await?;
+        previous=Some((parent,wrapper,expected_owner));
+    }
+    if admitted()? {
+        let a=start.range()?;let b=end.range()?;
+        let a=BoundaryPoint{container:a.start_container,offset:a.start_offset};
+        let b=BoundaryPoint{container:b.start_container,offset:b.start_offset};
+        set_selection_boundaries(state,if backward {b}else{a},if backward {a}else{b})?;
+    }
+    Ok(())
+}
 pub(super) async fn apply_inline_format(
     context: &Context,
     command: &str,
@@ -178,7 +959,7 @@ pub(super) async fn apply_inline_format(
         && state.selection_anchor.get() == state.selection_focus.get();
     let mut overrides = state.editing_overrides.borrow().clone();
     let css = state.style_with_css.get();
-    let (tag, attribute) = match command {
+    let (mut tag, attribute) = match command {
         "bold" if css => ("span", Some(("style", "font-weight: bold"))),
         "bold" => ("b", None),
         "italic" if css => ("span", Some(("style", "font-style: italic"))),
@@ -199,8 +980,13 @@ pub(super) async fn apply_inline_format(
     let owned;
     let attributes = match command {
         "fontname" => {
-            owned = format!("font-family: {value}");
-            vec![("style", owned.as_str())]
+            if !css {
+                tag="font";
+                vec![("face",value)]
+            } else {
+                owned = format!("font-family: {value}");
+                vec![("style", owned.as_str())]
+            }
         }
         "fontsize" => {
             let size = match value {
@@ -213,8 +999,19 @@ pub(super) async fn apply_inline_format(
                 "7" => "xxx-large",
                 other => other,
             };
-            owned = format!("font-size: {size}");
-            vec![("style", owned.as_str())]
+            let legacy = match size {
+                "x-small"=>Some("1"),"small"=>Some("2"),"medium"=>Some("3"),
+                "large"=>Some("4"),"x-large"=>Some("5"),"xx-large"=>Some("6"),
+                "xxx-large"=>Some("7"),_=>None,
+            };
+            if let Some(legacy)=legacy.filter(|_|!css||size=="xxx-large") {
+                tag="font";
+                owned=legacy.to_owned();
+                vec![("size",owned.as_str())]
+            } else {
+                owned = format!("font-size: {size}");
+                vec![("style", owned.as_str())]
+            }
         }
         "forecolor" => {
             owned = format!("color: {value}");
@@ -226,6 +1023,22 @@ pub(super) async fn apply_inline_format(
         }
         _ => attribute.into_iter().collect(),
     };
+    if !collapsed {
+        let original_host=editing_host(state)?;
+        let original_id=state.selection_range.get();
+        let original_revision=state.selection_revision.get();
+        let admission=EditingFormatAdmission::capture(context)?;
+        context.layout().await?;
+        synchronize_live_ranges(state)?;
+        if !admission.current(state)? || state.selection_range.get()!=original_id || state.selection_revision.get()!=original_revision || editing_host(state)?!=original_host { return Ok(()); }
+        let Some(host)=editing_host(state)? else { return Ok(()); };
+        let Some(id)=state.selection_range.get() else { return Ok(()); };
+        let range=state.ranges.borrow().get(&id).cloned().ok_or(V8BindingError::Allocation("Range record"))?;
+        {
+            format_selected_editable_runs(context,&range,host,SelectedFormatOptions{command,value,tag,attributes:&attributes,planned_toggle:None}).await?;
+            return Ok(());
+        }
+    }
     insert_editing_element(context, tag, &attributes).await?;
     if collapsed {
         if let Some(value) = selection_dom_format_value(state, command) {
@@ -280,6 +1093,9 @@ pub(super) async fn delete_selection_direction(
         if join_rendered_editing_boundary(context, &range, forward).await? {
             return Ok(());
         }
+let Some(range) = state.selection_range.get()
+    .and_then(|id| state.ranges.borrow().get(&id).cloned())
+else { return Ok(()); };
         // Selecting only the boundary between adjacent paragraphs has the
         // same line-joining behavior as deleting at either collapsed endpoint.
         if let Some(host) = editing_host(state)? {
@@ -697,6 +1513,7 @@ pub(super) async fn insert_editing_line_break(context: &Context) -> Result<(), V
         return Ok(());
     };
     replace_selection_with_text(context, "").await?;
+    context.layout().await?;
     let Some(id) = state.selection_range.get() else {
         return Ok(());
     };
@@ -770,10 +1587,19 @@ pub(super) async fn insert_editing_line_break(context: &Context) -> Result<(), V
             .await?;
     }
     set_selection_boundaries(state, point, point)?;
+    if !preserves{normalize_line_start_whitespace(context,host).await?;}
     Ok(())
 }
 
 // Pasted markup carries its own inline formatting. Split the containing inline
+async fn normalize_line_start_whitespace(context:&Context,host:NodeId)->Result<(),V8BindingError>{
+    let state=&context.state;
+    context.layout().await?;
+    let point=typing_selection_point(state)?;
+    let mode=editing_white_space(state,point.container)?;
+    if matches!(mode.as_str(),"pre"|"pre-wrap"|"break-spaces"){return Ok(())}
+    context.line_start_spaces(host,point).await
+}
 // ancestors up to the rendered block, preserving the content on either side.
 
 pub(super) async fn insert_editing_text(
@@ -791,10 +1617,12 @@ pub(super) async fn insert_editing_text(
     if !first.is_empty() {
         apply_typing_overrides(context, &overrides).await?;
         remove_editing_placeholder_before_typing(context, &first).await?;
+        context.layout().await?;
         let prepared = prepare_typing_whitespace(state, &first)?;
         replace_selection_with_text(context, &prepared).await?;
     }
     if text.is_empty() {
+        context.layout().await?;
         prepare_typing_whitespace(state, text)?;
     }
     for line in lines {
@@ -802,6 +1630,7 @@ pub(super) async fn insert_editing_text(
         if !line.is_empty() {
             apply_typing_overrides(context, &overrides).await?;
             remove_editing_placeholder_before_typing(context, &line).await?;
+            context.layout().await?;
             let prepared = prepare_typing_whitespace(state, &line)?;
             replace_selection_with_text(context, &prepared).await?;
         }
@@ -830,6 +1659,7 @@ pub(super) async fn join_first_editing_line_before(
     before: Option<NodeId>,
 ) -> Result<BoundaryPoint, V8BindingError> {
     let state: &V8BindingState = &context.state;
+    context.layout().await?;
     let destination_mode = editing_white_space(state, destination)?;
     let source_is_placeholder = matches!(
         state.dom.borrow().arena().get(source)?.kind,
@@ -961,6 +1791,20 @@ pub(super) async fn join_first_editing_line_before(
                     separator = Some((node, false));
                     break;
                 }
+                context.layout().await?;
+                {
+                    let dom = state.dom.borrow();
+                    if !dom.is_connected(node)? || !matches!(dom.arena().get(node)?.kind, NodeKind::Element { .. })
+                        || is_ignored_editing_sibling(&dom, node) || is_preserved_editing_boundary(&dom, node)
+                        || state.layout.borrow().styles.get(&node_key(node)).and_then(|style| style.get("display")).is_some_and(|display| display == "none")
+                    { continue; }
+                    if !merge_whole_block && element_local_name(&dom, node) == Some("br") {
+                        let (container, offset) = relative_boundary(&dom, node, false)?;
+                        end = BoundaryPoint { container, offset };
+                        separator = Some((node, false));
+                        break;
+                    }
+                }
                 if nearest_rendered_editing_block(state, node, line_root)? == node {
                     let (container, offset) = relative_boundary(&state.dom.borrow(), node, false)?;
                     end = BoundaryPoint { container, offset };
@@ -968,7 +1812,12 @@ pub(super) async fn join_first_editing_line_before(
                 }
                 line_nodes.extend(light_children(&state.dom.borrow(), node)?.into_iter().rev());
             }
-            NodeKind::Text { data } | NodeKind::CDataSection { data } => {
+            NodeKind::Text { .. } | NodeKind::CDataSection { .. } => {
+                context.layout().await?;
+                let data = match state.dom.borrow().arena().get(node)?.kind.clone() {
+                    NodeKind::Text { data } | NodeKind::CDataSection { data } => data,
+                    _ => continue,
+                };
                 let mode = editing_white_space(state, node)?;
                 if !merge_whole_block
                     && matches!(
@@ -1197,7 +2046,7 @@ pub(super) async fn join_rendered_editing_boundary(
     if element_local_name(&state.dom.borrow(), host) == Some("html") {
         return Ok(false);
     }
-    refresh_layout(state)?;
+    context.layout().await?;
     let selected =
         range.start_container != range.end_container || range.start_offset != range.end_offset;
     let start = BoundaryPoint {
@@ -1407,6 +2256,7 @@ pub(super) async fn replace_selection_with_html(
     let state: &V8BindingState = &context.state;
     let overrides = state.editing_overrides.borrow().clone();
     replace_selection_with_text(context, "").await?;
+    if pasted_markup { context.layout().await?; }
     let id = state
         .selection_range
         .get()
@@ -1480,7 +2330,7 @@ pub(super) async fn replace_selection_with_text(
     // Layout callbacks may retarget selection. Capture its authority only
     // after the existing native provider has published rendered block styles.
     if !replacement.is_empty() {
-        refresh_layout(state)?;
+        context.layout().await?;
     }
     let id = state
         .selection_range
@@ -1696,6 +2546,7 @@ pub(super) async fn split_editing_paragraph_contents(
     {
         replace_selection_with_text(context, "").await?;
     }
+    context.layout().await?;
     synchronize_live_ranges(state)?;
     let range = state
         .ranges
@@ -1758,7 +2609,7 @@ pub(super) async fn split_editing_paragraph_contents(
     // Capture existing block boundaries before splitting inline ancestors.
     let mut block_siblings = std::collections::HashSet::new();
     if block == host {
-        // `nearest_rendered_editing_block` has already refreshed layout above.
+        // The preceding scoped layout demand prepared the rendered-block snapshot.
         // Reusing that snapshot avoids an O(children) sequence of full layout
         // refreshes for every paragraph command in a block editing host.
         let dom = state.dom.borrow();
@@ -2271,6 +3122,8 @@ pub(super) async fn remove_selection_format(context: &Context) -> Result<(), V8B
 
 pub(super) async fn clear_contained_alignment(context: &Context) -> Result<(), V8BindingError> {
     let state: &V8BindingState = &context.state;
+    if state.selection_anchor.get().is_none() || editing_host(state)?.is_none() { return Ok(()); }
+    context.layout().await?;
     let Some(range) = editing_alignment_range(state)? else {
         return Ok(());
     };
@@ -2357,7 +3210,7 @@ pub(super) async fn separate_alignment_inline_runs(
     prepend: bool,
 ) -> Result<(), V8BindingError> {
     let state: &V8BindingState = &context.state;
-    refresh_layout(state)?;
+    context.layout().await?;
     let needs_break = {
         let dom = state.dom.borrow();
         let layout = state.layout.borrow();
@@ -2404,6 +3257,8 @@ pub(super) async fn wrap_alignment_contents(
     alignment: &str,
 ) -> Result<(), V8BindingError> {
     let state: &V8BindingState = &context.state;
+    if state.selection_anchor.get().is_none() || editing_host(state)?.is_none() { return Ok(()); }
+    context.layout().await?;
     let Some(range) = editing_alignment_range(state)? else {
         return Ok(());
     };
@@ -2555,6 +3410,7 @@ pub(super) async fn remove_editing_placeholder_before_typing(
     let Some(host) = editing_host(state)? else {
         return Ok(());
     };
+    context.layout().await?;
     let Some(range) = state
         .selection_range
         .get()

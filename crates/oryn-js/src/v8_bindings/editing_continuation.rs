@@ -12,6 +12,7 @@ use std::{
 };
 struct RangeMove {
     id: u64,
+    private_marker: bool,
     expected: RangeRecord,
     start: Option<BoundaryPoint>,
     end: Option<BoundaryPoint>,
@@ -23,6 +24,10 @@ fn same_range(a: &RangeRecord, b: &RangeRecord) -> bool {
         && a.end_offset == b.end_offset
 }
 enum Operation {
+    Layout,
+    LegacyFont {
+        keyword: BindingLegacyFontKeyword,
+    },
     RemoveAttribute {
         node: oryn_dom::TrackedNodeLease,
         name: String,
@@ -62,9 +67,11 @@ enum Operation {
         count: u32,
         data: String,
     },
+    SpaceRun { host: NodeId, selection: u64, revision: u64, point: BoundaryPoint },
     Remove {
         node: oryn_dom::TrackedNodeLease,
         ranges: Option<RetainedRanges>,
+        private_ranges: Option<(Vec<u64>,RetainedRanges)>,
     },
     RemoveWithMarkers {
         node: oryn_dom::TrackedNodeLease,
@@ -91,15 +98,26 @@ impl Preparation {
 }
 struct Request {
     operation: Operation,
+    space_run: RefCell<Option<PreparedSpaceRun>>,
     prepared: RefCell<Option<Preparation>>,
     mutated: Cell<bool>,
     recorded: Cell<bool>,
     error: RefCell<Option<V8BindingError>>,
     reply: RefCell<Option<Result<(), V8BindingError>>>,
 }
+struct PreparedSpaceRun {
+    host: oryn_dom::TrackedNodeLease,
+    spaces: Vec<(oryn_dom::TrackedNodeLease,u32,u16)>,
+    ends_line: bool,
+    _allocation: Option<std::sync::Arc<dyn Send+Sync>>,
+    _scan: EditingSpaceAllocation,
+    mutation: oryn_dom::MutationCursor,
+    boundary: u64,
+}
 pub(super) struct Marker {
     owner: Rc<V8BindingState>,
     id: oryn_dom::LiveRangeId,
+    registry: Rc<RefCell<BTreeSet<u64>>>,
 }
 impl Marker {
     pub(super) fn range(&self) -> Result<RangeRecord, V8BindingError> {
@@ -108,6 +126,7 @@ impl Marker {
 }
 impl Drop for Marker {
     fn drop(&mut self) {
+        self.registry.borrow_mut().remove(&self.id.0);
         let _ = self.owner.dom.borrow_mut().drop_live_range(self.id);
     }
 }
@@ -118,6 +137,8 @@ pub(super) struct Context {
     tracked: RefCell<BTreeMap<NodeId, oryn_dom::TrackedNodeLease>>,
     admitted: RefCell<BTreeSet<NodeId>>,
     extra_roots: RefCell<Vec<oryn_dom::TrackedNodeLease>>,
+    legacy_font_result: Cell<Option<BindingLegacyFontResult>>,
+    markers: Rc<RefCell<BTreeSet<u64>>>,
 }
 impl Drop for Context {
     fn drop(&mut self) {
@@ -144,7 +165,7 @@ impl Context {
             stage: Cell::new(0),
         });
         self.clones.borrow_mut().push(job.clone());
-        self.state.range_clone_completions.borrow_mut().push(job);
+        self.state.range_clone_completions.borrow_mut().push_back(job);
         Ok(())
     }
 
@@ -191,9 +212,11 @@ impl Context {
             .dom
             .borrow_mut()
             .create_live_range(native.start, native.end)?;
+        self.markers.borrow_mut().insert(id.0);
         Ok(Marker {
             owner: self.state.clone(),
             id,
+            registry: self.markers.clone(),
         })
     }
     pub(super) fn lease(&self, node: NodeId) -> Result<oryn_dom::TrackedNodeLease, V8BindingError> {
@@ -372,6 +395,10 @@ impl Context {
         })
         .await
     }
+    pub(super) async fn line_start_spaces(&self,host:NodeId,point:BoundaryPoint)->Result<(),V8BindingError>{
+        let selection=self.state.selection_range.get().ok_or(V8BindingError::Allocation("line-space Selection"))?;
+        self.request(Operation::SpaceRun{host,selection,revision:self.state.selection_revision.get(),point}).await
+    }
     pub(super) async fn text(
         &self,
         node: NodeId,
@@ -391,6 +418,7 @@ impl Context {
         self.request(Operation::Remove {
             node: self.lease(node)?,
             ranges: None,
+            private_ranges: None,
         })
         .await
     }
@@ -471,6 +499,7 @@ impl Context {
                 let end = point(expected.end_container, expected.end_offset);
                 (start.is_some() || end.is_some()).then(|| RangeMove {
                     id: *id,
+                    private_marker: false,
                     expected: expected.clone(),
                     start,
                     end,
@@ -529,11 +558,17 @@ impl Context {
         let parent_lease = self.lease(parent)?;
         let reference_lease = reference.map(|node| self.lease(node)).transpose()?;
         let original = self.state.ranges.borrow().clone();
+        let private_original = {
+            let dom=self.state.dom.borrow();
+            self.markers.borrow().iter().map(|id|Ok((*id,RangeRecord::from(dom.live_range(LiveRangeId(*id))?)))).collect::<Result<Vec<_>,V8BindingError>>()?
+        };
         let removed = Rc::new(RefCell::new(None));
+        let private_removed = Rc::new(RefCell::new(None));
         if old_parent.is_some() {
             self.request(Operation::Remove {
                 node: self.lease(node)?,
                 ranges: Some(removed.clone()),
+                private_ranges: Some((private_original.iter().map(|(id,_)|*id).collect(),private_removed.clone())),
             })
             .await?;
         }
@@ -566,6 +601,23 @@ impl Context {
             }
         };
         let mut ranges = Vec::new();
+        // Private command markers have no JavaScript wrapper and must never
+        // enter wrapper GC/accounting. Preserve their subtree positions using
+        // the same move mapping while retaining ordinary mutation admission.
+        for (id,range) in private_original {
+            if !self.markers.borrow().contains(&id){continue}
+            let map=|container,offset| {
+                if subtree.contains(&container){Some(BoundaryPoint{container,offset})}
+                else if Some(container)==old_parent&&old_index.is_some_and(|index|offset==index||offset==index+1){Some(BoundaryPoint{container:live_parent,offset:position+(offset-old_index.unwrap())})}
+                else{None}
+            };
+            let start=map(range.start_container,range.start_offset);
+            let end=map(range.end_container,range.end_offset);
+            if start.is_some()||end.is_some(){
+                let Some(expected)=private_removed.borrow().as_ref().and_then(|ranges|ranges.get(&id)).cloned() else{continue};
+                ranges.push(RangeMove{id,private_marker:true,expected,start,end});
+            }
+        }
         for (id, range) in original {
             if self.state.static_ranges.borrow().contains(&id) {
                 continue;
@@ -592,6 +644,7 @@ impl Context {
             if start.is_some() || end.is_some() {
                 ranges.push(RangeMove {
                     id,
+                    private_marker: false,
                     expected: expected.clone(),
                     start,
                     end,
@@ -688,9 +741,22 @@ impl Context {
             }
         }
     }
+    pub(super) async fn layout(&self) -> Result<(), V8BindingError> {
+        self.request(Operation::Layout).await
+    }
+
+    pub(super) async fn legacy_font(&self, keyword: BindingLegacyFontKeyword)
+        -> Result<BindingLegacyFontResult, V8BindingError>
+    {
+        self.legacy_font_result.set(None);
+        self.request(Operation::LegacyFont { keyword }).await?;
+        let result = self.legacy_font_result.take();
+        result.ok_or(V8BindingError::Allocation("missing editing font demand result"))
+    }
     async fn request(&self, operation: Operation) -> Result<(), V8BindingError> {
         let request = Rc::new(Request {
             operation,
+            space_run: RefCell::new(None),
             prepared: RefCell::new(None),
             mutated: Cell::new(false),
             recorded: Cell::new(false),
@@ -779,6 +845,8 @@ impl Continuation {
             tracked: RefCell::new(BTreeMap::new()),
             admitted: RefCell::new(BTreeSet::new()),
             extra_roots: RefCell::new(Vec::new()),
+            legacy_font_result: Cell::new(None),
+            markers: Rc::new(RefCell::new(BTreeSet::new())),
         });
         for record in &before.nodes {
             context.lease(record.node)?;
@@ -951,6 +1019,99 @@ impl Continuation {
         for _ in 0..1024 {
             let pending = self.context.pending.borrow().clone();
             if let Some(request) = pending {
+                if let Operation::LegacyFont { keyword } = &request.operation {
+                    if !request.recorded.get() {
+                        self.segment()?;
+                        request.recorded.set(true);
+                    }
+                    let state = &self.context.state;
+                    let result = (|| -> Result<BindingLegacyFontResult, V8BindingError> {
+                        refresh_layout_in_scope(scope, state)?;
+                        let _retained_scope = state.enter_retained_allocation(scope)?;
+                        if !self.current() {
+                            return Err(V8BindingError::Allocation("retired editing font demand"));
+                        }
+                        let provider = state.layout_provider.borrow().clone()
+                            .ok_or(V8BindingError::Allocation("missing owning font provider"))?;
+                        let body = state.dom.borrow().document_body(state.document_root())?
+                            .ok_or(V8BindingError::Allocation("missing owning font body"))?;
+                        let demand = BindingLegacyFontRequest {
+                            document: state.document_root(), body,
+                            document_generation: state.document_generation(),
+                            stream_epoch: state.document_stream_epoch(),
+                            authority_epoch: state.document_authority_epoch(),
+                            style_generation: provider.layout_revision()
+                                .ok_or(V8BindingError::Allocation("unversioned font provider"))?,
+                            keyword: *keyword,
+                        };
+                        let bytes = {
+                            let custom = state.custom_states.borrow();
+                            let mut bytes = state.scroll_offsets.borrow().len()
+                                .checked_mul(std::mem::size_of::<(NodeId, (f64, f64))>() + 6 * std::mem::size_of::<usize>())
+                                .ok_or(V8BindingError::Allocation("font scroll metadata overflow"))?;
+                            for values in custom.values() {
+                                bytes = bytes.checked_add(std::mem::size_of::<NodeId>() + 8 * std::mem::size_of::<usize>())
+                                    .ok_or(V8BindingError::Allocation("font state metadata overflow"))?;
+                                for value in values {
+                                    bytes = bytes.checked_add(value.len()).and_then(|n| n.checked_add(8 * std::mem::size_of::<usize>()))
+                                        .ok_or(V8BindingError::Allocation("font state text overflow"))?;
+                                }
+                            }
+                            bytes
+                        };
+                        let allocation = state.retained_allocation.borrow().clone();
+                        let _metadata = allocation.map(|allocation| allocation.reserve(bytes))
+                            .transpose().map_err(V8BindingError::EventCallback)?;
+                        let custom = state.custom_states.borrow().clone();
+                        let element_scrolls = state.element_scroll_offsets();
+                        let resolved = provider.resolve_legacy_font_keyword(&state.dom, demand,
+                            &custom, state.document_scroll_offset(), &element_scrolls)
+                            .ok_or(V8BindingError::Allocation("font query unavailable"))?
+                            .map_err(V8BindingError::EventCallback)?;
+                        if !self.current() || resolved.request != demand
+                            || provider.layout_revision() != Some(demand.style_generation)
+                            || state.dom.borrow().document_body(demand.document)? != Some(body)
+                        {
+                            return Err(V8BindingError::Allocation("stale editing font result"));
+                        }
+                        Ok(resolved)
+                    })();
+                    if !self.current() {
+                        self.cancel();
+                        return Ok(Some(false));
+                    }
+                    *request.reply.borrow_mut() = Some(result.map(|value| {
+                        self.context.legacy_font_result.set(Some(value));
+                    }));
+                    self.context.pending.borrow_mut().take();
+                    continue;
+                }
+                if matches!(&request.operation, Operation::Layout) {
+                    if !request.recorded.get() {
+                        self.segment()?;
+                        request.recorded.set(true);
+                    }
+                    // A suspended edit cannot retain a V8 scope. Serve its
+                    // explicit layout demand here, under the live owner, and
+                    // publish a reply before resuming native algorithm work.
+                    match refresh_layout_in_scope(scope, &self.context.state) {
+                        Ok(()) => {
+                            if !self.current() {
+                                self.cancel();
+                                return Ok(Some(false));
+                            }
+                            *request.reply.borrow_mut() = Some(Ok(()));
+                            self.context.pending.borrow_mut().take();
+                            continue;
+                        }
+                        Err(error @ V8BindingError::Allocation(_)) => return Err(error),
+                        Err(error) => {
+                            *request.reply.borrow_mut() = Some(Err(error));
+                            self.context.pending.borrow_mut().take();
+                            continue;
+                        }
+                    }
+                }
                 if !request.mutated.get() {
                     // All native-only work preceding this await becomes an independent
                     // inverse before any script may observe it.
@@ -1125,6 +1286,7 @@ impl Continuation {
                 .saturating_mul(2)
                 .saturating_add(1024),
             Operation::Text { data, .. } => data.len().saturating_mul(2).saturating_add(1024),
+            Operation::SpaceRun { .. } => 1024,
             Operation::Split { .. } => 2048,
             _ => 1024,
         };
@@ -1172,6 +1334,27 @@ impl Continuation {
             });
         }
         let preparation = match &request.operation {
+            Operation::Layout | Operation::LegacyFont { .. } => return Err(V8BindingError::Allocation("unserved editing layout demand")),
+            Operation::SpaceRun { host, selection, revision, point } => {
+                let _retained_scope=state.enter_retained_allocation(scope)?;
+                request.space_run.borrow_mut().take();
+                if state.selection_range.get()!=Some(*selection)||state.selection_revision.get()!=*revision{return Ok(())}
+                let live=state.dom.borrow().live_range(LiveRangeId(*selection))?;
+                if live.start!=*point||live.end!=*point{return Ok(())}
+                let host=self.context.lease(*host)?;
+                let host_id=self.resolve(&host)?;
+                let run=editing_space_run_with_allocation(state,*point,host_id,EditingSpaceAllocation{owner:state.retained_allocation.borrow().clone(),leases:Vec::new()})?;
+                if !run.starts_line||!run.before.is_empty()||run.after.is_empty(){return Ok(())}
+                let bytes=run.after.len().checked_mul(std::mem::size_of::<(oryn_dom::TrackedNodeLease,u32,u16)>()+std::mem::size_of::<NodeId>()+8).ok_or(V8BindingError::Allocation("line-space metadata overflow"))?;
+                let allocation=state.retained_allocation.borrow().clone();
+                let allocation=allocation.map(|allocation|allocation.reserve(bytes)).transpose().map_err(V8BindingError::EventCallback)?;
+                let mut spaces=Vec::new();spaces.try_reserve_exact(run.after.len()).map_err(|_|V8BindingError::Allocation("line-space positions"))?;
+                for space in run.after{spaces.push((self.context.lease(space.node)?,space.offset,space.value));}
+                let dom=state.dom.borrow();
+                *request.space_run.borrow_mut()=Some(PreparedSpaceRun{host,spaces,ends_line:run.ends_line,_allocation:allocation,_scan:run._allocation,mutation:dom.mutation_cursor(),boundary:dom.boundary_revision()});
+                drop(dom);
+                Preparation::Parent(script_children_changed::parent_change(scope,state,None)?)
+            }
             Operation::RemoveAttribute { node, .. }
             | Operation::Attribute { node, .. }
             | Operation::Style { node, .. }
@@ -1239,6 +1422,39 @@ impl Continuation {
             _ => {}
         }
         match &request.operation {
+            Operation::Layout | Operation::LegacyFont { .. } => return Err(V8BindingError::Allocation("unserved editing layout demand")),
+            Operation::SpaceRun { selection, revision, point, .. } => {
+                let prepared=request.space_run.borrow();
+                let Some(PreparedSpaceRun{host,spaces,ends_line,mutation,boundary,..})=prepared.as_ref() else{return Ok(())};
+                let host=self.resolve(host)?;
+                if state.selection_range.get()!=Some(*selection)||state.selection_revision.get()!=*revision{return Ok(())}
+                let live=state.dom.borrow().live_range(LiveRangeId(*selection))?;
+                if live.start!=*point||live.end!=*point{return Ok(())}
+                {let dom=state.dom.borrow();if dom.mutation_cursor()!=*mutation||dom.boundary_revision()!=*boundary{return Ok(())}}
+                let mut ids=Vec::new();ids.try_reserve_exact(spaces.len()).map_err(|_|V8BindingError::Allocation("line-space nodes"))?;
+                let mut previous=None;
+                for (lease,_,_) in spaces{
+                    let node=self.resolve(lease)?;
+                    // Prepared scan checked units; exact DOM mutation and
+                    // boundary revisions prove no intervening change.
+                    if previous!=Some(node){
+                        let dom=state.dom.borrow();if dom.parent(node)?.is_some_and(|parent|is_script_element(&dom,parent)){return Ok(())}
+                        if editing_host_for_node(&dom,Some(node),state.design_mode_enabled(),state.document_root())?!=Some(host){return Ok(())}
+                        previous=Some(node);
+                    }
+                    ids.push(node);
+                }
+                // One admitted native producer validates the whole rendered
+                // suffix once, then publishes author callbacks after all edits.
+                let mut dom=state.dom.borrow_mut();
+                for (index,(node,(_,offset,expected))) in ids.iter().zip(spaces).enumerate(){
+                    let value=if index%2==0||(*ends_line&&index+1==spaces.len()){160}else{32};
+                    if value==*expected{continue}
+                    let replacement=oryn_dom::dom_string::from_units(&[value]);
+                    dom.replace_character_data(*node,*offset,0,&replacement)?;
+                    dom.replace_character_data(*node,*offset+1,1,"")?;
+                }
+            }
             Operation::RemoveAttribute { node, name } => {
                 let node = self.resolve(node)?;
                 state
@@ -1304,10 +1520,14 @@ impl Continuation {
                     data.clone(),
                 )?;
             }
-            Operation::Remove { node, ranges } => {
+            Operation::Remove { node, ranges, private_ranges } => {
                 let node = self.resolve(node)?;
                 state.dom.borrow_mut().remove(node)?;
                 synchronize_live_ranges(state)?;
+                if let Some((ids,output))=private_ranges {
+                    let dom=state.dom.borrow();
+                    *output.borrow_mut()=Some(ids.iter().map(|id|Ok((*id,RangeRecord::from(dom.live_range(LiveRangeId(*id))?)))).collect::<Result<BTreeMap<_,_>,V8BindingError>>()?);
+                }
                 if let Some(output) = ranges {
                     *output.borrow_mut() = Some(state.ranges.borrow().clone());
                 }
@@ -1355,22 +1575,32 @@ impl Continuation {
                     .as_ref()
                     .map(|node| self.resolve(node))
                     .transpose()?;
-                let eligible = ranges
-                    .iter()
-                    .filter(|update| {
-                        state
-                            .ranges
-                            .borrow()
-                            .get(&update.id)
-                            .is_some_and(|range| same_range(range, &update.expected))
-                    })
-                    .collect::<Vec<_>>();
+                let mut eligible=Vec::new();
+                for update in ranges {
+                    let current=if update.private_marker {
+                        // A scoped marker may have been dropped while author
+                        // work ran. A still-registered marker must exist in the
+                        // native DOM; propagate corruption/retirement errors.
+                        if !self.context.markers.borrow().contains(&update.id){continue}
+                        let range=state.dom.borrow().live_range(LiveRangeId(update.id))?;
+                        same_range(&range.into(),&update.expected)
+                    }else{
+                        state.ranges.borrow().get(&update.id).is_some_and(|range|same_range(range,&update.expected))
+                    };
+                    if current{eligible.push(update)}
+                }
                 state
                     .dom
                     .borrow_mut()
                     .insert_dom_node(parent, node, reference)?;
                 synchronize_live_ranges(state)?;
                 for update in eligible {
+                    if update.private_marker {
+                        let mut dom=state.dom.borrow_mut();
+                        let range=dom.live_range(LiveRangeId(update.id))?;
+                        dom.set_live_range(LiveRangeId(update.id),update.start.unwrap_or(range.start),update.end.unwrap_or(range.end))?;
+                        continue;
+                    }
                     let present = {
                         let mut records = state.ranges.borrow_mut();
                         if let Some(range) = records.get_mut(&update.id) {
@@ -1405,6 +1635,35 @@ mod tests {
     fn eval(scope: &mut v8::PinScope, code: &str) -> bool {
         super::super::test_eval::eval(scope, code).is_true()
     }
+    #[test]
+    fn private_move_markers_survive_wrapper_gc_and_are_released_on_drop() {
+        super::super::tests::initialize_v8();
+        let mut isolate=v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let realm=v8::Context::new(scope,Default::default());
+        let scope=&mut v8::ContextScope::new(scope,realm);
+        let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<body><main id=host contenteditable><span id=source>x</span><span id=target></span></main></body>").into_runtime().unwrap()));
+        let state=install_generated_bindings(scope,realm,dom,RealmId(0),1).unwrap();
+        let (node,target)={let dom=state.dom.borrow();(dom.arena().get(dom.find_by_id("source").unwrap()).unwrap().children[0],dom.find_by_id("target").unwrap())};
+        assert!(eval(scope,"const selected=document.createRange();selected.selectNodeContents(document.getElementById('source').firstChild);getSelection().removeAllRanges();getSelection().addRange(selected);true"));
+        let owner=state.clone();
+        let mut job=Continuation::new(state.clone(),"privateMarkerMove".into(),move|context|Box::pin(async move{
+            let marker=context.marker(RangeRecord{start_container:node,start_offset:1,end_container:node,end_offset:1})?;
+            let id=marker.id;
+            assert!(!owner.ranges.borrow().contains_key(&id.0));
+            collect_dead_ranges(&owner,true)?;
+            assert_eq!(marker.range()?.start_container,node);
+            context.move_preserving_ranges(node,target,0).await?;
+            let range=marker.range()?;
+            assert_eq!((range.start_container,range.start_offset),(node,1));
+            drop(marker);
+            assert!(!context.markers.borrow().contains(&id.0));
+            assert!(owner.dom.borrow().live_range(id).is_err());
+            Ok(())
+        })).unwrap().unwrap();
+        assert_eq!(job.poll(scope).unwrap(),Some(true));
+    }
+
     #[test]
     fn list_fragment_markers_are_captured_before_connection_callbacks() {
         super::super::tests::initialize_v8();
@@ -1528,6 +1787,34 @@ mod tests {
             scope,
             "target.textContent==='authorx'&&getSelection().toString()==='x'&&external.toString()===''&&moving.parentNode===target"
         ));
+    }
+
+    #[test]
+    fn private_marker_restore_does_not_overwrite_mutated_endpoints() {
+        super::super::tests::initialize_v8();
+        let mut isolate=v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let realm=v8::Context::new(scope,Default::default());
+        let scope=&mut v8::ContextScope::new(scope,realm);
+        let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<body><main id=host contenteditable><span id=source>x</span><span id=target>yz</span></main></body>").into_runtime().unwrap()));
+        let state=install_generated_bindings(scope,realm,dom,RealmId(0),1).unwrap();
+        let (node,target)={let dom=state.dom.borrow();(dom.arena().get(dom.find_by_id("source").unwrap()).unwrap().children[0],dom.find_by_id("target").unwrap())};
+        assert!(eval(scope,"const selected=document.createRange();selected.selectNodeContents(document.getElementById('source').firstChild);getSelection().removeAllRanges();getSelection().addRange(selected);true"));
+        let owner=state.clone();
+        let mut job=Continuation::new(state.clone(),"privateMarkerChanged".into(),move|context|Box::pin(async move{
+            let marker=context.marker(RangeRecord{start_container:node,start_offset:1,end_container:node,end_offset:1})?;
+            context.remove(node).await?;
+            let expected=marker.range()?;
+            // Model an endpoint mutation during the author-work interval,
+            // after the producer snapshot and before native Append admission.
+            let changed=BoundaryPoint{container:target,offset:0};
+            owner.dom.borrow_mut().set_live_range(marker.id,changed,changed)?;
+            context.request(Operation::Append{parent:context.lease(target)?,node:context.lease(node)?,reference:None,ranges:vec![RangeMove{id:marker.id.0,private_marker:true,expected,start:Some(BoundaryPoint{container:node,offset:1}),end:Some(BoundaryPoint{container:node,offset:1})}]}).await?;
+            let current=marker.range()?;
+            assert_eq!((current.start_container,current.start_offset),(target,0));
+            Ok(())
+        })).unwrap().unwrap();
+        assert_eq!(job.poll(scope).unwrap(),Some(true));
     }
 
     #[test]

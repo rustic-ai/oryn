@@ -55,7 +55,7 @@ impl Receipt {
         if self.work.is_none() {
             match self.command {
                 TextCommand::Tab { backward } => {
-                    let next = focus_navigation::next_sequential(&self.owner, backward)?;
+                    let next = focus_navigation::next_sequential(scope, &self.owner, backward)?;
                     self.work = Some(Work::Focus(Box::new(
                         super::super::retained_focus::Transition::new(&self.owner, next)?,
                     )));
@@ -74,7 +74,7 @@ impl Receipt {
                     let alter = if extend { "extend" } else { "move" };
                     if self.owner.dom.borrow().is_editable_text_control(target) {
                         if let Some(plan) = selection_movement::prepare_control_movement(
-                            &self.owner,
+                            scope, &self.owner,
                             target,
                             alter,
                             direction,
@@ -86,7 +86,7 @@ impl Receipt {
                         return Ok(true);
                     }
                     if let Some(plan) = selection_movement::prepare_movement(
-                        &self.owner,
+                        scope, &self.owner,
                         alter,
                         direction,
                         text_unit(unit),
@@ -102,6 +102,7 @@ impl Receipt {
                 }
                 TextCommand::Delete { backward, unit } => {
                     let description = prepare_edit(
+                        scope,
                         &self.owner,
                         target,
                         if backward { "Backspace" } else { "Delete" },
@@ -121,6 +122,7 @@ impl Receipt {
                 }
                 TextCommand::Newline { line_break } => {
                     let description = prepare_edit(
+                        scope,
                         &self.owner,
                         target,
                         "Enter",

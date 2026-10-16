@@ -270,6 +270,9 @@ def prepare_typed_runtime(source_root, store_root, *, legacy_profile, output_dir
     current_source = source_info(source, source_identity)
     profile_path = Path(legacy_profile).resolve(strict=True)
     profile = json.loads(profile_path.read_text())
+    from .rust_source_rebind_marker import pending_rebind
+    if pending_rebind(profile) is not None:
+        raise ValueError('Rust source rebind requires fresh snapshot and worker before publication')
     _legacy_validator(source).validate(profile, source, profile='core-full', allow_relocated_source_manifest=True)
     descriptor_path = Path(profile['bridge_abi_path'])
     descriptor = json.loads(descriptor_path.read_text())
@@ -366,6 +369,17 @@ def refresh_engine_profile(source_root, legacy_profile, output_path, *, worker=N
     if (worker is None) != (runtime_info is None):
         raise ValueError('new raw worker requires its runtime-info result')
     updated = dict(old)
+    from .rust_source_rebind_marker import pending_rebind
+    pending = pending_rebind(updated)
+    if pending is not None:
+        if startup_snapshot is not None:
+            pending["fresh_snapshot_required"] = False
+        if worker is not None:
+            pending["fresh_worker_required"] = False
+        if pending["fresh_worker_required"] or pending["fresh_snapshot_required"]:
+            updated["rust_source_rebind_intermediate"] = pending
+        else:
+            updated.pop("rust_source_rebind_intermediate")
     for role, value in (('worker', worker), ('startup_snapshot', startup_snapshot)):
         if value is not None:
             path = Path(value).resolve(strict=True)

@@ -56,15 +56,19 @@ pub(super) fn show(
         return Err(error("NotAllowedError"));
     }
     if kind == "file" {
-        file_picker::open(state, node)?;
+        file_picker::open(scope, state, node)?;
     } else if state.dom.borrow().has_native_input_picker(node) {
-        open(state, node)?;
+        open(scope, state, node)?;
     }
     Ok(())
 }
-fn open(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
+fn open(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    node: NodeId,
+) -> Result<(), V8BindingError> {
     native_platform::ensure_ui_locale(state);
-    if !eligible(state, node)? || css_suppresses_focus(state, node)? {
+    if !eligible(state, node)? || css_suppresses_focus_in_scope(scope, state, node)? {
         return Ok(());
     }
     let today = std::time::SystemTime::now()
@@ -83,6 +87,7 @@ fn close(state: &V8BindingState, node: NodeId) {
 mod job;
 pub(super) use job::Job;
 pub(super) fn prepare_keyboard(
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     node: NodeId,
     key: &str,
@@ -94,7 +99,7 @@ pub(super) fn prepare_keyboard(
     let picker = state.dom.borrow().temporal_picker_snapshot(node)?;
     let Some(picker) = picker else {
         if key == "ArrowDown" && (alt || state.dom.borrow().input_datalist(node)?.is_some()) {
-            open(state, node)?;
+            open(scope, state, node)?;
             return Ok((true, None));
         }
         return Ok((false, None));
@@ -156,7 +161,7 @@ pub(super) fn keyboard(
     key: &str,
     alt: bool,
 ) -> Result<bool, V8BindingError> {
-    let (handled, job) = prepare_keyboard(state, node, key, alt)?;
+    let (handled, job) = prepare_keyboard(scope, state, node, key, alt)?;
     if let Some(mut job) = job
         && !job.poll(scope)?
     {
@@ -184,7 +189,7 @@ pub(super) fn prepare_click(
     }
     let picker = state.dom.borrow().temporal_picker_snapshot(node)?;
     let Some(_picker) = picker else {
-        open(state, node)?;
+        open(scope, state, node)?;
         return Ok((true, None));
     };
     let x = native_input_property(scope, event, "MouseEvent", "clientX")?
@@ -193,7 +198,7 @@ pub(super) fn prepare_click(
     let y = native_input_property(scope, event, "MouseEvent", "clientY")?
         .number_value(scope)
         .unwrap_or(f64::NAN);
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     let action = {
         let layout = state.layout.borrow();
         layout
@@ -248,7 +253,10 @@ pub(super) fn click(
     Ok(handled)
 }
 
-pub(super) fn fixup(state: &V8BindingState) -> Result<(), V8BindingError> {
+pub(super) fn fixup(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+) -> Result<(), V8BindingError> {
     let opened = state
         .dom
         .borrow()
@@ -257,7 +265,7 @@ pub(super) fn fixup(state: &V8BindingState) -> Result<(), V8BindingError> {
         .map(|entry| entry.node)
         .collect::<Vec<_>>();
     for node in opened {
-        if !eligible(state, node)? || css_suppresses_focus(state, node)? {
+        if !eligible(state, node)? || css_suppresses_focus_in_scope(scope, state, node)? {
             close(state, node);
         }
     }
@@ -313,6 +321,7 @@ pub(super) fn prepare_accessibility(
 
 // Private native UI consumes its own wheel input before author event dispatch.
 pub(super) fn wheel(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     x: f64,
     y: f64,
@@ -321,7 +330,7 @@ pub(super) fn wheel(
     if delta == 0. {
         return Ok(false);
     }
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
     let owner = {
         let layout = state.layout.borrow();
         layout

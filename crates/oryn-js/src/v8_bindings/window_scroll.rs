@@ -132,7 +132,7 @@ fn scroll(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8
         // replace its document element.
         if let Some(root) = root(&state) {
             let relative = args.data().to_rust_string_lossy(scope) == "scrollBy";
-            perform_scroll(&state, root, requested, relative)?;
+            perform_scroll_in_scope(scope, &state, root, requested, relative)?;
         }
         Ok::<_, V8BindingError>(())
     })();

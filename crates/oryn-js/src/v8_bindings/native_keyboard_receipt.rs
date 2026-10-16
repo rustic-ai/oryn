@@ -12,8 +12,11 @@ struct FocusFixup {
     event: Option<EventJob>,
 }
 impl FocusFixup {
-    fn prepare(state: &Rc<V8BindingState>) -> Result<Option<Self>, V8BindingError> {
-        temporal_picker::fixup(state)?;
+    fn prepare(
+        scope: &mut v8::PinScope,
+        state: &Rc<V8BindingState>,
+    ) -> Result<Option<Self>, V8BindingError> {
+        temporal_picker::fixup(scope, state)?;
         let target = {
             let dom = state.dom.borrow();
             let Some(target) = dom.focused() else {
@@ -34,7 +37,9 @@ impl FocusFixup {
             }
             target
         };
-        if !state.dom.borrow().is_inert(target)? && !css_suppresses_focus(state, target)? {
+        if !state.dom.borrow().is_inert(target)?
+            && !css_suppresses_focus_in_scope(scope, state, target)?
+        {
             return Ok(None);
         }
         Ok(Some(Self {
@@ -292,7 +297,7 @@ impl EditJob {
                     if self.transaction.is_none()
                         && (!clipboard_actions::editable(state, target)?
                             || state.dom.borrow().is_inert(target)?
-                            || css_suppresses_focus(state, target)?
+                            || css_suppresses_focus_in_scope(scope, state, target)?
                             || state.dom.borrow().is_editable_text_control(target)
                                 != self.description.is_control)
                     {
@@ -550,6 +555,7 @@ impl Receipt {
         let target = self.target().ok_or_else(invalid)?;
         if !self.picker_checked && !self.input.modifiers.control && !self.input.modifiers.meta {
             let (handled, job) = temporal_picker::prepare_keyboard(
+                scope,
                 state,
                 target,
                 &self.key,
@@ -589,7 +595,7 @@ impl Receipt {
                     return Ok(self.result);
                 }
                 if let Some(plan) =
-                    selection_movement::prepare_movement(state, alter, direction, unit)?
+                    selection_movement::prepare_movement(scope, state, alter, direction, unit)?
                 {
                     self.job = Some(DefaultJob::Selection(SelectionJob::new(state, plan)));
                 }
@@ -617,7 +623,7 @@ impl Receipt {
             }
             Route::Edit => {
                 if let Some(description) =
-                    prepare_edit(state, target, &self.key, self.input.modifiers, None)?
+                    prepare_edit(scope, state, target, &self.key, self.input.modifiers, None)?
                 {
                     self.job = Some(DefaultJob::Edit(EditJob::new(state, target, description)?));
                 }
@@ -643,7 +649,7 @@ impl Receipt {
                 }
             }
             Route::Focus(reverse) => {
-                let target = focus_navigation::next_sequential(state, *reverse)?;
+                let target = focus_navigation::next_sequential(scope, state, *reverse)?;
                 self.job = Some(DefaultJob::Focus(FocusJob::new(state, target)?));
             }
             Route::Deferred => {
@@ -716,7 +722,7 @@ impl Receipt {
                     state.keyboard.deferred_target.set(None);
                     update_native_pointer_modifiers(&state, &self.input.modifiers);
                     if !self.fixup_prepared {
-                        self.fixup = FocusFixup::prepare(&state)?;
+                        self.fixup = FocusFixup::prepare(scope, &state)?;
                         self.fixup_prepared = true;
                     }
                     if let Some(fixup) = self.fixup.as_mut()
@@ -762,7 +768,8 @@ impl Receipt {
                                 .borrow_mut()
                                 .prompt_keys
                                 .insert(self.key.clone());
-                            let (_, job) = permission_prompt::prepare_keyboard(&state, &self.key)?;
+                            let (_, job) =
+                                permission_prompt::prepare_keyboard(scope, &state, &self.key)?;
                             self.prompt = job;
                             if self.prompt.is_some() {
                                 self.phase = 32;
@@ -1258,9 +1265,10 @@ mod tests {
                     ),
                 );
                 let target = focus_target(&state).unwrap();
-                let description = prepare_edit(&state, target, "x", Default::default(), None)
-                    .unwrap()
-                    .unwrap();
+                let description =
+                    prepare_edit(scope, &state, target, "x", Default::default(), None)
+                        .unwrap()
+                        .unwrap();
                 let mut job = EditJob::new(&state, target, description).unwrap();
                 publication::fail_after_next_callback();
                 assert!(job.poll(scope, &state).is_err());

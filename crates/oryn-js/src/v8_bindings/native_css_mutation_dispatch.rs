@@ -43,6 +43,9 @@ fn native_css_mutation<'s>(
                         .uint32_value(scope)
                         .ok_or(V8BindingError::JavaScriptException)?
                 };
+                // WebIDL conversions can reenter CSSOM and invalidate the
+                // enclosing receipt; native validation needs a current scope.
+                let _retained_scope = state.enter_retained_allocation(scope)?;
                 let result = if let Some(sheet) = &sheet {
                     sheet.insert_rule(index as usize, &source)
                 } else {
@@ -58,6 +61,7 @@ fn native_css_mutation<'s>(
                     .get(0)
                     .uint32_value(scope)
                     .ok_or(V8BindingError::JavaScriptException)?;
+                let _retained_scope = state.enter_retained_allocation(scope)?;
                 let result = if let Some(sheet) = &sheet {
                     sheet.delete_rule(index as usize)
                 } else {

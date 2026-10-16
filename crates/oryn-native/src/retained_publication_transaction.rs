@@ -86,7 +86,7 @@ impl PreparedRetainedPublication {
         let publication_charge: std::sync::Arc<dyn Send + Sync> =
             std::sync::Arc::new(RetainedPublicationAllocation {
                 _metadata: publication_charge,
-                _source: source_allocation,
+                _source: std::sync::Arc::new((source_allocation, source.retained_allocation)),
             });
         let pending_dependencies = Some(source.dependencies);
         let record = Rc::new(RetainedStylesheetRecord {

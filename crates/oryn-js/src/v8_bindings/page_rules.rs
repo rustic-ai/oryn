@@ -151,7 +151,7 @@ pub(super) fn is_rule_interface(interface: &str) -> bool {
     )
 }
 
-fn supports_interface(kind: u16, interface: &str) -> bool {
+pub(super) fn supports_interface(kind: u16, interface: &str) -> bool {
     match interface {
         "CSSRule" => true,
         "CSSImportRule" => kind == 3,

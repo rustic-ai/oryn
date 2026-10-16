@@ -189,6 +189,7 @@ impl BoundaryIndex {
 }
 
 pub(super) fn rects(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     range: &RangeRecord,
 ) -> Result<Vec<BindingRect>, V8BindingError> {
@@ -197,7 +198,11 @@ pub(super) fn rects(
     if !state.dom.borrow().is_connected(range.start_container)? {
         return Ok(Vec::new());
     }
-    refresh_layout(state)?;
+    refresh_layout_in_scope(scope, state)?;
+    let context = state.realm_context.to_local(scope)
+        .ok_or(V8BindingError::Allocation("range geometry owner context expired"))?;
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let _retained_scope = state.enter_retained_allocation(scope)?;
     let dom = state.dom.borrow();
     let root = shadow_including_tree_root(&dom, range.start_container)?;
     if !matches!(dom.arena().get(root)?.kind, NodeKind::Document) {

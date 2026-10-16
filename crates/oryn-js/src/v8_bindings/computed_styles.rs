@@ -89,11 +89,21 @@ pub(super) fn parse_pseudo(value: &str) -> Result<Option<String>, V8BindingError
 }
 
 fn styles(
+    scope: &mut v8::PinScope,
     state: &V8BindingState,
     node: NodeId,
     pseudo: Option<&str>,
 ) -> Result<BTreeMap<String, String>, V8BindingError> {
-    refresh_layout(state)?;
+    // All author conversion and current node-owner resolution precede this
+    // entry. Receipts belong to the actual provider owner, not the wrapper.
+    if state.execution_retired() {
+        return Err(V8BindingError::JavaScriptException);
+    }
+    refresh_layout_in_scope(scope, state)?;
+    let context = state.realm_context.to_local(scope)
+        .ok_or(V8BindingError::Allocation("computed style owner context expired"))?;
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let _retained_scope = state.enter_retained_allocation(scope)?;
     if !state.dom.borrow().is_connected(node)? {
         return Ok(BTreeMap::new());
     }
@@ -156,7 +166,11 @@ pub(super) fn create<'s>(
         });
     }
     let owner = active_document_state_for_node(scope, state, node).unwrap_or_else(|| state.clone());
-    let values = styles(&owner, node, pseudo.as_deref())?;
+    let values = styles(scope, &owner, node, pseudo.as_deref())?;
+    let context = state.realm_context.to_local(scope)
+        .ok_or(V8BindingError::Allocation("computed result receiver context expired"))?;
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let _retained_scope = state.enter_retained_allocation(scope)?;
     let template = state
         .instance_templates
         .borrow()
@@ -236,7 +250,11 @@ pub(super) fn property_names(
 ) -> Result<Vec<String>, V8BindingError> {
     let (owner, node) = node(scope, state, object)?;
     let pseudo = pseudo(scope, object);
-    let styles = styles(&owner, node, pseudo.as_deref())?;
+    let styles = styles(scope, &owner, node, pseudo.as_deref())?;
+    let context = state.realm_context.to_local(scope)
+        .ok_or(V8BindingError::Allocation("computed result receiver context expired"))?;
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let _retained_scope = state.enter_retained_allocation(scope)?;
     let mut names = styles
         .keys()
         .filter(|name| !name.starts_with("--"))
@@ -257,13 +275,16 @@ pub(super) fn attribute<'s>(
     match member {
         "parentRule" => Ok(v8::null(scope).into()),
         "cssText" => v8_string(scope, ""),
-        "length" => Ok(v8::Integer::new_from_unsigned(
-            scope,
-            styles(&owner, node, pseudo.as_deref())?.len() as u32,
-        )
-        .into()),
+        "length" => {
+            let length = styles(scope, &owner, node, pseudo.as_deref())?.len() as u32;
+            Ok(v8::Integer::new_from_unsigned(scope, length).into())
+        }
         _ => {
-            let values = styles(&owner, node, pseudo.as_deref())?;
+            let values = styles(scope, &owner, node, pseudo.as_deref())?;
+            let context = state.realm_context.to_local(scope)
+                .ok_or(V8BindingError::Allocation("computed result receiver context expired"))?;
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let _retained_scope = state.enter_retained_allocation(scope)?;
             let property = if member == "webkitTransition" {
                 "transition"
             } else {
@@ -280,7 +301,7 @@ pub(super) fn operation<'s>(
     args: &v8::FunctionCallbackArguments<'s>,
     member: &str,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
-    let (owner, node) = node(scope, state, args.this())?;
+    let _ = node(scope, state, args.this())?;
     let pseudo = pseudo(scope, args.this());
     if member == "item" {
         let Some(index) = args.get(0).uint32_value(scope) else {
@@ -300,12 +321,20 @@ pub(super) fn operation<'s>(
         property.make_ascii_lowercase();
     }
     match member {
-        "getPropertyValue" => Ok(Some(v8_string(
-            scope,
-            styles(&owner, node, pseudo.as_deref())?
-                .get(&property)
-                .map_or("", String::as_str),
-        )?)),
+        "getPropertyValue" => {
+            // Property conversion may adopt the retained target into another
+            // document. Resolve its current provider owner after that callback.
+            let (owner, node) = node(scope, state, args.this())?;
+            let values = styles(scope, &owner, node, pseudo.as_deref())?;
+            let context = state.realm_context.to_local(scope)
+                .ok_or(V8BindingError::Allocation("computed result receiver context expired"))?;
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let _retained_scope = state.enter_retained_allocation(scope)?;
+            Ok(Some(v8_string(
+                scope,
+                values.get(&property).map_or("", String::as_str),
+            )?))
+        }
         "getPropertyPriority" => Ok(Some(v8_string(scope, "")?)),
         "setProperty" | "removeProperty" => {
             if member == "setProperty" {

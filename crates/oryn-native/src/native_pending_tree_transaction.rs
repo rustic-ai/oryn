@@ -47,6 +47,7 @@ impl PreparedPendingTreeCompletion {
             if !tree.response.proof.validate_native_owner(host, arena)? {
                 return Ok(false);
             }
+            if matches!(tree.response.proof, NativeStylesheetResponseAuthority::Fetched(_)) {
             let guard = tree
                 .response
                 .guard
@@ -58,6 +59,7 @@ impl PreparedPendingTreeCompletion {
                 != Some(tree.response.proof.origin_clean())
             {
                 return Ok(false);
+            }
             }
             for edge in &tree.imports {
                 if let StylesheetSourceOutcome::Loaded(child) = &edge.response

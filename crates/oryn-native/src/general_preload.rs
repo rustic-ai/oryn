@@ -226,9 +226,7 @@ fn capture_general_preloads(
                 continue;
             }
             if !values.5.is_empty()
-                && !state
-                    .native_media_matches(&values.5)
-                    .map_err(V8BindingError::EventCallback)?
+                && !oryn_js::v8_bindings::native_media_matches_in_scope(scope, state, &values.5)?
             {
                 queue.borrow_mut().seen.remove(&(environment.id, node));
                 continue;
@@ -647,9 +645,8 @@ fn capture_general_preload_headers(
         };
         for key in keys {
             if !key.media.is_empty()
-                && !state
-                    .native_media_matches(&key.media)
-                    .map_err(HostError::Execution)?
+                && !oryn_js::v8_bindings::native_media_matches_in_scope(scope, state, &key.media)
+                    .map_err(|error| HostError::Execution(error.to_string()))?
             {
                 continue;
             }
@@ -947,9 +944,7 @@ fn capture_local_general_preloads(
         if !matches!(values.0.as_str(), "script" | "style")
             || values.1.is_empty()
             || (!values.5.is_empty()
-                && !state
-                    .native_media_matches(&values.5)
-                    .map_err(V8BindingError::EventCallback)?)
+                && !oryn_js::v8_bindings::native_media_matches_in_scope(scope, state, &values.5)?)
             || (!values.6.is_empty()
                 && if values.0 == "script" {
                     !oryn_dom::html::is_javascript_mime_type(&values.6)
@@ -1023,9 +1018,8 @@ fn capture_local_preload_headers(
     let queue = general_preloads(scope);
     for key in keys {
         if !key.media.is_empty()
-            && !state
-                .native_media_matches(&key.media)
-                .map_err(HostError::Execution)?
+            && !oryn_js::v8_bindings::native_media_matches_in_scope(scope, state, &key.media)
+                .map_err(|error| HostError::Execution(error.to_string()))?
         {
             continue;
         }

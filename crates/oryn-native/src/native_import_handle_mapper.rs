@@ -330,6 +330,16 @@ impl NativeSheetHandle {
     }
 }
 impl oryn_js::v8_bindings::BindingNativeStylesheet for NativeSheetHandle {
+    fn owner_import(&self) -> Result<Option<Rc<dyn oryn_js::v8_bindings::BindingNativeImport>>, oryn_js::v8_bindings::BindingNativeCssError> {
+        let occurrence = self.publication.graph.try_borrow()
+            .map_err(|_| "native owner rule graph borrow conflict")?
+            .owner(&self.sheet).map(|entry| entry.id);
+        let Some(occurrence) = occurrence else { return Ok(None); };
+        NativeCssHandleRegistry::import(&self.registry, self.publication.clone(), occurrence)
+            .map(|handle| Some(handle as Rc<dyn oryn_js::v8_bindings::BindingNativeImport>))
+            .map_err(Into::into)
+    }
+
     // title uses the original owner, never a URL-derived surrogate.
     // Add to NativeSheetHandle's implementation; imported sheets have no owning
     // element and therefore no title. The original owner is never inferred by URL.
@@ -370,15 +380,21 @@ impl oryn_js::v8_bindings::BindingNativeStylesheet for NativeSheetHandle {
     }
 
     fn media_text(&self) -> Result<String, oryn_js::v8_bindings::BindingNativeCssError> {
+        self.publication.reconcile_owner_state_admitted()
+            .map_err(|error| oryn_js::v8_bindings::BindingNativeCssError::Native(error.to_string()))?;
         Ok(self.sheet.media_text())
     }
     fn media_count(&self) -> Result<usize, oryn_js::v8_bindings::BindingNativeCssError> {
+        self.publication.reconcile_owner_state_admitted()
+            .map_err(|error| oryn_js::v8_bindings::BindingNativeCssError::Native(error.to_string()))?;
         Ok(self.sheet.media_count())
     }
     fn media_at(
         &self,
         index: usize,
     ) -> Result<Option<String>, oryn_js::v8_bindings::BindingNativeCssError> {
+        self.publication.reconcile_owner_state_admitted()
+            .map_err(|error| oryn_js::v8_bindings::BindingNativeCssError::Native(error.to_string()))?;
         Ok(self.sheet.media_at(index))
     }
     fn edit_media(
@@ -560,49 +576,146 @@ impl oryn_js::v8_bindings::BindingNativeStylesheet for NativeSheetHandle {
                 sheet.map(|sheet| sheet as Rc<dyn oryn_js::v8_bindings::BindingNativeStylesheet>)
             })
     }
-    fn insert_rule(
-        &self,
-        index: usize,
-        source: &str,
-    ) -> Result<(), oryn_js::v8_bindings::BindingNativeRuleError> {
-        use oryn_js::v8_bindings::BindingNativeRuleError as Error;
-        if !self.origin_clean() {
-            return Err(Error::Security);
-        }
-        let revision = self
-            .publication
-            .mutation_revision
-            .get()
-            .checked_add(1)
-            .ok_or_else(|| Error::Native("stylesheet mutation revision exhausted".into()))?;
-        let mut pending = self
-            .publication
-            .pending_imports
-            .try_borrow_mut()
-            .map_err(|_| Error::Native("stylesheet mutation queue borrow conflict".into()))?;
-        pending
-            .try_reserve(1)
-            .map_err(|_| Error::Native("stylesheet mutation queue allocation".into()))?;
-        let mut graph = self
+fn insert_rule(
+    &self,
+    index: usize,
+    source: &str,
+) -> Result<(), oryn_js::v8_bindings::BindingNativeRuleError> {
+    use oryn_js::v8_bindings::BindingNativeRuleError as Error;
+    if !self.origin_clean() {
+        return Err(Error::Security);
+    }
+    let expected = self.publication.mutation_revision.get();
+    let next = expected
+        .checked_add(1)
+        .ok_or_else(|| Error::Native("stylesheet revision exhausted".into()))?;
+    let (count, pending_count) = {
+        let graph = self
             .publication
             .graph
-            .try_borrow_mut()
-            .map_err(|_| Error::Native("native sheet mutation borrow conflict".into()))?;
-        let occurrence = graph
-            .insert_rule(
-                &self.sheet,
-                index,
-                source,
-                true,
-                self.publication.admission.as_ref(),
-            )
-            .map_err(binding_native_rule_error)?;
-        if let Some(occurrence) = occurrence {
-            pending.push(occurrence)
-        }
-        self.publication.mutation_revision.set(revision);
-        Ok(())
+            .try_borrow()
+            .map_err(|_| Error::Native("insertion context count borrow".into()))?;
+        let pending = self
+            .publication
+            .pending_imports
+            .try_borrow()
+            .map_err(|_| Error::Native("insertion queue count borrow".into()))?;
+        (graph.completion_context_count(), pending.len())
+    };
+    let pending_capacity = pending_count
+        .checked_add(1)
+        .ok_or_else(|| Error::Native("insertion pending count overflow".into()))?;
+    let bytes = count
+        .checked_mul(std::mem::size_of::<
+            oryn_layout::cssom::native_import_graph::NativeImport,
+        >())
+        .and_then(|n| {
+            n.checked_add(pending_capacity.checked_mul(std::mem::size_of::<
+                oryn_layout::cssom::native_import_graph::OccurrenceId,
+            >())?)
+        })
+        .ok_or_else(|| Error::Native("insertion context overflow".into()))?;
+    let charge = self
+        .publication
+        .admission
+        .reserve(bytes)
+        .map_err(Error::Native)?;
+    let mut entries = Vec::new();
+    entries
+        .try_reserve_exact(count)
+        .map_err(|e| Error::Native(e.to_string()))?;
+    let mut pending = Vec::new();
+    pending
+        .try_reserve_exact(pending_capacity)
+        .map_err(|e| Error::Native(e.to_string()))?;
+    let context = self
+        .publication
+        .graph
+        .try_borrow()
+        .map_err(|_| Error::Native("insertion context capture borrow".into()))?
+        .completion_context(entries)
+        .map_err(Error::Native)?;
+    let mut prepared = context
+        .prepare_rule_insertion(
+            &self.sheet,
+            index,
+            source,
+            self.publication.admission.as_ref(),
+        )
+        .map_err(binding_native_rule_error)?;
+    let allocation_count = self
+        .publication
+        .responses
+        .try_borrow()
+        .map_err(|_| Error::Native("insertion charge count borrow".into()))?
+        .allocations
+        .len();
+    let allocation_capacity = allocation_count
+        .checked_add(1)
+        .ok_or_else(|| Error::Native("insertion charge overflow".into()))?;
+    let allocation_bytes = allocation_capacity
+        .checked_mul(std::mem::size_of::<std::sync::Arc<dyn Send + Sync>>())
+        .ok_or_else(|| Error::Native("insertion charge bytes overflow".into()))?;
+    let allocation_lease = self
+        .publication
+        .admission
+        .reserve(allocation_bytes)
+        .map_err(Error::Native)?;
+    let charge: std::sync::Arc<dyn Send + Sync> = std::sync::Arc::new((charge, allocation_lease));
+    let mut allocations = Vec::new();
+    allocations
+        .try_reserve_exact(allocation_capacity)
+        .map_err(|e| Error::Native(e.to_string()))?;
+    self.publication
+        .admission
+        .checkpoint()
+        .map_err(Error::Native)?;
+    if self
+        .publication
+        .cssom_execution_retired()
+        .map_err(|e| Error::Native(e.to_string()))?
+    {
+        return Err(Error::Native("stylesheet insertion owner retired".into()));
     }
+    let mut store = self
+        .publication
+        .responses
+        .try_borrow_mut()
+        .map_err(|_| Error::Native("insertion charge commit borrow".into()))?;
+    let mut queue = self
+        .publication
+        .pending_imports
+        .try_borrow_mut()
+        .map_err(|_| Error::Native("insertion queue commit borrow".into()))?;
+    let mut graph = self
+        .publication
+        .graph
+        .try_borrow_mut()
+        .map_err(|_| Error::Native("insertion graph commit borrow".into()))?;
+    if self.publication.mutation_revision.get() != expected
+        || queue.len() != pending_count
+        || store.allocations.len() != allocation_count
+    {
+        return Err(Error::Native("insertion snapshot changed".into()));
+    }
+    let id = graph
+        .commit_rule_insertion(&mut prepared)
+        .map_err(binding_native_rule_error)?;
+    pending.append(&mut queue);
+    if let Some(id) = id {
+        pending.push(id);
+    }
+    std::mem::swap(&mut *queue, &mut pending);
+    self.publication.mutation_revision.set(next);
+    allocations.append(&mut store.allocations);
+    allocations.push(charge);
+    std::mem::swap(&mut store.allocations, &mut allocations);
+    drop(graph);
+    drop(queue);
+    drop(store);
+    Ok(())
+}
+
     fn delete_rule(
         &self,
         index: usize,

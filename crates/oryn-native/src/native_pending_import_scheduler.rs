@@ -158,7 +158,18 @@ impl ParserResourceScheduler {
                     HostError::Execution("pending import allocation authority absent".into())
                 })?;
             let _receipt_scope = host.retained_allocation_scope(identity.realm)?;
-            let (client, page_id) = host.retained_stylesheet_resource_endpoint(identity.realm)?;
+            let endpoint = host.optional_retained_stylesheet_resource_endpoint(identity.realm);
+            let standalone = if endpoint.is_none() {
+                let previous = host.active_realm();
+                host.activate_realm(identity.realm)?;
+                let captured = standalone_stylesheet::Loader::capture(
+                    host, &BTreeMap::new(), &fetch, self.source_bytes.clone());
+                let restored = host.activate_realm(previous);
+                let (loader, cancel) = captured?;
+                restored?;
+                cancel.complete();
+                Some(loader)
+            } else { None };
             let bytes = [
                 request.url.len(),
                 request.parent_url.len(),
@@ -189,11 +200,12 @@ impl ParserResourceScheduler {
             // Exact copies remain governed by the request's retained descriptor
             // admission; transient source bytes additionally obey queue bounds.
             let work = NativePendingImportFetch {
-                client,
-                page_id,
+                endpoint,
+                standalone,
                 initiator: fetch.stylesheet_initiator()?,
                 key,
                 document: identity,
+                owner_node: request.publication.owner.node,
                 publication_revision: request.publication.owner.revision,
                 occurrence: request.occurrence,
                 url: request.url.clone(),
@@ -206,9 +218,9 @@ impl ParserResourceScheduler {
                 queued_source,
                 _request_allocation: request_allocation,
             };
-            let resource_job = work
-                .client
-                .track_resource_job()
+            let resource_job = work.endpoint.as_ref()
+                .map(|(client, _)| client.track_resource_job())
+                .transpose()
                 .map_err(|error| HostError::Execution(error.to_string()))?;
             Ok(Some((key, work, resource_job)))
         })();
@@ -233,6 +245,7 @@ impl ParserResourceScheduler {
                 dependencies: None,
                 committed: false,
                 _dependency_allocation: None,
+                settlement_failures: (None,None),
             },
         );
         let sender = self.sender.clone();

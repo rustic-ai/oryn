@@ -127,6 +127,7 @@ mod retained_root_departure_tests {
     use super::*;
     fn page()->PageState{
         let mut page=PageState::new(PageId(708),None,BrowserConfig::default(),ContextOptions::default(),None,#[cfg(unix)] None);
+        page.bind_direct_fixture_terminal_owner();
         page.load_document("https://departure.test/one".into(),"<p>incumbent</p>",None,None,HistoryUpdate::Push,&BTreeMap::new(),Vec::new()).unwrap();
         page.executable.as_mut().unwrap().evaluate("globalThis.departures=[];addEventListener('pageswap',()=>departures.push('swap'));addEventListener('pagehide',()=>departures.push('hide'));'ready'").unwrap();
         page

@@ -1,3 +1,7 @@
+#[cfg(test)]
+thread_local! {
+    static FAIL_PROVIDER_ADAPTER_RESERVE: Cell<bool> = const { Cell::new(false) };
+}
 struct PreparedProviderAllocationInstall {
     shared: SharedRetainedAdmission,
     allocation: std::sync::Arc<oryn_js::v8_bindings::BindingRetainedAllocation>,
@@ -43,6 +47,10 @@ impl LiveLayoutProvider {
             if native.is_some() || receipt.is_some() {
                 return Err("partial retained allocation identity".into());
             }
+        }
+        #[cfg(test)]
+        if FAIL_PROVIDER_ADAPTER_RESERVE.with(|failure| failure.replace(false)) {
+            return Err("injected provider adapter reserve failure".into());
         }
         let charge = shared.reserve(
             std::mem::size_of::<NativeProviderAdmissionFromShared>()

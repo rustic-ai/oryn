@@ -250,11 +250,11 @@ fn report_controls(
                 && !dom.control_validity(node)?
                 && !dom.is_inert(node)?
         };
-        if !available || css_suppresses_focus(state, node)? {
+        if !available || css_suppresses_focus_in_scope(scope, state, node)? {
             continue;
         }
         let anchor = custom_elements::validation_anchor(scope, state, node)?;
-        if css_suppresses_focus(state, anchor)? {
+        if css_suppresses_focus_in_scope(scope, state, anchor)? {
             continue;
         }
         focus_html_element(scope, state, anchor, false)?;

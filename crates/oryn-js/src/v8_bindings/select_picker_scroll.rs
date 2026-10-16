@@ -146,6 +146,7 @@ pub(super) fn owner_for(
 }
 /// Resolve only descendants whose native paint ancestry enters the private
 /// picker. A button in the same select never receives the picker's scroll route.
+#[cfg(test)]
 pub(super) fn reveal(
     state: &V8BindingState,
     target: NodeId,
@@ -153,6 +154,15 @@ pub(super) fn reveal(
     inline: &str,
 ) -> Result<bool, V8BindingError> {
     refresh_layout(state)?;
+    reveal_from_snapshot(state, target, block, inline)
+}
+
+pub(super) fn reveal_from_snapshot(
+    state: &V8BindingState,
+    target: NodeId,
+    block: &str,
+    inline: &str,
+) -> Result<bool, V8BindingError> {
     let owner = owner_for(state, target)?;
     let Some(owner) = owner else { return Ok(false) };
     let Some(node) = snapshot(state, owner) else {
@@ -272,14 +282,13 @@ pub(super) fn reveal(
 
 /// A wheel on the private surface is retargeted to its select. Coordinates
 /// distinguish that surface from the still-visible originating button.
-pub(super) fn wheel_surface(
+pub(super) fn wheel_surface_snapshot(
     state: &V8BindingState,
     target: NodeId,
     x: f64,
     y: f64,
     delta: (f64, f64),
 ) -> Result<Option<(f64, f64)>, V8BindingError> {
-    refresh_layout(state)?;
     let Some(node) = snapshot(state, target) else {
         return Ok(None);
     };
@@ -296,13 +305,12 @@ pub(super) fn wheel_surface(
     scroll_wheel(state, target, delta)
 }
 
-pub(super) fn scrollbar_offset(
+pub(super) fn scrollbar_offset_snapshot(
     state: &V8BindingState,
     owner: NodeId,
     horizontal: bool,
     total: f64,
 ) -> Result<(), V8BindingError> {
-    refresh_layout(state)?;
     let Some(node) = snapshot(state, owner) else {
         return Ok(());
     };

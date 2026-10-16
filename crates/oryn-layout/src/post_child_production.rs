@@ -322,6 +322,18 @@ pub(super) fn finish_node(params: PostChildInputs<'_>) -> f64 {
         }
         resolved_values.insert(id, values);
     }
+    if !matches!(display, "none" | "contents") && position == "relative" {
+        let [left, right, top, bottom] = relative_inset_lengths(
+            style, containing.width, containing.height, font_size, input.viewport,
+        );
+        // CSSOM resolves each specified inset independently. The visual
+        // offset's writing-mode precedence must not replace an authored end.
+        let values = resolved_values.entry(id).or_default();
+        for (name, own, opposite) in [("left", left, right), ("right", right, left), ("top", top, bottom), ("bottom", bottom, top)] {
+            let value = own.or_else(|| opposite.map(|v| -v)).unwrap_or(0.);
+            values.insert(name.into(), format!("{}px", if value == 0. { 0. } else { value }));
+        }
+    }
 
     let reference_rect = CssRect {
         x,
@@ -436,6 +448,16 @@ pub(super) fn finish_node(params: PostChildInputs<'_>) -> f64 {
                     text_fragments,
                     text_engine,
                 );
+                if style_value(style,"display","inline") == "contents" { continue; }
+                let [left,right,top,bottom] = relative_inset_lengths(
+                    style,content_width,definite_content_height,font_size,input.viewport,
+                );
+                let values=resolved_values.entry(*child).or_default();
+                for (name,own,opposite) in [("left",left,right),("right",right,left),
+                    ("top",top,bottom),("bottom",bottom,top)] {
+                    let value=own.or_else(||opposite.map(|v|-v)).unwrap_or(0.);
+                    values.insert(name.into(),format!("{}px",if value==0. {0.} else {value}));
+                }
             }
         }
     } else if !intrinsic_text.is_empty() && !invisible {

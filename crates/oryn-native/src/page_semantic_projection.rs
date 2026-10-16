@@ -36,7 +36,7 @@ impl PageState {
     /// with the executable until the complete projection is admitted.
     #[cfg(feature = "v8-host")]
     pub(super) fn prepare_executable_semantics(
-        &self,
+        &mut self,
     ) -> Result<Option<PreparedSemanticSync>, RuntimeError> {
         let _timing = crate::native_timing::stage("page.semantic_sync");
         let _close_phase = crate::ipc_progress::close_admission::phase("semantic_projection");
@@ -49,7 +49,7 @@ impl PageState {
         #[cfg(test)]
         semantic_sync_faults::check(semantic_sync_faults::Stage::Snapshot)?;
         let document = executable.semantic_snapshot().map_err(|error| {
-            if self.terminal_close_requested() {
+            if crate::page_terminal_control::retired(Some(&self.page_task_terminal_control)) {
                 RuntimeError::PageTaskYield
             } else {
                 RuntimeError::Semantic(format!("snapshot: {error}"))
@@ -65,23 +65,45 @@ impl PageState {
         };
         let map_error = |error| match error {
             crate::dom::DomError::ProjectionCancelled => RuntimeError::PageTaskYield,
+            crate::dom::DomError::SemanticProjectionCapacity => RuntimeError::WorkerLimitExceeded {
+                resource: "semantic projection allocation".into(),
+            },
             error => RuntimeError::Semantic(error.to_string()),
         };
         check().map_err(map_error)?;
         let batch = executable.semantic_mutations();
+        let graph_source = &self.semantic_graph;
+        let generation = self.document_generation;
         let mut graph = self
-            .semantic_graph
-            .try_clone_with_checkpoint(&mut check)
-            .map_err(map_error)?;
-        if batch.truncated {
-            graph
-                .reset_with_checkpoint(&document.dom, self.document_generation, &mut check)
-                .map_err(map_error)?;
-        } else if !batch.mutations.is_empty() {
-            graph
-                .apply_mutations_with_checkpoint(&document.dom, &batch.mutations, &mut check)
-                .map_err(map_error)?;
-        }
+            .executable
+            .as_mut()
+            .unwrap()
+            .with_semantic_retained_admission(|admission| {
+                graph_source.prepare_admitted_sync(
+                    &document.dom,
+                    generation,
+                    &batch.mutations,
+                    batch.truncated,
+                    admission,
+                    &mut check,
+                )
+            })
+            .map_err(|error| match error {
+                crate::semantic::SemanticPreparationError::Dom(error) => map_error(error),
+                crate::semantic::SemanticPreparationError::Host(error) => {
+                    RuntimeError::Semantic(format!("semantic owner: {error}"))
+                }
+                crate::semantic::SemanticPreparationError::Admission(error) => {
+                    RuntimeError::Semantic(format!("semantic admission: {error}"))
+                }
+                crate::semantic::SemanticPreparationError::Allocation(_)
+                | crate::semantic::SemanticPreparationError::Capacity => {
+                    RuntimeError::WorkerLimitExceeded {
+                        resource: "semantic projection allocation".into(),
+                    }
+                }
+            })?;
+        let executable = self.executable.as_ref().unwrap();
         #[cfg(test)]
         semantic_sync_faults::check(semantic_sync_faults::Stage::Controls)?;
         executable
@@ -278,7 +300,7 @@ impl PageState {
                 self.revision = self.revision.checked_add(1).ok_or_else(|| {
                     RuntimeError::Semantic("observation revision exhausted".into())
                 })?;
-                self.record_snapshot();
+                self.record_snapshot()?;
             }
         }
         Ok(())
@@ -343,23 +365,92 @@ impl PageState {
             .map_err(RuntimeError::Semantic)
     }
 
-    pub(super) fn record_snapshot(&mut self) {
-        self.semantic_publication_pending = false;
-        let v6_changes = self.semantic_graph.take_v6_changes();
-        let changes = crate::semantic::SemanticGraphChanges {
-            upserted: v6_changes
-                .upserted_nodes
-                .iter()
-                .map(|node| node.semantic.clone())
-                .collect(),
-            removed: v6_changes.removed_nodes.clone(),
+    pub(super) fn record_snapshot(&mut self) -> Result<(), RuntimeError> {
+        let owner = self.page_task_terminal_control.clone();
+        let mut check = || {
+            if crate::page_terminal_control::retired(Some(&owner)) {
+                Err(crate::dom::DomError::ProjectionCancelled)
+            } else {
+                Ok(())
+            }
         };
-        let bytes = serde_json::to_vec(&v6_changes).map_or(0, |encoded| encoded.len());
+        self.record_snapshot_with_checkpoint(&mut check)
+    }
+    pub(super) fn record_snapshot_with_checkpoint(
+        &mut self,
+        check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
+    ) -> Result<(), RuntimeError> {
+        let map_error = |error| match error {
+            crate::dom::DomError::ProjectionCancelled => RuntimeError::PageTaskYield,
+            crate::dom::DomError::SemanticProjectionCapacity => RuntimeError::WorkerLimitExceeded {
+                resource: "semantic projection allocation".into(),
+            },
+            error => RuntimeError::Semantic(error.to_string()),
+        };
+        #[cfg(feature = "v8-host")]
+        let admitted = if let Some(executable) = self.executable.as_mut() {
+            let graph = &self.semantic_graph;
+            Some(
+                executable
+                    .with_semantic_retained_admission(|admission| {
+                        graph.prepare_admitted_pending(admission, check)
+                    })
+                    .map_err(|error| match error {
+                        crate::semantic::SemanticPreparationError::Dom(error) => map_error(error),
+                        crate::semantic::SemanticPreparationError::Host(error) => {
+                            RuntimeError::Semantic(format!("semantic owner: {error}"))
+                        }
+                        crate::semantic::SemanticPreparationError::Admission(error) => {
+                            RuntimeError::Semantic(format!("semantic admission: {error}"))
+                        }
+                        crate::semantic::SemanticPreparationError::Allocation(_)
+                        | crate::semantic::SemanticPreparationError::Capacity => {
+                            RuntimeError::WorkerLimitExceeded {
+                                resource: "semantic projection allocation".into(),
+                            }
+                        }
+                    })?,
+            )
+        } else {
+            None
+        };
+        #[cfg(not(feature = "v8-host"))]
+        let admitted: Option<(
+            crate::semantic::OwnedSemanticChanges,
+            crate::semantic::SemanticGraphChanges,
+        )> = None;
+        let (mut prepared, changes) = match admitted {
+            Some(result) => result,
+            None => {
+                let prepared = self
+                    .semantic_graph
+                    .pending_changes_with_checkpoint(check)
+                    .map_err(map_error)?;
+                let changes = prepared
+                    .legacy_changes_with_checkpoint(check)
+                    .map_err(map_error)?;
+                (prepared, changes)
+            }
+        };
+        let mut wire_check = || check().map_err(|error| std::io::Error::other(error.to_string()));
+        let bytes =
+            crate::semantic::semantic_changes_bytes_with_checkpoint(&prepared, &mut wire_check)
+                .map_err(|error| {
+                    if self.terminal_close_requested() {
+                        RuntimeError::PageTaskYield
+                    } else {
+                        RuntimeError::Semantic(error.to_string())
+                    }
+                })?;
+        check().map_err(map_error)?;
+        prepared.set_verified_bytes(bytes);
+        self.semantic_graph.commit_prepared_journal();
+        self.semantic_publication_pending = false;
         self.semantic_deltas.insert(self.revision, changes);
-        if let Some(previous) = self.semantic_v6_deltas.insert(self.revision, v6_changes) {
+        if let Some(previous) = self.semantic_v6_deltas.insert(self.revision, prepared) {
             self.semantic_delta_bytes = self
                 .semantic_delta_bytes
-                .saturating_sub(serde_json::to_vec(&previous).map_or(0, |encoded| encoded.len()));
+                .saturating_sub(previous.verified_bytes());
         }
         self.semantic_delta_bytes = self.semantic_delta_bytes.saturating_add(bytes);
         while self.semantic_deltas.len() > self.config.max_revision_snapshots
@@ -376,17 +467,31 @@ impl PageState {
             }
             self.semantic_deltas.remove(&oldest);
             if let Some(removed) = self.semantic_v6_deltas.remove(&oldest) {
-                self.semantic_delta_bytes = self.semantic_delta_bytes.saturating_sub(
-                    serde_json::to_vec(&removed).map_or(0, |encoded| encoded.len()),
-                );
+                self.semantic_delta_bytes = self
+                    .semantic_delta_bytes
+                    .saturating_sub(removed.verified_bytes());
             }
         }
+        Ok(())
     }
 
     pub(super) fn semantic_delta_from(
         &self,
         from: Revision,
     ) -> Result<oryn_common::v6::SemanticDelta, RuntimeError> {
+        let owner = self.page_task_terminal_control.clone();
+        let mut check = || {
+            if crate::page_terminal_control::retired(Some(&owner)) {
+                Err(crate::dom::DomError::ProjectionCancelled)
+            } else {
+                Ok(())
+            }
+        };
+        let map_error = |error| match error {
+            crate::dom::DomError::ProjectionCancelled => RuntimeError::PageTaskYield,
+            error => RuntimeError::Semantic(error.to_string()),
+        };
+        check().map_err(map_error)?;
         if from.0 > self.revision {
             return Err(RuntimeError::UnknownRevision(from));
         }
@@ -399,11 +504,9 @@ impl PageState {
         {
             return Err(RuntimeError::UnknownRevision(from));
         }
-        let mut nodes = BTreeMap::new();
+        let mut assembly = crate::semantic::DeltaAssembly::new();
         let mut removed_nodes = BTreeSet::new();
-        let mut accessibility = BTreeMap::new();
         let mut removed_accessibility = BTreeSet::new();
-        let mut structures = BTreeMap::new();
         let mut removed_structures = BTreeSet::new();
         for changes in self
             .semantic_v6_deltas
@@ -413,31 +516,72 @@ impl PageState {
             ))
             .map(|(_, changes)| changes)
         {
+            check().map_err(map_error)?;
             for reference in &changes.removed_nodes {
-                nodes.remove(reference);
+                check().map_err(map_error)?;
+                if let Some(mut node) = assembly.nodes.remove(reference) {
+                    crate::semantic::dispose_owned_properties(&mut node.accessibility_properties);
+                }
                 removed_nodes.insert(*reference);
             }
             for node in &changes.upserted_nodes {
+                check().map_err(map_error)?;
                 removed_nodes.remove(&node.semantic.semantic_ref);
-                nodes.insert(node.semantic.semantic_ref, node.clone());
+                if let Some(mut previous) = assembly.nodes.insert(
+                    node.semantic.semantic_ref,
+                    crate::semantic::clone_delta_node_with_checkpoint(node, &mut check)
+                        .map_err(map_error)?,
+                ) {
+                    crate::semantic::dispose_owned_properties(
+                        &mut previous.accessibility_properties,
+                    );
+                }
             }
             for reference in &changes.removed_accessibility {
-                accessibility.remove(reference);
+                check().map_err(map_error)?;
+                if let Some(mut node) = assembly.accessibility.remove(reference) {
+                    crate::semantic::dispose_owned_properties(&mut node.properties);
+                }
                 removed_accessibility.insert(*reference);
             }
             for node in &changes.upserted_accessibility {
+                check().map_err(map_error)?;
                 removed_accessibility.remove(&node.semantic_ref);
-                accessibility.insert(node.semantic_ref, node.clone());
+                if let Some(mut previous) = assembly.accessibility.insert(
+                    node.semantic_ref,
+                    crate::semantic::clone_accessibility_with_checkpoint(node, &mut check)
+                        .map_err(map_error)?,
+                ) {
+                    crate::semantic::dispose_owned_properties(&mut previous.properties);
+                }
             }
             for id in &changes.removed_structures {
-                structures.remove(id);
-                removed_structures.insert(id.clone());
+                check().map_err(map_error)?;
+                if let Some(mut node) = assembly.structures.remove(id) {
+                    crate::semantic::dispose_owned_properties(&mut node.properties);
+                }
+                removed_structures.insert(
+                    crate::semantic::naming_clone_with_checkpoint(id, &mut check)
+                        .map_err(map_error)?,
+                );
             }
             for structure in &changes.upserted_structures {
+                check().map_err(map_error)?;
                 removed_structures.remove(&structure.structure_id);
-                structures.insert(structure.structure_id.clone(), structure.clone());
+                if let Some(mut previous) = assembly.structures.insert(
+                    crate::semantic::naming_clone_with_checkpoint(
+                        &structure.structure_id,
+                        &mut check,
+                    )
+                    .map_err(map_error)?,
+                    crate::semantic::clone_structure_with_checkpoint(structure, &mut check)
+                        .map_err(map_error)?,
+                ) {
+                    crate::semantic::dispose_owned_properties(&mut previous.properties);
+                }
             }
         }
+        check().map_err(map_error)?;
         Ok(oryn_common::v6::SemanticDelta {
             contract_version: oryn_common::v6::CONTRACT_VERSION,
             page_id: self.page_id,
@@ -445,11 +589,15 @@ impl PageState {
             to_revision: Revision(self.revision),
             semantic_revision: self.semantic_graph.semantic_revision(),
             changes: oryn_common::v6::SemanticGraphChanges {
-                upserted_nodes: nodes.into_values().collect(),
+                upserted_nodes: std::mem::take(&mut assembly.nodes).into_values().collect(),
                 removed_nodes: removed_nodes.into_iter().collect(),
-                upserted_accessibility: accessibility.into_values().collect(),
+                upserted_accessibility: std::mem::take(&mut assembly.accessibility)
+                    .into_values()
+                    .collect(),
                 removed_accessibility: removed_accessibility.into_iter().collect(),
-                upserted_structures: structures.into_values().collect(),
+                upserted_structures: std::mem::take(&mut assembly.structures)
+                    .into_values()
+                    .collect(),
                 removed_structures: removed_structures.into_iter().collect(),
             },
             diagnostics: Vec::new(),

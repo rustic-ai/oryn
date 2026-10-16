@@ -76,6 +76,11 @@ def parser():
     profile.add_argument("--legacy-profile", type=Path, required=True)
     profile.add_argument("--typed-profile", type=Path, required=True)
     profile.add_argument("--source-identity", type=Path, required=True)
+    rebind = command("engine-rust-source-rebind", "Prepare archive-watch-only intermediate Rust provenance")
+    rebind.add_argument("--old-source-root", type=Path, required=True)
+    rebind.add_argument("--source-root", type=Path, required=True)
+    rebind.add_argument("--legacy-profile", type=Path, required=True)
+    rebind.add_argument("--output", type=Path, required=True)
     refresh = command("engine-profile-refresh", "Bind freshly compiled snapshot/worker in a new profile")
     refresh.add_argument("--source-root", type=Path, required=True)
     refresh.add_argument("--legacy-profile", type=Path, required=True)
@@ -232,6 +237,9 @@ def dispatch(args):
         from .runtime_metadata import validate_profile_replacement
         return validate_profile_replacement(args.source_root, args.legacy_profile,
                                             args.typed_profile, args.source_identity)
+    if args.command == "engine-rust-source-rebind":
+        from .rust_source_rebind import rebind_archive_watch
+        return rebind_archive_watch(args.old_source_root, args.source_root, args.legacy_profile, args.output)
     if args.command == "engine-profile-refresh":
         from .runtime_metadata import refresh_engine_profile
         return refresh_engine_profile(args.source_root, args.legacy_profile, args.output,

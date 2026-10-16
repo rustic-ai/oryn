@@ -14,9 +14,9 @@
   "patched_files": {
     "src/handle.rs": "e6210568483ab62f8653446174d611333e89da2d9f3de25a83dbc5a3a8f729fd",
     "src/isolate.rs": "98da7b09a722b4d8dae80cb3a2acc0c4e5e0367a5449655b19182c580c83299e",
-    "build.rs": "c0bcac8f1beaddbdab39cc801aade8086b577a7da07f4811a41df3b7d78beb53",
+    "build.rs": "88392cb8931c360ef87b76d2c1571527a9936029f8601d38fb81f5b814aa6053",
     "Cargo.toml": "cbe6ef406259f5f42a56b0cbbfdc3aaacad7e10163f1d66c42a42bfbd588b58e",
     "tests/oryn_weak_teardown.rs": "4fa240834cbe61f2e16f83dbc652267452f0740f3369ea9f0a84fc0e5f7c473c"
   },
-  "patch_sha256": "b021431d15fe5a8ffe605b0c37e8f8f9fe43a31d5c69fcad5d3846bceca740fe"
+  "patch_sha256": "5a4e289d6320a86b01bbad0da4fdf8644878dd7e62332525a1b74356aa63c049"
 }

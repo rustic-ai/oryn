@@ -181,14 +181,22 @@ fn getter(
     mut rv: v8::ReturnValue,
 ) -> v8::Intercepted {
     if let Some(state) = binding_state_for_receiver(scope, args.holder())
-        && let Some(result) = native_rule_list_at(scope, &state, args.holder(), index, true)
     {
+        let _retained_scope = match state.enter_retained_allocation(scope) {
+            Ok(scope) => scope,
+            Err(error) => {
+                throw_binding_error(scope, &error);
+                return v8::Intercepted::kYes;
+            }
+        };
+        if let Some(result) = native_rule_list_at(scope, &state, args.holder(), index, true) {
         match result {
             Ok(value) if value.is_undefined() => return v8::Intercepted::kNo,
             Ok(value) => rv.set(value),
             Err(error) => throw_binding_error(scope, &error),
         }
         return v8::Intercepted::kYes;
+        }
     }
     match entries(scope, args.holder()) {
         Ok(Some(names)) if (index as usize) < names.len() => {

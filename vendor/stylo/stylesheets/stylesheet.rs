@@ -68,6 +68,39 @@ pub struct StylesheetContents {
 }
 
 impl StylesheetContents {
+    /// Capture immutable metadata outside all live stylesheet guards. Callback
+    /// may cancel or reenter the owning graph; original Arc keeps snapshot live.
+    pub fn insertion_metadata_cancellable(
+        &self, lock: &SharedRwLock, mut checkpoint: impl FnMut() -> Result<(), String>,
+    ) -> Result<Arc<Self>, String> {
+        checkpoint()?;
+        let mut namespaces = Namespaces { default: self.namespaces.default.clone(), prefixes: Default::default() };
+        namespaces.prefixes.try_reserve(self.namespaces.prefixes.len()).map_err(|e| e.to_string())?;
+        for (prefix, namespace) in &self.namespaces.prefixes {
+            checkpoint()?;
+            namespaces.prefixes.insert(prefix.clone(), namespace.clone());
+        }
+        fn copy(value: &Option<String>, checkpoint: &mut impl FnMut() -> Result<(), String>) -> Result<Option<String>, String> {
+            let Some(value) = value else { return Ok(None); };
+            let mut out = String::new(); out.try_reserve_exact(value.len()).map_err(|e| e.to_string())?;
+            for ch in value.chars() { checkpoint()?; out.push(ch); }
+            Ok(Some(out))
+        }
+        let source_map_url = copy(&self.source_map_url, &mut checkpoint)?;
+        let source_url = copy(&self.source_url, &mut checkpoint)?;
+        checkpoint()?;
+        Ok(Arc::new(Self { rules: CssRules::new(Vec::new(), lock), origin: self.origin,
+            url_data: self.url_data.clone(), namespaces, quirks_mode: self.quirks_mode,
+            source_map_url, source_url, use_counters: self.use_counters.clone(), _forbid_construction: () }))
+    }
+    /// Estimate the retained metadata reservation for isolated rule insertion.
+    /// Returns `None` when the checked capacity calculation overflows.
+    pub fn insertion_metadata_bytes(&self) -> Option<usize> {
+        self.namespaces.prefixes.capacity().checked_mul(std::mem::size_of::<(Prefix, Namespace)>())?
+            .checked_add(self.source_map_url.as_ref().map_or(0, String::capacity))?
+            .checked_add(self.source_url.as_ref().map_or(0, String::capacity))?
+            .checked_add(std::mem::size_of::<Self>() + 2 * std::mem::size_of::<usize>())
+    }
     /// Parse a given CSS string, with a given url-data, origin, and
     /// quirks mode.
     pub fn from_str(

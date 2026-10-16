@@ -19,25 +19,40 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+include!("standalone_retained_tree.rs");
+
 pub(super) struct Cancel(
     pub Arc<AtomicBool>,
     #[cfg(unix)] Option<Arc<crate::context_service::ResourceCancellation>>,
+    bool,
 );
 impl Cancel {
+    pub(super) fn complete(mut self) {
+        #[cfg(unix)]
+        { self.2 = false; }
+        #[cfg(not(unix))]
+        { self.1 = false; }
+    }
     pub(super) fn new(flag: Arc<AtomicBool>) -> Self {
         Self(
             flag,
             #[cfg(unix)]
             None,
+            true,
         )
     }
     #[cfg(unix)]
     pub(super) fn native(scope: Arc<crate::context_service::ResourceCancellation>) -> Self {
-        Self(scope.flag.clone(), Some(scope))
+        Self(scope.flag.clone(), Some(scope), true)
     }
 }
 impl Drop for Cancel {
     fn drop(&mut self) {
+        #[cfg(unix)]
+        let armed = self.2;
+        #[cfg(not(unix))]
+        let armed = self.1;
+        if !armed { return; }
         self.0.store(true, Ordering::Release);
         #[cfg(unix)]
         if let Some(scope) = &self.1 {
@@ -47,6 +62,8 @@ impl Drop for Cancel {
 }
 pub(super) struct Loader {
     render_blocking: bool,
+    retained_fetch: bool,
+    last_origin_clean: bool,
     preload_status: Option<crate::render_request_status::Status>,
     preload_trace: Vec<String>,
     quirks: bool,
@@ -389,16 +406,13 @@ mod tests {
         let (started, observed) = mpsc::channel();
         let (release, blocked) = mpsc::channel();
         let source = "<script>document.addEventListener('DOMContentLoaded',()=>globalThis.domReady=true);addEventListener('load',()=>globalThis.loaded=true)</script><link rel=stylesheet href=held.css>";
-        let mut page = RustExecutableDocument::load_stream_with_limits(
+        let mut page = retained_fixture_stream(
             DocumentStream::html(Box::new(std::iter::once(Ok(source.into())))),
-            &BTreeMap::new(),
-            Some(SharedNetworkBroker::new(Held {
+            "https://example.test/",
+            SharedNetworkBroker::new(Held {
                 started,
                 release: Mutex::new(blocked),
-            })),
-            Some(Url::parse("https://example.test/").unwrap()),
-            256 * 1024 * 1024,
-            true,
+            }),
         )
         .unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -779,12 +793,47 @@ mod tests {
         );
     }
     #[test]
+    #[cfg(unix)]
+    fn srcdoc_same_origin_broker_sheet_is_accessible_before_parser_script() {
+        struct Reply;
+        impl NetworkBroker for Reply {
+            fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                assert_eq!(request.url,"https://example.test/child.css");
+                Ok(NetworkResponse {
+                    response_policy:None,timing:None,request_id:request.request_id,
+                    status:200,headers:vec![("content-type".into(),"text/css".into())],
+                    body:b"body{width:42px}".to_vec(),
+                })
+            }
+        }
+        let source="<iframe id=child srcdoc='<link id=owner rel=stylesheet href=https://example.test/child.css><script>try{const s=document.styleSheets[0];parent.brokerSheetReady=[s===document.getElementById(\"owner\").sheet,s.ownerNode===document.getElementById(\"owner\"),s.cssRules.length].join(\"|\")}catch(e){parent.brokerSheetReady=e.name+\":\"+e.message}</script><body></body>'></iframe>";
+        let mut page=retained_fixture_stream(
+            DocumentStream::html(Box::new(std::iter::once(Ok(source.into())))),
+            "https://example.test/",SharedNetworkBroker::new(Reply),
+        ).unwrap();
+        let deadline=std::time::Instant::now()+Duration::from_secs(5);
+        loop {
+            page.poll_context_events().unwrap();
+            if page.agent.host.evaluate_string("typeof brokerSheetReady").unwrap()=="string" {
+                break;
+            }
+            assert!(std::time::Instant::now()<deadline,"broker srcdoc parser stylesheet pending");
+            std::thread::yield_now();
+        }
+        assert_eq!(page.agent.host.evaluate_string("brokerSheetReady").unwrap(),"true|true|1");
+        while page.parser_pending()||!page.document_load_complete() {
+            page.poll_context_events().unwrap();
+            assert!(std::time::Instant::now()<deadline,"broker srcdoc load pending");
+        }
+        assert_eq!(page.agent.host.evaluate_string("child.contentWindow.getComputedStyle(child.contentDocument.body).width").unwrap(),"42px");
+    }
+    #[test]
     fn standalone_srcdoc_stylesheet_preparation_precedes_child_parser_script() {
         let resources = BTreeMap::from([(
             "https://example.test/child.css".into(),
             "body{width:42px}".into(),
         )]);
-        let mut page=RustExecutableDocument::load_with_environment("<iframe id=child srcdoc='<link rel=stylesheet href=https://example.test/child.css><script>parent.childSheetReady=document.styleSheets[0].cssRules.length</script>'></iframe>",&resources,None,Some(Url::parse("https://example.test/").unwrap())).unwrap();
+        let mut page=RustExecutableDocument::load_with_environment("<iframe id=child srcdoc='<link id=owner rel=stylesheet href=https://example.test/child.css><script>try{parent.childSheetReady=document.styleSheets[0].cssRules.length}catch(error){parent.childSheetOutcome=JSON.stringify({name:error.name,message:error.message,hasSheet:document.styleSheets.length===1,hasBody:document.body!==null});parent.childSheetReady=-1}</script>'></iframe>",&resources,None,Some(Url::parse("https://example.test/").unwrap())).unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         loop {
             page.poll_context_events().unwrap();
@@ -807,9 +856,11 @@ mod tests {
             );
             std::thread::yield_now();
         }
+        let actual = page.agent.host.evaluate_string("childSheetReady").unwrap();
+        let failure = if actual != "1" {page.agent.host.evaluate_string("childSheetOutcome").unwrap()} else {String::new()};
         assert_eq!(
-            page.agent.host.evaluate_string("childSheetReady").unwrap(),
-            "1"
+            actual,
+            "1", "original srcdoc stylesheet accessibility diagnostic: {failure}"
         );
     }
     #[test]
@@ -942,7 +993,46 @@ mod tests {
             .arena()
             .stylesheet_text(node)
             .unwrap();
-        assert!(css.contains("42px") && css.contains("17px"));
+        assert_eq!(css, "@import url(child.css);body{width:42px}");
+        assert_eq!(
+            page.evaluate(
+                "const owner=document.getElementById('dynamic'),root=owner.sheet;let denied=false;try{root.cssRules}catch(error){denied=error.name==='SecurityError'}[root===document.styleSheets[0],root.ownerNode===owner,denied,getComputedStyle(document.body).width,getComputedStyle(document.body).height].join('|')",
+            ).unwrap(),
+            "true|true|true|42px|17px",
+        );
+        // Sources is decoded, unproven response data: do not manufacture an
+        // origin-clean grant merely to inspect its native import relationships.
+        let realm = page.agent.host.active_realm();
+        let provider = page.agent.host.native_layout_provider_in_realm(realm).unwrap();
+        let backend = provider.native_backend().unwrap().downcast_ref::<LiveLayoutProvider>().unwrap();
+        let allocation = backend.native_retained_allocation.borrow().as_ref().unwrap().clone();
+        page.agent.host.refresh_native_retained_allocation(realm, &allocation).unwrap();
+        let _scope = allocation.scope_guard();
+        let admission = backend.retained_revision_admission().unwrap();
+        let snapshot = RetainedPublicationSnapshot::capture(&backend.retained_stylesheets, admission.as_ref()).unwrap().unwrap();
+        let record = snapshot.entries.iter().find(|entry| entry.record.owner.node == node).unwrap().record.clone();
+        // Top-level capture has zero ancestor metadata. This test-local adapter
+        // holds a real admitted lease and cannot invoke ledger/author callbacks
+        // while the existing native rule_at holds its shared style read lock.
+        struct PreadmittedTopLevel(Arc<dyn Send + Sync>);
+        impl oryn_layout::cssom::native_import_graph::ImportAdmission for PreadmittedTopLevel {
+            fn checkpoint(&self) -> Result<(), String> { Ok(()) }
+            fn reserve(&self, bytes: usize) -> Result<Arc<dyn Send + Sync>, String> {
+                if bytes != 0 { return Err("unexpected ancestor metadata".into()); }
+                Ok(self.0.clone())
+            }
+        }
+        let capture = PreadmittedTopLevel(admission.reserve(0).unwrap());
+        let graph = record.graph.borrow();
+        let root = graph.root();
+        let import = graph.imports().find(|entry| entry.parent.same_sheet(&root)).unwrap();
+        let child = import.child.as_ref().unwrap();
+        assert!(import.parent.same_sheet(&root));
+        assert!(graph.owner(child).unwrap().same_rule(import));
+        let rule = graph.rule_at(&root, &[], 0, &capture).unwrap();
+        assert!(graph.import_for_rule(&rule).unwrap().same_rule(import));
+        assert_eq!(graph.rule_at(&root, &[], 1, &capture).unwrap().view().unwrap().declaration_text.as_deref(), Some("width: 42px;"));
+        assert_eq!(graph.rule_at(child, &[], 0, &capture).unwrap().view().unwrap().declaration_text.as_deref(), Some("height: 17px;"));
     }
     #[test]
     fn brokerless_data_stylesheet_decodes_original_bytes_and_keeps_resource_guards() {
@@ -1246,16 +1336,13 @@ mod tests {
             let source = format!(
                 "<link id=sheet rel=stylesheet href=held.css media='{media}'><script>globalThis.afterSheet=true</script>"
             );
-            let mut page = RustExecutableDocument::load_stream_with_limits(
+            let mut page = retained_fixture_stream(
                 DocumentStream::html(Box::new(std::iter::once(Ok(source)))),
-                &BTreeMap::new(),
-                Some(SharedNetworkBroker::new(Held {
+                "https://example.test/",
+                SharedNetworkBroker::new(Held {
                     started,
                     release: Mutex::new(blocked),
-                })),
-                Some(Url::parse("https://example.test/").unwrap()),
-                256 * 1024 * 1024,
-                true,
+                }),
             )
             .unwrap();
             let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -1356,6 +1443,8 @@ impl Loader {
         Ok((
             Self {
                 preload_trace: Vec::new(),
+                retained_fetch: false,
+                last_origin_clean: false,
                 preload_status: None,
                 render_blocking: fetch.render_blocking,
                 quirks: fetch.quirks,
@@ -1589,6 +1678,9 @@ impl Loader {
         destination: &str,
         root: bool,
     ) -> Result<(String, String, String, String), HostError> {
+        // Preload receipts retain actual checked response classification;
+        // retained consumers never infer clean status from a base URL.
+        self.last_origin_clean = false;
         if root && destination == "stylesheet" && self.preload_status.is_none() {
             let key = crate::local_resource_preload::Key {
                 destination: "stylesheet",
@@ -1636,7 +1728,11 @@ impl Loader {
                                 source,
                                 encoding,
                                 policy,
-                            ) => (url, source, encoding, policy),
+                                origin_clean,
+                            ) => {
+                                self.last_origin_clean = origin_clean;
+                                (url, source, encoding, policy)
+                            },
                             _ => {
                                 return Err(HostError::Execution(
                                     "stylesheet preload response kind".into(),
@@ -1711,7 +1807,7 @@ impl Loader {
                     self.backend
                         .report_violations(policy, decision.violations)?;
                     if !decision.allowed {
-                        return Err(HostError::Execution(
+                        return Err(self.web_failure(
                             "stylesheet resource blocked by Content-Security-Policy".into(),
                         ));
                     }
@@ -1722,12 +1818,12 @@ impl Loader {
                         .as_deref()
                         .is_some_and(|value| !value.is_empty())
                 {
-                    return Err(HostError::Execution(
+                    return Err(self.web_failure(
                         "decoded stylesheet source cannot verify integrity".into(),
                     ));
                 }
                 let (url, source) = resource_entry(sources, requested).ok_or_else(|| {
-                    HostError::Execution("standalone stylesheet resource unavailable".into())
+                    self.web_failure("standalone stylesheet resource unavailable".into())
                 })?;
                 if destination != "stylesheet" {
                     self.binary = Some(super::dynamic_stylesheet_preparation::CssBinary {
@@ -1815,7 +1911,7 @@ impl Loader {
                 );
                 self.backend.report_violations(csp, decision.violations)?;
                 if !decision.allowed {
-                    return Err(HostError::Execution(
+                    return Err(self.web_failure(
                         "stylesheet resource blocked by Content-Security-Policy".into(),
                     ));
                 }
@@ -1825,13 +1921,13 @@ impl Loader {
             }
             fetch_metadata.observe(Some(&self.initiator), &url);
             crate::mixed_content::enforce(&self.initiator, &url)
-                .map_err(|error| HostError::Execution(error.to_string()))?;
+                .map_err(|error| self.web_failure(error.to_string()))?;
             if url.scheme() != "data" && url.origin() != origin && !cors {
                 eligible = false;
             }
             let (headers, body) = if url.scheme() == "data" {
                 let (mime, body) = crate::network::decode_data_url(&url)
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                    .map_err(|error| self.web_failure(error.to_string()))?;
                 if let Some(timing) = &mut _timing {
                     timing.set_details(crate::network::local_resource_timing_metadata(
                         &origin.ascii_serialization(),
@@ -1847,7 +1943,7 @@ impl Loader {
                 )
             } else {
                 if !matches!(url.scheme(), "http" | "https") {
-                    return Err(HostError::Execution(
+                    return Err(self.web_failure(
                         "standalone CSS resource scheme unavailable".into(),
                     ));
                 }
@@ -1948,7 +2044,7 @@ impl Loader {
                         || !((!include && values[0] == "*") || values[0] == request_origin)
                         || (include && credentials != vec!["true"])
                     {
-                        return Err(HostError::Execution(
+                        return Err(self.web_failure(
                             "stylesheet resource failed CORS".into(),
                         ));
                     }
@@ -1979,10 +2075,10 @@ impl Loader {
                         (include || !cross) && !omit,
                         &response.headers,
                     )
-                    .map_err(HostError::Execution)?;
+                    .map_err(|message| self.web_failure(message))?;
                 if oryn_net::fetch::is_redirect_status(response.status) {
                     if redirect == 10 {
-                        return Err(HostError::Execution(
+                        return Err(self.web_failure(
                             "stylesheet redirect limit exceeded".into(),
                         ));
                     }
@@ -1992,10 +2088,10 @@ impl Loader {
                         .find(|(name, _)| name.eq_ignore_ascii_case("location"))
                         .and_then(|(_, location)| url.join(location).ok())
                         .ok_or_else(|| {
-                            HostError::Execution("invalid stylesheet redirect".into())
+                            self.web_failure("invalid stylesheet redirect".into())
                         })?;
                     if cors && (!next.username().is_empty() || next.password().is_some()) {
-                        return Err(HostError::Execution(
+                        return Err(self.web_failure(
                             "CORS stylesheet redirect contains credentials".into(),
                         ));
                     }
@@ -2008,7 +2104,7 @@ impl Loader {
                     continue;
                 }
                 if !(200..300).contains(&response.status) {
-                    return Err(HostError::Execution(format!(
+                    return Err(self.web_failure(format!(
                         "CSS resource returned HTTP {}",
                         response.status
                     )));
@@ -2034,7 +2130,7 @@ impl Loader {
             if destination == "stylesheet"
                 && !oryn_net::stylesheet_response_allowed(&headers, self.quirks, cors || eligible)
             {
-                return Err(HostError::Execution(
+                return Err(self.web_failure(
                     "stylesheet response blocked by MIME type or nosniff".into(),
                 ));
             }
@@ -2045,7 +2141,11 @@ impl Loader {
                     cors || eligible,
                 )
                 .map_err(|error| {
-                    HostError::Execution(format!("stylesheet integrity failed: {error:?}"))
+                    if self.retained_fetch {
+                        HostError::ScriptLoad(crate::script_load_failure::ScriptLoadFailure::Integrity(format!("{error:?}")))
+                    } else {
+                        HostError::Execution(format!("stylesheet integrity failed: {error:?}"))
+                    }
                 })?;
             }
             let extracted_type = oryn_common::mime_type::MimeType::from_headers(&headers)
@@ -2069,6 +2169,7 @@ impl Loader {
                 (String::new(), encoding.to_owned())
             };
             self.retain(css.len())?;
+            self.last_origin_clean = cors || eligible;
             return Ok((
                 url.to_string(),
                 css,
@@ -2093,6 +2194,8 @@ pub(crate) fn preload(
     let policy = backend.local_script_policy().cloned();
     let mut loader = Loader {
         preload_trace: Vec::new(),
+        retained_fetch: false,
+        last_origin_clean: false,
         preload_status: Some(entry.status.clone()),
         render_blocking: false,
         quirks: key.quirks,
@@ -2123,7 +2226,7 @@ pub(crate) fn preload(
     )?;
     entry.set_trace(std::mem::take(&mut loader.preload_trace));
     Ok(crate::local_resource_preload::Response::Style(
-        url, source, encoding, policy,
+        url, source, encoding, policy, loader.last_origin_clean,
     ))
 }
 

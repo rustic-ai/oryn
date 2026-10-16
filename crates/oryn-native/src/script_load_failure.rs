@@ -69,6 +69,7 @@ impl ScriptLoadFailure {
 
     pub(crate) fn decoded(error: crate::RuntimeError) -> Self {
         match error {
+            crate::RuntimeError::StylesheetFailure(failure) => failure,
             crate::RuntimeError::Network(message) => Self::Fetch(message),
             error @ crate::RuntimeError::CertificateRejected(_) => Self::Fetch(error.to_string()),
             crate::RuntimeError::WorkerLimitExceeded { resource } => Self::Capacity(resource),
@@ -86,6 +87,29 @@ impl From<crate::RuntimeError> for ScriptLoadFailure {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn stylesheet_failure_wire_preserves_typed_network_capacity_and_infrastructure() {
+        use crate::network::NetworkError;
+        for error in [
+            NetworkError::Unavailable,
+            NetworkError::Replay("replay unavailable".into()),
+            NetworkError::ResponseTooLarge { limit: 16 },
+            NetworkError::Cancelled,
+            NetworkError::Transport("wire closed".into()),
+        ] {
+            let failure = ScriptLoadFailure::network(error);
+            let original = failure.clone();
+            let runtime = crate::RuntimeError::StylesheetFailure(failure);
+            let wire = serde_json::to_vec(&runtime).unwrap();
+            let decoded: crate::RuntimeError = serde_json::from_slice(&wire).unwrap();
+            assert_eq!(ScriptLoadFailure::decoded(decoded), original);
+        }
+        assert!(matches!(ScriptLoadFailure::network(NetworkError::Unavailable), ScriptLoadFailure::Infrastructure(_)));
+        assert!(matches!(ScriptLoadFailure::network(NetworkError::Replay("x".into())), ScriptLoadFailure::Infrastructure(_)));
+        assert!(matches!(ScriptLoadFailure::network(NetworkError::ResponseTooLarge { limit:16 }), ScriptLoadFailure::Capacity(_)));
+        assert!(matches!(ScriptLoadFailure::network(NetworkError::Cancelled), ScriptLoadFailure::Cancelled));
+        assert!(matches!(ScriptLoadFailure::network(NetworkError::Transport("x".into())), ScriptLoadFailure::Fetch(_)));
+    }
     #[test]
     fn worker_wire_provenance_survives_serialization_without_exception_name_inference() {
         use oryn_js::worker_wire::{ScriptFailureKind, WorkerError};

@@ -1,6 +1,10 @@
 use super::*;
-pub(super) fn open(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
-    if !state.execution_retired() && !css_suppresses_focus(state, node)? {
+pub(super) fn open(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    node: NodeId,
+) -> Result<(), V8BindingError> {
+    if !state.execution_retired() && !css_suppresses_focus_in_scope(scope, state, node)? {
         state.dom.borrow_mut().open_file_picker(node)?;
     }
     Ok(())
@@ -23,8 +27,44 @@ pub(super) fn click(
     {
         return Ok(false);
     }
-    open(state, node)?;
+    open(scope, state, node)?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod scoped_focus_tests {
+    use super::*;
+    struct Provider(Cell<usize>);
+    impl BindingLayoutProvider for Provider {
+        fn compute_layout(
+            &self,
+            _: &BTreeMap<NodeId, BTreeSet<String>>,
+        ) -> Result<BindingLayout, String> {
+            self.0.set(self.0.get() + 1);
+            Ok(BindingLayout::default())
+        }
+    }
+    #[test]
+    fn focus_policy_uses_snapshot_for_inspection_and_scope_for_transition() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            html::parse("<input id=f type=file>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let node = dom.borrow().find_by_id("f").unwrap();
+        let provider = Rc::new(Provider(Cell::new(0)));
+        state.set_layout_provider(provider.clone());
+        css_suppresses_focus_snapshot(&state, node).unwrap();
+        assert_eq!(provider.0.get(), 0);
+        open(scope, &state, node).unwrap();
+        assert!(provider.0.get() > 0);
+    }
 }
 pub(super) struct Completion {
     owner: Rc<V8BindingState>,

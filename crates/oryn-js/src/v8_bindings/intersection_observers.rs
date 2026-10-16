@@ -532,14 +532,6 @@ fn geometry(
 ) -> Result<Geometry, V8BindingError> {
     let object = v8::Local::new(scope, &target.object);
     let (owner, target_node) = node(scope, object, true)?;
-    let bounds = bounding(&owner, target_node);
-    let mut result = Geometry {
-        root: None,
-        bounding: bounds,
-        intersection: BindingRect::default(),
-        intersecting: false,
-        dependencies: vec![(Rc::downgrade(&owner), owner.native_paint_revision()?)],
-    };
     let root = if let Some(root) = &observer.root {
         let object = root
             .to_local(scope)
@@ -549,15 +541,54 @@ fn geometry(
         None
     };
     let implicit_root = top_document(observer_state)?;
-    result.dependencies.push((
+    let mut dependencies = vec![(
         Rc::downgrade(&implicit_root),
-        implicit_root.native_paint_revision()?,
-    ));
+        implicit_root.native_paint_revision_in_scope(scope)?,
+    )];
     if let Some((root, _)) = &root {
-        result
-            .dependencies
-            .push((Rc::downgrade(root), root.native_paint_revision()?));
+        dependencies.push((
+            Rc::downgrade(root),
+            root.native_paint_revision_in_scope(scope)?,
+        ));
     }
+    // Establish the complete embedding chain before freezing target bounds.
+    // The owner scoped refresh visits ancestors first; no provider work may
+    // occur during the geometry walk below or mix newer roots with old bounds.
+    let owner_revision = owner.native_paint_revision_in_scope(scope)?;
+    let (current_owner, current_node) = node(scope, object, true)?;
+    if !Rc::ptr_eq(&current_owner, &owner) || current_node != target_node {
+        return Err(V8BindingError::Allocation(
+            "intersection target changed during layout",
+        ));
+    }
+    if let Some(root_object) = &observer.root {
+        let root_object = root_object
+            .to_local(scope)
+            .ok_or(V8BindingError::Allocation("intersection root lifetime"))?;
+        let (current_root, current_node) = node(scope, root_object, false)?;
+        if !root
+            .as_ref()
+            .is_some_and(|(owner, node)| Rc::ptr_eq(owner, &current_root) && *node == current_node)
+        {
+            return Err(V8BindingError::Allocation(
+                "intersection root changed during layout",
+            ));
+        }
+    }
+    for (dependency, revision) in &mut dependencies {
+        if let Some(dependency) = dependency.upgrade() {
+            *revision = dependency.native_paint_revision()?;
+        }
+    }
+    dependencies.push((Rc::downgrade(&owner), owner_revision));
+    let bounds = bounding(&owner, target_node);
+    let mut result = Geometry {
+        root: None,
+        bounding: bounds,
+        intersection: BindingRect::default(),
+        intersecting: false,
+        dependencies,
+    };
     let mut current = owner.clone();
     let mut cursor = target_node;
     let mut transform = identity();
