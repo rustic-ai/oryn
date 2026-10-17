@@ -176,6 +176,40 @@ pub(super) fn resolve(
     }
 }
 
+// CSSOM uses the final, untransformed padding containing block, not the
+// element's DOM parent. Specified opposite insets remain independently resolved
+// even when the positioning equation ignores one of them as overconstrained.
+pub(super) fn project_resolved_insets(
+    input: &LayoutInput,
+    by_id: &BTreeMap<u64, &LayoutNode>,
+    styles: &ComputedStyles,
+    geometry: &BTreeMap<u64, NodeGeometry>,
+    resolved: &mut BTreeMap<u64, BTreeMap<String, String>>,
+    viewport_gutter: EdgeSizes,
+) {
+    for node in &input.nodes {
+        let Some(style) = styles.get(&node.id) else { continue };
+        let position = style_value(style, "position", "static");
+        if !matches!(position, "absolute" | "fixed") { continue; }
+        let Some(model) = geometry.get(&node.id).and_then(|g| g.box_model.as_ref()) else { continue };
+        if matches!(style_value(style, "display", "inline"), "none" | "contents") { continue; }
+        let cb = containing_box(node.id, position == "fixed", input, by_id, styles, geometry, viewport_gutter);
+        let font = length(style_value(style, "font-size", "16px"), 16., 16., input.viewport);
+        let values = resolved.entry(node.id).or_default();
+        for (property, basis, used) in [
+            ("left", cb.width, model.border_box.x - model.margin.left - cb.x),
+            ("right", cb.width, cb.right() - model.border_box.right() - model.margin.right),
+            ("top", cb.height, model.border_box.y - model.margin.top - cb.y),
+            ("bottom", cb.height, cb.bottom() - model.border_box.bottom() - model.margin.bottom),
+        ] {
+            let value = optional_length(style_value(style, property, "auto"), basis, font, input.viewport).unwrap_or(used);
+            if value.is_finite() {
+                values.insert(property.into(), format!("{}px", if value == 0. { 0. } else { value }));
+            }
+        }
+    }
+}
+
 pub(super) fn normalize_fixed(
     input: &LayoutInput,
     by_id: &BTreeMap<u64, &LayoutNode>,

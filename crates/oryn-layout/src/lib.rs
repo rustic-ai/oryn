@@ -4551,6 +4551,14 @@ fn compute_with_scrollbar_gutters(
         &mut text_engine.source_geometry,
         viewport_gutter,
     );
+    positioning::project_resolved_insets(
+        input,
+        &by_id,
+        &computed_styles,
+        &geometry,
+        &mut resolved_values,
+        viewport_gutter,
+    );
     list_markers::place_outside(
         &by_id,
         &computed_styles,
