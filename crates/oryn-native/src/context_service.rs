@@ -20810,6 +20810,38 @@ mod document_resource_authority_tests {
         );
     }
     #[test]
+    fn font_broker_failure_provenance_survives_actual_parent_wire(){
+        struct Failures;
+        impl NetworkBroker for Failures{
+            fn send(&self,request:NetworkRequest)->Result<NetworkResponse,NetworkError>{
+                if request.url.ends_with("cancelled.woff"){return Err(NetworkError::Cancelled)}
+                if request.url.ends_with("capacity.woff"){return Err(NetworkError::ResponseTooLarge{limit:17})}
+                if request.url.ends_with("policy.woff"){return Err(NetworkError::Policy(crate::security::PolicyDenied::Loopback))}
+                Ok(NetworkResponse{response_policy:None,timing:None,request_id:request.request_id,status:404,headers:Vec::new(),body:Vec::new()})
+            }
+        }
+        let context=Browser::in_process_probe().new_context();let page=context.new_page();let page_id=page.page_id();
+        context.commit_page_url(page_id,"https://example.test/".into()).unwrap();
+        context.install_document_security(page_id,"https://example.test/".into(),&[]).unwrap();
+        let service=ParentContextService::new_with_network(context,page_id,Some(SharedNetworkBroker::new(Failures)));
+        let creator=script_test_creator(&service,page_id);
+        let(worker,parent)=UnixStream::pair().unwrap();let shutdown=parent.try_clone().unwrap();
+        let server=std::thread::spawn(move||serve_context_transport(parent,Arc::new(service)));
+        let client=SharedContextClient::new(IpcContextClient::new(worker));
+        for(path,class)in[("missing.woff",0),("cancelled.woff",1),("capacity.woff",2),("policy.woff",3)]{
+            let request=ContextServiceRequest::LoadPageResource{download:None,script_authority:None,page_id,
+                initiator:Box::new(ResourceInitiator{embedded_type:None,request_state:None,navigation:Default::default(),creator:creator.clone(),stylesheet:None,prepared_policy:None}),
+                form_authority:None,url:format!("https://example.test/{path}"),destination:"font".into(),parent_encoding:None,initiator_url:None,referrer_policy:None,post:None};
+            let error=client.request(request).unwrap_err();
+            assert!(matches!((class,error),
+                (0,RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch(_)))|
+                (1,RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Cancelled))|
+                (2,RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Capacity(_)))|
+                (3,RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Infrastructure(_)))));
+        }
+        shutdown.shutdown(std::net::Shutdown::Both).unwrap();let _=server.join().unwrap();
+    }
+    #[test]
     fn binary_css_response_preserves_non_text_bytes_and_native_policy() {
         let (_context, page, service, child) = fixture();
         let request = |creator, destination: &str| ContextServiceRequest::LoadPageResource {
