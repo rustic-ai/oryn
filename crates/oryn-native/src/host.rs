@@ -11585,6 +11585,13 @@ mod raw_v8 {
                     return Err(HostError::Execution(error.to_string()));
                 }
                 if let Some(provider) = provider {
+                    provider.bind_stylesheet_document_owner(&state.dom().borrow(),
+                        oryn_js::v8_bindings::BindingStylesheetDocumentOwner {
+                            realm: previous,
+                            document,
+                            document_generation: generation,
+                            stream_epoch: state.document_stream_epoch(),
+                        }).map_err(HostError::Execution)?;
                     state.set_layout_provider(provider);
                 }
                 // Reused initial Windows retain binding state, but the old

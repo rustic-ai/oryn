@@ -19,6 +19,13 @@ pub(crate) fn bootstrap_auxiliary_public_fonts(
         document_generation: state.document_generation(),
         stream_epoch: state.document_stream_epoch(),
     };
+    layout.bind_stylesheet_document_owner(&state.dom().borrow(),
+        oryn_js::v8_bindings::BindingStylesheetDocumentOwner {
+            realm: identity.realm,
+            document: identity.document,
+            document_generation: identity.document_generation,
+            stream_epoch: identity.stream_epoch,
+        }).map_err(HostError::Execution)?;
     // Refresh the original creator's already installed receipt before allocating
     // child bootstrap metadata. The temporary ContextScope is released before
     // capture resumes in the child's owning scope.

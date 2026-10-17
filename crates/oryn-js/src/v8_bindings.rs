@@ -6395,6 +6395,12 @@ impl V8BindingState {
                 provider.fork_document(child.dom.clone(), child.document_root(), width, height)
             })
         {
+            provider.bind_stylesheet_document_owner(&child.dom.borrow(), BindingStylesheetDocumentOwner {
+                realm: child.realm(),
+                document: child.document_root(),
+                document_generation: child.document_generation(),
+                stream_epoch: child.document_stream_epoch(),
+            }).map_err(V8BindingError::EventCallback)?;
             child.set_layout_provider(provider);
         }
         child.set_native_layout_viewport(width, height, false)?;
@@ -48612,9 +48618,9 @@ fn indexeddb_create_index_union_conversion_preserves_exceptions_and_order() {
                 check(caught instanceof TypeError,'dictionary primitive rejected');
                 check(!store.indexNames.contains('primitive-options'),'failed conversion does not publish schema');
             }
-            let reads=[];const marker2={};let caught;
-            try{store.createIndex('throw-options','first',{get multiEntry(){reads.push('multiEntry');throw marker2},get unique(){reads.push('unique');return false}})}catch(e){caught=e}
-            check(caught===marker2 && reads.join(',')==='multiEntry','dictionary lexical conversion preserves throw');
+            let optionReads=[];const marker2={};let caught;
+            try{store.createIndex('throw-options','first',{get multiEntry(){optionReads.push('multiEntry');throw marker2},get unique(){optionReads.push('unique');return false}})}catch(e){caught=e}
+            check(caught===marker2 && optionReads.join(',')==='multiEntry','dictionary lexical conversion preserves throw');
             check(!store.indexNames.contains('throw-options'),'throwing dictionary does not publish schema');
             const defaults=store.createIndex('null-options','first',null);
             check(!defaults.unique&&!defaults.multiEntry,'null dictionary defaults');
