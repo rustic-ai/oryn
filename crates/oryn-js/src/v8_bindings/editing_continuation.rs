@@ -2720,4 +2720,45 @@ fn paragraph_failed_recovery_composes_recipes_and_retains_noncurrent_history_own
     assert!(editing_commands::paragraph_history::receipt::undo_owner_current(&state,&unit));
 }
 
+#[test]
+fn paragraph_retirement_is_idempotent_and_preserves_other_accounted_units() {
+    super::super::tests::initialize_v8();
+    let mut isolate=v8::Isolate::new(Default::default());
+    v8::scope!(let scope,&mut isolate);
+    let realm=v8::Context::new(scope,Default::default());
+    let scope=&mut v8::ContextScope::new(scope,realm);
+    let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<body><div id=host contenteditable><p>abcdef</p></div></body>").into_runtime().unwrap()));
+    let state=install_generated_bindings(scope,realm,dom,RealmId(0),1).unwrap();
+    assert!(eval(scope,"const host=document.getElementById('host');const r=document.createRange();r.setStart(host.firstChild.firstChild,3);r.collapse(true);getSelection().removeAllRanges();getSelection().addRange(r);document.execCommand('insertParagraph')"));
+    let unit=state.undo_history.borrow().undo.back().cloned().unwrap();
+    *unit.native_progress.borrow_mut()=Some(NativeUndoProgress{redo:false,next:0});
+    unit.paragraph_reservation.admit(&state,&unit,32).unwrap();
+    editing_commands::paragraph_history::receipt::retain_failed(&state,&unit,
+        vec![unit.native_segments.first().cloned().unwrap()],&V8BindingError::Allocation("retire control"));
+    unit.paragraph_reservation.admit(&state,&unit,16).unwrap();
+    let mut other=unit.clone();
+    other.identity=Rc::new(());
+    other.paragraph_reservation=Default::default();
+    other.paragraph_failed=Default::default();
+    other.native_progress=Default::default();
+    let other_bytes=undo_unit_bytes(&other);
+    {
+        let mut history=state.undo_history.borrow_mut();
+        history.bytes=history.bytes.checked_add(other_bytes).unwrap();
+        history.redo.push_back(other.clone());
+    }
+    state.control_tasks_retired.set(true);
+    for _ in 0..2 {
+        editing_commands::paragraph_history::receipt::retire_failed(&state,&unit);
+        let history=state.undo_history.borrow();
+        assert_eq!(history.bytes,other_bytes);
+        assert!(history.undo.is_empty());
+        assert_eq!(history.redo.len(),1);
+        assert!(Rc::ptr_eq(&history.redo[0].identity,&other.identity));
+        assert_eq!(unit.paragraph_reservation.bytes.get(),0);
+        assert!(unit.paragraph_failed.borrow().is_none());
+        assert!(unit.native_progress.borrow().is_none());
+    }
+}
+
 }
