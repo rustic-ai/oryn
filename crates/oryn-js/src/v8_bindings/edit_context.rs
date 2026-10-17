@@ -1088,7 +1088,7 @@ let source=v8::String::new(scope,r####"(() => {
   const foreign=new frame.contentWindow.TextFormat({rangeStart:7});
   const cross=new TextFormatUpdateEvent('x',{textFormats:[foreign]});
   check(cross.getTextFormats()[0]===foreign,'foreign native identity');
-  
+
   check(cross.getTextFormats()[0].rangeStart===7,'detached foreign retention');
   return true;
 })()
