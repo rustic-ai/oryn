@@ -52,6 +52,8 @@ enum Step {
     Flush,
     Poll,
     Checkpoint,
+    RequestCheckpoint,
+    RequestCheckpointCleanup,
 }
 struct Event {
     notification: publication::Notification,
@@ -406,7 +408,7 @@ impl Task {
                 Step::Finish(_)=>idb_stage_diagnostic::Stage::Finish,
                 Step::Flush=>idb_stage_diagnostic::Stage::Flush,
                 Step::Poll=>idb_stage_diagnostic::Stage::Poll,
-                Step::Checkpoint=>idb_stage_diagnostic::Stage::Checkpoint,
+                Step::Checkpoint | Step::RequestCheckpoint | Step::RequestCheckpointCleanup => idb_stage_diagnostic::Stage::Checkpoint,
                 _=>idb_stage_diagnostic::Stage::Other,
             };
             idb_stage_diagnostic::record(stage,self.request,self.transaction.unwrap_or(0));
@@ -956,6 +958,19 @@ impl Task {
                     state.poll_idb_connections(scope)?;
                     self.steps.pop_front();
                 }
+                Step::RequestCheckpoint => {
+                    // Invocation cleanup protected the dispatch transaction only
+                    // until all listeners finished. End this request task before
+                    // accounting/commit or another response is delivered. Consume
+                    // the microtask phase first so suspension cannot replay it.
+                    self.steps.pop_front();
+                    self.steps.push_front(Step::RequestCheckpointCleanup);
+                    scope.perform_microtask_checkpoint();
+                }
+                Step::RequestCheckpointCleanup => {
+                    publication::finish_idb_task_checkpoint(scope, state)?;
+                    self.steps.pop_front();
+                }
                 Step::Checkpoint => {
                     scope.perform_microtask_checkpoint();
                     state.finish_platform_task_checkpoint()?;
@@ -1048,6 +1063,7 @@ impl Task {
                     Step::Activate(self.request),
                     Step::Event(self.request, "error", None),
                     Step::AfterRequest { error: Some(name) },
+                    Step::RequestCheckpoint,
                     Step::Finish(self.request),
                     Step::Flush,
                 ]);
@@ -1365,6 +1381,7 @@ impl Task {
                     Step::Activate(self.request),
                     Step::Event(self.request, "success", None),
                     Step::AfterRequest { error: None },
+                    Step::RequestCheckpoint,
                     Step::Finish(self.request),
                     Step::Flush,
                 ]);
@@ -1747,6 +1764,130 @@ mod tests {
             Vec::new()
         }
     }
+    #[test]
+    fn request_task_suffix_deactivates_before_next_response_without_listener() {
+        super::super::tests::initialize_v8();
+        let mut isolate=v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope,&mut isolate);
+        let context=v8::Context::new(scope,Default::default());
+        let scope=&mut v8::ContextScope::new(scope,context);
+        let dom=Rc::new(RefCell::new(oryn_dom::html::parse("").into_runtime().unwrap()));
+        let state=install_generated_bindings(scope,context,dom,RealmId(120),1).unwrap();
+        let (first,first_transaction,_)=records(scope,&state);
+        let (_second,second_transaction,_)=records(scope,&state);
+        let value=new_platform_object(scope,&state,"IDBTransaction",first_transaction).unwrap();
+        let key=v8::String::new(scope,"priorTx").unwrap();
+        context.global(scope).set(scope,key.into(),value.into()).unwrap();
+        state.idb_transactions_to_deactivate.borrow_mut().clear();
+        // First response has no listener at all: callback cleanup alone is insufficient.
+        enqueue(&state,first,owned_action::OwnedAction::unit(),Ok(IdbHostResponse::default()));
+        let second=new_idb_request(&state,Some(second_transaction));
+        let value=new_platform_object(scope,&state,"IDBRequest",second).unwrap();
+        let key=v8::String::new(scope,"secondRequest").unwrap();
+        context.global(scope).set(scope,key.into(),value.into()).unwrap();
+        fn observe(scope:&mut v8::PinScope,args:v8::FunctionCallbackArguments,mut rv:v8::ReturnValue) {
+            let state=binding_state_for_receiver(scope,args.this()).unwrap();
+            let prior=args.data().integer_value(scope).unwrap() as u64;
+            let inactive=matches!(&*platform_object(&state,prior).unwrap(),PlatformObjectRecord::IdbTransaction(tx) if !tx.active);
+            let key=v8::String::new(scope,"suffixObserved").unwrap();
+            let value=v8::Boolean::new(scope,inactive);
+            scope.get_current_context().global(scope).set(scope,key.into(),value.into()).unwrap();
+            rv.set(v8::undefined(scope).into());
+        }
+        let data=v8::Integer::new(scope,first_transaction as i32);
+        let callback=v8::Function::builder(observe).data(data.into()).build(scope).unwrap();
+        let key=v8::String::new(scope,"onsuccess").unwrap();
+        value.set(scope,key.into(),callback.into()).unwrap();
+        eval(scope,"globalThis.suffixObserved=false");
+        enqueue(&state,second,owned_action::OwnedAction::unit(),Ok(IdbHostResponse::default()));
+        drain(scope,&state).unwrap();
+        assert!(eval(scope,"suffixObserved").is_true());
+        for id in [first_transaction,second_transaction] {
+            let record=platform_object(&state,id).unwrap();
+            let PlatformObjectRecord::IdbTransaction(tx)=&*record else{unreachable!()};
+            assert!(!tx.active);
+            assert!(tx.pending_requests>0);
+        }
+    }
+
+    #[test]
+    fn request_suffix_microtask_suspension_retains_cleanup_once() {
+        super::super::tests::initialize_v8();
+        let mut isolate=v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope,&mut isolate);
+        let context=v8::Context::new(scope,Default::default());
+        let scope=&mut v8::ContextScope::new(scope,context);
+        let dom=Rc::new(RefCell::new(oryn_dom::html::parse("").into_runtime().unwrap()));
+        let state=install_generated_bindings(scope,context,dom,RealmId(121),1).unwrap();
+        let (request,transaction,_)=records(scope,&state);
+        fn suspend(scope:&mut v8::PinScope,args:v8::FunctionCallbackArguments,_:v8::ReturnValue) {
+            let state=binding_state_for_receiver(scope,args.this()).unwrap();
+            state.set_execution_suspended(true);
+        }
+        let function=v8::Function::new(scope,suspend).unwrap();
+        let key=v8::String::new(scope,"suspendSuffix").unwrap();
+        context.global(scope).set(scope,key.into(),function.into()).unwrap();
+        eval(scope,"globalThis.suffixJobs=0;Promise.resolve().then(()=>{suffixJobs++;suspendSuffix()})");
+        enqueue(&state,request,owned_action::OwnedAction::unit(),Ok(IdbHostResponse::default()));
+        drain(scope,&state).unwrap();
+        assert!(pending(&state));
+        assert!(state.execution_suspended());
+        assert_eq!(eval(scope,"suffixJobs").integer_value(scope),Some(1));
+        let before=match &*platform_object(&state,transaction).unwrap(){PlatformObjectRecord::IdbTransaction(tx)=>tx.pending_requests,_=>unreachable!()};
+        assert_eq!(before,2);
+        state.set_execution_suspended(false);
+        drain(scope,&state).unwrap();
+        assert!(!pending(&state));
+        assert_eq!(eval(scope,"suffixJobs").integer_value(scope),Some(1));
+        let record=platform_object(&state,transaction).unwrap();
+        let PlatformObjectRecord::IdbTransaction(tx)=&*record else{unreachable!()};
+        assert!(!tx.active);assert_eq!(tx.pending_requests,1);
+    }
+
+    #[test]
+    fn error_request_suffix_runs_foreign_owner_microtask_cleanup() {
+        super::super::tests::initialize_v8();
+        let mut isolate=v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let handles,&mut isolate);
+        let foreign_context=v8::Context::new(handles,Default::default());
+        let (foreign,foreign_transaction,job)={
+            let scope=&mut v8::ContextScope::new(handles,foreign_context);
+            let dom=Rc::new(RefCell::new(oryn_dom::html::parse("").into_runtime().unwrap()));
+            let foreign=install_generated_bindings(scope,foreign_context,dom,RealmId(122),1).unwrap();
+            let (_,transaction,_)=records(scope,&foreign);
+            foreign.idb_transactions_to_deactivate.borrow_mut().clear();
+            // This native callback represents transaction creation's task-active
+            // registration in the actual foreign BindingState, not a bare realm.
+            fn job(scope:&mut v8::PinScope,args:v8::FunctionCallbackArguments,_:v8::ReturnValue) {
+                let state=binding_state_for_receiver(scope,args.this()).unwrap();
+                let id=args.data().integer_value(scope).unwrap() as u64;
+                state.idb_transactions_to_deactivate.borrow_mut().insert(id);
+            }
+            let data=v8::Integer::new(scope,transaction as i32);
+            let function=v8::Function::builder(job).data(data.into()).build(scope).unwrap();
+            (foreign,transaction,v8::Global::new(scope,function))
+        };
+        let context=v8::Context::new(handles,Default::default());
+        let scope=&mut v8::ContextScope::new(handles,context);
+        let dom=Rc::new(RefCell::new(oryn_dom::html::parse("").into_runtime().unwrap()));
+        let state=install_generated_bindings(scope,context,dom,RealmId(123),1).unwrap();
+        let (request,transaction,_)=records(scope,&state);
+        let job=v8::Local::new(scope,&job);
+        let key=v8::String::new(scope,"foreignJob").unwrap();
+        context.global(scope).set(scope,key.into(),job.into()).unwrap();
+        eval(scope,"request.onerror=e=>e.preventDefault();Promise.resolve().then(foreignJob)");
+        enqueue(&state,request,owned_action::OwnedAction::unit(),Err("DataError".into()));
+        drain(scope,&state).unwrap();
+        for (owner,id) in [(&state,transaction),(&foreign,foreign_transaction)] {
+            let record=platform_object(owner,id).unwrap();
+            let PlatformObjectRecord::IdbTransaction(tx)=&*record else{unreachable!()};
+            assert!(!tx.active);assert!(!tx.aborted);
+        }
+    }
+
     #[test]
     fn versionchange_retains_listener_suffix_and_ack_without_repeating_callback() {
         super::super::tests::initialize_v8();

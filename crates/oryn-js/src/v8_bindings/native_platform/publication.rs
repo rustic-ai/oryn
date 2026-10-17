@@ -83,6 +83,41 @@ pub(in super::super) struct Notification {
     initial_pageshow: Option<bool>,
     visibility_snapshot: Option<(bool, bool)>,
 }
+pub(in crate::v8_bindings) fn finish_idb_task_checkpoint(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+) -> Result<(), V8BindingError> {
+    if let Some(registry) = scope.get_slot::<BindingStateRegistry>() {
+        let ceiling = registry.instances.borrow().keys().next_back().copied();
+        let mut cursor = None;
+        loop {
+            let next = {
+                let instances = registry.instances.borrow();
+                match cursor {
+                    None => instances.iter().next(),
+                    Some(id) => instances
+                        .range((std::ops::Bound::Excluded(id), std::ops::Bound::Unbounded))
+                        .next(),
+                }
+                .filter(|(id, _)| ceiling.is_some_and(|ceiling| **id <= ceiling))
+                .map(|(id, owner)| (*id, owner.clone()))
+            };
+            let Some((id, owner)) = next else { break };
+            cursor = Some(id);
+            // No registry borrow may survive last-Rc destruction: retirement
+            // can cancel native transports and invoke their cleanup closures.
+            if let Some(owner) = owner.upgrade() {
+                owner.finish_platform_task_checkpoint()?;
+            }
+        }
+    }
+    // The target remains covered if no isolate registry is installed.
+    if scope.get_slot::<BindingStateRegistry>().is_none() {
+        state.finish_platform_task_checkpoint()?;
+    }
+    Ok(())
+}
+
 impl Notification {
     fn finish_idb_callback(
         &mut self,
@@ -158,30 +193,7 @@ impl Notification {
         // retain a suffix, but must not replay an already executed callback.
         self.idb_callback_checkpoint_pending = false;
         scope.perform_microtask_checkpoint();
-        if let Some(registry) = scope.get_slot::<BindingStateRegistry>() {
-            let ceiling = registry.instances.borrow().keys().next_back().copied();
-            let mut cursor = None;
-            loop {
-                let next = {
-                    let instances = registry.instances.borrow();
-                    match cursor {
-                        None => instances.iter().next(),
-                        Some(id) => instances
-                            .range((std::ops::Bound::Excluded(id), std::ops::Bound::Unbounded))
-                            .next(),
-                    }
-                    .filter(|(id, _)| ceiling.is_some_and(|ceiling| **id <= ceiling))
-                    .map(|(id, owner)| (*id, owner.clone()))
-                };
-                let Some((id, owner)) = next else { break };
-                cursor = Some(id);
-                // No registry borrow may survive last-Rc destruction: retirement
-                // can cancel native transports and invoke their cleanup closures.
-                if let Some(owner) = owner.upgrade() {
-                    owner.finish_platform_task_checkpoint()?;
-                }
-            }
-        }
+        finish_idb_task_checkpoint(scope, state)?;
         Ok(!state.execution_suspended() && !scope.is_execution_terminating())
     }
     pub(in super::super) fn new(creator: crate::worker_wire::Creator, payload: Payload) -> Self {
