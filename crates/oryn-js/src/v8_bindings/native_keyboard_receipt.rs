@@ -218,6 +218,9 @@ impl SelectionJob {
     }
 }
 pub(super) struct EditJob {
+    deletion_plan: Option<Rc<selection_movement::PreparedMovement>>,
+    deletion_allocation: Option<std::sync::Arc<dyn Send + Sync>>,
+    deletion_original: Option<(SelectionSnapshot, Option<u64>, u64)>,
     target: oryn_dom::TrackedNodeLease,
     generation: u64,
     epoch: u64,
@@ -242,6 +245,9 @@ impl EditJob {
             event: None,
             changed: false,
             transaction: None,
+            deletion_plan: None,
+            deletion_allocation: None,
+            deletion_original: None,
         })
     }
     fn current(&self, state: &Rc<V8BindingState>) -> Option<NodeId> {
@@ -268,6 +274,71 @@ impl EditJob {
                 0 | 2 => {
                     if self.phase == 2 && !self.changed {
                         return Ok(Some(()));
+                    }
+                    if self.event.is_none() {
+                        if self.phase == 0
+                            && self.description.deletion
+                            && !self.description.is_control
+                            && state.selection_anchor.get() == state.selection_focus.get()
+                            && let Some(unit) = deletion_granularity(&self.description)
+                        {
+                            let Some(plan) = selection_movement::prepare_movement(
+                                scope,
+                                state,
+                                "extend",
+                                if self.description.backward {
+                                    "backward"
+                                } else {
+                                    "forward"
+                                },
+                                unit,
+                            )?
+                            else {
+                                return Ok(Some(()));
+                            };
+                            let Some(range) = plan.ordered_range(state)? else {
+                                return Ok(Some(()));
+                            };
+                            if self.current(state) != Some(target)
+                                || !clipboard_actions::editable(state, target)?
+                            {
+                                self.cancel();
+                                return Ok(Some(()));
+                            }
+                            let original = (
+                                selection_snapshot(state),
+                                state.selection_range.get(),
+                                state.dom.borrow().boundary_revision(),
+                            );
+                            let _retained_scope = state.enter_retained_allocation(scope)?;
+                            let allocation = state
+                                .retained_allocation
+                                .borrow()
+                                .clone()
+                                .map(|allocation| {
+                                    allocation.reserve(
+                                        std::mem::size_of::<selection_movement::PreparedMovement>()
+                                            + 2 * std::mem::size_of::<usize>(),
+                                    )
+                                })
+                                .transpose()
+                                .map_err(V8BindingError::EventCallback)?;
+                            let plan = Rc::new(plan);
+                            let event =
+                                clipboard_actions::ClipboardNotification::editing_with_target(
+                                    scope,
+                                    state,
+                                    target,
+                                    &self.description.input_type,
+                                    range,
+                                )?;
+                            // Publish the retained plan and its event together. A failed
+                            // preparation leaves no partially installed deletion default.
+                            self.deletion_original = Some(original);
+                            self.deletion_allocation = allocation;
+                            self.deletion_plan = Some(plan);
+                            self.event = Some(event);
+                        }
                     }
                     if self.event.is_none() {
                         self.event = Some(clipboard_actions::ClipboardNotification::editing(
@@ -306,6 +377,18 @@ impl EditJob {
                     if self.description.is_control {
                         self.changed = apply_edit(scope, state, target, &self.description)?;
                     } else {
+                        if self.transaction.is_none()
+                            && let Some((original, associated, boundaries)) = self.deletion_original
+                        {
+                            synchronize_selection_range(state)?;
+                            if original != selection_snapshot(state)
+                                || associated != state.selection_range.get()
+                                || boundaries != state.dom.borrow().boundary_revision()
+                            {
+                                self.cancel();
+                                return Ok(Some(()));
+                            }
+                        }
                         if self.transaction.is_none() {
                             self.transaction = Some(retained_editing::Transaction::new(
                                 state,
@@ -314,9 +397,20 @@ impl EditJob {
                         }
                         let description = &self.description;
                         let command = if description.deletion {
-                            editing_commands::Command::Delete {
-                                forward: !description.backward,
-                                unit: deletion_granularity(description).map(str::to_owned),
+                            if let Some(plan) = self.deletion_plan.as_ref() {
+                                editing_commands::Command::DeletePrepared {
+                                    forward: !description.backward,
+                                    plan: Rc::clone(plan),
+                                    allocation: self.deletion_allocation.clone(),
+                                    original: self.deletion_original.ok_or(
+                                        V8BindingError::Allocation("modifier deletion admission"),
+                                    )?,
+                                }
+                            } else {
+                                editing_commands::Command::Delete {
+                                    forward: !description.backward,
+                                    unit: deletion_granularity(description).map(str::to_owned),
+                                }
                             }
                         } else if description.enter {
                             if description.line {
@@ -344,6 +438,9 @@ impl EditJob {
         }
     }
     pub(super) fn cancel(&mut self) {
+        self.deletion_plan = None;
+        self.deletion_allocation = None;
+        self.deletion_original = None;
         if let Some(mut event) = self.event.take() {
             event.cancel();
         }

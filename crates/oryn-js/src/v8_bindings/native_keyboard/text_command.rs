@@ -74,7 +74,8 @@ impl Receipt {
                     let alter = if extend { "extend" } else { "move" };
                     if self.owner.dom.borrow().is_editable_text_control(target) {
                         if let Some(plan) = selection_movement::prepare_control_movement(
-                            scope, &self.owner,
+                            scope,
+                            &self.owner,
                             target,
                             alter,
                             direction,
@@ -86,7 +87,8 @@ impl Receipt {
                         return Ok(true);
                     }
                     if let Some(plan) = selection_movement::prepare_movement(
-                        scope, &self.owner,
+                        scope,
+                        &self.owner,
                         alter,
                         direction,
                         text_unit(unit),
@@ -184,6 +186,61 @@ mod tests {
             .run(scope)
             .unwrap()
     }
+    #[test]
+    fn rich_word_delete_prepares_static_target_before_native_selection_change() {
+        super::super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<div id=editor contenteditable><p>abc def</p></div>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(239), 1).unwrap();
+        let node = state
+            .dom
+            .borrow()
+            .get_element_by_id(state.document_root(), "editor")
+            .unwrap()
+            .unwrap();
+        for behavior in ["accept", "cancel", "selection"] {
+            eval(
+                scope,
+                "globalThis.editor=document.getElementById('editor');editor.innerHTML='<p>abc def</p>';editor.focus();globalThis.text=editor.firstChild.firstChild;getSelection().collapse(text,7);globalThis.events=[];globalThis.saved=null;",
+            );
+            eval(
+                scope,
+                &format!(
+                    "editor.onbeforeinput=e=>{{events.push('before');saved=e.getTargetRanges()[0];if(!e.isTrusted||e.inputType!=='deleteWordBackward'||saved.startContainer!==text||saved.endContainer!==text||saved.startOffset!==4||saved.endOffset!==7||saved!==e.getTargetRanges()[0])throw Error('word target');if(text.data!=='abc def'||getSelection().anchorNode!==text||getSelection().anchorOffset!==7)throw Error('early selection');if({behavior:?}==='cancel')e.preventDefault();if({behavior:?}==='selection')getSelection().collapse(text,1)}};editor.oninput=e=>{{events.push('input');if(e.getTargetRanges().length!==0)throw Error('input ranges')}};"
+                ),
+            );
+            let mut command = Receipt::new(
+                state.clone(),
+                node,
+                TextCommand::Delete {
+                    backward: true,
+                    unit: crate::composition::TextUnit::Word,
+                },
+            )
+            .unwrap();
+            let mut completed = false;
+            for _ in 0..128 {
+                completed = command.poll(scope).unwrap();
+                if completed {
+                    break;
+                }
+            }
+            assert!(completed);
+            if behavior == "accept" {
+                assert!(eval(scope,"!editor.textContent.includes('def')&&editor.textContent.startsWith('abc')&&events.join()==='before,input'&&saved.startOffset===4&&saved.endOffset===7").is_true());
+            } else {
+                assert!(eval(scope,&format!("text.data==='abc def'&&events.join()==='before'&&getSelection().anchorNode===text&&getSelection().anchorOffset==={}&&saved.startOffset===4&&saved.endOffset===7",if behavior=="cancel" {7}else{1})).is_true());
+            }
+        }
+    }
+
     #[test]
     fn document_boundary_delete_retains_beforeinput_and_commits_once() {
         super::super::super::tests::initialize_v8();

@@ -914,6 +914,98 @@ fn edit_with_deletion_unit(
     };
     let data =
         (!description.deletion && !description.enter).then_some(description.replacement.as_str());
+    let planned = if description.deletion
+        && !description.is_control
+        && state.selection_anchor.get() == state.selection_focus.get()
+        && let Some(unit) = deletion_granularity(&description)
+    {
+        let Some(plan) = selection_movement::prepare_movement(
+            scope,
+            state,
+            "extend",
+            if description.backward {
+                "backward"
+            } else {
+                "forward"
+            },
+            unit,
+        )?
+        else {
+            return Ok(());
+        };
+        if !live(state, target, generation, epoch) || !clipboard_actions::editable(state, target)? {
+            return Ok(());
+        }
+        let _retained_scope = state.enter_retained_allocation(scope)?;
+        let allocation = state
+            .retained_allocation
+            .borrow()
+            .clone()
+            .map(|allocation| {
+                allocation.reserve(
+                    std::mem::size_of::<selection_movement::PreparedMovement>()
+                        + 2 * std::mem::size_of::<usize>(),
+                )
+            })
+            .transpose()
+            .map_err(V8BindingError::EventCallback)?;
+        Some((
+            Rc::new(plan),
+            (
+                selection_snapshot(state),
+                state.selection_range.get(),
+                state.dom.borrow().boundary_revision(),
+            ),
+            allocation,
+        ))
+    } else {
+        None
+    };
+    if let Some((plan, original, _allocation)) = planned {
+        let Some(range) = plan.ordered_range(state)? else {
+            return Ok(());
+        };
+        if !clipboard_actions::dispatch_prepared_editing(
+            scope,
+            state,
+            target,
+            &description.input_type,
+            range,
+        )? || !live(state, target, generation, epoch)
+            || !clipboard_actions::editable(state, target)?
+            || state.dom.borrow().is_inert(target)?
+            || css_suppresses_focus_in_scope(scope, state, target)?
+            || state.dom.borrow().is_editable_text_control(target) != description.is_control
+            || original.0 != selection_snapshot(state)
+            || original.1 != state.selection_range.get()
+            || original.2 != state.dom.borrow().boundary_revision()
+        {
+            return Ok(());
+        }
+        let changed = editing_commands::run(
+            scope,
+            state,
+            &description.input_type,
+            editing_commands::Command::DeletePrepared {
+                forward: !description.backward,
+                plan,
+                original,
+                allocation: _allocation,
+            },
+        )?;
+        if changed && live(state, target, generation, epoch) {
+            clipboard_actions::fire_editing(
+                scope,
+                state,
+                target,
+                "input",
+                &description.input_type,
+                None,
+                None,
+            )?;
+        }
+        return Ok(());
+    }
     if !clipboard_actions::fire_editing(
         scope,
         state,

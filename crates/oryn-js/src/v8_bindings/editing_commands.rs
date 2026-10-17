@@ -17,6 +17,12 @@ pub(super) enum Command {
         unit: Option<String>,
     },
     LineBreak,
+    DeletePrepared {
+        forward: bool,
+        plan: Rc<selection_movement::PreparedMovement>,
+        allocation: Option<std::sync::Arc<dyn Send + Sync>>,
+        original: (SelectionSnapshot, Option<u64>, u64),
+    },
     Paragraph,
 }
 impl Command {
@@ -33,7 +39,10 @@ impl Command {
         Box::pin(async move {
             let state: &V8BindingState = &context.state;
             let preserve_typing = match &self {
-                Self::Delete { .. } | Self::LineBreak | Self::Paragraph => true,
+                Self::Delete { .. }
+                | Self::DeletePrepared { .. }
+                | Self::LineBreak
+                | Self::Paragraph => true,
                 Self::Execute { command, .. } => matches!(
                     command.as_str(),
                     "delete"
@@ -72,6 +81,24 @@ impl Command {
                     editing_algorithms::delete_selection_direction(&context, forward).await?;
                 }
                 Self::LineBreak => editing_algorithms::insert_editing_line_break(&context).await?,
+                Self::DeletePrepared {
+                    forward,
+                    plan,
+                    original,
+                    allocation: _allocation,
+                } => {
+                    synchronize_selection_range(state)?;
+                    if original.0 != selection_snapshot(state)
+                        || original.1 != state.selection_range.get()
+                        || original.2 != state.dom.borrow().boundary_revision()
+                    {
+                        return Ok(());
+                    }
+                    // Undo captures the original caret before this native
+                    // commit; no second segmentation or Selection beforeinput.
+                    plan.commit(state)?;
+                    editing_algorithms::delete_selection_direction(&context, forward).await?;
+                }
                 Self::Paragraph => editing_algorithms::split_editing_paragraph(&context).await?,
                 Self::Execute {
                     command,

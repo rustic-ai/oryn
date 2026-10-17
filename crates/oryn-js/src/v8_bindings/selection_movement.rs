@@ -1201,9 +1201,14 @@ pub(super) fn pointer_exclusion_boundary(
 fn caret_at_native_point(
     scope: &mut v8::PinScope,
     state: &V8BindingState,
-    target: NodeId, x: f64, y: f64, editing_only: bool,
+    target: NodeId,
+    x: f64,
+    y: f64,
+    editing_only: bool,
 ) -> Result<Option<BoundaryPoint>, V8BindingError> {
-    if !x.is_finite() || !y.is_finite() || state.execution_retired() { return Ok(None); }
+    if !x.is_finite() || !y.is_finite() || state.execution_retired() {
+        return Ok(None);
+    }
     refresh_layout_in_scope(scope, state)?;
     caret_at_native_point_snapshot(state, target, x, y, editing_only)
 }
@@ -1290,20 +1295,33 @@ impl ControlMovement {
         scope: &mut v8::PinScope,
         state: &Rc<V8BindingState>,
     ) -> Result<(), V8BindingError> {
-if state.execution_retired() || state.execution_suspended()
-    || state.document_generation() != self.generation
-    || state.document_stream_epoch() != self.epoch
-    || state.document_authority_epoch() != self.authority
-{ return Ok(()); }
-let dom = state.dom.borrow();
-if !dom.is_connected(self.node)? || dom.node_document(self.node)? != Some(state.document_root())
-    || dom.control_disabled(self.node)? || dom.control_edit_value(self.node)? != self.value
-{ return Ok(()); }
-drop(dom);
-let length = oryn_dom::dom_string::len(&self.value) as u32;
-let current = state.text_control_selections.borrow().get(&self.node).cloned()
-    .unwrap_or((length, length, "none".into()));
-if current != self.old { return Ok(()); }
+        if state.execution_retired()
+            || state.execution_suspended()
+            || state.document_generation() != self.generation
+            || state.document_stream_epoch() != self.epoch
+            || state.document_authority_epoch() != self.authority
+        {
+            return Ok(());
+        }
+        let dom = state.dom.borrow();
+        if !dom.is_connected(self.node)?
+            || dom.node_document(self.node)? != Some(state.document_root())
+            || dom.control_disabled(self.node)?
+            || dom.control_edit_value(self.node)? != self.value
+        {
+            return Ok(());
+        }
+        drop(dom);
+        let length = oryn_dom::dom_string::len(&self.value) as u32;
+        let current = state
+            .text_control_selections
+            .borrow()
+            .get(&self.node)
+            .cloned()
+            .unwrap_or((length, length, "none".into()));
+        if current != self.old {
+            return Ok(());
+        }
         if self.next != self.old {
             queue_control_select(scope, state, self.node)?;
             state
@@ -1551,7 +1569,8 @@ pub(super) fn modify_control(
     if !state.dom.borrow().is_editable_text_control(node) {
         return Ok(false);
     }
-    if let Some(plan) = prepare_control_movement(scope, state, node, alter, direction, granularity)? {
+    if let Some(plan) = prepare_control_movement(scope, state, node, alter, direction, granularity)?
+    {
         plan.commit(scope, state)?;
     }
     Ok(true)
@@ -1577,6 +1596,30 @@ pub(super) struct PreparedMovement {
     caret: Option<((u64, usize), f64)>,
 }
 impl PreparedMovement {
+    pub(super) fn ordered_range(
+        &self,
+        state: &V8BindingState,
+    ) -> Result<Option<RangeRecord>, V8BindingError> {
+        let Some((anchor, focus)) = self.boundaries else {
+            return Ok(None);
+        };
+        let (start, end) = if compare_boundary_points(
+            &state.dom.borrow(),
+            (anchor.container, anchor.offset),
+            (focus.container, focus.offset),
+        )? <= 0
+        {
+            (anchor, focus)
+        } else {
+            (focus, anchor)
+        };
+        Ok(Some(RangeRecord {
+            start_container: start.container,
+            start_offset: start.offset,
+            end_container: end.container,
+            end_offset: end.offset,
+        }))
+    }
     pub(super) fn select(anchor: BoundaryPoint, focus: BoundaryPoint) -> Self {
         Self {
             boundaries: Some((anchor, focus)),
@@ -1631,17 +1674,22 @@ pub(super) fn prepare_movement(
     let epoch = state.document_stream_epoch();
     let authority = state.document_authority_epoch();
     let boundaries = state.dom.borrow().boundary_revision();
-    if state.execution_retired() { return Ok(None); }
+    if state.execution_retired() {
+        return Ok(None);
+    }
     refresh_layout_in_scope(scope, state)?;
     synchronize_selection_range(state)?;
-    if state.execution_retired() || state.execution_suspended()
+    if state.execution_retired()
+        || state.execution_suspended()
         || generation != state.document_generation()
         || epoch != state.document_stream_epoch()
         || authority != state.document_authority_epoch()
         || boundaries != state.dom.borrow().boundary_revision()
         || associated != state.selection_range.get()
         || original != selection_snapshot(state)
-    { return Ok(None); }
+    {
+        return Ok(None);
+    }
     prepare_movement_snapshot(state, alter, direction, granularity)
 }
 
@@ -1653,7 +1701,9 @@ pub(super) fn modify_snapshot(
     direction: &str,
     granularity: &str,
 ) -> Result<(), V8BindingError> {
-    if granularity == "page" { return Ok(()); }
+    if granularity == "page" {
+        return Ok(());
+    }
     if let Some(plan) = prepare_movement_snapshot(state, alter, direction, granularity)? {
         plan.commit(state)?;
     }
@@ -1940,44 +1990,75 @@ mod tests {
     }
 
     #[test]
-fn selection_snapshot_movement_rejects_retired_owner_without_projection() {
-    super::super::tests::initialize_v8();
-    let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<body>text</body>").into_runtime().unwrap()));
-    let mut isolate = v8::Isolate::new(Default::default());
-    v8::scope!(let scope, &mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
-    let state = install_generated_bindings(scope, context, dom, RealmId(219), 1).unwrap();
-    state.retire_execution();
-    assert!(prepare_movement_snapshot(&state, "extend", "forward", "character").unwrap().is_none());
-    assert!(modify_snapshot(&state, "extend", "forward", "character").is_ok());
-    assert!(state.selection_anchor.get().is_none());
-}
+    fn selection_snapshot_movement_rejects_retired_owner_without_projection() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>text</body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(219), 1).unwrap();
+        state.retire_execution();
+        assert!(
+            prepare_movement_snapshot(&state, "extend", "forward", "character")
+                .unwrap()
+                .is_none()
+        );
+        assert!(modify_snapshot(&state, "extend", "forward", "character").is_ok());
+        assert!(state.selection_anchor.get().is_none());
+    }
 
-#[test]
-fn control_movement_does_not_overwrite_retargeted_value_or_selection() {
-    super::super::tests::initialize_v8();
-    let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<input id=x value=abcdef>").into_runtime().unwrap()));
-    let node = dom.borrow().find_by_id("x").unwrap();
-    let mut isolate = v8::Isolate::new(Default::default());
-    v8::scope!(let scope, &mut isolate);
-    let context = v8::Context::new(scope, Default::default());
-    let scope = &mut v8::ContextScope::new(scope, context);
-    let state = install_generated_bindings(scope, context, dom, RealmId(220), 1).unwrap();
-    state.text_control_selections.borrow_mut().insert(node, (0,0,"none".into()));
-    let plan = prepare_control_movement(scope, &state, node, "move", "forward", "character").unwrap().unwrap();
-    state.text_control_selections.borrow_mut().insert(node, (4,4,"none".into()));
-    plan.commit(scope, &state).unwrap();
-    assert_eq!(state.text_control_selections.borrow().get(&node).unwrap().0, 4);
-    let plan = prepare_control_movement(scope, &state, node, "move", "forward", "character").unwrap().unwrap();
-    let code = v8::String::new(scope, "document.getElementById('x').value='z'").unwrap();
-    v8::Script::compile(scope,code,None).unwrap().run(scope).unwrap();
-    let observed = state.text_control_selections.borrow().get(&node).cloned();
-    plan.commit(scope, &state).unwrap();
-    assert_eq!(state.text_control_selections.borrow().get(&node).cloned(), observed);
-}
+    #[test]
+    fn control_movement_does_not_overwrite_retargeted_value_or_selection() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<input id=x value=abcdef>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let node = dom.borrow().find_by_id("x").unwrap();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(220), 1).unwrap();
+        state
+            .text_control_selections
+            .borrow_mut()
+            .insert(node, (0, 0, "none".into()));
+        let plan = prepare_control_movement(scope, &state, node, "move", "forward", "character")
+            .unwrap()
+            .unwrap();
+        state
+            .text_control_selections
+            .borrow_mut()
+            .insert(node, (4, 4, "none".into()));
+        plan.commit(scope, &state).unwrap();
+        assert_eq!(
+            state.text_control_selections.borrow().get(&node).unwrap().0,
+            4
+        );
+        let plan = prepare_control_movement(scope, &state, node, "move", "forward", "character")
+            .unwrap()
+            .unwrap();
+        let code = v8::String::new(scope, "document.getElementById('x').value='z'").unwrap();
+        v8::Script::compile(scope, code, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let observed = state.text_control_selections.borrow().get(&node).cloned();
+        plan.commit(scope, &state).unwrap();
+        assert_eq!(
+            state.text_control_selections.borrow().get(&node).cloned(),
+            observed
+        );
+    }
 
-#[test]
+    #[test]
     fn native_point_caret_rejects_disabled_detached_and_nonfinite_targets() {
         super::super::tests::initialize_v8();
         let dom = Rc::new(RefCell::new(
@@ -2009,7 +2090,11 @@ fn control_movement_does_not_overwrite_retargeted_value_or_selection() {
                 offset: 0
             })
         );
-        assert!(pointer_caret(scope, &state, disabled, 5., 5.).unwrap().is_none());
+        assert!(
+            pointer_caret(scope, &state, disabled, 5., 5.)
+                .unwrap()
+                .is_none()
+        );
         assert!(
             pointer_caret(scope, &state, enabled, f64::NAN, 5.)
                 .unwrap()
@@ -2021,9 +2106,17 @@ fn control_movement_does_not_overwrite_retargeted_value_or_selection() {
             .unwrap()
             .run(scope)
             .unwrap();
-        assert!(pointer_caret(scope, &state, enabled, 5., 5.).unwrap().is_none());
+        assert!(
+            pointer_caret(scope, &state, enabled, 5., 5.)
+                .unwrap()
+                .is_none()
+        );
         state.retire_execution();
-        assert!(pointer_caret(scope, &state, plain, 5., 5.).unwrap().is_none());
+        assert!(
+            pointer_caret(scope, &state, plain, 5., 5.)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -2044,10 +2137,15 @@ fn control_movement_does_not_overwrite_retargeted_value_or_selection() {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
-        assert!(pointer_caret(scope, &state, inside, 1., 1.).unwrap().is_none());
+        assert!(
+            pointer_caret(scope, &state, inside, 1., 1.)
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(
             pointer_exclusion_boundary(
-                scope, &state,
+                scope,
+                &state,
                 inside,
                 BoundaryPoint {
                     container: after,
@@ -2062,7 +2160,8 @@ fn control_movement_does_not_overwrite_retargeted_value_or_selection() {
         );
         assert_eq!(
             pointer_exclusion_boundary(
-                scope, &state,
+                scope,
+                &state,
                 inside,
                 BoundaryPoint {
                     container: parent,
