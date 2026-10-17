@@ -224,7 +224,8 @@ impl NativeRule {
         let CssRule::FontFace(rule) = &self.rule else {
             return Err("native rule is not FontFace".into());
         };
-        let guard = self.owner.shared_lock().read();
+        let shared_lock = self.owner.shared_lock();
+        let guard = shared_lock.read();
         font_descriptor_axes(&rule.read_with(&guard).descriptors)
     }
 }
@@ -331,7 +332,7 @@ impl NativeFontShorthand {
         use style::values::{computed::font::SingleFontFamily, specified::font::FontFamily};
         self.declarations.declarations.iter().any(|d|match d {
             PropertyDeclaration::FontFamily(value)=>match value {
-                FontFamily::Values(list)=>list.iter().any(|f|matches!(f,SingleFontFamily::FamilyName(n) if n.name.eq_ignore_ascii_case(family))),
+                FontFamily::Values(list)=>list.iter().any(|f|matches!(f,SingleFontFamily::FamilyName(n) if <str>::eq_ignore_ascii_case(n.name.as_ref(), family))),
                 _=>false,
             },
             _=>false,
@@ -350,7 +351,7 @@ impl NativeFontShorthand {
         use style::values::{computed::font::SingleFontFamily, specified::font::FontFamily};
         self.declarations.declarations.iter().any(|d| match d {
             PropertyDeclaration::FontFamily(FontFamily::Values(list)) => list.iter().nth(index)
-                .is_some_and(|f| matches!(f, SingleFontFamily::FamilyName(n) if n.name.eq_ignore_ascii_case(family))),
+                .is_some_and(|f| matches!(f, SingleFontFamily::FamilyName(n) if <str>::eq_ignore_ascii_case(n.name.as_ref(), family))),
             _ => false,
         })
     }
@@ -576,7 +577,7 @@ pub fn parse_native_font_shorthand_typed(
         None,
         style_traits::ParsingMode::DEFAULT,
         QuirksMode::NoQuirks,
-        None,
+        style::stylesheets::CssRuleType::Style,
     )
     .map_err(|_|NativeFontShorthandError::Syntax)?;
     admission.checkpoint().map_err(NativeFontShorthandError::Resource)?;

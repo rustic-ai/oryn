@@ -45,7 +45,6 @@ fn font_projected_text<W: std::fmt::Write>(
     replacement: Option<style::font_face::DescriptorId>,
     out: &mut W,
 ) -> Result<(), String> {
-    use std::fmt::Write;
     for index in 0..style::font_face::DescriptorId::COUNT {
         let id =
             style::font_face::DescriptorId::at(index).ok_or("native descriptor index absent")?;

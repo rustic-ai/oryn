@@ -38,7 +38,8 @@ impl NativeRule {
             _ => None,
         };
         let bytes = if let Some(media) = &media {
-            let guard = self.owner.shared_lock().read();
+            let shared_lock = self.owner.shared_lock();
+            let guard = shared_lock.read();
             let mut count = FontDescriptorCount::default();
             media
                 .read_with(&guard)
@@ -52,7 +53,8 @@ impl NativeRule {
         admission.checkpoint()?;
         let mut text = String::new();
         text.try_reserve_exact(bytes).map_err(|e| e.to_string())?;
-        let guard = self.owner.shared_lock().read();
+        let shared_lock = self.owner.shared_lock();
+        let guard = shared_lock.read();
         if let Some(media) = &media {
             media
                 .read_with(&guard)
@@ -86,7 +88,8 @@ impl NativeImport {
     ) -> Result<NativeFontImportCondition, String> {
         use style_traits::ToCss;
         let (media_bytes, support_bytes) = {
-            let guard = self.parent.shared_lock().read();
+            let shared_lock = self.parent.shared_lock();
+            let guard = shared_lock.read();
             let mut media = FontDescriptorCount::default();
             self.media
                 .read_with(&guard)
@@ -114,7 +117,8 @@ impl NativeImport {
         supports
             .try_reserve_exact(support_bytes)
             .map_err(|e| e.to_string())?;
-        let guard = self.parent.shared_lock().read();
+        let shared_lock = self.parent.shared_lock();
+        let guard = shared_lock.read();
         self.media
             .read_with(&guard)
             .to_css(&mut style_traits::CssWriter::new(&mut FontBoundedWriter {

@@ -41,7 +41,8 @@ impl NativeConnectedFontReadContext {
             .map_err(|_| "unknown FontFace descriptor")?;
         self.current()?;
         let bytes = {
-            let guard = self.rule.owner.shared_lock().read();
+            let shared_lock = self.rule.owner.shared_lock();
+            let guard = shared_lock.read();
             let d = &self.original.read_with(&guard).descriptors;
             let mut count = FontDescriptorCount::default();
             d.get_with_writer(id, &mut count)
@@ -52,7 +53,8 @@ impl NativeConnectedFontReadContext {
         admission.checkpoint()?;
         let mut value = String::new();
         value.try_reserve_exact(bytes).map_err(|e| e.to_string())?;
-        let guard = self.rule.owner.shared_lock().read();
+        let shared_lock = self.rule.owner.shared_lock();
+        let guard = shared_lock.read();
         self.current()?;
         self.original
             .read_with(&guard)
@@ -76,7 +78,8 @@ impl NativeConnectedFontReadContext {
     ) -> Result<NativeConstructedDescriptor, String> {
         self.current()?;
         let bytes = {
-            let guard = self.rule.owner.shared_lock().read();
+            let shared_lock = self.rule.owner.shared_lock();
+            let guard = shared_lock.read();
             self.original
                 .read_with(&guard)
                 .descriptors
@@ -88,7 +91,8 @@ impl NativeConnectedFontReadContext {
         admission.checkpoint()?;
         let mut value = String::new();
         value.try_reserve_exact(bytes).map_err(|e| e.to_string())?;
-        let guard = self.rule.owner.shared_lock().read();
+        let shared_lock = self.rule.owner.shared_lock();
+        let guard = shared_lock.read();
         self.current()?;
         if let Some(f) = &self.original.read_with(&guard).descriptors.font_family {
             if f.name.len() > bytes {
@@ -102,12 +106,14 @@ impl NativeConnectedFontReadContext {
         })
     }
     pub fn axes(&self) -> Result<NativeFontAxes, String> {
-        let guard = self.rule.owner.shared_lock().read();
+        let shared_lock = self.rule.owner.shared_lock();
+        let guard = shared_lock.read();
         self.current()?;
         font_descriptor_axes(&self.original.read_with(&guard).descriptors)
     }
     pub fn intersects_text(&self, text: &str) -> Result<bool, String> {
-        let guard = self.rule.owner.shared_lock().read();
+        let shared_lock = self.rule.owner.shared_lock();
+        let guard = shared_lock.read();
         self.current()?;
         let d = &self.original.read_with(&guard).descriptors;
         Ok(text.chars().any(|ch| {
@@ -315,7 +321,8 @@ impl NativeConnectedFontReadContext {
             .checked_add(1)
             .ok_or("font descriptor revision exhausted")?;
         let base = {
-            let guard = self.rule.owner.shared_lock().read();
+            let shared_lock = self.rule.owner.shared_lock();
+            let guard = shared_lock.read();
             self.rule.owner.sheet.contents(&guard).url_data.clone()
         };
         let allocation = admission.reserve(
