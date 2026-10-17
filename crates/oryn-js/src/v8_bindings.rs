@@ -28349,7 +28349,7 @@ fn call_platform_operation<'s>(
         }
         ("IDBTransaction", "objectStore") => {
             let name = required_string(scope, args, 0)?;
-            let (finished, active, in_scope) = {
+            let (finished, in_scope) = {
                 let record = platform_object(state, id)?;
                 let PlatformObjectRecord::IdbTransaction(transaction) = &*record else {
                     return Err(V8BindingError::Allocation("IDBTransaction record"));
@@ -28360,7 +28360,6 @@ fn call_platform_operation<'s>(
                 };
                 (
                     transaction.aborted || transaction.explicit_commit || transaction.finished,
-                    transaction.active,
                     transaction.object_stores.contains(&name),
                 )
             };
@@ -28368,12 +28367,6 @@ fn call_platform_operation<'s>(
                 return Err(V8BindingError::Unsupported {
                     interface: "IDBTransaction".into(),
                     member: "InvalidStateError".into(),
-                });
-            }
-            if !active {
-                return Err(V8BindingError::Unsupported {
-                    interface: "IDBTransaction".into(),
-                    member: "TransactionInactiveError".into(),
                 });
             }
             if !in_scope {
@@ -61250,6 +61243,63 @@ target.srcdoc='raw';
                 .to_rust_string_lossy(scope),
             "passed:11"
         );
+    }
+
+    #[test]
+    fn indexeddb_object_store_metadata_access_when_inactive_preserves_exception_order() {
+        initialize_v8();
+        let dom=Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+        let mut isolate=v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope,&mut isolate);
+        let context=v8::Context::new(scope,Default::default());
+        let scope=&mut v8::ContextScope::new(scope,context);
+        let state=install_generated_bindings(scope,context,dom,RealmId(0),1).unwrap();
+        state.commit_location("https://example.test/").unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source=v8::String::new(scope,r#"
+            globalThis.metadataResult='pending';
+            const opening=indexedDB.open('inactive-metadata',2);
+            opening.onupgradeneeded=()=>{opening.result.createObjectStore('records');opening.result.createObjectStore('other');};
+            opening.onsuccess=()=>{
+                const tx=opening.result.transaction(['records','other'],'readonly');
+                globalThis.metadataTx=tx;
+                globalThis.metadataStore=tx.objectStore('records');
+                globalThis.metadataRead=metadataStore.get(1);
+            };
+        "#).unwrap();
+        test_eval::run(scope,source);
+        for _ in 0..32 {
+            state.drain_platform_completions(scope,1).unwrap();
+            scope.perform_microtask_checkpoint();
+            if test_eval::eval(scope,"typeof metadataRead!=='undefined'").is_true(){break}
+        }
+        let id={
+            let objects=state.platform_objects.borrow();
+            objects.iter().find_map(|(id,record)|match record{
+                PlatformObjectRecord::IdbTransaction(tx) if tx.mode=="readonly"=>Some(*id),_=>None,
+            }).unwrap()
+        };
+        {
+            let object=platform_object(&state,id).unwrap();
+            let PlatformObjectRecord::IdbTransaction(tx)=&*object else{unreachable!()};
+            assert!(!tx.finished&&!tx.aborted&&!tx.explicit_commit);
+            assert!(tx.pending_requests>0);
+            assert!(!tx.active);
+        }
+        let source=v8::String::new(scope,r#"
+            const marker={};let reads=0;
+            function throws(name,fn){try{fn();return false}catch(e){return e.name===name}}
+            metadataResult=[
+                metadataTx.objectStore('records')===metadataStore,
+                metadataTx.objectStore('other').name==='other',
+                throws('NotFoundError',()=>metadataTx.objectStore('missing')),
+                throws('TransactionInactiveError',()=>metadataStore.get(1)),
+                (()=>{try{metadataTx.objectStore({toString(){reads++;throw marker}})}catch(e){return e===marker&&reads===1}})()
+            ];
+        "#).unwrap();test_eval::run(scope,source);
+        let source=v8::String::new(scope,"metadataTx.abort();metadataResult.push(throws('InvalidStateError',()=>metadataTx.objectStore('missing')));metadataResult.every(Boolean)").unwrap();
+        assert!(test_eval::run(scope,source).is_true());
     }
 
     #[test]
