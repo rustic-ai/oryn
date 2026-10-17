@@ -19,6 +19,15 @@ pub struct ServeArgs {
     pub configuration: PathBuf,
     #[arg(long)]
     pub configuration_sha256: String,
+    /// Original canonical admission-selected manifest, never fixture self-identity.
+    #[arg(long)]
+    pub admitted_candidate_manifest: Option<PathBuf>,
+    #[arg(long)]
+    pub admitted_candidate_manifest_raw_sha256: Option<String>,
+    #[arg(long)]
+    pub admitted_candidate_sha256: Option<String>,
+    #[arg(long)]
+    pub admitted_runtime_sha256: Option<String>,
     #[arg(long, default_value_t = 1)]
     pub max_sessions: usize,
     /// Explicit private regular-file diagnostic capability; never discovered from environment.
@@ -45,6 +54,13 @@ impl ServeArgs {
         if let Some(fd) = self.diagnostic_fd {
             args.extend(["--diagnostic-fd".into(), fd.to_string().into()]);
         }
+        for(name,value)in [
+            ("--admitted-candidate-manifest",self.admitted_candidate_manifest.as_ref().map(|path|path.as_os_str().to_owned())),
+            ("--admitted-candidate-manifest-raw-sha256",self.admitted_candidate_manifest_raw_sha256.as_ref().map(Into::into)),
+            ("--admitted-candidate-sha256",self.admitted_candidate_sha256.as_ref().map(Into::into)),
+            ("--admitted-runtime-sha256",self.admitted_runtime_sha256.as_ref().map(Into::into))]{
+            if let Some(value)=value{args.extend([name.into(),value]);}
+        }
         args
     }
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -56,7 +72,14 @@ impl ServeArgs {
             "runtime_initialization",
             serde_json::Value::Null,
         );
-        let fixture = Fixture::load(&self.configuration, &self.configuration_sha256)?;
+        let fixture = match (&self.admitted_candidate_manifest,
+            &self.admitted_candidate_manifest_raw_sha256,&self.admitted_candidate_sha256,
+            &self.admitted_runtime_sha256){
+            (None,None,None,None)=>Fixture::load(&self.configuration,&self.configuration_sha256)?,
+            (Some(path),Some(raw),Some(candidate),Some(runtime))=>Fixture::load_admitted(
+                &self.configuration,&self.configuration_sha256,path,raw,candidate,runtime)?,
+            _=>return Err("incomplete admitted candidate launch identity".into()),
+        };
         let (browser, options) = fixture.configure(
             oryn_native::Browser::try_with_config(Default::default())?,
             oryn_native::ContextOptions::loopback_test(),

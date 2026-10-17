@@ -920,6 +920,10 @@ fn native_storage_partition(context_id: u64, origin: &SecurityOrigin) -> String 
     }
 }
 
+include!("support_fixture_access.rs");
+include!("support_parent_validation.rs");
+include!("support_root_epoch.rs");
+include!("support_context_export.rs");
 #[derive(Debug, Clone)]
 pub struct Browser {
     config: BrowserConfig,
@@ -935,6 +939,8 @@ pub struct Browser {
 struct FixtureNetwork {
     ca_pem: Vec<Vec<u8>>,
     endpoints: crate::network::EndpointRoutes,
+    // Parent-only, fixed pinned descriptor. Never serialized to worker config.
+    support: Option<crate::support_descriptor::PinnedSupportDescriptor>,
 }
 
 #[derive(Clone)]
@@ -3006,7 +3012,19 @@ impl Browser {
         oryn_net::RustlsTransport::new(self.config.request_timeout, self.config.max_response_bytes)
             .and_then(|transport| transport.with_trusted_roots(&ca_pem))
             .map_err(|error| crate::network::NetworkError::Transport(error.to_string()))?;
-        self.fixture_network = Some(Arc::new(FixtureNetwork { ca_pem, endpoints }));
+        self.fixture_network = Some(Arc::new(FixtureNetwork { ca_pem, endpoints, support: None }));
+        Ok(self)
+    }
+
+    /// Native fixture issuer only; no page/protocol callback accepts this.
+    pub fn with_fixture_support(mut self, descriptor: crate::support_descriptor::PinnedSupportDescriptor)
+        -> Result<Self, RuntimeError> {
+        let fixture = self.fixture_network.as_mut().and_then(Arc::get_mut)
+            .ok_or_else(|| RuntimeError::ContextService("support fixture must precede context publication".into()))?;
+        if fixture.support.is_some() {
+            return Err(RuntimeError::ProtocolViolation("support fixture already installed".into()));
+        }
+        fixture.support = Some(descriptor);
         Ok(self)
     }
 

@@ -959,6 +959,16 @@ impl Session {
         }
         Ok(serde_json::json!({"schema_version":1,"pages":pages}))
     }
+    #[cfg(unix)]
+    pub fn parent_support_evidence(&self)->Result<serde_json::Value,CommandError>{
+        let page=self.current_page()?;
+        self.context()?.parent_support_snapshot(page.page_id())
+            .map(|value|value.unwrap_or(serde_json::Value::Null)).map_err(runtime_error)
+    }
+    #[cfg(not(unix))]
+    pub fn parent_support_evidence(&self)->Result<serde_json::Value,CommandError>{
+        Err(CommandError::invalid("native support custody unavailable on this platform"))
+    }
     pub fn execution_placement(&self, nonce: &str) -> Result<serde_json::Value, CommandError> {
         self.context()?
             .execution_placement_snapshot(nonce)

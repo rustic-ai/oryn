@@ -2673,6 +2673,13 @@ fn native_binding_stage(
     Some((hook.0)(label))
 }
 
+/// One parent-selected resource occurrence owned by its actual Document.
+/// Retirement must not invoke author callbacks or perform V8 allocation.
+pub trait NativeSupportCustody {
+    fn identity(&self) -> (NodeId, u64, u64, u64);
+    fn retire(&self);
+    fn as_any(&self) -> &dyn std::any::Any;
+}
 pub struct V8BindingState {
     animation_failure_diagnostic: web_animations::FailureDiagnostic,
     document_provenance_capture: RefCell<Option<Rc<document_provenance::Capture>>>,
@@ -2911,6 +2918,7 @@ pub struct V8BindingState {
     snapshot_inline_styles: RefCell<BTreeMap<NodeId, (u64, u64)>>,
     inline_style_checks: RefCell<BTreeMap<(NodeId, bool), inline_style_policy::Check>>,
     script_report_retirement: RefCell<Option<Rc<dyn Fn()>>>,
+    native_support_custody: RefCell<Option<Rc<dyn NativeSupportCustody>>>,
     meta_csp_policy: RefCell<Option<MetaCspPolicy>>,
     local_script_policy_capture: RefCell<Option<ScriptPolicyProvider>>,
     local_inline_script_policy: RefCell<Option<LocalInlinePolicy>>,
@@ -3804,8 +3812,33 @@ impl V8BindingState {
         self.control_tasks_retired.get()
     }
 
+    /// Native-only slot publication. Failure leaves the original slot intact.
+    pub fn install_native_support_custody(&self, custody: Rc<dyn NativeSupportCustody>)
+        -> Result<(), V8BindingError> {
+        if self.execution_retired() || self.execution_suspended()
+            || custody.identity() != (self.document_root(), self.document_generation(),
+                self.document_stream_epoch(), self.document_authority_epoch()) {
+            return Err(V8BindingError::Allocation("stale support Document custody"));
+        }
+        let mut slot = self.native_support_custody.borrow_mut();
+        if slot.is_some() {
+            return Err(V8BindingError::Allocation("duplicate support Document custody"));
+        }
+        *slot = Some(custody);
+        Ok(())
+    }
+    pub fn native_support_custody(&self) -> Option<Rc<dyn NativeSupportCustody>> {
+        if self.execution_retired() || self.execution_suspended() { return None; }
+        let slot = { self.native_support_custody.borrow().clone() };
+        slot.filter(|custody| custody.identity() == (self.document_root(),
+            self.document_generation(), self.document_stream_epoch(), self.document_authority_epoch()))
+    }
+
     /// Retire execution services without destroying detached DOM wrappers.
     pub fn retire_execution(&self) {
+        // Extract before cancellation can run native cleanup/reenter ownership.
+        let support = { self.native_support_custody.borrow_mut().take() };
+        if let Some(support) = support { support.retire(); }
         speculation_registry::clear(self);
         post_connection_scripts::retire(self);
         editing_commands::retire(self);

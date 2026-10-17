@@ -350,12 +350,18 @@ class OrynTestharnessExecutor(NavigationEvidenceMixin, WebDriverTestharnessExecu
         with phase(protocol, 'harness.create_test_window'):
             return super().create_test_window(protocol)
 
-    def __init__(self, *args, oryn_placement=None, **kwargs):
+    def __init__(self, *args, oryn_placement=None, oryn_support_descriptor=None,
+                 oryn_support_candidate=None, **kwargs):
         self._placement = oryn_placement
+        self._support_descriptor = oryn_support_descriptor
+        self._support_candidate = oryn_support_candidate
         super().__init__(*args, **kwargs)
 
     def convert_result(self, test, result, extra=None):
         converted = super().convert_result(test, result, extra=extra)
+        if self._support_descriptor is not None:
+            from .support_executor_capture import capture
+            converted = capture(self, test, converted, self._support_descriptor, self._support_candidate)
         if self._placement:
             from .placement import capture
             capture(self, test, self._placement)

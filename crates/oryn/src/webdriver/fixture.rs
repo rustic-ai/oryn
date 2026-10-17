@@ -39,6 +39,8 @@ struct Route {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Contract {
+    #[serde(default)]
+    parent_support: Option<Artifact>,
     web_features: oryn_native::NativeFeatureProfile,
     third_party_cookies: oryn_native::ThirdPartyCookiePolicy,
     #[serde(default)]
@@ -55,6 +57,7 @@ struct Contract {
 }
 
 pub struct Fixture {
+    support: Option<oryn_native::PinnedSupportDescriptor>,
     web_features: oryn_native::NativeFeatureProfile,
     third_party_cookies: oryn_native::ThirdPartyCookiePolicy,
     bluetooth_testing: bool,
@@ -279,6 +282,9 @@ fn fixture_host(host: &str) -> bool {
             })
 }
 
+include!("support_fixture_issuer.rs");
+include!("support_candidate_launch.rs");
+include!("support_fixture_load.rs");
 impl Fixture {
     #[cfg(unix)]
     pub fn load(path: &Path, expected_sha256: &str) -> Result<Self, CommandError> {
@@ -302,6 +308,9 @@ impl Fixture {
         }
         let contract: Contract =
             serde_json::from_slice(&bytes).map_err(|_| invalid("invalid fixture configuration"))?;
+        if contract.parent_support.is_some() {
+            return Err(invalid("support fixture requires canonical admitted candidate launch"));
+        }
         // Validate references by opening regular files, but never read server key
         // bytes into the browser. Upstream independently validates server artifacts.
         drop(open_artifact(&root, &contract.tls.certificate)?);
@@ -412,6 +421,7 @@ impl Fixture {
         let routes = oryn_native::network::EndpointRoutes::new(entries)
             .map_err(|_| invalid("invalid fixture endpoint mapping"))?;
         Ok(Self {
+            support: None,
             web_features: contract.web_features,
             ca,
             routes,
@@ -457,6 +467,11 @@ impl Fixture {
         let browser = browser
             .with_fixture_network(vec![self.ca], self.routes)
             .map_err(|_| invalid("fixture CA or native transport configuration rejected"))?;
+        let browser = match self.support {
+            Some(descriptor) => browser.with_fixture_support(descriptor)
+                .map_err(|_| invalid("support fixture publication rejected"))?,
+            None => browser,
+        };
         Ok((browser, options))
     }
 }
@@ -465,6 +480,7 @@ impl Fixture {
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+    include!("support_runtime_candidate_tests.rs");
 
     fn contract_json() -> Value {
         let artifact = json!({"path":"tls/ca.pem", "sha256":digest(b"public CA")});

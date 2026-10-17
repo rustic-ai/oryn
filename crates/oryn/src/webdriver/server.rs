@@ -612,6 +612,7 @@ impl Driver {
                 session.crash_qualification_worker().await
             }
             ("GET", ["oryn", "diagnostics", "navigation"]) => session.queued_navigation_evidence(),
+            ("GET", ["oryn", "diagnostics", "support-resource"]) => session.parent_support_evidence(),
             ("POST", ["oryn", "diagnostics", "placement"]) => {
                 let input = fields()?;
                 let nonce = input
@@ -766,7 +767,7 @@ fn command_methods(parts: &[&str]) -> Option<&'static [&'static str]> {
             | ["element", _, "value"]
             | ["oryn", "elements"] => Some(&["POST"]),
             ["element", _, "computedlabel"] | ["element", _, "computedrole"] => Some(&["GET"]),
-            ["oryn", "diagnostics", "navigation" | "retirement"] => Some(&["GET"]),
+            ["oryn", "diagnostics", "navigation" | "retirement" | "support-resource"] => Some(&["GET"]),
             ["oryn", "qualification", "worker-crash"] | ["oryn", "diagnostics", "placement"] => {
                 Some(&["POST"])
             }

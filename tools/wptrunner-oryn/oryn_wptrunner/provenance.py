@@ -181,6 +181,9 @@ def _load_contract(path=None, binary=None, webdriver_binary=None):
                     raise ValueError('candidate fixture repairs differ from generated source')
             result = {'feature_environment_sha256': feature_profile.environment_digest(fixture), 'feature_profile': features, 'feature_profile_sha256': feature_profile.digest(features), 'fixture_environment_sha256': cookie_profile.environment_digest(fixture), 'cookie_profile': profile, 'cookie_profile_sha256': cookie_profile.digest(profile), 'rendering_contracts': render, 'fixture_repairs': str(repairs) if repairs else None, 'fixture_repairs_sha256': digest(repairs) if repairs else None, 'path': str(contract_path), 'sha256': contract_sha256,
                     'candidate_sha256': contract['candidate']['sha256'], 'candidate': candidate,
+                    'candidate_manifest_path': str(candidate_path),
+                    'candidate_manifest_raw_sha256': contract['candidate']['sha256'],
+                    'admitted_runtime_sha256': candidate['artifacts']['runtime']['sha256'],
                     'fixture_path': str(fixture_path), 'fixture_sha256': expected_fixture, 'fixture': fixture}
             if selected is not None:
                 result['profile_envelope'] = selected

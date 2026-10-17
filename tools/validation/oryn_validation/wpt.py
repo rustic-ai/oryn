@@ -196,9 +196,12 @@ def inspect_admission(bound):
         raise ValueError('selected include list differs from exact collection')
     _check_config(assets['runner_config'], assets, collection)
     fixture_path = assets[registry['profiles'][run['profile']]['fixture']]
+    from oryn_wptrunner.support_fixture_contract import admitted_descriptor
+    support_descriptor = admitted_descriptor(fixture, fixture_path, run['build']['manifest_sha256'])
     from .fixture_tls import load_contract as tls_contract
     tls_contract(assets['fixture_tls_policy'], _digest(assets['fixture_tls_policy']), bound=bound)
     return dict(fixture=fixture, fixture_path=fixture_path, urls=urls, collection=collection,
+                parent_support_descriptor=support_descriptor,
                 python_environment=environment)
 
 
@@ -463,6 +466,15 @@ def execute(path, *, store_root, bundle_root, output, timeout_seconds=None):
                            execution=execution, assessment_total=bound['run']['expected']['assessments'])
     from wpt_execution_evidence import protocol_custody
     protocol_custody(output / 'protocol-custody.jsonl', bound['run']['build']['manifest_sha256'])
+    # The support descriptor must be selected from the immutable fixture
+    # contract by the native fixture issuer. Absence leaves the obligation
+    # unresolved; an author-provided receipt cannot opt into this branch.
+    support_descriptor = selected.get('parent_support_descriptor')
+    if support_descriptor is not None:
+        from oryn_wptrunner.support_supervisor_settlement import settle_original
+        support = settle_original(bound, output, support_descriptor)
+        with (output / 'parent-support-observation.json').open('x') as stream:
+            json.dump(support, stream, indent=2)
     with (output / 'reconciliation.json').open('x') as stream:
         json.dump(result, stream, indent=2)
     if selected['collection'] == 'canaries':

@@ -333,6 +333,7 @@ pub(super) fn create_state(
         snapshot_inline_styles: RefCell::new(BTreeMap::new()),
         inline_style_checks: RefCell::new(BTreeMap::new()),
         script_report_retirement: RefCell::new(None),
+        native_support_custody: RefCell::new(None),
         meta_csp_policy: RefCell::new(None),
         local_script_policy_capture: RefCell::new(None),
         local_inline_script_policy: RefCell::new(None),

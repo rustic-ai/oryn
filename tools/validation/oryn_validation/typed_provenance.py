@@ -67,10 +67,14 @@ def _project(bound, selected, binary=None, webdriver_binary=None):
     fixture, fixture_path = selected['fixture'], selected['fixture_path']
     features, cookies = feature_profile.from_fixture(fixture), cookie_profile.from_fixture(fixture)
     result = dict(
+        parent_support_descriptor=selected.get('parent_support_descriptor'),
         path=str(bound['path']), sha256=bound['sha256'], typed_run={key: bound['run'][key] for key in
                 ('build', 'run_id', 'profile', 'runner', 'original_run_id', 'attempt')},
         worker_binding=assert_worker_environment(bound),
         candidate_sha256=bound['run']['build']['manifest_sha256'],
+        candidate_manifest_path=str(bound['assets']['build_manifest']),
+        candidate_manifest_raw_sha256=bound['run']['assets']['build_manifest']['sha256'],
+        admitted_runtime_sha256=bound['run']['assets']['runtime']['sha256'],
         # This projection preserves the adapter's artifact access ABI. It
         # is explicitly not a legacy candidate admission/qualification.
         candidate={'artifacts': {name: {'path': str(path), 'sha256': bound['run']['assets'][name]['sha256']}

@@ -8,6 +8,7 @@ use crate::context_service::{
     ContextFrameResponseLease, ContextServiceRequest, ContextServiceResponse, SharedContextClient,
 };
 use std::sync::Arc;
+include!("support_decoder_transfer.rs");
 #[derive(Clone)]
 pub(super) struct FrameResponseBody {
     pub(super) progress: Option<crate::ipc_progress::Identity>,
@@ -31,6 +32,8 @@ impl FrameResponseBody {
         fallback: Option<&str>,
         budget: &Arc<std::sync::atomic::AtomicUsize>,
         timing: Option<oryn_js::navigation_timing::NavigationTiming>,
+        support: Option<(std::rc::Rc<oryn_js::v8_bindings::V8BindingState>,
+            std::rc::Rc<super::support_native_document::NativeSupportDocument>)>,
     ) -> Result<crate::host::DocumentStream, HostError> {
         let reservation =
             ScriptSourceReservation::reserve(budget, 264 * 1024).ok_or_else(|| {
@@ -49,6 +52,7 @@ impl FrameResponseBody {
             pending: None,
             encoding: encoding.clone(),
             done: false,
+            support: support.map(|(owner,custody)|SupportDecoderTransfer::new(&owner,custody)),
             _bytes: reservation,
         };
         Ok(crate::host::DocumentStream {
@@ -80,11 +84,14 @@ struct DecodedFrameInput {
     decoder: oryn_net::IncrementalTextDecoder,
     encoding: Arc<std::sync::Mutex<Option<&'static str>>>,
     done: bool,
+    support: Option<SupportDecoderTransfer>,
     _bytes: ScriptSourceReservation,
 }
 impl Drop for DecodedFrameInput {
     fn drop(&mut self) {
-        self.body.lease.cancel();
+        if !self.support.as_ref().is_some_and(|support|support.committed) {
+            self.body.lease.cancel();
+        }
     }
 }
 impl crate::host::DocumentInput for DecodedFrameInput {
@@ -143,7 +150,14 @@ impl crate::host::DocumentInput for DecodedFrameInput {
                                         encoded_body_size,
                                     );
                                 }
-                                self.body.lease.finish();
+                                if let Some(support)=self.support.as_mut() {
+                                    if let Err(error)=support.eof(){
+                                        self.body.lease.cancel();
+                                        return Poll::Ready(Some(Err(error)));
+                                    }
+                                } else {
+                                    self.body.lease.finish();
+                                }
                             }
                             *self.encoding.lock().expect("frame encoding") =
                                 self.decoder.encoding_name();
@@ -295,7 +309,7 @@ mod tests {
             "prepared response already retains activity"
         );
         let stream = body
-            .decoded(creator, Some("text/html".into()), None, &budget, None)
+            .decoded(creator, Some("text/html".into()), None, &budget, None, None)
             .unwrap();
         assert_eq!(
             client.resource_job_activity().0,

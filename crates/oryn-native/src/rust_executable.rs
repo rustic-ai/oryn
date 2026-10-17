@@ -243,6 +243,11 @@ mod frame_resource_preparation;
 #[cfg(unix)]
 #[path = "frame_response_stream.rs"]
 mod frame_response_stream;
+#[cfg(unix)]
+#[path = "support_native_document.rs"]
+mod support_native_document;
+#[cfg(unix)]
+include!("support_frame_selection.rs");
 #[path = "standalone_frame_resource.rs"]
 mod standalone_frame_resource;
 
@@ -8691,6 +8696,8 @@ impl RustExecutableDocument {
                 let response_body: Option<()> = None;
                 #[cfg(unix)]
                 if let Some(body) = response_body.clone() {
+                    let support = prepare_support_frame_decoder(
+                        host, realm, &body, &script_limits.source_bytes)?;
                     let stream = body.decoded(
                         host.native_creator_for_realm(realm)?,
                         content_type.clone(),
@@ -8699,6 +8706,7 @@ impl RustExecutableDocument {
                         loaded_frames
                             .get(&frame)
                             .and_then(|loaded| loaded.timing.clone()),
+                        support,
                     )?;
                     preparation.start_document_stream(stream, host, script_limits)?;
                 }
@@ -17917,12 +17925,15 @@ impl RustExecutableDocument {
                     let response_body: Option<()> = None;
                     #[cfg(unix)]
                     if let Some(body) = response_body.clone() {
+                        let support = prepare_support_frame_decoder(
+                            &self.agent.host, realm, &body, &self.dynamic_scripts.source_bytes)?;
                         let stream = body.decoded(
                             self.agent.host.native_creator_for_realm(realm)?,
                             content_type.clone(),
                             response_inherited_encoding.as_deref(),
                             &self.dynamic_scripts.source_bytes,
                             response_timing.clone(),
+                            support,
                         )?;
                         preparation.start_document_stream(
                             stream,

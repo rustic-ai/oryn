@@ -161,7 +161,7 @@ use crate::{
 #[path = "context_inventory_wire.rs"]
 mod inventory_wire;
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 59;
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NavigationNetworkAuthority {
@@ -1040,6 +1040,12 @@ pub enum ContextServiceRequest {
         stream_id: u64,
         policy: String,
     },
+    /// Native decoder selection of one already admitted parent occurrence.
+    SelectSupportFrameResponse {
+        page_id: PageId,
+        stream_id: u64,
+        creator: oryn_js::worker_wire::Creator,
+    },
     ReleaseNetworkResult {
         page_id: PageId,
         creator: Option<oryn_js::worker_wire::Creator>,
@@ -1505,6 +1511,7 @@ impl ContextServiceRequest {
             Self::ReserveScriptLoad { .. } => "ReserveScriptLoad",
             Self::CancelScriptLoad { .. } => "CancelScriptLoad",
             Self::ReleaseFrameResponseStream { .. } => "ReleaseFrameResponseStream",
+            Self::SelectSupportFrameResponse { .. } => "SelectSupportFrameResponse",
             Self::ReleaseNetworkResult { .. } => "ReleaseNetworkResult",
             Self::ValidateStylesheetResponse { .. } => "ValidateStylesheetResponse",
             Self::ReleaseStylesheetResponse { .. } => "ReleaseStylesheetResponse",
@@ -1610,6 +1617,7 @@ const fn default_http_credentials() -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case")]
 pub enum ContextServiceResponse {
+    SupportFrameResponseSelected { selected: bool },
     XsltTransformed {
         transform: oryn_js::platform::XsltResult,
     },
@@ -2739,6 +2747,9 @@ impl ContextHttpCancellation {
     }
     pub(crate) fn finish(&self) {
         self.ticket.finish_if_not_cancelled();
+    }
+    pub(crate) fn finish_support_network_activity(&self) {
+        self.ticket.finish_network_activity();
     }
 }
 #[cfg(any(test, feature = "v8-host"))]
@@ -4584,6 +4595,9 @@ impl NavigationResourceCleanup {
     }
 }
 
+include!("support_creation_bind_import.rs");
+include!("support_original_entry.rs");
+include!("support_scope_export.rs");
 pub struct ParentContextService {
     page_admitted: Mutex<bool>,
     weak_self: std::sync::OnceLock<std::sync::Weak<ParentContextService>>,
@@ -4684,7 +4698,8 @@ fn fixture_websocket_connector(
 
 struct HttpStreamState {
     preload: Option<crate::preload_cache::Candidate>,
-    operation: NetworkOperation,
+    /// None only after exact terminal consumption; proof custody may remain.
+    operation: Option<NetworkOperation>,
     current: bytes::Bytes,
     offset: usize,
     bytes_read: usize,
@@ -4729,6 +4744,8 @@ struct PageResourceOptions<'a> {
 }
 
 struct HttpStreamEntry {
+    // Fixed inline proof shares this ORIGINAL 32-slot HTTP admission.
+    support: Mutex<Option<crate::support_broker_occurrence::BrokerOccurrence>>,
     keepalive_drain: Option<crate::keepalive_drain::Ticket>,
     keepalive_context: Option<crate::runtime::WeakBrowserContext>,
     page_id: PageId,
@@ -4775,16 +4792,17 @@ fn orphan_keepalive_response(entry: Arc<HttpStreamEntry>) {
             }
             return true;
         }
-        state.operation.request_body_chunk();
-        match state.operation.try_event() {
+        let Some(operation) = state.operation.as_mut() else { return true; };
+        operation.request_body_chunk();
+        match operation.try_event() {
             Ok(NetworkEvent::Chunk { request_id, bytes })
-                if request_id == state.operation.request_id =>
+                if request_id == operation.request_id =>
             {
                 state.current = bytes;
                 false
             }
             Ok(NetworkEvent::Complete { request_id, .. })
-                if request_id == state.operation.request_id =>
+                if request_id == operation.request_id =>
             {
                 if let Some(cleanup) = &entry.cleanup {
                     if state
@@ -5719,6 +5737,11 @@ impl ParentContextService {
                         stream_epoch,
                     },
                 )?;
+                self.bind_support_occurrence(page_id, &token,
+                    &oryn_js::worker_wire::Creator::Window {
+                        target: oryn_js::message_wire::WindowTarget::Frame(frame.clone()),
+                        document_generation, stream_epoch,
+                    })?;
                 let bound_policy = context_owner.window_worker_policy(
                     page_id,
                     &oryn_js::message_wire::WindowTarget::Frame(frame.clone()),
@@ -8218,6 +8241,9 @@ impl ParentContextService {
                     token: self.script_loads.reserve_for(owner)?,
                 })
             }
+            ContextServiceRequest::SelectSupportFrameResponse { page_id, stream_id, creator } => {
+                self.select_support_frame_response(page_id, stream_id, &creator)
+            }
             ContextServiceRequest::ReleaseFrameResponseStream { .. }
             | ContextServiceRequest::ReleaseNetworkResult { .. } => {
                 unreachable!("network cleanup handled before live context admission")
@@ -9766,6 +9792,7 @@ impl ParentContextService {
         self.socket_lifecycle.admit_http(
             stream_id,
             Arc::new(HttpStreamEntry {
+                support: Mutex::new(None),
                 keepalive_context: keepalive.then(|| self.context.clone()),
                 keepalive_drain,
                 page_id,
@@ -9776,7 +9803,7 @@ impl ParentContextService {
                 cleanup,
                 state: Mutex::new(HttpStreamState {
                     preload: preload_candidate,
-                    operation,
+                    operation: Some(operation),
                     current: bytes::Bytes::new(),
                     offset: 0,
                     bytes_read: 0,
@@ -9942,7 +9969,9 @@ impl ParentContextService {
                         Some(stream_id),
                         None,
                     );
-                    stream.operation.request_body_chunk();
+                    let operation = stream.operation.as_mut().ok_or_else(||
+                        RuntimeError::ProtocolViolation("HTTP stream read after terminal".into()))?;
+                    operation.request_body_chunk();
                     let timeout = entry
                         .frame_deadline
                         .map(|deadline| {
@@ -9954,9 +9983,9 @@ impl ParentContextService {
                         })
                         .transpose()?
                         .unwrap_or(Duration::from_secs(30));
-                    match receive_network_event(&mut stream.operation, timeout)? {
+                    match receive_network_event(operation, timeout)? {
                         Some(NetworkEvent::Chunk { request_id, bytes })
-                            if request_id == stream.operation.request_id =>
+                            if request_id == operation.request_id =>
                         {
                             crate::ipc_progress::record(
                                 progress,
@@ -9969,13 +9998,13 @@ impl ParentContextService {
                         Some(NetworkEvent::Complete {
                             encoded_body_size,
                             request_id,
-                        }) if request_id == stream.operation.request_id => {
+                        }) if request_id == operation.request_id => {
                             terminal = true;
                             terminal_encoded_bytes = encoded_body_size;
                             break;
                         }
                         Some(NetworkEvent::Failed { request_id, error })
-                            if request_id == stream.operation.request_id =>
+                            if request_id == operation.request_id =>
                         {
                             return Err(RuntimeError::from(error));
                         }
@@ -10018,6 +10047,13 @@ impl ParentContextService {
                     "HTTP response length does not match its terminal body".into(),
                 ));
             }
+            if terminal {
+                stream.current = bytes::Bytes::new();
+                stream.offset = 0;
+                // The original cleanup/proof entry remains, but its completed
+                // network receiver and demand handle no longer retain IO.
+                stream.operation.take();
+            }
             Ok((chunk, terminal, terminal_encoded_bytes))
         })();
         let (chunk, done, encoded_body_size) = match result {
@@ -10033,14 +10069,24 @@ impl ParentContextService {
                 return Err(error);
             }
         };
+        let retain_support = match self.publish_support_body(page_id, &entry, &chunk, done) {
+            Ok(selected) => selected,
+            Err(error) => {
+                self.http_streams.lock().ok().and_then(|mut streams| streams.remove(&stream_id));
+                if let Some(cleanup) = &entry.cleanup { cleanup.cancel(); }
+                return Err(error);
+            }
+        };
         if done {
             if let Some(cleanup) = &entry.cleanup {
                 cleanup.finish_keepalive();
             }
-            self.http_streams
-                .lock()
-                .map_err(|_| RuntimeError::ContextService("HTTP stream lock poisoned".into()))?
-                .remove(&stream_id);
+            if !retain_support {
+                self.http_streams
+                    .lock()
+                    .map_err(|_| RuntimeError::ContextService("HTTP stream lock poisoned".into()))?
+                    .remove(&stream_id);
+            }
         }
         let creator = entry
             .creator
@@ -11027,6 +11073,7 @@ impl ParentContextService {
             }
             if let Some(creator) = creator {
                 self.script_document_owner(page_id, creator)?;
+                self.record_support_import(page_id, creator, &url, &response.body)?;
             }
             if let Some(slot) = hash_evidence.as_deref_mut() {
                 *slot = Some(crate::csp::ScriptHashEvidence::from_bytes(
@@ -12343,9 +12390,12 @@ impl ParentContextService {
                 let admitted = (|| {
                     let stream_id = self.next_http_identity()?;
                     let request_id = operation.request_id;
+                    let support = self.prepare_support_occurrence(page_id, request_id,
+                        stream_id, &initiator.creator, &source, url.as_str())?;
                     self.socket_lifecycle.admit_http(
                         stream_id,
                         Arc::new(HttpStreamEntry {
+                            support: Mutex::new(support),
                             keepalive_context: None,
                             keepalive_drain: None,
                             page_id,
@@ -12358,7 +12408,7 @@ impl ParentContextService {
                             cleanup: Some(cleanup),
                             state: Mutex::new(HttpStreamState {
                                 preload: None,
-                                operation,
+                                operation: Some(operation),
                                 current: bytes::Bytes::new(),
                                 offset: 0,
                                 bytes_read: 0,
@@ -20467,6 +20517,109 @@ mod document_resource_authority_tests {
         (context, page, service, creator)
     }
     #[test]
+    fn support_original_child_guard_rejects_wrong_child_and_retired_generation() {
+        let (context, page, _service, creator) = fixture();
+        let root = Creator::Window { target: WindowTarget::Root, document_generation: 1, stream_epoch: 0 };
+        let Creator::Window { target: WindowTarget::Frame(frame), .. } = &creator else { panic!() };
+        context.register_activation_parent(crate::runtime::worker_service::ActivationParentInputs {
+            page, frame: frame.clone(), generation: 2, epoch: 0,
+            parent: WindowTarget::Root, parent_generation: 1, parent_epoch: 0,
+        }).unwrap();
+        let original = Mutex::new(Some(creator.clone()));
+        assert!(context.with_support_original_child(page, &root, &original, |child, _, _| {
+            assert_eq!(child, &creator);
+            Ok(())
+        }).is_ok());
+        let wrong = Mutex::new(Some(Creator::Window { target: WindowTarget::Frame("7".repeat(64)), document_generation: 2, stream_epoch: 0 }));
+        let called = std::cell::Cell::new(false);
+        assert!(context.with_support_original_child(page, &root, &wrong, |_, _, _| { called.set(true); Ok(()) }).is_err());
+        assert!(!called.get());
+        context.handle_message_wire(page, MessageRequest::RetireWindow { frame: frame.clone(), document_generation: 2, stream_epoch: 0 }).unwrap();
+        assert!(context.with_support_original_child(page, &root, &original, |_, _, _| { called.set(true); Ok(()) }).is_err());
+        assert!(!called.get());
+    }
+
+    #[test]
+    fn pinned_support_terminal_occurrences_share_original_http_32_slot_limit() {
+        // Explicit pinned input root: absence is failure, never a skipped test
+        // or a test-only descriptor issuer. from_fixture checks every raw hash.
+        let export = std::path::PathBuf::from(std::env::var_os("ORYN_PINNED_SUPPORT_EXPORT")
+            .expect("set ORYN_PINNED_SUPPORT_EXPORT to the pinned WPT export"));
+        let read = |path: &str| std::fs::read(export.join(path.trim_start_matches('/'))).unwrap();
+        let parent_bytes = read(crate::support_descriptor::PARENT);
+        let child_bytes = read(crate::support_descriptor::CHILD);
+        let imports: [Vec<u8>; 6] = std::array::from_fn(|index|
+            read(crate::support_descriptor::IMPORTS[index].0));
+        let parent_url = url::Url::parse("https://top.test/IndexedDB/idb-partitioned-coverage.sub.html").unwrap();
+        let child_url = url::Url::parse("https://child.test/IndexedDB/resources/idb-partitioned-coverage-iframe.html").unwrap();
+        let hash = "9b102136523d37559a98e9a101b6c7f4f379f43f01160f840a8248e51fd8a8d7";
+        let descriptor_hash: [u8; 32] = std::array::from_fn(|index|
+            u8::from_str_radix(&hash[index * 2..index * 2 + 2], 16).unwrap());
+        let descriptor = crate::support_descriptor::PinnedSupportDescriptor::from_fixture(
+            [1; 32], descriptor_hash, &parent_url, &child_url,
+            crate::support_descriptor::REVISION, &parent_bytes, &child_bytes,
+            std::array::from_fn(|index| imports[index].as_slice())).unwrap();
+        let (context, page, service, child) = fixture();
+        let root = Creator::Window { target: WindowTarget::Root, document_generation: 1, stream_epoch: 0 };
+        let Creator::Window { target: WindowTarget::Frame(frame), .. } = &child else { panic!("child") };
+        context.register_activation_parent(crate::runtime::worker_service::ActivationParentInputs {
+            page, frame: frame.clone(), generation: 2, epoch: 0,
+            parent: WindowTarget::Root, parent_generation: 1, parent_epoch: 0,
+        }).unwrap();
+        let original = Mutex::new(Some(child.clone()));
+        let (pe, ce) = context.with_support_original_child(page, &root, &original,
+            |_, pe, ce| Ok((pe, ce))).unwrap();
+        let make = |id: u64| {
+            let mut proof = crate::support_broker_occurrence::BrokerOccurrence::start(
+                descriptor, page.0, id, id, &root, pe, parent_url.as_str(), child_url.as_str()).unwrap();
+            assert!(proof.bind(page.0, &root, pe, &child, ce));
+            let (sender, events) = tokio::sync::mpsc::channel(2);
+            sender.try_send(NetworkEvent::Chunk { request_id: id, bytes: child_bytes.clone().into() }).unwrap();
+            sender.try_send(NetworkEvent::Complete { request_id: id, encoded_body_size: Some(child_bytes.len() as u64) }).unwrap();
+            Arc::new(HttpStreamEntry {
+                support: Mutex::new(Some(proof)), keepalive_context: None, keepalive_drain: None,
+                page_id: page, creator: Mutex::new(Some(child.clone())),
+                prepared_frame_policy: None, frame_deadline: None, request_id: id, cleanup: None,
+                state: Mutex::new(HttpStreamState {
+                    preload: None, operation: Some(NetworkOperation {
+                        body_demand_pending: Default::default(), prefetched: Default::default(),
+                        request_id: id, events, demand: None,
+                    }), current: bytes::Bytes::new(), offset: 0, bytes_read: 0,
+                    content_length: Some(child_bytes.len()),
+                }),
+            })
+        };
+        for id in 1..=32 {
+            service.socket_lifecycle.admit_http(id, make(id)).unwrap();
+            let ContextServiceResponse::HttpStreamChunk { done, .. } =
+                service.read_http_stream(page, id, 16 * 1024 * 1024).unwrap()
+                else { panic!("HTTP body response") };
+            assert!(done, "actual broker Complete must settle original response");
+            for (index, (path, _)) in crate::support_descriptor::IMPORTS.iter().enumerate() {
+                service.record_support_import(page, &child, &child_url.join(path).unwrap(), &imports[index]).unwrap();
+            }
+            let receipt = service.support_response_snapshot(page, id).unwrap().unwrap();
+            assert_eq!(receipt.child.occurrence, id);
+            assert_eq!(receipt.body_bytes, child_bytes.len() as u64);
+            let registry = service.http_streams.lock().unwrap();
+            let entry = registry.get(&id).unwrap();
+            assert!(entry.state.lock().unwrap().operation.is_none(), "EOF releases original IO receiver");
+        }
+        assert_eq!(service.http_streams.lock().unwrap().len(), 32);
+        assert!(matches!(service.socket_lifecycle.admit_http(33, make(33)),
+            Err(RuntimeError::WorkerLimitExceeded { resource }) if resource == "pending HTTP streams"));
+        // Explicit release revokes the original receipt and frees exactly one
+        // original capability slot, not an independent evidence registry.
+        service.socket_lifecycle.release_result(Some(&child), Some(1), None).unwrap();
+        assert!(service.support_response_snapshot(page, 1).unwrap().is_none());
+        service.socket_lifecycle.admit_http(33, make(33)).unwrap();
+        for id in 2..=33 {
+            service.socket_lifecycle.release_result(Some(&child), Some(id), None).unwrap();
+        }
+        assert!(service.http_streams.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn navigation_authority_uses_exact_child_origin_and_rejects_replacement() {
         let (context, page, service, creator) = fixture();
         let request = || ContextServiceRequest::AuthorizeNavigation {
@@ -23153,6 +23306,7 @@ mod websocket_handshake_custody_tests {
         assert!(sibling.is_drained().unwrap());
         let (_sender, events) = tokio::sync::mpsc::channel(1);
         let entry = Arc::new(HttpStreamEntry {
+            support: Mutex::new(None),
             keepalive_context: None,
             keepalive_drain: None,
             page_id: PageId(1),
@@ -23163,13 +23317,13 @@ mod websocket_handshake_custody_tests {
             cleanup: None,
             state: Mutex::new(HttpStreamState {
                 preload: None,
-                operation: NetworkOperation {
+                operation: Some(NetworkOperation {
                     body_demand_pending: Default::default(),
                     prefetched: Default::default(),
                     request_id: 17,
                     events,
                     demand: None,
-                },
+                }),
                 current: bytes::Bytes::new(),
                 offset: 0,
                 bytes_read: 0,
@@ -23620,6 +23774,7 @@ mod http_terminal_receipt_tests {
         page: PageId,
     ) -> Arc<HttpStreamEntry> {
         Arc::new(HttpStreamEntry {
+            support: Mutex::new(None),
             keepalive_context: None,
             keepalive_drain: None,
             page_id: page,
@@ -23630,13 +23785,13 @@ mod http_terminal_receipt_tests {
             cleanup: None,
             state: Mutex::new(HttpStreamState {
                 preload: None,
-                operation: NetworkOperation {
+                operation: Some(NetworkOperation {
                     body_demand_pending: Default::default(),
                     prefetched: Default::default(),
                     request_id,
                     events,
                     demand: None,
-                },
+                }),
                 current: bytes::Bytes::new(),
                 offset: 0,
                 bytes_read: 0,
@@ -24682,6 +24837,7 @@ mod ordinary_keepalive_response_tests {
         let entry = Arc::new(HttpStreamEntry {
             keepalive_context: None,
             keepalive_drain: Some(crate::keepalive_drain::Ticket::reserve().unwrap()),
+            support: Mutex::new(None),
             page_id: PageId(88),
             creator: Mutex::new(None),
             prepared_frame_policy: None,
@@ -24690,13 +24846,13 @@ mod ordinary_keepalive_response_tests {
             cleanup: Some(cleanup),
             state: Mutex::new(HttpStreamState {
                 preload: None,
-                operation: NetworkOperation {
+                operation: Some(NetworkOperation {
                     body_demand_pending: Default::default(),
                     prefetched: Default::default(),
                     request_id: 88,
                     events,
                     demand: None,
-                },
+                }),
                 current: bytes::Bytes::new(),
                 offset: 0,
                 bytes_read: 0,

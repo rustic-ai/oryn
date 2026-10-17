@@ -291,6 +291,13 @@ impl Ticket {
             pool.changed.notify_one();
         }
     }
+    /// Response EOF ends network activity, not Document-owned cleanup custody.
+    /// Preserve the original request and capacity until actual owner release.
+    #[cfg(any(test, feature = "v8-host"))]
+    pub(super) fn finish_network_activity(&self) {
+        let mut state = self.job.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.activity.take();
+    }
     #[cfg(any(test, feature = "v8-host"))]
     pub(super) fn finish_if_not_cancelled(&self) {
         let mut state = self.job.state.lock().unwrap_or_else(|e| e.into_inner());

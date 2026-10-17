@@ -65,6 +65,13 @@ def executor_kwargs(logger, test_type, test_environment, run_info_data, **kwargs
     capabilities["browserName"] = "oryn"
     capabilities["acceptInsecureCerts"] = False
     result["capabilities"] = capabilities
+    bound = load_contract(kwargs.get('oryn_run_contract'), kwargs.get('binary'), kwargs.get('webdriver_binary'))
+    descriptor = bound.get('parent_support_descriptor')
+    if descriptor is not None:
+        if test_type != 'testharness':
+            raise ValueError('support evidence requires original testharness conversion')
+        result['oryn_support_descriptor'] = descriptor
+        result['oryn_support_candidate'] = bound['candidate_sha256']
     from .placement import configuration
     placement = configuration()
     if placement:
@@ -211,6 +218,10 @@ class OrynBrowser(WebDriverBrowser):
                     "--browser-binary", self.binary, "--auth-token-file", self._token_path,
                     "--configuration", contract["fixture_path"],
                     "--configuration-sha256", contract["fixture_sha256"],
+                    "--admitted-candidate-manifest", contract["candidate_manifest_path"],
+                    "--admitted-candidate-manifest-raw-sha256", contract["candidate_manifest_raw_sha256"],
+                    "--admitted-candidate-sha256", contract["candidate_sha256"],
+                    "--admitted-runtime-sha256", contract["admitted_runtime_sha256"],
                     "--diagnostic-fd", str(self._native_timing.fd)]
 
     def executor_browser(self):
