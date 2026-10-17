@@ -1070,6 +1070,113 @@ pub(super) async fn apply_typing_overrides(
     Ok(())
 }
 
+// Shared identity-preserving inline-chain lift; callers publish final caret.
+async fn lift_link_inline_chain(
+    context: &Context,
+    link: NodeId,
+    chain: &[NodeId], // inner-to-outer existing single-child chain
+    text: NodeId,
+    original_host: NodeId,
+    _after: bool,
+) -> Result<bool, V8BindingError> {
+    let state = &context.state;
+    let Some(outer) = chain.last().copied() else { return Ok(true); };
+    let inner = chain[0];
+    let bytes = {
+        let dom = state.dom.borrow();
+        let mut bytes = chain.len().checked_add(1)
+            .and_then(|count| count.checked_mul(std::mem::size_of::<(NodeId, oryn_dom::AttributeList)>()))
+            .ok_or(V8BindingError::Allocation("link plan metadata overflow"))?;
+        for node in std::iter::once(link).chain(chain.iter().copied()) {
+            // AttributeList::clone copies its Vec of Arc pointers, not the
+            // immutable ContentAttribute strings or records themselves.
+            let pointers = dom.arena().get(node)?.attributes.len()
+                .checked_mul(std::mem::size_of::<std::sync::Arc<oryn_dom::ContentAttribute>>())
+                .ok_or(V8BindingError::Allocation("link attribute pointers overflow"))?;
+            bytes = bytes.checked_add(pointers).ok_or(V8BindingError::Allocation("link attributes overflow"))?;
+        }
+        bytes
+    };
+    let association = state.selection_range.get();
+    let admission_revision = state.selection_revision.get();
+    let boundary_revision = state.dom.borrow().boundary_revision();
+    let mutation = state.dom.borrow().mutation_cursor();
+    let _allocation = context.retain_metadata(bytes).await?;
+    synchronize_selection_range(state)?;
+    if state.selection_range.get() != association || state.selection_revision.get() != admission_revision
+        || state.dom.borrow().boundary_revision() != boundary_revision
+        || state.dom.borrow().mutation_cursor() != mutation { return Ok(false); }
+    let (parent, before, attributes) = {
+        let dom = state.dom.borrow();
+        let Some(parent) = dom.parent(link)? else { return Ok(false); };
+        let mut attributes = Vec::new();
+        attributes.try_reserve_exact(chain.len() + 1).map_err(|_| V8BindingError::Allocation("link attribute records"))?;
+        if attributes.capacity() != chain.len() + 1 { return Err(V8BindingError::Allocation("link attribute capacity overshoot")); }
+        for node in std::iter::once(link).chain(chain.iter().copied()) {
+            attributes.push((node, dom.arena().get(node)?.attributes.clone_exact_capacity()
+                .ok_or(V8BindingError::Allocation("link attribute allocation capacity"))?));
+        }
+        (parent, relative_boundary(&dom, link, false)?.1, attributes)
+    };
+    let id = state.selection_range.get().ok_or(V8BindingError::Allocation("link deletion selection"))?;
+    let revision = state.selection_revision.get();
+    let range = state.ranges.borrow().get(&id).cloned().ok_or(V8BindingError::Allocation("link deletion range"))?;
+    let marker = context.marker(range)?;
+    for node in std::iter::once(link).chain(chain.iter().copied()).chain([text, parent]) { context.lease(node)?; }
+    let current = || -> Result<bool, V8BindingError> {
+        synchronize_selection_range(state)?;
+        let live = state.selection_range.get().and_then(|id| state.ranges.borrow().get(&id).cloned());
+        let expected = marker.range()?;
+        if state.selection_revision.get() != revision || state.selection_range.get() != Some(id) || live.as_ref().is_none_or(|live|
+            live.start_container != expected.start_container || live.start_offset != expected.start_offset
+            || live.end_container != expected.end_container || live.end_offset != expected.end_offset) { return Ok(false); }
+        let dom = state.dom.borrow();
+        if !dom.is_connected(link)? || dom.parent(link)? != Some(parent)
+            || editing_host_for_node(&dom, Some(link), state.design_mode_enabled(), state.document_root())? != Some(original_host)
+            || editing_host(state)? != Some(original_host) { return Ok(false); }
+        for (node, expected) in &attributes { if &dom.arena().get(*node)?.attributes != expected { return Ok(false); } }
+        Ok(true)
+    };
+    if !current()? { return Ok(false); }
+    {
+        let dom = state.dom.borrow();
+        let mut child = text;
+        for node in chain {
+            if dom.parent(child)? != Some(*node) || dom.children(*node)? != [child] { return Ok(false); }
+            child = *node;
+        }
+        if dom.parent(outer)? != Some(link) || dom.children(link)? != [outer] { return Ok(false); }
+    }
+    context.move_preserving_ranges(outer, parent, before).await?;
+    if !current()? { return Ok(false); }
+    if state.dom.borrow().parent(outer)? != Some(parent)
+        || state.dom.borrow().parent(text)? != Some(inner) { return Ok(false); }
+    context.move_preserving_ranges(text, link, 0).await?;
+    if !current()? { return Ok(false); }
+    if state.dom.borrow().parent(outer)? != Some(parent)
+        || state.dom.borrow().parent(text)? != Some(link) { return Ok(false); }
+    // This final move changes the expected link parent. A fresh current guard
+    // must explicitly accept the planned inner parent, never the old parent.
+    context.move_preserving_ranges(link, inner, 0).await?;
+    synchronize_selection_range(state)?;
+    let dom = state.dom.borrow();
+    if !dom.is_connected(link)? || dom.parent(link)? != Some(inner)
+        || dom.parent(outer)? != Some(parent)
+        || editing_host_for_node(&dom, Some(link), state.design_mode_enabled(), state.document_root())? != Some(original_host) { return Ok(false); }
+    let live = state.selection_range.get().and_then(|id| state.ranges.borrow().get(&id).cloned());
+    let expected = marker.range()?;
+    if state.selection_revision.get() != revision || state.selection_range.get() != Some(id) || live.as_ref().is_none_or(|live|
+        live.start_container != expected.start_container || live.start_offset != expected.start_offset
+        || live.end_container != expected.end_container || live.end_offset != expected.end_offset) { return Ok(false); }
+    for (node, expected) in &attributes { if &dom.arena().get(*node)?.attributes != expected { return Ok(false); } }
+    let mut child = link;
+    for node in chain {
+        if dom.parent(child)? != Some(*node) || dom.children(*node)? != [child] { return Ok(false); }
+        child = *node;
+    }
+    Ok(true)
+}
+
 pub(super) async fn delete_selection_direction(
     context: &Context,
     forward: bool,
@@ -1142,7 +1249,92 @@ else { return Ok(()); };
         }
         let preserve_nested_caret =
             !forward && selection_ends_at_nested_block_start(state, &range)?;
+        // Explicit deletion differs from direct replacement: deleting an
+        // anchor's first/last text character leaves typing outside that link.
+        // Retain the link, not a stale text length, across native mutation.
+        let original_host = editing_host(state)?;
+        let association = state.selection_range.get();
+        let revision = state.selection_revision.get();
+        let boundary = state.dom.borrow().boundary_revision();
+        let mutation = state.dom.borrow().mutation_cursor();
+        let capacity = {
+            let dom = state.dom.borrow(); let mut node = Some(range.start_container); let mut count = 0usize;
+            while let Some(current) = node {
+                count = count.checked_add(1).ok_or(V8BindingError::Allocation("link ancestor overflow"))?;
+                if count > 16384 { return Err(V8BindingError::Allocation("link ancestor capacity")); }
+                node = dom.parent(current)?;
+            }
+            count
+        };
+        let _metadata = context.retain_metadata(capacity.checked_mul(std::mem::size_of::<NodeId>())
+            .ok_or(V8BindingError::Allocation("link edge plan overflow"))?).await?;
+        synchronize_selection_range(state)?;
+        if state.selection_range.get() != association || state.selection_revision.get() != revision
+            || state.dom.borrow().boundary_revision() != boundary
+            || state.dom.borrow().mutation_cursor() != mutation { return Ok(()); }
+        let link_edge = {
+            let dom = state.dom.borrow();
+            if range.start_container == range.end_container {
+                let mut node = range.start_container;
+                let mut chain = Vec::new();
+                chain.try_reserve_exact(capacity).map_err(|_|V8BindingError::Allocation("link edge chain"))?;
+                if chain.capacity() != capacity { return Err(V8BindingError::Allocation("link edge capacity overshoot")); }
+                let link = loop {
+                    let Some(parent) = dom.parent(node)? else { break None };
+                    if dom.children(parent)? != [node] { break None }
+                    if dom.is_element(parent, "http://www.w3.org/1999/xhtml", "a") { break Some(parent) }
+                    if Some(parent) == original_host || is_editing_block(&dom, parent)
+                        || editing_host_for_node(&dom, Some(parent), state.design_mode_enabled(), state.document_root())? != original_host { break None }
+                    chain.push(parent); node = parent;
+                };
+                if let Some(link) = link {
+                    if Some(link) != original_host
+                        && dom.arena().get(link)?.attributes.get_null("href").is_some()
+                        && matches!(dom.arena().get(range.start_container)?.kind, NodeKind::Text { .. }) {
+                        let edge = if range.start_offset == 0 { Some(false) }
+                            else if range.end_offset == boundary_length(&dom, range.end_container)? { Some(true) }
+                            else { None };
+                        match edge { Some(after) => Some((link, after, dom.parent(link)?, chain)), None => None }
+                    } else { None }
+                } else { None }
+            } else { None }
+        };
+        if let Some((link, _, _, chain)) = &link_edge {
+            context.lease(*link)?;
+            for node in chain { context.lease(*node)?; }
+        }
         replace_selection_with_text(context, "").await?;
+        if let Some((link, after, parent, chain)) = link_edge {
+            let point = {
+                let dom = state.dom.borrow();
+                if parent.is_some() && dom.is_connected(link)? && dom.parent(link)? == parent
+                    && state.selection_range.get() == association && state.selection_revision.get() == revision
+                    && editing_host_for_node(&dom, Some(link), state.design_mode_enabled(), state.document_root())?
+                        == original_host && editing_host(state)? == original_host {
+                    let current = state.selection_range.get().and_then(|id| state.ranges.borrow().get(&id).cloned());
+                    if current.as_ref().is_some_and(|current|
+                        current.start_container == range.start_container
+                        && current.end_container == range.start_container
+                        && current.start_offset == range.start_offset
+                        && current.end_offset == range.start_offset) {
+                        let (container, offset) = relative_boundary(&dom, link, after)?;
+                        Some(BoundaryPoint { container, offset })
+                    } else { None }
+                } else { None }
+            };
+            if let Some(point) = point {
+                if chain.is_empty() { set_selection_boundaries(state, point, point)?; }
+                else if let Some(host) = original_host {
+                    if !lift_link_inline_chain(context, link, &chain, range.start_container, host, after).await? { return Ok(()); }
+                    if state.selection_range.get() == association && state.selection_revision.get() == revision
+                        && state.dom.borrow().is_connected(link)? && editing_host(state)? == original_host {
+                        let (container, offset) = relative_boundary(&state.dom.borrow(), link, after)?;
+                        let point = BoundaryPoint { container, offset };
+                        set_selection_boundaries(state, point, point)?;
+                    }
+                }
+            }
+        }
         if preserve_nested_caret && state.dom.borrow().arena().get(range.end_container).is_ok() {
             let point = BoundaryPoint {
                 container: range.end_container,
@@ -2358,6 +2550,57 @@ pub(super) async fn replace_selection_with_text(
     )? != 0;
     let preserve_nested_caret =
         has_selection && selection_ends_at_nested_block_start(state, &range)?;
+    // A selection leaving an anchor must not inherit that anchor's href
+    // when its replacement is inserted, including direct typing replacement.
+    let crossed_link = if has_selection {
+        let association = state.selection_range.get();
+        let revision = state.selection_revision.get();
+        let mutation = state.dom.borrow().mutation_cursor();
+        let capacity = {
+            let dom = state.dom.borrow(); let mut node = Some(range.start_container); let mut count = 0usize;
+            while let Some(current) = node {
+                count = count.checked_add(1).ok_or(V8BindingError::Allocation("cross-link ancestor overflow"))?;
+                if count > 16384 { return Err(V8BindingError::Allocation("cross-link ancestor capacity")); }
+                node = dom.parent(current)?;
+            }
+            count
+        };
+        let allocation = context.retain_metadata(capacity.checked_mul(std::mem::size_of::<NodeId>())
+            .ok_or(V8BindingError::Allocation("cross-link metadata overflow"))?).await?;
+        synchronize_selection_range(state)?;
+        if state.selection_range.get() != association || state.selection_revision.get() != revision
+            || state.dom.borrow().mutation_cursor() != mutation { return Ok(()); }
+        let dom = state.dom.borrow();
+        let host = editing_host(state)?;
+        let mut node = range.start_container;
+        let mut chain = Vec::new();
+        chain.try_reserve_exact(capacity).map_err(|_|V8BindingError::Allocation("cross-link chain"))?;
+        if chain.capacity() != capacity { return Err(V8BindingError::Allocation("cross-link capacity overshoot")); }
+        let mut found = None;
+        loop {
+            if Some(node) == host { break; }
+            if dom.is_element(node, "http://www.w3.org/1999/xhtml", "a")
+                && dom.arena().get(node)?.attributes.get_null("href").is_some() {
+                let (_, after) = relative_boundary(&dom, node, true)?;
+                let parent = dom.parent(node)?.ok_or(V8BindingError::Allocation("crossed link parent"))?;
+                if compare_boundary_points(&dom, (range.end_container, range.end_offset), (parent, after))? > 0 {
+                    found = Some((node, parent, host, chain, association, revision, allocation));
+                }
+                break;
+            }
+            let Some(parent) = dom.parent(node)? else { break; };
+            if node != range.start_container {
+                if is_editing_block(&dom, node) || dom.children(node)?.len() != 1 { break; }
+                chain.push(node);
+            }
+            node = parent;
+        }
+        found
+    } else { None };
+    if let Some((link, _, _, chain, _, _, _)) = &crossed_link {
+        context.lease(*link)?;
+        for node in chain { context.lease(*node)?; }
+    }
     if has_selection {
         editing_range::contents(context, &range, RangeContentsMode::Delete).await?;
         if let Some((start_block, end_block)) = affected_blocks
@@ -2402,6 +2645,37 @@ pub(super) async fn replace_selection_with_text(
             range.start_offset
         },
     };
+    if let Some((link, parent, host, chain, association, revision, _allocation)) = crossed_link {
+        let eligible = {
+        let dom = state.dom.borrow();
+        if state.selection_range.get() == association && state.selection_revision.get() == revision
+            && dom.is_connected(link)? && dom.parent(link)? == Some(parent)
+            && editing_host_for_node(&dom, Some(link), state.design_mode_enabled(), state.document_root())? == host
+            && editing_host(state)? == host {
+            let live = state.selection_range.get().and_then(|id| state.ranges.borrow().get(&id).cloned());
+            if live.as_ref().is_some_and(|live| live.start_container == range.start_container
+                && live.start_offset == range.start_offset) {
+                true
+            } else { false }
+        } else { false }
+        };
+        if eligible {
+            // The helper tracks the actual still-live selected range, not a
+            // synthesized caret. Native moves update both range endpoints;
+            // replacement collapse remains this function's final operation.
+            if !chain.is_empty() {
+                if let Some(host) = host {
+                    if !lift_link_inline_chain(context, link, &chain, range.start_container, host, true).await? { return Ok(()); }
+                }
+            }
+            let dom = state.dom.borrow();
+            if state.selection_range.get() == association && state.selection_revision.get() == revision
+                && dom.is_connected(link)? && editing_host(state)? == host {
+                let (container, offset) = relative_boundary(&dom, link, true)?;
+                point = BoundaryPoint { container, offset };
+            }
+        }
+    }
     if !replacement.is_empty() {
         // A container boundary beside existing text is the same insertion
         // position. Reuse that source, rather than creating adjacent Text nodes.

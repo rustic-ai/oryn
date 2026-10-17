@@ -24,6 +24,7 @@ fn same_range(a: &RangeRecord, b: &RangeRecord) -> bool {
         && a.end_offset == b.end_offset
 }
 enum Operation {
+    RetainMetadata { bytes: usize },
     Layout,
     ClearSelection,
     Selection { anchor: oryn_dom::TrackedNodeLease, anchor_offset:u32, focus:oryn_dom::TrackedNodeLease, focus_offset:u32 },
@@ -145,6 +146,7 @@ pub(super) struct Context {
     admitted: RefCell<BTreeSet<NodeId>>,
     extra_roots: RefCell<Vec<oryn_dom::TrackedNodeLease>>,
     legacy_font_result: Cell<Option<BindingLegacyFontResult>>,
+    metadata_result: RefCell<Option<Option<std::sync::Arc<dyn Send + Sync>>>>,
     markers: Rc<RefCell<BTreeSet<u64>>>,
     paragraph_split: RefCell<Option<editing_inverse::paragraph_split::ParagraphSplit>>,
 }
@@ -754,6 +756,13 @@ impl Context {
     pub(super) async fn layout(&self) -> Result<(), V8BindingError> {
         self.request(Operation::Layout).await
     }
+    pub(super) async fn retain_metadata(&self, bytes: usize)
+        -> Result<Option<std::sync::Arc<dyn Send + Sync>>, V8BindingError> {
+        self.metadata_result.borrow_mut().take();
+        self.request(Operation::RetainMetadata { bytes }).await?;
+        self.metadata_result.borrow_mut().take()
+            .ok_or(V8BindingError::Allocation("missing editing metadata receipt"))
+    }
 
     pub(super) async fn legacy_font(&self, keyword: BindingLegacyFontKeyword)
         -> Result<BindingLegacyFontResult, V8BindingError>
@@ -859,6 +868,7 @@ impl Continuation {
             admitted: RefCell::new(BTreeSet::new()),
             extra_roots: RefCell::new(Vec::new()),
             legacy_font_result: Cell::new(None),
+            metadata_result: RefCell::new(None),
             markers: Rc::new(RefCell::new(BTreeSet::new())),
             paragraph_split: RefCell::new(None),
         });
@@ -1088,6 +1098,23 @@ impl Continuation {
         for _ in 0..1024 {
             let pending = self.context.pending.borrow().clone();
             if let Some(request) = pending {
+                if let Operation::RetainMetadata { bytes } = &request.operation {
+                    if !request.recorded.get() { self.segment()?; request.recorded.set(true); }
+                    let state = &self.context.state;
+                    let result = (|| {
+                        let _scope = state.enter_retained_allocation(scope)?;
+                        if !self.current() { return Err(V8BindingError::Allocation("retired editing metadata demand")); }
+                        let allocation = state.retained_allocation.borrow().clone();
+                        allocation.map(|owner| owner.reserve(*bytes)).transpose()
+                            .map_err(V8BindingError::EventCallback)
+                    })();
+                    if !self.current() { self.cancel(); return Ok(Some(false)); }
+                    *request.reply.borrow_mut() = Some(result.map(|receipt| {
+                        *self.context.metadata_result.borrow_mut() = Some(receipt);
+                    }));
+                    self.context.pending.borrow_mut().take();
+                    continue;
+                }
                 if let Operation::LegacyFont { keyword } = &request.operation {
                     if !request.recorded.get() {
                         self.segment()?;
@@ -1473,7 +1500,7 @@ impl Continuation {
         if matches!(request.operation,Operation::Selection{..}|Operation::ClearSelection) {return Ok(())}
         let preparation = match &request.operation {
             Operation::Selection {..}|Operation::ClearSelection => unreachable!("selection handled before author preparation"),
-            Operation::Layout | Operation::LegacyFont { .. } => return Err(V8BindingError::Allocation("unserved editing layout demand")),
+            Operation::Layout | Operation::LegacyFont { .. } | Operation::RetainMetadata { .. } => return Err(V8BindingError::Allocation("unserved editing layout demand")),
             Operation::SpaceRun { host, selection, revision, point } => {
                 let _retained_scope=state.enter_retained_allocation(scope)?;
                 request.space_run.borrow_mut().take();
@@ -1567,7 +1594,7 @@ impl Continuation {
                 let f=BoundaryPoint{container:self.resolve(focus)?,offset:*focus_offset};
                 set_selection_boundaries(state,a,f)?;
             }
-            Operation::Layout | Operation::LegacyFont { .. } => return Err(V8BindingError::Allocation("unserved editing layout demand")),
+            Operation::Layout | Operation::LegacyFont { .. } | Operation::RetainMetadata { .. } => return Err(V8BindingError::Allocation("unserved editing layout demand")),
             Operation::SpaceRun { selection, revision, point, .. } => {
                 let prepared=request.space_run.borrow();
                 let Some(PreparedSpaceRun{host,spaces,ends_line,mutation,boundary,..})=prepared.as_ref() else{return Ok(())};

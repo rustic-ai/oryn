@@ -38,6 +38,15 @@ impl ContentAttribute {
 pub struct AttributeList(Vec<Arc<ContentAttribute>>);
 
 impl AttributeList {
+    /// Native metadata producers prepay the copied Arc-vector length. Reject
+    /// allocator capacity overshoot before cloning any retained record.
+    pub fn clone_exact_capacity(&self) -> Option<Self> {
+        let mut entries = Vec::new();
+        entries.try_reserve_exact(self.0.len()).ok()?;
+        if entries.capacity() != self.0.len() { return None; }
+        for entry in &self.0 { entries.push(Arc::clone(entry)); }
+        Some(Self(entries))
+    }
     pub fn records(&self) -> impl Iterator<Item = &ContentAttribute> {
         self.0.iter().map(AsRef::as_ref)
     }
