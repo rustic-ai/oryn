@@ -28962,14 +28962,16 @@ fn call_platform_operation<'s>(
         }
         ("IDBCursor", "continue" | "advance" | "continuePrimaryKey") => {
             let advance_count = if member == "advance" {
-                let raw = args.get(0).number_value(scope).unwrap_or(f64::NAN);
-                if !raw.is_finite() || raw.fract() != 0.0 || raw < 1.0 || raw > u32::MAX as f64 {
+                let raw = args.get(0).number_value(scope)
+                    .ok_or(V8BindingError::JavaScriptException)?;
+                let count = raw.trunc();
+                if !raw.is_finite() || count < 1.0 || count > u32::MAX as f64 {
                     return Err(V8BindingError::Unsupported {
                         interface: "IDBCursor".into(),
                         member: "advance count must be greater than zero".into(),
                     });
                 }
-                Some(raw as u32)
+                Some(count as u32)
             } else {
                 None
             };
@@ -61513,6 +61515,35 @@ opening.onsuccess = () => {
         "#).unwrap();test_eval::run(scope,source);
         for _ in 0..64 {state.drain_platform_completions(scope,1).unwrap();scope.perform_microtask_checkpoint();}
         assert_eq!(test_eval::eval(scope,"cacheResult").to_rust_string_lossy(scope),"ok");
+    }
+
+    #[test]
+    fn indexeddb_cursor_advance_enforce_range_and_author_exception() {
+        initialize_v8();
+        let mut isolate=v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope,&mut isolate);
+        let context=v8::Context::new(scope,Default::default());
+        let scope=&mut v8::ContextScope::new(scope,context);
+        let dom=Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+        let state=install_generated_bindings(scope,context,dom,RealmId(0),1).unwrap();
+        state.commit_location("https://example.test/").unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source=v8::String::new(scope,r#"
+          globalThis.advanceResult='pending';const opening=indexedDB.open('advance-range',2);
+          opening.onupgradeneeded=()=>opening.result.createObjectStore('records');
+          opening.onsuccess=()=>{
+            const request=opening.result.transaction('records').objectStore('records').openCursor();let first=true;
+            request.onsuccess=()=>{if(!first)return;first=false;const cursor=request.result,marker={};let calls=0;
+              const typeError=x=>{try{cursor.advance(x);return false}catch(e){return e instanceof TypeError}};
+              let caught=false;try{cursor.advance({valueOf(){calls++;throw marker}})}catch(e){caught=e===marker&&calls===1}
+              if(!caught||![0,-1,NaN,Infinity,4294967296].every(typeError))throw Error('conversion');
+              cursor.advance(1.9);advanceResult='ok';
+            };
+          };
+        "#).unwrap();test_eval::run(scope,source);
+        for _ in 0..64 {state.drain_platform_completions(scope,1).unwrap();scope.perform_microtask_checkpoint();}
+        assert_eq!(test_eval::eval(scope,"advanceResult").to_rust_string_lossy(scope),"ok");
     }
 
     #[test]

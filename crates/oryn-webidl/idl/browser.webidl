@@ -2452,7 +2452,7 @@ interface IDBCursor {
   readonly attribute any key;
   readonly attribute any primaryKey;
   readonly attribute IDBRequest request;
-  undefined advance(unsigned long count);
+  undefined advance([EnforceRange] unsigned long count);
   undefined continue(optional any key);
   undefined continuePrimaryKey(any key, any primaryKey);
   undefined delete();
