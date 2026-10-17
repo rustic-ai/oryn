@@ -743,7 +743,7 @@ mod tests {
             screen: None,
             root_origin: Point { x: 0., y: 0. },
             viewport_height: 100.,
-            sender,
+            sender: crate::owned_action_request::NativeActionSender::Plain(sender),
         }
     }
     #[test]

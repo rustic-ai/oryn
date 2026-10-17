@@ -9,6 +9,11 @@ use crate::context_service::{
 };
 use std::sync::Arc;
 include!("support_decoder_transfer.rs");
+#[cfg(test)]
+pub(super) fn test_support_decoder_eof(owner:&Rc<oryn_js::v8_bindings::V8BindingState>,custody:Rc<support_native_document::NativeSupportDocument>)->Result<(),HostError>{
+    let mut transfer=SupportDecoderTransfer::new(owner,custody);
+    transfer.eof()
+}
 #[derive(Clone)]
 pub(super) struct FrameResponseBody {
     pub(super) progress: Option<crate::ipc_progress::Identity>,
@@ -369,6 +374,7 @@ mod tests {
             .unwrap();
         let mut input = DecodedFrameInput {
             timing: Some(timing.clone()),
+            support: None,
             received_bytes: 0,
             replay: Default::default(),
             body: FrameResponseBody {

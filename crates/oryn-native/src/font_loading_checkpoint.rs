@@ -35,8 +35,6 @@ impl RustExecutableDocument {
 }
 impl RawV8Host {
     fn next_public_font_loading_realm(&self,after:Option<RealmId>)->Option<RealmId>{
-        self.binding_states.iter().filter(|(realm,state)|after.is_none_or(|last|**realm>last)&&
-            self.realm_execution_live(**realm)&&state.native_font_loading_materialized())
-            .map(|(realm,_)|*realm).min()
+        self.next_native_font_realm(after,true)
     }
 }

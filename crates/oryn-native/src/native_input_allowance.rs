@@ -38,14 +38,14 @@ impl InputAllowance {
         units.checked_mul(std::mem::size_of::<u16>())?.checked_mul(2)?
             .checked_add(units.checked_mul(std::mem::size_of::<oryn_js::composition::NativeTextFormat>())?.checked_mul(2)?)?
             .checked_add(std::mem::size_of::<crate::owned_action_request::OwnedActionRequest>())?
-            .checked_add(std::mem::size_of::<ArcCharge<InputAllowance>>())?
+            .checked_add(std::mem::size_of::<ArcCharge<InputAllowance>>())
     }
     pub(crate) fn payload_capacity(units:usize,formats:bool)->Option<usize>{
         if units>1024*1024{return None}
         units.checked_mul(std::mem::size_of::<u16>())?.checked_mul(2)?
             .checked_add(if formats{units.checked_mul(std::mem::size_of::<oryn_js::composition::NativeTextFormat>())?.checked_mul(2)?}else{0})?
             .checked_add(std::mem::size_of::<crate::owned_action_request::OwnedActionRequest>())?
-            .checked_add(std::mem::size_of::<ArcCharge<InputAllowance>>())?
+            .checked_add(std::mem::size_of::<ArcCharge<InputAllowance>>())
     }
 }
 #[cfg(test)]

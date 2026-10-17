@@ -3633,6 +3633,27 @@ mod tests {
         (page, realm, dom, a, b)
     }
     #[test]
+    fn support_decoder_terminal_rejects_retired_actual_document_slot() {
+        use oryn_js::v8_bindings::NativeSupportCustody;
+        let (page,realm,_,_,_)=frame_fixture();
+        let state=page.agent.host.retained_binding_state(realm).unwrap();
+        let context=crate::runtime::Browser::new().new_context();
+        let native_page=context.new_page();
+        let client=SharedContextClient::direct(context,native_page.page_id());
+        let lease=client.reserve_frame_response(native_page.page_id()).unwrap();
+        let body=frame_response_stream::FrameResponseBody{progress:None,client,page_id:native_page.page_id(),id:7,lease};
+        let budget=Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let creator=page.agent.host.native_creator_for_realm(realm).unwrap();
+        let custody=support_native_document::NativeSupportDocument::install(&state,body,creator,&budget).unwrap();
+        assert!(state.native_support_custody().is_some());
+        custody.retire();
+        assert!(frame_response_stream::test_support_decoder_eof(&state,custody.clone()).is_err(),"retired decoder cannot publish a terminal acknowledgement");
+        state.retire_execution();
+        assert!(state.native_support_custody().is_none(),"retirement clears actual installed custody");
+        drop(custody);
+        assert_eq!(budget.load(std::sync::atomic::Ordering::Acquire),0,"owned Creator and Document reservation release");
+    }
+    #[test]
     fn console_collection_drains_child_and_root_once_and_restores_selection() {
         let (mut page, realm, _, _, _) = frame_fixture();
         page.agent
@@ -4730,6 +4751,7 @@ mod tests {
                 Some("text/html; charset=utf-8".into()),
                 None,
                 &page.dynamic_scripts.source_bytes,
+                None,
                 None,
             )
             .unwrap();

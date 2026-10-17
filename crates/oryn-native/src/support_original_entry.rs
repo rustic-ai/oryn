@@ -37,4 +37,14 @@ impl ParentContextService {
         })?.unwrap_or(false);
         Ok(ContextServiceResponse::SupportFrameResponseSelected{selected})
     }
+    fn commit_support_frame_decoded(&self,page:PageId,stream:u64,creator:&oryn_js::worker_wire::Creator)->Result<ContextServiceResponse,RuntimeError>{
+        self.validate_socket_owner(page)?;
+        let entry=self.http_streams.lock().map_err(|_|RuntimeError::NavigationCancelled)?.get(&stream).cloned().ok_or(RuntimeError::NavigationCancelled)?;
+        let committed=self.with_support_entry(page,&entry,|support,parent,child,pe,ce|{
+            if child!=creator||!support.decoded(page.0,parent,pe,child,ce){return Err(RuntimeError::NavigationCancelled);}
+            Ok(true)
+        })?.unwrap_or(false);
+        if !committed{return Err(RuntimeError::NavigationCancelled);}
+        Ok(ContextServiceResponse::SupportFrameResponseSelected{selected:true})
+    }
 }

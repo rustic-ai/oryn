@@ -252,7 +252,8 @@ include!("support_frame_selection.rs");
 mod standalone_frame_resource;
 
 #[path = "dynamic_stylesheet_preparation.rs"]
-mod dynamic_stylesheet_preparation;
+pub(crate) mod dynamic_stylesheet_preparation;
+use oryn_layout::cssom::ImportAdmission as _;
 #[path = "standalone_stylesheet.rs"]
 pub(crate) mod standalone_stylesheet;
 
@@ -514,6 +515,13 @@ type RetainedCascadeKey = (
     (bool, bool),
     Vec<(NodeId, u64, u64)>,
 );
+pub(crate) fn native_font_backend(provider:&dyn oryn_js::v8_bindings::BindingLayoutProvider)->bool{
+    provider.native_backend().is_some_and(|backend|backend.is::<LiveLayoutProvider>())
+}
+pub(crate) fn install_original_retained_font(provider:&dyn oryn_js::v8_bindings::BindingLayoutProvider,document:NodeId,owner:NodeId,revision:u64,font:oryn_js::v8_bindings::BindingFontResource,custody:Arc<dyn std::any::Any+Send+Sync>,epoch:dynamic_stylesheet_preparation::RetainedFontDemandEpoch)->Result<(),String>{
+    let backend=provider.native_backend().and_then(|value|value.downcast_ref::<LiveLayoutProvider>()).ok_or("retained font requires native provider")?;
+    backend.install_retained_font(document,owner,revision,font,custody,epoch)
+}
 struct LiveLayoutProvider {
     style_lock: oryn_layout::cssom::NativeStyleLock,
     retained_stylesheets: Rc<RefCell<RetainedStylesheets>>,
@@ -32815,6 +32823,30 @@ mod tests {
             }
             true;
         "#).unwrap(), "true");
+    }
+
+    #[test]
+    fn native_fontfaceset_brands_handlers_and_family_selection() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><html><head></head><body></body></html>",
+        ).unwrap();
+        assert_eq!(page.evaluate(include_str!("native_fontfaceset_controls.js")).unwrap(), "true");
+    }
+
+    #[test]
+    fn native_empty_document_font_ready_uses_actual_layout_checkpoint() {
+        let mut page = RustExecutableDocument::load("<!doctype html><html><head></head><body></body></html>").unwrap();
+        // Direct host evaluation materializes the actual native promise without
+        // running RustExecutableDocument's subsequent layout checkpoint.
+        assert_eq!(page.agent.host.evaluate_string(
+            "globalThis.originalFontReady=document.fonts.ready; globalThis.fontReadyFulfilled=false; originalFontReady.then(()=>{fontReadyFulfilled=true}); fontReadyFulfilled"
+        ).unwrap(), "false");
+        page.checkpoint_public_fonts().unwrap();
+        page.checkpoint_public_fonts().unwrap();
+        // Run queued reactions through the real host microtask checkpoint.
+        page.execute("void 0").unwrap();
+        assert_eq!(page.evaluate("document.fonts.ready === originalFontReady && fontReadyFulfilled").unwrap(), "true");
+        assert_eq!(page.evaluate("document.fonts.ready === originalFontReady && fontReadyFulfilled").unwrap(), "true");
     }
 
     #[test]

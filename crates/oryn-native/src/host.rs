@@ -10134,6 +10134,24 @@ mod raw_v8 {
         ) -> Option<Rc<dyn oryn_js::v8_bindings::BindingLayoutProvider>> {
             self.binding_states.get(&realm)?.native_layout_provider()
         }
+        pub(crate) fn with_public_font_scope<T>(&mut self,realm:RealmId,callback:impl FnOnce(&mut v8::PinScope,&Rc<V8BindingState>)->Result<T,HostError>)->Result<T,HostError>{
+            if !self.realm_execution_live(realm){return Err(HostError::CachedAuthorityExpired)}
+            let state=self.retained_binding_state(realm)?;
+            let original=(state.document_root(),state.document_generation(),state.document_stream_epoch(),state.document_authority_epoch());
+            let context=self.contexts.get(&realm).cloned().ok_or(HostError::CachedAuthorityExpired)?;
+            let deadline=ExecutionDeadline::arm(&self.isolate,self.execution_wall_limit);
+            v8::scope!(let handles,&mut self.isolate);
+            let context=v8::Local::new(handles,&context);
+            let scope=&mut v8::ContextScope::new(handles,context);
+            let _admission=state.enter_retained_allocation(scope).map_err(|error|HostError::Execution(error.to_string()))?;
+            let result=callback(scope,&state);
+            if deadline.expired()||scope.is_execution_terminating(){return Err(HostError::Execution("native font publication interrupted".into()))}
+            if state.execution_retired()||original!=(state.document_root(),state.document_generation(),state.document_stream_epoch(),state.document_authority_epoch()){return Err(HostError::CachedAuthorityExpired)}
+            result
+        }
+        pub(crate) fn next_native_font_realm(&self,after:Option<RealmId>,materialized_only:bool)->Option<RealmId>{
+            self.binding_states.iter().filter(|(realm,state)|after.is_none_or(|last|**realm>last)&&self.realm_execution_live(**realm)&&(!materialized_only||state.native_font_loading_materialized())).map(|(realm,_)|*realm).min()
+        }
         pub(crate) fn standalone_page_controller(
             &mut self,
             realm: RealmId,
@@ -11818,7 +11836,7 @@ mod raw_v8 {
             // have released their ContextScope here. Native font admission must
             // use the committed child identity, never the entered parent scope.
             if self.native_layout_provider_in_realm(realm).is_some_and(|provider|
-                provider.native_backend().is_some_and(|backend| backend.is::<LiveLayoutProvider>())) {
+                crate::executable::native_font_backend(provider.as_ref())) {
                 self.activate_public_font_loading(realm)?;
             }
             self.binding_states
@@ -11899,7 +11917,7 @@ mod raw_v8 {
             // Missing providers remain an explicit deferred capability: the
             // ordinary materialized-font checkpoint performs activation later.
             if self.native_layout_provider_in_realm(realm).is_some_and(|provider|
-                provider.native_backend().is_some_and(|backend| backend.is::<LiveLayoutProvider>())) {
+                crate::executable::native_font_backend(provider.as_ref())) {
                 self.activate_public_font_loading(realm)?;
             }
             Ok(realm)
@@ -17034,7 +17052,7 @@ mod raw_v8 {
             let child=v8::Local::new(handles,&child);let child_dom=Rc::new(RefCell::new(oryn_dom::DomRuntime::new()));let document=child_dom.borrow().document();
             let child_state=install_native_document(handles,child,child_dom,realm,1,document,None).unwrap();bind_native_frame_lifetime(handles,parent,child,frame).unwrap();
             let lifetime=child.get_slot::<FrameLifetime>().unwrap();let environment=lifetime.environment.get();
-            dom.borrow_mut().detach(frame).unwrap();
+            dom.borrow_mut().remove(frame).unwrap();
             let scope=&mut v8::ContextScope::new(handles,parent);
             FAIL_CHILD_RETIREMENT.with(|flag|flag.set(true));
             assert!(matches!(checkpoint_frame_lifetimes(scope),Err(oryn_js::v8_bindings::V8BindingError::Allocation("injected child retirement failure"))));

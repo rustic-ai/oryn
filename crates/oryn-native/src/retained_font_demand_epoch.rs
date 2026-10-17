@@ -1,7 +1,7 @@
 // Native-only original publication custody. Never use DOM mutation as a proxy
 // for CSSOM descriptor edits or an Arc address without retaining its owner.
 #[derive(Clone)]
-pub(super) struct RetainedFontDemandEpoch {
+pub(crate) struct RetainedFontDemandEpoch {
     publication: Rc<RetainedStylesheetRecord>,
     registry: Weak<RefCell<RetainedStylesheets>>,
     mutation_revision: u64,
@@ -9,6 +9,7 @@ pub(super) struct RetainedFontDemandEpoch {
 }
 
 impl RetainedFontDemandEpoch {
+    pub(super) fn publication(&self)->&Rc<RetainedStylesheetRecord>{&self.publication}
     pub(super) fn same(&self, other: &Self) -> bool {
         Rc::ptr_eq(&self.publication, &other.publication)
             && self.mutation_revision == other.mutation_revision
@@ -67,7 +68,7 @@ fn retained_font_epoch(
         .transpose()
 }
 
-fn retained_font_evaluation_current(host: &RawV8Host, source: &CssDemandBatch) -> bool {
+pub(super) fn retained_font_evaluation_current(host: &RawV8Host, source: &CssDemandBatch) -> bool {
     match retained_font_epoch(
         host,
         source.identity,

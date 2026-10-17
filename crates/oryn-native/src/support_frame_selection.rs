@@ -23,7 +23,7 @@ fn prepare_support_frame_decoder(
             // Same original response lease. The actual Document slot is
             // committed before the decoder can consume any selected bytes.
             let custody = support_native_document::NativeSupportDocument::install(
-                &owner, body.clone(), budget)?;
+                &owner, body.clone(), creator, budget)?;
             Ok(Some((owner, custody)))
         }
         _ => Err(HostError::Execution("unexpected support response selection".into())),

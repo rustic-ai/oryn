@@ -12,7 +12,7 @@ struct PublicFontJob {
     _cancellation_metadata:Arc<dyn Send+Sync>,
 }
 struct PublicFontResult {
-    result:Result<CssBinary,HostError>,
+    result:Result<dynamic_stylesheet_preparation::CssBinary,HostError>,
     _bytes:Option<ScriptSourceReservation>,
     _producer_owners:[Arc<dyn Send+Sync>;4],
 }
@@ -112,16 +112,16 @@ impl RustExecutableDocument {
                     oryn_js::v8_bindings::font_loading_transport::FontLoadSource::Bytes(bytes)=>{
                         prepaid=ScriptSourceReservation::reserve(&body_budget,bytes.len());
                         if prepaid.is_none(){result=Err(HostError::LimitExceeded{resource:"CSS binary retained bytes".into()});break;}
-                        if oryn_layout::decode_web_font(&bytes,NATIVE_FONT_DECODE_BYTES).is_ok(){
-                            result=Ok(CssBinary{url:String::new(),bytes});break;
+                        if oryn_layout::decode_web_font(&bytes,dynamic_stylesheet_preparation::NATIVE_FONT_DECODE_BYTES).is_ok(){
+                            result=Ok(dynamic_stylesheet_preparation::CssBinary{url:String::new(),bytes});break;
                         }continue;
                     },
                     oryn_js::v8_bindings::font_loading_transport::FontLoadSource::Local(name)=>{
                         if let Some(bytes)=oryn_layout::local_font_bytes(&name){
                             prepaid=ScriptSourceReservation::reserve(&body_budget,bytes.len());
                             if prepaid.is_none(){result=Err(HostError::LimitExceeded{resource:"CSS binary retained bytes".into()});break;}
-                            if oryn_layout::decode_web_font(bytes,NATIVE_FONT_DECODE_BYTES).is_ok(){
-                                result=Ok(CssBinary{url:name,bytes:bytes.to_vec()});break;
+                            if oryn_layout::decode_web_font(bytes,dynamic_stylesheet_preparation::NATIVE_FONT_DECODE_BYTES).is_ok(){
+                                result=Ok(dynamic_stylesheet_preparation::CssBinary{url:name,bytes:bytes.to_vec()});break;
                             }
                         }
                         continue;
@@ -132,7 +132,7 @@ impl RustExecutableDocument {
                 if let Some(loader)=loader.as_mut(){
                     match loader.load_dependency_next(&base,&base,"",reference){
                         Ok(binary)=>{
-                            if oryn_layout::decode_web_font(&binary.bytes,NATIVE_FONT_DECODE_BYTES).is_ok(){
+                            if oryn_layout::decode_web_font(&binary.bytes,dynamic_stylesheet_preparation::NATIVE_FONT_DECODE_BYTES).is_ok(){
                                 prepaid=ScriptSourceReservation::reserve(&body_budget,binary.bytes.len());result=Ok(binary);break;
                             }continue;
                         },
@@ -147,7 +147,7 @@ impl RustExecutableDocument {
                     css_subresource_request(*page_id,&creator,&base,&base,"",reference));
                 let binary=match reply {
                     Ok(crate::context_service::ContextServiceResponse::PageBinaryResource{url,body_base64,..})=>{
-                        if body_base64.len()>CSS_BINARY_RESPONSE_BYTES {
+                        if body_base64.len()>dynamic_stylesheet_preparation::CSS_BINARY_RESPONSE_BYTES {
                             result=Err(HostError::LimitExceeded{resource:"CSS binary response".into()});break;
                         }
                         let decoded=body_base64.len().checked_div(4).and_then(|n|n.checked_add(1))
@@ -155,7 +155,7 @@ impl RustExecutableDocument {
                         prepaid=decoded.and_then(|bytes|ScriptSourceReservation::reserve(&body_budget,bytes));
                         if prepaid.is_none(){result=Err(HostError::LimitExceeded{resource:"CSS binary retained bytes".into()});break;}
                         base64::Engine::decode(&base64::engine::general_purpose::STANDARD,body_base64)
-                            .map(|bytes|CssBinary{url,bytes}).map_err(|error|HostError::Execution(error.to_string()))
+                            .map(|bytes|dynamic_stylesheet_preparation::CssBinary{url,bytes}).map_err(|error|HostError::Execution(error.to_string()))
                     },
                     Ok(_)=>{result=Err(HostError::Execution("invalid font broker response".into()));break;},
                     Err(error)=>{
@@ -165,7 +165,7 @@ impl RustExecutableDocument {
                     },
                 };
                 match binary {
-                    Ok(binary)=>{if oryn_layout::decode_web_font(&binary.bytes,NATIVE_FONT_DECODE_BYTES).is_ok(){result=Ok(binary);break;}},
+                    Ok(binary)=>{if oryn_layout::decode_web_font(&binary.bytes,dynamic_stylesheet_preparation::NATIVE_FONT_DECODE_BYTES).is_ok(){result=Ok(binary);break;}},
                     Err(error)=>{result=Err(error);break;},
                 }
             }

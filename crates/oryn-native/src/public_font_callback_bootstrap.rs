@@ -5,10 +5,7 @@ impl RawV8Host {
         // scalar walk or the allocation factory's owning-context refresh.
         let mut after = None;
         loop {
-            let next = self.binding_states.iter()
-                .filter(|(realm, _)| after.is_none_or(|last| **realm > last)
-                    && self.realm_execution_live(**realm))
-                .map(|(realm, _)| *realm).min();
+            let next=self.next_native_font_realm(after,false);
             let Some(realm) = next else { return Ok(()); };
             after = Some(realm);
             let Some(layout) = self.native_layout_provider_in_realm(realm) else {

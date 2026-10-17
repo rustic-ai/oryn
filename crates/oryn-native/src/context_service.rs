@@ -1046,6 +1046,11 @@ pub enum ContextServiceRequest {
         stream_id: u64,
         creator: oryn_js::worker_wire::Creator,
     },
+    CommitSupportFrameDecoded {
+        page_id: PageId,
+        stream_id: u64,
+        creator: oryn_js::worker_wire::Creator,
+    },
     ReleaseNetworkResult {
         page_id: PageId,
         creator: Option<oryn_js::worker_wire::Creator>,
@@ -1512,6 +1517,7 @@ impl ContextServiceRequest {
             Self::CancelScriptLoad { .. } => "CancelScriptLoad",
             Self::ReleaseFrameResponseStream { .. } => "ReleaseFrameResponseStream",
             Self::SelectSupportFrameResponse { .. } => "SelectSupportFrameResponse",
+            Self::CommitSupportFrameDecoded { .. } => "CommitSupportFrameDecoded",
             Self::ReleaseNetworkResult { .. } => "ReleaseNetworkResult",
             Self::ValidateStylesheetResponse { .. } => "ValidateStylesheetResponse",
             Self::ReleaseStylesheetResponse { .. } => "ReleaseStylesheetResponse",
@@ -8244,6 +8250,9 @@ impl ParentContextService {
             }
             ContextServiceRequest::SelectSupportFrameResponse { page_id, stream_id, creator } => {
                 self.select_support_frame_response(page_id, stream_id, &creator)
+            }
+            ContextServiceRequest::CommitSupportFrameDecoded { page_id, stream_id, creator } => {
+                self.commit_support_frame_decoded(page_id, stream_id, &creator)
             }
             ContextServiceRequest::ReleaseFrameResponseStream { .. }
             | ContextServiceRequest::ReleaseNetworkResult { .. } => {
@@ -20605,6 +20614,12 @@ mod document_resource_authority_tests {
             for (index, (path, _)) in crate::support_descriptor::IMPORTS.iter().enumerate() {
                 service.record_support_import(page, &child, &child_url.join(path).unwrap(), &imports[index]).unwrap();
             }
+            assert!(service.support_response_snapshot(page,id).unwrap().is_none(),"broker EOF alone is not decoded EOF");
+            let stale=oryn_js::worker_wire::Creator::Window{target:oryn_js::message_wire::WindowTarget::Root,document_generation:1,stream_epoch:0};
+            assert!(service.commit_support_frame_decoded(page,id,&stale).is_err());
+            assert!(service.support_response_snapshot(page,id).unwrap().is_none(),"wrong decoder owner cannot publish");
+            service.commit_support_frame_decoded(page,id,&child).unwrap();
+            assert!(service.commit_support_frame_decoded(page,id,&child).is_err(),"decoder EOF is exactly once");
             let receipt = service.support_response_snapshot(page, id).unwrap().unwrap();
             assert_eq!(receipt.child.occurrence, id);
             assert_eq!(receipt.body_bytes, child_bytes.len() as u64);
@@ -20811,6 +20826,7 @@ mod document_resource_authority_tests {
     }
     #[test]
     fn font_broker_failure_provenance_survives_actual_parent_wire(){
+        use crate::network::NetworkError;
         struct Failures;
         impl NetworkBroker for Failures{
             fn send(&self,request:NetworkRequest)->Result<NetworkResponse,NetworkError>{
@@ -20820,11 +20836,16 @@ mod document_resource_authority_tests {
                 Ok(NetworkResponse{response_policy:None,timing:None,request_id:request.request_id,status:404,headers:Vec::new(),body:Vec::new()})
             }
         }
-        let context=Browser::in_process_probe().new_context();let page=context.new_page();let page_id=page.page_id();
+        let context=crate::Browser::in_process_probe().new_context();let page=context.new_page();let page_id=page.page_id();
         context.commit_page_url(page_id,"https://example.test/".into()).unwrap();
         context.install_document_security(page_id,"https://example.test/".into(),&[]).unwrap();
+        context.handle_message_wire(page_id,MessageRequest::RegisterRootDocument {
+            document_generation:1,stream_epoch:0,
+        }).unwrap();
+        let creator=Creator::Window {
+            target:WindowTarget::Root,document_generation:1,stream_epoch:0,
+        };
         let service=ParentContextService::new_with_network(context,page_id,Some(SharedNetworkBroker::new(Failures)));
-        let creator=script_test_creator(&service,page_id);
         let(worker,parent)=UnixStream::pair().unwrap();let shutdown=parent.try_clone().unwrap();
         let server=std::thread::spawn(move||serve_context_transport(parent,Arc::new(service)));
         let client=SharedContextClient::new(IpcContextClient::new(worker));

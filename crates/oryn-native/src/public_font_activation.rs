@@ -1,5 +1,5 @@
 impl RawV8Host {
-    fn activate_public_font_loading(&mut self,realm:RealmId)->Result<(),HostError>{
+    pub(crate) fn activate_public_font_loading(&mut self,realm:RealmId)->Result<(),HostError>{
         let state=self.retained_binding_state(realm)?;
         let dom=self.automation_dom(realm).ok_or(HostError::CachedAuthorityExpired)?;
         let identity=ParserFetchContext::capture(self,&dom,state.document_root())?.identity();

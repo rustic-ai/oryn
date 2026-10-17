@@ -36,8 +36,8 @@ impl OwnedOsKeyReceipt {
         if let Some((done,interpret))=self.completion{receipt.continuation_done=done;receipt.interpret=interpret;}
         receipt
     }
-    /// Replacement preserves source/token identity, transfers exactly one
-    /// current snapshot lease and releases the previous state's ownership.
+    // Replacement preserves source/token identity, transfers exactly one
+    // current snapshot lease and releases the previous state's ownership.
     // State replacement must create a newly admitted receipt; Arc clones share
     // the original immutable payload and never duplicate its UTF16 Vec.
 }

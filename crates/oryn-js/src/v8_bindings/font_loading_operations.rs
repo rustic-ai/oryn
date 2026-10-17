@@ -164,6 +164,8 @@ fn settle_loads(scope:&mut v8::PinScope,state:&Rc<V8BindingState>)->Result<(),V8
             })
         };
         let Some((index,error,published,resolver,array))=next else{return Ok(())};
+        #[cfg(test)]
+        if !published{settlement_controls::before_publication()?;}
         // Keep the original admitted record in State until publication succeeds;
         // a failure leaves this record and every later ready record retryable.
         if !published {if error {let error=dom_exception_value(scope,"NetworkError")?;
@@ -174,6 +176,8 @@ fn settle_loads(scope:&mut v8::PinScope,state:&Rc<V8BindingState>)->Result<(),V8
             if v8::Local::new(scope,&load.resolver)!=resolver{return Err(V8BindingError::Allocation("font load publication changed"))}
             load.published=true;
         }
+        #[cfg(test)]
+        settlement_controls::after_publication(state);
         if !crate::v8_termination::checkpoint(scope){return Err(V8BindingError::JavaScriptException)}
         if owner(state)!=original_owner||state.execution_retired(){return Ok(())}
         if state.execution_suspended()||state.execution_tasks_stopped(){return Ok(())}

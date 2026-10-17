@@ -263,6 +263,13 @@ pub(super) struct CssDemandBatch {
     dom: SharedDomRuntime,
     _node: ParserScriptLease,
 }
+impl CssDemandBatch {
+    pub(super) fn realm(&self) -> RealmId { self.realm }
+    pub(super) fn evaluated(&self) -> bool { self.evaluated.is_some() }
+    pub(super) fn evaluation_snapshot(&self) -> (NodeId, u64, Option<RetainedFontDemandEpoch>) {
+        (self.batch.node, self.batch.revision, self.evaluated_font.clone())
+    }
+}
 struct CssDemand {
     families: BTreeMap<String, BTreeSet<u32>>,
 }
@@ -312,6 +319,10 @@ impl CssDemand {
             })
     }
 }
+// Shared existing implicit/public font resource limits.
+pub(super) const CSS_BINARY_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
+pub(super) const NATIVE_FONT_DECODE_BYTES: usize = 16 * 1024 * 1024;
+
 pub(super) struct CssBinary {
     pub url: String,
     pub bytes: Vec<u8>,
@@ -607,7 +618,7 @@ impl RustExecutableDocument {
         }
         self.poll_font_display()?;
         if requests.is_empty() {
-            return Ok(());
+            return Ok(evaluated_font);
         }
         if self
             .dynamic_stylesheets
@@ -768,7 +779,7 @@ impl RustExecutableDocument {
                     let(client,page_id,_)=context.expect("captured CSS endpoint");let creator=creator.ok_or_else(||HostError::Execution("CSS dependency native initiator absent".into()))?;
                     match native.run(&client,page_id,creator.creator.clone(),css_subresource_request(page_id,&creator,&base,&initiator,&policy,reference)).map_err(|error|HostError::Execution(error.to_string()))?{
                         crate::context_service::ContextServiceResponse::PageBinaryResource{url,body_base64,..}=>{
-                            if body_base64.len()>24*1024*1024{return Err(HostError::LimitExceeded{resource:"CSS binary response".into()});}
+                            if body_base64.len()>CSS_BINARY_RESPONSE_BYTES{return Err(HostError::LimitExceeded{resource:"CSS binary response".into()});}
                             let bytes=base64::Engine::decode(&base64::engine::general_purpose::STANDARD,body_base64).map_err(|error|HostError::Execution(error.to_string()))?;
                             Ok(CssBinary{url,bytes})
                         },
@@ -780,7 +791,7 @@ impl RustExecutableDocument {
                     .and_then(|result:Result<CssBinary,HostError>|result);
                 let result = result.and_then(|binary| {
                     if is_font {
-                        oryn_layout::decode_web_font(&binary.bytes, 16 * 1024 * 1024)
+                        oryn_layout::decode_web_font(&binary.bytes, NATIVE_FONT_DECODE_BYTES)
                             .map_err(|error|HostError::ScriptLoad(crate::script_load_failure::ScriptLoadFailure::Fetch(error)))?;
                     }
                     Ok(binary)
@@ -820,7 +831,7 @@ impl RustExecutableDocument {
             self.dynamic_stylesheets.push_back(job);
             attempted.insert(accepted_key);
         }
-        Ok(())
+        Ok(evaluated_font)
     }
     pub(super) fn schedule_document_pi_stylesheets(
         &mut self,
@@ -846,7 +857,7 @@ impl RustExecutableDocument {
         for node in nodes {
             self.schedule_dynamic_stylesheet(realm, node)?;
         }
-        Ok(evaluated_font)
+        Ok(())
     }
     pub(super) fn dynamic_stylesheets_block_scripts(
         &self,

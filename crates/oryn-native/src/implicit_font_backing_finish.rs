@@ -4,7 +4,7 @@ pub(super) fn current_implicit_font_job(job:&StylesheetPreparation,host:&RawV8Ho
     job.identity.realm==realm&&job.font_family.is_some()&&job.live(host)
 }
 impl RustExecutableDocument {
-    fn synchronize_initial_implicit_fonts(&mut self,realm:RealmId)->Result<(),HostError>{
+    pub(super) fn synchronize_initial_implicit_fonts(&mut self,realm:RealmId)->Result<(),HostError>{
         self.agent.host.synchronize_public_font_set(realm)?;
         for timeline in self.css_font_timelines.iter_mut().filter(|timeline|timeline.identity.realm==realm){
             if !timeline.valid(&self.agent.host){continue;}

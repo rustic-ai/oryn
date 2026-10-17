@@ -711,8 +711,8 @@ impl KeyboardProgress {
                 match page.poll_composition_in_context(&self.context, receipt) {
                     Ok(Some(state)) => {
                         self.interpretation_lease=Some(std::sync::Arc::new((receipt.snapshot_lease(),receipt.parent_metadata_lease())));
-                        let lease=receipt.input_capacity_lease().ok_or_else(||ScriptError::javascript("native input allowance not prepaid".into()))?;
-                        let cancellation=receipt.input_capacity_cancellation().ok_or_else(||ScriptError::javascript("native input allowance owner unavailable".into()))?;
+                        let lease=receipt.input_capacity_lease().ok_or_else(||ScriptError::javascript("native input allowance not prepaid"))?;
+                        let cancellation=receipt.input_capacity_cancellation().ok_or_else(||ScriptError::javascript("native input allowance owner unavailable"))?;
                         self.interpretation_allowance=Some(std::sync::Arc::new(crate::native_input_allowance::InputAllowance::new(capacity,cancellation,lease)));
                         self.interpretation_result =
                             Some((Some(*target), !state.aborted, Some(state)));

@@ -1442,6 +1442,7 @@ mod publication_tests {
         let entry = Arc::new(HttpStreamEntry {
             keepalive_context: None,
             keepalive_drain: Some(crate::keepalive_drain::Ticket::reserve().unwrap()),
+            support: Mutex::new(None),
             page_id: PageId(1),
             creator: Mutex::new(None),
             prepared_frame_policy: None,
@@ -1450,13 +1451,13 @@ mod publication_tests {
             cleanup: Some(cleanup),
             state: Mutex::new(HttpStreamState {
                 preload: None,
-                operation: NetworkOperation {
+                operation: Some(NetworkOperation {
                     body_demand_pending: Default::default(),
                     prefetched: Default::default(),
                     request_id: 91,
                     events,
                     demand: None,
-                },
+                }),
                 current: bytes::Bytes::new(),
                 offset: 0,
                 bytes_read: 0,

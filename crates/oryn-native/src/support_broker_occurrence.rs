@@ -12,6 +12,7 @@ pub(crate) struct BrokerOccurrence {
     imports: u8,
     descriptor: PinnedSupportDescriptor,
     bound: bool,
+    decoded: bool,
 }
 fn owner(page:u64, occurrence:u64, creator:&Creator, authority_epoch:u64)->Option<SupportOwner> {
     let Creator::Window{document_generation,stream_epoch,..}=creator else{return None;};
@@ -26,7 +27,7 @@ impl BrokerOccurrence {
         Some(Self{parent:(*document_generation,*stream_epoch),request,stream,
             state:SupportResponseState::new(descriptor_hash,candidate,
                 owner(page,request,parent,parent_epoch)?,final_url,body),
-            imports:0,descriptor,bound:false})
+            imports:0,descriptor,bound:false,decoded:false})
     }
     pub(crate) fn root(&self)->Creator {
         Creator::Window{target:WindowTarget::Root,document_generation:self.parent.0,stream_epoch:self.parent.1}
@@ -50,8 +51,14 @@ impl BrokerOccurrence {
         false
     }
     pub(crate) fn export(&self,page:u64,parent:&Creator,pe:u64,child:&Creator,ce:u64)->Option<SupportReceipt>{
-        if &self.root()!=parent || !self.bound || self.imports!=63{return None;}
+        if &self.root()!=parent || !self.bound || !self.decoded || self.imports!=63{return None;}
         self.state.read(owner(page,self.request,parent,pe)?,owner(page,self.stream,child,ce)?)
+    }
+    pub(crate) fn decoded(&mut self,page:u64,parent:&Creator,pe:u64,child:&Creator,ce:u64)->bool{
+        if self.decoded||&self.root()!=parent||!self.bound{return false;}
+        let(Some(p),Some(c))=(owner(page,self.request,parent,pe),owner(page,self.stream,child,ce))else{return false;};
+        if self.state.read(p,c).is_none(){return false;}
+        self.decoded=true;true
     }
     pub(crate) fn retire(&mut self){self.state.cancel();}
 }

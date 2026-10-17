@@ -8,6 +8,8 @@ include!("font_container_capacity.rs");
 include!("font_loading_cycles.rs");
 include!("font_loading_bindings.rs");
 include!("font_loading_operations.rs");
+#[cfg(test)]
+include!("font_load_settlement_controls.rs");
 include!("font_loading_membership.rs");
 include!("font_set_iterators.rs");
 include!("font_loading_retirement.rs");

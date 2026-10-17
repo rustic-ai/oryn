@@ -783,7 +783,7 @@ pub async fn execute_owned(page:&PageHandle,mut owned:crate::owned_action_reques
         let command=match action{Action::Input(input)=>crate::webdriver_actions::ActionCommand::Perform(input),_=>crate::webdriver_actions::ActionCommand::Cancel};
         let mut response=page.scoped_owned_actions(scope,command,context).await.map_err(|error|error.to_string())?;
         match &response.response {
-            crate::worker::WorkerResponse::WebdriverActions{result,..}=>result.as_ref().map_err(|error|error.message.clone())?,
+            crate::worker::WorkerResponse::WebdriverActions{result,..}=>{result.as_ref().map_err(|error|error.message.clone())?;},
             _=>return Err("native owned action reply mismatch".into()),
         }
         return Ok(response.receipts.take().unwrap_or_default());

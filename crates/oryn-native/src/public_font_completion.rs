@@ -6,13 +6,7 @@ impl RawV8Host {
     fn complete_public_font(&mut self,realm:RealmId,completion:oryn_js::v8_bindings::font_loading_transport::FontLoadCompletion)
         ->Result<bool,HostError>{
         if !self.public_font_request_current(realm,completion.token){return Ok(false);}
-        let state=self.retained_binding_state(realm)?;
-        let context=self.contexts.get(&realm).cloned().ok_or(HostError::CachedAuthorityExpired)?;
-        v8::scope!(let handles,&mut self.isolate);
-        let context=v8::Local::new(handles,&context);
-        let scope=&mut v8::ContextScope::new(handles,context);
-        let _admission=state.enter_retained_allocation(scope).map_err(|error|HostError::Execution(error.to_string()))?;
-        state.complete_native_font_request(scope,completion).map_err(|error|HostError::Execution(error.to_string()))
+        self.with_public_font_scope(realm,|scope,state|state.complete_native_font_request(scope,completion).map_err(|error|HostError::Execution(error.to_string())))
     }
 }
 impl RustExecutableDocument {

@@ -4,7 +4,7 @@ struct ImplicitFontBacking {
     identity:usize,
     rule:oryn_layout::cssom::native_import_graph::NativeRule,
     epoch:dynamic_stylesheet_preparation::RetainedFontDemandEpoch,
-    binary:CssBinary,
+    binary:dynamic_stylesheet_preparation::CssBinary,
     _bytes:ScriptSourceReservation,
     _metadata:Arc<dyn Send+Sync>,
     _payload_admission:Arc<dyn Send+Sync>,
@@ -33,17 +33,17 @@ type ImplicitFontBackingStore=Rc<RefCell<ImplicitFontBackingEntries>>;
 impl ImplicitFontBacking {
     fn matches(&self,identity:usize,publication:&Rc<RetainedStylesheetRecord>)->bool{
         self.identity==identity
-            && Rc::ptr_eq(&self.epoch.publication,publication) && self.epoch.current()
+            && Rc::ptr_eq(self.epoch.publication(),publication) && self.epoch.current()
     }
 }
 impl RustExecutableDocument {
     fn prepare_implicit_font_backing(
         &mut self,realm:RealmId,rule:oryn_layout::cssom::native_import_graph::NativeRule,
         epoch:dynamic_stylesheet_preparation::RetainedFontDemandEpoch,
-        binary:&CssBinary,
+        binary:&dynamic_stylesheet_preparation::CssBinary,
     )->Result<Arc<ImplicitFontBacking>,HostError>{
         if !epoch.current(){return Err(HostError::CachedAuthorityExpired);}
-        let identity=epoch.publication.graph.borrow().connected_font_context(&rule)
+        let identity=epoch.publication().graph.borrow().connected_font_context(&rule)
             .map_err(HostError::Execution)?.identity();
         let admission=self.agent.host.native_retained_admission_for_realm(realm)?.ok_or(HostError::CachedAuthorityExpired)?;
         let _scope=self.agent.host.retained_allocation_scope(realm)?;
@@ -64,7 +64,7 @@ impl RustExecutableDocument {
         url.try_reserve_exact(binary.url.len()).map_err(|_|HostError::Execution("implicit font backing URL allocation".into()))?;
         if url.capacity()>binary.url.len(){return Err(HostError::Execution("implicit font backing URL exceeded admission".into()));}
         url.push_str(&binary.url);
-        Ok(Arc::new(ImplicitFontBacking{identity,rule,epoch,binary:CssBinary{url,bytes:payload},_bytes:bytes,_metadata:metadata,_payload_admission:payload_admission,_store_metadata:store_metadata}))
+        Ok(Arc::new(ImplicitFontBacking{identity,rule,epoch,binary:dynamic_stylesheet_preparation::CssBinary{url,bytes:payload},_bytes:bytes,_metadata:metadata,_payload_admission:payload_admission,_store_metadata:store_metadata}))
     }
 }
 fn prepare_implicit_font_store(store:&ImplicitFontBackingStore,admission:&dyn oryn_layout::cssom::native_import_graph::ImportAdmission)->Result<(),HostError>{
@@ -90,7 +90,7 @@ fn prepare_implicit_font_store(store:&ImplicitFontBackingStore,admission:&dyn or
 fn commit_implicit_font_backing(store:&ImplicitFontBackingStore,backing:Arc<ImplicitFontBacking>)->Result<(),HostError>{
     if !backing.epoch.current(){return Err(HostError::CachedAuthorityExpired);}
     let mut entries=store.try_borrow_mut().map_err(|_|HostError::Execution("implicit backing publication borrow".into()))?;
-    let index=entries.entries.iter().position(|old|old.identity==backing.identity&&Rc::ptr_eq(&old.epoch.publication,&backing.epoch.publication));
+    let index=entries.entries.iter().position(|old|old.identity==backing.identity&&Rc::ptr_eq(old.epoch.publication(),backing.epoch.publication()));
     if index.is_none()&&entries.entries.len()==entries.entries.capacity(){return Err(HostError::Execution("implicit backing capacity changed before commit".into()));}
     let old=if let Some(index)=index{Some(std::mem::replace(&mut entries.entries[index],backing))}else{entries.entries.push(backing);None};
     drop(entries);

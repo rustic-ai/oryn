@@ -24,19 +24,19 @@ impl RustExecutableDocument {
         let dom=self.agent.host.automation_dom(realm).ok_or(HostError::CachedAuthorityExpired)?;
         let document=self.agent.host.retained_binding_state(realm)?.document_root();
         let identity=ParserFetchContext::capture(&self.agent.host,&dom,document)?.identity();
-        let count=self.css_dependency_sources.iter().filter(|source|source.realm==realm).count();
+        let count=self.css_dependency_sources.iter().filter(|source|source.realm()==realm).count();
         let shared=self.agent.host.native_retained_admission_for_realm(realm)?.ok_or(HostError::CachedAuthorityExpired)?;
         let _scope=self.agent.host.retained_allocation_scope(realm)?;
         let allocation=shared.reserve(count.checked_mul(std::mem::size_of::<(NodeId,u64,Option<dynamic_stylesheet_preparation::RetainedFontDemandEpoch>)>())
             .ok_or_else(||HostError::Execution("font quiescence snapshot overflow".into()))?).map_err(HostError::Execution)?;
         if ParserFetchContext::capture(&self.agent.host,&dom,document)?.identity()!=identity
-            || self.css_dependency_sources.iter().filter(|source|source.realm==realm).count()!=count {
+            || self.css_dependency_sources.iter().filter(|source|source.realm()==realm).count()!=count {
             return Err(HostError::CachedAuthorityExpired);
         }
         let mut sources=Vec::new();sources.try_reserve_exact(count).map_err(|_|HostError::Execution("font quiescence snapshot allocation".into()))?;
         if sources.capacity()>count{return Err(HostError::Execution("font quiescence source capacity exceeded admission".into()));}
-        for source in self.css_dependency_sources.iter().filter(|source|source.realm==realm){
-            sources.push((source.batch.node,source.batch.revision,source.evaluated_font.clone()));
+        for source in self.css_dependency_sources.iter().filter(|source|source.realm()==realm){
+            sources.push(source.evaluation_snapshot());
         }
         let state=self.agent.host.retained_binding_state(realm)?;
         let public_cycle=state.native_font_cycle();
@@ -82,8 +82,8 @@ impl RustExecutableDocument {
         !self.public_font_jobs.iter().any(|job|job.realm==realm && self.agent.host.public_font_request_current(job.realm,job.token))
             && !self.dynamic_stylesheets.iter().any(|job|
                 dynamic_stylesheet_preparation::current_implicit_font_job(job,&self.agent.host,realm))
-            && self.css_dependency_sources.iter().filter(|source|source.realm==realm)
-                .all(|source|source.evaluated.is_some()
+            && self.css_dependency_sources.iter().filter(|source|source.realm()==realm)
+                .all(|source|source.evaluated()
                     && dynamic_stylesheet_preparation::retained_font_evaluation_current(&self.agent.host,source))
     }
 }
