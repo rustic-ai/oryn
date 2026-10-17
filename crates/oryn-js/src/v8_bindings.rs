@@ -25663,7 +25663,11 @@ fn get_platform_attribute<'s>(
         && let Some(names) = owned_name_getter::snapshot(scope, state, id, interface, member)?
     {
             let (names, custody) = names.into_parts();
-            let value = string_array(scope, &names);
+            let realm = state.realm_context.borrow().clone()
+                .ok_or(V8BindingError::Allocation("IDB names realm"))?;
+            let context = v8::Local::new(scope, &realm);
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let value = stylesheet_sets::snapshot(scope, state, &names).map(Into::into);
             drop(names);
             drop(custody);
             return value;
@@ -61300,6 +61304,81 @@ target.srcdoc='raw';
         "#).unwrap();test_eval::run(scope,source);
         let source=v8::String::new(scope,"metadataTx.abort();metadataResult.push(throws('InvalidStateError',()=>metadataTx.objectStore('missing')));metadataResult.every(Boolean)").unwrap();
         assert!(test_eval::run(scope,source).is_true());
+    }
+
+    #[test]
+    fn indexeddb_native_dom_string_lists_window_and_worker() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let handles, &mut isolate);
+        let mut first_item = None;
+        let mut first_contains = None;
+        for (index, global) in [BindingGlobal::Window, BindingGlobal::Worker].into_iter().enumerate() {
+            let context = v8::Context::new(handles, Default::default());
+            let scope = &mut v8::ContextScope::new(handles, context);
+            let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+            let document = dom.borrow().document();
+            let state = install_generated_bindings_with_root_for_global(scope, context, dom,
+                RealmId(index as u32), 1, document, global).unwrap();
+            state.commit_location("https://example.test/").unwrap();
+            state.set_platform_host(Rc::new(TestPlatformHost::default()));
+            let source = v8::String::new(scope, r#"globalThis.nameListResult = 'pending';
+const nameRequest = indexedDB.open('native-name-list', 2);
+nameRequest.onupgradeneeded = () => {
+    const db = nameRequest.result, tx = nameRequest.transaction;
+    const store = db.createObjectStore('z');
+    db.createObjectStore('a');
+    store.createIndex('z', 'z');
+    store.createIndex('a', 'a');
+    const check = (list, expected) => {
+        if (Array.isArray(list) || !(list instanceof DOMStringList)) throw Error('native brand');
+        if (Object.getPrototypeOf(list) !== DOMStringList.prototype) throw Error('prototype realm');
+        if (Array.from(list).join('|') !== expected || list.length !== expected.split('|').length) throw Error('sorted values');
+        if (list.item(0) !== list[0] || list.item(999) !== null || list[999] !== undefined) throw Error('item');
+        if (!list.contains(list[0]) || list.contains('absent')) throw Error('contains');
+        if (Reflect.set(list, '0', 'changed')) throw Error('readonly');
+        let reads = 0, didThrow = false;
+        try { DOMStringList.prototype.contains.call({}, {toString(){reads++;throw Error('author')}}); }
+        catch (error) { didThrow = true; if (!(error instanceof TypeError) || reads !== 0) throw Error('receiver precedence'); }
+        if (!didThrow) throw Error('receiver accepted');
+    };
+    check(db.objectStoreNames, 'a|z');
+    check(tx.objectStoreNames, 'a|z');
+    check(store.indexNames, 'a|z');
+    store.deleteIndex('a');
+    check(store.indexNames, 'z');
+    db.deleteObjectStore('a');
+    check(db.objectStoreNames, 'z');
+    check(tx.objectStoreNames, 'z');
+    nameListResult = 'ok';
+};
+"#).unwrap();
+            test_eval::run(scope, source);
+            for _ in 0..32 {
+                state.drain_platform_completions(scope, 1).unwrap();
+                scope.perform_microtask_checkpoint();
+            }
+            assert_eq!(test_eval::eval(scope, "nameListResult").to_rust_string_lossy(scope), "ok");
+            let list = test_eval::eval(scope, "nameRequest.result.objectStoreNames");
+            if index == 0 {
+                let item = test_eval::eval(scope, "DOMStringList.prototype.item");
+                first_item = Some(v8::Global::new(scope, item));
+                let contains = test_eval::eval(scope, "DOMStringList.prototype.contains");
+                first_contains = Some(v8::Global::new(scope, contains));
+            } else {
+                let item = v8::Local::new(scope, first_item.as_ref().unwrap());
+                let contains = v8::Local::new(scope, first_contains.as_ref().unwrap());
+                let object = context.global(scope);
+                let key = v8::String::new(scope, "foreignItem").unwrap();
+                object.set(scope, key.into(), item);
+                let key = v8::String::new(scope, "foreignContains").unwrap();
+                object.set(scope, key.into(), contains);
+                let key = v8::String::new(scope, "foreignList").unwrap();
+                object.set(scope, key.into(), list);
+                assert!(test_eval::eval(scope, "foreignItem.call(foreignList,0)==='z'&&foreignContains.call(foreignList,'z')&&(()=>{const marker={};try{foreignContains.call(foreignList,{toString(){throw marker}})}catch(e){return e===marker}})()").is_true());
+            }
+        }
     }
 
     #[test]

@@ -2395,7 +2395,7 @@ interface IDBOpenDBRequest : IDBRequest {
 interface IDBDatabase : EventTarget {
   readonly attribute DOMString name;
   readonly attribute unsigned long long version;
-  readonly attribute sequence<DOMString> objectStoreNames;
+  readonly attribute DOMStringList objectStoreNames;
   attribute EventListener? onabort;
   attribute EventListener? onclose;
   attribute EventListener? onerror;
@@ -2418,7 +2418,7 @@ interface IDBTransaction : EventTarget {
   readonly attribute IDBTransactionMode mode;
   readonly attribute IDBTransactionDurability durability;
   readonly attribute any error;
-  readonly attribute sequence<DOMString> objectStoreNames;
+  readonly attribute DOMStringList objectStoreNames;
   attribute EventListener? onabort;
   attribute EventListener? oncomplete;
   attribute EventListener? onerror;
@@ -2480,7 +2480,7 @@ interface IDBIndex {
 interface IDBObjectStore {
   attribute DOMString name;
   readonly attribute any keyPath;
-  readonly attribute sequence<DOMString> indexNames;
+  readonly attribute DOMStringList indexNames;
   readonly attribute IDBTransaction transaction;
   readonly attribute boolean autoIncrement;
   any add(any value, optional any key);
@@ -3724,7 +3724,7 @@ dictionary MediaQueryListEventInit : EventInit {
   boolean matches = false;
 };
 
-[Exposed=Window]
+[Exposed=(Window,Worker)]
 interface DOMStringList {
   readonly attribute unsigned long length;
   getter DOMString? item(unsigned long index);
