@@ -12831,6 +12831,11 @@ fn is_platform_interface(interface: &str) -> bool {
     matches!(
         interface,
         "Sanitizer"
+            | "EditContext"
+            | "TextFormat"
+            | "TextUpdateEvent"
+            | "TextFormatUpdateEvent"
+            | "CharacterBoundsUpdateEvent"
             | "FontFace"
             | "FontFaceSet"
             | "BaseAudioContext"
@@ -19615,6 +19620,7 @@ fn dispatch_platform_event_capturing(
                 | PlatformObjectRecord::XPathNamespace
                 | PlatformObjectRecord::MessagePort(_)
                 | PlatformObjectRecord::EventTarget
+                | PlatformObjectRecord::EditContext(_)
                 | PlatformObjectRecord::TextTrack
                 | PlatformObjectRecord::TextTrackCue(_)
                 | PlatformObjectRecord::TextTrackList(text_tracks::List::Tracks(_))
@@ -27357,6 +27363,7 @@ fn set_platform_attribute(
                 | PlatformObjectRecord::MediaQueryList { .. }
                 | PlatformObjectRecord::XPathNamespace
                 | PlatformObjectRecord::EventTarget
+                | PlatformObjectRecord::EditContext(_)
                 | PlatformObjectRecord::TextTrack
                 | PlatformObjectRecord::TextTrackCue(_)
                 | PlatformObjectRecord::TextTrackList(text_tracks::List::Tracks(_))

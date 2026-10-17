@@ -840,6 +840,9 @@ mod tests {
     use super::*;
 #[test]
 fn edit_context_native_buffer_attachment_and_trusted_keyboard_controls() {
+    for interface in ["EditContext", "TextFormat", "TextUpdateEvent", "TextFormatUpdateEvent", "CharacterBoundsUpdateEvent"] {
+        assert!(is_platform_interface(interface), "generated member dispatcher must reach native {interface}");
+    }
     super::super::tests::initialize_v8();
     let mut isolate = v8::Isolate::new(Default::default());
     v8::scope!(let scope, &mut isolate);
