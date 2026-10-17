@@ -2500,9 +2500,14 @@ interface IDBObjectStore {
   any count(optional any query);
   any openCursor(optional any query, optional DOMString direction = "next");
   any openKeyCursor(optional any query, optional DOMString direction = "next");
-  IDBIndex createIndex(DOMString name, (DOMString or sequence<DOMString>) keyPath, optional any options);
+  [NewObject] IDBIndex createIndex(DOMString name, (DOMString or sequence<DOMString>) keyPath, optional IDBIndexParameters options = {});
   undefined deleteIndex(DOMString name);
   IDBIndex index(DOMString name);
+};
+
+dictionary IDBIndexParameters {
+  boolean unique = false;
+  boolean multiEntry = false;
 };
 
 [Exposed=Window]

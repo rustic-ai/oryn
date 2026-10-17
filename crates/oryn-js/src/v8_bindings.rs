@@ -48455,6 +48455,22 @@ fn indexeddb_create_index_union_conversion_preserves_exceptions_and_order() {
             check(scalar.keyPath==='first','scalar DOMString');
             unionIndexPhase='duplicates';const dup=store.createIndex('duplicates',['first','first']);
             check(dup.keyPath.length===2,'sequence not normalized');
+            unionIndexPhase='options';
+            for(const init of [true,1,'x',Symbol()]) {
+                let caught;try{store.createIndex('primitive-options','first',init)}catch(e){caught=e}
+                check(caught instanceof TypeError,'dictionary primitive rejected');
+                check(!store.indexNames.contains('primitive-options'),'failed conversion does not publish schema');
+            }
+            let reads=[];const marker2={};let caught;
+            try{store.createIndex('throw-options','first',{get multiEntry(){reads.push('multiEntry');throw marker2},get unique(){reads.push('unique');return false}})}catch(e){caught=e}
+            check(caught===marker2 && reads.join(',')==='multiEntry','dictionary lexical conversion preserves throw');
+            check(!store.indexNames.contains('throw-options'),'throwing dictionary does not publish schema');
+            const defaults=store.createIndex('null-options','first',null);
+            check(!defaults.unique&&!defaults.multiEntry,'null dictionary defaults');
+            const errorName=(name,path,init)=>{let error;try{store.createIndex(name,path,init)}catch(e){error=e}return error&&error.name};
+            check(errorName('scalar',['invalid key path'])==='ConstraintError','duplicate precedes syntax');
+            check(errorName('bad-syntax',['invalid key path'],{multiEntry:true})==='SyntaxError','syntax precedes multiEntry');
+            check(errorName('bad-compound',['first'],{multiEntry:true})==='InvalidAccessError','valid compound rejects multiEntry');
         }catch(e){unionIndexFailure=unionIndexPhase+':'+String(e);throw e}};
         opening.onsuccess=()=>{unionIndexResult='ok';opening.result.close()};
     "#).unwrap();
