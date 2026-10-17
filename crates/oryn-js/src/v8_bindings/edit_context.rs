@@ -607,7 +607,7 @@ fn keyboard_commit(scope: &mut v8::PinScope, owner: &Rc<V8BindingState>, target:
         let record = record.borrow();
         if record.buffer.selection_start == record.buffer.selection_end {
             let caret = record.buffer.selection_start.min(record.buffer.text().len() as u32);
-            let boundary = if unit == crate::composition::TextUnit::Line { geometry_next_line(&record, caret, backward)? } else if unit == crate::composition::TextUnit::LineBoundary { geometry_line_boundary(&record, caret, backward)? } else { command_boundary(&record.buffer, caret, backward, unit)? };
+            let boundary = if unit == crate::composition::TextUnit::Paragraph { paragraph_step(&record,caret,backward)? } else if unit == crate::composition::TextUnit::Line { geometry_next_line(&record, caret, backward)? } else if unit == crate::composition::TextUnit::LineBoundary { geometry_line_boundary(&record, caret, backward)? } else { command_boundary(&record.buffer, caret, backward, unit)? };
             start = caret.min(boundary); end = caret.max(boundary);
         }
     }
@@ -661,6 +661,10 @@ fn command_boundary(buffer: &EditContextBuffer, caret: u32, backward: bool, unit
     for scalar in char::decode_utf16(buffer.text().iter().copied()) { text.push(scalar.unwrap_or(char::REPLACEMENT_CHARACTER)); }
     let limit = buffer.text().len() as u32;
     if unit == TextUnit::DocumentBoundary { return Ok(if backward { 0 } else { limit }); }
+    if unit == TextUnit::ParagraphBoundary {
+        let (start,end)=paragraph_edges(buffer.text(),caret);
+        return Ok(if backward {start}else{end});
+    }
     if unit == TextUnit::Character {
         let mut offset=0u32;
         for cluster in text.graphemes(true) {
@@ -778,7 +782,7 @@ pub(super) fn command_move(scope: &mut v8::PinScope, owner: &Rc<V8BindingState>,
         let forward_is_right = if index+1 < values.len() && values[index+1][1]==rect[1] { next[0]>rect[0] } else { rect[0]>next[0] };
         if direction == crate::composition::TextDirection::Left { forward_is_right } else { !forward_is_right }
     } else { backward };
-    let next = if matches!(direction, crate::composition::TextDirection::Left | crate::composition::TextDirection::Right) && unit == crate::composition::TextUnit::Character { geometry_horizontal(&record, caret, backward)? } else if unit == crate::composition::TextUnit::Line { geometry_next_line(&record, caret, backward)? } else if unit == crate::composition::TextUnit::LineBoundary { geometry_line_boundary(&record, caret, backward)? } else { command_boundary(&record.buffer, caret, backward, unit)? };
+    let next = if unit == crate::composition::TextUnit::Paragraph { paragraph_step(&record,caret,backward)? } else if matches!(direction, crate::composition::TextDirection::Left | crate::composition::TextDirection::Right) && unit == crate::composition::TextUnit::Character { geometry_horizontal(&record, caret, backward)? } else if unit == crate::composition::TextUnit::Line { geometry_next_line(&record, caret, backward)? } else if unit == crate::composition::TextUnit::LineBoundary { geometry_line_boundary(&record, caret, backward)? } else { command_boundary(&record.buffer, caret, backward, unit)? };
     let revision = record.revision.checked_add(1).ok_or_else(incompatible)?;
     let anchor = if extend { record.buffer.selection_start } else { next };
     record.buffer.update_selection(anchor, next);
@@ -1095,4 +1099,99 @@ let source=v8::String::new(scope,r####"(() => {
 "####).unwrap();
 assert!(v8::Script::compile(scope,source,None).unwrap().run(scope).unwrap().boolean_value(scope));
 }
+}
+
+// Native hard paragraph boundaries. CRLF is one separator; offsets are UTF16.
+fn paragraph_edges(units: &[u16], caret: u32) -> (u32, u32) {
+    let caret=(caret as usize).min(units.len());
+    let mut start=0;
+    let mut index=0;
+    while index<units.len() {
+        if matches!(units[index],10|13) {
+            let end=index;
+            let after=if units[index]==13&&units.get(index+1)==Some(&10){index+2}else{index+1};
+            if caret<=end { return (start as u32,end as u32); }
+            if caret<after { return (start as u32,end as u32); }
+            start=after; index=after;
+        } else { index+=1; }
+    }
+    (start as u32,units.len() as u32)
+}
+
+fn paragraph_step(record: &Record, caret:u32, backward:bool)->Result<u32,V8BindingError>{
+    let units=record.buffer.text();
+    let (start,end)=paragraph_edges(units,caret);
+    let next=if backward {
+        if start==0{return Ok(caret)}
+        paragraph_edges(units,start.saturating_sub(1))
+    } else {
+        if end as usize==units.len(){return Ok(caret)}
+        let after=end+if units[end as usize]==13&&units.get(end as usize+1)==Some(&10){2}else{1};
+        paragraph_edges(units,after)
+    };
+    // Paragraph movement preserves native inline position into the adjacent
+    // paragraph. Bounds must cover both endpoints; never guess a wrapped line.
+    let (_,current)=geometry_caret(record,caret)?;
+    let mut chosen=None;
+    let bytes=units.len().checked_mul(3).ok_or_else(incompatible)?;
+    let mut text=String::new();
+    text.try_reserve_exact(bytes).map_err(|_|V8BindingError::Allocation("EditContext paragraph grapheme projection"))?;
+    for scalar in char::decode_utf16(units.iter().copied()){text.push(scalar.unwrap_or(char::REPLACEMENT_CHARACTER));}
+    use unicode_segmentation::UnicodeSegmentation;
+    let mut offset=0u32;
+    // Same block-first ordering as selection_movement::next_line: the nearest
+    // line in a different paragraph wins before inline-distance comparison.
+    for cluster in text.graphemes(true).chain(std::iter::once("")) {
+        let boundary=offset;
+        offset=offset.checked_add(cluster.encode_utf16().count() as u32).ok_or_else(incompatible)?;
+        if boundary<next.0||boundary>next.1 {continue;}
+        let offset=boundary;
+        let (_,rect)=geometry_caret(record,offset)?;
+        let block=(rect[1]-current[1])*if backward{-1.}else{1.};
+        if block<=0.5 {continue;}
+        let inline=(rect[0]-current[0]).abs();
+        if chosen.is_none_or(|(_,old_block,old_inline)|block<old_block||(block==old_block&&inline<old_inline)){chosen=Some((offset,block,inline));}
+    }
+    chosen.map(|(offset,_,_)|offset).ok_or_else(incompatible)
+}
+
+#[cfg(test)]
+mod paragraph_controls {
+    use super::*;
+    #[test]
+    fn hard_paragraph_edges_distinguish_separator_and_empty_paragraph(){
+        let units="ab\r\n\ncd".encode_utf16().collect::<Vec<_>>();
+        assert_eq!(paragraph_edges(&units,1),(0,2));
+        assert_eq!(paragraph_edges(&units,3),(0,2));
+        assert_eq!(paragraph_edges(&units,4),(4,4));
+        assert_eq!(paragraph_edges(&units,6),(5,7));
+    }
+    #[test]
+    fn paragraph_step_chooses_nearest_line_and_only_grapheme_boundaries(){
+        let mut buffer=EditContextBuffer::new("a\n😀xy".encode_utf16().collect(),0,0);
+        buffer.character_bounds_start=0;
+        let mut bounds=prepared_bounds::PreparedBounds::default();
+        for rect in [[8.,0.,4.,8.],[12.,0.,0.,8.],[0.,10.,8.,8.],[3.,10.,0.,8.],[9.,10.,4.,8.],[8.,20.,4.,8.]] {
+            bounds.push(rect, |_|Ok(None)).unwrap();
+        }
+        let record=Record{buffer,text_lease:None,bounds,marked:None,composing:false,revision:0,composition_before:None,composition_revision:None};
+        assert_eq!(paragraph_step(&record,0,false).unwrap(),4);
+        assert_ne!(paragraph_step(&record,0,false).unwrap(),3);
+        assert_eq!(paragraph_edges(record.buffer.text(),0),(0,1));
+        assert_eq!(paragraph_edges(record.buffer.text(),4),(2,6));
+    }
+    #[test]
+    fn paragraph_step_respects_nonzero_coverage_and_combining_cluster(){
+        let mut buffer=EditContextBuffer::new("skip\na\ne\u{301}x".encode_utf16().collect(),5,5);
+        buffer.character_bounds_start=5;
+        let mut bounds=prepared_bounds::PreparedBounds::default();
+        for rect in [[8.,0.,4.,8.],[12.,0.,0.,8.],[0.,10.,8.,8.],[8.,10.,0.,8.],[9.,10.,4.,8.]] {
+            bounds.push(rect, |_|Ok(None)).unwrap();
+        }
+        let record=Record{buffer,text_lease:None,bounds,marked:None,composing:false,revision:0,composition_before:None,composition_revision:None};
+        assert_eq!(paragraph_step(&record,5,false).unwrap(),9);
+        assert_ne!(paragraph_step(&record,5,false).unwrap(),8);
+        assert!(paragraph_step(&record,0,false).is_err());
+        assert_eq!(paragraph_step(&record,9,true).unwrap(),5);
+    }
 }
