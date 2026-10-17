@@ -896,7 +896,7 @@ impl selectors::Element for BlitzNode<'_> {
                 // parent/sibling links remain the selector matching topology.
                 fn slot(node: &Node) -> bool {
                     node.containing_shadow.is_some()
-                        && node.is_element_with_tag_name(&local_name!("slot"))
+                        && node.data.is_element_with_tag_name(&local_name!("slot"))
                         && node.has_namespace(&markup5ever::Namespace::from("http://www.w3.org/1999/xhtml"))
                 }
                 if !slot(self) { return false; }
