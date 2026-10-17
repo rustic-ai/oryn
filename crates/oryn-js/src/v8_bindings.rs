@@ -2632,6 +2632,12 @@ pub fn publish_native_binding_memory(scope: &mut v8::PinScope, phase: &'static s
         _ => 255,
     });
     snapshot["binding_instance"] = serde_json::json!(state.instance_id);
+    snapshot["document_generation"] = serde_json::json!(state.document_generation());
+    snapshot["document_stream_epoch"] = serde_json::json!(state.document_stream_epoch());
+    snapshot["document_authority_epoch"] = serde_json::json!(state.document_authority_epoch());
+    if let Some(counter) = context.get_slot::<NativeBindingMemorySamples>() {
+        snapshot["native_callback_count"] = serde_json::json!(counter.0.get());
+    }
     snapshot["v8_used_heap_bytes"] = serde_json::json!(heap.used_heap_size());
     snapshot["v8_total_heap_bytes"] = serde_json::json!(heap.total_heap_size());
     snapshot["v8_external_bytes"] = serde_json::json!(heap.external_memory());
@@ -2641,8 +2647,19 @@ pub fn publish_native_binding_memory(scope: &mut v8::PinScope, phase: &'static s
     }
     if let Ok(ranges) = state.range_objects.try_borrow() {
         snapshot["range_wrapper_records"] = serde_json::json!(ranges.len());
+        snapshot["dead_range_wrapper_records"] = serde_json::json!(ranges.values()
+            .filter(|range| range.handle.is_empty()).count());
         snapshot["selected_range_roots"] = serde_json::json!(ranges.values()
             .filter(|range| range.selection_root.is_some()).count());
+    }
+    if let Ok(ranges) = state.ranges.try_borrow() {
+        snapshot["binding_range_records"] = serde_json::json!(ranges.len());
+    }
+    if let Ok(ranges) = state.static_ranges.try_borrow() {
+        snapshot["static_range_records"] = serde_json::json!(ranges.len());
+    }
+    if let Ok(jobs) = state.range_clone_completions.try_borrow() {
+        snapshot["range_clone_pending_jobs"] = serde_json::json!(jobs.len());
     }
     (hook.0)(snapshot);
 }
@@ -17946,6 +17963,9 @@ fn generated_attribute_setter<'s>(
         throw_binding_error(scope, &error);
         return;
     }
+    // CharacterData.data/textContent setup churn can dominate Range fixtures;
+    // share the existing sparse per-context sampler with native operations.
+    sample_native_binding_memory(scope);
     let reactions = args
         .data()
         .int32_value(scope)
