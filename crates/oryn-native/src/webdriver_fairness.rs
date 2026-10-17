@@ -6,14 +6,16 @@ use crate::host::webdriver_script::{
     ScriptValue,
 };
 use crate::webdriver_action_execution::{ActionExecution, CancelExecution, ReleaseExecution};
-use crate::webdriver_actions::{Action, ActionCommand, InputState, OsKeyReceipt};
+use crate::webdriver_actions::{Action, ActionCommand, InputState, OwnedOsKeyReceipt};
 
 type ActionReply = oneshot::Sender<(
     Result<(), ScriptError>,
     oryn_js::drag_image::FeedbackBatch,
-    Vec<OsKeyReceipt>,
+    Vec<OwnedOsKeyReceipt>,
 )>;
 enum Reply {
+    #[cfg(unix)]
+    OwnedActions(oneshot::Sender<Result<crate::worker::CustodiedWorkerResponse,RuntimeError>>),
     Script(oneshot::Sender<Result<ScriptValue, ScriptError>>),
     Actions(ActionReply),
     #[cfg(unix)]
@@ -36,7 +38,7 @@ enum Completion {
     Finished(
         Result<ScriptValue, ScriptError>,
         oryn_js::drag_image::FeedbackBatch,
-        Vec<OsKeyReceipt>,
+        Vec<OwnedOsKeyReceipt>,
     ),
     Failed(RuntimeError, oryn_js::drag_image::FeedbackBatch),
 }
@@ -118,6 +120,8 @@ impl Reply {
             Completion::Finished(result, feedback, receipts) => (result, feedback, receipts),
             Completion::Failed(error, feedback) => {
                 #[cfg(unix)]
+                if let Self::OwnedActions(reply)=self{let _=reply.send(Err(error));return;}
+                #[cfg(unix)]
                 if let Self::Worker(reply, _) = self {
                     let _ = reply.send(Err(error));
                     return;
@@ -134,6 +138,8 @@ impl Reply {
             Self::Script(reply) => {
                 let _ = reply.send(result);
             }
+            #[cfg(unix)]
+            Self::OwnedActions(reply)=>{let _=reply.send(Ok(crate::worker::CustodiedWorkerResponse::actions(result.map(|_|()),feedback,receipts)));}
             Self::Actions(reply) => {
                 let _ = reply.send((result.map(|_| ()), feedback, receipts));
             }
@@ -143,7 +149,7 @@ impl Reply {
                     crate::worker::WorkerResponse::WebdriverActions {
                         result: result.map(|_| ()),
                         feedback,
-                        receipts,
+                        receipts:receipts.into_iter().map(|receipt|receipt.to_plain()).collect(),
                     }
                 } else {
                     crate::worker::WorkerResponse::WebdriverScript { result }
@@ -169,6 +175,11 @@ impl Pending {
         state: &PageState,
     ) -> Option<Self> {
         let (reply, work, cancellation, scope) = match command.take()? {
+            #[cfg(unix)]
+            PageCommand::ScopedOwnedActions{scope,command,mut context,reply}=>{
+                context.selected=Some(scope.clone());
+                (Reply::OwnedActions(reply),Work::Actions(Box::new(Actions::new(command,context))),None,Some(scope))
+            }
             PageCommand::WebdriverScript {
                 request,
                 context,
@@ -259,6 +270,8 @@ impl Pending {
     }
     fn closed(&self) -> bool {
         match &self.reply {
+            #[cfg(unix)]
+            Reply::OwnedActions(reply)=>reply.is_closed(),
             Reply::Script(reply) => reply.is_closed(),
             Reply::Actions(reply) => reply.is_closed(),
             #[cfg(unix)]
@@ -312,7 +325,7 @@ impl Pending {
                     let (feedback, receipts) = if matches!(&self.work, Work::Actions(_)) {
                         (
                             page.take_drag_feedback(),
-                            page.webdriver_input.take_os_receipts(),
+                            page.webdriver_input.take_owned_os_receipts(),
                         )
                     } else {
                         (Default::default(), Vec::new())
@@ -1757,6 +1770,25 @@ mod tests {
                 .current_automation_scope()
                 .is_none()
         );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn owned_actions_reject_detached_scope_without_receipts(){
+        let mut state=framed_state(852);
+        let selected=state.executable.as_ref().unwrap().automation_realms().into_iter()
+            .find(|scope|scope.parent_realm.is_some()).unwrap();
+        let request=crate::webdriver_actions::ActionsRequest::parse(&ScriptValue::from_json_text(
+            r#"{"actions":[{"id":"pause","type":"none","actions":[{"type":"pause","duration":1000}]}]}"#).unwrap()).unwrap();
+        let (reply,mut response)=oneshot::channel();
+        let pending=Pending::from_command(&mut Some(PageCommand::ScopedOwnedActions{
+            scope:selected,command:ActionCommand::Perform(request),context:Default::default(),reply,
+        }),&state).unwrap().poll(&mut state).unwrap();
+        assert!(state.executable.as_ref().unwrap().current_automation_scope().is_none());
+        state.evaluate("document.querySelector('iframe').remove()").unwrap();
+        assert!(pending.poll(&mut state).is_none());
+        assert!(response.try_recv().unwrap().is_err());
+        assert!(state.executable.as_ref().unwrap().current_automation_scope().is_none());
+        assert!(state.webdriver_input.take_owned_os_receipts().is_empty());
     }
     #[cfg(unix)]
     #[test]

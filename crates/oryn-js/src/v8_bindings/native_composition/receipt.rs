@@ -18,6 +18,9 @@ enum Phase {
     Done,
 }
 pub struct NativeComposition {
+    edit_context_result_lease: Option<std::sync::Arc<dyn Send+Sync>>,
+    edit_context_cursor: Option<edit_context::CompositionCursor>,
+    edit_context_checked: bool,
     owner: Rc<V8BindingState>,
     token: Rc<()>,
     identity: (NodeId, u64, u64, u64),
@@ -42,8 +45,17 @@ pub struct NativeComposition {
     result: Option<StateSnapshot>,
     terminal: bool,
     edit_cursor: Option<oryn_dom::MutationCursor>,
+    parent_metadata_bytes: Option<usize>,
+    parent_metadata_paid: bool,
+    parent_metadata_lease: Option<std::sync::Arc<dyn Send+Sync>>,
 }
 impl NativeComposition {
+    pub fn set_parent_metadata_bytes(&mut self,bytes:usize)->Result<(),V8BindingError>{
+        if self.parent_metadata_bytes==Some(bytes){return Ok(())}
+        if self.parent_metadata_bytes.is_some() || self.parent_metadata_paid || !self.current(){return Err(error())}
+        self.parent_metadata_bytes=Some(bytes);Ok(())
+    }
+    pub fn parent_metadata_lease(&self)->Option<std::sync::Arc<dyn Send+Sync>>{self.parent_metadata_lease.clone()}
     pub fn new(
         state: &Rc<V8BindingState>,
         target: NodeId,
@@ -57,6 +69,9 @@ impl NativeComposition {
         state.composition.operation_target.set(Some(target));
         let session = state.composition.session.borrow_mut().take();
         Ok(Self {
+            edit_context_result_lease: None,
+            edit_context_cursor: None,
+            edit_context_checked: false,
             owner: state.clone(),
             token,
             identity: identity(state),
@@ -84,6 +99,9 @@ impl NativeComposition {
             result: None,
             terminal: false,
             edit_cursor: None,
+            parent_metadata_bytes: None,
+            parent_metadata_paid: false,
+            parent_metadata_lease: None,
         })
     }
     pub fn owner(&self) -> Rc<V8BindingState> {
@@ -103,6 +121,10 @@ impl NativeComposition {
             && !self.owner.execution_tasks_stopped()
             && identity(&self.owner) == self.identity
     }
+    /// Keeps admitted snapshot storage alive through parent receipt serialization.
+    pub fn snapshot_lease(&self) -> Option<std::sync::Arc<dyn Send+Sync>> {
+        self.edit_context_result_lease.clone()
+    }
     pub fn retry_safe(&self) -> bool {
         self.current() && !self.terminal && !matches!(self.phase, Phase::Done)
     }
@@ -113,6 +135,7 @@ impl NativeComposition {
         }
     }
     pub fn cancel(&mut self) {
+        self.edit_context_cursor.take();
         self.event.take();
         self.input.take();
         self.finish.take();
@@ -181,6 +204,18 @@ impl NativeComposition {
         &mut self,
         scope: &mut v8::PinScope,
     ) -> Result<Option<StateSnapshot>, V8BindingError> {
+        if let Some(bytes)=self.parent_metadata_bytes && !self.parent_metadata_paid {
+            if !self.current(){return Err(error())}
+            if self.owner.execution_suspended()||scope.is_execution_terminating(){return Ok(None)}
+            let _entry=self.owner.enter_retained_allocation(scope)?;
+            let allocation=self.owner.retained_allocation.borrow().clone();
+            let candidate=allocation.map(|allocation|allocation.reserve(bytes))
+                .transpose().map_err(V8BindingError::EventCallback)?;
+            if !self.current(){drop(candidate);return Err(error())}
+            if self.owner.execution_suspended()||scope.is_execution_terminating(){drop(candidate);return Ok(None)}
+            self.parent_metadata_lease=candidate;
+            self.parent_metadata_paid=true;
+        }
         if let Some(result) = &self.result {
             return Ok(Some(result.clone()));
         }
@@ -198,6 +233,11 @@ impl NativeComposition {
             }
             match self.phase {
                 Phase::Prepare => {
+                    if !self.edit_context_checked { self.edit_context_cursor=edit_context::CompositionCursor::new(scope,&state,self.target)?;self.edit_context_checked=true; }
+                    if let Some(cursor)=self.edit_context_cursor.as_mut(){
+                        let Some((result,lease))=edit_context::composition(scope,&state,self.target,&self.operation,cursor)? else{return Ok(None);};
+                        self.edit_context_result_lease=lease;self.result=Some(result.clone());self.phase=Phase::Done;self.unlock();return Ok(Some(result));
+                    }
                     resume_editing_recovery(&state)?;
                     if !live(&state, self.target, self.identity)
                         || !clipboard_actions::editable(&state, self.target)?
@@ -963,5 +1003,38 @@ mod tests {
         assert!(NativeComposition::new(&state, target, &Operation::Read).is_err());
         assert!(current.poll(scope).unwrap().is_some());
         assert!(state.composition.active.borrow().is_none());
+    }
+}
+
+#[cfg(test)]
+mod parent_prepaid_controls {
+    use super::*;
+    #[test]
+    fn parent_metadata_denial_precedes_composition_and_retired_owner_cannot_pay(){
+        super::super::super::tests::initialize_v8();
+        let mut isolate=v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context=v8::Context::new(scope,Default::default());
+        let scope=&mut v8::ContextScope::new(scope,context);
+        let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<textarea>abc</textarea>").into_runtime().unwrap()));
+        let state=install_generated_bindings(scope,context,dom,RealmId(238),1).unwrap();
+        let source=v8::String::new(scope,"document.querySelector('textarea').focus()").unwrap();
+        v8::Script::compile(scope,source,None).unwrap().run(scope).unwrap();
+        let target=state.dom.borrow().focused().unwrap();
+        let allocation=std::sync::Arc::new(state.capture_retained_allocation(scope,std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false))).unwrap());
+        state.install_retained_allocation(allocation).unwrap();
+        let mut receipt=NativeComposition::new(&state,target,&Operation::Read).unwrap();
+        receipt.set_parent_metadata_bytes(usize::MAX).unwrap();
+        assert!(receipt.poll(scope).is_err());
+        assert!(!receipt.parent_metadata_paid);
+        assert!(receipt.parent_metadata_lease().is_none());
+        assert!(receipt.result.is_none());
+        receipt.cancel();
+        let mut receipt=NativeComposition::new(&state,target,&Operation::Read).unwrap();
+        receipt.set_parent_metadata_bytes(32).unwrap();
+        state.retire_execution();
+        assert!(receipt.poll(scope).is_err());
+        assert!(!receipt.parent_metadata_paid);
+        assert!(receipt.parent_metadata_lease().is_none());
     }
 }

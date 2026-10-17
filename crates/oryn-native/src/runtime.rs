@@ -2842,7 +2842,7 @@ enum PageCommand {
         reply: oneshot::Sender<(
             Result<(), crate::host::webdriver_script::ScriptError>,
             oryn_js::drag_image::FeedbackBatch,
-            Vec<crate::webdriver_actions::OsKeyReceipt>,
+            Vec<crate::webdriver_actions::OwnedOsKeyReceipt>,
         )>,
     },
     #[cfg(unix)]
@@ -2852,6 +2852,13 @@ enum PageCommand {
         reply: oneshot::Sender<Result<crate::worker::WorkerResponse, RuntimeError>>,
     },
     PollContextEvents,
+    #[cfg(unix)]
+    ScopedOwnedActions {
+        scope: crate::host::webdriver_script::AutomationRealmSnapshot,
+        command: crate::webdriver_actions::ActionCommand,
+        context: crate::host::webdriver_script::ScriptContext,
+        reply: oneshot::Sender<Result<crate::worker::CustodiedWorkerResponse, RuntimeError>>,
+    },
     Capabilities {
         reply: oneshot::Sender<Vec<CapabilityDiagnostic>>,
     },
@@ -12809,6 +12816,25 @@ impl PageHandle {
         scope: crate::host::webdriver_script::AutomationRealmSnapshot,
         request: crate::worker::WorkerRequest,
     ) -> Result<crate::worker::WorkerResponse, RuntimeError> {
+        self.scoped_worker_request_one_plain(scope,request).await
+    }
+    #[cfg(unix)]
+    pub(crate) async fn scoped_owned_actions(
+        &self,scope:crate::host::webdriver_script::AutomationRealmSnapshot,
+        command:crate::webdriver_actions::ActionCommand,
+        context:crate::host::webdriver_script::ScriptContext,
+    )->Result<crate::worker::CustodiedWorkerResponse,RuntimeError>{
+        let (reply,response)=oneshot::channel();
+        self.local_sender()?.send(PageCommand::ScopedOwnedActions{scope,command,context,reply})
+            .await.map_err(|_|RuntimeError::Closed)?;
+        response.await.map_err(|_|RuntimeError::Closed)?
+    }
+    #[cfg(unix)]
+    async fn scoped_worker_request_one_plain(
+        &self,
+        scope: crate::host::webdriver_script::AutomationRealmSnapshot,
+        request: crate::worker::WorkerRequest,
+    ) -> Result<crate::worker::WorkerResponse, RuntimeError> {
         let (reply, response) = oneshot::channel();
         self.local_sender()?
             .send(PageCommand::ScopedWorker {
@@ -12912,6 +12938,15 @@ impl PageHandle {
         Vec<crate::webdriver_actions::OsKeyReceipt>,
         crate::host::webdriver_script::ScriptError,
     > {
+        // Legacy plain convenience API: conversion ends private allocation
+        // custody. Worker serialization must use the owned internal API.
+        self.execute_native_actions_with_owned_receipts(command,context).await
+            .map(|receipts|receipts.into_iter().map(|receipt|receipt.to_plain()).collect())
+    }
+    pub(crate) async fn execute_native_actions_with_owned_receipts(
+        &self, command:crate::webdriver_actions::ActionCommand,
+        context:crate::host::webdriver_script::ScriptContext,
+    )->Result<Vec<crate::webdriver_actions::OwnedOsKeyReceipt>,crate::host::webdriver_script::ScriptError>{
         use crate::host::webdriver_script::ScriptError;
         if let crate::webdriver_actions::ActionCommand::Perform(request) = &command {
             request.validate()?;
@@ -12935,7 +12970,7 @@ impl PageHandle {
                     receipts,
                 } => {
                     self.apply_drag_feedback(feedback).map_err(error)?;
-                    result.map(|_| receipts)
+                    result.map(|_| receipts.into_iter().map(Into::into).collect())
                 }
                 response => Err(error(unexpected_worker_response(response))),
             };

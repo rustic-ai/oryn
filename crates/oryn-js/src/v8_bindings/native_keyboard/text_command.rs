@@ -4,6 +4,7 @@ use crate::composition::{TextCommand, TextDirection};
 enum Work {
     Selection(Box<receipt::SelectionJob>),
     Edit(Box<receipt::EditJob>),
+    EditContext(edit_context::KeyboardJob),
     Focus(Box<super::super::retained_focus::Transition>),
 }
 pub(in super::super) struct Receipt {
@@ -32,6 +33,7 @@ impl Receipt {
             done: false,
         })
     }
+    pub(in super::super) fn edit_context_revision(&self)->Option<u64>{match &self.work{Some(Work::EditContext(job))=>job.committed_revision(),_=>None}}
     pub(in super::super) fn retry_safe(&self) -> bool {
         true
     }
@@ -65,6 +67,7 @@ impl Receipt {
                     unit,
                     extend,
                 } => {
+                    if edit_context::command_move(scope,&self.owner,target,direction,unit,extend)?{self.done=true;return Ok(true);}
                     let direction = match direction {
                         TextDirection::Left => "left",
                         TextDirection::Right => "right",
@@ -103,6 +106,7 @@ impl Receipt {
                     }
                 }
                 TextCommand::Delete { backward, unit } => {
+                    if let Some(job)=edit_context::KeyboardJob::new(scope,&self.owner,target,if backward {"Backspace"}else{"Delete"})?{self.work=Some(Work::EditContext(job.with_delete_unit(unit)));return self.poll(scope);}
                     let description = prepare_edit(
                         scope,
                         &self.owner,
@@ -123,6 +127,7 @@ impl Receipt {
                     }
                 }
                 TextCommand::Newline { line_break } => {
+                    if let Some(job)=edit_context::KeyboardJob::new(scope,&self.owner,target,"Enter")?{self.work=Some(Work::EditContext(job));return self.poll(scope);}
                     let description = prepare_edit(
                         scope,
                         &self.owner,
@@ -150,6 +155,7 @@ impl Receipt {
         let complete = match self.work.as_mut().unwrap() {
             Work::Selection(job) => job.poll(scope, &self.owner)?.is_some(),
             Work::Edit(job) => job.poll(scope, &self.owner)?.is_some(),
+            Work::EditContext(job) => job.poll(scope,&self.owner)?.is_some(),
             Work::Focus(job) => job.poll(scope, &self.owner)?,
         };
         if complete {
@@ -163,6 +169,7 @@ impl Receipt {
             match work {
                 Work::Selection(job) => job.cancel(&self.owner),
                 Work::Edit(job) => job.cancel(),
+                Work::EditContext(job) => job.cancel(&self.owner),
                 Work::Focus(job) => job.cancel(&self.owner),
             }
         }

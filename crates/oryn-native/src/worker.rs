@@ -603,7 +603,7 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
                     error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
                         "unsupported worker protocol version".into(),
                     )),
-                }
+                }.into()
             } else if !envelope.route.as_ref().is_some_and(|route| {
                 route.process_session == envelope.session_id
                     && match &envelope.command {
@@ -622,20 +622,20 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
                     error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
                         "missing or stale worker route authority".into(),
                     )),
-                }
+                }.into()
             } else if active_session_id.is_some_and(|session_id| session_id != envelope.session_id)
             {
                 WorkerResponse::Error {
                     error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
                         "worker session identifier changed".into(),
                     )),
-                }
+                }.into()
             } else if envelope.message_id <= last_message_id {
                 WorkerResponse::Error {
                     error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
                         "duplicate or out-of-order worker message".into(),
                     )),
-                }
+                }.into()
             } else if matches!(&envelope.command, WorkerRequest::Initialize { .. })
                 && envelope
                     .route
@@ -646,13 +646,13 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
                     error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
                         "worker session is already initialized".into(),
                     )),
-                }
+                }.into()
             } else if matches!(&envelope.command, WorkerRequest::Initialize { .. })
                 && sessions.len() >= 256
             {
                 WorkerResponse::LimitExceeded {
                     resource: "process environments".into(),
-                }
+                }.into()
             } else if sessions.len() > 1
                 && matches!(
                     &envelope.command,
@@ -663,7 +663,7 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
                     error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
                         "process control requires every sibling environment to be released".into(),
                     )),
-                }
+                }.into()
             } else {
                 last_message_id = envelope.message_id;
                 let environment = envelope
@@ -671,7 +671,7 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
                     .as_ref()
                     .expect("validated route")
                     .environment;
-                dispatch(
+                dispatch_owned(
                     sessions.entry(environment).or_default(),
                     broker.clone().map(|broker| {
                         broker.for_route(envelope.route.clone().expect("validated route"))
@@ -685,8 +685,10 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
                 )
                 .await
             };
+            let mut custodied=response;
+            let response=&custodied.response;
             timing.finish(!matches!(
-                &response,
+                response,
                 WorkerResponse::Error { .. } | WorkerResponse::LimitExceeded { .. }
             ));
             crate::ipc_progress::result(
@@ -715,17 +717,17 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             }
             let reset = matches!(response, WorkerResponse::ResetReady { .. });
             let exiting = matches!(response, WorkerResponse::Exiting);
-            let response = OwnedWorkerEnvelope(WorkerEnvelope {
+            let response = CustodiedWorkerEnvelope { envelope:WorkerEnvelope {
                 protocol_version: WORKER_PROTOCOL_VERSION,
                 route: envelope.route,
                 session_id: envelope.session_id,
                 message_id: envelope.message_id,
                 correlation_id: envelope.message_id,
-                response,
-            });
+                response:std::mem::replace(&mut custodied.response,WorkerResponse::Exiting),
+            },receipts:custodied.receipts.take() };
             let deadline = request_started + Duration::from_millis(wire_limits.command_wall_ms);
             if matches!(
-                &response.0.response,
+                &response.envelope.response,
                 WorkerResponse::SemanticObservation { .. }
                     | WorkerResponse::SemanticObservationV6 { .. }
                     | WorkerResponse::SemanticDelta { .. }
@@ -735,7 +737,7 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
                     remaining: wire_limits.ipc_frame_bytes.saturating_sub(1),
                     deadline,
                 };
-                write_envelope_deep_safe_checked(&mut budget, &response.0, &mut || {
+                write_envelope_deep_safe_checked(&mut budget, &response.envelope, &mut || {
                     semantic_wire_checkpoint(deadline)
                 })?;
             } else {
@@ -817,6 +819,35 @@ fn write_legacy(writer: &mut impl Write, response: &WorkerResponse) -> std::io::
     writer.flush()
 }
 
+async fn dispatch_owned(
+    session: &mut Option<PageSession>,
+    broker: Option<SharedNetworkBroker>,
+    #[cfg(unix)] context_client: Option<SharedContextClient>,
+    request: WorkerRequest,
+    progress: Option<crate::ipc_progress::Identity>,
+) -> CustodiedWorkerResponse {
+    let request=match request {
+        WorkerRequest::Scoped{scope,request}=>match *request {
+            WorkerRequest::WebdriverActions{command,context}=>{
+                let Some(session)=session.as_mut()else{return WorkerResponse::Error{error:Box::new(RuntimeError::Closed)}.into()};
+                return match session.page.scoped_owned_actions(scope,command,context).await{
+                    Ok(response)=>response,Err(error)=>WorkerResponse::Error{error:Box::new(error)}.into(),
+                };
+            }
+            request=>WorkerRequest::Scoped{scope,request:Box::new(request)},
+        },request=>request,
+    };
+    if let WorkerRequest::WebdriverActions{command,context}=request {
+        let Some(session)=session.as_mut() else {
+            return WorkerResponse::Error{error:Box::new(RuntimeError::ProtocolViolation("worker has not been initialized".into()))}.into();
+        };
+        let (result,receipts)=match session.page.execute_native_actions_with_owned_receipts(command,context).await{
+            Ok(receipts)=>(Ok(()),receipts),Err(error)=>(Err(error),Vec::new()),
+        };
+        return CustodiedWorkerResponse::actions(result,session.page.take_drag_feedback_batch(),receipts);
+    }
+    dispatch(session,broker,#[cfg(unix)]context_client,request,progress).await.into()
+}
 async fn dispatch(
     session: &mut Option<PageSession>,
     broker: Option<SharedNetworkBroker>,
@@ -2054,6 +2085,7 @@ mod nested_command_wire_tests {
     }
 }
 struct OwnedWorkerResponse(Option<WorkerResponse>);
+include!("owned_worker_wire.rs");
 impl serde::Serialize for OwnedWorkerResponse {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.0.as_ref().unwrap().serialize(serializer)

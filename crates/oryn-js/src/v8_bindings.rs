@@ -312,6 +312,9 @@ mod responsive_images;
 mod storage_events;
 mod storage_properties;
 mod web_animations;
+mod edit_context;
+mod edit_context_buffer;
+mod edit_context_events;
 pub use history_tasks::HistoryTraversalTask;
 mod location_ancestors;
 pub use location_ancestors::LocationAncestorCapture;
@@ -1212,6 +1215,7 @@ enum PlatformObjectRecord {
     WebAnimation(Rc<RefCell<web_animations::Animation>>),
     WebAnimationEffect(Rc<RefCell<web_animations::Effect>>),
     WebAnimationTimeline(Rc<web_animations::Timeline>),
+    EditContext(Rc<RefCell<edit_context::Record>>),
     WebNotification,
     SubmitButtonBehavior(Rc<RefCell<submit_behavior::Record>>),
     CustomElementRegistry(Rc<custom_elements::DefinitionRegistry>),
@@ -13682,6 +13686,8 @@ fn initialize_platform_constructor<'s>(
     if !args.is_construct_call() {
         return Ok(false);
     }
+    if name == "EditContext" { edit_context::construct(scope,state,args)?; return Ok(true); }
+    if name == "TextFormat" { let value=args.get(0);let init=if value.is_null_or_undefined(){None}else{Some(v8::Local::<v8::Object>::try_from(value).map_err(|_|V8BindingError::Unsupported{interface:"TextFormat".into(),member:"TypeError".into()})?)};edit_context_events::initialize(scope,args.this(),name,init)?;return Ok(true);}
     if matches!(name, "Crypto" | "SubtleCrypto" | "CryptoKey") {
         return Err(V8BindingError::Message(
             "TypeError: Illegal constructor".into(),
@@ -16239,6 +16245,9 @@ fn generated_constructor<'s>(
     if matches!(
         name,
         "Event"
+            | "TextUpdateEvent"
+            | "TextFormatUpdateEvent"
+            | "CharacterBoundsUpdateEvent"
             | "ExtendableEvent"
             | "FetchEvent"
             | "ExtendableMessageEvent"
@@ -16323,6 +16332,7 @@ fn generated_constructor<'s>(
             return;
         };
         let composed = composed.boolean_value(scope);
+        if matches!(name,"TextUpdateEvent"|"TextFormatUpdateEvent"|"CharacterBoundsUpdateEvent") { if let Err(error)=edit_context_events::initialize(scope,args.this(),name,init){throw_binding_error(scope,&error);return;} }
         let idb_versions = if name == "IDBVersionChangeEvent" {
             match idb_version_change::convert(scope, init) {
                 Ok(values) => Some(values),
@@ -19885,6 +19895,7 @@ fn platform_interface_for_id(state: &V8BindingState, id: u64) -> Option<&'static
         PlatformObjectRecord::WebAnimation(animation) => animation.borrow().interface(),
         PlatformObjectRecord::WebAnimationEffect(_) => "KeyframeEffect",
         PlatformObjectRecord::WebAnimationTimeline(_) => "DocumentTimeline",
+        PlatformObjectRecord::EditContext(_) => "EditContext",
         PlatformObjectRecord::Sanitizer(_) => "Sanitizer",
         PlatformObjectRecord::WebNotification => "Notification",
         PlatformObjectRecord::SubmitButtonBehavior(_) => "HTMLSubmitButtonBehavior",
@@ -25582,6 +25593,8 @@ fn get_platform_attribute<'s>(
     interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if interface=="EditContext"&&!member.starts_with("on"){return edit_context::get(scope,object,member);}
+    if matches!(interface,"TextUpdateEvent"|"TextFormat"|"CharacterBoundsUpdateEvent"){return edit_context_events::get(scope,object,interface,member);}
     if matches!(
         interface,
         "BaseAudioContext" | "OfflineAudioContext" | "AudioContext" | "AudioWorkletNode"
@@ -27707,6 +27720,8 @@ fn call_platform_operation<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    if interface=="EditContext"{return edit_context::call(scope,object,member,args);}
+    if interface=="TextFormatUpdateEvent"&&member=="getTextFormats"{return edit_context_events::formats(scope,object).map(Some);}
     if interface == "Sanitizer" {
         return sanitizer::call(scope, state, object, member, args);
     }
@@ -34157,6 +34172,7 @@ fn get_attribute_value<'s>(
     interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if interface=="HTMLElement"&&member=="editContext"{let host=wrap_node(scope,state,node)?;return edit_context::attached(scope,host);}
     if interface == "HTMLOutputElement" && matches!(member, "value" | "defaultValue" | "type") {
         let value = match member {
             "type" => "output".into(),
@@ -36215,6 +36231,7 @@ fn set_attribute_value<'s>(
     member: &str,
     value: v8::Local<'s, v8::Value>,
 ) -> Result<(), V8BindingError> {
+    if interface=="HTMLElement"&&member=="editContext"{return edit_context::attach(scope,state,node,value);}
     let value = if (value.is_null_or_undefined()
         && matches!(
             (interface, member),

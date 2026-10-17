@@ -1433,6 +1433,7 @@ fn dispatch_after_key(
         return Ok(true);
     }
     if printable(&key) || matches!(key.as_str(), "Enter" | "Backspace" | "Delete") {
+        if edit_context::keyboard(scope,state,target,&key)? {return Ok(true);}
         edit(scope, state, target, &key, mods, generation, epoch)?;
     }
     Ok(true)

@@ -466,6 +466,8 @@ fn targets_document(command: &PageCommand) -> bool {
         PageCommand::WebdriverActions { .. } => true,
         #[cfg(unix)]
         PageCommand::ScopedWorker { .. } => true,
+        #[cfg(unix)]
+        PageCommand::ScopedOwnedActions { .. } => true,
         PageCommand::ControlledNavigate { .. } => false,
         PageCommand::LoadHtml { .. } => false,
         PageCommand::Goto { .. } => false,
@@ -520,6 +522,8 @@ fn reply_closed(command: &PageCommand) -> bool {
         PageCommand::WebdriverActions { reply, .. } => reply.is_closed(),
         #[cfg(unix)]
         PageCommand::ScopedWorker { reply, .. } => reply.is_closed(),
+        #[cfg(unix)]
+        PageCommand::ScopedOwnedActions { reply, .. } => reply.is_closed(),
         _ => unreachable!("retained command requires a document reply"),
     }
 }
@@ -612,6 +616,10 @@ fn reject(command: PageCommand, error: RuntimeError) {
         }
         #[cfg(unix)]
         PageCommand::ScopedWorker { reply, .. } => {
+            let _ = reply.send(Err(error));
+        }
+        #[cfg(unix)]
+        PageCommand::ScopedOwnedActions { reply, .. } => {
             let _ = reply.send(Err(error));
         }
         PageCommand::WebdriverScript { reply, .. } => {

@@ -70,6 +70,7 @@ pub struct OsKeyReceipt {
     pub interpret: bool,
     pub context: crate::host::webdriver_script::AutomationRealmSnapshot,
 }
+include!("owned_os_receipt.rs");
 fn native_key_name(value: &[u16]) -> bool {
     single_code_point(value)
         || [
@@ -641,8 +642,8 @@ pub struct InputState {
     screen_positions: std::collections::BTreeMap<String, (f64, f64)>,
     native_keys: std::collections::BTreeMap<(String, Vec<u16>), OsKey>,
     native_modifiers: std::collections::BTreeMap<String, OsKeyModifiers>,
-    os_receipts: Vec<OsKeyReceipt>,
-    os_grants: std::collections::BTreeMap<u64, (OsKeyReceipt, u64)>,
+    os_receipts: Vec<OwnedOsKeyReceipt>,
+    os_grants: std::collections::BTreeMap<u64, (OwnedOsKeyReceipt, u64)>,
     releases: Vec<ReleaseAction>,
     pointer_lifetimes: std::collections::BTreeMap<String, PointerLifetime>,
     pointer_properties: std::collections::BTreeMap<String, ResolvedPointerProperties>,
@@ -850,12 +851,16 @@ impl InputState {
     }
     #[cfg(any(feature = "v8-host", test))]
     pub(crate) fn push_os_receipt(&mut self, receipt: OsKeyReceipt) -> Result<(), ScriptError> {
+        self.push_owned_os_receipt(receipt.into())
+    }
+    #[cfg(any(feature = "v8-host", test))]
+    pub(crate) fn push_owned_os_receipt(&mut self, receipt: OwnedOsKeyReceipt) -> Result<(), ScriptError> {
         if self.os_receipts.len() >= 128 {
             return Err(ScriptError::invalid(
                 "native interpretation receipt budget exceeded",
             ));
         }
-        if receipt.interpret {
+        if receipt.should_interpret() {
             if receipt.target.is_none()
                 || self.os_grants.len() >= 128
                 || self.os_grants.contains_key(&receipt.token)
@@ -878,6 +883,12 @@ impl InputState {
         token: u64,
         sequence: u64,
     ) -> Result<OsKeyReceipt, ScriptError> {
+        self.admit_owned_os_text(source, token, sequence).map(|owned| owned.to_plain())
+    }
+    #[cfg(any(feature = "v8-host", test))]
+    pub(crate) fn admit_owned_os_text(
+        &mut self, source: &str, token: u64, sequence: u64,
+    ) -> Result<OwnedOsKeyReceipt, ScriptError> {
         let (grant, next) = self
             .os_grants
             .get_mut(&token)
@@ -896,10 +907,10 @@ impl InputState {
     pub(crate) fn record_os_text_state(
         &mut self,
         token: u64,
-        state: &oryn_js::composition::StateSnapshot,
+        receipt: OwnedOsKeyReceipt,
     ) {
         if let Some((grant, _)) = self.os_grants.get_mut(&token) {
-            grant.state = Some(state.clone());
+            *grant = receipt;
         }
     }
     #[cfg(any(feature = "v8-host", test))]
@@ -910,6 +921,10 @@ impl InputState {
     }
     #[cfg(any(feature = "v8-host", test))]
     pub(crate) fn take_os_receipts(&mut self) -> Vec<OsKeyReceipt> {
+        self.take_owned_os_receipts().into_iter().map(|owned| owned.to_plain()).collect()
+    }
+    #[cfg(any(feature = "v8-host", test))]
+    pub(crate) fn take_owned_os_receipts(&mut self) -> Vec<OwnedOsKeyReceipt> {
         std::mem::take(&mut self.os_receipts)
     }
     #[cfg(feature = "v8-host")]

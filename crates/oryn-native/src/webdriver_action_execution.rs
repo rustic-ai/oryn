@@ -364,7 +364,9 @@ impl ActionExecution {
 
 /// One admitted OS continuation sequence; retries keep its grant and payload.
 struct OsTextProgress {
-    grant: OsKeyReceipt,
+    grant: OwnedOsKeyReceipt,
+    completed_receipt: Option<OwnedOsKeyReceipt>,
+    state_lease: Option<std::sync::Arc<dyn Send+Sync>>,
     operation: oryn_js::composition::Operation,
     receipt: Option<oryn_js::v8_bindings::NativeComposition>,
     state: Option<oryn_js::composition::StateSnapshot>,
@@ -381,19 +383,19 @@ impl OsTextProgress {
         sequence: u64,
         operation: &oryn_js::composition::Operation,
     ) -> Result<Self, ScriptError> {
-        let grant = input.admit_os_text(source, token, sequence)?;
+        let grant = input.admit_owned_os_text(source, token, sequence)?;
         let admitted = (|| {
             let target = grant.target.ok_or_else(ScriptError::retired)?;
             page.validate_action_context(&grant.context)?;
-            let state = grant.state.as_ref().filter(|state| state.aborted).cloned();
-            let receipt = if state.is_some() {
+            let aborted = grant.state.as_ref().is_some_and(|state| state.aborted);
+            let receipt = if aborted {
                 None
             } else {
                 Some(page.begin_composition_in_context(&grant.context, target, operation)?)
             };
-            Ok::<_, ScriptError>((state, receipt))
+            Ok::<_, ScriptError>((aborted, receipt))
         })();
-        let (state, receipt) = match admitted {
+        let (aborted, receipt) = match admitted {
             Ok(value) => value,
             Err(error) => {
                 input.finish_os_text(token, false);
@@ -401,10 +403,12 @@ impl OsTextProgress {
             }
         };
         Ok(Self {
+            completed_receipt: aborted.then(||grant.clone().completed(matches!(operation,oryn_js::composition::Operation::Cancel|oryn_js::composition::Operation::Finish{..}))),
+            state_lease: None,
             grant,
             operation: operation.clone(),
             receipt,
-            state,
+            state: None,
             retry: Default::default(),
             done: false,
             failure: None,
@@ -440,10 +444,13 @@ impl OsTextProgress {
         if !self.retry.ready(now) {
             return Ok(false);
         }
-        if self.state.is_none() {
+        if self.state.is_none() && self.completed_receipt.is_none() {
             let receipt = self.receipt.as_mut().unwrap();
+            receipt.set_parent_metadata_bytes(OwnedOsKeyReceipt::metadata_bytes(&self.grant.source,&self.grant.context)?)
+                .map_err(|error|ScriptError{code:"javascript error".into(),message:error.to_string()})?;
             match page.poll_composition_in_context(&self.grant.context, receipt) {
                 Ok(Some(state)) => {
+                    self.state_lease=Some(std::sync::Arc::new((receipt.snapshot_lease(),receipt.parent_metadata_lease())));
                     self.state = Some(state);
                     self.receipt = None;
                 }
@@ -454,8 +461,18 @@ impl OsTextProgress {
                 }
             }
         }
-        let state = self.state.as_ref().unwrap();
-        input.record_os_text_state(self.grant.token, state);
+        if self.completed_receipt.is_none(){
+            let state=self.state.take().unwrap();
+            self.completed_receipt=Some(OwnedOsKeyReceipt::new(OsKeyReceipt{
+                continuation_done:matches!(self.operation,oryn_js::composition::Operation::Cancel|oryn_js::composition::Operation::Finish{..}),
+                source:self.grant.source.clone(),state:Some(state),target:self.grant.target,
+                token:self.grant.token,accepted:self.grant.accepted,interpret:false,
+                context:self.grant.context.clone(),
+            },self.state_lease.take()));
+        }
+        let completed=self.completed_receipt.as_ref().unwrap();
+        let state=completed.state.as_ref().unwrap();
+        input.record_os_text_state(self.grant.token, completed.clone());
         let keep = !matches!(
             self.operation,
             oryn_js::composition::Operation::Cancel
@@ -465,16 +482,7 @@ impl OsTextProgress {
             oryn_js::composition::Operation::Finish { keep_marked: true }
         ) || state.marked.is_some());
         input.finish_os_text(self.grant.token, keep);
-        input.push_os_receipt(OsKeyReceipt {
-            continuation_done: matches!(
-                self.operation,
-                oryn_js::composition::Operation::Finish { .. }
-                    | oryn_js::composition::Operation::Cancel
-            ),
-            state: Some(state.clone()),
-            interpret: false,
-            ..self.grant.clone()
-        })?;
+        input.push_owned_os_receipt(completed.clone())?;
         self.done = true;
         Ok(true)
     }
@@ -608,6 +616,8 @@ impl PointerProgress {
 /// Owns one accepted key and its OS interpretation suffix across actor polls.
 /// Held-input mutation and native key admission occur only in the constructors.
 struct KeyboardProgress {
+    interpretation_lease: Option<std::sync::Arc<dyn Send+Sync>>,
+    interpretation_completed: Option<OwnedOsKeyReceipt>,
     context: AutomationRealmSnapshot,
     receipt: oryn_js::v8_bindings::NativeKeyboardReceipt,
     interpretation: Option<(String, u64)>,
@@ -657,6 +667,10 @@ impl KeyboardProgress {
             return Ok(false);
         }
         if self.accepted.is_none() {
+            if let Some((source,_))=&self.interpretation{
+                self.receipt.set_parent_metadata_bytes(OwnedOsKeyReceipt::metadata_bytes(source,&self.context)?)
+                    .map_err(|error|ScriptError{code:"javascript error".into(),message:error.to_string()})?;
+            }
             match page.poll_webdriver_keyboard_receipt_in_context(&self.context, &mut self.receipt)
             {
                 Ok(Some(accepted)) => self.accepted = Some(accepted),
@@ -671,7 +685,7 @@ impl KeyboardProgress {
         // callbacks. The accepted result remains frozen if a read fails.
         if let Some((source, token)) = &self.interpretation {
             let accepted = self.accepted.unwrap();
-            if self.interpretation_read.is_none() && self.interpretation_result.is_none() {
+            if self.interpretation_read.is_none() && self.interpretation_result.is_none() && self.interpretation_completed.is_none() {
                 let target = page.os_keyboard_deferred_target(&self.context)?;
                 let interpret = accepted && page.os_keyboard_was_deferred(&self.context)?;
                 if let Some(target) = target.filter(|_| interpret) {
@@ -684,12 +698,16 @@ impl KeyboardProgress {
                         )?,
                     ));
                 } else {
+                    self.interpretation_lease=self.receipt.parent_metadata_lease();
                     self.interpretation_result = Some((target, interpret, None));
                 }
             }
             if let Some((target, receipt)) = self.interpretation_read.as_mut() {
+                receipt.set_parent_metadata_bytes(OwnedOsKeyReceipt::metadata_bytes(source,&self.context)?)
+                    .map_err(|error|ScriptError{code:"javascript error".into(),message:error.to_string()})?;
                 match page.poll_composition_in_context(&self.context, receipt) {
                     Ok(Some(state)) => {
+                        self.interpretation_lease=Some(std::sync::Arc::new((receipt.snapshot_lease(),receipt.parent_metadata_lease())));
                         self.interpretation_result =
                             Some((Some(*target), !state.aborted, Some(state)));
                     }
@@ -701,17 +719,21 @@ impl KeyboardProgress {
                 }
                 self.interpretation_read = None;
             }
-            let (target, interpret, state) = self.interpretation_result.as_ref().unwrap();
-            input.push_os_receipt(OsKeyReceipt {
-                continuation_done: !*interpret,
+            if self.interpretation_completed.is_none(){
+            let (target, interpret, state) = self.interpretation_result.take().unwrap();
+            self.interpretation_completed=Some(OwnedOsKeyReceipt::new(OsKeyReceipt {
+                continuation_done: !interpret,
                 source: source.clone(),
-                state: state.clone(),
-                target: *target,
+                state,
+                target,
                 token: *token,
                 accepted,
-                interpret: *interpret,
+                interpret,
                 context: self.context.clone(),
-            })?;
+            },self.interpretation_lease.take()));
+            }
+            input.push_owned_os_receipt(self.interpretation_completed.as_ref().unwrap().clone())?;
+            self.interpretation_completed=None;
             self.interpretation = None;
         }
         Ok(true)
@@ -773,6 +795,8 @@ fn prepare_os_key(
         accepted: None,
         interpretation_read: None,
         interpretation_result: None,
+        interpretation_lease: None,
+        interpretation_completed: None,
         retry: Default::default(),
     }))
 }
@@ -834,6 +858,8 @@ fn prepare_key(
         accepted: None,
         interpretation_read: None,
         interpretation_result: None,
+        interpretation_lease: None,
+        interpretation_completed: None,
         retry: Default::default(),
     }))
 }

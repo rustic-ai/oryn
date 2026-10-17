@@ -4684,3 +4684,81 @@ interface DedicatedWorkerGlobalScope : WorkerGlobalScope {};
 interface SharedWorkerGlobalScope : WorkerGlobalScope {};
 [Global=(Worker,ServiceWorker), Exposed=ServiceWorker]
 interface ServiceWorkerGlobalScope : WorkerGlobalScope {};
+
+partial interface HTMLElement {
+  attribute EditContext? editContext;
+};
+dictionary TextUpdateEventInit : EventInit {
+  unsigned long updateRangeStart = 0;
+  unsigned long updateRangeEnd = 0;
+  DOMString text = "";
+  unsigned long selectionStart = 0;
+  unsigned long selectionEnd = 0;
+};
+[Exposed=Window]
+interface TextUpdateEvent : Event {
+  constructor(DOMString type, optional TextUpdateEventInit options = {});
+  readonly attribute unsigned long updateRangeStart;
+  readonly attribute unsigned long updateRangeEnd;
+  readonly attribute DOMString text;
+  readonly attribute unsigned long selectionStart;
+  readonly attribute unsigned long selectionEnd;
+};
+dictionary EditContextInit {
+  DOMString text = "";
+  unsigned long selectionStart = 0;
+  unsigned long selectionEnd = 0;
+};
+[Exposed=Window]
+interface EditContext : EventTarget {
+  constructor(optional EditContextInit options = {});
+  undefined updateText(unsigned long rangeStart, unsigned long rangeEnd, DOMString text);
+  undefined updateSelection(unsigned long start, unsigned long end);
+  undefined updateControlBounds(DOMRect controlBounds);
+  undefined updateSelectionBounds(DOMRect selectionBounds);
+  undefined updateCharacterBounds(unsigned long rangeStart, sequence<DOMRect> characterBounds);
+  sequence<HTMLElement> attachedElements();
+  readonly attribute DOMString text;
+  readonly attribute unsigned long selectionStart;
+  readonly attribute unsigned long selectionEnd;
+  readonly attribute unsigned long characterBoundsRangeStart;
+  sequence<DOMRect> characterBounds();
+  attribute EventHandler ontextupdate;
+  attribute EventHandler ontextformatupdate;
+  attribute EventHandler oncharacterboundsupdate;
+  attribute EventHandler oncompositionstart;
+  attribute EventHandler oncompositionend;
+};
+
+enum UnderlineStyle { "none", "solid", "dotted", "dashed", "wavy" };
+enum UnderlineThickness { "none", "thin", "thick" };
+dictionary TextFormatInit {
+  unsigned long rangeStart = 0;
+  unsigned long rangeEnd = 0;
+  UnderlineStyle underlineStyle = "none";
+  UnderlineThickness underlineThickness = "none";
+};
+[Exposed=Window]
+interface TextFormat {
+  constructor(optional TextFormatInit options = {});
+  readonly attribute unsigned long rangeStart;
+  readonly attribute unsigned long rangeEnd;
+  readonly attribute UnderlineStyle underlineStyle;
+  readonly attribute UnderlineThickness underlineThickness;
+};
+dictionary TextFormatUpdateEventInit : EventInit { sequence<TextFormat> textFormats = []; };
+[Exposed=Window]
+interface TextFormatUpdateEvent : Event {
+  constructor(DOMString type, optional TextFormatUpdateEventInit options = {});
+  sequence<TextFormat> getTextFormats();
+};
+dictionary CharacterBoundsUpdateEventInit : EventInit {
+  unsigned long rangeStart = 0;
+  unsigned long rangeEnd = 0;
+};
+[Exposed=Window]
+interface CharacterBoundsUpdateEvent : Event {
+  constructor(DOMString type, optional CharacterBoundsUpdateEventInit options = {});
+  readonly attribute unsigned long rangeStart;
+  readonly attribute unsigned long rangeEnd;
+};

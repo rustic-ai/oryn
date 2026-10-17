@@ -465,6 +465,7 @@ enum Route {
 enum DefaultJob {
     Selection(SelectionJob),
     Edit(EditJob),
+    EditContext(edit_context::KeyboardJob),
     Focus(FocusJob),
     Click(Box<retained_activation::Click>),
     Clipboard(clipboard_actions::ClipboardJob),
@@ -472,6 +473,9 @@ enum DefaultJob {
 /// Thread-affine native operation. The Actions source cursor owns this value;
 /// dropping it abandons only its unfinished callback suffix, never replays it.
 pub struct Receipt {
+    parent_metadata_bytes: Option<usize>,
+    parent_metadata_paid: bool,
+    parent_metadata_lease: Option<std::sync::Arc<dyn Send+Sync>>,
     owner: Rc<V8BindingState>,
     input: NativeKeyboardInput,
     generation: u64,
@@ -496,6 +500,12 @@ pub struct Receipt {
     space_target: Option<(NodeId, u64, u64)>,
 }
 impl Receipt {
+    pub fn set_parent_metadata_bytes(&mut self,bytes:usize)->Result<(),V8BindingError>{
+        if self.parent_metadata_bytes==Some(bytes){return Ok(())}
+        if self.parent_metadata_bytes.is_some()||self.parent_metadata_paid{return Err(invalid())}
+        self.parent_metadata_bytes=Some(bytes);Ok(())
+    }
+    pub fn parent_metadata_lease(&self)->Option<std::sync::Arc<dyn Send+Sync>>{self.parent_metadata_lease.clone()}
     pub(super) fn new(
         state: Rc<V8BindingState>,
         input: &NativeKeyboardInput,
@@ -509,6 +519,7 @@ impl Receipt {
         }
         let (key, code, location) = normalized(input);
         Ok(Self {
+            parent_metadata_bytes:None,parent_metadata_paid:false,parent_metadata_lease:None,
             generation: state.document_generation(),
             epoch: state.document_stream_epoch(),
             owner: state,
@@ -686,6 +697,10 @@ impl Receipt {
         }
         match self.route.as_ref().unwrap() {
             Route::Selection(alter, direction, unit) => {
+                let ec_direction=match *direction {"left"=>crate::composition::TextDirection::Left,"right"=>crate::composition::TextDirection::Right,"backward"=>crate::composition::TextDirection::Backward,_=>crate::composition::TextDirection::Forward};
+                let ec_unit=match *unit {"word"=>crate::composition::TextUnit::Word,"line"=>crate::composition::TextUnit::Line,"lineboundary"=>crate::composition::TextUnit::LineBoundary,"paragraph"=>crate::composition::TextUnit::Paragraph,"paragraphboundary"=>crate::composition::TextUnit::ParagraphBoundary,"documentboundary"=>crate::composition::TextUnit::DocumentBoundary,_=>crate::composition::TextUnit::Character};
+                if edit_context::command_move(scope,state,target,ec_direction,ec_unit,*alter=="extend")?{self.result=Some(true);return Ok(self.result);}
+
                 if state.dom.borrow().is_editable_text_control(target) {
                     selection_movement::modify_control(scope, state, alter, direction, unit)?;
                     self.result = Some(true);
@@ -719,6 +734,7 @@ impl Receipt {
                 self.job = Some(DefaultJob::Selection(SelectionJob::new(state, plan)));
             }
             Route::Edit => {
+                if let Some(job)=edit_context::KeyboardJob::new(scope,state,target,&self.key)?{self.job=Some(DefaultJob::EditContext(job));self.phase=6;return Ok(None);}
                 if let Some(description) =
                     prepare_edit(scope, state, target, &self.key, self.input.modifiers, None)?
                 {
@@ -799,6 +815,17 @@ impl Receipt {
         &mut self,
         scope: &mut v8::PinScope,
     ) -> Result<Option<bool>, V8BindingError> {
+        if let Some(bytes)=self.parent_metadata_bytes && !self.parent_metadata_paid {
+            let state=self.owner.clone();
+            if state.execution_retired()||state.document_generation()!=self.generation||state.document_stream_epoch()!=self.epoch{return Err(invalid())}
+            if state.execution_suspended()||scope.is_execution_terminating(){return Ok(None)}
+            let _entry=state.enter_retained_allocation(scope)?;
+            let allocation=state.retained_allocation.borrow().clone();
+            let candidate=allocation.map(|allocation|allocation.reserve(bytes)).transpose().map_err(V8BindingError::EventCallback)?;
+            if state.execution_retired()||state.document_generation()!=self.generation||state.document_stream_epoch()!=self.epoch{drop(candidate);return Err(invalid())}
+            if state.execution_suspended()||scope.is_execution_terminating(){drop(candidate);return Ok(None)}
+            self.parent_metadata_lease=candidate;self.parent_metadata_paid=true;
+        }
         if let Some(result) = self.result {
             return Ok(Some(result));
         }
@@ -1005,6 +1032,7 @@ impl Receipt {
                     let ready = match self.job.as_mut() {
                         Some(DefaultJob::Selection(job)) => job.poll(scope, &state)?.is_some(),
                         Some(DefaultJob::Edit(job)) => job.poll(scope, &state)?.is_some(),
+                        Some(DefaultJob::EditContext(job)) => job.poll(scope,&state)?.is_some(),
                         Some(DefaultJob::Focus(job)) => job.poll(scope, &state)?,
                         Some(DefaultJob::Click(job)) => job.poll(scope)?.is_some(),
                         Some(DefaultJob::Clipboard(job)) => job.poll(scope, &state)?.is_some(),
@@ -1039,6 +1067,7 @@ impl Drop for Receipt {
             match job {
                 DefaultJob::Selection(job) => job.cancel(&self.owner),
                 DefaultJob::Edit(job) => job.cancel(),
+                DefaultJob::EditContext(job) => job.cancel(&self.owner),
                 DefaultJob::Focus(job) => job.cancel(&self.owner),
                 DefaultJob::Click(job) => job.cancel(),
                 DefaultJob::Clipboard(job) => job.cancel(&self.owner),

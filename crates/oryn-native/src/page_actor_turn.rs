@@ -215,6 +215,8 @@ pub(super) fn dispatch(
             let _ = reply.send(state.wait_for_timeout(&predicate, timeout));
         }
         #[cfg(unix)]
+        PageCommand::ScopedOwnedActions{reply,..}=>{let _=reply.send(Err(RuntimeError::Closed));}
+        #[cfg(unix)]
         PageCommand::ScopedWorker {
             scope,
             request,
@@ -244,7 +246,7 @@ pub(super) fn dispatch(
             let result = state.execute_webdriver_actions(command, context, cancellation);
             let feedback = state.take_drag_feedback();
             #[cfg(feature = "v8-host")]
-            let receipts = state.webdriver_input.take_os_receipts();
+            let receipts = state.webdriver_input.take_owned_os_receipts();
             #[cfg(not(feature = "v8-host"))]
             let receipts = Vec::new();
             let _ = reply.send((result, feedback, receipts));
@@ -2400,6 +2402,10 @@ fn reject_after_departure(command: PageCommand) -> Option<PageCommand> {
             let _ = reply.send(Err(RuntimeError::Closed));
         }
         PageCommand::ScopedWorker { reply, .. } => {
+            let _ = reply.send(Err(RuntimeError::Closed));
+        }
+        #[cfg(unix)]
+        PageCommand::ScopedOwnedActions { reply, .. } => {
             let _ = reply.send(Err(RuntimeError::Closed));
         }
         PageCommand::ResolveFocusedForm { reply, .. } => {
