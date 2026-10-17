@@ -13,6 +13,7 @@ use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use serde::{Deserialize, Serialize};
 
 mod attributes;
+mod processing_instruction;
 pub mod document_refresh;
 pub mod document_url;
 mod document_urls;

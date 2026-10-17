@@ -144,6 +144,7 @@ mod owned_upgrade_restore;
 #[cfg(test)]
 mod parsing_binding_tests;
 mod queue_owned_preparation;
+mod pi_attributes;
 mod range_boundaries;
 mod range_contents_observable;
 mod range_insertion;
@@ -37646,6 +37647,11 @@ fn call_operation<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    if interface == "ProcessingInstruction" && matches!(member,
+        "getAttribute"|"getAttributeNames"|"hasAttribute"|"hasAttributes"|"setAttribute"|"removeAttribute"|"toggleAttribute")
+    {
+        return pi_attributes::operation(scope,args.this(),member,args);
+    }
     if interface == "Document" && member == "hasFocus" {
         let focused = match active_document_state_for_node(scope, state, node) {
             Some(owner) if owner.document_root() == node => document_has_focus(scope, &owner)?,

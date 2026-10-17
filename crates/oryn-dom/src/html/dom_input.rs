@@ -12,42 +12,103 @@ pub(super) fn escape_scalar(value: char) -> Option<String> {
     reserved(value).then(|| format!("{ESC}{value}"))
 }
 pub(super) fn encode(value: &str) -> String {
-    let mut output = String::new();
-    for scalar in char::decode_utf16(crate::dom_string::units(value)) {
-        match scalar {
-            Ok(value) => {
-                if reserved(value) {
-                    output.push(ESC);
-                }
-                output.push(value);
-            }
-            Err(error) => output.push(
-                char::from_u32(BASE + u32::from(error.unpaired_surrogate() - 0xd800)).unwrap(),
-            ),
-        }
-    }
-    output
+    encode_with_allocation(
+        value,
+        &mut crate::projection_allocation::OrdinaryProjectionAllocation,
+        &mut || Ok(()),
+    )
+    .expect("ordinary HTML transport allocation")
 }
 pub(super) fn decode(value: &str) -> String {
-    let scalar = String::from_utf16(&crate::dom_string::units(value))
-        .expect("HTML transport contains Unicode scalars");
-    let mut chars = scalar.chars();
-    let mut units = Vec::new();
-    while let Some(value) = chars.next() {
-        if value == ESC {
-            if let Some(literal) = chars.next() {
-                units.extend(literal.encode_utf16(&mut [0; 2]).iter().copied());
-            } else {
-                units.extend(value.encode_utf16(&mut [0; 2]).iter().copied());
+    decode_with_allocation(
+        value,
+        &mut crate::projection_allocation::OrdinaryProjectionAllocation,
+        &mut || Ok(()),
+    )
+    .expect("ordinary HTML transport allocation")
+}
+pub(super) fn encode_with_allocation<A: crate::projection_allocation::ProjectionAllocation>(
+    value: &str,
+    allocation: &mut A,
+    check: &mut impl FnMut() -> Result<(), DomError>,
+) -> Result<String, A::Error> {
+    let units = crate::dom_string::units_with_allocation(value, allocation, check)?;
+    let mut output = String::new();
+    for ch in char::decode_utf16(units) {
+        let valid = ch.is_ok();
+        let scalar = match ch {
+            Ok(ch) => ch,
+            Err(error) => {
+                char::from_u32(0xf2000 + u32::from(error.unpaired_surrogate() - 0xd800)).unwrap()
             }
-        } else if (BASE..BASE + 0x800).contains(&(value as u32)) {
-            units.push(0xd800 + (value as u32 - BASE) as u16);
+        };
+        let mut bytes = [0; 4];
+        if scalar == '\u{f1000}'
+            || scalar == '\u{f0000}'
+            || (0xf2000..0xf2800).contains(&(scalar as u32)) && valid
+        {
+            crate::projection_allocation::admitted_append(
+                &mut output,
+                "\u{f1000}",
+                allocation,
+                check,
+            )?;
+        }
+        crate::projection_allocation::admitted_append(
+            &mut output,
+            scalar.encode_utf8(&mut bytes),
+            allocation,
+            check,
+        )?;
+    }
+    Ok(output)
+}
+pub(super) fn decode_with_allocation<A: crate::projection_allocation::ProjectionAllocation>(
+    value: &str,
+    allocation: &mut A,
+    check: &mut impl FnMut() -> Result<(), DomError>,
+) -> Result<String, A::Error> {
+    let source_units = crate::dom_string::units_with_allocation(value, allocation, check)?;
+    let mut scalar = String::new();
+    for ch in char::decode_utf16(source_units) {
+        let ch = ch.expect("HTML transport contains Unicode scalars");
+        let mut bytes = [0; 4];
+        crate::projection_allocation::admitted_append(
+            &mut scalar,
+            ch.encode_utf8(&mut bytes),
+            allocation,
+            check,
+        )?;
+    }
+    let mut units = Vec::new();
+    let mut chars = scalar.chars();
+    while let Some(ch) = chars.next() {
+        check().map_err(A::Error::from)?;
+        if ch == '\u{f1000}' {
+            let ch = chars.next().unwrap_or(ch);
+            {
+                for unit in ch.encode_utf16(&mut [0; 2]) {
+                    crate::projection_allocation::admitted_push(
+                        &mut units, *unit, allocation, check,
+                    )?;
+                }
+            }
+        } else if (0xf2000..0xf2800).contains(&(ch as u32)) {
+            crate::projection_allocation::admitted_push(
+                &mut units,
+                0xd800 + (ch as u32 - 0xf2000) as u16,
+                allocation,
+                check,
+            )?;
         } else {
-            units.extend(value.encode_utf16(&mut [0; 2]).iter().copied());
+            for unit in ch.encode_utf16(&mut [0; 2]) {
+                crate::projection_allocation::admitted_push(&mut units, *unit, allocation, check)?;
+            }
         }
     }
-    crate::dom_string::from_units(&units)
+    crate::dom_string::from_units_with_allocation(&units, allocation, check)
 }
+
 pub(super) fn name(value: QualName, convert: fn(&str) -> String) -> QualName {
     QualName::new(
         value.prefix.map(|prefix| convert(prefix.as_ref()).into()),
@@ -432,6 +493,44 @@ mod tests {
                     .unwrap()
             ),
             [0xd800]
+        );
+    }
+}
+
+#[cfg(test)]
+mod admitted_transport_controls {
+    use super::*;
+    #[test]
+    fn admitted_transport_preserves_surrogates_reserved_markers_and_trailing_escape() {
+        let mut a = crate::projection_allocation::OrdinaryProjectionAllocation;
+        let mut check = || Ok(());
+        let value = crate::dom_string::from_units(&[97, 0xd800, 98]);
+        let encoded = encode_with_allocation(&value, &mut a, &mut check).unwrap();
+        assert_eq!(
+            crate::dom_string::units(
+                &decode_with_allocation(&encoded, &mut a, &mut check).unwrap()
+            ),
+            vec![97, 0xd800, 98]
+        );
+        assert_eq!(
+            decode_with_allocation("\u{f1000}", &mut a, &mut check).unwrap(),
+            "\u{f1000}"
+        );
+        let value = "\u{f1000}\u{f0000}\u{f2000}";
+        assert_eq!(
+            decode_with_allocation(
+                &encode_with_allocation(value, &mut a, &mut check).unwrap(),
+                &mut a,
+                &mut check
+            )
+            .unwrap(),
+            value
+        );
+        let encoded_storage =
+            crate::dom_string::from_units(&"\u{f1000}".encode_utf16().collect::<Vec<_>>());
+        assert_eq!(
+            decode_with_allocation(&encoded_storage, &mut a, &mut check).unwrap(),
+            "\u{f1000}"
         );
     }
 }

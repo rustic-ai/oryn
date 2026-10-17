@@ -36,6 +36,7 @@ use crate::tendril::StrTendril;
 use crate::{Attribute, LocalName, QualName, SmallCharSet};
 
 mod char_ref;
+pub use self::char_ref::decode_attribute_references;
 mod interface;
 pub mod states;
 

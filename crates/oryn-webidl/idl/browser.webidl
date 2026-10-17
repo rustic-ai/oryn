@@ -2809,6 +2809,13 @@ interface CDATASection : Text {};
 interface ProcessingInstruction : CharacterData {
     readonly attribute CSSStyleSheet? sheet;
   readonly attribute DOMString target;
+  DOMString? getAttribute(DOMString name);
+  sequence<DOMString> getAttributeNames();
+  boolean hasAttribute(DOMString name);
+  boolean hasAttributes();
+  undefined setAttribute(DOMString name, DOMString value);
+  undefined removeAttribute(DOMString name);
+  boolean toggleAttribute(DOMString name, optional boolean force);
 };
 
 [Exposed=Window]

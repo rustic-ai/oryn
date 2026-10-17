@@ -1139,6 +1139,10 @@ pub use fragment_stream::ExternalTemplateOptions;
 mod partial_updates;
 pub use partial_updates::apply_fragment_patches;
 mod dom_input;
+pub(crate) use dom_input::{
+    encode_with_allocation as encode_dom_string_with_allocation,
+    decode_with_allocation as decode_dom_string_with_allocation,
+};
 pub use dom_input::{
     ParserInput, parse_fragment_dom_string, parse_fragment_dom_string_with_context,
     parse_fragment_dom_string_with_retained_context, parse_inert_dom_string,
