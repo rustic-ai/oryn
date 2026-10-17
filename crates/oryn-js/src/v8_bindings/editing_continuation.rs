@@ -1193,7 +1193,13 @@ impl Continuation {
                         let (_,host)=self.host.current();
                         let baseline={
                             let capture=request.capture.borrow();
-                            match self.context.snapshot_with_roots(host,&capture.as_ref().unwrap().roots) {
+                            #[cfg(test)]
+                            let captured=if FAIL_PARAGRAPH_PREIMAGE.with(|flag|flag.replace(false)) {
+                                Err(V8BindingError::Allocation("injected paragraph preimage failure"))
+                            } else {self.context.snapshot_with_roots(host,&capture.as_ref().unwrap().roots)};
+                            #[cfg(not(test))]
+                            let captured=self.context.snapshot_with_roots(host,&capture.as_ref().unwrap().roots);
+                            match captured {
                                 Ok(baseline)=>baseline,
                                 Err(error)=>{drop(capture);request.capture.borrow_mut().take();return Err(error);}
                             }
@@ -1207,6 +1213,13 @@ impl Continuation {
                     };
                     request.mutated.set(true);
                     *request.error.borrow_mut() = result.err();
+                    #[cfg(test)]
+                    if self.history_undo.is_some()
+                        && request.error.borrow().is_none()
+                        && FAIL_PARAGRAPH_AFTER_MUTATION.with(|flag|flag.replace(false))
+                    {
+                        *request.error.borrow_mut() = Some(V8BindingError::Allocation("injected paragraph terminal mutation failure"));
+                    }
                     // Snapshot failure retains the mutated flag and retries capture only.
                     request.recorded.set(false);
                 }
@@ -1761,6 +1774,10 @@ impl Continuation {
 
 #[cfg(test)]
 thread_local! {static FAIL_BEFORE_PREPARATION:Cell<bool>=const{Cell::new(false)};static FAIL_AFTER_PREPARATION:Cell<bool>=const{Cell::new(false)};}
+#[cfg(test)]
+thread_local! {static FAIL_PARAGRAPH_AFTER_MUTATION:Cell<bool>=const{Cell::new(false)};}
+#[cfg(test)]
+thread_local! {static FAIL_PARAGRAPH_PREIMAGE:Cell<bool>=const{Cell::new(false)};}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2692,6 +2709,149 @@ fn paragraph_split_pending_inverse_rejects_opposite_direction_without_losing_rec
     assert!(editing_commands::paragraph_history::dispatch(scope,&state,false).unwrap());
     assert!(eval(scope,"host.textContent==='abcdef'&&host.childNodes.length===1"));
 }
+
+#[test]
+fn paragraph_terminal_failure_and_compensation_retain_actual_native_prefix() {
+    super::super::tests::initialize_v8();
+    let mut isolate=v8::Isolate::new(Default::default());
+    v8::scope!(let scope,&mut isolate);
+    let realm=v8::Context::new(scope,Default::default());
+    let scope=&mut v8::ContextScope::new(scope,realm);
+    let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<body><div id=host contenteditable><div>abcdef</div></div></body>").into_runtime().unwrap()));
+    let state=install_generated_bindings(scope,realm,dom,RealmId(0),1).unwrap();
+    assert!(eval(scope,"globalThis.host=document.getElementById('host');getSelection().collapse(host.firstChild.firstChild,3);document.execCommand('insertParagraph');globalThis.left=host.firstChild;globalThis.right=left.nextSibling;true"));
+    let unit=state.undo_history.borrow().undo.back().cloned().unwrap();
+    FAIL_PARAGRAPH_AFTER_MUTATION.with(|flag|flag.set(true));
+    if let Err(error)=editing_commands::paragraph_history::dispatch(scope,&state,false) { assert_paragraph_expected_error(error); }
+    for _ in 0..128 {
+        editing_commands::paragraph_history::ready_for_test(&state);
+        if let Err(error)=editing_commands::poll(scope,&state) { assert_paragraph_expected_error(error); }
+        if unit.paragraph_failed.borrow().is_some(){break;}
+    }
+    let original_count=unit.paragraph_failed.borrow().as_ref().expect("actual terminal failure retained").segments.len();
+    assert!(original_count>0);
+    assert!(Rc::ptr_eq(&state.undo_history.borrow().undo.back().unwrap().identity,&unit.identity));
+    FAIL_PARAGRAPH_AFTER_MUTATION.with(|flag|flag.set(true));
+    if let Err(error)=editing_commands::paragraph_history::dispatch(scope,&state,false) { assert_paragraph_expected_error(error); }
+    for _ in 0..128 {
+        editing_commands::paragraph_history::ready_for_test(&state);
+        if let Err(error)=editing_commands::poll(scope,&state) { assert_paragraph_expected_error(error); }
+        if unit.paragraph_failed.borrow().as_ref().is_some_and(|failed|failed.segments.len()>original_count){break;}
+    }
+    assert!(unit.paragraph_failed.borrow().as_ref().unwrap().segments.len()>original_count);
+    assert!(unit.native_progress.borrow().as_ref().is_some_and(|progress|!progress.redo));
+    if let Err(error)=editing_commands::paragraph_history::dispatch(scope,&state,false) { assert_paragraph_expected_error(error); }
+    for _ in 0..128 {
+        editing_commands::paragraph_history::ready_for_test(&state);
+        if let Err(error)=editing_commands::poll(scope,&state) { assert_paragraph_expected_error(error); }
+        if unit.paragraph_failed.borrow().is_none(){break;}
+    }
+    assert!(unit.paragraph_failed.borrow().is_none());
+    assert!(eval(scope,"host.firstChild===left&&left.nextSibling===right&&left.textContent==='abc'&&right.textContent==='def'"));
+    assert!(editing_commands::paragraph_history::dispatch(scope,&state,false).unwrap());
+    assert!(eval(scope,"host.firstChild===left&&host.childNodes.length===1&&left.textContent==='abcdef'"));
+}
+
+
+#[test]
+fn paragraph_preimage_failure_before_mutation_retries_changed_halves() {
+    super::super::tests::initialize_v8();
+    let mut isolate=v8::Isolate::new(Default::default());
+    v8::scope!(let scope,&mut isolate);
+    let realm=v8::Context::new(scope,Default::default());
+    let scope=&mut v8::ContextScope::new(scope,realm);
+    let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<body><div id=host contenteditable><div>abcdef</div><p>tail</p></div></body>").into_runtime().unwrap()));
+    let state=install_generated_bindings(scope,realm,dom,RealmId(0),1).unwrap();
+    assert!(eval(scope,"globalThis.host=document.getElementById('host');getSelection().collapse(host.firstChild.firstChild,3);document.execCommand('insertParagraph');globalThis.left=host.firstChild;globalThis.right=left.nextSibling;true"));
+    let unit=state.undo_history.borrow().undo.back().cloned().unwrap();
+    FAIL_PARAGRAPH_PREIMAGE.with(|flag|flag.set(true));
+    match editing_commands::paragraph_history::dispatch(scope,&state,false) {
+        Err(V8BindingError::Allocation("injected paragraph preimage failure"))=>{},
+        other=>panic!("unexpected preimage result: {other:?}"),
+    }
+    assert!(unit.native_progress.borrow().as_ref().is_some_and(|progress|!progress.redo));
+    assert!(unit.paragraph_failed.borrow().is_none());
+    assert!(eval(scope,"left.textContent==='abc'&&right.textContent==='def'&&left.nextSibling===right"));
+    assert!(eval(scope,"host.append(right);globalThis.authorNode=document.createElement('span');authorNode.textContent='authored';host.append(authorNode);true"));
+    editing_commands::paragraph_history::ready_for_test(&state);
+    for _ in 0..128 {
+        if let Err(error)=editing_commands::poll(scope,&state) {assert_paragraph_expected_error(error);}
+        if unit.native_progress.borrow().is_none(){break;}
+        editing_commands::paragraph_history::ready_for_test(&state);
+    }
+    assert!(unit.native_progress.borrow().is_none());
+    assert!(eval(scope,"host.firstChild===left&&left.textContent==='abcdef'&&authorNode.isConnected&&authorNode.textContent==='authored'"));
+    assert!(state.undo_history.borrow().redo.back().is_some_and(|current|Rc::ptr_eq(&current.identity,&unit.identity)));
+}
+
+
+#[test]
+fn paragraph_undo_callback_growth_stays_outside_native_inverse() {
+    super::super::tests::initialize_v8();
+    let mut isolate=v8::Isolate::new(Default::default());
+    v8::scope!(let scope,&mut isolate);
+    let realm=v8::Context::new(scope,Default::default());
+    let scope=&mut v8::ContextScope::new(scope,realm);
+    let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<body><div id=host contenteditable><div>abcdef</div></div></body>").into_runtime().unwrap()));
+    let state=install_generated_bindings(scope,realm,dom,RealmId(0),1).unwrap();
+    assert!(eval(scope,r#"
+        globalThis.host=document.getElementById('host');getSelection().collapse(host.firstChild.firstChild,3);
+        document.execCommand('insertParagraph');globalThis.left=host.firstChild;globalThis.right=left.nextSibling;
+        globalThis.calls=0;globalThis.script=document.createElement('script');script.type='text/plain';
+        script.appendChild(document.createTextNode("calls++;globalThis.authorAdded=document.createElement('span');authorAdded.textContent='q'.repeat(4096);host.append(authorAdded)"));
+        right.append(script);script.type='text/javascript';calls===0
+    "#));
+    let unit=state.undo_history.borrow().undo.back().cloned().unwrap();
+    let pending=match editing_commands::paragraph_history::dispatch(scope,&state,false) {
+        Ok(done)=>{assert!(done);false},Err(error)=>{assert_paragraph_expected_error(error);true}
+    };
+    if pending {
+        for _ in 0..128 {
+            editing_commands::paragraph_history::ready_for_test(&state);
+            if let Err(error)=editing_commands::poll(scope,&state) { assert_paragraph_expected_error(error); }
+            if state.undo_history.borrow().undo.back().is_none_or(|unit|unit.native_progress.borrow().is_none()){break;}
+        }
+    }
+    assert!(eval(scope,"calls===1&&authorAdded.isConnected&&authorAdded.textContent.length===4096&&left.textContent.startsWith('abcdef')"));
+    assert!(state.undo_history.borrow().redo.back().is_some_and(|current|Rc::ptr_eq(&current.identity,&unit.identity)));
+    assert!(editing_commands::paragraph_history::dispatch(scope,&state,true).unwrap());
+    assert!(eval(scope,"calls===1&&authorAdded.isConnected&&authorAdded.textContent.length===4096"));
+}
+
+
+#[test]
+fn paragraph_owner_withdrawal_preserves_actual_committed_prefix() {
+    super::super::tests::initialize_v8();
+    let mut isolate=v8::Isolate::new(Default::default());
+    v8::scope!(let scope,&mut isolate);
+    let realm=v8::Context::new(scope,Default::default());
+    let scope=&mut v8::ContextScope::new(scope,realm);
+    let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<body><div id=host contenteditable><div>abcdef</div></div></body>").into_runtime().unwrap()));
+    let state=install_generated_bindings(scope,realm,dom,RealmId(0),1).unwrap();
+    assert!(eval(scope,"globalThis.host=document.getElementById('host');getSelection().collapse(host.firstChild.firstChild,3);document.execCommand('insertParagraph');globalThis.left=host.firstChild;true"));
+    let unit=state.undo_history.borrow().undo.back().cloned().unwrap();
+    FAIL_BEFORE_PREPARATION.with(|flag|flag.set(true));
+    match editing_commands::paragraph_history::dispatch(scope,&state,false) {
+        Err(V8BindingError::Allocation("injected editing author-boundary failure"))=>{},
+        other=>panic!("unexpected owner withdrawal setup: {other:?}"),
+    }
+    assert!(eval(scope,"host.textContent==='abcdef'"));
+    assert!(eval(scope,"getSelection().collapse(left.firstChild,0);document.execCommand('insertText',false,'authored');left.textContent.startsWith('authored')"));
+    assert!(!Rc::ptr_eq(&state.undo_history.borrow().undo.back().unwrap().identity,&unit.identity));
+    editing_commands::paragraph_history::ready_for_test(&state);
+    if let Err(error)=editing_commands::poll(scope,&state) { assert_paragraph_expected_error(error); }
+    assert!(unit.paragraph_failed.borrow().as_ref().is_some_and(|failed|!failed.segments.is_empty()));
+    assert!(unit.native_progress.borrow().as_ref().is_some_and(|progress|!progress.redo));
+    assert!(state.undo_history.borrow().undo.iter().any(|current|Rc::ptr_eq(&current.identity,&unit.identity)));
+}
+
+
+fn assert_paragraph_expected_error(error:V8BindingError) {
+    assert!(matches!(error,V8BindingError::Allocation("native editing suspended"|
+        "injected paragraph terminal mutation failure"|"injected paragraph preimage failure")),
+        "unexpected paragraph control error: {error:?}");
+}
+
 
 #[test]
 fn paragraph_failed_recovery_composes_recipes_and_retains_noncurrent_history_owner() {
