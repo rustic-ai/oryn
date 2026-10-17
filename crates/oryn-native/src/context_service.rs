@@ -11479,7 +11479,7 @@ impl ParentContextService {
         for redirect in 0..=10 {
             navigation_phases.begin_hop();
             if cancellation.load(Ordering::Acquire) || self.shutting_down.load(Ordering::Acquire) {
-                if destination == "stylesheet" {
+                if matches!(destination, "stylesheet" | "font") {
                     return Err(RuntimeError::StylesheetFailure(
                         crate::script_load_failure::ScriptLoadFailure::Cancelled,
                     ));
@@ -11487,6 +11487,11 @@ impl ParentContextService {
                 return Err(RuntimeError::Network("resource owner cancelled".into()));
             }
             if std::time::Instant::now() >= deadline {
+                if destination == "font" {
+                    return Err(RuntimeError::StylesheetFailure(
+                        crate::script_load_failure::ScriptLoadFailure::Fetch("font resource deadline exceeded".into()),
+                    ));
+                }
                 return Err(RuntimeError::Network("resource deadline exceeded".into()));
             }
             self.script_document_owner(page_id, &initiator.creator)?;
@@ -11501,7 +11506,7 @@ impl ParentContextService {
             }
             fetch_metadata.observe(request_origin.as_deref(), &url);
             enforce_mixed_content(&native_origin.serialized, &url).map_err(|error| {
-                if destination == "stylesheet" {
+                if matches!(destination, "stylesheet" | "font") {
                     RuntimeError::StylesheetFailure(
                         crate::script_load_failure::ScriptLoadFailure::Fetch(error.to_string()),
                     )
@@ -11837,6 +11842,7 @@ impl ParentContextService {
                 request_headers.push(("referer".into(), referrer.clone()));
             }
             if cors && (!url.username().is_empty() || url.password().is_some()) {
+                if destination=="font"{return Err(RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch("font resource URL contains credentials".into())));}
                 return Err(RuntimeError::Network(
                     "CORS resource URL contains credentials".into(),
                 ));
@@ -11988,7 +11994,7 @@ impl ParentContextService {
                     cancellation,
                 )
                 .map_err(|error| {
-                    if destination == "stylesheet" {
+                    if matches!(destination,"stylesheet"|"font") {
                         RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::network(error))
                     } else {
                         RuntimeError::Network(error.to_string())
@@ -12028,15 +12034,16 @@ impl ParentContextService {
                                 .omit_credentials(cors || document_resource, resource_cross),
                         &response.headers,
                     )
-                    .map_err(|message| if destination == "stylesheet" {
+                    .map_err(|message| if matches!(destination, "stylesheet" | "font") {
                         RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch(message))
                     } else { RuntimeError::Network(message) })?;
             }
             if font_cross {
-                enforce_cors_response(&font_request_origin, use_credentials, &response)?;
+                enforce_cors_response(&font_request_origin, use_credentials, &response).map_err(|error|
+                    if destination=="font"{RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch(error.to_string()))}else{error})?;
             }
             if cancellation.load(Ordering::Acquire) {
-                if destination == "stylesheet" {
+                if matches!(destination, "stylesheet" | "font") {
                     return Err(RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Cancelled));
                 }
                 return Err(RuntimeError::Network(
@@ -12051,7 +12058,7 @@ impl ParentContextService {
                 navigation_phases.redirected();
                 oryn_js::navigation::PostResource::redirect(&mut post, response.status);
                 if redirect == 10 {
-                    if destination == "stylesheet" {
+                    if matches!(destination, "stylesheet" | "font") {
                         return Err(RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch("stylesheet redirect limit exceeded".into())));
                     }
                     return Err(RuntimeError::Network(format!(
@@ -12066,18 +12073,16 @@ impl ParentContextService {
                     .ok_or_else(|| {
                         if destination == "stylesheet" {
                             RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch("stylesheet redirect omitted Location".into()))
-                        } else { RuntimeError::Network(format!("{destination} redirect omitted Location")) }
+                        } else if destination=="font"{RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch("font redirect omitted Location".into()))}else { RuntimeError::Network(format!("{destination} redirect omitted Location")) }
                     })?;
                 policy = policy.after_response(&response.headers);
                 let next = url
                     .join(location)
-                    .map_err(|error| if destination == "stylesheet" {
+                    .map_err(|error| if matches!(destination,"stylesheet"|"font") {
                         RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch(error.to_string()))
                     } else { RuntimeError::Network(error.to_string()) })?;
                 if cors && (!next.username().is_empty() || next.password().is_some()) {
-                    return Err(RuntimeError::Network(
-                        "font redirect contains credentials".into(),
-                    ));
+                    return Err(RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch("font redirect contains credentials".into())));
                 }
                 if cors
                     && url.origin() != next.origin()
@@ -12312,6 +12317,7 @@ impl ParentContextService {
             let timing = Some(timing_metadata);
             if matches!(destination, "font" | "image") {
                 if !(200..300).contains(&response.status) {
+                    if destination=="font"{return Err(RuntimeError::StylesheetFailure(crate::script_load_failure::ScriptLoadFailure::Fetch(format!("font response returned HTTP {}",response.status))));}
                     return Err(RuntimeError::Network(format!(
                         "{destination} response returned HTTP {}",
                         response.status
