@@ -47,8 +47,12 @@ pub(in crate::v8_bindings) fn retire_failed(state:&V8BindingState,unit:&UndoUnit
     if state.execution_retired() {unit.paragraph_reservation.release(state,unit);}
     let mut history=state.undo_history.borrow_mut();
     if state.execution_retired() {
-        let bytes=undo_unit_bytes(unit);
-        history.bytes=history.bytes.checked_sub(bytes).expect("retired paragraph owner is accounted");
+        let retained = history.undo.iter().chain(history.redo.iter())
+            .any(|entry|Rc::ptr_eq(&entry.identity,&unit.identity));
+        if retained {
+            let bytes=undo_unit_bytes(unit);
+            history.bytes=history.bytes.checked_sub(bytes).expect("retired paragraph owner is accounted");
+        }
         history.undo.retain(|entry|!Rc::ptr_eq(&entry.identity,&unit.identity));
         history.redo.retain(|entry|!Rc::ptr_eq(&entry.identity,&unit.identity));
         unit.paragraph_failed.borrow_mut().take();
@@ -81,4 +85,3 @@ impl Reservation {
         history.bytes=history.bytes.checked_sub(bytes).expect("retained paragraph reservation is included in history bytes");
     }
 }
-
