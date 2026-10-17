@@ -15602,6 +15602,17 @@ mod tests {
     }
 
     #[test]
+    fn native_heading_rank_cascades_with_pseudo_class_specificity() {
+        let mut input = column_fixture("", vec![node(2, Some(1), "h2", "heading"), node(3, Some(1), "p", "not a heading")]);
+        input.stylesheets = vec!["h2 { color:red } :heading(2) { color:green } :heading(1) { color:blue }".into()];
+        let output = compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(output.computed_styles[&2]["color"], "rgb(0, 128, 0)");
+        input.nodes[1].tag = "h1".into();
+        let changed = compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(changed.computed_styles[&2]["color"], "rgb(0, 0, 255)");
+    }
+
+    #[test]
     fn stylo_canonicalizes_cssom_selectors() {
         assert_eq!(
             canonicalize_selector("div ol>li p").unwrap(),

@@ -918,6 +918,11 @@ impl selectors::Element for BlitzNode<'_> {
                 self.element_state().contains(ElementState::FOCUSRING)
             }
             NonTSPseudoClass::Hover => self.element_state().contains(ElementState::HOVER),
+            NonTSPseudoClass::Heading(ref levels) => {
+                if !self.has_namespace(&markup5ever::Namespace::from("http://www.w3.org/1999/xhtml")) { return false; }
+                let level = match self.local_name().as_ref() { "h1" => 1, "h2" => 2, "h3" => 3, "h4" => 4, "h5" => 5, "h6" => 6, _ => return false };
+                levels.is_empty() || levels.contains(&level)
+            },
             NonTSPseudoClass::Indeterminate => self.element_state().contains(ElementState::INDETERMINATE),
             NonTSPseudoClass::Dir(ref direction) => self.native_direction.eq_ignore_ascii_case(direction),
             NonTSPseudoClass::Lang(ref ranges) => self.match_element_lang(None,ranges),

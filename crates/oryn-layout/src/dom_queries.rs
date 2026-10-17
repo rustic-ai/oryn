@@ -342,6 +342,11 @@ impl Element for DomElement<'_> {
             NonTSPseudoClass::Dir(direction) => direction.eq_ignore_ascii_case(
                 crate::directionality::directionality(self.dom.arena(), self.id),
             ),
+            NonTSPseudoClass::Heading(levels) => {
+                if self.ns() != HTML { return false; }
+                let level = match self.tag() { "h1" => 1, "h2" => 2, "h3" => 3, "h4" => 4, "h5" => 5, "h6" => 6, _ => return false };
+                levels.is_empty() || levels.contains(&level)
+            }
             NonTSPseudoClass::Lang(ranges) => {
                 let actual = self
                     .dom
@@ -482,6 +487,24 @@ pub fn query(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn heading_levels_are_native_html_names_not_aria_roles() {
+        let mut dom = oryn_dom::html::parse("<h1 id=a aria-level=2></h1><h2 id=b></h2><h6 id=c></h6><h7></h7><p role=heading aria-level=1></p>").into_runtime().unwrap();
+        let root = dom.document();
+        let body = dom.query_selector(root, "body").unwrap().unwrap();
+        let foreign = dom.create_element_ns("http://www.w3.org/2000/svg", "h1");
+        dom.append_child(body, foreign).unwrap();
+        let prefixed = dom.create_element_ns("http://www.w3.org/1999/xhtml", "h:h3");
+        dom.append_child(body, prefixed).unwrap();
+        assert_eq!(query(&dom, root, ":heading(3)", SelectorOperation::All, &BTreeMap::new()).unwrap(), vec![prefixed]);
+        assert_eq!(query(&dom, root, ":heading", SelectorOperation::All, &BTreeMap::new()).unwrap(), vec![dom.find_by_id("a").unwrap(), dom.find_by_id("b").unwrap(), dom.find_by_id("c").unwrap(), prefixed]);
+        for (selector, names) in [(":heading(0, 1, 2)", vec!["a","b"]), (":heading(-1, 6, 99999)", vec!["c"])] {
+            let expected = names.into_iter().map(|name|dom.find_by_id(name).unwrap()).collect::<Vec<_>>();
+            assert_eq!(query(&dom, root, selector, SelectorOperation::All, &BTreeMap::new()).unwrap(), expected);
+            assert_eq!(crate::canonicalize_selector(selector).unwrap(), selector);
+        }
+        for selector in [":heading()",":heading(1.0)",":heading(2n)",":heading(2 of .foo)",":heading(calc(1))"] { assert!(crate::canonicalize_selector(selector).is_err(), "{selector}"); }
+    }
     #[test]
     fn language_ranges_preserve_native_token_kind_through_serialization() {
         for (input, expected) in [("::part(foo):lang(en)", "::part(foo):lang(en)"), (":lang(en, 'fr')", ":lang(en, \"fr\")"), (":lang(\"*\")", ":lang(\"*\")"), (":lang(\"\")", ":lang(\"\")")] {

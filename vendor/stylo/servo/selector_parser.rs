@@ -416,6 +416,8 @@ pub enum NonTSPseudoClass {
     FocusVisible,
     Fullscreen,
     Hover,
+    /// HTML heading rank selectors; empty list represents :heading.
+    Heading(Vec<i32>),
     InRange,
     Indeterminate,
     Invalid,
@@ -475,6 +477,16 @@ impl ToCss for NonTSPseudoClass {
         W: fmt::Write,
     {
         use self::NonTSPseudoClass::*;
+        if let Heading(ref levels) = *self {
+            dest.write_str(":heading")?;
+            if levels.is_empty() { return Ok(()); }
+            dest.write_char('(')?;
+            for (index, level) in levels.iter().enumerate() {
+                if index != 0 { dest.write_str(", ")?; }
+                level.to_css(dest)?;
+            }
+            return dest.write_char(')');
+        }
         if let Lang(ref lang) = *self {
             dest.write_str(":lang(")?;
             for (index,range) in lang.iter().enumerate(){
@@ -539,7 +551,7 @@ impl ToCss for NonTSPseudoClass {
             Self::UserValid => ":user-valid",
             Self::Valid => ":valid",
             Self::Visited => ":visited",
-            Self::Lang(_) => unreachable!(),
+            Self::Lang(_) | Self::Heading(_) => unreachable!(),
         })
     }
 }
@@ -583,7 +595,7 @@ impl NonTSPseudoClass {
             Self::UserValid => ElementState::USER_VALID,
             Self::Valid => ElementState::VALID,
             Self::Visited => ElementState::VISITED,
-            Self::Playing | Self::Paused | Self::Seeking | Self::Buffering | Self::Stalled | Self::InterestSource | Self::InterestTarget | Self::Granted | Self::CustomState(_) | Self::Lang(_) | Self::Dir(_) | Self::ServoNonZeroBorder => {
+            Self::Playing | Self::Paused | Self::Seeking | Self::Buffering | Self::Stalled | Self::InterestSource | Self::InterestTarget | Self::Granted | Self::CustomState(_) | Self::Heading(_) | Self::Lang(_) | Self::Dir(_) | Self::ServoNonZeroBorder => {
                 ElementState::empty()
             },
         }
@@ -689,6 +701,7 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
             "focus-within" => NonTSPseudoClass::FocusWithin,
             "fullscreen" => NonTSPseudoClass::Fullscreen,
             "hover" => NonTSPseudoClass::Hover,
+            "heading" => NonTSPseudoClass::Heading(Vec::new()),
             "indeterminate" => NonTSPseudoClass::Indeterminate,
             "invalid" => NonTSPseudoClass::Invalid,
             "in-range" => NonTSPseudoClass::InRange,
@@ -738,6 +751,11 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
         _after_part: bool,
     ) -> Result<NonTSPseudoClass, ParseError<'i>> {
         let pseudo_class = match_ignore_ascii_case! { &name,
+            "heading" => {
+                let levels = parser.parse_comma_separated(|input| Ok(input.expect_integer()?))?;
+                if levels.is_empty() { return Err(parser.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone()))); }
+                NonTSPseudoClass::Heading(levels)
+            },
             "lang" => {
                 NonTSPseudoClass::Lang(parser.parse_comma_separated(|input| {
                     let location = input.current_source_location();
