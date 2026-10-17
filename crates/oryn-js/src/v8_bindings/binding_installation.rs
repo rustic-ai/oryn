@@ -268,6 +268,7 @@ pub(super) fn create_state(
         platform_edges: RefCell::new(Default::default()),
         idb_payload_ledger: std::sync::Arc::new(Default::default()),
         retained_allocation: RefCell::new(None),
+        font_loading: RefCell::new(font_loading::State::default()),
         queued_owned_idb: RefCell::new(VecDeque::new()),
         pending_owned_idb: RefCell::new(Vec::new()),
         platform_host: RefCell::new(None),
@@ -799,6 +800,14 @@ pub(super) fn install_interfaces(
                             value.into(),
                             v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_DELETE,
                         );
+                    }
+                    GeneratedMemberKind::Setlike => {
+                        if interface.name != "FontFaceSet" {
+                            return Err(V8BindingError::Unsupported {
+                                interface: interface.name.into(), member: "native setlike installer".into(),
+                            });
+                        }
+                        font_loading::install_setlike(scope, prototype)?;
                     }
                     GeneratedMemberKind::Iterable => {
                         if interface.name == "Headers" {

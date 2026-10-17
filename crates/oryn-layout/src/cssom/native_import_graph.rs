@@ -1167,6 +1167,7 @@ pub struct ImportGraph {
     leases: Leases,
     next: u64,
     font_revision: LeaseArc<std::sync::atomic::AtomicU64>,
+    font_descriptor_leases:LeaseArc<Mutex<FontLeaseStore>>,
     quirks: QuirksMode,
     max_depth: usize,
     occurrences: Occurrences,
@@ -2255,6 +2256,7 @@ impl ImportGraph {
             leases: leases.clone(),
             next: 1,
             font_revision: LeaseArc::new(std::sync::atomic::AtomicU64::new(0)),
+            font_descriptor_leases:LeaseArc::new(Mutex::new(FontLeaseStore::default())),
             quirks,
             max_depth,
             occurrences: Occurrences::new(),
@@ -2927,6 +2929,7 @@ impl ImportGraph {
                 leases: self.leases.clone(),
                 next: self.next,
                 font_revision: self.font_revision.clone(),
+                font_descriptor_leases:self.font_descriptor_leases.clone(),
                 quirks: self.quirks,
                 max_depth: self.max_depth,
                 occurrences: Occurrences {
@@ -3936,3 +3939,6 @@ mod prepared_insert_controls {
 
 include!("font_face_descriptors.rs");
 include!("font_demand_projection.rs");
+include!("connected_font_face.rs");
+include!("font_matching_axes.rs");
+include!("constructed_font_face.rs");

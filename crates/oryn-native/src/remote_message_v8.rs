@@ -130,7 +130,7 @@ impl RawV8Host {
             let root=context.get_slot::<FrameLifetime>().and_then(|frame|self.contexts.get(&frame.root_realm))
                 .map(|root|v8::Local::new(scope,root)).unwrap_or(context);
             if root.get_slot::<NativeWindowLifecycle>().is_some_and(|window|window.closed.get()){continue}
-            checkpoint_frame_lifetimes(scope);
+            checkpoint_frame_lifetimes(scope).map_err(|error|HostError::Execution(error.to_string()))?;
             let Some(state)=context.get_slot::<V8BindingState>()else{continue};if state.execution_retired(){continue}
             // This host can retain standalone and parent-backed realms together.
             // Admit the visited context, not whichever realm the caller selected.

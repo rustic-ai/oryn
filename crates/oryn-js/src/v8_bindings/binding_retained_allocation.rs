@@ -5,8 +5,17 @@ pub struct BindingRetainedAllocation {
     retired: std::sync::Arc<std::sync::atomic::AtomicBool>,
     snapshot: std::sync::Mutex<Option<crate::idb_owned_admission::HeapReceipt>>,
     owner_thread: std::thread::ThreadId,
+    // Payload fields above dispose before the independent metadata lease.
+    native_metadata: Option<std::sync::Arc<dyn Send + Sync>>,
 }
 impl BindingRetainedAllocation {
+    /// Attach an already admitted metadata owner before publishing this receipt.
+    /// No container growth, callbacks, or cycle through the receipt is permitted.
+    pub fn with_metadata_owner(mut self, owner: std::sync::Arc<dyn Send + Sync>) -> Self {
+        self.native_metadata = Some(owner);
+        self
+    }
+
     /// Pure parent-owned cancellation observation; never runs allocation,
     /// author callbacks or native admission while a style engine is borrowed.
     pub fn owner_cancelled(&self) -> bool {
@@ -208,6 +217,7 @@ impl V8BindingState {
             retired,
             snapshot: std::sync::Mutex::new(None),
             owner_thread: std::thread::current().id(),
+            native_metadata: None,
         };
         admission.refresh(scope)?;
         Ok(admission)

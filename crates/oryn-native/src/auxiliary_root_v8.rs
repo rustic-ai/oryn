@@ -178,6 +178,7 @@ pub(super) fn create_admitted_auxiliary_root(
             .map_err(|error| HostError::Execution(error.to_string()))?;
         let opener_window = creator.global(scope);
         let scope = &mut v8::ContextScope::new(scope, local);
+        crate::executable::bootstrap_auxiliary_public_fonts(scope, creator, &state, realm)?;
         if !begin_runtime_bootstrap(local) {
             return Err(HostError::Execution(
                 "auxiliary bootstrap already admitted".into(),

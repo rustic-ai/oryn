@@ -493,6 +493,8 @@ mod raw_v8 {
         }
     }
 
+    #[cfg(test)]
+    thread_local!{static FAIL_REPLACEMENT_RETIREMENT:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};static FAIL_CHILD_RETIREMENT:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
     pub struct RawV8Host {
         agent_host_identity: Rc<()>,
         watchdog: ExecutionWatchdog,
@@ -2588,11 +2590,11 @@ mod raw_v8 {
             _ => crate::native_timing::count("frame.binding.other", 1),
         }
     }
-    fn checkpoint_frame_lifetimes(scope: &mut v8::PinScope) {
+    fn checkpoint_frame_lifetimes(scope: &mut v8::PinScope)->Result<(),oryn_js::v8_bindings::V8BindingError> {
         let _phase = crate::native_timing::stage("frame.lifecycle.discard_checkpoint");
         loop {
             let Some(registry) = scope.get_slot::<FrameLifetimes>() else {
-                return;
+                return Ok(());
             };
             let discarded = registry
                 .live
@@ -2635,9 +2637,22 @@ mod raw_v8 {
                     if let Err(error) = &abort {
                         record_frame_binding_error(error);
                     }
-                    if !matches!(abort, Ok(true)) {
-                        return;
-                    }
+                    match abort{Ok(true)=>{},Ok(false)=>return Err(oryn_js::v8_bindings::V8BindingError::Allocation("frame abort publication incomplete")),Err(error)=>return Err(error)}
+                    // Enter the existing child context, never activate/revive
+                    // its execution authority. Failure keeps the closed lifetime
+                    // and original opener/environment for the next checkpoint.
+                    child.retire_execution();
+                    #[cfg(test)]
+                    if FAIL_CHILD_RETIREMENT.with(|flag|flag.replace(false)){return Err(oryn_js::v8_bindings::V8BindingError::Allocation("injected child retirement failure"))}
+                    let weak=scope.get_slot::<NativeRealmIdentities>().and_then(|registry|registry.contexts.get(&frame.environment.get().realm)).cloned();
+                    let context=weak.and_then(|context|context.to_local(scope));
+                    let Some(context)=context else{
+                        return Err(oryn_js::v8_bindings::V8BindingError::Allocation("retiring frame context unavailable"));
+                    };
+                    let result={let child_scope=&mut v8::ContextScope::new(scope,context);child.retire_native_font_promises(child_scope)};
+                    if let Err(error)=result{record_frame_binding_error(&error);return Err(error);}
+                    if scope.is_execution_terminating(){return Err(oryn_js::v8_bindings::V8BindingError::JavaScriptException)}
+                    if child.execution_suspended(){return Err(oryn_js::v8_bindings::V8BindingError::Allocation("frame retirement suspended"))}
                 }
                 #[cfg(unix)]
                 if let Some(endpoint) = scope
@@ -2652,8 +2667,7 @@ mod raw_v8 {
                                 frame: frame.message_token.clone(),
                             })
                 {
-                    throw_type_error(scope, &error.to_string());
-                    return;
+                    return Err(oryn_js::v8_bindings::V8BindingError::EventCallback(error.to_string()));
                 }
                 frame.opener.borrow_mut().take();
                 #[cfg(unix)]
@@ -2693,6 +2707,7 @@ mod raw_v8 {
             // frames with separate arenas whose document roots remain connected.
         }
         checkpoint_initial_frames(scope);
+        Ok(())
     }
 
     #[derive(Default)]
@@ -4257,6 +4272,15 @@ mod raw_v8 {
         timing.set_name_from(&url).map_err(HostError::Execution)?;
         freeze_usermedia_profile(scope, context)?;
         let previous = context.get_slot::<V8BindingState>();
+        if let Some(previous)=&previous{
+            // Publish cancellation in the original context before installing
+            // replacement bindings or retiring its deferred-fetch creator.
+            previous.retire_execution();
+            #[cfg(test)]
+            if FAIL_REPLACEMENT_RETIREMENT.with(|flag|flag.replace(false)){return Err(HostError::Execution("injected replacement retirement failure".into()))}
+            previous.retire_native_font_promises(scope).map_err(|error|HostError::Execution(error.to_string()))?;
+            if scope.is_execution_terminating()||previous.execution_suspended(){return Err(HostError::Execution("replacement font retirement interrupted".into()))}
+        }
         if let Some(previous) = &previous
             && let Some(owner) =
                 scope.get_slot::<Arc<crate::runtime::deferred_fetch::StandaloneOwner>>()
@@ -6372,6 +6396,7 @@ mod raw_v8 {
             document: NodeId,
         ) -> Result<(), HostError> {
             let realm = self.active_realm;
+            let deadline=ExecutionDeadline::arm(&self.isolate,self.execution_wall_limit);
             let context = self
                 .contexts
                 .get(&realm)
@@ -6398,6 +6423,7 @@ mod raw_v8 {
                 document,
                 policy.as_deref(),
             )?;
+            if deadline.expired()||handle_scope.is_execution_terminating(){return Err(HostError::Execution("document installation execution deadline".into()))}
             state.set_navigation_initial_document(
                 context
                     .get_slot::<NativeInitialDocument>()
@@ -9307,6 +9333,7 @@ mod raw_v8 {
             &mut self,
             frame: NodeId,
         ) -> Result<(), HostError> {
+            let deadline=ExecutionDeadline::arm(&self.isolate,self.execution_wall_limit);
             let state = self
                 .binding_states
                 .get(&self.active_realm)
@@ -9321,7 +9348,8 @@ mod raw_v8 {
             v8::scope!(let scope,&mut self.isolate);
             let context = v8::Local::new(scope, &context);
             let scope = &mut v8::ContextScope::new(scope, context);
-            checkpoint_frame_lifetimes(scope);
+            checkpoint_frame_lifetimes(scope).map_err(|error|HostError::Execution(error.to_string()))?;
+            if deadline.expired()||scope.is_execution_terminating(){return Err(HostError::Execution("embedded retirement execution deadline".into()))}
             state.discard_embedded_document(frame);
             state
                 .clear_embedded_image(frame)
@@ -9361,6 +9389,7 @@ mod raw_v8 {
             origin_clean: bool,
             notification: oryn_js::v8_bindings::NativeEmbeddedNotification,
         ) -> Result<(), HostError> {
+            let deadline=ExecutionDeadline::arm(&self.isolate,self.execution_wall_limit);
             let realm = self.active_realm;
             let state = self
                 .binding_states
@@ -9376,7 +9405,8 @@ mod raw_v8 {
             let context = v8::Local::new(scope, context);
             let scope = &mut v8::ContextScope::new(scope, context);
             state.dom().borrow_mut().untrack_frame_context(frame);
-            checkpoint_frame_lifetimes(scope);
+            checkpoint_frame_lifetimes(scope).map_err(|error|HostError::Execution(error.to_string()))?;
+            if deadline.expired()||scope.is_execution_terminating(){return Err(HostError::Execution("embedded retirement execution deadline".into()))}
             state.discard_embedded_document(frame);
             oryn_js::v8_bindings::publish_embedded_image(
                 scope,
@@ -10357,6 +10387,7 @@ mod raw_v8 {
                 .map_err(HostError::Execution)?;
             self.transfer_native_provider_allocation(realm, &provider)?;
             state.set_layout_provider(provider);
+            self.activate_public_font_loading(realm)?;
             let context = self
                 .contexts
                 .get(&realm)
@@ -11334,6 +11365,7 @@ mod raw_v8 {
             &mut self,
             params: FrameTimingCommitInput<'_>,
         ) -> Result<RealmId, HostError> {
+            let deadline=ExecutionDeadline::arm(&self.isolate,self.execution_wall_limit);
             let FrameTimingCommitInput {
                 frame,
                 origin,
@@ -11782,6 +11814,13 @@ mod raw_v8 {
                 }
                 realm
             };
+            // Both the reused initial Window and newly created response realm
+            // have released their ContextScope here. Native font admission must
+            // use the committed child identity, never the entered parent scope.
+            if self.native_layout_provider_in_realm(realm).is_some_and(|provider|
+                provider.native_backend().is_some_and(|backend| backend.is::<LiveLayoutProvider>())) {
+                self.activate_public_font_loading(realm)?;
+            }
             self.binding_states
                 .get(&realm)
                 .ok_or_else(|| {
@@ -11800,7 +11839,8 @@ mod raw_v8 {
                 v8::scope!(let scope, &mut self.isolate);
                 let parent = v8::Local::new(scope, self.contexts.get(&parent_realm).unwrap());
                 let scope = &mut v8::ContextScope::new(scope, parent);
-                checkpoint_frame_lifetimes(scope);
+                checkpoint_frame_lifetimes(scope).map_err(|error|HostError::Execution(error.to_string()))?;
+                if deadline.expired()||scope.is_execution_terminating(){return Err(HostError::Execution("frame retirement execution deadline".into()))}
             }
             self.adopt_created_realms();
             Ok(realm)
@@ -11854,6 +11894,14 @@ mod raw_v8 {
                 .0
             };
             self.adopt_created_realms();
+            // Auxiliary document contexts can inherit a provider directly in
+            // the V8 document factory, bypassing install_layout_provider.
+            // Missing providers remain an explicit deferred capability: the
+            // ordinary materialized-font checkpoint performs activation later.
+            if self.native_layout_provider_in_realm(realm).is_some_and(|provider|
+                provider.native_backend().is_some_and(|backend| backend.is::<LiveLayoutProvider>())) {
+                self.activate_public_font_loading(realm)?;
+            }
             Ok(realm)
         }
 
@@ -12225,6 +12273,19 @@ mod raw_v8 {
                 return Err(HostError::Execution(
                     "the top-level JavaScript realm cannot be removed".into(),
                 ));
+            }
+            // Cancel native producers first, then reject promises in the exact
+            // existing realm before removing its context/registry. Failure keeps
+            // original records and context reachable for the caller's retry.
+            if let Some(state)=self.binding_states.get(&realm).cloned(){
+                state.retire_execution();
+                let context=self.contexts.get(&realm).ok_or_else(||HostError::Execution(format!("unknown JavaScript realm {}",realm.0)))?.clone();
+                let deadline=ExecutionDeadline::arm(&self.isolate,self.execution_wall_limit);
+                v8::scope!(let handles,&mut self.isolate);
+                let context=v8::Local::new(handles,&context);
+                let scope=&mut v8::ContextScope::new(handles,context);
+                state.retire_native_font_promises(scope).map_err(|error|HostError::Execution(error.to_string()))?;
+                if deadline.expired()||scope.is_execution_terminating()||state.execution_suspended(){return Err(HostError::Execution("font retirement publication interrupted".into()))}
             }
             #[cfg(unix)]
             self.discard_cached_authority(realm)?;
@@ -16950,6 +17011,36 @@ mod raw_v8 {
     }
     #[cfg(test)]
     mod native_context_tests {
+        #[test]
+        fn replacement_retirement_failure_keeps_original_binding_then_retries(){
+            use super::*;
+            let mut host=RawV8Host::new();
+            let first=Rc::new(RefCell::new(oryn_dom::html::parse("<!doctype html><p id=old>old</p>").into_runtime().unwrap()));
+            host.install_dom(first,1).unwrap();let previous=host.binding_states[&RealmId(0)].clone();
+            let replacement=Rc::new(RefCell::new(oryn_dom::html::parse("<!doctype html><p id=new>new</p>").into_runtime().unwrap()));
+            FAIL_REPLACEMENT_RETIREMENT.with(|flag|flag.set(true));
+            assert!(matches!(host.install_dom(replacement.clone(),2),Err(HostError::Execution(message)) if message=="injected replacement retirement failure"));
+            assert!(Rc::ptr_eq(host.binding_states.get(&RealmId(0)).unwrap(),&previous));assert!(previous.execution_retired());
+            {v8::scope!(let scope,&mut host.isolate);let context=v8::Local::new(scope,host.contexts.get(&RealmId(0)).unwrap());assert!(Rc::ptr_eq(&context.get_slot::<V8BindingState>().unwrap(),&previous));}
+            host.install_dom(replacement,2).unwrap();assert!(!Rc::ptr_eq(host.binding_states.get(&RealmId(0)).unwrap(),&previous));
+        }
+        #[test]
+        fn child_retirement_failure_keeps_lifetime_environment_before_retry(){
+            use super::*;
+            let mut host=RawV8Host::new();let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<iframe id=frame></iframe>").into_runtime().unwrap()));host.install_dom(dom.clone(),1).unwrap();
+            let parent=host.contexts[&RealmId(0)].clone();let frame=dom.borrow().find_by_id("frame").unwrap();
+            v8::scope!(let handles,&mut host.isolate);let parent=v8::Local::new(handles,&parent);
+            let (realm,child)=create_native_realm_context(handles,parent.get_slot::<RealmDescriptor>().unwrap().origin.clone(),1,Some(1),None,RealmEndpoints::default()).unwrap();
+            let child=v8::Local::new(handles,&child);let child_dom=Rc::new(RefCell::new(oryn_dom::DomRuntime::new()));let document=child_dom.borrow().document();
+            let child_state=install_native_document(handles,child,child_dom,realm,1,document,None).unwrap();bind_native_frame_lifetime(handles,parent,child,frame).unwrap();
+            let lifetime=child.get_slot::<FrameLifetime>().unwrap();let environment=lifetime.environment.get();
+            dom.borrow_mut().detach(frame).unwrap();
+            let scope=&mut v8::ContextScope::new(handles,parent);
+            FAIL_CHILD_RETIREMENT.with(|flag|flag.set(true));
+            assert!(matches!(checkpoint_frame_lifetimes(scope),Err(oryn_js::v8_bindings::V8BindingError::Allocation("injected child retirement failure"))));
+            assert!(lifetime.closed.get());assert!(child_state.execution_retired());assert!(!scope.get_slot::<FrameLifetimes>().unwrap().live.is_empty());assert!(scope.get_slot::<AgentEnvironments>().unwrap().is_live(&environment));
+            checkpoint_frame_lifetimes(scope).unwrap();assert!(scope.get_slot::<FrameLifetimes>().unwrap().live.is_empty());
+        }
         #[test]
         fn parser_memory_phases_preserve_exception_and_observe_exact_release() {
             #[cfg(unix)]
@@ -21785,7 +21876,7 @@ mod raw_v8 {
                 let context = scope.get_current_context();
                 let child = context.get_slot::<V8BindingState>().unwrap();
                 let lifetime = context.get_slot::<FrameLifetime>().unwrap();
-                checkpoint_frame_lifetimes(scope);
+                let _=checkpoint_frame_lifetimes(scope); // Reentrant abort publication intentionally remains pending.
                 let parent = lifetime.parent.upgrade().unwrap();
                 // A real abort callback owns the child stack here. Invoke the
                 // same native binding admission as production enumeration while
@@ -21926,7 +22017,7 @@ mod raw_v8 {
                 let context = scope.get_current_context();
                 let child = context.get_slot::<V8BindingState>().unwrap();
                 let lifetime = context.get_slot::<FrameLifetime>().unwrap();
-                checkpoint_frame_lifetimes(scope);
+                let _=checkpoint_frame_lifetimes(scope); // Reentrant abort publication intentionally remains pending.
                 let parent = lifetime.parent.upgrade().unwrap();
                 // A real abort callback owns the child stack here. Invoke the
                 // same native binding admission as production enumeration while
@@ -22124,7 +22215,7 @@ mod raw_v8 {
             }
             {
                 let scope = &mut v8::ContextScope::new(scope, parent);
-                checkpoint_frame_lifetimes(scope);
+                checkpoint_frame_lifetimes(scope).unwrap();
             }
             assert!(lifetime.closed.get());
             assert!(child_state.execution_retired());

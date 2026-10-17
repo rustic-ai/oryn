@@ -208,6 +208,7 @@ fn retained_font_requests(
                     destination: oryn_layout::cssom::CssResourceDestination::Font,
                 },
                 FontCandidate {
+                    native_rule: Some(face.rule.clone()),
                     family: face.family.clone(),
                     key: key.clone(),
                     ranges: if face.unicode_ranges.is_empty() {

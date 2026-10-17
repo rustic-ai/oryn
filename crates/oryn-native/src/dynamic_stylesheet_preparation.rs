@@ -4,6 +4,7 @@ use super::*;
 use std::time::Instant;
 include!("retained_font_demand_epoch.rs");
 include!("retained_font_requests.rs");
+include!("implicit_font_backing_finish.rs");
 #[cfg(test)]
 thread_local! {
     static DYNAMIC_RETAINED_SCHEDULE_FAILURE: Cell<bool> = const { Cell::new(false) };
@@ -37,6 +38,7 @@ fn resource_attributes(dom: &SharedDomRuntime, node: NodeId) -> Option<Vec<Optio
 }
 #[derive(Clone)]
 struct FontCandidate {
+    native_rule: Option<oryn_layout::cssom::native_import_graph::NativeRule>,
     family: String,
     key: String,
     ranges: Vec<(u32, u32)>,
@@ -111,6 +113,7 @@ fn font_requests(
                             destination: oryn_layout::cssom::CssResourceDestination::Font,
                         },
                         FontCandidate {
+                            native_rule: None,
                             family: family.clone(),
                             key: key.clone(),
                             ranges: ranges.clone(),
@@ -185,6 +188,9 @@ impl FontDisplayPeriods {
     }
 }
 pub(super) struct CssFontTimeline {
+    implicit_tokens: Option<oryn_js::v8_bindings::font_loading_transport::ImplicitFontTokens>,
+    implicit_started: bool,
+    implicit_terminal: Option<bool>,
     identity: ParserDocumentIdentity,
     dom: SharedDomRuntime,
     node: NodeId,
@@ -311,11 +317,13 @@ pub(super) struct CssBinary {
     pub bytes: Vec<u8>,
 }
 struct StylesheetResult {
+    fatal: Option<HostError>,
     binary: Option<CssBinary>,
     result: Result<StylesheetSource, String>,
     _bytes: Option<ScriptSourceReservation>,
 }
 pub(super) struct StylesheetPreparation {
+    prepared_implicit_backing:Option<Arc<ImplicitFontBacking>>,
     #[cfg(unix)]
     retained: Option<ParserResourceScheduler>,
     retry: Option<Instant>,
@@ -380,6 +388,7 @@ impl StylesheetPreparation {
                     self.ready = Some(StylesheetResult {
                         binary: None,
                         result: Err("stylesheet producer disconnected".into()),
+                        fatal: (!self.install&&self.font_family.is_some()).then(||HostError::ScriptLoad(crate::script_load_failure::ScriptLoadFailure::Infrastructure("stylesheet producer disconnected".into()))),
                         _bytes: None,
                     })
                 }
@@ -480,6 +489,7 @@ impl RustExecutableDocument {
         let mut bytes = 0usize;
         let mut selected_fonts = BTreeSet::new();
         let mut relevant_fonts = BTreeSet::new();
+        let mut unattempted_fonts=BTreeSet::new();
         if font_allocation.is_some() {
             self.agent.host.native_retained_admission_for_realm(realm)?;
         }
@@ -512,9 +522,12 @@ impl RustExecutableDocument {
                 }
                 if let Some(family) = &family {
                     relevant_fonts.insert(family.key.clone());
+                    if !attempted.contains(&(absolute.clone(),Some(family.key.clone()))){
+                        unattempted_fonts.insert(family.key.clone());
+                    }
                 }
                 if family.as_ref().is_some_and(|candidate| {
-                    self.css_font_timelines.iter().any(|timeline| {
+                    candidate.native_rule.is_none()&&self.css_font_timelines.iter().any(|timeline| {
                         timeline.identity.realm == realm
                             && timeline.node == batch.node
                             && timeline.revision == batch.revision
@@ -589,6 +602,7 @@ impl RustExecutableDocument {
                 })
             {
                 timeline.failed = true;
+                if !unattempted_fonts.contains(&timeline.font.key){timeline.implicit_terminal=Some(false);}
             }
         }
         self.poll_font_display()?;
@@ -635,6 +649,7 @@ impl RustExecutableDocument {
             let (sender, receiver) = std::sync::mpsc::channel();
             let lifetime = std::sync::Arc::new(());
             let mut job = StylesheetPreparation {
+                prepared_implicit_backing:None,
                 #[cfg(unix)]
                 retained: None,
                 retry: None,
@@ -724,14 +739,28 @@ impl RustExecutableDocument {
             let creator = fetch.resource_initiator.clone();
             let request_bytes = retained.clone();
             let body_budget = self.dynamic_scripts.source_bytes.clone();
+            if let Some(candidate)=&font_family{
+                let timeline=self.css_font_timelines.iter_mut().find(|timeline|
+                    timeline.identity.realm==fetch.realm&&timeline.node==batch.node
+                    &&timeline.revision==batch.revision&&timeline.font.key==candidate.key)
+                    .ok_or_else(||HostError::Execution("implicit font timeline absent".into()))?;
+                if !timeline.implicit_started{
+                    if let (Some(rule),Some(epoch))=(&candidate.native_rule,&candidate.retained){
+                        let identity=epoch.publication.graph.borrow().connected_font_context(rule)
+                            .map_err(HostError::Execution)?.identity();
+                        timeline.implicit_tokens=Some(self.agent.host.publish_implicit_font_transition(fetch.realm,identity)?);
+                    }
+                    timeline.implicit_started=true;
+                }
+            }
             let started = resource_io_executor::submit(move || {
                 #[cfg(unix)]
                 let _ownership = ownership;
                 let _request_bytes = request_bytes;
                 let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||{
-                    if weak.upgrade().is_none(){return Err(HostError::Execution("CSS dependency owner retired".into()));}
+                    if weak.upgrade().is_none(){return Err(HostError::ScriptLoad(crate::script_load_failure::ScriptLoadFailure::Cancelled));}
                     if let Some(name)=reference.url.strip_prefix("oryn-local-font:"){
-                        let bytes=oryn_layout::local_font_bytes(name).ok_or_else(||HostError::Execution("local font no longer available".into()))?;
+                        let bytes=oryn_layout::local_font_bytes(name).ok_or_else(||HostError::ScriptLoad(crate::script_load_failure::ScriptLoadFailure::Fetch("local font no longer available".into())))?;
                         return Ok(CssBinary{url:reference.url.clone(),bytes:bytes.to_vec()});
                     }
                     if let Some(loader)=loader{return loader.load_dependency(&base,&initiator,&policy,reference);}
@@ -747,10 +776,12 @@ impl RustExecutableDocument {
                     }
                     }
                     #[cfg(not(unix))] {Err(HostError::Execution("CSS local loader missing".into()))}
-                })).map_err(|_|"CSS dependency producer panicked".to_owned()).and_then(|result:Result<CssBinary,HostError>|result.map_err(|error|error.to_string()));
+                })).map_err(|_|HostError::ScriptLoad(crate::script_load_failure::ScriptLoadFailure::Infrastructure("CSS dependency producer panicked".into())))
+                    .and_then(|result:Result<CssBinary,HostError>|result);
                 let result = result.and_then(|binary| {
                     if is_font {
-                        oryn_layout::decode_web_font(&binary.bytes, 16 * 1024 * 1024)?;
+                        oryn_layout::decode_web_font(&binary.bytes, 16 * 1024 * 1024)
+                            .map_err(|error|HostError::ScriptLoad(crate::script_load_failure::ScriptLoadFailure::Fetch(error)))?;
                     }
                     Ok(binary)
                 });
@@ -758,27 +789,29 @@ impl RustExecutableDocument {
                     Ok(binary) => {
                         match ScriptSourceReservation::reserve(&body_budget, binary.bytes.len()) {
                             Some(bytes) => StylesheetResult {
+                                fatal: None,
                                 binary: Some(binary),
                                 result: Ok((String::new(), String::new(), Vec::new())),
                                 _bytes: Some(bytes),
                             },
                             None => StylesheetResult {
+                                fatal:Some(HostError::LimitExceeded{resource:"CSS binary retained byte capacity".into()}),
                                 binary: None,
                                 result: Err("CSS binary retained byte capacity".into()),
                                 _bytes: None,
                             },
                         }
                     }
-                    Err(error) => StylesheetResult {
-                        binary: None,
-                        result: Err(error),
-                        _bytes: None,
+                    Err(error) => {
+                        let source=matches!(&error,HostError::ScriptLoad(crate::script_load_failure::ScriptLoadFailure::Fetch(_)|crate::script_load_failure::ScriptLoadFailure::Integrity(_)));
+                        StylesheetResult{binary:None,result:Err(error.to_string()),fatal:(!source).then_some(error),_bytes:None}
                     },
                 };
                 let _ = sender.send(response);
             });
             if let Err(error) = started {
                 let _ = failed.send(StylesheetResult {
+                    fatal:Some(HostError::ScriptLoad(crate::script_load_failure::ScriptLoadFailure::Infrastructure(error.clone()))),
                     binary: None,
                     result: Err(error),
                     _bytes: None,
@@ -1029,6 +1062,7 @@ impl RustExecutableDocument {
             .admit_render_resource(node, parser_inserted)
             .map_err(|error| HostError::Execution(error.to_string()))?;
         let mut job = StylesheetPreparation {
+            prepared_implicit_backing:None,
             #[cfg(unix)]
             retained: None,
             retry: None,
@@ -1079,6 +1113,7 @@ impl RustExecutableDocument {
         }
         if pure {
             job.ready = Some(StylesheetResult {
+                fatal: None,
                 binary: None,
                 result: Ok((fetch.initiator_url, css, Vec::new())),
                 _bytes: Some(reservation),
@@ -1164,6 +1199,7 @@ impl RustExecutableDocument {
                     binary: None,
                     result,
                     _bytes: reservation,
+                    fatal: None,
                 });
             });
             if let Err(error) = started {
@@ -1171,6 +1207,7 @@ impl RustExecutableDocument {
                     binary: None,
                     result: Err(error),
                     _bytes: None,
+                    fatal: None,
                 });
             }
             self.dynamic_stylesheets.push_back(job);
@@ -1211,6 +1248,7 @@ impl RustExecutableDocument {
                     binary: None,
                     result,
                     _bytes: reservation,
+                    fatal: None,
                 });
             });
             if let Err(error) = started {
@@ -1218,6 +1256,7 @@ impl RustExecutableDocument {
                     binary: None,
                     result: Err(error),
                     _bytes: None,
+                    fatal: None,
                 });
             }
         }
@@ -1323,6 +1362,15 @@ impl RustExecutableDocument {
                     self.dynamic_stylesheets.push_back(job);
                     continue;
                 }
+                if let Some(error)=job.ready.as_mut().and_then(|result|result.fatal.take()){
+                    for source in &mut self.css_dependency_sources{
+                        if source.realm==job.identity.realm&&source.batch.node==job.node&&source.batch.revision==job.revision{
+                            if let Some(url)=&job.requested_url{source.attempted.remove(&(url.clone(),job.font_group.clone()));}
+                            source.evaluated=None;
+                        }
+                    }
+                    return Err(error);
+                }
                 #[cfg(unix)]
                 if let Some(scheduler) = &mut job.retained {
                     let outcome = (|| {
@@ -1386,7 +1434,17 @@ impl RustExecutableDocument {
                 }
                 let publication = (|| {
                     self.agent.host.activate_realm(job.identity.realm)?;
-                    self.publish_css_binary_retained(&mut job)
+                    self.publish_css_binary_retained(&mut job)?;
+                    if job.ready.as_ref().expect("ready stylesheet").result.is_ok(){
+                        for timeline in &mut self.css_font_timelines{
+                            if timeline.identity.realm==job.identity.realm&&timeline.node==job.node
+                                &&timeline.revision==job.revision&&Some(&timeline.font.key)==job.font_group.as_ref(){
+                                timeline.implicit_terminal=Some(true);
+                            }
+                        }
+                        self.poll_font_display()?;
+                    }
+                    Ok::<_,HostError>(())
                 })();
                 if let Err(error) = publication {
                     job.retry = Some(Instant::now() + Duration::from_millis(25));
@@ -1535,6 +1593,7 @@ mod tests {
                 .unwrap(),
         };
         let candidate = FontCandidate {
+            native_rule: None,
             family: "Demo".into(),
             key: "display-test".into(),
             ranges: vec![(0, 0x10ffff)],
@@ -1643,6 +1702,7 @@ mod tests {
         });
         let demand = CssDemand::from_layout(&layout);
         let candidate = |family: &str, start, end| FontCandidate {
+            native_rule: None,
             family: family.into(),
             key: family.into(),
             ranges: vec![(start, end)],
@@ -1953,25 +2013,39 @@ impl RustExecutableDocument {
         if !job.live(&self.agent.host) {
             return Ok(());
         }
-        if self.css_font_timelines.iter().any(|timeline| {
+        let visual_failed=self.css_font_timelines.iter().any(|timeline| {
             timeline.identity.realm == job.identity.realm
                 && timeline.node == job.node
                 && timeline.revision == job.revision
                 && Some(&timeline.font.key) == job.font_group.as_ref()
                 && timeline.phase(Instant::now()) == FontDisplayPhase::Failure
-        }) {
-            return Ok(());
-        }
+        });
         if job.published.is_some() {
-            return job
+            job
                 .dom
                 .borrow_mut()
                 .notify_stylesheet_resource_changed(job.node)
-                .map_err(|error| HostError::Execution(error.to_string()));
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            return self.finish_implicit_font_backing(job);
         }
         let Some(binary) = job.ready.as_ref().and_then(|result| result.binary.as_ref()) else {
             return Ok(());
         };
+        let original=self.css_font_timelines.iter().find(|timeline|
+            timeline.identity.realm==job.identity.realm&&timeline.node==job.node
+            &&timeline.revision==job.revision&&Some(&timeline.font.key)==job.font_group.as_ref())
+            .and_then(|timeline|timeline.font.native_rule.clone());
+        if job.prepared_implicit_backing.is_none() && let (Some(rule),Some(epoch))=(original,job.retained_font.clone()){
+            job.prepared_implicit_backing=Some(self.prepare_implicit_font_backing(job.identity.realm,rule,epoch,binary)?);
+        }
+        if job.prepared_implicit_backing.is_some(){
+            let provider=self.agent.host.native_layout_provider_in_realm(job.identity.realm).ok_or(HostError::CachedAuthorityExpired)?;
+            let shared=self.agent.host.native_retained_admission_for_realm(job.identity.realm)?.ok_or(HostError::CachedAuthorityExpired)?;
+            let _scope=self.agent.host.retained_allocation_scope(job.identity.realm)?;
+            let store=provider.native_backend().and_then(|backend|backend.downcast_ref::<LiveLayoutProvider>())
+                .ok_or(HostError::CachedAuthorityExpired)?.implicit_font_store(shared.as_ref()).map_err(HostError::Execution)?;
+            prepare_implicit_font_store(&store,shared.as_ref())?;
+        }
         if job
             .ready
             .as_ref()
@@ -2010,7 +2084,7 @@ impl RustExecutableDocument {
         })?;
         #[cfg(test)]
         css_publication_failure(1)?;
-        if let Some(family) = &job.font_family {
+        if !visual_failed && let Some(family) = &job.font_family {
             use sha2::Digest;
             let custody = ScriptSourceReservation::reserve(
                 &self.dynamic_scripts.source_bytes,
@@ -2071,8 +2145,10 @@ impl RustExecutableDocument {
                 && timeline.revision == job.revision
                 && Some(&timeline.font.key) == job.font_group.as_ref()
             {
-                timeline.loaded = true;
-                timeline.published = Some(FontDisplayPhase::Loaded);
+                if !visual_failed {
+                    timeline.loaded = true;
+                    timeline.published = Some(FontDisplayPhase::Loaded);
+                }
             }
         }
         job.published = Some(None);
@@ -2082,6 +2158,7 @@ impl RustExecutableDocument {
             .borrow_mut()
             .notify_stylesheet_resource_changed(job.node)
             .map_err(|error| HostError::Execution(error.to_string()))?;
+        self.finish_implicit_font_backing(job)?;
         Ok(())
     }
     #[cfg(test)]
@@ -2096,6 +2173,7 @@ impl RustExecutableDocument {
             binary: Some(binary),
             result: Ok((String::new(), String::new(), Vec::new())),
             _bytes: bytes,
+            fatal: None,
         });
         self.publish_css_binary_retained(job)
     }
@@ -2208,9 +2286,9 @@ impl RustExecutableDocument {
         font: &FontCandidate,
     ) -> Result<(), HostError> {
         self.css_font_timelines
-            .retain(|timeline| timeline.valid(&self.agent.host));
+            .retain(|timeline| timeline.valid(&self.agent.host)||timeline.implicit_tokens.is_some());
         if self.css_font_timelines.iter().any(|timeline| {
-            timeline.identity.realm == identity.realm
+            timeline.valid(&self.agent.host)&&timeline.identity.realm == identity.realm
                 && timeline.node == batch.node
                 && timeline.revision == batch.revision
                 && timeline.font.key == font.key
@@ -2234,6 +2312,9 @@ impl RustExecutableDocument {
             resource: "font display metadata".into(),
         })?;
         self.css_font_timelines.push(CssFontTimeline {
+            implicit_tokens: None,
+            implicit_started: false,
+            implicit_terminal: None,
             identity,
             dom: dom.clone(),
             node: batch.node,
@@ -2253,6 +2334,7 @@ impl RustExecutableDocument {
         for timeline in &mut self.css_font_timelines {
             if !timeline.loaded {
                 timeline.failed = true;
+                timeline.implicit_terminal=Some(false);
             }
         }
         self.poll_font_display()
@@ -2284,12 +2366,23 @@ impl RustExecutableDocument {
             .min()
     }
     fn poll_font_display(&mut self) -> Result<(), HostError> {
+        for timeline in &mut self.css_font_timelines {
+            if !timeline.valid(&self.agent.host)&&let Some(tokens)=&timeline.implicit_tokens{
+                self.agent.host.complete_implicit_font_tokens(timeline.identity.realm,&tokens.tokens,false)?;
+                timeline.implicit_tokens=None;
+            }
+        }
         self.css_font_timelines
             .retain(|timeline| timeline.valid(&self.agent.host));
         let now = Instant::now();
         for timeline in &mut self.css_font_timelines {
             if self.agent.host.realm_is_parked(timeline.identity.realm) {
                 continue;
+            }
+            let terminal=timeline.implicit_terminal.or(timeline.loaded.then_some(true));
+            if let Some(success)=terminal && let Some(tokens)=&timeline.implicit_tokens{
+                self.agent.host.complete_implicit_font_tokens(timeline.identity.realm,&tokens.tokens,success)?;
+                timeline.implicit_tokens=None;
             }
             let phase = timeline.phase(now);
             if timeline.published == Some(phase) {
@@ -2371,6 +2464,7 @@ mod retained_css_publication_tests {
             binary: Some(binary),
             result: Ok((String::new(), String::new(), Vec::new())),
             _bytes: Some(bytes),
+            fatal: None,
         });
         CSS_PUBLICATION_FAILURE.with(|slot| slot.set(1));
         assert!(page.publish_css_binary_retained(&mut job).is_err());

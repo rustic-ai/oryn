@@ -127,65 +127,16 @@ impl Face {
         let width = fontique::FontWidth::parse_css(style_value(style, "font-stretch", "100%"))
             .unwrap_or_default()
             .percentage();
-        let width_value = width.clamp(self.width.0, self.width.1);
-        let width_rank = if width_value == width {
-            [0., 0.]
-        } else if (width <= 100. && width_value < width) || (width > 100. && width_value > width) {
-            [1., (width_value - width).abs()]
-        } else {
-            [2., (width_value - width).abs()]
+        use crate::cssom::native_import_graph::{NativeFontAxes, NativeFontStyle, native_font_axes_rank};
+        let parse_style=|text:&str| match text.split_whitespace().next().unwrap_or("normal") {
+            "italic"=>NativeFontStyle::Italic,
+            "oblique"=>{let(a,b)=angle_range(text);NativeFontStyle::Oblique(a,b)},
+            _=>NativeFontStyle::Normal,
         };
-        let requested = style_value(style, "font-style", "normal")
-            .split_whitespace()
-            .next()
-            .unwrap_or("normal");
-        let actual = self.style.split_whitespace().next().unwrap_or("normal");
-        let style_rank = if actual == requested {
-            0.
-        } else if (requested == "italic" && actual == "oblique")
-            || (requested == "oblique" && actual == "italic")
-            || (requested == "normal" && actual == "oblique")
-        {
-            1.
-        } else {
-            2.
-        };
-        let angle_rank = if actual == "oblique" {
-            let desired = if requested == "normal" {
-                0.
-            } else {
-                angle_range(style_value(style, "font-style", "normal")).0
-            };
-            let (min, max) = angle_range(&self.style);
-            angle_distance(desired, min, max)
-        } else {
-            [0., 0.]
-        };
-        let value = weight.clamp(self.weight.0, self.weight.1);
-        let weight_rank = if value == weight {
-            [0., 0.]
-        } else if (400. ..=500.).contains(&weight) {
-            if value >= weight && value <= 500. {
-                [1., value - weight]
-            } else if value < weight {
-                [2., weight - value]
-            } else {
-                [3., value - 500.]
-            }
-        } else if (weight < 400. && value < weight) || (weight > 500. && value > weight) {
-            [1., (value - weight).abs()]
-        } else {
-            [2., (value - weight).abs()]
-        };
-        [
-            width_rank[0],
-            width_rank[1],
-            style_rank,
-            angle_rank[0],
-            angle_rank[1],
-            weight_rank[0],
-            weight_rank[1],
-        ]
+        native_font_axes_rank(
+            NativeFontAxes {weight:self.weight,width:self.width,style:parse_style(&self.style)},
+            NativeFontAxes {weight:(weight,weight),width:(width,width),style:parse_style(style_value(style,"font-style","normal"))},
+        )
     }
 }
 fn angle_range(value: &str) -> (f32, f32) {
@@ -209,22 +160,9 @@ fn angle_range(value: &str) -> (f32, f32) {
     let first = angles.next().unwrap_or(14.);
     (first, angles.next().unwrap_or(first))
 }
-fn angle_distance(desired: f32, min: f32, max: f32) -> [f32; 2] {
-    if desired < 0. {
-        return angle_distance(-desired, -max, -min);
-    }
-    let actual = desired.clamp(min, max);
-    if actual == desired {
-        return [0., 0.];
-    }
-    if actual < 0. {
-        return [3., -actual];
-    }
-    if (desired >= 11. && actual > desired) || (desired < 11. && actual < desired) {
-        [1., (actual - desired).abs()]
-    } else {
-        [2., (actual - desired).abs()]
-    }
+#[cfg(test)]
+fn angle_distance(desired:f32,min:f32,max:f32)->[f32;2] {
+    crate::cssom::native_import_graph::native_font_angle_distance(desired,min,max)
 }
 fn quote(name: &str) -> String {
     let mut result = String::new();

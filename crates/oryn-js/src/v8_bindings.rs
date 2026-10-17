@@ -325,6 +325,8 @@ mod byte_streams;
 mod document_domain;
 mod document_provenance;
 mod headers_iterators;
+pub mod font_loading;
+pub mod font_loading_transport;
 pub mod image_bitmap;
 mod iterable_conversion;
 mod media_source;
@@ -1297,6 +1299,8 @@ enum PlatformObjectRecord {
     DataTransferFiles(Rc<data_transfer::View>),
     FileList(std::sync::Arc<Vec<oryn_dom::SelectedFile>>),
     Headers(HeadersRecord),
+    FontFace,
+    FontFaceSet,
     AbortSignal(AbortSignalRecord),
     AbortController {
         signal_id: u64,
@@ -2867,6 +2871,7 @@ pub struct V8BindingState {
     platform_edges: RefCell<platform_listener_graph::Edges>,
     idb_payload_ledger: std::sync::Arc<crate::idb_owned_admission::Ledger>,
     retained_allocation: RefCell<Option<std::sync::Arc<BindingRetainedAllocation>>>,
+    font_loading: RefCell<font_loading::State>,
     queued_owned_idb: RefCell<VecDeque<OwnedIdbOperation>>,
     pending_owned_idb: RefCell<Vec<(HostOperationId, OwnedIdbOperation)>>,
     platform_host: RefCell<Option<Rc<dyn PlatformHost>>>,
@@ -3031,8 +3036,9 @@ pub struct V8BindingState {
 type SharedRangeSelections = Rc<RefCell<Vec<RcWeak<Cell<Option<u64>>>>>>;
 
 /// Embedding-owned lifecycle work, run before author reactions to DOM changes.
-/// The callback must not execute author JavaScript or retain a borrowed scope.
-pub struct DomLifecycleCheckpoint(pub fn(&mut v8::PinScope));
+/// Lifecycle abort/publication callbacks may run author code under the owning
+/// host's unchanged deadline; implementations must not retain a borrowed scope.
+pub struct DomLifecycleCheckpoint(pub fn(&mut v8::PinScope)->Result<(),V8BindingError>);
 
 pub fn checkpoint_dom_lifecycle(scope: &mut v8::PinScope) {
     if let Err(error) = oryn_dom::drain_tracked_node_leases() {
@@ -3074,7 +3080,7 @@ pub fn checkpoint_dom_lifecycle(scope: &mut v8::PinScope) {
         .get_slot::<DomLifecycleCheckpoint>()
         .map(|hook| hook.0)
     {
-        callback(scope);
+        if let Err(error)=callback(scope){throw_binding_error(scope,&error);}
     }
 }
 
@@ -3846,6 +3852,7 @@ impl V8BindingState {
 
     /// Retire execution services without destroying detached DOM wrappers.
     pub fn retire_execution(&self) {
+        font_loading::cancel_retired(self);
         if let Some(identity)=self.native_input_identity.borrow().as_ref(){identity.retired.store(true,std::sync::atomic::Ordering::Release);}
         // Extract before cancellation can run native cleanup/reenter ownership.
         let support = { self.native_support_custody.borrow_mut().take() };
@@ -5734,6 +5741,59 @@ impl V8BindingState {
 
     pub fn document_stream_epoch(&self) -> u64 {
         self.document_stream_epoch.get()
+    }
+    pub fn take_native_font_requests(self:&Rc<Self>)->font_loading_transport::FontRequestQueue{
+        font_loading::take_requests(self)
+    }
+    pub fn restore_native_font_requests(self:&Rc<Self>,requests:&mut font_loading_transport::FontRequestQueue)->Result<(),V8BindingError>{
+        font_loading::restore_requests(self,requests)
+    }
+    pub fn native_font_owner_instance(&self)->u64{self.instance_id}
+    pub fn retire_native_font_promises(self:&Rc<Self>,scope:&mut v8::PinScope)->Result<(),V8BindingError>{
+        font_loading::retire(scope,self)
+    }
+    pub fn native_font_provider_matches(&self,identity:usize)->bool{
+        let provider=self.font_loading.borrow().provider.clone();
+        provider.is_some_and(|provider|provider.same_provider(identity))
+    }
+    pub fn synchronize_native_font_set(self:&Rc<Self>,scope:&mut v8::PinScope)->Result<(),V8BindingError>{
+        font_loading::synchronize_set(scope,self)
+    }
+    pub fn native_font_cycle(&self)->u64{self.font_loading.borrow().cycles.cycle()}
+    pub fn native_font_layout_inputs(self:&Rc<Self>)->Result<font_loading_transport::FontLayoutInputs,V8BindingError>{
+        font_loading::layout_inputs(self)
+    }
+    pub fn native_font_loading_materialized(&self)->bool{
+        let fonts=self.font_loading.borrow();fonts.document_set.is_some()||!fonts.face_objects.is_empty()
+    }
+    pub fn native_font_request_current(self:&Rc<Self>,token:font_loading_transport::FontLoadToken)->bool{
+        font_loading::request_current(self,token)
+    }
+    pub fn native_font_request_face(self:&Rc<Self>,token:font_loading_transport::FontLoadToken)
+        ->Option<std::rc::Weak<dyn font_loading::NativeFontFace>>{
+        font_loading::request_face(self,token)
+    }
+    pub fn complete_native_font_request(self:&Rc<Self>,scope:&mut v8::PinScope,
+        completion:font_loading_transport::FontLoadCompletion)->Result<bool,V8BindingError>{
+        font_loading::complete(scope,self,completion)
+    }
+    pub fn install_native_font_loading(self:&Rc<Self>,provider:Rc<dyn font_loading::NativeFontLoading>){
+        font_loading::install_provider(self,provider)
+    }
+    pub fn demand_native_font_layout(self:&Rc<Self>,stamp:font_loading_transport::FontDemandStamp)->bool{
+        font_loading::demand_font_layout(self,stamp)
+    }
+    pub fn commit_native_font_layout(self:&Rc<Self>,scope:&mut v8::PinScope,
+        stamp:font_loading_transport::FontDemandStamp)->Result<bool,V8BindingError>{
+        font_loading::commit_font_layout(scope,self,stamp)
+    }
+    pub fn start_implicit_font(self:&Rc<Self>,scope:&mut v8::PinScope,identity:usize)
+        ->Result<font_loading_transport::ImplicitFontTokens,V8BindingError>{
+        font_loading::implicit_font_started(scope,self,identity)
+    }
+    pub fn complete_implicit_font(self:&Rc<Self>,scope:&mut v8::PinScope,tokens:&[font_loading_transport::FontLoadToken],success:bool)
+        ->Result<(),V8BindingError>{
+        font_loading::implicit_font_terminal(scope,self,tokens,success)
     }
 
     /// Native realm/document capability identity, unchanged by document.open.
@@ -12757,6 +12817,8 @@ fn is_platform_interface(interface: &str) -> bool {
     matches!(
         interface,
         "Sanitizer"
+            | "FontFace"
+            | "FontFaceSet"
             | "BaseAudioContext"
             | "AudioContext"
             | "OfflineAudioContext"
@@ -13697,6 +13759,10 @@ fn initialize_platform_constructor<'s>(
 ) -> Result<bool, V8BindingError> {
     if !args.is_construct_call() {
         return Ok(false);
+    }
+    if name=="FontFace" {
+        font_loading::construct(scope,state,name,args)?;
+        return Ok(true);
     }
     if name == "EditContext" { edit_context::construct(scope,state,args)?; return Ok(true); }
     if name == "TextFormat" { let value=args.get(0);let init=if value.is_null_or_undefined(){None}else{Some(v8::Local::<v8::Object>::try_from(value).map_err(|_|V8BindingError::Unsupported{interface:"TextFormat".into(),member:"TypeError".into()})?)};edit_context_events::initialize(scope,args.this(),name,init)?;return Ok(true);}
@@ -16290,6 +16356,7 @@ fn generated_constructor<'s>(
             | "TrackEvent"
             | "ToggleEvent"
             | "IDBVersionChangeEvent"
+            | "FontFaceSetLoadEvent"
     ) && args.is_construct_call()
     {
         if args.length() == 0 {
@@ -16355,6 +16422,7 @@ fn generated_constructor<'s>(
             throw_binding_error(scope, &error);
             return;
         }
+        if name=="FontFaceSetLoadEvent"&&let Err(error)=font_loading::initialize_font_event(scope,args.this(),init){throw_binding_error(scope,&error);return;}
         let history_payload = if matches!(name, "PopStateEvent" | "HashChangeEvent") {
             match history_events::payload(scope, name, init) {
                 Ok(value) => Some(value),
@@ -17157,6 +17225,28 @@ fn generated_attribute_getter<'s>(
         return;
     };
     let member = metadata.name;
+    if interface=="FontFaceSetLoadEvent"&&member=="fontfaces"{
+        match font_loading::font_event_faces(scope,args.this()){Ok(value)=>return_value.set(value),Err(error)=>throw_binding_error(scope,&error)}
+        return;
+    }
+    if matches!(interface,"Document"|"WorkerGlobalScope") && member=="fonts" {
+        let result=(||{
+            let state=font_loading::font_document_receiver(scope,args.this(),interface)?;
+            let _admission=state.enter_retained_allocation(scope)?;
+            font_loading::document_set(scope,&state)
+        })();
+        match result {Ok(value)=>return_value.set(value.into()),Err(error)=>throw_binding_error(scope,&error)}
+        return;
+    }
+    if interface=="FontFace" || (interface=="FontFaceSet"&&!member.starts_with("on")) {
+        let result=(||{
+            let (state,id)=font_loading::font_receiver(scope,args.this(),interface)?;
+            let _admission=state.enter_retained_allocation(scope)?;
+            font_loading::get(scope,&state,id,interface,member)
+        })();
+        match result {Ok(value)=>return_value.set(value),Err(error)=>throw_binding_error(scope,&error)}
+        return;
+    }
     if interface == "Window" && member == "history" {
         let result = (|| {
             let state = binding_state_for_receiver(scope, args.this())
@@ -18058,7 +18148,7 @@ fn generated_attribute_setter<'s>(
     let follow_on = {
         v8::tc_scope!(let caught,scope);
         checkpoint_dom_lifecycle(caught);
-        if !node_migration::has_publications(caught) {
+        if !caught.has_caught()&&!caught.is_execution_terminating()&&!node_migration::has_publications(caught) {
             if let Some(boundary) = boundary {
                 boundary.complete(caught);
             } else {
@@ -18099,6 +18189,15 @@ fn generated_attribute_setter_impl<'s>(
         return;
     };
     let member = metadata.name;
+    if interface=="FontFace" {
+        let result=(||{
+            let (state,id)=font_loading::font_receiver(scope,args.this(),interface)?;
+            let _admission=state.enter_retained_allocation(scope)?;
+            font_loading::set(scope,&state,id,member,args.get(0))
+        })();
+        if let Err(error)=result{throw_binding_error(scope,&error);}
+        return;
+    }
     if interface == "HTMLSubmitButtonBehavior" {
         if let Err(error) = submit_behavior::set(scope, args.this(), member, args.get(0)) {
             throw_binding_error(scope, &error);
@@ -18583,7 +18682,7 @@ fn generated_operation<'s>(
     let follow_on = {
         v8::tc_scope!(let caught,scope);
         checkpoint_dom_lifecycle(caught);
-        if !node_migration::has_publications(caught) {
+        if !caught.has_caught()&&!caught.is_execution_terminating()&&!node_migration::has_publications(caught) {
             if let Some(boundary) = boundary {
                 boundary.complete(caught);
             } else {
@@ -18643,6 +18742,19 @@ fn generated_operation_impl<'s>(
         return;
     };
     let member = metadata.name;
+    if matches!(interface,"FontFace"|"FontFaceSet") {
+        let result=(||{
+            let (state,_)=font_loading::font_receiver(scope,args.this(),interface)?;
+            let required=generated_interface(interface).into_iter().flat_map(|i|i.members.iter())
+                .filter(|m|m.kind==GeneratedMemberKind::Operation&&m.name==member&&m.static_member==metadata.static_member)
+                .map(|m|m.arity).min().unwrap_or(metadata.arity);
+            if args.length()<i32::from(required){return Err(V8BindingError::Unsupported{interface:interface.into(),member:"TypeError".into()});}
+            let _admission=state.enter_retained_allocation(scope)?;
+            font_loading::operation(scope,&state,args.this(),interface,member,&args)
+        })();
+        match result {Ok(value)=>return_value.set(value),Err(error)=>throw_binding_error(scope,&error)}
+        return;
+    }
     if interface == "IDBKeyRange" && metadata.static_member {
         idb_key_range_static(scope, args, member, return_value);
         return;
@@ -19903,6 +20015,8 @@ fn platform_interface_for_id(state: &V8BindingState, id: u64) -> Option<&'static
     Some(match state.platform_objects.borrow().get(&id)? {
         PlatformObjectRecord::Crypto { .. } => "Crypto",
         PlatformObjectRecord::SubtleCrypto => "SubtleCrypto",
+        PlatformObjectRecord::FontFace => "FontFace",
+        PlatformObjectRecord::FontFaceSet => "FontFaceSet",
         PlatformObjectRecord::CryptoKey(_) => "CryptoKey",
         PlatformObjectRecord::WebAnimation(animation) => animation.borrow().interface(),
         PlatformObjectRecord::WebAnimationEffect(_) => "KeyframeEffect",
@@ -32885,7 +32999,10 @@ pub fn queue_mutation_observer_microtask(scope: &mut v8::PinScope) {
     if scope.is_execution_terminating() {
         return;
     }
-    checkpoint_dom_lifecycle(scope);
+    v8::tc_scope!(let lifecycle,scope);
+    checkpoint_dom_lifecycle(lifecycle);
+    if lifecycle.has_caught()||lifecycle.is_execution_terminating(){lifecycle.rethrow();return;}
+    let scope=lifecycle;
     if let Err(error) = node_migration::collect_remote_observers(scope) {
         throw_binding_error(scope, &error);
         return;

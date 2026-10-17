@@ -269,7 +269,8 @@ pub(super) fn run(
     if !native_platform::rendering_visible(state)? {
         // Playback notifications already queued are tasks even when rendering
         // is suppressed. Consume them so urgent readiness cannot spin forever.
-        return web_animations::drain_events(scope, state);
+        web_animations::drain_events(scope, state)?;
+        return font_loading::drain_events(scope,state);
     }
     if !reveal(scope, state)? {
         return Ok(());

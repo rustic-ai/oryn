@@ -403,6 +403,22 @@ type RootFormHistory = (
 );
 
 include!("retained_stylesheet_registry.rs");
+include!("implicit_font_backing.rs");
+include!("public_font_face.rs");
+include!("connected_public_font_face.rs");
+include!("public_font_provider.rs");
+include!("public_font_store.rs");
+include!("public_font_projection.rs");
+include!("public_font_activation.rs");
+include!("public_font_jobs.rs");
+include!("public_font_completion.rs");
+include!("implicit_font_publication.rs");
+include!("font_face_lease_sweep.rs");
+include!("font_demand_quiescence.rs");
+include!("public_font_layout_commit.rs");
+include!("font_loading_checkpoint.rs");
+include!("public_font_callback_bootstrap.rs");
+include!("synchronous_auxiliary_font_bootstrap.rs");
 include!("native_response_store.rs");
 include!("native_pending_import_dispatch.rs");
 include!("native_pending_import_retry.rs");
@@ -522,6 +538,9 @@ struct LiveLayoutProvider {
     owner_thread: std::thread::ThreadId,
     paint_inventory: RefCell<Option<drag_image_capture::Inventory>>,
     fonts: RefCell<Vec<RetainedLayoutFont>>,
+    public_fonts:RefCell<Vec<PublicLayoutFont>>,
+    public_font_capacity:RefCell<Option<Arc<dyn Send+Sync>>>,
+    implicit_font_backing:RefCell<Option<ImplicitFontBackingStore>>,
     dom: SharedDomRuntime,
     document: NodeId,
     viewport: Cell<oryn_common::v4::ViewportState>,
@@ -790,6 +809,9 @@ pub(crate) fn initial_layout_provider(
         owner_thread: std::thread::current().id(),
         paint_inventory: RefCell::new(None),
         fonts: RefCell::new(Vec::new()),
+        public_fonts:RefCell::new(Vec::new()),
+        public_font_capacity:RefCell::new(None),
+        implicit_font_backing:RefCell::new(None),
         dom,
         document,
         viewport: Cell::new(oryn_common::v4::ViewportState::default()),
@@ -917,7 +939,7 @@ impl LiveLayoutProvider {
         custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
         scroll: (f64, f64),
         element_scrolls: &BTreeMap<NodeId, (f64, f64)>,
-    ) -> Result<(oryn_layout::LayoutInput,oryn_layout::LayoutOutput,oryn_layout::svg_instances::StyleSample),String> {
+    ) -> Result<(PublicFontProjection,oryn_layout::LayoutOutput,oryn_layout::svg_instances::StyleSample),String> {
         let input=self.capture_layout_input(document,custom_states,scroll,element_scrolls)?;
         // Geometry is an optional capability and must never be able to tear
         // down the page worker. Stylo/Blitz can reject a transient DOM shape
@@ -925,7 +947,7 @@ impl LiveLayoutProvider {
         // upstream panic into the same explicit unavailable result as a
         // normal layout error.
         let (output,sample)=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||{
-            self.sample_layout_with_style(&input,&oryn_layout::LayoutLimits::default())
+            self.sample_layout_with_style(&input.input,&oryn_layout::LayoutLimits::default())
         })).map_err(|_|"synchronous layout flush panicked on a transient DOM shape".to_owned())?
             .map_err(|error|format!("synchronous layout flush failed: {error}"))?;
         Ok((input,output,sample))
@@ -936,7 +958,7 @@ impl LiveLayoutProvider {
         custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
         scroll: (f64, f64),
         element_scrolls: &BTreeMap<NodeId, (f64, f64)>,
-    ) -> Result<oryn_layout::LayoutInput,String> {
+    ) -> Result<PublicFontProjection,String> {
         let _profile = crate::native_timing::stage("deep.live_binding_layout");
         let document = document.unwrap_or(self.document);
         let mut input = {
@@ -1057,7 +1079,8 @@ impl LiveLayoutProvider {
                 }
             }
         }
-        Ok(input)
+        let allocation=self.append_public_font_projection(&mut input,document)?;
+        Ok(PublicFontProjection{input,_allocation:allocation})
     }
 }
 #[path = "drag_image_capture.rs"]
@@ -1107,7 +1130,7 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             let keyword=match request.keyword{B::XSmall=>L::XSmall,B::Small=>L::Small,B::Medium=>L::Medium,B::Large=>L::Large,B::XLarge=>L::XLarge,B::XXLarge=>L::XXLarge,B::XXXLarge=>L::XXXLarge};
             let demand=oryn_layout::LegacyFontDemand{body:(u64::from(request.body.generation)<<32)|u64::from(request.body.slot),keyword};
             let resolution=self.style_engine.try_borrow_mut().map_err(|_|"legacy-font style engine borrow conflict")?
-                .resolve_legacy_font_at_controlled(&input,&oryn_layout::LayoutLimits::default(),self.animation_time.get()/1000.,demand,cancelled).map_err(|e|e.to_string())?;
+                .resolve_legacy_font_at_controlled(&input.input,&oryn_layout::LayoutLimits::default(),self.animation_time.get()/1000.,demand,cancelled).map_err(|e|e.to_string())?;
             if self.native_document_identity.get()!=Some(identity)||self.layout_revision()!=Some(request.style_generation){return Err("legacy-font owner changed during query".into())}
             validate_body()?;
             if !resolution.pixels.is_finite()||resolution.pixels<=0. {
@@ -1379,7 +1402,7 @@ impl BindingLayoutProvider for LiveLayoutProvider {
                 && old.descriptors == font.descriptors
                 && old.order == font.order
         });
-        if !replaces && fonts.len() >= 1024 {
+        if !replaces && fonts.len().checked_add(self.public_fonts.borrow().len()).ok_or("native layout font count overflow")? >= NATIVE_LAYOUT_FONT_CAPACITY {
             return Err("native layout font capacity".into());
         }
         fonts
@@ -1794,6 +1817,9 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             owner_thread: self.owner_thread,
             paint_inventory: RefCell::new(None),
             fonts: RefCell::new(Vec::new()),
+            public_fonts:RefCell::new(Vec::new()),
+            public_font_capacity:RefCell::new(None),
+            implicit_font_backing:RefCell::new(None),
             dom,
             document,
             viewport: Cell::new(viewport),
@@ -7434,6 +7460,11 @@ pub struct RustExecutableDocument {
     css_dependency_sources:
         std::collections::VecDeque<dynamic_stylesheet_preparation::CssDemandBatch>,
     css_font_timelines: Vec<dynamic_stylesheet_preparation::CssFontTimeline>,
+    public_font_jobs:Vec<PublicFontJob>,
+    public_font_job_capacity:Option<Arc<dyn Send+Sync>>,
+    next_font_quiescence:u64,
+    font_ready_stamps:Vec<(RealmId,FontQuiescenceStamp)>,
+    font_ready_stamp_capacity:Option<Arc<dyn Send+Sync>>,
     css_binary_resources: Vec<dynamic_stylesheet_preparation::CachedCssBinary>,
     dynamic_stylesheets:
         std::collections::VecDeque<dynamic_stylesheet_preparation::StylesheetPreparation>,
@@ -7697,6 +7728,8 @@ impl RustExecutableDocument {
             css_binary_resources: Vec::new(),
             css_dependency_sources: Default::default(),
             css_font_timelines: Default::default(),
+            public_font_jobs:Vec::new(),public_font_job_capacity:None,next_font_quiescence:0,
+            font_ready_stamps:Vec::new(),font_ready_stamp_capacity:None,
             frame_script_preparations: Default::default(),
             pending_parser: None,
             root_parser_retry: None,
@@ -7785,6 +7818,8 @@ impl RustExecutableDocument {
             css_binary_resources: Vec::new(),
             css_dependency_sources: Default::default(),
             css_font_timelines: Default::default(),
+            public_font_jobs:Vec::new(),public_font_job_capacity:None,next_font_quiescence:0,
+            font_ready_stamps:Vec::new(),font_ready_stamp_capacity:None,
             frame_script_preparations: Default::default(),
             pending_parser: None,
             root_parser_retry: None,
@@ -8599,6 +8634,9 @@ impl RustExecutableDocument {
                 owner_thread: std::thread::current().id(),
                 paint_inventory: RefCell::new(None),
                 fonts: RefCell::new(Vec::new()),
+                public_fonts:RefCell::new(Vec::new()),
+                public_font_capacity:RefCell::new(None),
+                implicit_font_backing:RefCell::new(None),
                 dom: frame_dom.clone(),
                 document: child_document,
                 viewport: Cell::new(oryn_common::v4::ViewportState::default()),
@@ -9442,6 +9480,9 @@ impl RustExecutableDocument {
                 owner_thread: std::thread::current().id(),
                 paint_inventory: RefCell::new(None),
                 fonts: RefCell::new(Vec::new()),
+                public_fonts:RefCell::new(Vec::new()),
+                public_font_capacity:RefCell::new(None),
+                implicit_font_backing:RefCell::new(None),
                 dom: live_dom.clone(),
                 document: layout_document,
                 viewport: Cell::new(oryn_common::v4::ViewportState::default()),
@@ -9673,6 +9714,8 @@ impl RustExecutableDocument {
                     css_binary_resources: Vec::new(),
                     css_dependency_sources: Default::default(),
                     css_font_timelines: Default::default(),
+                    public_font_jobs:Vec::new(),public_font_job_capacity:None,next_font_quiescence:0,
+                    font_ready_stamps:Vec::new(),font_ready_stamp_capacity:None,
                     frame_resource_preparations: BTreeMap::new(),
                     ready_frame_jobs: std::collections::VecDeque::new(),
                     frame_departures: BTreeMap::new(),
@@ -15430,7 +15473,8 @@ impl RustExecutableDocument {
                 self.schedule_dynamic_stylesheet(realm, node)?;
                 self.agent.host.commit_pending_dynamic_stylesheet(realm, node)?;
             }
-            self.poll_dynamic_stylesheets()
+            self.poll_dynamic_stylesheets()?;
+            self.checkpoint_public_fonts()
         })();
         let restored = self.agent.host.activate_realm(previous);
         result.and(restored)
@@ -17642,6 +17686,9 @@ impl RustExecutableDocument {
                         owner_thread: std::thread::current().id(),
                         paint_inventory: RefCell::new(None),
                         fonts: RefCell::new(Vec::new()),
+                        public_fonts:RefCell::new(Vec::new()),
+                        public_font_capacity:RefCell::new(None),
+                        implicit_font_backing:RefCell::new(None),
                         dom: frame_dom.clone(),
                         document: child_document,
                         viewport: Cell::new(oryn_common::v4::ViewportState::default()),
@@ -19794,6 +19841,9 @@ mod tests {
             owner_thread: std::thread::current().id(),
             paint_inventory: RefCell::new(None),
             fonts: RefCell::new(Vec::new()),
+            public_fonts:RefCell::new(Vec::new()),
+            public_font_capacity:RefCell::new(None),
+            implicit_font_backing:RefCell::new(None),
             dom,
             document,
             viewport: Cell::new(Default::default()),

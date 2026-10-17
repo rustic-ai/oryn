@@ -17,7 +17,7 @@ impl LiveLayoutProvider {
         let replaces = fonts.iter().any(|(doc,node,source,old,_,old_epoch)|
             *doc == document && *node == owner && *source == revision && old.order == font.order
                 && old_epoch.as_ref().is_some_and(|old_epoch| old_epoch.same(&epoch)));
-        if !replaces && fonts.len() >= 1024 { return Err("native layout font capacity".into()); }
+        if !replaces && fonts.len().checked_add(self.public_fonts.borrow().len()).ok_or("native layout font count overflow")? >= NATIVE_LAYOUT_FONT_CAPACITY { return Err("native layout font capacity".into()); }
         fonts.try_reserve(1).map_err(|_|"native layout font allocation")?;
         if !epoch.current() { return Ok(()); }
         fonts.retain(|(doc,node,source,old,_,old_epoch)|
