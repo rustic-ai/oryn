@@ -483,8 +483,16 @@ pub fn query(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn language_ranges_preserve_native_token_kind_through_serialization() {
+        for (input, expected) in [("::part(foo):lang(en)", "::part(foo):lang(en)"), (":lang(en, 'fr')", ":lang(en, \"fr\")"), (":lang(\"*\")", ":lang(\"*\")"), (":lang(\"\")", ":lang(\"\")")] {
+            let serialized = crate::canonicalize_selector(input).unwrap();
+            assert_eq!(serialized, expected);
+            assert_eq!(crate::canonicalize_selector(&serialized).unwrap(), serialized);
+        }
+    }
+    #[test]
     fn part_language_pseudo_uses_native_selector_grammar_and_serialization() {
-        for (selector, serialized) in [("::part(foo):lang(en)", "::part(foo):lang(\"en\")"), ("::part(foo):lang(en, fr)", "::part(foo):lang(\"en\", \"fr\")"), (":lang(en)::part(foo)", ":lang(\"en\")::part(foo)"), ("::part(foo):dir(ltr)", "::part(foo):dir(ltr)")] {
+        for (selector, serialized) in [("::part(foo):lang(en)", "::part(foo):lang(en)"), ("::part(foo):lang(en, fr)", "::part(foo):lang(en, fr)"), (":lang(en)::part(foo)", ":lang(en)::part(foo)"), ("::part(foo):dir(ltr)", "::part(foo):dir(ltr)")] {
             assert_eq!(crate::canonicalize_selector(selector).unwrap(), serialized);
             let dom = DomRuntime::new();
             assert!(query(&dom, dom.document(), selector, SelectorOperation::All, &BTreeMap::new()).unwrap().is_empty());

@@ -379,7 +379,17 @@ impl PseudoElement {
 }
 
 /// The type used for storing `:lang` arguments.
-pub type Lang = Vec<Box<str>>;
+/// A language range retaining its authored CSS token category.
+#[derive(Clone, Debug, Eq, Hash, MallocSizeOf, PartialEq, ToShmem)]
+pub struct LangRange {
+    value: Box<str>,
+    identifier: bool,
+}
+impl std::ops::Deref for LangRange {
+    type Target = str;
+    fn deref(&self) -> &str { &self.value }
+}
+pub type Lang = Vec<LangRange>;
 
 /// The type used to store the state argument to the `:state` pseudo-class.
 #[derive(Clone, Debug, Eq, Hash, MallocSizeOf, PartialEq, ToCss, ToShmem)]
@@ -467,7 +477,11 @@ impl ToCss for NonTSPseudoClass {
         use self::NonTSPseudoClass::*;
         if let Lang(ref lang) = *self {
             dest.write_str(":lang(")?;
-            for (index,range) in lang.iter().enumerate(){if index!=0{dest.write_str(", ")?;}cssparser::serialize_string(range,dest)?;}
+            for (index,range) in lang.iter().enumerate(){
+                if index!=0{dest.write_str(", ")?;}
+                if range.identifier { serialize_identifier(range,dest)?; }
+                else { cssparser::serialize_string(range,dest)?; }
+            }
             return dest.write_char(')');
         }
 
@@ -725,7 +739,14 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
     ) -> Result<NonTSPseudoClass, ParseError<'i>> {
         let pseudo_class = match_ignore_ascii_case! { &name,
             "lang" => {
-                NonTSPseudoClass::Lang(parser.parse_comma_separated(|parser|Ok(parser.expect_ident_or_string()?.as_ref().into()))?)
+                NonTSPseudoClass::Lang(parser.parse_comma_separated(|input| {
+                    let location = input.current_source_location();
+                    match input.next()?.clone() {
+                        cssparser::Token::Ident(value) => Ok(LangRange { value: value.as_ref().into(), identifier: true }),
+                        cssparser::Token::QuotedString(value) => Ok(LangRange { value: value.as_ref().into(), identifier: false }),
+                        token => Err(location.new_unexpected_token_error(token)),
+                    }
+                })?)
             },
             "dir" => {
                 NonTSPseudoClass::Dir(parser.expect_ident()?.as_ref().into())
