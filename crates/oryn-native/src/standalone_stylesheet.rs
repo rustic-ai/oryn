@@ -1488,6 +1488,15 @@ impl Loader {
         policy: &str,
         reference: oryn_layout::cssom::CssResourceReference,
     ) -> Result<super::dynamic_stylesheet_preparation::CssBinary, HostError> {
+        self.load_dependency_next(base,referrer,policy,reference)
+    }
+    pub(super) fn load_dependency_next(
+        &mut self,
+        base: &str,
+        referrer: &str,
+        policy: &str,
+        reference: oryn_layout::cssom::CssResourceReference,
+    ) -> Result<super::dynamic_stylesheet_preparation::CssBinary, HostError> {
         self.check()?;
         let url = self.backend.resolve_request(base, &reference.url)?;
         let destination = match reference.destination {
