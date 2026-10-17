@@ -24,7 +24,7 @@ impl SlottedSelector {
     }
 }
 
-impl MallocSizeOf for SlottedSelector {
+impl malloc_size_of::MallocSizeOf for SlottedSelector {
     fn size_of(&self, ops:&mut malloc_size_of::MallocSizeOfOps)->usize {
         use selectors::parser::{Component,Selector,SelectorList};
         struct Heap<'a,'s>{ops:&'a mut malloc_size_of::MallocSizeOfOps,bytes:usize,pending:Vec<&'s Selector<SelectorImpl>>}
@@ -37,7 +37,7 @@ impl MallocSizeOf for SlottedSelector {
             fn add_bytes(&mut self, bytes:usize) {
                 self.bytes = self.bytes.checked_add(bytes).expect("native selector retained-byte overflow");
             }
-            fn measure<T:MallocSizeOf + ?Sized>(&mut self, value:&T) {
+            fn measure<T:malloc_size_of::MallocSizeOf + ?Sized>(&mut self, value:&T) {
                 let bytes = value.size_of(self.ops); self.add_bytes(bytes);
             }
             fn allocation<T:?Sized>(&mut self,ptr:*const T)->bool {

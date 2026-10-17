@@ -27,7 +27,7 @@ pub(super) fn decode(value: &str) -> String {
     )
     .expect("ordinary HTML transport allocation")
 }
-pub(super) fn encode_with_allocation<A: crate::projection_allocation::ProjectionAllocation>(
+pub(crate) fn encode_with_allocation<A: crate::projection_allocation::ProjectionAllocation>(
     value: &str,
     allocation: &mut A,
     check: &mut impl FnMut() -> Result<(), DomError>,
@@ -63,7 +63,7 @@ pub(super) fn encode_with_allocation<A: crate::projection_allocation::Projection
     }
     Ok(output)
 }
-pub(super) fn decode_with_allocation<A: crate::projection_allocation::ProjectionAllocation>(
+pub(crate) fn decode_with_allocation<A: crate::projection_allocation::ProjectionAllocation>(
     value: &str,
     allocation: &mut A,
     check: &mut impl FnMut() -> Result<(), DomError>,
