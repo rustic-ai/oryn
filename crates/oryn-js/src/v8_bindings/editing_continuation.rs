@@ -25,6 +25,8 @@ fn same_range(a: &RangeRecord, b: &RangeRecord) -> bool {
 }
 enum Operation {
     Layout,
+    ClearSelection,
+    Selection { anchor: oryn_dom::TrackedNodeLease, anchor_offset:u32, focus:oryn_dom::TrackedNodeLease, focus_offset:u32 },
     LegacyFont {
         keyword: BindingLegacyFontKeyword,
     },
@@ -96,8 +98,13 @@ impl Preparation {
         }
     }
 }
+struct PrepaidCapture {
+    roots: Vec<oryn_dom::TrackedNodeLease>,
+    bound: usize,
+}
 struct Request {
     operation: Operation,
+    capture: RefCell<Option<PrepaidCapture>>,
     space_run: RefCell<Option<PreparedSpaceRun>>,
     prepared: RefCell<Option<Preparation>>,
     mutated: Cell<bool>,
@@ -139,6 +146,7 @@ pub(super) struct Context {
     extra_roots: RefCell<Vec<oryn_dom::TrackedNodeLease>>,
     legacy_font_result: Cell<Option<BindingLegacyFontResult>>,
     markers: Rc<RefCell<BTreeSet<u64>>>,
+    paragraph_split: RefCell<Option<editing_inverse::paragraph_split::ParagraphSplit>>,
 }
 impl Drop for Context {
     fn drop(&mut self) {
@@ -148,6 +156,31 @@ impl Drop for Context {
     }
 }
 impl Context {
+    fn snapshot_roots(&self,host:NodeId)->Result<BTreeSet<NodeId>,V8BindingError>{
+        let mut roots=BTreeSet::from([host]);
+        for lease in self.extra_roots.borrow().iter(){
+            let (owner,node)=lease.current();
+            if Rc::ptr_eq(&owner,&self.state.dom)&&owner.borrow().arena().node_document(node)?==Some(self.state.document_root()) {roots.insert(node);}
+        }
+        for (original,lease) in self.tracked.borrow().iter(){
+            if !self.admitted.borrow().contains(original){continue}
+            let (owner,node)=lease.current();
+            if !Rc::ptr_eq(&owner,&self.state.dom){continue}
+            let dom=owner.borrow();
+            if dom.arena().node_document(node)?!=Some(self.state.document_root())||dom.is_connected(node)?{continue}
+            roots.insert(dom.arena().ancestors(node)?.last().copied().unwrap_or(node));
+        }
+        Ok(roots)
+    }
+
+    pub(super) async fn clear_selection(&self)->Result<(),V8BindingError>{self.request(Operation::ClearSelection).await}
+    pub(super) async fn restore_selection(&self,a:BoundaryPoint,f:BoundaryPoint)->Result<(),V8BindingError>{
+        self.request(Operation::Selection {anchor:self.lease(a.container)?,anchor_offset:a.offset,focus:self.lease(f.container)?,focus_offset:f.offset}).await
+    }
+    pub(super) fn retain_paragraph_split(&self, left: NodeId, right: NodeId, placeholders: [Option<NodeId>;2]) -> Result<(), V8BindingError> {
+        *self.paragraph_split.borrow_mut() = Some(editing_inverse::paragraph_split::ParagraphSplit::retain(&self.state,left,right,placeholders)?);
+        Ok(())
+    }
     pub(super) fn retain_clone(
         &self,
         node: NodeId,
@@ -250,35 +283,12 @@ impl Context {
         Ok(oryn_dom::TrackedNodeLease::new(&owner, current)?)
     }
     fn snapshot(&self, host: NodeId) -> Result<EditingSnapshot, V8BindingError> {
-        let mut roots = BTreeSet::from([host]);
-        for lease in self.extra_roots.borrow().iter() {
-            let (dom, node) = lease.current();
-            if Rc::ptr_eq(&dom, &self.state.dom)
-                && dom.borrow().arena().node_document(node)? == Some(self.state.document_root())
-            {
-                roots.insert(node);
-            }
-        }
-        for (original, lease) in self.tracked.borrow().iter() {
-            if !self.admitted.borrow().contains(original) {
-                continue;
-            }
-            let (dom, node) = lease.current();
-            if !Rc::ptr_eq(&dom, &self.state.dom) {
-                continue;
-            }
-            let dom = dom.borrow();
-            if dom.arena().node_document(node)? != Some(self.state.document_root())
-                || dom.is_connected(node)?
-            {
-                continue;
-            }
-            if let Some(root) = dom.arena().ancestors(node)?.last() {
-                roots.insert(*root);
-            } else {
-                roots.insert(node);
-            }
-        }
+        self.snapshot_with_roots(host,&[])
+    }
+    fn snapshot_with_roots(&self,host:NodeId,extra:&[oryn_dom::TrackedNodeLease])->Result<EditingSnapshot,V8BindingError>{
+        let mut roots=self.snapshot_roots(host)?;
+        for lease in extra {let (owner,node)=lease.current();if !Rc::ptr_eq(&owner,&self.state.dom){return Err(V8BindingError::Allocation("paragraph prepaid root owner"))}roots.insert(node);}
+
         let mut snapshot = capture_editing_snapshot(&self.state, host)?;
         let mut seen = snapshot
             .nodes
@@ -756,6 +766,7 @@ impl Context {
     async fn request(&self, operation: Operation) -> Result<(), V8BindingError> {
         let request = Rc::new(Request {
             operation,
+            capture: RefCell::new(None),
             space_run: RefCell::new(None),
             prepared: RefCell::new(None),
             mutated: Cell::new(false),
@@ -807,6 +818,8 @@ pub(super) struct Continuation {
     terminal_recorded: bool,
     result: Option<bool>,
     invocation: Option<Rc<editing_commands::Invocation>>,
+    history_undo: Option<UndoUnit>,
+    history_recovering: bool,
 }
 impl Continuation {
     pub(super) fn new(
@@ -847,6 +860,7 @@ impl Continuation {
             extra_roots: RefCell::new(Vec::new()),
             legacy_font_result: Cell::new(None),
             markers: Rc::new(RefCell::new(BTreeSet::new())),
+            paragraph_split: RefCell::new(None),
         });
         for record in &before.nodes {
             context.lease(record.node)?;
@@ -866,6 +880,8 @@ impl Continuation {
             terminal_recorded: false,
             result: None,
             invocation: None,
+            history_undo: None,
+            history_recovering: false,
         }))
     }
     pub(super) fn refresh_baseline(&mut self) -> Result<(), V8BindingError> {
@@ -909,6 +925,17 @@ impl Continuation {
         }
         self.baseline()
     }
+    pub(super) fn retain_history_undo(&mut self, unit: UndoUnit, recovering: bool) -> Result<(), V8BindingError> {
+        let mut endpoints = Vec::new();
+        for point in [unit.before.selection.anchor, unit.before.selection.focus].into_iter().flatten() {
+            endpoints.push(self.context.lease(point.container)?);
+        }
+        self.context.extra_roots.borrow_mut().extend(endpoints);
+        self.publish_history = false;
+        self.history_undo = Some(unit);
+        self.history_recovering = recovering;
+        self.baseline()
+    }
     pub(super) fn defer_history(&mut self) {
         self.publish_history = false;
     }
@@ -916,6 +943,11 @@ impl Continuation {
         std::mem::take(&mut self.segments)
     }
     pub(super) fn cancel(&mut self) {
+        if let Some(unit)=self.history_undo.as_ref() {
+            editing_commands::paragraph_history::receipt::retain_failed(&self.context.state,unit,std::mem::take(&mut self.segments),&V8BindingError::Allocation("paragraph undo cancelled"));
+            editing_commands::paragraph_history::receipt::retire_failed(&self.context.state,unit);
+        }
+
         for job in self.context.clones.borrow_mut().drain(..) {
             job.background.set(true);
         }
@@ -930,6 +962,9 @@ impl Continuation {
         self.result = Some(false);
     }
     fn current(&self) -> bool {
+        if let Some(unit)=self.history_undo.as_ref()
+            && !editing_commands::paragraph_history::receipt::undo_owner_current(&self.context.state,unit) { return false; }
+
         let state = &self.context.state;
         let (dom, node) = self.host.current();
         !state.execution_retired()
@@ -944,12 +979,34 @@ impl Continuation {
                     state.document_authority_epoch(),
                 )
     }
+    fn reserve_actual_snapshot(&self)->Result<(),V8BindingError>{
+        let Some(unit)=self.history_undo.as_ref() else{return Ok(())};
+        let state=&self.context.state;
+        let (_,host)=self.host.current();
+        let roots=self.context.snapshot_roots(host)?;
+        let roots=roots.into_iter().collect::<Vec<_>>();
+        let bound=editing_snapshot_budget(state,&roots)?;
+        let completed=self.segments.iter().try_fold(0usize,|n,segment|n.checked_add(segment.bytes())).ok_or(V8BindingError::Allocation("paragraph snapshot accounting"))?;
+        let prospective=bound.checked_mul(2).and_then(|n|n.checked_add(completed)).and_then(|n|n.checked_mul(2)).ok_or(V8BindingError::Allocation("paragraph snapshot accounting"))?;
+        unit.paragraph_reservation.admit(state,unit,prospective)
+    }
     fn segment(&mut self) -> Result<(), V8BindingError> {
         let state = &self.context.state;
         let (_, host) = self.host.current();
         editing_snapshot_budget(state, &[host])?;
-        let after = self.context.snapshot(host)?;
+        let after = {
+            let pending=self.context.pending.borrow();
+            let capture=pending.as_ref().map(|request|request.capture.borrow());
+            if let Some(capture)=capture.as_ref().and_then(|capture|capture.as_ref()) {
+                self.context.snapshot_with_roots(host,&capture.roots)?
+            } else { self.context.snapshot(host)? }
+        };
         if let Some(before) = self.before.as_ref() {
+            if let Some(request)=self.context.pending.borrow().as_ref()
+                && let Some(capture)=request.capture.borrow().as_ref() {
+                for lease in &capture.roots { self.resolve(lease)?; }
+                if after.serialized_bytes>capture.bound { return Err(V8BindingError::Allocation("paragraph prepaid snapshot bound")); }
+            }
             let segment =
                 editing_inverse::Segment::new(before.clone(), after.clone()).compact(state)?;
             if segment.changed() {
@@ -973,6 +1030,7 @@ impl Continuation {
         Ok(())
     }
     fn baseline(&mut self) -> Result<(), V8BindingError> {
+        self.reserve_actual_snapshot()?;
         let state = &self.context.state;
         let (_, host) = self.host.current();
         editing_snapshot_budget(state, &[host])?;
@@ -992,6 +1050,9 @@ impl Continuation {
                             V8BindingError::Allocation("compound editing snapshot budget")
                         )) =>
             {
+                if self.history_undo.is_some() && self.context.pending.borrow().as_ref().is_some_and(|request|request.mutated.get()&&!request.recorded.get()) {
+                    return Err(error);
+                }
                 // Capacity is terminal, not a perpetual retry. Preserve committed inverse
                 // custody, cancel the exact unperformed suffix and publish the error once.
                 self.future.take();
@@ -1008,6 +1069,14 @@ impl Continuation {
             return Ok(Some(result));
         }
         if !self.current() {
+            if self.history_undo.is_some() && !self.context.state.execution_retired() {
+                let pending=self.context.pending.borrow().clone();
+                if let Some(request)=pending && request.mutated.get() && !request.recorded.get() {
+                    self.segment()?;
+                    request.recorded.set(true);
+                    request.capture.borrow_mut().take();
+                }
+            }
             self.cancel();
             return Ok(Some(false));
         }
@@ -1119,6 +1188,18 @@ impl Continuation {
                         self.segment()?;
                         request.recorded.set(true);
                     }
+                    if self.history_undo.is_some() && request.capture.borrow().is_none() {
+                        self.prepay_capture(&request,1024)?;
+                        let (_,host)=self.host.current();
+                        let baseline={
+                            let capture=request.capture.borrow();
+                            match self.context.snapshot_with_roots(host,&capture.as_ref().unwrap().roots) {
+                                Ok(baseline)=>baseline,
+                                Err(error)=>{drop(capture);request.capture.borrow_mut().take();return Err(error);}
+                            }
+                        };
+                        self.before=Some(baseline);
+                    }
                     let result = match self.prepare(scope, &request) {
                         Ok(()) => self.mutate(&request),
                         Err(error @ V8BindingError::Allocation(_)) => return Err(error),
@@ -1132,6 +1213,7 @@ impl Continuation {
                 if !request.recorded.get() {
                     self.segment()?;
                     request.recorded.set(true);
+                    request.capture.borrow_mut().take();
                 }
                 #[cfg(test)]
                 if FAIL_BEFORE_PREPARATION.with(|flag| flag.replace(false)) {
@@ -1232,12 +1314,26 @@ impl Continuation {
                         control_owners,
                         command: self.command.clone(),
                         split_nodes: None,
+                        paragraph_split: self.context.paragraph_split.borrow().clone(),
+                        paragraph_redo: Default::default(),
+                        paragraph_failed: Default::default(),
+                        paragraph_reservation: Default::default(),
                         cross_document: None,
                     },
                 )?;
             }
             if self.publish_history {
                 self.segments.clear();
+            }
+            if let Some(unit)=self.history_undo.as_ref() {
+                if let Some(Err(error))=self.completed.as_ref() {
+                    editing_commands::paragraph_history::receipt::retain_failed(&self.context.state,unit,std::mem::take(&mut self.segments),error);
+                } else if self.history_recovering {
+                    editing_commands::paragraph_history::recovered(&self.context.state,unit)?;
+                } else {
+                    editing_commands::paragraph_history::commit(&self.context.state,unit,self.segments.clone())?;
+                }
+                self.history_undo.take();
             }
             self.before.take();
             self.result = Some(changed);
@@ -1262,6 +1358,33 @@ impl Continuation {
         }
         Ok(node)
     }
+    fn prepay_capture(&self,request:&Request,growth:usize)->Result<(),V8BindingError>{
+    let Some(unit)=self.history_undo.as_ref() else{return Ok(())};
+    let state=&self.context.state;
+    let (_,host)=self.host.current();
+    let mut roots=self.context.snapshot_roots(host)?;
+    if let Operation::Append{parent,node,..}=&request.operation {
+        roots.insert(self.resolve(parent)?);roots.insert(self.resolve(node)?);
+        if let Some(parent)=state.dom.borrow().parent(self.resolve(node)?)? {roots.insert(parent);}
+    }
+    if let Operation::Remove{node,..}=&request.operation {roots.insert(self.resolve(node)?);}
+    if let Operation::Selection{anchor,focus,..}=&request.operation {roots.insert(self.resolve(anchor)?);roots.insert(self.resolve(focus)?);}
+    let roots=roots.into_iter().collect::<Vec<_>>();
+    let before=editing_snapshot_budget(state,&roots)?;
+    // Snapshot() merges overlapping roots, so summing each root is conservative.
+    // Native Remove/Append creates no text/attributes; growth remains existing
+    // metadata bound. No author callback occurs before its after-image capture.
+    let after=before.checked_add(growth).ok_or(V8BindingError::Allocation("paragraph prepaid capture accounting"))?;
+    let completed=self.segments.iter().try_fold(0usize,|n,segment|n.checked_add(segment.bytes())).ok_or(V8BindingError::Allocation("paragraph prepaid capture accounting"))?;
+    let reserve=completed.checked_add(before).and_then(|n|n.checked_add(after)).and_then(|n|n.checked_mul(2)).ok_or(V8BindingError::Allocation("paragraph prepaid capture accounting"))?;
+    unit.paragraph_reservation.admit(state,unit,reserve)?;
+    let mut leases=Vec::new();leases.try_reserve_exact(roots.len()).map_err(|_|V8BindingError::Allocation("paragraph prepaid capture roots"))?;
+    for root in roots {leases.push(oryn_dom::TrackedNodeLease::new(&state.dom,root)?);}
+    *request.capture.borrow_mut()=Some(PrepaidCapture{roots:leases,bound:after});
+    Ok(())
+}
+
+
     fn prepare(&self, scope: &mut v8::PinScope, request: &Request) -> Result<(), V8BindingError> {
         if request.prepared.borrow().is_some() {
             return Ok(());
@@ -1304,7 +1427,7 @@ impl Continuation {
                 if self.context.admitted.borrow().contains(&node) {
                     0
                 } else {
-                    capture_editing_snapshot(state, node)?.serialized_bytes
+                    if self.history_undo.is_some(){editing_snapshot_budget(state,&[node])?}else{capture_editing_snapshot(state,node)?.serialized_bytes}
                 }
             }
             _ => 0,
@@ -1314,7 +1437,7 @@ impl Continuation {
             if self.context.admitted.borrow().contains(&parent) {
                 0
             } else {
-                capture_editing_snapshot(state, parent)?.serialized_bytes
+                if self.history_undo.is_some(){editing_snapshot_budget(state,&[parent])?}else{capture_editing_snapshot(state,parent)?.serialized_bytes}
             }
         } else {
             0
@@ -1333,7 +1456,10 @@ impl Continuation {
                 member: "QuotaExceededError".into(),
             });
         }
+        if request.capture.borrow().is_none(){self.prepay_capture(request,growth)?;}
+        if matches!(request.operation,Operation::Selection{..}|Operation::ClearSelection) {return Ok(())}
         let preparation = match &request.operation {
+            Operation::Selection {..}|Operation::ClearSelection => unreachable!("selection handled before author preparation"),
             Operation::Layout | Operation::LegacyFont { .. } => return Err(V8BindingError::Allocation("unserved editing layout demand")),
             Operation::SpaceRun { host, selection, revision, point } => {
                 let _retained_scope=state.enter_retained_allocation(scope)?;
@@ -1422,6 +1548,12 @@ impl Continuation {
             _ => {}
         }
         match &request.operation {
+            Operation::ClearSelection => clear_selection(state),
+            Operation::Selection {anchor,anchor_offset,focus,focus_offset} => {
+                let a=BoundaryPoint{container:self.resolve(anchor)?,offset:*anchor_offset};
+                let f=BoundaryPoint{container:self.resolve(focus)?,offset:*focus_offset};
+                set_selection_boundaries(state,a,f)?;
+            }
             Operation::Layout | Operation::LegacyFont { .. } => return Err(V8BindingError::Allocation("unserved editing layout demand")),
             Operation::SpaceRun { selection, revision, point, .. } => {
                 let prepared=request.space_run.borrow();
@@ -2502,4 +2634,90 @@ mod tests {
   })()"#
         ));
     }
+#[test]
+fn paragraph_split_author_moved_halves_preserve_original_identity_and_redo_cycle() {
+    super::super::tests::initialize_v8();
+    let mut isolate = v8::Isolate::new(Default::default());
+    v8::scope!(let scope, &mut isolate);
+    let realm = v8::Context::new(scope, Default::default());
+    let scope = &mut v8::ContextScope::new(scope, realm);
+    let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<body><main id=host contenteditable></main></body>").into_runtime().unwrap()));
+    let state = install_generated_bindings(scope, realm, dom, RealmId(0), 1).unwrap();
+    for case in 0..4 {
+        assert!(eval(scope, &format!(r#"
+            globalThis.host=document.getElementById('host');
+            host.innerHTML={html};
+            globalThis.left=host.querySelector('div');
+            const range=document.createRange();range.setStart(left.firstChild,3);range.collapse(true);
+            getSelection().removeAllRanges();getSelection().addRange(range);
+            document.execCommand('insertParagraph');
+            globalThis.right=left.nextSibling;
+            {movement};true
+        "#,
+            html=match case {0=>"'<div>abcdef</div><p>ghi</p>'",1=>"'<p>abc</p><div>defghi</div>'",_=>"'<div>abcdef</div>'"},
+            movement=match case {0=>"host.append(right)",1=>"host.insertBefore(left,host.firstChild)",2=>"left.insertBefore(right,left.firstChild)",_=>"right.append(left)"})));
+        assert_eq!(editing_commands::paragraph_history::dispatch(scope,&state,false).unwrap(),true);
+        let expected=match case {0=>"host.firstChild===left&&left.textContent==='abcdef'&&host.lastChild.textContent==='ghi'",1=>"host.firstChild===left&&left.textContent==='defghi'&&host.lastChild.textContent==='abc'",2=>"host.firstChild===left&&host.childNodes.length===1&&left.textContent==='abcdef'",_=>"host.innerHTML===''&&left.textContent==='abcdef'"};
+        assert!(eval(scope,expected));
+        assert!(editing_commands::paragraph_history::dispatch(scope,&state,true).unwrap());
+        assert!(editing_commands::paragraph_history::dispatch(scope,&state,false).unwrap());
+        assert!(eval(scope,expected));
+        *state.undo_history.borrow_mut()=UndoHistory::default();
+    }
+}
+
+#[test]
+fn paragraph_split_pending_inverse_rejects_opposite_direction_without_losing_receipt() {
+    super::super::tests::initialize_v8();
+    let mut isolate=v8::Isolate::new(Default::default());
+    v8::scope!(let scope,&mut isolate);
+    let realm=v8::Context::new(scope,Default::default());
+    let scope=&mut v8::ContextScope::new(scope,realm);
+    let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<body><div id=host contenteditable><p>abcdef</p></div></body>").into_runtime().unwrap()));
+    let state=install_generated_bindings(scope,realm,dom,RealmId(0),1).unwrap();
+    assert!(eval(scope,"globalThis.host=document.getElementById('host');const r=document.createRange();r.setStart(host.firstChild.firstChild,3);r.collapse(true);getSelection().removeAllRanges();getSelection().addRange(r);document.execCommand('insertParagraph')"));
+    let unit=state.undo_history.borrow().undo.back().cloned().unwrap();
+    FAIL_AFTER_PREPARATION.with(|flag|flag.set(true));
+    assert!(editing_commands::paragraph_history::dispatch(scope,&state,false).is_err());
+    assert!(unit.native_progress.borrow().as_ref().is_some_and(|p|!p.redo));
+    assert!(!editing_commands::paragraph_history::dispatch(scope,&state,true).unwrap());
+    assert!(Rc::ptr_eq(&state.undo_history.borrow().undo.back().unwrap().identity,&unit.identity));
+    assert!(editing_commands::paragraph_history::dispatch(scope,&state,false).is_err());
+    // Retry the existing owner, never construct a new inverse cursor.
+    editing_commands::paragraph_history::ready_for_test(&state);
+    assert_eq!(editing_commands::poll(scope,&state).unwrap(),1);
+    assert!(eval(scope,"host.textContent==='abcdef'&&host.childNodes.length===1"));
+    assert!(unit.native_progress.borrow().is_none());
+    assert!(editing_commands::paragraph_history::dispatch(scope,&state,true).unwrap());
+    assert!(editing_commands::paragraph_history::dispatch(scope,&state,false).unwrap());
+    assert!(eval(scope,"host.textContent==='abcdef'&&host.childNodes.length===1"));
+}
+
+#[test]
+fn paragraph_failed_recovery_composes_recipes_and_retains_noncurrent_history_owner() {
+    super::super::tests::initialize_v8();
+    let mut isolate=v8::Isolate::new(Default::default());
+    v8::scope!(let scope,&mut isolate);
+    let realm=v8::Context::new(scope,Default::default());
+    let scope=&mut v8::ContextScope::new(scope,realm);
+    let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<body><div id=host contenteditable><p>abcdef</p></div></body>").into_runtime().unwrap()));
+    let state=install_generated_bindings(scope,realm,dom,RealmId(0),1).unwrap();
+    assert!(eval(scope,"const host=document.getElementById('host');const r=document.createRange();r.setStart(host.firstChild.firstChild,3);r.collapse(true);getSelection().removeAllRanges();getSelection().addRange(r);document.execCommand('insertParagraph')"));
+    let unit=state.undo_history.borrow().undo.back().cloned().unwrap();
+    *unit.native_progress.borrow_mut()=Some(NativeUndoProgress{redo:false,next:0});
+    let original=unit.native_segments.first().cloned().unwrap();
+    editing_commands::paragraph_history::receipt::retain_failed(&state,&unit,vec![original.clone()],&V8BindingError::Allocation("first failure"));
+    let mut newer=unit.clone();newer.identity=Rc::new(());
+    state.undo_history.borrow_mut().undo.push_back(newer);
+    assert!(!editing_commands::paragraph_history::receipt::undo_owner_current(&state,&unit));
+    editing_commands::paragraph_history::receipt::retain_failed(&state,&unit,vec![original],&V8BindingError::Allocation("compensation failure"));
+    assert_eq!(unit.paragraph_failed.borrow().as_ref().unwrap().segments.len(),2);
+    assert_eq!(unit.paragraph_failed.borrow().as_ref().unwrap().error,"V8 failed to allocate compensation failure");
+    assert!(unit.native_progress.borrow().as_ref().is_some_and(|p|!p.redo));
+    assert!(editing_commands::paragraph_history::recovered(&state,&unit).is_err());
+    assert_eq!(unit.paragraph_failed.borrow().as_ref().unwrap().segments.len(),2);
+    state.undo_history.borrow_mut().undo.pop_back();
+    assert!(editing_commands::paragraph_history::receipt::undo_owner_current(&state,&unit));
+}
+
 }

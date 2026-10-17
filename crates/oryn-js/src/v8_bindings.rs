@@ -782,6 +782,10 @@ struct UndoUnit {
     control_owners: Vec<NodeId>,
     command: String,
     split_nodes: Option<ParagraphSplitNodes>,
+    paragraph_split: Option<editing_inverse::paragraph_split::ParagraphSplit>,
+    paragraph_redo: Rc<RefCell<Vec<editing_inverse::Segment>>>,
+    paragraph_failed: Rc<RefCell<Option<editing_commands::paragraph_history::receipt::FailedParagraphUndo>>>,
+    paragraph_reservation: Rc<editing_commands::paragraph_history::receipt::Reservation>,
 }
 
 #[derive(Debug, Default)]
@@ -21558,7 +21562,10 @@ fn resume_editing_recovery(state: &V8BindingState) -> Result<(), V8BindingError>
 }
 
 fn undo_unit_bytes(unit: &UndoUnit) -> usize {
-    unit.companions.iter().fold(
+    let extra=unit.paragraph_redo.borrow().iter().fold(0usize,|n,segment|n.saturating_add(segment.bytes()))
+        .saturating_add(unit.paragraph_failed.borrow().as_ref().map_or(0,|failed|failed.segments.iter().fold(0usize,|n,segment|n.saturating_add(segment.bytes()))))
+        .saturating_add(unit.paragraph_reservation.bytes.get());
+    extra.saturating_add(unit.companions.iter().fold(
         unit.native_segments.iter().fold(
             unit.before
                 .serialized_bytes
@@ -21570,7 +21577,7 @@ fn undo_unit_bytes(unit: &UndoUnit) -> usize {
                 .saturating_add(before.serialized_bytes)
                 .saturating_add(after.serialized_bytes)
         },
-    )
+    ))
 }
 #[cfg(test)]
 fn release_undo_unit(dom: &mut DomRuntime, unit: &UndoUnit) -> Result<(), V8BindingError> {
@@ -21786,6 +21793,10 @@ where
             after,
             command: command.into(),
             split_nodes: state.pending_split_undo.take(),
+            paragraph_split: None,
+            paragraph_redo: Default::default(),
+            paragraph_failed: Default::default(),
+            paragraph_reservation: Default::default(),
             companions: Vec::new(),
             identity: Rc::new(()),
             control_owners: Vec::new(),
@@ -21853,6 +21864,22 @@ fn restore_compound_undo(
     unit: &UndoUnit,
     redo: bool,
 ) -> Result<(), V8BindingError> {
+    if redo && unit.paragraph_split.is_some() {
+        if unit.native_progress.borrow().is_none() {
+            *unit.native_progress.borrow_mut() = Some(NativeUndoProgress { redo, next: 0 });
+        }
+        if unit.native_progress.borrow().as_ref().unwrap().redo != redo {
+            return Err(V8BindingError::Allocation("opposite native undo attempt remains pending"));
+        }
+        let segments = unit.paragraph_redo.borrow();
+        loop {
+            let next = unit.native_progress.borrow().as_ref().unwrap().next;
+            if next >= segments.len() { break }
+            segments[segments.len()-1-next].apply(state, false)?;
+            unit.native_progress.borrow_mut().as_mut().unwrap().next += 1;
+        }
+        return Ok(());
+    }
     if !unit.native_segments.is_empty() {
         if unit.native_progress.borrow().is_none() {
             *unit.native_progress.borrow_mut() = Some(NativeUndoProgress { redo, next: 0 });
@@ -21961,6 +21988,9 @@ fn undo_edit(state: &V8BindingState, redo: bool) -> Result<bool, V8BindingError>
         .cloned()
     };
     let Some(unit) = unit else { return Ok(false) };
+    if !redo && unit.paragraph_split.is_some() {
+        return Err(V8BindingError::Allocation("paragraph undo requires owned continuation"));
+    }
     if let Some(paired) = &unit.cross_document {
         return cross_document_edit::restore(paired, redo);
     }
@@ -74863,6 +74893,10 @@ mod editing_snapshot_lease_tests {
             control_owners: Vec::new(),
             command: "testEdit".into(),
             split_nodes: None,
+            paragraph_split: None,
+            paragraph_redo: Default::default(),
+            paragraph_failed: Default::default(),
+            paragraph_reservation: Default::default(),
             cross_document: None,
         }
     }
@@ -75404,6 +75438,10 @@ mod editing_snapshot_lease_tests {
             control_owners: Vec::new(),
             command: "inserttext".into(),
             split_nodes: None,
+            paragraph_split: None,
+            paragraph_redo: Default::default(),
+            paragraph_failed: Default::default(),
+            paragraph_reservation: Default::default(),
             cross_document: None,
         };
         push_undo_unit(&state, unit(before, after)).unwrap();
@@ -75712,6 +75750,10 @@ mod native_undo_attempt_tests {
                 control_owners: vec![a, b],
                 command: "nativeUndoRetry".into(),
                 split_nodes: None,
+                paragraph_split: None,
+                paragraph_redo: Default::default(),
+            paragraph_failed: Default::default(),
+            paragraph_reservation: Default::default(),
             },
         )
         .unwrap();

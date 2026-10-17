@@ -340,6 +340,10 @@ impl Transaction {
                 control_owners: owners,
                 command: "moveAcrossDocuments".into(),
                 split_nodes: None,
+                paragraph_split: None,
+                paragraph_redo: Default::default(),
+                paragraph_failed: Default::default(),
+                paragraph_reservation: Default::default(),
                 cross_document: Some(bridge.clone()),
             };
             let mut history = state.undo_history.borrow_mut();
@@ -451,6 +455,10 @@ impl Transaction {
                 control_owners: owners,
                 command: "moveAcrossDocuments".into(),
                 split_nodes: None,
+                paragraph_split: None,
+                paragraph_redo: Default::default(),
+                paragraph_failed: Default::default(),
+                paragraph_reservation: Default::default(),
                 cross_document: Some(bridge.clone()),
             };
             let mut history = state.undo_history.borrow_mut();

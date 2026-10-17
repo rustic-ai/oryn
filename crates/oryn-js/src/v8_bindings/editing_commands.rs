@@ -1,5 +1,6 @@
 //! Owned admission and resumption of author-observable native editing.
 use super::*;
+pub(super) mod paragraph_history;
 use std::{future::Future, pin::Pin};
 #[derive(Clone)]
 pub(super) enum Command {

@@ -2755,12 +2755,7 @@ pub(super) async fn split_editing_paragraph_contents(
             .parent(block)?
             .ok_or(V8BindingError::Allocation("editing block parent"))?;
         context.after(parent, block, new_block).await?;
-        state.pending_split_undo.set(Some((
-            block,
-            new_block,
-            left_placeholder,
-            right_placeholder,
-        )));
+        context.retain_paragraph_split(block, new_block, [left_placeholder, right_placeholder])?;
     }
     let caret = traversal_nodes(&state.dom.borrow(), new_block)?
         .into_iter()

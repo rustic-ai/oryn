@@ -633,7 +633,18 @@ impl RawV8Host {
         revision: u64,
         font: oryn_js::v8_bindings::BindingFontResource,
         custody: std::sync::Arc<dyn std::any::Any + Send + Sync>,
+        epoch: Option<dynamic_stylesheet_preparation::RetainedFontDemandEpoch>,
     ) -> Result<(), HostError> {
+        if let Some(epoch) = epoch {
+            if !epoch.current() { return Ok(()); }
+            let provider = self.native_layout_provider_in_realm(realm)
+                .ok_or_else(|| HostError::Execution("retained font provider retired".into()))?;
+            let backend = provider.native_backend()
+                .and_then(|value| value.downcast_ref::<LiveLayoutProvider>())
+                .ok_or_else(|| HostError::Execution("retained font requires native provider".into()))?;
+            return backend.install_retained_font(document,owner,revision,font,custody,epoch)
+                .map_err(HostError::Execution);
+        }
         let state = self
             .binding_states
             .get(&realm)

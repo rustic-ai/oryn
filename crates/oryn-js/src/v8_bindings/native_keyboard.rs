@@ -1350,7 +1350,7 @@ fn dispatch_after_key(
                     && (if state.dom.borrow().is_editable_text_control(target) {
                         undo_control(state, target, redo)?
                     } else {
-                        undo_edit(state, redo)?
+                        editing_commands::paragraph_history::dispatch(scope, state, redo)?
                     })
                 {
                     clipboard_actions::fire_editing(

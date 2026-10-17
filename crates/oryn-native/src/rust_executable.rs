@@ -389,6 +389,7 @@ type RetainedLayoutFont = (
     u64,
     oryn_layout::WebFont,
     std::sync::Arc<dyn std::any::Any + Send + Sync>,
+    Option<dynamic_stylesheet_preparation::RetainedFontDemandEpoch>,
 );
 type RootFormHistory = (
     (RealmId, u64, u64),
@@ -482,6 +483,7 @@ impl oryn_layout::cssom::native_import_graph::ImportAdmission
     }
 }
 impl LiveLayoutProvider {}
+include!("retained_font_install.rs");
 type RetainedCascadeKey = (
     u64,
     u64,
@@ -952,10 +954,11 @@ impl LiveLayoutProvider {
         {
             let dom = self.dom.borrow();
             let mut fonts = self.fonts.borrow_mut();
-            fonts.retain(|(document, owner, revision, _, _)| {
+            fonts.retain(|(document, owner, revision, _, _, epoch)| {
                 dom.node_document(*owner).ok().flatten() == Some(*document)
                     && dom.is_connected(*owner).unwrap_or(false)
                     && dom.arena().stylesheet_revision(*owner).ok() == Some(*revision)
+                    && epoch.as_ref().is_none_or(dynamic_stylesheet_preparation::RetainedFontDemandEpoch::current)
             });
             let order = dom
                 .arena()
@@ -965,10 +968,10 @@ impl LiveLayoutProvider {
                 .enumerate()
                 .map(|(position, node)| (node, position))
                 .collect::<BTreeMap<_, _>>();
-            fonts.sort_by_key(|(_, owner, _, font, _)| {
+            fonts.sort_by_key(|(_, owner, _, font, _, _)| {
                 (order.get(owner).copied().unwrap_or(usize::MAX), font.order)
             });
-            for (owner_document, owner, _, font, _) in fonts.iter() {
+            for (owner_document, owner, _, font, _, _) in fonts.iter() {
                 if *owner_document != document
                     || dom
                         .arena()
@@ -1352,12 +1355,13 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         };
         let mut fonts = self.fonts.borrow_mut();
         let dom = self.dom.borrow();
-        fonts.retain(|(old_document, old_owner, old_revision, _, _)| {
+        fonts.retain(|(old_document, old_owner, old_revision, _, _, epoch)| {
             dom.node_document(*old_owner).ok().flatten() == Some(*old_document)
                 && dom.is_connected(*old_owner).unwrap_or(false)
                 && dom.arena().stylesheet_revision(*old_owner).ok() == Some(*old_revision)
+                && epoch.as_ref().is_none_or(dynamic_stylesheet_preparation::RetainedFontDemandEpoch::current)
         });
-        let replaces = fonts.iter().any(|(_, old_owner, _, old, _)| {
+        let replaces = fonts.iter().any(|(_, old_owner, _, old, _, _)| {
             *old_owner == owner
                 && old.family == font.family
                 && old.descriptors == font.descriptors
@@ -1369,13 +1373,13 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         fonts
             .try_reserve(1)
             .map_err(|_| "native layout font allocation".to_owned())?;
-        fonts.retain(|(_, old_owner, _, old, _)| {
+        fonts.retain(|(_, old_owner, _, old, _, _)| {
             !(*old_owner == owner
                 && old.family == font.family
                 && old.descriptors == font.descriptors
                 && old.order == font.order)
         });
-        fonts.push((document, owner, revision, font, custody));
+        fonts.push((document, owner, revision, font, custody, None));
         self.font_revision.set(next_revision);
         Ok(())
     }

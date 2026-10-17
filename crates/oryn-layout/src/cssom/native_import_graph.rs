@@ -3935,3 +3935,4 @@ mod prepared_insert_controls {
 }
 
 include!("font_face_descriptors.rs");
+include!("font_demand_projection.rs");

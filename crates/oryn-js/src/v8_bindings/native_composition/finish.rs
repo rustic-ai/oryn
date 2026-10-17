@@ -94,6 +94,10 @@ impl Finish {
                                 control_owners: Vec::new(),
                                 command: "insertCompositionText".into(),
                                 split_nodes: None,
+                                paragraph_split: None,
+                                paragraph_redo: Default::default(),
+                                paragraph_failed: Default::default(),
+                                paragraph_reservation: Default::default(),
                             },
                         )?;
                         self.phase = Phase::End;

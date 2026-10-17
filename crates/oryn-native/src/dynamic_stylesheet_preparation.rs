@@ -2,6 +2,8 @@
 //! publication and shared byte custody. No network wait runs on the page actor.
 use super::*;
 use std::time::Instant;
+include!("retained_font_demand_epoch.rs");
+include!("retained_font_requests.rs");
 #[cfg(test)]
 thread_local! {
     static DYNAMIC_RETAINED_SCHEDULE_FAILURE: Cell<bool> = const { Cell::new(false) };
@@ -40,6 +42,7 @@ struct FontCandidate {
     ranges: Vec<(u32, u32)>,
     descriptors: String,
     order: u64,
+    retained: Option<RetainedFontDemandEpoch>,
 }
 fn font_requests(
     host: &mut RawV8Host,
@@ -113,6 +116,7 @@ fn font_requests(
                             ranges: ranges.clone(),
                             descriptors: text.clone(),
                             order: seen as u64,
+                            retained: None,
                         },
                     ));
                 }
@@ -196,13 +200,17 @@ pub(super) struct CssFontTimeline {
 }
 impl CssFontTimeline {
     fn valid(&self, host: &RawV8Host) -> bool {
-        host.automation_realm_identity(self.identity.realm)
-            == Some((
-                self.identity.document,
-                self.identity.document_generation,
-                self.identity.stream_epoch,
-                true,
-            ))
+        self.font
+            .retained
+            .as_ref()
+            .is_none_or(RetainedFontDemandEpoch::current)
+            && host.automation_realm_identity(self.identity.realm)
+                == Some((
+                    self.identity.document,
+                    self.identity.document_generation,
+                    self.identity.stream_epoch,
+                    true,
+                ))
             && self.dom.borrow().node_document(self.node).ok().flatten()
                 == Some(self.identity.document)
             && self.dom.borrow().is_connected(self.node).unwrap_or(false)
@@ -241,6 +249,7 @@ impl CssFontTimeline {
 pub(super) struct CssDemandBatch {
     retry: Option<Instant>,
     evaluated: Option<oryn_dom::MutationCursor>,
+    evaluated_font: Option<RetainedFontDemandEpoch>,
     realm: RealmId,
     batch: CssDependencyBatch,
     attempted: BTreeSet<(String, Option<String>)>,
@@ -319,6 +328,7 @@ pub(super) struct StylesheetPreparation {
     install: bool,
     font_family: Option<String>,
     font_group: Option<String>,
+    retained_font: Option<RetainedFontDemandEpoch>,
     font_descriptors: String,
     font_order: u64,
     requested_url: Option<String>,
@@ -332,13 +342,16 @@ pub(super) struct StylesheetPreparation {
 }
 impl StylesheetPreparation {
     fn live(&self, host: &RawV8Host) -> bool {
-        host.automation_realm_identity(self.identity.realm)
-            == Some((
-                self.identity.document,
-                self.identity.document_generation,
-                self.identity.stream_epoch,
-                true,
-            ))
+        self.retained_font
+            .as_ref()
+            .is_none_or(RetainedFontDemandEpoch::current)
+            && host.automation_realm_identity(self.identity.realm)
+                == Some((
+                    self.identity.document,
+                    self.identity.document_generation,
+                    self.identity.stream_epoch,
+                    true,
+                ))
             && !host.realm_document_load_stopped(self.identity.realm)
             && self.dom.borrow().node_document(self.node).ok().flatten()
                 == Some(self.identity.document)
@@ -429,6 +442,7 @@ impl RustExecutableDocument {
         self.css_dependency_sources.push_back(CssDemandBatch {
             retry: None,
             evaluated: None,
+            evaluated_font: None,
             realm,
             batch,
             attempted: BTreeSet::new(),
@@ -443,115 +457,121 @@ impl RustExecutableDocument {
         realm: RealmId,
         batch: &CssDependencyBatch,
         attempted: &mut BTreeSet<(String, Option<String>)>,
-    ) -> Result<(), HostError> {
+    ) -> Result<Option<RetainedFontDemandEpoch>, HostError> {
         #[cfg(test)]
         css_publication_failure(3)?;
         self.agent.host.activate_realm(realm)?;
         let Some(dom) = self.agent.host.active_dom() else {
-            return Ok(());
+            return Ok(None);
         };
         if self.agent.host.document_stream_epoch(realm) != Some(batch.epoch)
             || dom.borrow().arena().stylesheet_revision(batch.node).ok() != Some(batch.revision)
             || !dom.borrow().is_connected(batch.node).unwrap_or(false)
         {
-            return Ok(());
+            return Ok(None);
         }
         let demand = CssDemand::from_layout(&self.agent.host.native_css_resource_layout(realm)?);
+        let font_allocation = self.agent.host.native_retained_admission_for_realm(realm)?;
+        let _font_scope = if font_allocation.is_some() {
+            Some(self.agent.host.retained_allocation_scope(realm)?)
+        } else { None };
+        let font_projection = retained_font_requests(&mut self.agent.host, realm, batch, &dom)?;
         let mut requests = Vec::new();
         let mut bytes = 0usize;
         let mut selected_fonts = BTreeSet::new();
         let mut relevant_fonts = BTreeSet::new();
-        for (dependency_index, (base, initiator, policy, css)) in
-            batch.dependencies.iter().enumerate()
-        {
-            for (reference, mut candidate) in font_requests(&mut self.agent.host, css, base)? {
-                candidate.order = candidate
-                    .order
-                    .saturating_add((dependency_index as u64).saturating_mul(8192));
-                let families = vec![Some(candidate)];
-                let absolute = Url::parse(base)
-                    .ok()
-                    .and_then(|base| base.join(&reference.url).ok())
-                    .map(|url| url.to_string())
-                    .unwrap_or_else(|| reference.url.clone());
-                for family in families {
-                    if family.is_some()
-                        && !self
-                            .agent
-                            .host
-                            .css_font_owner_applicable(realm, batch.node)?
-                    {
-                        continue;
-                    }
-                    if family
-                        .as_ref()
-                        .is_some_and(|family| !demand.matches(family))
-                    {
-                        continue;
-                    }
-                    if let Some(family) = &family {
-                        relevant_fonts.insert(family.key.clone());
-                    }
-                    if family.as_ref().is_some_and(|candidate| {
-                        self.css_font_timelines.iter().any(|timeline| {
-                            timeline.identity.realm == realm
-                                && timeline.node == batch.node
-                                && timeline.revision == batch.revision
-                                && timeline.font.key == candidate.key
-                                && timeline.phase(Instant::now()) == FontDisplayPhase::Failure
-                        })
-                    }) {
-                        continue;
-                    }
-                    if attempted.contains(&(
-                        absolute.clone(),
-                        family.as_ref().map(|candidate| candidate.key.clone()),
-                    )) {
-                        continue;
-                    }
-                    if let Some(candidate) = &family {
-                        if selected_fonts.contains(&candidate.key)
-                            || self.dynamic_stylesheets.iter().any(|job| {
-                                job.identity.realm == realm
-                                    && job.node == batch.node
-                                    && job.font_group.as_deref() == Some(candidate.key.as_str())
-                                    && job.live(&self.agent.host)
-                            })
-                            || self.css_binary_resources.iter().any(|entry| {
-                                entry.identity.realm == realm
-                                    && entry.node == batch.node
-                                    && entry.font_group.as_deref() == Some(candidate.key.as_str())
-                                    && entry.live(&self.agent.host)
-                            })
-                        {
-                            continue;
-                        }
-                        selected_fonts.insert(candidate.key.clone());
-                    }
-                    if requests.len() >= 256 {
-                        return Err(HostError::LimitExceeded {
-                            resource: "CSS dependency requests".into(),
-                        });
-                    }
-                    bytes = bytes
-                        .saturating_add(base.len())
-                        .saturating_add(initiator.len())
-                        .saturating_add(policy.len())
-                        .saturating_add(reference.url.len())
-                        .saturating_add(family.as_ref().map_or(0, |candidate| {
-                            candidate.family.len()
-                                + candidate.key.len()
-                                + candidate.descriptors.len()
-                                + candidate.ranges.len().saturating_mul(8)
-                        }));
-                    requests.push((
-                        base.clone(),
-                        initiator.clone(),
-                        policy.clone(),
-                        reference.clone(),
-                        family,
-                    ));
+        if font_allocation.is_some() {
+            self.agent.host.native_retained_admission_for_realm(realm)?;
+        }
+        let evaluated_font = font_projection.as_ref().and_then(|projection| projection.epoch.clone());
+        let discovered = match font_projection {
+            Some(projection) => projection,
+            None => legacy_font_requests(&mut self.agent.host, batch)?,
+        };
+        for (base, initiator, policy, reference, candidate) in discovered.entries {
+            let family = Some(candidate);
+            let absolute = Url::parse(&base)
+                .ok()
+                .and_then(|base| base.join(&reference.url).ok())
+                .map(|url| url.to_string())
+                .unwrap_or_else(|| reference.url.clone());
+            {
+                if family.is_some()
+                    && !self
+                        .agent
+                        .host
+                        .css_font_owner_applicable(realm, batch.node)?
+                {
+                    continue;
                 }
+                if family
+                    .as_ref()
+                    .is_some_and(|family| !demand.matches(family))
+                {
+                    continue;
+                }
+                if let Some(family) = &family {
+                    relevant_fonts.insert(family.key.clone());
+                }
+                if family.as_ref().is_some_and(|candidate| {
+                    self.css_font_timelines.iter().any(|timeline| {
+                        timeline.identity.realm == realm
+                            && timeline.node == batch.node
+                            && timeline.revision == batch.revision
+                            && timeline.font.key == candidate.key
+                            && timeline.phase(Instant::now()) == FontDisplayPhase::Failure
+                    })
+                }) {
+                    continue;
+                }
+                if attempted.contains(&(
+                    absolute.clone(),
+                    family.as_ref().map(|candidate| candidate.key.clone()),
+                )) {
+                    continue;
+                }
+                if let Some(candidate) = &family {
+                    if selected_fonts.contains(&candidate.key)
+                        || self.dynamic_stylesheets.iter().any(|job| {
+                            job.identity.realm == realm
+                                && job.node == batch.node
+                                && job.font_group.as_deref() == Some(candidate.key.as_str())
+                                && job.live(&self.agent.host)
+                        })
+                        || self.css_binary_resources.iter().any(|entry| {
+                            entry.identity.realm == realm
+                                && entry.node == batch.node
+                                && entry.font_group.as_deref() == Some(candidate.key.as_str())
+                                && entry.live(&self.agent.host)
+                        })
+                    {
+                        continue;
+                    }
+                    selected_fonts.insert(candidate.key.clone());
+                }
+                if requests.len() >= 256 {
+                    return Err(HostError::LimitExceeded {
+                        resource: "CSS dependency requests".into(),
+                    });
+                }
+                bytes = bytes
+                    .saturating_add(base.len())
+                    .saturating_add(initiator.len())
+                    .saturating_add(policy.len())
+                    .saturating_add(reference.url.len())
+                    .saturating_add(family.as_ref().map_or(0, |candidate| {
+                        candidate.family.len()
+                            + candidate.key.len()
+                            + candidate.descriptors.len()
+                            + candidate.ranges.len().saturating_mul(8)
+                    }));
+                requests.push((
+                    base.clone(),
+                    initiator.clone(),
+                    policy.clone(),
+                    reference.clone(),
+                    family,
+                ));
             }
         }
         for timeline in &mut self.css_font_timelines {
@@ -629,6 +649,9 @@ impl RustExecutableDocument {
                     .as_ref()
                     .map(|candidate| candidate.family.clone()),
                 font_group: font_family.as_ref().map(|candidate| candidate.key.clone()),
+                retained_font: font_family
+                    .as_ref()
+                    .and_then(|candidate| candidate.retained.clone()),
                 font_descriptors: font_family
                     .as_ref()
                     .map(|candidate| candidate.descriptors.clone())
@@ -790,7 +813,7 @@ impl RustExecutableDocument {
         for node in nodes {
             self.schedule_dynamic_stylesheet(realm, node)?;
         }
-        Ok(())
+        Ok(evaluated_font)
     }
     pub(super) fn dynamic_stylesheets_block_scripts(
         &self,
@@ -827,7 +850,8 @@ impl RustExecutableDocument {
         self.css_dependency_sources.iter().any(|entry| {
             !self.agent.host.realm_is_parked(entry.realm)
                 && entry.retry.is_none_or(|retry| retry <= Instant::now())
-                && entry.evaluated != Some(entry.dom.borrow().mutation_cursor())
+                && (entry.evaluated != Some(entry.dom.borrow().mutation_cursor())
+                    || !retained_font_evaluation_current(&self.agent.host, entry))
         }) || self.dynamic_stylesheets.iter_mut().any(|job| {
             !job.live(&self.agent.host)
                 || (!self.agent.host.realm_is_parked(job.identity.realm)
@@ -1017,6 +1041,7 @@ impl RustExecutableDocument {
             install,
             font_family: None,
             font_group: None,
+            retained_font: None,
             font_descriptors: String::new(),
             font_order: 0,
             requested_url: None,
@@ -1265,9 +1290,10 @@ impl RustExecutableDocument {
                     &source.batch,
                     &mut source.attempted,
                 ) {
-                    Ok(()) => {
+                    Ok(evaluated_font) => {
                         source.retry = None;
                         source.evaluated = Some(source.dom.borrow().mutation_cursor());
+                        source.evaluated_font = evaluated_font;
                     }
                     Err(error) => {
                         source.evaluated = None;
@@ -1514,6 +1540,7 @@ mod tests {
             ranges: vec![(0, 0x10ffff)],
             descriptors: "font-display:optional".into(),
             order: 0,
+            retained: None,
         };
         page.begin_font_display(identity, &dom, &batch, &candidate)
             .unwrap();
@@ -1621,6 +1648,7 @@ mod tests {
             ranges: vec![(start, end)],
             descriptors: String::new(),
             order: 0,
+            retained: None,
         };
         assert!(demand.matches(&candidate("Latin", 0, 127)));
         assert!(!demand.matches(&candidate("Latin", 0x1f600, 0x1f64f)));
@@ -1876,6 +1904,7 @@ pub(super) struct CachedCssBinary {
     revision: u64,
     family: Option<String>,
     font_group: Option<String>,
+    retained_font: Option<RetainedFontDemandEpoch>,
     font_descriptors: String,
     font_order: u64,
     resource_attributes: Option<Vec<Option<String>>>,
@@ -1885,7 +1914,8 @@ pub(super) struct CachedCssBinary {
 }
 impl CachedCssBinary {
     fn live(&self, host: &RawV8Host) -> bool {
-        host.automation_realm_identity(self.identity.realm)
+        self.retained_font.as_ref().is_none_or(RetainedFontDemandEpoch::current)
+            && host.automation_realm_identity(self.identity.realm)
             == Some((
                 self.identity.document,
                 self.identity.document_generation,
@@ -2008,6 +2038,7 @@ impl RustExecutableDocument {
                     bytes: binary.bytes.clone(),
                 },
                 std::sync::Arc::new(custody),
+                job.retained_font.clone(),
             )?;
         }
         self.css_binary_resources.retain(|entry| {
@@ -2026,6 +2057,7 @@ impl RustExecutableDocument {
             revision: job.revision,
             family: job.font_family.clone(),
             font_group: job.font_group.clone(),
+            retained_font: job.retained_font.clone(),
             font_descriptors: job.font_descriptors.clone(),
             font_order: job.font_order,
             resource_attributes: job.resource_attributes.clone(),
@@ -2288,6 +2320,7 @@ impl RustExecutableDocument {
                     timeline.revision,
                     font,
                     std::sync::Arc::new(custody),
+                    timeline.font.retained.clone(),
                 )?;
             }
             timeline

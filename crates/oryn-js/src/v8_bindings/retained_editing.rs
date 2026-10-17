@@ -210,6 +210,10 @@ impl Transaction {
                 after,
                 command: self.command.clone(),
                 split_nodes: self.split_nodes.take(),
+                paragraph_split: None,
+                paragraph_redo: Default::default(),
+                paragraph_failed: Default::default(),
+                paragraph_reservation: Default::default(),
                 companions: Vec::new(),
                 identity: Rc::new(()),
                 control_owners: Vec::new(),
@@ -445,6 +449,10 @@ impl Compound {
                 control_owners,
                 command: "moveByDrag".into(),
                 split_nodes: None,
+                paragraph_split: None,
+                paragraph_redo: Default::default(),
+                paragraph_failed: Default::default(),
+                paragraph_reservation: Default::default(),
             },
         )?;
         self.result = Some(true);

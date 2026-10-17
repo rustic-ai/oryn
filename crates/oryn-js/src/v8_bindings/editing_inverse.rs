@@ -1,6 +1,8 @@
 //! Native edit segments invert only fields/edges still owned by that segment.
 //! Changes made by intervening author callbacks are never snapshot-restored.
 use super::*;
+pub(super) mod paragraph_split;
+mod paragraph_recovery;
 /// Read-only evidence for state that cannot be reconstructed from attributes.
 /// File selection uses allocation identity without retaining or copying bytes.
 #[derive(Clone, Debug)]

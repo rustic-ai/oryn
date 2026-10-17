@@ -1210,7 +1210,7 @@ pub(super) fn dispatch_document_execcommand<'s>(
                 true
             }
             "undo" | "redo" => {
-                let changed = undo_edit(state, command == "redo")?;
+                let changed = editing_commands::paragraph_history::dispatch(scope, state, command == "redo")?;
                 if changed {
                     dispatch_editing_input(
                         scope,
