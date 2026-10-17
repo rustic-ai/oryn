@@ -389,6 +389,7 @@ impl std::ops::Deref for LangRange {
     type Target = str;
     fn deref(&self) -> &str { &self.value }
 }
+/// Ordered language ranges retained from the parsed `:lang()` argument list.
 pub type Lang = Vec<LangRange>;
 
 /// The type used to store the state argument to the `:state` pseudo-class.
