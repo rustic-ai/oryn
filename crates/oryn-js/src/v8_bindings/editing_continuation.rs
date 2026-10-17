@@ -2716,8 +2716,8 @@ fn paragraph_split_author_moved_halves_preserve_original_identity_and_redo_cycle
             globalThis.host=document.getElementById('host');
             host.innerHTML={html};
             globalThis.left=host.querySelector('div');
-            {const range=document.createRange();range.setStart(left.firstChild,3);range.collapse(true);
-            getSelection().removeAllRanges();getSelection().addRange(range);}
+            {{const range=document.createRange();range.setStart(left.firstChild,3);range.collapse(true);
+            getSelection().removeAllRanges();getSelection().addRange(range);}}
             document.execCommand('insertParagraph');
             globalThis.right=left.nextSibling;
             {movement};true
