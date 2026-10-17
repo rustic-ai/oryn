@@ -2484,6 +2484,10 @@ pub trait BindingLayoutProvider {
         None
     }
 
+    fn query_selector_typed(
+        &self, _node: NodeId, _selector: &str, _operation: SelectorOperation,
+        _custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
+    ) -> Option<Result<Vec<NodeId>, oryn_layout::dom_queries::QueryError>> { None }
     fn canonicalize_selector(&self, _selector: &str) -> Result<String, String> {
         Err("selector parser is unavailable".into())
     }
@@ -33869,6 +33873,25 @@ fn query_selector_nodes(
     selector: &str,
     operation: SelectorOperation,
 ) -> Result<Vec<NodeId>, V8BindingError> {
+    let convert = |error: oryn_layout::dom_queries::QueryError| match error {
+        oryn_layout::dom_queries::QueryError::Syntax(_) => V8BindingError::Unsupported {
+            interface: "Selectors".into(), member: "SyntaxError".into(),
+        },
+        oryn_layout::dom_queries::QueryError::Operational(message) => V8BindingError::NativeService {
+            name: "Selectors".into(), message,
+        },
+    };
+    let typed_provider = state.layout_provider.borrow().clone();
+    if let Some(provider) = typed_provider {
+        // Native typed query is a non-author-callback boundary. Its admission
+        // reads the current native receipt, never executes V8 or mutates state.
+        // Preserve the original borrowed custom-state contract without copying
+        // the entire map for every unrelated selector query.
+        let typed_states = state.custom_states.borrow();
+        if let Some(result) = provider.query_selector_typed(node, selector, operation, &typed_states) {
+            return result.map_err(convert);
+        }
+    }
     if let Some(provider) = state.layout_provider.borrow().as_ref()
         && let Some(result) =
             provider.query_selector(node, selector, operation, &state.custom_states.borrow())
@@ -33880,17 +33903,14 @@ fn query_selector_nodes(
     }
     // Standalone V8 bindings use the same parsed selector engine and runtime
     // control state as native layout, including compound and negated selectors.
-    oryn_layout::dom_queries::query(
+    oryn_layout::dom_queries::query_typed(
         &state.dom.borrow(),
         node,
         selector,
         operation,
         &state.custom_states.borrow(),
     )
-    .map_err(|_| V8BindingError::Unsupported {
-        interface: "Selectors".into(),
-        member: "SyntaxError".into(),
-    })
+    .map_err(convert)
 }
 
 /// CSS property values and priorities use LegacyNullToEmptyString; cssText

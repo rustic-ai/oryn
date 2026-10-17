@@ -865,6 +865,13 @@ impl LiveLayoutProvider {
         }
         let _profile = crate::native_timing::stage("deep.live_style_compute");
         let mut engine = self.style_engine.borrow_mut();
+        // Known iterative slot projection storage uses the same freshly
+        // entered owning receipt as native retained allocations. Opaque Stylo
+        // allocations remain governed by their existing separate contract.
+        let slot_admission = self.shared_retained_admission.try_borrow()
+            .map_err(|_| oryn_layout::LayoutError::StyleTraversal("slot admission borrow conflict".into()))?
+            .clone();
+        engine.set_slot_projection_admission(slot_admission);
         let active = engine.has_active_animations();
         let mut output = engine.compute_at_controlled(
             input,
@@ -1920,6 +1927,17 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         ))
     }
 
+    fn query_selector_typed(
+        &self, node: NodeId, selector: &str, operation: oryn_dom::SelectorOperation,
+        custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
+    ) -> Option<Result<Vec<NodeId>, oryn_layout::dom_queries::QueryError>> {
+        let admission = match self.shared_retained_admission.try_borrow() {
+            Ok(admission) => admission.clone(),
+            Err(_) => return Some(Err(oryn_layout::dom_queries::QueryError::Operational("slot admission borrow conflict".into()))),
+        };
+        Some(oryn_layout::dom_queries::query_admitted(&self.dom.borrow(), node, selector, operation, custom_states,
+            admission.as_ref().map(|a| a.as_ref() as &dyn oryn_layout::cssom::native_import_graph::ImportAdmission)))
+    }
     fn canonicalize_selector(&self, selector: &str) -> Result<String, String> {
         oryn_layout::canonicalize_selector(selector)
     }

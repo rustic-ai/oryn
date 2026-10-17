@@ -331,6 +331,52 @@ impl DomRuntime {
         Ok(None)
     }
 
+    /// Borrow the original assignment inputs without allocating a projection.
+    /// The boolean distinguishes assigned inputs from fallback children.
+    pub fn borrow_slot_projection_inputs(&self, slot: NodeId) -> Result<(&[NodeId], bool), DomError> {
+        let root = self.control_tree_root(slot)?;
+        if !self.is_slot(slot)? || !matches!(self.arena.get(root)?.kind, NodeKind::ShadowRoot { .. }) {
+            return Ok((&[], false));
+        }
+        let Some(host) = self.arena.get(root)?.parent else { return Ok((&[], false)); };
+        let candidates = if self.has_manual_slot_assignment(root) {
+            self.manual_slot_nodes.get(&slot).map(Vec::as_slice).unwrap_or(&[])
+        } else { self.arena.get(host)?.children.as_slice() };
+        Ok((candidates, true))
+    }
+    /// Assignment membership with caller-preallocated traversal storage.
+    /// No allocation occurs here; insufficient storage is an operational error.
+    pub fn slot_projection_member(&self, node: NodeId, slot: NodeId, scratch: &mut Vec<NodeId>, checkpoint: &mut impl FnMut() -> Result<(), DomError>) -> Result<bool, DomError> {
+        checkpoint()?;
+        scratch.clear();
+        if !self.is_slottable(node)? { return Ok(false); }
+        let Some(host) = self.arena.get(node)?.parent else { return Ok(false); };
+        let Some(root) = self.attached_shadow_root(host, false)? else { return Ok(false); };
+        if self.has_manual_slot_assignment(root) {
+            return Ok(self.manual_node_slots.get(&node).copied() == Some(slot) && self.control_tree_root(slot)? == root);
+        }
+        let name = if matches!(self.arena.get(node)?.kind, NodeKind::Element { .. }) {
+            self.attribute_in_null_namespace(node, "slot")?.unwrap_or("")
+        } else { "" };
+        let children = &self.arena.get(root)?.children;
+        if children.len() > scratch.capacity() { return Err(DomError::SemanticProjectionCapacity); }
+        scratch.extend(children.iter().rev().copied());
+        while let Some(candidate) = scratch.pop() {
+            checkpoint()?;
+            let record = self.arena.get(candidate)?;
+            if matches!(record.kind, NodeKind::ShadowRoot { .. } | NodeKind::Document) { continue; }
+            if self.is_slot(candidate)? && self.attribute_in_null_namespace(candidate, "name")?.unwrap_or("") == name {
+                scratch.clear();
+                return Ok(candidate == slot);
+            }
+            if scratch.len().checked_add(record.children.len()).is_none_or(|n| n > scratch.capacity()) {
+                return Err(DomError::SemanticProjectionCapacity);
+            }
+            scratch.extend(record.children.iter().rev().copied());
+        }
+        Ok(false)
+    }
+
     pub fn assigned_nodes(&self, slot: NodeId, flatten: bool) -> Result<Vec<NodeId>, DomError> {
         self.assigned_nodes_with_checkpoint(slot, flatten, &mut || Ok(()))
     }

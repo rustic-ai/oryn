@@ -395,6 +395,8 @@ pub type Lang = Vec<LangRange>;
 #[derive(Clone, Debug, Eq, Hash, MallocSizeOf, PartialEq, ToCss, ToShmem)]
 pub struct CustomState(pub AtomIdent);
 
+include!("has_slotted_ast.rs");
+
 /// A non tree-structural pseudo-class.
 /// See https://drafts.csswg.org/selectors-4/#structural-pseudos
 #[derive(Clone, Debug, Eq, Hash, MallocSizeOf, PartialEq, ToShmem)]
@@ -418,6 +420,7 @@ pub enum NonTSPseudoClass {
     Hover,
     /// HTML heading rank selectors; empty list represents :heading.
     Heading(Vec<i32>),
+    HasSlotted(Option<SlottedSelector>),
     InRange,
     Indeterminate,
     Invalid,
@@ -463,11 +466,14 @@ impl ::selectors::parser::NonTSPseudoClass for NonTSPseudoClass {
         )
     }
 
-    fn visit<V>(&self, _: &mut V) -> bool
+    fn visit<V>(&self, visitor: &mut V) -> bool
     where
         V: SelectorVisitor<Impl = Self::Impl>,
     {
-        true
+        match self {
+            Self::HasSlotted(Some(argument)) => argument.visit(visitor),
+            _ => true,
+        }
     }
 }
 
@@ -477,6 +483,15 @@ impl ToCss for NonTSPseudoClass {
         W: fmt::Write,
     {
         use self::NonTSPseudoClass::*;
+        if let HasSlotted(ref argument) = *self {
+            dest.write_str(":has-slotted")?;
+            if let Some(argument) = argument {
+                dest.write_char('(')?;
+                argument.0.to_css(dest)?;
+                dest.write_char(')')?;
+            }
+            return Ok(());
+        }
         if let Heading(ref levels) = *self {
             dest.write_str(":heading")?;
             if levels.is_empty() { return Ok(()); }
@@ -551,7 +566,7 @@ impl ToCss for NonTSPseudoClass {
             Self::UserValid => ":user-valid",
             Self::Valid => ":valid",
             Self::Visited => ":visited",
-            Self::Lang(_) | Self::Heading(_) => unreachable!(),
+            Self::Lang(_) | Self::Heading(_) | Self::HasSlotted(_) => unreachable!(),
         })
     }
 }
@@ -595,7 +610,7 @@ impl NonTSPseudoClass {
             Self::UserValid => ElementState::USER_VALID,
             Self::Valid => ElementState::VALID,
             Self::Visited => ElementState::VISITED,
-            Self::Playing | Self::Paused | Self::Seeking | Self::Buffering | Self::Stalled | Self::InterestSource | Self::InterestTarget | Self::Granted | Self::CustomState(_) | Self::Heading(_) | Self::Lang(_) | Self::Dir(_) | Self::ServoNonZeroBorder => {
+            Self::Playing | Self::Paused | Self::Seeking | Self::Buffering | Self::Stalled | Self::InterestSource | Self::InterestTarget | Self::Granted | Self::CustomState(_) | Self::Heading(_) | Self::HasSlotted(_) | Self::Lang(_) | Self::Dir(_) | Self::ServoNonZeroBorder => {
                 ElementState::empty()
             },
         }
@@ -702,6 +717,7 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
             "fullscreen" => NonTSPseudoClass::Fullscreen,
             "hover" => NonTSPseudoClass::Hover,
             "heading" => NonTSPseudoClass::Heading(Vec::new()),
+            "has-slotted" => NonTSPseudoClass::HasSlotted(None),
             "indeterminate" => NonTSPseudoClass::Indeterminate,
             "invalid" => NonTSPseudoClass::Invalid,
             "in-range" => NonTSPseudoClass::InRange,
@@ -751,6 +767,20 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
         _after_part: bool,
     ) -> Result<NonTSPseudoClass, ParseError<'i>> {
         let pseudo_class = match_ignore_ascii_case! { &name,
+            "has-slotted" => {
+                let argument = selectors::parser::SelectorList::parse_disallow_pseudo(
+                    self, parser, selectors::parser::ParseRelative::No,
+                )?;
+                // Only the argument's outer sibling axis is permitted. Nested
+                // :has(> child) keeps its original parsed relative AST.
+                if argument.slice().iter().any(|selector| selector.iter_raw_match_order().any(|component| matches!(
+                    component,
+                    selectors::parser::Component::Combinator(selectors::parser::Combinator::Child | selectors::parser::Combinator::Descendant)
+                ))) {
+                    return Err(parser.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone())));
+                }
+                NonTSPseudoClass::HasSlotted(Some(SlottedSelector(argument)))
+            },
             "heading" => {
                 let levels = parser.parse_comma_separated(|input| Ok(input.expect_integer()?))?;
                 if levels.is_empty() { return Err(parser.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone()))); }

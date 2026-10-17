@@ -62,6 +62,7 @@ mod scroll_geometry;
 mod scrollbars;
 mod select_picker;
 mod shadow_tree;
+mod flattened_slot_projection;
 #[cfg(test)]
 mod shadow_tree_tests;
 mod sticky;
@@ -646,6 +647,7 @@ pub struct StyleEngine {
     instance_sample: Option<svg_instances::StyleSample>,
     static_layout: Option<(LayoutInput, LayoutLimits, LayoutOutput)>,
     retained_sheets: Option<RetainedCascadeSheets>,
+    slot_projection_admission: Option<flattened_slot_projection::Admission>,
 }
 
 pub use blitz_dom::html_font_size_hint_keyword;
@@ -656,6 +658,11 @@ pub struct LegacyFontDemand{pub body:u64,pub keyword:LegacyFontKeyword}
 #[derive(Clone,Copy,Debug,PartialEq)]
 pub struct LegacyFontResolution{pub demand:LegacyFontDemand,pub pixels:f32}
 impl StyleEngine {
+    /// Bind known slot projection allocations to the native owning receipt.
+    pub fn set_slot_projection_admission(&mut self, admission: Option<Arc<dyn cssom::native_import_graph::ImportAdmission + Send + Sync>>) {
+        self.slot_projection_admission = admission.map(flattened_slot_projection::Admission);
+        self.static_layout = None;
+    }
 pub fn resolve_legacy_font_at_controlled(
     &mut self,input:&LayoutInput,limits:&LayoutLimits,now:f64,
     demand:LegacyFontDemand,cancelled:Option<Arc<dyn Fn()->bool+Send+Sync>>,
@@ -664,7 +671,7 @@ pub fn resolve_legacy_font_at_controlled(
     let mut result=None;
     stylo_computed_values_with_instances_controlled(input,false,now,
         Some(&mut self.continuity),&self.effects,Some(&mut self.samples),
-        StyloControlledOptions{instances:None,cancelled:cancelled.clone(),retained:self.retained_sheets.as_ref(),legacy_font:Some((demand,&mut result))})?;
+        StyloControlledOptions{instances:None,cancelled:cancelled.clone(),retained:self.retained_sheets.as_ref(),slot_admission:self.slot_projection_admission.as_ref().map(|a| a.0.as_ref() as &dyn cssom::native_import_graph::ImportAdmission),legacy_font:Some((demand,&mut result))})?;
     layout_checkpoint(&cancelled)?;
     result.ok_or_else(||LayoutError::StyleTraversal("missing owning body font resolution".into()))
 }
@@ -770,6 +777,7 @@ pub fn resolve_legacy_font_at_controlled(
                     legacy_font: None,
                     cancelled: cancelled.clone(),
                     retained: self.retained_sheets.as_ref(),
+                    slot_admission: self.slot_projection_admission.as_ref().map(|a| a.0.as_ref() as &dyn cssom::native_import_graph::ImportAdmission),
                 },
             )?;
         layout_checkpoint(&cancelled)?;
@@ -5920,6 +5928,7 @@ fn stylo_computed_values_with_instances(
             legacy_font: None,
             cancelled: None,
             retained: None,
+            slot_admission: None,
         },
     )
 }
@@ -5933,6 +5942,7 @@ struct StyloControlledOptions<'a> {
     )>,
     cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     retained: Option<&'a RetainedCascadeSheets>,
+    slot_admission: Option<&'a dyn cssom::native_import_graph::ImportAdmission>,
 }
 
 fn stylo_computed_values_with_instances_controlled(
@@ -5949,6 +5959,7 @@ fn stylo_computed_values_with_instances_controlled(
         legacy_font,
         cancelled,
         retained,
+        slot_admission,
     } = options;
     layout_checkpoint(&cancelled)?;
     shadow_tree::validate(input)?;
@@ -6297,6 +6308,11 @@ fn stylo_computed_values_with_instances_controlled(
             .expect("slot mirror")
             .style_children = Some(children);
     }
+    let mut slot_projection = flattened_slot_projection::prepare(
+        &document, slot_admission, &mut || layout_checkpoint(&cancelled),
+    )?;
+    layout_checkpoint(&cancelled)?;
+    slot_projection.publish(&mut document)?;
     let animation_nodes = input
         .nodes
         .iter()

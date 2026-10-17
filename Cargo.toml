@@ -38,6 +38,7 @@ parley = { path = "vendor/parley" }
 harfrust = { path = "vendor/harfrust" }
 xml = { path = "vendor/xml" }
 stylo = { path = "vendor/stylo" }
+selectors = { path = "vendor/selectors" }
 stylo_atoms = { path = "vendor/stylo_atoms" }
 usvg = { path = "vendor/usvg" }
 resvg = { path = "vendor/resvg" }

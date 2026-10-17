@@ -1,5 +1,6 @@
 //! Native shadow cascade regressions; generated during the all-source phase.
 use super::*;
+include!("has_slotted_paint_controls.rs");
 fn element(id: u64, parent: Option<u64>, tag: &str, children: Vec<u64>) -> LayoutNode {
     serde_json::from_value(serde_json::json!({"id":id,"parent":parent,"tag":tag,"namespace":"http://www.w3.org/1999/xhtml","children":children,"attributes":{},"text":""})).unwrap()
 }

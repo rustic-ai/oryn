@@ -1,4 +1,7 @@
 //! Stylo selector matching over the canonical DOM, without a layout flush or mirror.
+#[cfg(test)]
+include!("has_slotted_query_controls.rs");
+mod slot_query_projection;
 use oryn_dom::{DomRuntime, Node, NodeId, NodeKind, SelectorOperation};
 use selectors::{
     Element, OpaqueElement,
@@ -57,6 +60,7 @@ struct DomElement<'a> {
     id: NodeId,
     dom: &'a DomRuntime,
     states: &'a BTreeMap<NodeId, BTreeSet<String>>,
+    slot_candidates: &'a [(NodeId, Vec<NodeId>, Option<std::sync::Arc<dyn Send + Sync>>)],
 }
 impl std::fmt::Debug for DomElement<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -224,9 +228,25 @@ impl Element for DomElement<'_> {
     fn match_non_ts_pseudo_class(
         &self,
         pseudo: &NonTSPseudoClass,
-        _: &mut MatchingContext<SelectorImpl>,
+        context: &mut MatchingContext<SelectorImpl>,
     ) -> bool {
         match pseudo {
+            NonTSPseudoClass::HasSlotted(argument) => {
+                if !self.html_tag(&["slot"]) { return false; }
+                let candidates = self.slot_candidates.binary_search_by_key(&self.id, |(id,_,_)| *id)
+                    .ok().map(|index| self.slot_candidates[index].1.as_slice()).unwrap_or(&[]);
+                match argument {
+                    None => !candidates.is_empty(),
+                    Some(argument) => candidates.iter().copied().any(|id| {
+                        if !matches!(self.dom.arena().get(id).map(|node| &node.kind), Ok(NodeKind::Element { .. })) {
+                            return false;
+                        }
+                        // Assignment selects candidates, not a replacement
+                        // selector tree. Cross-slot light siblings stay visible.
+                        matches_selector_list(&argument.0, &Self { id, ..*self }, context)
+                    }),
+                }
+            }
             NonTSPseudoClass::AnyLink | NonTSPseudoClass::Link => self.is_link(),
             NonTSPseudoClass::Disabled => self.disabled(),
             NonTSPseudoClass::Enabled => {
@@ -425,14 +445,56 @@ pub fn query(
     operation: SelectorOperation,
     states: &BTreeMap<NodeId, BTreeSet<String>>,
 ) -> Result<Vec<NodeId>, String> {
+    query_typed(dom, root, selector, operation, states).map_err(|error| error.to_string())
+}
+
+#[derive(Debug)]
+pub enum QueryError { Syntax(String), Operational(String) }
+impl From<String> for QueryError { fn from(value: String) -> Self { Self::Operational(value) } }
+impl std::fmt::Display for QueryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self { Self::Syntax(message)|Self::Operational(message) => f.write_str(message) }
+    }
+}
+pub fn query_typed(
+    dom: &DomRuntime, root: NodeId, selector: &str, operation: SelectorOperation,
+    states: &BTreeMap<NodeId, BTreeSet<String>>,
+) -> Result<Vec<NodeId>, QueryError> {
+    query_admitted(dom, root, selector, operation, states, None)
+}
+pub fn query_admitted(
+    dom: &DomRuntime,
+    root: NodeId,
+    selector: &str,
+    operation: SelectorOperation,
+    states: &BTreeMap<NodeId, BTreeSet<String>>,
+    admission: Option<&dyn crate::cssom::native_import_graph::ImportAdmission>,
+) -> Result<Vec<NodeId>, QueryError> {
     let url = UrlExtraData::from(url::Url::parse("about:blank").unwrap());
     let list = SelectorParser::parse_author_origin_no_namespace(selector, &url)
-        .map_err(|e| format!("invalid selector: {e:?}"))?;
+        .map_err(|e| QueryError::Syntax(format!("invalid selector: {e:?}")))?;
     let root_node = dom.arena().get(root).map_err(|e| e.to_string())?;
+    // Complete native candidate projection before entering bool-only Stylo
+    // matching. Native errors cannot be swallowed as a nonmatch.
+    struct SlottedDemand(bool);
+    impl selectors::visitor::SelectorVisitor for SlottedDemand {
+        type Impl = SelectorImpl;
+        fn visit_simple_selector(&mut self, component: &selectors::parser::Component<SelectorImpl>) -> bool {
+            if matches!(component, selectors::parser::Component::NonTSPseudoClass(NonTSPseudoClass::HasSlotted(_))) { self.0 = true; }
+            !self.0
+        }
+        fn visit_relative_selector_list(&mut self, list: &[selectors::parser::RelativeSelector<SelectorImpl>]) -> bool {
+            list.iter().all(|entry| entry.selector.visit(self))
+        }
+    }
+    let mut demand = SlottedDemand(false);
+    for selector in list.slice() { if !selector.visit(&mut demand) { break; } }
+    let slot_projection = if demand.0 { Some(slot_query_projection::prepare(dom,root,admission)?) } else { None };
     let base = DomElement {
         id: root,
         dom,
         states,
+        slot_candidates: slot_projection.as_ref().map(|p|p.slots.as_slice()).unwrap_or(&[]),
     };
     if operation == SelectorOperation::Matches {
         return Ok(base

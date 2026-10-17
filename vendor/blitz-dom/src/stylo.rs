@@ -888,9 +888,27 @@ impl selectors::Element for BlitzNode<'_> {
     fn match_non_ts_pseudo_class(
         &self,
         pseudo_class: &<Self::Impl as selectors::SelectorImpl>::NonTSPseudoClass,
-        _context: &mut MatchingContext<Self::Impl>,
+        context: &mut MatchingContext<Self::Impl>,
     ) -> bool {
         match *pseudo_class {
+            NonTSPseudoClass::HasSlotted(ref argument) => {
+                // Mirror assignment determines candidates only. The original
+                // parent/sibling links remain the selector matching topology.
+                fn slot(node: &Node) -> bool {
+                    node.containing_shadow.is_some()
+                        && node.is_element_with_tag_name(&local_name!("slot"))
+                        && node.has_namespace(&markup5ever::Namespace::from("http://www.w3.org/1999/xhtml"))
+                }
+                if !slot(self) { return false; }
+                let Some(candidates) = &self.native_flattened_slot_candidates else { return false; };
+                match argument {
+                    None => !candidates.is_empty(),
+                    Some(argument) => candidates.iter().any(|id| {
+                        let child = self.with(*id);
+                        child.is_element() && selectors::matching::matches_selector_list(&argument.0, &child, context)
+                    }),
+                }
+            },
             NonTSPseudoClass::Active => self.element_state().contains(ElementState::ACTIVE),
             NonTSPseudoClass::AnyLink => self
                 .element_state()
