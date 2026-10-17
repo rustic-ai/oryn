@@ -27994,6 +27994,23 @@ fn call_platform_operation<'s>(
         }
         ("IDBDatabase", "createObjectStore") => {
             let name = required_string(scope, args, 0)?;
+            // Web IDL dictionary members are converted lexicographically before
+            // any IndexedDB algorithm state check. Keep key-path storage admitted.
+            let options = args.get(1);
+            let auto_increment = checked_dictionary_member(scope, options, "autoIncrement")?
+                .is_some_and(|value| value.boolean_value(scope));
+            let converted_keypath = checked_dictionary_member(scope, options, "keyPath")?
+                .filter(|value| !value.is_null())
+                .map(|value| keypath_binding_conversion::convert(scope, state, value))
+                .transpose()?;
+            let valid_keypath = converted_keypath.as_ref().is_none_or(|(_, _, valid)| *valid);
+            let (key_path, _keypath_custody) = match converted_keypath {
+                Some((text, _, _)) => {
+                    let (text, custody) = text.into_parts();
+                    (Some(text), Some(custody))
+                }
+                None => (None, None),
+            };
             let (database, upgrade_transaction_id, exists) = {
                 let record = platform_object(state, id)?;
                 let PlatformObjectRecord::IdbDatabase(database) = &*record else {
@@ -28020,17 +28037,7 @@ fn call_platform_operation<'s>(
                     member: "TransactionInactiveError".into(),
                 });
             }
-            let options = args.get(1);
-            let key_path = option_value(scope, options, "keyPath")
-                .filter(|value| !value.is_null_or_undefined())
-                .map(|value| idb_key_path_from_value(scope, value))
-                .transpose()?;
-            let auto_increment = option_value(scope, options, "autoIncrement")
-                .is_some_and(|value| value.boolean_value(scope));
-            if key_path
-                .as_deref()
-                .is_some_and(|path| !valid_idb_key_path(path))
-            {
+            if !valid_keypath {
                 return Err(V8BindingError::Unsupported {
                     interface: "IDBDatabase".into(),
                     member: "SyntaxError".into(),
@@ -61379,6 +61386,50 @@ nameRequest.onupgradeneeded = () => {
                 assert!(test_eval::eval(scope, "foreignItem.call(foreignList,0)==='z'&&foreignContains.call(foreignList,'z')&&(()=>{const marker={};try{foreignContains.call(foreignList,{toString(){throw marker}})}catch(e){return e===marker}})()").is_true());
             }
         }
+    }
+
+    #[test]
+    fn indexeddb_create_store_dictionary_conversion_and_owned_keypath() {
+        initialize_v8();
+        let mut isolate=v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope,&mut isolate);
+        let context=v8::Context::new(scope,Default::default());
+        let scope=&mut v8::ContextScope::new(scope,context);
+        let dom=Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+        let state=install_generated_bindings(scope,context,dom,RealmId(0),1).unwrap();
+        state.commit_location("https://example.test/").unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source=v8::String::new(scope,r#"globalThis.storeOptionsResult = 'pending';
+const opening = indexedDB.open('store-options-conversion', 2);
+opening.onupgradeneeded = () => {
+    const db = opening.result, marker = {}, events = [];
+    const throws = (name, fn) => {try {fn(); return false;} catch(error) {return error.name === name;}};
+    const before = Array.from(db.objectStoreNames).join('|');
+    let caught = false;
+    try {db.createObjectStore('failed', {get autoIncrement(){events.push('auto');throw marker;}, get keyPath(){events.push('path');return 'x';}});}
+    catch(error) {caught = error === marker;}
+    if (!caught || events.join('|') !== 'auto' || Array.from(db.objectStoreNames).join('|') !== before) throw Error('getter exception/atomicity');
+    if (!throws('TypeError', () => db.createObjectStore('primitive', 1))) throw Error('dictionary primitive');
+    events.length = 0;
+    const keyPath = {get [Symbol.iterator](){events.push('iterator');return function*(){yield {toString(){events.push('string');return 'x';}};};}};
+    const store = db.createObjectStore('compound', {get autoIncrement(){events.push('auto');return false;}, get keyPath(){events.push('path');return keyPath;}});
+    if (events.join('|') !== 'auto|path|iterator|string' || store.keyPath.length !== 1 || store.keyPath[0] !== 'x') throw Error('ordered union conversion');
+    if (!throws('SyntaxError', () => db.createObjectStore('bad', {keyPath:'!'}))) throw Error('syntax');
+    if (!throws('SyntaxError', () => db.createObjectStore('compound', {keyPath:'!'}))) throw Error('syntax before duplicate');
+    if (!throws('InvalidAccessError', () => db.createObjectStore('auto-array', {autoIncrement:true,keyPath:['x']}))) throw Error('array auto increment');
+    storeOptionsResult = 'ok';
+};
+opening.onsuccess = () => {
+    if (storeOptionsResult !== 'ok') throw Error('upgrade checks did not complete');
+    const marker = {}; let caught = false;
+    try {opening.result.createObjectStore('late', {get autoIncrement(){throw marker;}});} catch(error) {caught = error === marker;}
+    storeOptionsResult = caught ? 'ok-after-success' : 'failed-after-success';
+};
+"#).unwrap();
+        test_eval::run(scope,source);
+        for _ in 0..32 {state.drain_platform_completions(scope,1).unwrap();scope.perform_microtask_checkpoint();}
+        assert_eq!(test_eval::eval(scope,"storeOptionsResult").to_rust_string_lossy(scope),"ok-after-success");
     }
 
     #[test]
