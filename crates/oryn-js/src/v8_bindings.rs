@@ -25753,7 +25753,7 @@ fn get_platform_attribute<'s>(
                 _ => unreachable!(),
             }
             .and_then(|value| value.local(scope));
-            let source = cursor.records.get(cursor.index);
+            let source = cached.is_none().then(|| cursor.records.get(cursor.index)).flatten();
             let json = match (member, source) {
                 ("key", Some(record)) => Some(record.key.clone()),
                 ("primaryKey", Some(record)) => Some(record.primary_key.clone()),
@@ -28980,6 +28980,8 @@ fn call_platform_operation<'s>(
                 current_key,
                 current_primary_key,
                 current_value,
+                retain_key,
+                retain_primary,
                 with_value,
                 query,
             ) = {
@@ -29007,7 +29009,9 @@ fn call_platform_operation<'s>(
                     cursor.direction.clone(),
                     current.key.clone(),
                     current.primary_key.clone(),
-                    current.value.clone(),
+                    (cursor.with_value && cursor.record_value.is_none()).then(|| current.value.clone()),
+                    cursor.key_value.is_none(),
+                    cursor.primary_key_value.is_none(),
                     cursor.with_value,
                     cursor.query.clone(),
                 )
@@ -29038,22 +29042,23 @@ fn call_platform_operation<'s>(
                     });
                 }
             }
-            let retained_key = idb_json_to_value(scope, state, &current_key)?;
-            let retained_primary_key = idb_json_to_value(scope, state, &current_primary_key)?;
-            let retained_value = with_value
-                .then(|| idb_json_to_value(scope, state, &current_value))
-                .transpose()?;
+            let retained_key = retain_key
+                .then(|| idb_json_to_value(scope, state, &current_key)).transpose()?;
+            let retained_primary_key = retain_primary
+                .then(|| idb_json_to_value(scope, state, &current_primary_key)).transpose()?;
+            let retained_value = current_value.as_ref()
+                .map(|value| idb_json_to_value(scope, state, value)).transpose()?;
             {
                 let mut record = platform_object_mut(state, id)?;
                 let PlatformObjectRecord::IdbCursor(cursor) = &mut *record else {
                     return Err(V8BindingError::Allocation("IDBCursor record"));
                 };
-                cursor.key_value.get_or_insert_with(|| {
-                    platform_listener_graph::Value::new(scope, retained_key)
-                });
-                cursor.primary_key_value.get_or_insert_with(|| {
-                    platform_listener_graph::Value::new(scope, retained_primary_key)
-                });
+                if let Some(retained_key) = retained_key {
+                    cursor.key_value.get_or_insert_with(|| platform_listener_graph::Value::new(scope, retained_key));
+                }
+                if let Some(retained_primary_key) = retained_primary_key {
+                    cursor.primary_key_value.get_or_insert_with(|| platform_listener_graph::Value::new(scope, retained_primary_key));
+                }
                 if let Some(retained_value) = retained_value {
                     cursor.record_value.get_or_insert_with(|| {
                         platform_listener_graph::Value::new(scope, retained_value)
@@ -61430,6 +61435,34 @@ opening.onsuccess = () => {
         test_eval::run(scope,source);
         for _ in 0..32 {state.drain_platform_completions(scope,1).unwrap();scope.perform_microtask_checkpoint();}
         assert_eq!(test_eval::eval(scope,"storeOptionsResult").to_rust_string_lossy(scope),"ok-after-success");
+    }
+
+    #[test]
+    fn indexeddb_cursor_cached_values_survive_pending_iteration_without_redecode() {
+        initialize_v8();
+        let mut isolate=v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope,&mut isolate);
+        let context=v8::Context::new(scope,Default::default());
+        let scope=&mut v8::ContextScope::new(scope,context);
+        let dom=Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+        let state=install_generated_bindings(scope,context,dom,RealmId(0),1).unwrap();
+        state.commit_location("https://example.test/").unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source=v8::String::new(scope,r#"
+          globalThis.cacheResult='pending';const opening=indexedDB.open('cursor-cache',2);
+          opening.onupgradeneeded=()=>opening.result.createObjectStore('records').put({large:'x'.repeat(4097)},1);
+          opening.onsuccess=()=>{const request=opening.result.transaction('records').objectStore('records').openCursor();
+            request.onsuccess=()=>{const cursor=request.result;if(!cursor)return;
+              const key=cursor.key,primary=cursor.primaryKey,value=cursor.value;
+              if(cursor.value!==value)throw Error('getter cache');
+              cursor.continue();
+              cacheResult=cursor.key===key&&cursor.primaryKey===primary&&cursor.value===value?'ok':'identity-failed';
+            };
+          };
+        "#).unwrap();test_eval::run(scope,source);
+        for _ in 0..64 {state.drain_platform_completions(scope,1).unwrap();scope.perform_microtask_checkpoint();}
+        assert_eq!(test_eval::eval(scope,"cacheResult").to_rust_string_lossy(scope),"ok");
     }
 
     #[test]
