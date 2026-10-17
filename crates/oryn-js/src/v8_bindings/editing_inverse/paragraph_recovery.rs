@@ -46,7 +46,10 @@ impl Segment {
                 eligible.insert(node);
             }
         }
-        for root in old.keys().filter(|node|!new.contains_key(node)&&!eligible.contains(node)) {
+        for root in old.keys() {
+            // Evaluate admission before mutating the eligibility set; the
+            // iterator itself must not retain an immutable borrow of that set.
+            if new.contains_key(root) || eligible.contains(root) { continue; }
             let dom=state.dom.borrow();
             for descendant in dom.arena().descendants_inclusive(*root)? {eligible.remove(&descendant);}
         }

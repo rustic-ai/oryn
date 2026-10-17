@@ -1223,7 +1223,7 @@ mod paragraph_controls {
 
 #[test]
 fn edit_context_native_format_factory_retry_does_not_replay_text_update(){
-    super::super::tests::initialize_v8();
+    super::tests::initialize_v8();
     let mut isolate=v8::Isolate::new(Default::default());
     v8::scope!(let scope,&mut isolate);
     let context=v8::Context::new(scope,Default::default());
@@ -1247,7 +1247,7 @@ fn edit_context_native_format_factory_retry_does_not_replay_text_update(){
 #[test]
 fn edit_context_native_format_callback_suspension_resumes_suffix_without_replacement(){
     fn park(scope:&mut v8::PinScope,_:v8::FunctionCallbackArguments,_:v8::ReturnValue){scope.get_current_context().get_slot::<V8BindingState>().unwrap().set_execution_suspended(true);}
-    super::super::tests::initialize_v8();let mut isolate=v8::Isolate::new(Default::default());
+    super::tests::initialize_v8();let mut isolate=v8::Isolate::new(Default::default());
     v8::scope!(let scope,&mut isolate);let context=v8::Context::new(scope,Default::default());let scope=&mut v8::ContextScope::new(scope,context);
     let shared=Rc::new(RefCell::new(oryn_dom::html::parse("<html><body><div id=editor tabindex=0></div></body></html>").into_runtime().unwrap()));
     let state=install_generated_bindings(scope,context,shared,RealmId(0),1).unwrap();
