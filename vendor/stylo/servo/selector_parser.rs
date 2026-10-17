@@ -629,7 +629,7 @@ impl NonTSPseudoClass {
 
 /// The abstract struct we implement the selector parser implementation on top
 /// of.
-#[derive(Clone, Debug, MallocSizeOf, PartialEq)]
+#[derive(Clone, Debug, MallocSizeOf, PartialEq, Eq)]
 pub struct SelectorImpl;
 
 /// A set of extra data to carry along with the matching context, either for
