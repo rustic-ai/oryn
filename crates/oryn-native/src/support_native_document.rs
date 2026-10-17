@@ -16,6 +16,7 @@ impl NativeSupportDocument {
         body:super::frame_response_stream::FrameResponseBody,
         creator:oryn_js::worker_wire::Creator,
         budget:&Arc<std::sync::atomic::AtomicUsize>) -> Result<Rc<Self>,crate::host::HostError> {
+        if !state.native_creator_identity_matches(&creator){return Err(crate::host::HostError::CachedAuthorityExpired);}
         let capacity=match &creator{oryn_js::worker_wire::Creator::Window{target:oryn_js::message_wire::WindowTarget::Frame(frame),..}=>frame.capacity(),_=>return Err(crate::host::HostError::CachedAuthorityExpired)};
         let bytes=std::mem::size_of::<Self>().checked_add(2*std::mem::size_of::<usize>()).and_then(|n|n.checked_add(capacity)).ok_or_else(||crate::host::HostError::LimitExceeded{resource:"support Document custody".into()})?;
         let metadata=crate::executable::ScriptSourceReservation::reserve(budget,bytes)

@@ -3582,6 +3582,15 @@ impl V8BindingState {
     pub fn native_worker_creator(&self) -> Result<crate::worker_wire::Creator, V8BindingError> {
         workers::native_creator(self)
     }
+    /// Borrowed identity comparison; no owned Creator/string duplication.
+    pub fn native_creator_identity_matches(&self, expected:&crate::worker_wire::Creator)->bool {
+        if self.execution_retired()||self.execution_suspended(){return false;}
+        let Ok(creator)=self.worker_creator.try_borrow()else{return false;};
+        if let Some(actual)=creator.as_ref(){return actual==expected;}
+        let crate::worker_wire::Creator::Window{target,document_generation,stream_epoch}=expected else{return false;};
+        let Ok(actual)=self.message_target.try_borrow()else{return false;};
+        &*actual==target&&*document_generation==self.document_generation()&&*stream_epoch==self.document_authority_epoch()
+    }
     /// Native standalone identity; never substitutes for parent admission.
     pub fn native_local_creator_identity(
         &self,

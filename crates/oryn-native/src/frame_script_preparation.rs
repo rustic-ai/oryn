@@ -3639,7 +3639,7 @@ mod tests {
         let state=page.agent.host.retained_binding_state(realm).unwrap();
         let context=crate::runtime::Browser::new().new_context();
         let native_page=context.new_page();
-        let client=SharedContextClient::direct(context,native_page.page_id());
+        let client=crate::context_service::SharedContextClient::direct(context,native_page.page_id());
         let lease=client.reserve_frame_response(native_page.page_id()).unwrap();
         let body=frame_response_stream::FrameResponseBody{progress:None,client,page_id:native_page.page_id(),id:7,lease};
         let budget=Arc::new(std::sync::atomic::AtomicUsize::new(0));

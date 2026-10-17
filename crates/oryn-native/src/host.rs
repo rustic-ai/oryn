@@ -10143,9 +10143,15 @@ mod raw_v8 {
             v8::scope!(let handles,&mut self.isolate);
             let context=v8::Local::new(handles,&context);
             let scope=&mut v8::ContextScope::new(handles,context);
-            let _admission=state.enter_retained_allocation(scope).map_err(|error|HostError::Execution(error.to_string()))?;
-            let result=callback(scope,&state);
-            if deadline.expired()||scope.is_execution_terminating(){return Err(HostError::Execution("native font publication interrupted".into()))}
+            let result=match state.enter_retained_allocation(scope){
+                Ok(_admission)=>callback(scope,&state),
+                Err(error)=>Err(HostError::Execution(error.to_string())),
+            };
+            if deadline.expired()||scope.is_execution_terminating(){
+                scope.cancel_terminate_execution();
+                reset_mutation_observer_microtask_after_termination(scope);
+                return Err(HostError::LimitExceeded{resource:"wall time".into()});
+            }
             if state.execution_retired()||original!=(state.document_root(),state.document_generation(),state.document_stream_epoch(),state.document_authority_epoch()){return Err(HostError::CachedAuthorityExpired)}
             result
         }
@@ -17029,6 +17035,24 @@ mod raw_v8 {
     }
     #[cfg(test)]
     mod native_context_tests {
+        #[test]
+        fn native_font_scope_termination_recovers_without_losing_primary_limit(){
+            use super::*;
+            let mut host=RawV8Host::new();
+            let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<!doctype html><p>font boundary</p>").into_runtime().unwrap()));
+            host.install_dom(dom,1).unwrap();
+            let result=host.with_public_font_scope(RealmId(0),|scope,_state|->Result<(),HostError>{
+                scope.terminate_execution();
+                let _=oryn_js::v8_termination::checkpoint(scope);
+                Err(HostError::Execution("original native callback failed".into()))
+            });
+            assert!(matches!(result,Err(HostError::LimitExceeded{resource}) if resource=="wall time"));
+            assert!(!host.isolate.is_execution_terminating());
+            assert_eq!(host.evaluate_string("1+1").unwrap(),"2");
+            let result=host.with_public_font_scope(RealmId(0),|_,_|->Result<(),HostError>{Err(HostError::Execution("ordinary callback error".into()))});
+            assert!(matches!(result,Err(HostError::Execution(message)) if message=="ordinary callback error"));
+            assert_eq!(host.evaluate_string("2+2").unwrap(),"4");
+        }
         #[test]
         fn replacement_retirement_failure_keeps_original_binding_then_retries(){
             use super::*;
