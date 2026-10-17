@@ -3,9 +3,11 @@ use super::*;
 
 #[derive(Clone, Debug)]
 pub(in crate::v8_bindings) struct ParagraphSplit {
-    left: oryn_dom::TrackedNodeLease,
-    right: oryn_dom::TrackedNodeLease,
-    placeholders: [Option<oryn_dom::TrackedNodeLease>; 2],
+    // History/futures share immutable lease ownership. Cloning a recipe must
+    // not clone release authority or mint another fallible native root.
+    left: Rc<oryn_dom::TrackedNodeLease>,
+    right: Rc<oryn_dom::TrackedNodeLease>,
+    placeholders: [Option<Rc<oryn_dom::TrackedNodeLease>>; 2],
     owner: (NodeId, u64, u64, u64),
 }
 impl ParagraphSplit {
@@ -16,11 +18,11 @@ impl ParagraphSplit {
         placeholders: [Option<NodeId>; 2],
     ) -> Result<Self, V8BindingError> {
         Ok(Self {
-            left: oryn_dom::TrackedNodeLease::new(&state.dom, left)?,
-            right: oryn_dom::TrackedNodeLease::new(&state.dom, right)?,
+            left: Rc::new(oryn_dom::TrackedNodeLease::new(&state.dom, left)?),
+            right: Rc::new(oryn_dom::TrackedNodeLease::new(&state.dom, right)?),
             placeholders: [
-                placeholders[0].map(|node| oryn_dom::TrackedNodeLease::new(&state.dom, node)).transpose()?,
-                placeholders[1].map(|node| oryn_dom::TrackedNodeLease::new(&state.dom, node)).transpose()?,
+                placeholders[0].map(|node| oryn_dom::TrackedNodeLease::new(&state.dom, node).map(Rc::new)).transpose()?,
+                placeholders[1].map(|node| oryn_dom::TrackedNodeLease::new(&state.dom, node).map(Rc::new)).transpose()?,
             ],
             owner: (state.document_root(), state.document_generation(), state.document_stream_epoch(), state.document_authority_epoch()),
         })

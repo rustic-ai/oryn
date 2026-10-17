@@ -15,3 +15,13 @@ include!("font_loading_native_bridge.rs");
 include!("font_loading_events.rs");
 include!("font_source_input.rs");
 include!("font_owned_input.rs");
+
+// Scalar bridge operations keep State fields private to this compilation unit.
+pub(super) fn provider_matches(state:&V8BindingState,identity:usize)->bool{
+    let provider=state.font_loading.borrow().provider.clone();
+    provider.is_some_and(|provider|provider.same_provider(identity))
+}
+pub(super) fn loading_cycle(state:&V8BindingState)->u64{state.font_loading.borrow().cycles.cycle()}
+pub(super) fn loading_materialized(state:&V8BindingState)->bool{
+    let fonts=state.font_loading.borrow();fonts.document_set.is_some()||!fonts.face_objects.is_empty()
+}

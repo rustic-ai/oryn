@@ -122,7 +122,7 @@ fn sweep_retired_font_edges(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,id
     }
     Ok(())
 }
-pub(super) fn construct(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,name:&str,args:&v8::FunctionCallbackArguments)
+pub(super) fn construct<'s>(scope:&mut v8::PinScope<'s,'_>,state:&Rc<V8BindingState>,name:&str,args:&v8::FunctionCallbackArguments<'s>)
     ->Result<(),V8BindingError>{
     // The pinned authoritative IDL exposes FontFaceSet but does not declare
     // a constructor. Creation is the Document/Worker FontFaceSource operation.

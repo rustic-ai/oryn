@@ -63,7 +63,7 @@ impl Segment {
                     let dom=state.dom.borrow();
                     if let Some(parent)=parent {
                         let known=expected.nodes.iter().find(|record|record.node==parent).unwrap();
-                        let wanted=known.children.iter().filter(|child|!detached.contains(child)).position(|child|*child==node);
+                        let wanted=known.children.iter().filter(|child|!detached.contains(*child)).position(|child|*child==node);
                         let actual=dom.children(parent)?.iter().filter(|child|known.children.contains(child)).position(|child|*child==node);
                         wanted==actual
                     } else {true}
@@ -86,7 +86,7 @@ impl Segment {
                     && paragraph_subtree_owned(state,expected,node)?
                     && old.get(&node).is_none_or(|parent|{
                         let known=expected.nodes.iter().find(|record|record.node==*parent).unwrap();
-                        let wanted=known.children.iter().filter(|child|!detached.contains(child)).position(|child|*child==node);
+                        let wanted=known.children.iter().filter(|child|!detached.contains(*child)).position(|child|*child==node);
                         let actual=dom.children(*parent).ok().and_then(|children|children.iter().filter(|child|known.children.contains(child)).position(|child|*child==node));
                         wanted==actual
                     })

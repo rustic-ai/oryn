@@ -34,7 +34,7 @@ pub(super) fn font_event_faces<'s>(scope:&mut v8::PinScope<'s,'_>,event:v8::Loca
     if value.is_undefined(){return Err(V8BindingError::Unsupported{interface:"FontFaceSetLoadEvent".into(),member:"TypeError".into()});}
     Ok(value)
 }
-pub(super) fn initialize_font_event(scope:&mut v8::PinScope,event:v8::Local<v8::Object>,init:Option<v8::Local<v8::Object>>)->Result<(),V8BindingError>{
+pub(super) fn initialize_font_event<'s>(scope:&mut v8::PinScope<'s,'_>,event:v8::Local<'s,v8::Object>,init:Option<v8::Local<'s,v8::Object>>)->Result<(),V8BindingError>{
     let value=event_init_member(scope,init,"fontfaces").ok_or(V8BindingError::JavaScriptException)?;
     let array=v8::Array::new(scope,0);
     if !value.is_undefined(){

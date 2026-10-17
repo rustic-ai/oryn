@@ -397,13 +397,13 @@ pub(super) fn composition(scope: &mut v8::PinScope, owner: &Rc<V8BindingState>, 
         let event = create_event_object_with_interface(scope, &context_owner, "Event", "compositionstart", false, false)?;
         let event_identity = event_id(scope, event)?;
         context_owner.events.borrow_mut().get_mut(&event_identity).ok_or_else(incompatible)?.is_trusted = true;
-        let notification = native_platform::publication::pending_platform_dispatch(scope, &context_owner, stateful_id(scope, object)?, "compositionstart", event);
+        let receiver_id = stateful_id(scope, object)?;
+        let notification = native_platform::publication::pending_platform_dispatch(scope, &context_owner, receiver_id, "compositionstart", event);
         if record.borrow().revision != expected_before || context_owner.execution_retired() { return Err(incompatible()); }
         let old_before = { let mut record = record.borrow_mut();
             record.composing = true;
             record.composition_before.replace(before) };
         drop(old_before);
-        let context_owner = binding_state_for_receiver(scope, object).ok_or_else(incompatible)?;
         cursor.notification = Some(notification);
         cursor.phase = CompositionPhase::Edit;
         if !cursor.resume(scope)? { return Ok(None); }
@@ -437,7 +437,8 @@ pub(super) fn composition(scope: &mut v8::PinScope, owner: &Rc<V8BindingState>, 
         set_update_payload(scope, event, range_start, end, text, start, end_selection)?;
         let event_identity = event_id(scope, event)?;
         context_owner.events.borrow_mut().get_mut(&event_identity).ok_or_else(incompatible)?.is_trusted = true;
-        let notification = native_platform::publication::pending_platform_dispatch(scope, &context_owner, stateful_id(scope, object)?, "textupdate", event);
+        let receiver_id = stateful_id(scope, object)?;
+        let notification = native_platform::publication::pending_platform_dispatch(scope, &context_owner, receiver_id, "textupdate", event);
         let mut record_mut = record.borrow_mut();
         if record_mut.revision != expected || context_owner.execution_retired() { return Err(incompatible()); }
         record_mut.buffer.update_text(range_start, end, text).map_err(|_| V8BindingError::Allocation("EditContext composition replacement"))?;
@@ -470,7 +471,8 @@ pub(super) fn composition(scope: &mut v8::PinScope, owner: &Rc<V8BindingState>, 
             edit_context_events::publish_native_formats(scope,&context_owner,event,origin,formats)?;
             let identity = event_id(scope,event)?;
             context_owner.events.borrow_mut().get_mut(&identity).ok_or_else(incompatible)?.is_trusted=true;
-            let notification=native_platform::publication::pending_platform_dispatch(scope,&context_owner,stateful_id(scope,object)?,"textformatupdate",event);
+            let receiver_id=stateful_id(scope,object)?;
+            let notification=native_platform::publication::pending_platform_dispatch(scope,&context_owner,receiver_id,"textformatupdate",event);
             if record.borrow().revision!=cursor.revision || context_owner.execution_retired(){return Err(incompatible())}
             cursor.notification=Some(notification);
         }
@@ -506,14 +508,14 @@ pub(super) fn composition(scope: &mut v8::PinScope, owner: &Rc<V8BindingState>, 
         let event = create_event_object_with_interface(scope, &context_owner, "Event", "compositionend", false, false)?;
         let event_identity = event_id(scope, event)?;
         context_owner.events.borrow_mut().get_mut(&event_identity).ok_or_else(incompatible)?.is_trusted = true;
-        let notification = native_platform::publication::pending_platform_dispatch(scope, &context_owner, stateful_id(scope, object)?, "compositionend", event);
+        let receiver_id = stateful_id(scope, object)?;
+        let notification = native_platform::publication::pending_platform_dispatch(scope, &context_owner, receiver_id, "compositionend", event);
         let obsolete_before = { let mut record = record.borrow_mut();
             record.composing = false;
             record.marked = None;
             record.composition_revision = None;
             record.composition_before.take() };
         drop(obsolete_before);
-        let context_owner = binding_state_for_receiver(scope, object).ok_or_else(incompatible)?;
         cursor.notification = Some(notification);
         cursor.phase = CompositionPhase::Snapshot;
         if !cursor.resume(scope)? { return Ok(None); }
@@ -639,7 +641,8 @@ fn keyboard_commit(scope: &mut v8::PinScope, owner: &Rc<V8BindingState>, target:
     set_update_payload(scope, event, start, end, &replacement, caret, caret)?;
     let id = event_id(scope, event)?;
     context_owner.events.borrow_mut().get_mut(&id).ok_or_else(incompatible)?.is_trusted = true;
-    let notification = native_platform::publication::pending_platform_dispatch(scope, &context_owner, stateful_id(scope, fresh)?, "textupdate", event);
+    let receiver_id = stateful_id(scope, fresh)?;
+    let notification = native_platform::publication::pending_platform_dispatch(scope, &context_owner, receiver_id, "textupdate", event);
     let (expected_revision, size) = { let record = record.borrow(); (record.revision,
         record.buffer.text().len().checked_add(replacement.len()).and_then(|value| value.checked_mul(2)).ok_or(V8BindingError::Allocation("EditContext input allocation size"))?) };
     let lease = reserve(&context_owner, size)?;

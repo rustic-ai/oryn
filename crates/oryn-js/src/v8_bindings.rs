@@ -5753,18 +5753,17 @@ impl V8BindingState {
         font_loading::retire(scope,self)
     }
     pub fn native_font_provider_matches(&self,identity:usize)->bool{
-        let provider=self.font_loading.borrow().provider.clone();
-        provider.is_some_and(|provider|provider.same_provider(identity))
+        font_loading::provider_matches(self,identity)
     }
     pub fn synchronize_native_font_set(self:&Rc<Self>,scope:&mut v8::PinScope)->Result<(),V8BindingError>{
         font_loading::synchronize_set(scope,self)
     }
-    pub fn native_font_cycle(&self)->u64{self.font_loading.borrow().cycles.cycle()}
+    pub fn native_font_cycle(&self)->u64{font_loading::loading_cycle(self)}
     pub fn native_font_layout_inputs(self:&Rc<Self>)->Result<font_loading_transport::FontLayoutInputs,V8BindingError>{
         font_loading::layout_inputs(self)
     }
     pub fn native_font_loading_materialized(&self)->bool{
-        let fonts=self.font_loading.borrow();fonts.document_set.is_some()||!fonts.face_objects.is_empty()
+        font_loading::loading_materialized(self)
     }
     pub fn native_font_request_current(self:&Rc<Self>,token:font_loading_transport::FontLoadToken)->bool{
         font_loading::request_current(self,token)
@@ -25835,9 +25834,8 @@ fn get_platform_attribute<'s>(
         && let Some(names) = owned_name_getter::snapshot(scope, state, id, interface, member)?
     {
             let (names, custody) = names.into_parts();
-            let realm = state.realm_context.borrow().clone()
+            let context = state.realm_context.to_local(scope)
                 .ok_or(V8BindingError::Allocation("IDB names realm"))?;
-            let context = v8::Local::new(scope, &realm);
             let scope = &mut v8::ContextScope::new(scope, context);
             let value = stylesheet_sets::snapshot(scope, state, &names).map(Into::into);
             drop(names);
@@ -32999,10 +32997,11 @@ pub fn queue_mutation_observer_microtask(scope: &mut v8::PinScope) {
     if scope.is_execution_terminating() {
         return;
     }
-    v8::tc_scope!(let lifecycle,scope);
-    checkpoint_dom_lifecycle(lifecycle);
-    if lifecycle.has_caught()||lifecycle.is_execution_terminating(){lifecycle.rethrow();return;}
-    let scope=lifecycle;
+    {
+        v8::tc_scope!(let lifecycle,scope);
+        checkpoint_dom_lifecycle(lifecycle);
+        if lifecycle.has_caught()||lifecycle.is_execution_terminating(){lifecycle.rethrow();return;}
+    }
     if let Err(error) = node_migration::collect_remote_observers(scope) {
         throw_binding_error(scope, &error);
         return;
