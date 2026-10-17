@@ -617,6 +617,7 @@ impl PointerProgress {
 /// Held-input mutation and native key admission occur only in the constructors.
 struct KeyboardProgress {
     interpretation_lease: Option<std::sync::Arc<dyn Send+Sync>>,
+    interpretation_allowance: Option<std::sync::Arc<crate::native_input_allowance::InputAllowance>>,
     interpretation_completed: Option<OwnedOsKeyReceipt>,
     context: AutomationRealmSnapshot,
     receipt: oryn_js::v8_bindings::NativeKeyboardReceipt,
@@ -703,11 +704,16 @@ impl KeyboardProgress {
                 }
             }
             if let Some((target, receipt)) = self.interpretation_read.as_mut() {
+                let capacity=crate::native_input_allowance::InputAllowance::canonical_capacity().ok_or_else(||ScriptError::invalid("native input capacity overflow"))?;
+                receipt.set_input_capacity_bytes(capacity).map_err(|error|ScriptError::javascript(error.to_string()))?;
                 receipt.set_parent_metadata_bytes(OwnedOsKeyReceipt::metadata_bytes(source,&self.context)?)
                     .map_err(|error|ScriptError{code:"javascript error".into(),message:error.to_string()})?;
                 match page.poll_composition_in_context(&self.context, receipt) {
                     Ok(Some(state)) => {
                         self.interpretation_lease=Some(std::sync::Arc::new((receipt.snapshot_lease(),receipt.parent_metadata_lease())));
+                        let lease=receipt.input_capacity_lease().ok_or_else(||ScriptError::javascript("native input allowance not prepaid".into()))?;
+                        let cancellation=receipt.input_capacity_cancellation().ok_or_else(||ScriptError::javascript("native input allowance owner unavailable".into()))?;
+                        self.interpretation_allowance=Some(std::sync::Arc::new(crate::native_input_allowance::InputAllowance::new(capacity,cancellation,lease)));
                         self.interpretation_result =
                             Some((Some(*target), !state.aborted, Some(state)));
                     }
@@ -731,6 +737,9 @@ impl KeyboardProgress {
                 interpret,
                 context: self.context.clone(),
             },self.interpretation_lease.take()));
+            if let Some(allowance)=self.interpretation_allowance.take(){
+                self.interpretation_completed=Some(self.interpretation_completed.take().unwrap().with_input_allowance(allowance));
+            }
             }
             input.push_owned_os_receipt(self.interpretation_completed.as_ref().unwrap().clone())?;
             self.interpretation_completed=None;
@@ -796,6 +805,7 @@ fn prepare_os_key(
         interpretation_read: None,
         interpretation_result: None,
         interpretation_lease: None,
+        interpretation_allowance: None,
         interpretation_completed: None,
         retry: Default::default(),
     }))
@@ -859,6 +869,7 @@ fn prepare_key(
         interpretation_read: None,
         interpretation_result: None,
         interpretation_lease: None,
+        interpretation_allowance: None,
         interpretation_completed: None,
         retry: Default::default(),
     }))

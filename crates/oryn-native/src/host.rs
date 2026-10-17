@@ -10597,7 +10597,7 @@ mod raw_v8 {
         }
 
         pub fn begin_composition_text(
-            &self,
+            &mut self,
             realm: RealmId,
             target: NodeId,
             generation: u64,
@@ -10614,8 +10614,21 @@ mod raw_v8 {
             {
                 return Err(HostError::Execution("stale composition document".into()));
             }
-            oryn_js::v8_bindings::NativeComposition::new(state, target, command)
+            let state=state.clone();
+            let context=self.contexts.get(&realm).cloned().ok_or_else(||HostError::Execution("composition context unavailable".into()))?;
+            let deadline=ExecutionDeadline::arm(&self.isolate,self.execution_wall_limit);
+            v8::scope!(let handles,&mut self.isolate);
+            let context=v8::Local::new(handles,&context);
+            let scope=&mut v8::ContextScope::new(handles,context);
+            v8::tc_scope!(let scope,scope);
+            let result=oryn_js::v8_bindings::NativeComposition::new_scoped(scope,&state,target,command)
                 .map_err(|error| HostError::Execution(error.to_string()))
+                ;
+            if deadline.expired() || scope.is_execution_terminating(){
+                scope.cancel_terminate_execution();
+                return Err(HostError::Execution("composition admission terminated".into()));
+            }
+            result
         }
 
         pub fn poll_composition_text(

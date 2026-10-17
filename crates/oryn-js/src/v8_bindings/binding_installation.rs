@@ -130,6 +130,7 @@ pub(super) fn create_state(
         document: Cell::new(document),
         document_generation: Cell::new(document_generation),
         document_stream_epoch: Cell::new(0),
+        native_input_identity: RefCell::new(None),
         document_authority_epoch: Cell::new(0),
         closed_document_stream: Cell::new(None),
         document_load_stopped: Cell::new(false),

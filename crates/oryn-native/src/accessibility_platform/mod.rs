@@ -771,3 +771,24 @@ mod tests {
         page.close().await.unwrap();
     }
 }
+
+#[doc(hidden)]
+pub async fn execute_owned(page:&PageHandle,mut owned:crate::owned_action_request::OwnedActionRequest)->Result<Vec<crate::webdriver_actions::OwnedOsKeyReceipt>,String>{
+    let request=&mut owned.request;
+    if matches!(&request.action,Action::Input(_)|Action::CancelInput){
+        let scope=request.scope.clone().ok_or("native OS input scope unavailable")?;
+        if scope.parent_realm.is_some()||request.target.page_id.0!=page.id(){return Err("OS input requires owning top-level page".into())}
+        let context=crate::host::webdriver_script::ScriptContext{selected:Some(scope.clone()),..Default::default()};
+        let action=std::mem::replace(&mut request.action,Action::CancelInput);
+        let command=match action{Action::Input(input)=>crate::webdriver_actions::ActionCommand::Perform(input),_=>crate::webdriver_actions::ActionCommand::Cancel};
+        let mut response=page.scoped_owned_actions(scope,command,context).await.map_err(|error|error.to_string())?;
+        match &response.response {
+            crate::worker::WorkerResponse::WebdriverActions{result,..}=>result.as_ref().map_err(|error|error.message.clone())?,
+            _=>return Err("native owned action reply mismatch".into()),
+        }
+        return Ok(response.receipts.take().unwrap_or_default());
+    }
+    let target=request.target;let revision=request.revision;
+    let request=std::mem::replace(&mut owned.request,ActionRequest{scope:None,target,revision,action:Action::CancelInput});
+    execute(page,request).await.map(|receipts|receipts.into_iter().map(crate::webdriver_actions::OwnedOsKeyReceipt::from).collect())
+}

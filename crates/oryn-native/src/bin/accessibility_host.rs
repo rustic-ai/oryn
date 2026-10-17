@@ -21,7 +21,7 @@ fn main() {
     let (updates, snapshots) = mpsc::sync_channel(128);
     let stopped = Arc::new(AtomicBool::new(false));
     let stop = stopped.clone();
-    let host = Host::new(actions).unwrap_or_else(|error| {
+    let host = Host::new_owned(actions).unwrap_or_else(|error| {
         eprintln!("{error}");
         std::process::exit(1)
     });
@@ -41,14 +41,14 @@ fn main() {
             while !stop.load(Ordering::Acquire) {
                 while let Ok(request) = requests.try_recv() {
                     let native_input = matches!(
-                        &request.action,
+                        &request.request_action(),
                         accessibility_platform::Action::Input(_)
                             | accessibility_platform::Action::CancelInput
                     );
-                    match accessibility_platform::execute(&page, request).await {
+                    match accessibility_platform::execute_owned(&page, request).await {
                         Ok(receipts) => {
                             if !receipts.is_empty()
-                                && updates.send(Ok(Update::Receipts(receipts))).is_err()
+                                && updates.send(Ok(Update::OwnedReceipts(receipts))).is_err()
                             {
                                 stop.store(true, Ordering::Release);
                                 break;

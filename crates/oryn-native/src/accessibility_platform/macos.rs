@@ -1,6 +1,7 @@
 //! AppKit accessibility objects. All Objective-C objects and callbacks stay on
 //! the process main thread. The worker-facing boundary carries only Rust data.
 use super::*;
+use crate::owned_action_request::{NativeActionSender, OwnedActionRequest};
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -18,6 +19,8 @@ mod text_markers;
 pub enum Update {
     Snapshot(Box<Snapshot>),
     Receipts(Vec<crate::webdriver_actions::OsKeyReceipt>),
+    #[doc(hidden)]
+    OwnedReceipts(Vec<crate::webdriver_actions::OwnedOsKeyReceipt>),
 }
 type Id = *mut c_void;
 type Sel = *mut c_void;
@@ -310,7 +313,7 @@ struct Entry {
     screen: Option<Rect>,
     root_origin: Point,
     viewport_height: f64,
-    sender: SyncSender<ActionRequest>,
+    sender: NativeActionSender,
 }
 thread_local! {static ENTRIES:RefCell<BTreeMap<usize,Entry>>=const { RefCell::new(BTreeMap::new()) };}
 fn with_entry<T>(object: Id, default: T, f: impl FnOnce(&Entry) -> T) -> T {
@@ -380,12 +383,12 @@ fn enqueue(object: Id, action: Action) -> bool {
         permitted
             && entry
                 .sender
-                .try_send(ActionRequest {
+                .send(ActionRequest {
                     scope: entry.node.scope.clone(),
                     target: entry.node.id,
                     revision: entry.revision,
                     action,
-                })
+                }, None)
                 .is_ok()
     })
 }
@@ -1226,7 +1229,7 @@ pub struct Host {
     image_view: Id,
     class: Id,
     objects: BTreeMap<SemanticRef, Id>,
-    sender: SyncSender<ActionRequest>,
+    sender: NativeActionSender,
     announced: live::Tracker,
     input_scope: Option<(
         crate::host::webdriver_script::AutomationRealmSnapshot,
@@ -1244,6 +1247,13 @@ pub struct Host {
 }
 impl Host {
     pub fn new(sender: SyncSender<ActionRequest>) -> Result<Self, String> {
+        Self::new_inner(NativeActionSender::Plain(sender))
+    }
+    #[doc(hidden)]
+    pub fn new_owned(sender: SyncSender<OwnedActionRequest>) -> Result<Self, String> {
+        Self::new_inner(NativeActionSender::Owned(sender))
+    }
+    fn new_inner(sender: NativeActionSender) -> Result<Self, String> {
         unsafe {
             let mut marker_namespace = [0; 16];
             getrandom::fill(&mut marker_namespace)
@@ -1668,6 +1678,7 @@ impl Host {
             match updates.try_recv() {
                 Ok(Ok(Update::Snapshot(snapshot))) => self.publish(*snapshot)?,
                 Ok(Ok(Update::Receipts(receipts))) => text_input::receipts(self.view, receipts)?,
+                Ok(Ok(Update::OwnedReceipts(receipts))) => text_input::receipts_owned(self.view,receipts)?,
                 Ok(Err(error)) => return Err(error),
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}

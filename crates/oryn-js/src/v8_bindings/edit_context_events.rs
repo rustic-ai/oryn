@@ -77,3 +77,35 @@ pub(super) fn formats<'s>(scope:&mut v8::PinScope<'s,'_>,object:v8::Local<'s,v8:
     let result=v8::Array::new(scope,0);
     for index in 0..source.length(){if !crate::v8_termination::checkpoint(scope){return Err(V8BindingError::JavaScriptException)}let value=source.get_index(scope,index).ok_or(V8BindingError::JavaScriptException)?;if result.set_index(scope,index,value)!=Some(true){return Err(V8BindingError::JavaScriptException)}}Ok(result.into())
 }
+
+pub(super) fn publish_native_formats(scope:&mut v8::PinScope,owner:&V8BindingState,event:v8::Local<v8::Object>,origin:u32,formats:&[crate::composition::NativeTextFormat])->Result<(),V8BindingError>{
+    use crate::composition::{NativeUnderlineStyle as Style,NativeUnderlineThickness as Thickness};
+    let array=v8::Array::new(scope,0);
+    for (index,format) in formats.iter().enumerate(){
+        if !crate::v8_termination::checkpoint(scope){return Err(V8BindingError::JavaScriptException)}
+        let start=origin.checked_add(format.range.start).ok_or(V8BindingError::Allocation("native format range"))?;
+        let end=start.checked_add(format.range.length).ok_or(V8BindingError::Allocation("native format range"))?;
+        let object=new_stateful_object(scope,owner,"TextFormat",0)?;
+        let payload=v8::Object::new(scope);let null=v8::null(scope);
+        if payload.set_prototype(scope,null.into())!=Some(true){return Err(V8BindingError::JavaScriptException)}
+        let style=match format.style{Style::None=>"none",Style::Solid=>"solid",Style::Dotted=>"dotted",Style::Dashed=>"dashed"};
+        let thickness=match format.thickness{Thickness::None=>"none",Thickness::Thin=>"thin",Thickness::Thick=>"thick"};
+        let start=v8::Integer::new_from_unsigned(scope,start);
+        put(scope,payload,"rangeStart",start.into())?;
+        let end=v8::Integer::new_from_unsigned(scope,end);
+        put(scope,payload,"rangeEnd",end.into())?;
+        let style=v8::String::new(scope,style).ok_or(V8BindingError::Allocation("native underline style"))?;
+        put(scope,payload,"underlineStyle",style.into())?;
+        let thickness=v8::String::new(scope,thickness).ok_or(V8BindingError::Allocation("native underline thickness"))?;
+        put(scope,payload,"underlineThickness",thickness.into())?;
+        let brand=key(scope,"TextFormat")?;
+        if object.set_private(scope,brand,payload.into())!=Some(true){return Err(V8BindingError::JavaScriptException)}
+        let index=u32::try_from(index).map_err(|_|V8BindingError::Allocation("native formats length"))?;
+        if array.set_index(scope,index,object.into())!=Some(true){return Err(V8BindingError::JavaScriptException)}
+    }
+    let payload=v8::Object::new(scope);let null=v8::null(scope);
+    if payload.set_prototype(scope,null.into())!=Some(true){return Err(V8BindingError::JavaScriptException)}
+    put(scope,payload,"textFormats",array.into())?;
+    let brand=key(scope,"TextFormatUpdateEvent")?;
+    if event.set_private(scope,brand,payload.into())!=Some(true){return Err(V8BindingError::JavaScriptException)}Ok(())
+}

@@ -6,7 +6,7 @@ struct Pending {
     panel: Id,
     delegate: Id,
     request: ActionRequest,
-    sender: SyncSender<ActionRequest>,
+    sender: NativeActionSender,
     live: bool,
 }
 thread_local! {
@@ -57,7 +57,7 @@ unsafe extern "C" fn ended(delegate: Id, _: Sel, panel: Id, code: isize, _: *mut
                     {
                         *selected = paths;
                     }
-                    if pending.sender.try_send(pending.request).is_err() {
+                    if pending.sender.send(pending.request, None).is_err() {
                         FAILURE.with(|failure| {
                             *failure.borrow_mut() =
                                 Some("native file chooser completion queue unavailable".into())
@@ -98,7 +98,7 @@ unsafe fn delegate_class() -> Result<Id, String> {
 }
 pub(super) unsafe fn publish(
     window: Id,
-    sender: &SyncSender<ActionRequest>,
+    sender: &NativeActionSender,
     snapshot: &Snapshot,
 ) -> Result<(), String> {
     unsafe {

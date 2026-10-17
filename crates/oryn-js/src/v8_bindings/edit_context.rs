@@ -321,17 +321,18 @@ pub(super) struct CompositionCursor {
     context_owner: Rc<V8BindingState>,
     notification: Option<native_platform::publication::Notification>,
     revision: u64,
+    format_origin: Option<u32>,
     command: Option<native_keyboard::TextCommandReceipt>,
     command_done: bool,
 }
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum CompositionPhase { Start, Edit, AfterEdit, Snapshot }
+enum CompositionPhase { Start, Edit, Format, AfterEdit, Snapshot }
 impl CompositionCursor {
     pub(super) fn new(scope: &mut v8::PinScope, owner: &Rc<V8BindingState>, target: NodeId) -> Result<Option<Self>, V8BindingError> {
         let Some((host, object)) = effective(scope, owner, target)? else { return Ok(None); };
         let context_owner = binding_state_for_receiver(scope, object).ok_or_else(incompatible)?;
         let revision = resolve(scope, object)?.borrow().revision;
-        Ok(Some(Self { phase: CompositionPhase::Start, host, object: v8::Global::new(scope, object), context_owner, notification: None, revision, command: None, command_done: false }))
+        Ok(Some(Self { phase: CompositionPhase::Start, host, object: v8::Global::new(scope, object), context_owner, notification: None, revision, format_origin: None, command: None, command_done: false }))
     }
     fn resume(&mut self, scope: &mut v8::PinScope) -> Result<bool, V8BindingError> {
         if let Some(notification) = self.notification.as_mut() {
@@ -346,7 +347,7 @@ impl Drop for CompositionCursor {
     fn drop(&mut self) { if let Some(notification) = &self.notification { notification.cancel(&self.context_owner); } }
 }
 pub(super) fn composition(scope: &mut v8::PinScope, owner: &Rc<V8BindingState>, target: NodeId,
-    operation: &crate::composition::Operation, cursor: &mut CompositionCursor) -> Result<Option<(crate::composition::StateSnapshot, Option<std::sync::Arc<dyn Send + Sync>>)>, V8BindingError> {
+    operation: &crate::composition::Operation, formats: Option<&[crate::composition::NativeTextFormat]>, cursor: &mut CompositionCursor) -> Result<Option<(crate::composition::StateSnapshot, Option<std::sync::Arc<dyn Send + Sync>>)>, V8BindingError> {
     use crate::composition::{Operation, StateSnapshot, TextRange};
     let host = cursor.host;
     let object = v8::Local::new(scope, &cursor.object);
@@ -377,6 +378,7 @@ pub(super) fn composition(scope: &mut v8::PinScope, owner: &Rc<V8BindingState>, 
     let was_composing = record.borrow().composing;
     let (replacement, selection, marked) = match operation {
         Operation::SetMarked { text, selected, replacement } => (Some((text.as_slice(), *replacement)), Some(*selected), true),
+        Operation::SetMarkedWithFormats { .. } => return Err(incompatible()),
         Operation::Commit { text, replacement } => (Some((text.as_slice(), *replacement)), None, false),
         Operation::Read => (None, None, record.borrow().composing),
         Operation::Finish { keep_marked: true } => (None, None, record.borrow().composing),
@@ -444,17 +446,37 @@ pub(super) fn composition(scope: &mut v8::PinScope, owner: &Rc<V8BindingState>, 
         record_mut.marked = marked.then_some(TextRange { start: range_start, length: text.len() as u32 });
         record_mut.revision = revision;
         cursor.revision = revision;
+        cursor.format_origin = Some(range_start);
         record_mut.composition_revision = Some(revision);
         drop(record_mut);
         drop(old_lease);
         cursor.notification = Some(notification);
-        cursor.phase = CompositionPhase::AfterEdit;
+        cursor.phase = CompositionPhase::Format;
         if !cursor.resume(scope)? { return Ok(None); }
         if record.borrow().revision != revision || context_owner.execution_retired() {
             return Err(incompatible());
         }
     }
-    cursor.phase = cursor.phase.max(CompositionPhase::AfterEdit);
+    cursor.phase = cursor.phase.max(CompositionPhase::Format);
+    if cursor.phase == CompositionPhase::Format {
+        if let Some(formats) = formats {
+            let fresh=effective(scope,owner,target)?;
+            if owner.execution_retired() || context_owner.execution_retired()
+                || !owner.dom.borrow().is_connected(host)?
+                || record.borrow().revision!=cursor.revision
+                || !fresh.is_some_and(|(fresh_host,fresh_object)|fresh_host==host&&fresh_object.strict_equals(object.into())) { return Err(incompatible()) }
+            let origin = cursor.format_origin.ok_or(V8BindingError::Allocation("native format origin"))?;
+            let event = create_event_object_with_interface(scope,&context_owner,"TextFormatUpdateEvent","textformatupdate",false,false)?;
+            edit_context_events::publish_native_formats(scope,&context_owner,event,origin,formats)?;
+            let identity = event_id(scope,event)?;
+            context_owner.events.borrow_mut().get_mut(&identity).ok_or_else(incompatible)?.is_trusted=true;
+            let notification=native_platform::publication::pending_platform_dispatch(scope,&context_owner,stateful_id(scope,object)?,"textformatupdate",event);
+            if record.borrow().revision!=cursor.revision || context_owner.execution_retired(){return Err(incompatible())}
+            cursor.notification=Some(notification);
+        }
+        cursor.phase=CompositionPhase::AfterEdit;
+        if !cursor.resume(scope)? { return Ok(None); }
+    }
     if cursor.phase == CompositionPhase::AfterEdit && matches!(operation, Operation::Cancel) {
         let length = { let record = record.borrow();
             if record.composition_revision == Some(record.revision) { record.composition_before.as_ref().map(|before| before.0.len()) } else { None } };
@@ -1194,4 +1216,44 @@ mod paragraph_controls {
         assert!(paragraph_step(&record,0,false).is_err());
         assert_eq!(paragraph_step(&record,9,true).unwrap(),5);
     }
+}
+
+#[test]
+fn edit_context_native_format_factory_retry_does_not_replay_text_update(){
+    super::super::tests::initialize_v8();
+    let mut isolate=v8::Isolate::new(Default::default());
+    v8::scope!(let scope,&mut isolate);
+    let context=v8::Context::new(scope,Default::default());
+    let scope=&mut v8::ContextScope::new(scope,context);
+    let shared=Rc::new(RefCell::new(oryn_dom::html::parse("<html><body><div id=editor tabindex=0></div></body></html>").into_runtime().unwrap()));
+    let state=install_generated_bindings(scope,context,shared,RealmId(0),1).unwrap();
+    let source=v8::String::new(scope,"globalThis.ec=new EditContext({text:'ab',selectionStart:1,selectionEnd:1});const h=document.getElementById('editor');h.editContext=ec;h.focus();globalThis.updates=0;globalThis.formats=0;globalThis.observed=null;ec.addEventListener('textupdate',()=>updates++);ec.addEventListener('textformatupdate',e=>{formats++;const f=e.getTextFormats()[0];observed=[e.isTrusted,e.target===ec,f.rangeStart,f.rangeEnd,f.underlineStyle,f.underlineThickness];});").unwrap();
+    v8::Script::compile(scope,source,None).unwrap().run(scope).unwrap();
+    let target={let dom=state.dom.borrow();dom.get_element_by_id(dom.document(),"editor").unwrap().unwrap()};
+    let operation=crate::composition::Operation::SetMarkedWithFormats{text:vec![b'X' as u16],selected:crate::composition::TextRange{start:1,length:0},replacement:None,formats:vec![crate::composition::NativeTextFormat{range:crate::composition::TextRange{start:0,length:1},style:crate::composition::NativeUnderlineStyle::Dotted,thickness:crate::composition::NativeUnderlineThickness::Thin}]};
+    let mut receipt=native_composition::NativeComposition::new_scoped(scope,&state,target,&operation).unwrap();
+    let template=state.instance_templates.borrow_mut().remove("TextFormatUpdateEvent").unwrap();
+    assert!(receipt.poll(scope).is_err());
+    let source=v8::String::new(scope,"ec.text==='aXb'&&updates===1&&formats===0").unwrap();
+    assert!(v8::Script::compile(scope,source,None).unwrap().run(scope).unwrap().boolean_value(scope));
+    state.instance_templates.borrow_mut().insert("TextFormatUpdateEvent".into(),template);
+    assert_eq!(receipt.poll(scope).unwrap().unwrap().text,"aXb".encode_utf16().collect::<Vec<_>>());
+    let source=v8::String::new(scope,"updates===1&&formats===1&&JSON.stringify(observed)==='[true,true,1,2,\"dotted\",\"thin\"]'").unwrap();
+    assert!(v8::Script::compile(scope,source,None).unwrap().run(scope).unwrap().boolean_value(scope));
+}
+#[test]
+fn edit_context_native_format_callback_suspension_resumes_suffix_without_replacement(){
+    fn park(scope:&mut v8::PinScope,_:v8::FunctionCallbackArguments,_:v8::ReturnValue){scope.get_current_context().get_slot::<V8BindingState>().unwrap().set_execution_suspended(true);}
+    super::super::tests::initialize_v8();let mut isolate=v8::Isolate::new(Default::default());
+    v8::scope!(let scope,&mut isolate);let context=v8::Context::new(scope,Default::default());let scope=&mut v8::ContextScope::new(scope,context);
+    let shared=Rc::new(RefCell::new(oryn_dom::html::parse("<html><body><div id=editor tabindex=0></div></body></html>").into_runtime().unwrap()));
+    let state=install_generated_bindings(scope,context,shared,RealmId(0),1).unwrap();
+    let callback=v8::Function::new(scope,park).unwrap();let key=v8::String::new(scope,"park").unwrap();let global=context.global(scope);assert_eq!(global.set(scope,key.into(),callback.into()),Some(true));
+    let source=v8::String::new(scope,"globalThis.ec=new EditContext({text:'ab',selectionStart:1,selectionEnd:1});const h=document.getElementById('editor');h.editContext=ec;h.focus();globalThis.updates=0;globalThis.first=0;globalThis.second=0;ec.addEventListener('textupdate',()=>updates++);ec.addEventListener('textformatupdate',()=>{first++;park()});ec.addEventListener('textformatupdate',()=>second++);").unwrap();v8::Script::compile(scope,source,None).unwrap().run(scope).unwrap();
+    let target={let dom=state.dom.borrow();dom.get_element_by_id(dom.document(),"editor").unwrap().unwrap()};
+    let operation=crate::composition::Operation::SetMarkedWithFormats{text:vec![b'X' as u16],selected:crate::composition::TextRange{start:1,length:0},replacement:None,formats:vec![crate::composition::NativeTextFormat{range:crate::composition::TextRange{start:0,length:1},style:crate::composition::NativeUnderlineStyle::Solid,thickness:crate::composition::NativeUnderlineThickness::Thin}]};
+    let mut receipt=native_composition::NativeComposition::new_scoped(scope,&state,target,&operation).unwrap();
+    assert!(receipt.poll(scope).unwrap().is_none());state.set_execution_suspended(false);
+    assert_eq!(receipt.poll(scope).unwrap().unwrap().text,"aXb".encode_utf16().collect::<Vec<_>>());
+    let source=v8::String::new(scope,"updates===1&&first===1&&second===1&&ec.text==='aXb'").unwrap();assert!(v8::Script::compile(scope,source,None).unwrap().run(scope).unwrap().boolean_value(scope));
 }

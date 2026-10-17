@@ -26,6 +26,8 @@ pub struct NativeComposition {
     identity: (NodeId, u64, u64, u64),
     target: NodeId,
     operation: Operation,
+    native_formats: Option<Vec<crate::composition::NativeTextFormat>>,
+    operation_lease: Option<std::sync::Arc<dyn Send+Sync>>,
     phase: Phase,
     session: Option<Session>,
     event: Option<retained_dom_event::Event>,
@@ -48,8 +50,20 @@ pub struct NativeComposition {
     parent_metadata_bytes: Option<usize>,
     parent_metadata_paid: bool,
     parent_metadata_lease: Option<std::sync::Arc<dyn Send+Sync>>,
+    input_capacity_bytes: Option<usize>,
+    input_capacity_lease: Option<std::sync::Arc<dyn Send+Sync>>,
+    input_capacity_cancelled: Option<std::sync::Arc<dyn Fn()->bool+Send+Sync>>,
 }
 impl NativeComposition {
+    pub fn set_input_capacity_bytes(&mut self,bytes:usize)->Result<(),V8BindingError>{
+        if self.input_capacity_bytes==Some(bytes){return Ok(())}
+        if self.input_capacity_bytes.is_some() || !self.current(){return Err(error())}
+        self.input_capacity_bytes=Some(bytes);Ok(())
+    }
+    pub fn input_capacity_lease(&self)->Option<std::sync::Arc<dyn Send+Sync>>{self.input_capacity_lease.clone()}
+    pub fn input_capacity_cancellation(&self)->Option<std::sync::Arc<dyn Fn()->bool+Send+Sync>>{
+        self.input_capacity_cancelled.clone()
+    }
     pub fn set_parent_metadata_bytes(&mut self,bytes:usize)->Result<(),V8BindingError>{
         if self.parent_metadata_bytes==Some(bytes){return Ok(())}
         if self.parent_metadata_bytes.is_some() || self.parent_metadata_paid || !self.current(){return Err(error())}
@@ -61,6 +75,20 @@ impl NativeComposition {
         target: NodeId,
         operation: &Operation,
     ) -> Result<Self, V8BindingError> {
+        if matches!(operation,Operation::SetMarkedWithFormats{..}) { return Err(error()); }
+        Self::new_prepared(state,target,operation,None)
+    }
+    pub fn new_scoped(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,target:NodeId,operation:&Operation)->Result<Self,V8BindingError>{
+        if !operation.validate() || state.execution_retired() || state.execution_suspended() || state.execution_tasks_stopped() || scope.is_execution_terminating(){return Err(error())}
+        let expected=identity(state);
+        let _entry=state.enter_retained_allocation(scope)?;
+        let bytes=operation.copy_bytes().ok_or(V8BindingError::Allocation("native operation copy size"))?;
+        let allocation=state.retained_allocation.borrow().clone();
+        let lease=allocation.map(|allocation|allocation.reserve(bytes).map_err(V8BindingError::EventCallback)).transpose()?;
+        if identity(state)!=expected || state.execution_retired() || state.execution_suspended() || state.execution_tasks_stopped() || scope.is_execution_terminating(){drop(lease);return Err(error())}
+        Self::new_prepared(state,target,operation,lease)
+    }
+    fn new_prepared(state:&Rc<V8BindingState>,target:NodeId,operation:&Operation,operation_lease:Option<std::sync::Arc<dyn Send+Sync>>)->Result<Self,V8BindingError>{
         if !operation.validate() || state.composition.active.borrow().is_some() {
             return Err(error());
         }
@@ -68,6 +96,7 @@ impl NativeComposition {
         *state.composition.active.borrow_mut() = Some(token.clone());
         state.composition.operation_target.set(Some(target));
         let session = state.composition.session.borrow_mut().take();
+        let (operation,native_formats)=operation.clone().into_text_operation();
         Ok(Self {
             edit_context_result_lease: None,
             edit_context_cursor: None,
@@ -76,7 +105,9 @@ impl NativeComposition {
             token,
             identity: identity(state),
             target,
-            operation: operation.clone(),
+            operation,
+            native_formats,
+            operation_lease,
             phase: Phase::Prepare,
             session,
             event: None,
@@ -102,6 +133,9 @@ impl NativeComposition {
             parent_metadata_bytes: None,
             parent_metadata_paid: false,
             parent_metadata_lease: None,
+            input_capacity_bytes: None,
+            input_capacity_lease: None,
+            input_capacity_cancelled: None,
         })
     }
     pub fn owner(&self) -> Rc<V8BindingState> {
@@ -204,6 +238,20 @@ impl NativeComposition {
         &mut self,
         scope: &mut v8::PinScope,
     ) -> Result<Option<StateSnapshot>, V8BindingError> {
+        if let Some(bytes)=self.input_capacity_bytes && self.input_capacity_lease.is_none(){
+            if !self.current(){return Err(error())}
+            if self.owner.execution_suspended()||scope.is_execution_terminating(){return Ok(None)}
+            let _entry=self.owner.enter_retained_allocation(scope)?;
+            let allocation=self.owner.retained_allocation.borrow().clone().ok_or(V8BindingError::Allocation("native input capacity admission unavailable"))?;
+            let candidate=allocation.reserve(bytes).map_err(V8BindingError::EventCallback)?;
+            if !self.current(){drop(candidate);return Err(error())}
+            if self.owner.execution_suspended()||scope.is_execution_terminating(){drop(candidate);return Ok(None)}
+            let signal=self.owner.native_input_cancellation(scope)?;
+            if !self.current(){drop(candidate);return Err(error())}
+            if self.owner.execution_suspended()||scope.is_execution_terminating(){drop(candidate);return Ok(None)}
+            self.input_capacity_cancelled=Some(signal);
+            self.input_capacity_lease=Some(candidate);
+        }
         if let Some(bytes)=self.parent_metadata_bytes && !self.parent_metadata_paid {
             if !self.current(){return Err(error())}
             if self.owner.execution_suspended()||scope.is_execution_terminating(){return Ok(None)}
@@ -235,7 +283,7 @@ impl NativeComposition {
                 Phase::Prepare => {
                     if !self.edit_context_checked { self.edit_context_cursor=edit_context::CompositionCursor::new(scope,&state,self.target)?;self.edit_context_checked=true; }
                     if let Some(cursor)=self.edit_context_cursor.as_mut(){
-                        let Some((result,lease))=edit_context::composition(scope,&state,self.target,&self.operation,cursor)? else{return Ok(None);};
+                        let Some((result,lease))=edit_context::composition(scope,&state,self.target,&self.operation,self.native_formats.as_deref(),cursor)? else{return Ok(None);};
                         self.edit_context_result_lease=lease;self.result=Some(result.clone());self.phase=Phase::Done;self.unlock();return Ok(Some(result));
                     }
                     resume_editing_recovery(&state)?;
@@ -263,6 +311,7 @@ impl NativeComposition {
                         continue;
                     }
                     match &self.operation {
+                        Operation::SetMarkedWithFormats { .. } => return Err(error()),
                         Operation::Read | Operation::Finish { keep_marked: true } => {
                             self.phase = Phase::Snapshot
                         }

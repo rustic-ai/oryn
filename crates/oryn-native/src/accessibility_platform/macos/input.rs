@@ -218,12 +218,12 @@ impl Host {
             && let Some((scope, target)) = &self.input_scope
         {
             self.sender
-                .try_send(ActionRequest {
+                .send(ActionRequest {
                     scope: Some(scope.clone()),
                     target: *target,
                     revision: Revision(0),
                     action: Action::CancelInput,
-                })
+                }, None)
                 .map_err(|_| String::from("native input cancellation queue unavailable"))?;
         }
         self.clear_os_input();
@@ -251,12 +251,12 @@ impl Host {
             .validate()
             .map_err(|e| format!("{}: {}", e.code, e.message))?;
         self.sender
-            .try_send(ActionRequest {
+            .send(ActionRequest {
                 scope: Some(scope.clone()),
                 target: *target,
                 revision: Revision(0),
                 action: Action::Input(request),
-            })
+            }, None)
             .map_err(|_| String::from("native OS input queue overflow or page retirement"))?;
         self.input_dirty = true;
         Ok(())

@@ -185,7 +185,7 @@ pub fn apply(
     target: NodeId,
     operation: &Operation,
 ) -> Result<StateSnapshot, V8BindingError> {
-    let mut receipt = NativeComposition::new(state, target, operation)?;
+    let mut receipt = NativeComposition::new_scoped(scope, state, target, operation)?;
     receipt
         .poll(scope)?
         .ok_or(V8BindingError::Allocation("native composition suspended"))

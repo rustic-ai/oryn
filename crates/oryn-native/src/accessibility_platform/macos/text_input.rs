@@ -58,14 +58,15 @@ impl Drop for SecureInput {
 struct Client {
     geometry: Option<super::super::text_geometry::TextGeometry>,
     secure: SecureInput,
-    sender: SyncSender<ActionRequest>,
+    sender: crate::owned_action_request::NativeActionSender,
+    input_allowance:Option<std::sync::Arc<crate::native_input_allowance::InputAllowance>>,
     root: Option<(
         crate::host::webdriver_script::AutomationRealmSnapshot,
         SemanticRef,
     )>,
     next: u64,
     pending: BTreeMap<u64, Pending>,
-    active: Option<OsKeyReceipt>,
+    active: Option<crate::webdriver_actions::OwnedOsKeyReceipt>,
     latest: u64,
     sequence: u64,
     interpreting: bool,
@@ -89,7 +90,7 @@ fn empty() -> StateSnapshot {
         marked: None,
     }
 }
-pub(super) fn install(view: Id, sender: SyncSender<ActionRequest>) {
+pub(super) fn install(view: Id, sender: crate::owned_action_request::NativeActionSender) {
     CLIENTS.with(|clients| {
         clients.borrow_mut().insert(
             view as usize,
@@ -97,6 +98,7 @@ pub(super) fn install(view: Id, sender: SyncSender<ActionRequest>) {
                 geometry: None,
                 secure: SecureInput::default(),
                 sender,
+                input_allowance: None,
                 root: None,
                 next: 1,
                 pending: BTreeMap::new(),
@@ -251,6 +253,7 @@ pub(super) fn publish(
             client.busy = false;
             client.replaying = false;
             client.active = None;
+            client.input_allowance = None;
             client.state = empty();
         }
         client.root = root;
@@ -366,7 +369,8 @@ unsafe fn screen_rect(
         }
     }
 }
-fn queue(client: &mut Client, operation: Operation) -> Result<(), String> {
+fn queue(client: &mut Client, operation: Operation) -> Result<(), String> {queue_owned(client,operation,None)}
+fn queue_owned(client:&mut Client,operation:Operation,payload:Option<crate::native_input_allowance::InputPayloadLease>)->Result<(),String>{
     let grant = client
         .active
         .as_ref()
@@ -387,17 +391,15 @@ fn queue(client: &mut Client, operation: Operation) -> Result<(), String> {
             }],
         }],
     };
-    client
-        .sender
-        .try_send(ActionRequest {
+    client.sender.send(ActionRequest {
             scope: Some(root.clone()),
             target: *target,
             revision: Revision(0),
             action: Action::Input(request),
-        })
-        .map_err(|_| "native text input queue unavailable".into())
+        },payload)
 }
-fn change(view: Id, operation: Operation) {
+fn change(view: Id, operation: Operation) {change_owned(view,operation,None)}
+fn change_owned(view:Id,operation:Operation,payload:Option<crate::native_input_allowance::InputPayloadLease>){
     CLIENTS.with(|clients| {
         let Ok(mut clients) = clients.try_borrow_mut() else {
             return;
@@ -412,10 +414,11 @@ fn change(view: Id, operation: Operation) {
             client.failure = Some("invalid native text operation".into());
             return;
         }
-        if let Err(error) = queue(client, operation.clone()) {
+        if let Err(error) = queue_owned(client, operation.clone(),payload) {
             client.failure = Some(error);
             return;
         }
+        let (operation, _) = operation.into_text_operation();
         match operation {
             Operation::SetMarked {
                 text,
@@ -490,6 +493,9 @@ fn change(view: Id, operation: Operation) {
     });
 }
 pub(super) fn receipts(view: Id, receipts: Vec<OsKeyReceipt>) -> Result<(), String> {
+    receipts_owned(view,receipts.into_iter().map(crate::webdriver_actions::OwnedOsKeyReceipt::from).collect())
+}
+pub(super) fn receipts_owned(view:Id,receipts:Vec<crate::webdriver_actions::OwnedOsKeyReceipt>)->Result<(),String>{
     for receipt in receipts {
         let aborted = receipt.state.as_ref().is_some_and(|state| state.aborted);
         let pending = CLIENTS.with(|clients| {
@@ -519,6 +525,7 @@ pub(super) fn receipts(view: Id, receipts: Vec<OsKeyReceipt>) -> Result<(), Stri
                 client.latest = receipt.token;
                 client.sequence = 1;
                 client.interpreting = true;
+                client.input_allowance=receipt.input_allowance.clone();
                 client.active = Some(receipt.clone());
             }
             if client.latest == receipt.token
@@ -657,34 +664,44 @@ unsafe extern "C" fn selected(view: Id, _: Sel) -> Range {
     )
 }
 unsafe extern "C" fn valid(_: Id, _: Sel) -> Id {
-    unsafe { array(&[]) }
+    unsafe { array(&[NSUnderlineStyleAttributeName]) }
 }
 unsafe extern "C" fn unmark(view: Id, _: Sel) {
     change(view, Operation::Unmark);
 }
 unsafe extern "C" fn insert(view: Id, _: Sel, value: Id, replacement: Range) {
+    let allowance=CLIENTS.with(|clients|clients.borrow().get(&(view as usize)).and_then(|client|client.input_allowance.clone()));
+    let length=unsafe{native_attributed_length(value)};
+    let payload=match allowance.as_ref().and_then(|allowance|length.and_then(|(length,_)|crate::native_input_allowance::InputAllowance::payload_capacity(length,false)).and_then(|bytes|allowance.claim(bytes).ok())){
+        Some(payload)=>payload,None=>{invalid(view,"native committed input allowance unavailable");return}
+    };
     match (
         unsafe { attributed_units(value) },
         replacement_range(replacement),
     ) {
-        (Some(text), Ok(replacement)) => change(view, Operation::Commit { text, replacement }),
+        (Some(text), Ok(replacement)) => change_owned(view, Operation::Commit { text, replacement },Some(payload)),
         _ => invalid(view, "invalid native committed text or replacement range"),
     }
 }
 unsafe extern "C" fn mark(view: Id, _: Sel, value: Id, selection: Range, replacement: Range) {
+    let allowance=CLIENTS.with(|clients|clients.borrow().get(&(view as usize)).and_then(|client|client.input_allowance.clone()));
+    let length=unsafe{native_attributed_length(value)};
+    let payload=match allowance.as_ref().and_then(|allowance|length.and_then(|(length,attributed)|crate::native_input_allowance::InputAllowance::payload_capacity(length,attributed)).and_then(|bytes|allowance.claim(bytes).ok())){
+        Some(payload)=>payload,None=>{invalid(view,"native marked input allowance unavailable");return}
+    };
     match (
         unsafe { attributed_units(value) },
         text_range(selection),
         replacement_range(replacement),
     ) {
-        (Some(text), Some(selected), Ok(replacement)) => change(
-            view,
-            Operation::SetMarked {
-                text,
-                selected,
-                replacement,
-            },
-        ),
+        (Some(text), Some(selected), Ok(replacement)) => {
+            if text.len()>1024*1024 { invalid(view,"native marked text limit");return }
+            match unsafe { native_marked_formats(value,text.len(),payload) } {
+                Ok((Some(formats),payload)) => change_owned(view,Operation::SetMarkedWithFormats{text,selected,replacement,formats},Some(payload)),
+                Ok((None,payload)) => change_owned(view,Operation::SetMarked{text,selected,replacement},Some(payload)),
+                Err(message) => invalid(view,message),
+            }
+        }
         _ => invalid(view, "invalid native marked text or replacement range"),
     }
 }
@@ -1012,5 +1029,74 @@ mod tests {
                 length: 3
             })
         );
+    }
+}
+
+// AppKit exported key, not an authored key string or guessed default.
+#[link(name="AppKit",kind="framework")]
+unsafe extern "C" { static NSUnderlineStyleAttributeName: Id; }
+unsafe fn native_marked_formats(value:Id,text_len:usize,lease:crate::native_input_allowance::InputPayloadLease)->Result<(Option<Vec<oryn_js::composition::NativeTextFormat>>,crate::native_input_allowance::InputPayloadLease),&'static str>{
+    let check:unsafe extern "C" fn(Id,Sel,Id)->i8=unsafe{std::mem::transmute(objc_msgSend as *const ())};
+    if value.is_null() || unsafe{check(value,sel("isKindOfClass:"),class("NSAttributedString"))}==0{return Ok((None,lease))}
+    let attribute:unsafe extern "C" fn(Id,Sel,Id,usize,*mut Range)->Id=unsafe{std::mem::transmute(objc_msgSend as *const ())};
+    let integer:unsafe extern "C" fn(Id,Sel)->isize=unsafe{std::mem::transmute(objc_msgSend as *const ())};
+    let mut result=Vec::new();
+    result.try_reserve_exact(text_len).map_err(|_|"native underline allocation failed")?;
+    if result.capacity()>text_len{return Err("native underline capacity overshoot")}
+    let mut index=0;let mut supplied=false;
+    while index<text_len {
+        let mut range=Range{location:0,length:0};
+        let number=unsafe{attribute(value,sel("attribute:atIndex:effectiveRange:"),NSUnderlineStyleAttributeName,index,&mut range)};
+        let end=range.location.checked_add(range.length).ok_or("native attribute range overflow")?;
+        if range.length==0||range.location>index||end<=index||end>text_len{return Err("native attribute range unavailable")}
+        if !number.is_null(){
+            supplied=true;
+            if unsafe{check(number,sel("isKindOfClass:"),class("NSNumber"))}==0{return Err("native underline attribute is not NSNumber")}
+            let bits=u32::try_from(unsafe{integer(number,sel("integerValue"))}).map_err(|_|"native underline bits overflow")?;
+            let range=text_range(range).ok_or("native attribute range overflow")?;
+            let format=oryn_js::composition::NativeTextFormat::from_cocoa_underline(range,bits).ok_or("native underline pattern unsupported")?;
+            // One effective run per UTF16 unit is an upper bound established by
+            // the existing marked-text limit; reserve before this Vec grows.
+            if result.len()==result.capacity(){return Err("native underline capacity exhausted")}
+            result.push(format);
+        }
+        index=end;
+    }
+    Ok((supplied.then_some(result),lease))
+}
+
+unsafe fn native_attributed_length(value:Id)->Option<(usize,bool)>{
+    if value.is_null(){return None}
+    let check:unsafe extern "C" fn(Id,Sel,Id)->i8=unsafe{std::mem::transmute(objc_msgSend as *const ())};
+    let attributed=unsafe{check(value,sel("isKindOfClass:"),class("NSAttributedString"))}!=0;
+    if !attributed && unsafe{check(value,sel("isKindOfClass:"),class("NSString"))}==0{return None}
+    let length:unsafe extern "C" fn(Id,Sel)->usize=unsafe{std::mem::transmute(objc_msgSend as *const ())};
+    let length=unsafe{length(value,sel("length"))};
+    (length<=1024*1024).then_some((length,attributed))
+}
+
+#[cfg(test)]
+mod native_attribute_controls {
+    use super::*;
+    #[test]
+    fn cocoa_parser_reads_actual_effective_ranges_without_default_underlines(){
+        unsafe {
+            let pool=object(class("NSAutoreleasePool"),"new");
+            let text=string("abc");
+            let owner=std::sync::Arc::new(crate::native_input_allowance::InputAllowance::new(4096,std::sync::Arc::new(||false),std::sync::Arc::new(())));
+            let plain=native_marked_formats(text,3,owner.claim(1024).unwrap()).unwrap();assert!(plain.0.is_none());drop(plain);
+            let attributed=object_arg(object(class("NSMutableAttributedString"),"alloc"),"initWithString:",text);
+            let number:unsafe extern "C" fn(Id,Sel,isize)->Id=std::mem::transmute(objc_msgSend as *const ());
+            let add:unsafe extern "C" fn(Id,Sel,Id,Id,Range)=std::mem::transmute(objc_msgSend as *const ());
+            add(attributed,sel("addAttribute:value:range:"),NSUnderlineStyleAttributeName,number(class("NSNumber"),sel("numberWithInteger:"),0x102),Range{location:1,length:2});
+            let (formats,lease)=native_marked_formats(attributed,3,owner.claim(1024).unwrap()).unwrap();
+            let formats=formats.unwrap();assert_eq!(formats.len(),1);assert_eq!(formats[0].range,TextRange{start:1,length:2});
+            assert_eq!(formats[0].style,oryn_js::composition::NativeUnderlineStyle::Dotted);
+            assert_eq!(formats[0].thickness,oryn_js::composition::NativeUnderlineThickness::Thick);
+            drop(lease);
+            add(attributed,sel("addAttribute:value:range:"),NSUnderlineStyleAttributeName,number(class("NSNumber"),sel("numberWithInteger:"),9),Range{location:1,length:2});
+            assert!(native_marked_formats(attributed,3,owner.claim(1024).unwrap()).is_err());
+            void(attributed,"release");void(pool,"drain");
+        }
     }
 }

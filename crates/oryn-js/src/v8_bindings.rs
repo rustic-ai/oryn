@@ -2754,6 +2754,7 @@ pub struct V8BindingState {
     document: Cell<NodeId>,
     document_generation: Cell<u64>,
     document_stream_epoch: Cell<u64>,
+    native_input_identity: RefCell<Option<std::sync::Arc<NativeInputIdentity>>>,
     // Stable document capability identity; document.open only replaces input.
     document_authority_epoch: Cell<u64>,
     closed_document_stream: Cell<Option<(u64, u64)>>,
@@ -3840,6 +3841,7 @@ impl V8BindingState {
 
     /// Retire execution services without destroying detached DOM wrappers.
     pub fn retire_execution(&self) {
+        if let Some(identity)=self.native_input_identity.borrow().as_ref(){identity.retired.store(true,std::sync::atomic::Ordering::Release);}
         // Extract before cancellation can run native cleanup/reenter ownership.
         let support = { self.native_support_custody.borrow_mut().take() };
         if let Some(support) = support { support.retire(); }
@@ -5817,6 +5819,7 @@ impl V8BindingState {
         native_drag_image::clear(self, None);
         custom_elements::clear_form_restoration(self);
         self.document_stream_epoch.set(epoch);
+        if let Some(identity)=self.native_input_identity.borrow().as_ref(){identity.stream.store(epoch,std::sync::atomic::Ordering::Release);}
         self.document_completely_loaded.set(false);
         navigation_api::retire_parser_publications(self);
         self.document_load_stopped.set(false);
@@ -5929,6 +5932,10 @@ impl V8BindingState {
         // document changes, so retained Documents cannot alias the new tree.
         self.document.set(document);
         self.document_generation.set(generation);
+        // Replacement never revives any original-document allowance. A later
+        // deferred native key lazily installs a fresh admitted identity mirror.
+        let obsolete_input_identity=self.native_input_identity.borrow_mut().take();
+        drop(obsolete_input_identity);
         *self.resource_timing.borrow_mut() = resource_timing::State::default();
         *self.performance_observers.borrow_mut() = Default::default();
         self.document_authority_epoch.set(0);
@@ -76451,5 +76458,51 @@ mod executable_checkpoint_pending_tests {
             panic!("stream record")
         };
         assert!(stream.waiting.is_empty());
+    }
+}
+
+// Atomic mirror of existing document identity; no transferable allocation API.
+struct NativeInputIdentity {
+    generation:std::sync::atomic::AtomicU64,
+    stream:std::sync::atomic::AtomicU64,
+    retired:std::sync::atomic::AtomicBool,
+    _lease:std::sync::Arc<dyn Send+Sync>,
+}
+impl NativeInputIdentity {
+    fn new(generation:u64,lease:std::sync::Arc<dyn Send+Sync>)->Self{Self{generation:std::sync::atomic::AtomicU64::new(generation),stream:std::sync::atomic::AtomicU64::new(0),retired:std::sync::atomic::AtomicBool::new(false),_lease:lease}}
+}
+#[repr(C)]
+struct NativeArcCharge<T>{strong:std::sync::atomic::AtomicUsize,weak:std::sync::atomic::AtomicUsize,payload:T}
+fn cancellation_arc_bytes<F>(callback:&F)->Option<usize>{
+    let captures=std::alloc::Layout::for_value(callback).extend(std::alloc::Layout::new::<std::sync::Arc<dyn Send+Sync>>()).ok()?.0.pad_to_align();
+    Some(std::alloc::Layout::new::<NativeArcCharge<()>>().extend(captures).ok()?.0.pad_to_align().size())
+}
+impl V8BindingState {
+    fn native_input_cancellation(&self,scope:&mut v8::PinScope)->Result<std::sync::Arc<dyn Fn()->bool+Send+Sync>,V8BindingError>{
+        let existing={self.native_input_identity.borrow().clone()};
+        let identity=if let Some(identity)=existing{identity}else{
+            let _entry=self.enter_retained_allocation(scope)?;
+            let allocation=self.retained_allocation.borrow().clone().ok_or(V8BindingError::Allocation("native input identity admission"))?;
+            let generation=self.document_generation();let stream=self.document_stream_epoch();
+            let bytes=std::mem::size_of::<NativeArcCharge<NativeInputIdentity>>();
+            let lease=allocation.reserve(bytes).map_err(V8BindingError::EventCallback)?;
+            if self.execution_retired()||self.document_generation()!=generation||self.document_stream_epoch()!=stream{return Err(V8BindingError::Allocation("native input identity retired"))}
+            let existing={self.native_input_identity.borrow().clone()};
+            if let Some(identity)=existing{drop(lease);identity}else{
+                let identity=std::sync::Arc::new(NativeInputIdentity::new(generation,lease));identity.stream.store(stream,std::sync::atomic::Ordering::Release);
+                *self.native_input_identity.borrow_mut()=Some(identity.clone());identity
+            }
+        };
+        let generation=self.document_generation();let stream=self.document_stream_epoch();
+        let callback=move||{
+            use std::sync::atomic::Ordering;
+            identity.retired.load(Ordering::Acquire)||identity.generation.load(Ordering::Acquire)!=generation||identity.stream.load(Ordering::Acquire)!=stream
+        };
+        let _entry=self.enter_retained_allocation(scope)?;
+        let allocation=self.retained_allocation.borrow().clone().ok_or(V8BindingError::Allocation("native input cancellation admission"))?;
+        let bytes=cancellation_arc_bytes(&callback).ok_or(V8BindingError::Allocation("native input cancellation layout"))?;
+        let lease=allocation.reserve(bytes).map_err(V8BindingError::EventCallback)?;
+        if self.execution_retired()||self.document_generation()!=generation||self.document_stream_epoch()!=stream{return Err(V8BindingError::Allocation("native input cancellation retired"))}
+        Ok(std::sync::Arc::new(move||{let _custody=&lease;callback()}))
     }
 }

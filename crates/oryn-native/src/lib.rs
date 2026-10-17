@@ -57,6 +57,9 @@ pub mod challenge;
 pub mod execution_placement;
 pub(crate) mod http_cleanup_custody;
 pub(crate) mod keepalive;
+pub(crate) mod native_input_allowance;
+#[doc(hidden)]
+pub mod owned_action_request;
 pub(crate) mod keepalive_drain;
 mod local_resource_response;
 pub mod navigation_control;
