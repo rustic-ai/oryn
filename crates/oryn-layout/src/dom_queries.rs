@@ -482,6 +482,17 @@ pub fn query(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn part_language_pseudo_uses_native_selector_grammar_and_serialization() {
+        for (selector, serialized) in [("::part(foo):lang(en)", "::part(foo):lang(\"en\")"), ("::part(foo):lang(en, fr)", "::part(foo):lang(\"en\", \"fr\")"), (":lang(en)::part(foo)", ":lang(\"en\")::part(foo)"), ("::part(foo):dir(ltr)", "::part(foo):dir(ltr)")] {
+            assert_eq!(crate::canonicalize_selector(selector).unwrap(), serialized);
+            let dom = DomRuntime::new();
+            assert!(query(&dom, dom.document(), selector, SelectorOperation::All, &BTreeMap::new()).unwrap().is_empty());
+        }
+        for selector in ["::part(foo):lang()", "::part(foo):lang(42)", "::part(foo):has(li)", "::part(foo) + ::part(bar)"] {
+            assert!(crate::canonicalize_selector(selector).is_err(), "{selector}");
+        }
+    }
     use super::*;
 
     #[test]

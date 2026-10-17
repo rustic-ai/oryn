@@ -15664,13 +15664,20 @@ mod tests {
             },
         );
         input.shadow_trees.node_scopes.insert(2, 100);
+        // Language after ::part evaluates the exported element, not its host.
+        input.nodes[0].attributes.insert("lang".into(), "de".into());
+        input.nodes[1].attributes.insert("lang".into(), "fr-CA".into());
+        input.stylesheets.push("my-element::part(inner):lang(fr) { color: green } my-element::part(inner):lang(de) { color: red }".into());
         let output = compute(&input, &LayoutLimits::default()).expect("layout");
+        assert_eq!(output.computed_styles[&2]["color"], "rgb(0, 128, 0)");
         assert_eq!(
             output.computed_styles[&2]["background-color"],
             "rgb(0, 0, 255)"
         );
         input.nodes[1].attributes.insert("dir".into(), "ltr".into());
+        input.nodes[1].attributes.insert("lang".into(), "de".into());
         let ltr = compute(&input, &LayoutLimits::default()).expect("LTR shadow layout");
+        assert_eq!(ltr.computed_styles[&2]["color"], "rgb(255, 0, 0)");
         assert_eq!(
             ltr.computed_styles[&2]["background-color"],
             "rgb(255, 0, 0)"
