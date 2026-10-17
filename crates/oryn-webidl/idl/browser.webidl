@@ -4774,3 +4774,63 @@ interface CharacterBoundsUpdateEvent : Event {
   readonly attribute unsigned long rangeStart;
   readonly attribute unsigned long rangeEnd;
 };
+
+enum FontFaceLoadStatus { "unloaded", "loading", "loaded", "error" };
+enum FontFaceSetLoadStatus { "loading", "loaded" };
+dictionary FontFaceDescriptors {
+  DOMString style = "normal";
+  DOMString weight = "normal";
+  DOMString stretch = "normal";
+  DOMString unicodeRange = "U+0-10FFFF";
+  DOMString featureSettings = "normal";
+  DOMString variationSettings = "normal";
+  DOMString display = "auto";
+  DOMString ascentOverride = "normal";
+  DOMString descentOverride = "normal";
+  DOMString lineGapOverride = "normal";
+};
+[Exposed=(Window,Worker)]
+interface FontFace {
+  constructor(DOMString family, (DOMString or BufferSource) source, optional FontFaceDescriptors descriptors = {});
+  attribute DOMString family;
+  attribute DOMString style;
+  attribute DOMString weight;
+  attribute DOMString stretch;
+  attribute DOMString unicodeRange;
+  attribute DOMString featureSettings;
+  attribute DOMString variationSettings;
+  attribute DOMString display;
+  attribute DOMString ascentOverride;
+  attribute DOMString descentOverride;
+  attribute DOMString lineGapOverride;
+  readonly attribute FontFaceLoadStatus status;
+  Promise<FontFace> load();
+  readonly attribute Promise<FontFace> loaded;
+};
+[Exposed=(Window,Worker)]
+interface FontFaceSet : EventTarget {
+  setlike<FontFace>;
+  FontFaceSet add(FontFace font);
+  boolean delete(FontFace font);
+  undefined clear();
+  attribute EventHandler onloading;
+  attribute EventHandler onloadingdone;
+  attribute EventHandler onloadingerror;
+  Promise<sequence<FontFace>> load(DOMString font, optional DOMString text = " ");
+  boolean check(DOMString font, optional DOMString text = " ");
+  readonly attribute Promise<FontFaceSet> ready;
+  readonly attribute FontFaceSetLoadStatus status;
+};
+dictionary FontFaceSetLoadEventInit : EventInit {
+  sequence<FontFace> fontfaces = [];
+};
+[Exposed=(Window,Worker)]
+interface FontFaceSetLoadEvent : Event {
+  constructor(DOMString type, optional FontFaceSetLoadEventInit eventInitDict = {});
+  [SameObject] readonly attribute FrozenArray<FontFace> fontfaces;
+};
+interface mixin FontFaceSource {
+  readonly attribute FontFaceSet fonts;
+};
+Document includes FontFaceSource;
+WorkerGlobalScope includes FontFaceSource;

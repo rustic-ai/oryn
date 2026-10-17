@@ -117,6 +117,11 @@ pub enum Member {
         value: TypeDescriptor,
         extended_attributes: Vec<ExtendedAttribute>,
     },
+    Setlike {
+        value: TypeDescriptor,
+        readonly: bool,
+        extended_attributes: Vec<ExtendedAttribute>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,6 +149,7 @@ pub enum ParseError {
     UnsupportedDefinition(String),
 }
 
+include!("setlike_value_type.rs");
 pub fn parse_interface(input: &str) -> Result<Interface, ParseError> {
     let source = strip_line_comments(input);
     let (extended_attributes, source) = take_extended_attributes(source.trim())?;
@@ -169,12 +175,33 @@ pub fn parse_interface(input: &str) -> Result<Interface, ParseError> {
     }
 
     let member_sources = split_top_level(body, ';');
-    let members = member_sources
+    let mut members = member_sources
         .iter()
         .map(|member| member.trim())
         .filter(|member| !member.is_empty())
         .map(parse_member)
         .collect::<Result<Vec<_>, _>>()?;
+    let setlike_count=members.iter().filter(|member|matches!(member,Member::Setlike{..})).count();
+    if setlike_count>1||(setlike_count!=0&&members.iter().any(|member|matches!(member,Member::Iterable{..}))){
+        return Err(ParseError::UnsupportedMember("multiple collection declarations".into()));
+    }
+    let setlike=members.iter().find_map(|member|match member {
+        Member::Setlike{value,readonly,extended_attributes}=>Some((value.clone(),*readonly,extended_attributes.clone())),
+        _=>None,
+    });
+    if let Some((value,readonly,attributes))=setlike {
+        let value_name=idl_setlike_value_name(&value);
+        let mut implied=vec![parse_member("readonly attribute unsigned long size")?,parse_member(&format!("boolean has({value_name} value)"))?];
+        if !readonly{implied.extend([parse_member(&format!("{name} add({value_name} value)"))?,parse_member(&format!("boolean delete({value_name} value)"))?,parse_member("undefined clear()")?]);}
+        for mut implied in implied{
+            let (implied_name,implied_attributes)=match &mut implied{
+                Member::Attribute{name,extended_attributes,..}|Member::Operation{name,extended_attributes,..}=>(name.clone(),extended_attributes),
+                _=>unreachable!("setlike implicit member"),
+            };
+            if members.iter().any(|member|matches!(member,Member::Attribute{name,..}|Member::Operation{name,..} if name==&implied_name)){continue;}
+            *implied_attributes=attributes.clone();members.push(implied);
+        }
+    }
 
     Ok(Interface {
         callback,
@@ -285,6 +312,7 @@ pub fn emit_rust_metadata(interface: &Interface) -> String {
             | Member::Constant { name, .. } => name,
             Member::Constructor { .. } => "constructor",
             Member::Iterable { .. } => "@@iterator",
+            Member::Setlike { .. } => "@@setlike",
         };
         output.push_str(&format!("    {:?},\n", name));
     }
@@ -334,7 +362,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
     let interfaces = merge_partial_interfaces(definitions)?;
     let mut output = String::from(
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
-         pub enum GeneratedMemberKind { Attribute, Operation, Constructor, Constant, Iterable }\n\
+         pub enum GeneratedMemberKind { Attribute, Operation, Constructor, Constant, Iterable, Setlike }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\n\
          pub struct GeneratedMemberId(pub u32);\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
@@ -460,6 +488,9 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
                     None,
                     None,
                     extended_attributes,
+                ),
+                Member::Setlike { readonly, extended_attributes, .. } => (
+                    "@@setlike", "Setlike", 0, *readonly, None, None, extended_attributes,
                 ),
             };
             let indexed_getter = matches!(
@@ -646,6 +677,14 @@ fn parse_member(member: &str) -> Result<Member, ParseError> {
     let (readonly, member) = member
         .strip_prefix("readonly ")
         .map_or((false, member), |rest| (true, rest.trim()));
+
+    if let Some(value) = member.strip_prefix("setlike<").and_then(|rest|rest.strip_suffix('>')) {
+        if value.trim().is_empty()||split_top_level(value, ',').len()!=1
+            ||has_extended_attribute(&extended_attributes,"Static") {
+            return Err(ParseError::UnsupportedMember(member.into()));
+        }
+        return Ok(Member::Setlike { value:parse_type(value.trim())?, readonly, extended_attributes });
+    }
 
     if let Some(arguments) = member
         .strip_prefix("constructor(")
@@ -1237,6 +1276,7 @@ fn rust_constant(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    include!("setlike_controls.rs");
     use super::*;
 
     #[test]
