@@ -2748,9 +2748,6 @@ impl ContextHttpCancellation {
     pub(crate) fn finish(&self) {
         self.ticket.finish_if_not_cancelled();
     }
-    pub(crate) fn finish_support_network_activity(&self) {
-        self.ticket.finish_network_activity();
-    }
 }
 #[cfg(any(test, feature = "v8-host"))]
 pub(crate) struct ContextNetworkReply {
@@ -2930,6 +2927,10 @@ impl ContextFrameResponseLease {
     }
     pub(crate) fn finish(&self) {
         self.ticket.finish_if_not_cancelled();
+    }
+    /// Selected EOF ends IO activity but keeps original Document cancellation.
+    pub(crate) fn finish_support_network_activity(&self) {
+        self.ticket.finish_network_activity();
     }
 }
 #[cfg(any(test, feature = "v8-host"))]
