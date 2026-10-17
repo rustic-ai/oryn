@@ -37811,6 +37811,25 @@ mod tests {
 
 #[cfg(feature="v8-host")]
 #[tokio::test(flavor="current_thread")]
+async fn native_collapsed_link_typing_preserves_original_edge_and_interior_behavior() {
+    let context=Browser::new().new_context();let page=context.new_page();
+    page.load_html("https://editing.example.test/collapsed-link","<!doctype html><body>").await.unwrap();
+    run_editing_matrix(&page,24,r#"(function*(){let count=0;
+      for(const parent of ['', 'b'])for(const child of ['', 'i'])for(const method of ['collapse','range'])for(const offset of [0,2,3]){
+        const po=parent?'<'+parent+'>':'',pc=parent?'</'+parent+'>':'',co=child?'<'+child+'>':'',cc=child?'</'+child+'>':'';
+        document.body.innerHTML='<div contenteditable><p>'+po+'<a href="about:blank">'+co+'abc'+cc+'</a>'+pc+'</p></div>';
+        const host=document.body.firstChild,link=host.querySelector('a'),text=child?link.firstChild.firstChild:link.firstChild,s=getSelection();host.focus();
+        if(method==='collapse')s.collapse(text,offset);else{const range=document.createRange();range.setStart(text,offset);range.collapse(true);s.removeAllRanges();s.addRange(range);}
+        document.execCommand('insertText',false,'X');document.execCommand('insertText',false,'Y');
+        const expected=offset===2?'<p>'+po+'<a href="about:blank">'+co+'abXYc'+cc+'</a>'+pc+'</p>':
+          '<p>'+po+co+(offset===0?'XY<a href="about:blank">abc</a>':'<a href="about:blank">abc</a>XY')+cc+pc+'</p>';
+        if(host.innerHTML!==expected)throw Error(JSON.stringify({parent,child,method,offset,expected,actual:host.innerHTML}));
+        if(!s.isCollapsed||s.anchorNode.ownerDocument!==document)throw Error('collapsed caret owner');yield ++count;
+      }return String(count);})()"#).await;
+}
+
+#[cfg(feature="v8-host")]
+#[tokio::test(flavor="current_thread")]
 async fn native_link_deletion_preserves_original_inline_and_cross_link_projection() {
     let context=Browser::new().new_context();let page=context.new_page();
     page.load_html("https://editing.example.test/link-matrix","<!doctype html><body>").await.unwrap();

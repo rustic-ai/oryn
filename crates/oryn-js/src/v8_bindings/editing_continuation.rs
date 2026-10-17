@@ -1966,6 +1966,30 @@ mod tests {
     }
 
     #[test]
+    fn collapsed_link_typing_stops_after_author_range_mutation_during_metadata_demand() {
+        super::super::tests::initialize_v8();
+        let mut isolate=v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let realm=v8::Context::new(scope,Default::default());
+        let scope=&mut v8::ContextScope::new(scope,realm);
+        let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<body><main id=host contenteditable><a id=link href=x>abc</a><span id=target>yz</span></main></body>").into_runtime().unwrap()));
+        let state=install_generated_bindings(scope,realm,dom,RealmId(0),1).unwrap();
+        assert!(eval(scope,"globalThis.selected=document.createRange();selected.setStart(document.getElementById('link').firstChild,0);selected.collapse(true);getSelection().removeAllRanges();getSelection().addRange(selected);true"));
+        let mut job=Continuation::new(state.clone(),"insertText".into(),move|context|
+            Box::pin(async move { editing_algorithms::insert_editing_text(&context,"X").await })).unwrap().unwrap();
+        // Poll the actual native future to its own metadata request, then let
+        // author Range API mutation run before the owner serves that request.
+        let waker=Waker::noop();let mut poll=PollContext::from_waker(waker);
+        assert!(matches!(job.future.as_mut().unwrap().as_mut().poll(&mut poll),Poll::Pending));
+        assert!(matches!(job.context.pending.borrow().as_ref().map(|request|&request.operation),Some(Operation::RetainMetadata{..})));
+        let revision=state.selection_revision.get();
+        assert!(eval(scope,"selected.setStart(document.getElementById('target').firstChild,1);selected.collapse(true);true"));
+        assert_eq!(state.selection_revision.get(),revision,"Range mutation need not change Selection revision");
+        assert!(matches!(job.poll(scope),Ok(Some(_))));
+        assert!(eval(scope,"document.getElementById('host').innerHTML==='<a id=\"link\" href=\"x\">abc</a><span id=\"target\">yz</span>'&&getSelection().anchorNode===document.getElementById('target').firstChild&&getSelection().anchorOffset===1"));
+    }
+
+    #[test]
     fn private_marker_restore_does_not_overwrite_mutated_endpoints() {
         super::super::tests::initialize_v8();
         let mut isolate=v8::Isolate::new(Default::default());

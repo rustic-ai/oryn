@@ -246,6 +246,23 @@ mod frame_response_stream;
 #[cfg(unix)]
 #[path = "support_native_document.rs"]
 mod support_native_document;
+#[cfg(all(test,unix))]
+impl RustExecutableDocument {
+    pub(crate) fn support_test_owner()->(Self,Rc<oryn_js::v8_bindings::V8BindingState>,oryn_js::worker_wire::Creator){
+        let page=Self::load_with_environment("<iframe srcdoc='<p>native child</p>'></iframe>",&BTreeMap::new(),None,Some(Url::parse("https://child.test/").unwrap())).unwrap();
+        let realm=*page.frame_realms.keys().next().unwrap();
+        let state=page.agent.host.retained_binding_state(realm).unwrap();
+        let creator=page.agent.host.native_creator_for_realm(realm).unwrap();
+        (page,state,creator)
+    }
+    pub(crate) fn support_test_stream(owner:&Rc<oryn_js::v8_bindings::V8BindingState>,creator:oryn_js::worker_wire::Creator,client:crate::context_service::SharedContextClient,page:oryn_common::v3::PageId,id:u64)->Result<crate::host::DocumentStream,HostError>{
+        let lease=client.reserve_frame_response(page).map_err(|error|HostError::Execution(error.to_string()))?;
+        let body=frame_response_stream::FrameResponseBody{progress:None,client,page_id:page,id,lease};
+        let budget=Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let custody=support_native_document::NativeSupportDocument::install(owner,body.clone(),creator.clone(),&budget)?;
+        body.decoded(creator,Some("text/html; charset=utf-8".into()),None,&budget,None,Some((owner.clone(),custody)))
+    }
+}
 #[cfg(unix)]
 include!("support_frame_selection.rs");
 #[path = "standalone_frame_resource.rs"]

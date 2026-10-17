@@ -20555,6 +20555,154 @@ mod document_resource_authority_tests {
         assert!(!called.get());
     }
 
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn support_actual_ipc_decoder_terminal_and_fresh_retirement() {
+        // Explicit pinned input root: absence is failure, never a skipped test
+        // or a test-only descriptor issuer. from_fixture checks every raw hash.
+        let export = std::path::PathBuf::from(std::env::var_os("ORYN_PINNED_SUPPORT_EXPORT")
+            .expect("set ORYN_PINNED_SUPPORT_EXPORT to the pinned WPT export"));
+        let read = |path: &str| std::fs::read(export.join(path.trim_start_matches('/'))).unwrap();
+        let parent_bytes = read(crate::support_descriptor::PARENT);
+        let child_bytes = read(crate::support_descriptor::CHILD);
+        let imports: [Vec<u8>; 6] = std::array::from_fn(|index|
+            read(crate::support_descriptor::IMPORTS[index].0));
+        let parent_url = url::Url::parse("https://top.test/IndexedDB/idb-partitioned-coverage.sub.html").unwrap();
+        let child_url = url::Url::parse("https://child.test/IndexedDB/resources/idb-partitioned-coverage-iframe.html").unwrap();
+        let hash = "9b102136523d37559a98e9a101b6c7f4f379f43f01160f840a8248e51fd8a8d7";
+        let descriptor_hash: [u8; 32] = std::array::from_fn(|index|
+            u8::from_str_radix(&hash[index * 2..index * 2 + 2], 16).unwrap());
+        let descriptor = crate::support_descriptor::PinnedSupportDescriptor::from_fixture(
+            [1; 32], descriptor_hash, &parent_url, &child_url,
+            crate::support_descriptor::REVISION, &parent_bytes, &child_bytes,
+            std::array::from_fn(|index| imports[index].as_slice())).unwrap();
+        let (context, page, service, _) = fixture();
+        let (_native_document,native_owner,child)=crate::executable::RustExecutableDocument::support_test_owner();
+        let Creator::Window{target:WindowTarget::Frame(actual_frame),document_generation:actual_generation,stream_epoch:actual_epoch}=&child else{panic!("actual native child")};
+        context.handle_message_wire(page,MessageRequest::RegisterWindow{frame:actual_frame.clone(),document_generation:*actual_generation,stream_epoch:*actual_epoch,origin:"https://child.test".into(),inherit_origin:None}).unwrap();
+        let policy=context.prepare_frame_worker_policy(page,"https://child.test/",&[],"").unwrap();
+        context.bind_frame_worker_policy(page,actual_frame.clone(),*actual_generation,*actual_epoch,"https://child.test/",&policy).unwrap();
+        let root = Creator::Window { target: WindowTarget::Root, document_generation: 1, stream_epoch: 0 };
+        let Creator::Window { target: WindowTarget::Frame(frame), .. } = &child else { panic!("child") };
+        context.register_activation_parent(crate::runtime::worker_service::ActivationParentInputs {
+            page, frame: frame.clone(), generation:*actual_generation, epoch:*actual_epoch,
+            parent: WindowTarget::Root, parent_generation: 1, parent_epoch: 0,
+        }).unwrap();
+        let original = Mutex::new(Some(child.clone()));
+        let (pe, ce) = context.with_support_original_child(page, &root, &original,
+            |_, pe, ce| Ok((pe, ce))).unwrap();
+        let make = |id: u64| {
+            let mut proof = crate::support_broker_occurrence::BrokerOccurrence::start(
+                descriptor, page.0, id, id, &root, pe, parent_url.as_str(), child_url.as_str()).unwrap();
+            assert!(proof.bind(page.0, &root, pe, &child, ce));
+            let (sender, events) = tokio::sync::mpsc::channel(2);
+            sender.try_send(NetworkEvent::Chunk { request_id: id, bytes: child_bytes.clone().into() }).unwrap();
+            sender.try_send(NetworkEvent::Complete { request_id: id, encoded_body_size: Some(child_bytes.len() as u64) }).unwrap();
+            Arc::new(HttpStreamEntry {
+                support: Mutex::new(Some(proof)), keepalive_context: None, keepalive_drain: None,
+                page_id: page, creator: Mutex::new(Some(child.clone())),
+                prepared_frame_policy: None, frame_deadline: None, request_id: id, cleanup: None,
+                state: Mutex::new(HttpStreamState {
+                    preload: None, operation: Some(NetworkOperation {
+                        body_demand_pending: Default::default(), prefetched: Default::default(),
+                        request_id: id, events, demand: None,
+                    }), current: bytes::Bytes::new(), offset: 0, bytes_read: 0,
+                    content_length: Some(child_bytes.len()),
+                }),
+            })
+        };
+        let service=Arc::new(service);
+        let(worker,parent)=std::os::unix::net::UnixStream::pair().unwrap();let shutdown=parent.try_clone().unwrap();let server_service=service.clone();
+        let server=std::thread::spawn(move||serve_context_transport(parent,server_service));
+        struct Shutdown(std::os::unix::net::UnixStream,Option<std::thread::JoinHandle<Result<(),RuntimeError>>>);
+        impl Drop for Shutdown{fn drop(&mut self){let _=self.0.shutdown(std::net::Shutdown::Both);if let Some(server)=self.1.take(){let _=server.join();}}}
+        let _shutdown=Shutdown(shutdown,Some(server));
+        let client=crate::context_service::SharedContextClient::new(IpcContextClient::new(worker));let id=1;
+        service.socket_lifecycle.admit_http(id,make(id)).unwrap();
+        for(index,(path,_))in crate::support_descriptor::IMPORTS.iter().enumerate(){service.record_support_import(page,&child,&child_url.join(path).unwrap(),&imports[index]).unwrap();}
+        let mut stream=crate::executable::RustExecutableDocument::support_test_stream(&native_owner,child.clone(),client,page,id).unwrap();
+        assert!(matches!(stream.chunks.poll_next(),std::task::Poll::Pending));
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(3);
+        let terminal=loop{match stream.chunks.poll_next(){std::task::Poll::Pending=>{assert!(std::time::Instant::now()<deadline);std::thread::yield_now();},std::task::Poll::Ready(value)=>break value}};
+        assert!(matches!(terminal,Some(Ok(_))),"production decoder consumes original bytes and EOF");
+        assert!(matches!(stream.chunks.poll_next(),std::task::Poll::Ready(None)));
+        assert!(context.parent_support_snapshot(page).unwrap().is_some());
+        drop(stream);service.socket_lifecycle.release_result(Some(&child),Some(id),None).unwrap();
+    }
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn support_production_decoder_retirement_while_http_pending() {
+        // Explicit pinned input root: absence is failure, never a skipped test
+        // or a test-only descriptor issuer. from_fixture checks every raw hash.
+        let export = std::path::PathBuf::from(std::env::var_os("ORYN_PINNED_SUPPORT_EXPORT")
+            .expect("set ORYN_PINNED_SUPPORT_EXPORT to the pinned WPT export"));
+        let read = |path: &str| std::fs::read(export.join(path.trim_start_matches('/'))).unwrap();
+        let parent_bytes = read(crate::support_descriptor::PARENT);
+        let child_bytes = read(crate::support_descriptor::CHILD);
+        let imports: [Vec<u8>; 6] = std::array::from_fn(|index|
+            read(crate::support_descriptor::IMPORTS[index].0));
+        let parent_url = url::Url::parse("https://top.test/IndexedDB/idb-partitioned-coverage.sub.html").unwrap();
+        let child_url = url::Url::parse("https://child.test/IndexedDB/resources/idb-partitioned-coverage-iframe.html").unwrap();
+        let hash = "9b102136523d37559a98e9a101b6c7f4f379f43f01160f840a8248e51fd8a8d7";
+        let descriptor_hash: [u8; 32] = std::array::from_fn(|index|
+            u8::from_str_radix(&hash[index * 2..index * 2 + 2], 16).unwrap());
+        let descriptor = crate::support_descriptor::PinnedSupportDescriptor::from_fixture(
+            [1; 32], descriptor_hash, &parent_url, &child_url,
+            crate::support_descriptor::REVISION, &parent_bytes, &child_bytes,
+            std::array::from_fn(|index| imports[index].as_slice())).unwrap();
+        let (context, page, service, _) = fixture();
+        let (_native_document,native_owner,child)=crate::executable::RustExecutableDocument::support_test_owner();
+        let Creator::Window{target:WindowTarget::Frame(actual_frame),document_generation:actual_generation,stream_epoch:actual_epoch}=&child else{panic!("actual native child")};
+        context.handle_message_wire(page,MessageRequest::RegisterWindow{frame:actual_frame.clone(),document_generation:*actual_generation,stream_epoch:*actual_epoch,origin:"https://child.test".into(),inherit_origin:None}).unwrap();
+        let policy=context.prepare_frame_worker_policy(page,"https://child.test/",&[],"").unwrap();
+        context.bind_frame_worker_policy(page,actual_frame.clone(),*actual_generation,*actual_epoch,"https://child.test/",&policy).unwrap();
+        let root = Creator::Window { target: WindowTarget::Root, document_generation: 1, stream_epoch: 0 };
+        let Creator::Window { target: WindowTarget::Frame(frame), .. } = &child else { panic!("child") };
+        context.register_activation_parent(crate::runtime::worker_service::ActivationParentInputs {
+            page, frame: frame.clone(), generation:*actual_generation, epoch:*actual_epoch,
+            parent: WindowTarget::Root, parent_generation: 1, parent_epoch: 0,
+        }).unwrap();
+        let original = Mutex::new(Some(child.clone()));
+        let (pe, ce) = context.with_support_original_child(page, &root, &original,
+            |_, pe, ce| Ok((pe, ce))).unwrap();
+        let make = |id: u64| {
+            let mut proof = crate::support_broker_occurrence::BrokerOccurrence::start(
+                descriptor, page.0, id, id, &root, pe, parent_url.as_str(), child_url.as_str()).unwrap();
+            assert!(proof.bind(page.0, &root, pe, &child, ce));
+            let (sender, events) = tokio::sync::mpsc::channel(2);
+            sender.try_send(NetworkEvent::Chunk { request_id: id, bytes: child_bytes.clone().into() }).unwrap();
+            sender.try_send(NetworkEvent::Complete { request_id: id, encoded_body_size: Some(child_bytes.len() as u64) }).unwrap();
+            Arc::new(HttpStreamEntry {
+                support: Mutex::new(Some(proof)), keepalive_context: None, keepalive_drain: None,
+                page_id: page, creator: Mutex::new(Some(child.clone())),
+                prepared_frame_policy: None, frame_deadline: None, request_id: id, cleanup: None,
+                state: Mutex::new(HttpStreamState {
+                    preload: None, operation: Some(NetworkOperation {
+                        body_demand_pending: Default::default(), prefetched: Default::default(),
+                        request_id: id, events, demand: None,
+                    }), current: bytes::Bytes::new(), offset: 0, bytes_read: 0,
+                    content_length: Some(child_bytes.len()),
+                }),
+            })
+        };
+        let service=Arc::new(service);
+        let(worker,parent)=std::os::unix::net::UnixStream::pair().unwrap();let shutdown=parent.try_clone().unwrap();let server_service=service.clone();
+        let server=std::thread::spawn(move||serve_context_transport(parent,server_service));
+        struct Shutdown(std::os::unix::net::UnixStream,Option<std::thread::JoinHandle<Result<(),RuntimeError>>>);
+        impl Drop for Shutdown{fn drop(&mut self){let _=self.0.shutdown(std::net::Shutdown::Both);if let Some(server)=self.1.take(){let _=server.join();}}}
+        let _shutdown=Shutdown(shutdown,Some(server));
+        let client=crate::context_service::SharedContextClient::new(IpcContextClient::new(worker));let id=1;
+        service.socket_lifecycle.admit_http(id,make(id)).unwrap();
+        for(index,(path,_))in crate::support_descriptor::IMPORTS.iter().enumerate(){service.record_support_import(page,&child,&child_url.join(path).unwrap(),&imports[index]).unwrap();}
+        let mut stream=crate::executable::RustExecutableDocument::support_test_stream(&native_owner,child.clone(),client,page,id).unwrap();
+        assert!(matches!(stream.chunks.poll_next(),std::task::Poll::Pending));
+        native_owner.retire_execution();
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(3);
+        let terminal=loop{match stream.chunks.poll_next(){std::task::Poll::Pending=>{assert!(std::time::Instant::now()<deadline);std::thread::yield_now();},std::task::Poll::Ready(value)=>break value}};
+        assert!(matches!(terminal,Some(Err(_))),"retired installed owner rejects decoder EOF");
+        assert!(context.parent_support_snapshot(page).unwrap().is_none());
+        drop(stream);service.socket_lifecycle.release_result(Some(&child),Some(id),None).unwrap();
+    }
     #[test]
     fn pinned_support_terminal_occurrences_share_original_http_32_slot_limit() {
         // Explicit pinned input root: absence is failure, never a skipped test

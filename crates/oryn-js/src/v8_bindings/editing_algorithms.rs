@@ -1794,11 +1794,79 @@ async fn normalize_line_start_whitespace(context:&Context,host:NodeId)->Result<(
 }
 // ancestors up to the rendered block, preserving the content on either side.
 
+async fn project_collapsed_link_typing_edge(context: &Context) -> Result<bool, V8BindingError> {
+    let state = &context.state;
+    synchronize_selection_range(state)?;
+    let Some(id) = state.selection_range.get() else { return Ok(true); };
+    let range = state.ranges.borrow().get(&id).cloned().ok_or(V8BindingError::Allocation("link typing range"))?;
+    if range.start_container != range.end_container || range.start_offset != range.end_offset { return Ok(true); }
+    let Some(host) = editing_host(state)? else { return Ok(true); };
+    let (after, capacity, mutation) = {
+        let dom = state.dom.borrow();
+        if !matches!(dom.arena().get(range.start_container)?.kind, NodeKind::Text { .. }) { return Ok(true); }
+        let length = boundary_length(&dom, range.start_container)?;
+        let after = if range.start_offset == 0 { false }
+            else if range.start_offset == length { true } else { return Ok(true); };
+        let mut node = Some(range.start_container); let mut capacity = 0usize;
+        while let Some(current) = node {
+            capacity = capacity.checked_add(1).ok_or(V8BindingError::Allocation("link typing ancestor overflow"))?;
+            node = dom.parent(current)?;
+        }
+        (after, capacity, dom.mutation_cursor())
+    };
+    let revision = state.selection_revision.get();
+    let boundary = state.dom.borrow().boundary_revision();
+    let _metadata = context.retain_metadata(capacity.checked_mul(std::mem::size_of::<NodeId>())
+        .ok_or(V8BindingError::Allocation("link typing metadata overflow"))?).await?;
+    synchronize_selection_range(state)?;
+    if state.selection_range.get() != Some(id) || state.selection_revision.get() != revision
+        || state.dom.borrow().mutation_cursor() != mutation
+        || state.dom.borrow().boundary_revision() != boundary || editing_host(state)? != Some(host) { return Ok(false); }
+    let fresh: RangeRecord = state.dom.borrow().live_range(LiveRangeId(id))?.into();
+    if fresh.start_container != range.start_container || fresh.start_offset != range.start_offset
+        || fresh.end_container != range.end_container || fresh.end_offset != range.end_offset { return Ok(false); }
+    let (link, parent, chain) = {
+        let dom = state.dom.borrow(); let mut node = range.start_container;
+        let mut chain = Vec::new();
+        chain.try_reserve_exact(capacity).map_err(|_|V8BindingError::Allocation("link typing chain"))?;
+        if chain.capacity() != capacity { return Err(V8BindingError::Allocation("link typing capacity overshoot")); }
+        loop {
+            let Some(parent) = dom.parent(node)? else { return Ok(true); };
+            if parent == host || dom.children(parent)? != [node] { return Ok(true); }
+            if dom.is_element(parent, "http://www.w3.org/1999/xhtml", "a") {
+                if dom.arena().get(parent)?.attributes.get_null("href").is_none() { return Ok(true); }
+                let Some(grand) = dom.parent(parent)? else { return Ok(true); };
+                break (parent, grand, chain);
+            }
+            if is_editing_block(&dom, parent)
+                || editing_host_for_node(&dom, Some(parent), state.design_mode_enabled(), state.document_root())? != Some(host) { return Ok(true); }
+            chain.push(parent); node = parent;
+        }
+    };
+    context.lease(link)?; context.lease(parent)?;
+    for node in &chain { context.lease(*node)?; }
+    if !chain.is_empty()
+        && !lift_link_inline_chain(context, link, &chain, range.start_container, host, after).await? { return Ok(false); }
+    synchronize_selection_range(state)?;
+    let dom = state.dom.borrow();
+    if state.selection_range.get() != Some(id) || state.selection_revision.get() != revision
+        || !dom.is_connected(link)? || editing_host(state)? != Some(host)
+        || (chain.is_empty() && dom.parent(link)? != Some(parent)) { return Ok(false); }
+    let (container, offset) = relative_boundary(&dom, link, after)?;
+    drop(dom);
+    let point = BoundaryPoint { container, offset };
+    set_selection_boundaries(state, point, point)?;
+    Ok(true)
+}
+
 pub(super) async fn insert_editing_text(
     context: &Context,
     text: &str,
 ) -> Result<(), V8BindingError> {
     let state: &V8BindingState = &context.state;
+    if !text.is_empty() && !text.starts_with('\n') {
+        if !project_collapsed_link_typing_edge(context).await? { return Ok(()); }
+    }
     let overrides = state.editing_overrides.borrow().clone();
     let units = oryn_dom::dom_string::units(text);
     let mut lines = units
