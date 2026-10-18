@@ -1357,7 +1357,7 @@ mod tests {
             scrollbar_width: Cell::new(0.),
             native_media: Cell::new((false, false)),
         });
-        provider.bind_stylesheet_document_owner(&dom.borrow(),
+        provider.bind_stylesheet_document_owner(&provider.dom.borrow(),
             oryn_js::v8_bindings::BindingStylesheetDocumentOwner {
                 realm: RealmId(0), document, document_generation: 0, stream_epoch: 0,
             }).unwrap();
