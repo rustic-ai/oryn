@@ -1357,6 +1357,10 @@ mod tests {
             scrollbar_width: Cell::new(0.),
             native_media: Cell::new((false, false)),
         });
+        provider.bind_stylesheet_document_owner(&dom.borrow(),
+            oryn_js::v8_bindings::BindingStylesheetDocumentOwner {
+                realm: RealmId(0), document, document_generation: 0, stream_epoch: 0,
+            }).unwrap();
         provider.set_viewport(20., 10.);
         let mut request = Capture {
             css_resources: Vec::new(),

@@ -857,6 +857,7 @@ fn temporal_picker_native_keyboard_constraints_dismissal_and_paint() {
         scrollbar_width: Cell::new(0.),
         native_media: Cell::new((false, false)),
     };
+    bind_input_test_provider(&provider);
     let layout = provider.compute_layout(&BTreeMap::new()).unwrap();
     assert!(
         layout
@@ -965,6 +966,7 @@ fn temporal_picker_pointer_uses_private_boxes_and_rechecks_native_candidates() {
         scrollbar_width: Cell::new(0.),
         native_media: Cell::new((false, false)),
     };
+    bind_input_test_provider(&provider);
     let layout = provider.compute_layout(&BTreeMap::new()).unwrap();
     let rect = layout
         .generated_nodes
@@ -1450,6 +1452,7 @@ fn native_popup_wheel_changes_highlight_without_author_wheel_or_value_commit() {
         scrollbar_width: Cell::new(0.),
         native_media: Cell::new((false, false)),
     };
+    bind_input_test_provider(&provider);
     let paint = provider.compute_layout(&BTreeMap::new()).unwrap();
     let rect = paint
         .generated_nodes
@@ -1704,6 +1707,7 @@ fn select_picker_scroll_has_native_authority_and_cancelable_wheel_default() {
             scrollbar_width: Cell::new(scrollbar),
             native_media: Cell::new((false, false)),
         };
+        bind_input_test_provider(&provider);
         provider
             .compute_layout(&BTreeMap::new())
             .unwrap()
@@ -1892,4 +1896,13 @@ fn standalone_native_activation_propagates_and_consumes_across_frame_tree() {
         &mut page,
         "JSON.stringify(activation)==='[[true,true],[false,false]]'&&root.matches(':open')",
     );
+}
+// These renderer-only controls have an explicit Document but no script realm.
+// Bind that fixture ownership before invoking the native geometry contract.
+fn bind_input_test_provider(provider: &LiveLayoutProvider) {
+    provider.bind_stylesheet_document_owner(&provider.dom.borrow(),
+        oryn_js::v8_bindings::BindingStylesheetDocumentOwner {
+            realm: RealmId(0), document: provider.document,
+            document_generation: 0, stream_epoch: 0,
+        }).unwrap();
 }

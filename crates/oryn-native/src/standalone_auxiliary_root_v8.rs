@@ -185,10 +185,18 @@ fn create_standalone_auxiliary_root<'s>(
             code.as_deref(),
         )
         .map_err(|error| error.to_string())?;
-        state.set_layout_provider(crate::executable::initial_layout_provider(
+        let provider = crate::executable::initial_layout_provider(
             dom.clone(),
             document,
-        ));
+        );
+        provider.bind_stylesheet_document_owner(&dom.borrow(),
+            oryn_js::v8_bindings::BindingStylesheetDocumentOwner {
+                realm,
+                document,
+                document_generation: state.document_generation(),
+                stream_epoch: state.document_stream_epoch(),
+            })?;
+        state.set_layout_provider(provider);
         state.set_inherited_base_url(Some(base));
         state
             .set_document_referrer_policy(&referrer)
