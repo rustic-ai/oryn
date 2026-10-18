@@ -244,10 +244,7 @@ mod tests {
   return true;
 })()
 "####).unwrap();
-        let result = v8::Script::compile(scope, source, None)
-            .unwrap()
-            .run(scope)
-            .unwrap();
+        let result = super::super::test_eval::run(scope, source);
         assert!(result.is_true());
     }
 }

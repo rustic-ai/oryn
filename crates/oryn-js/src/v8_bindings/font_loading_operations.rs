@@ -92,6 +92,9 @@ pub(super) fn operation<'s>(
             Ok(v8::undefined(scope).into())
         },
         "load"|"check"=>{
+            if args.length() == 0 {
+                return Err(V8BindingError::EventCallback("TypeError: font argument is required".into()));
+            }
             let expected_owner=super::font_loading::owner(state);
             let font=font_owned_input(scope,state,args.get(0))?;
             let default_text=v8::String::new(scope," ").ok_or(V8BindingError::Allocation("font default text"))?;
