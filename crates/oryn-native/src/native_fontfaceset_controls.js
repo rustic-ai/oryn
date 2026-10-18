@@ -9,7 +9,12 @@
   const fonts = document.fonts;
   typeError(() => Object.getOwnPropertyDescriptor(Document.prototype, 'fonts').get.call({}));
   typeError(() => Object.getOwnPropertyDescriptor(FontFaceSet.prototype, 'size').get.call({}));
-  typeError(() => FontFaceSet.prototype.load.call(fonts));
+  // WebIDL promise-returning operations reject conversion/arity errors.
+  globalThis.fontLoadArityRejected = false;
+  FontFaceSet.prototype.load.call(fonts).catch(error => {
+    check(error.name === 'TypeError', 'load arity rejection');
+    globalThis.fontLoadArityRejected = true;
+  });
   typeError(() => FontFaceSet.prototype.check.call(fonts));
   typeError(() => FontFaceSet.prototype.values.call({}));
   typeError(() => FontFaceSet.prototype.forEach.call({}, () => {}));

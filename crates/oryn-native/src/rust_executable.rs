@@ -32852,6 +32852,8 @@ mod tests {
             "<!doctype html><html><head></head><body></body></html>",
         ).unwrap();
         assert_eq!(page.evaluate(include_str!("native_fontfaceset_controls.js")).unwrap(), "true");
+        page.execute("void 0").unwrap();
+        assert_eq!(page.evaluate("fontLoadArityRejected").unwrap(), "true");
     }
 
     #[test]

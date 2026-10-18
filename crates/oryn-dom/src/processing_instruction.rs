@@ -122,6 +122,10 @@ impl DomRuntime {
             }
             (None, None) => return Ok(None),
         }
+        let xml = self.node_document(node).map_err(A::Error::from)?
+            .and_then(|document| self.arena.get(document).ok())
+            .and_then(|record| record.document_metadata.as_ref())
+            .is_some_and(|metadata| !metadata.is_html);
         let mut output = String::new();
         for (index, (key, value)) in values.iter().enumerate() {
             if index > 0 {
@@ -130,14 +134,19 @@ impl DomRuntime {
             let key = crate::html::encode_dom_string_with_allocation(key, allocation, check)?;
             admitted_append(&mut output, &key, allocation, check)?;
             admitted_append(&mut output, "=\"", allocation, check)?;
-            // HTML attribute serialization parity; preserve all other DOMString bytes.
+            // Match the owning document's attribute serialization algorithm.
             let value = crate::html::encode_dom_string_with_allocation(value, allocation, check)?;
             for ch in value.chars() {
                 let mut bytes = [0; 4];
                 let text = match ch {
                     '&' => "&amp;",
                     '"' => "&quot;",
-                    '\u{a0}' => "&nbsp;",
+                    '\u{a0}' if !xml => "&nbsp;",
+                    '<' if xml => "&lt;",
+                    '>' if xml => "&gt;",
+                    '\t' if xml => "&#x9;",
+                    '\n' if xml => "&#xA;",
+                    '\r' if xml => "&#xD;",
                     _ => ch.encode_utf8(&mut bytes),
                 };
                 admitted_append(&mut output, text, allocation, check)?;
