@@ -12309,11 +12309,13 @@ impl SemanticGraph {
         check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
     ) -> Result<(), P::Error> {
         check()?;
+        let previous_receipt_start = producer.receipt_mark();
         let previous = self
             .full
             .get(&id)
             .map(|node| shared_semantic_node(node, producer, check))
             .transpose()?;
+        let previous_receipt_end = producer.receipt_mark();
         let projected = if dom.get(id).is_ok_and(|node| matches!(&node.kind, NodeKind::Element { name }
             if !matches!(name.local.as_ref(), "html" | "head" | "body" | "meta" | "title" | "script" | "style"))) {
             shared_project_element(dom, id, self.page_id, self.document_generation, id.slot.saturating_add(1), false, producer, check)?
@@ -12400,6 +12402,11 @@ impl SemanticGraph {
                 self.geometry_hidden.remove(&id);
             }
         }
+        // Equality comparison does not retain the cloned previous node. Drop
+        // its buffers before releasing only their admission receipts; later
+        // projected/upsert buffers and receipt-vector metadata remain charged.
+        drop(previous);
+        producer.release_receipt_range(previous_receipt_start..previous_receipt_end);
         Ok(())
     }
 }
@@ -14267,6 +14274,49 @@ mod admitted_sync_controls {
             assert_eq!(format!("{graph:?}"), before);
         }
     }
+    #[test]
+    fn comparison_scratch_releases_exact_bytes_and_preserves_projection() {
+        struct ByteAdmission { live: Arc<AtomicUsize> }
+        struct ByteReceipt { live: Arc<AtomicUsize>, bytes: usize }
+        impl Drop for ByteReceipt {
+            fn drop(&mut self) { self.live.fetch_sub(self.bytes, Ordering::SeqCst); }
+        }
+        impl oryn_layout::cssom::native_import_graph::ImportAdmission for ByteAdmission {
+            fn checkpoint(&self) -> Result<(), String> { Ok(()) }
+            fn reserve(&self, bytes: usize) -> Result<Arc<dyn Send + Sync>, String> {
+                self.live.fetch_add(bytes, Ordering::SeqCst);
+                Ok(Arc::new(ByteReceipt { live: self.live.clone(), bytes }))
+            }
+        }
+        let document = crate::html::parse("<button id=b aria-label=Short>Visible</button>").into_runtime().unwrap();
+        let id = document.find_by_id("b").unwrap();
+        let mut graph = SemanticGraph::new(PageId(901), 1);
+        graph.reset(document.arena(), 1);
+        // The previous clone is comparison-only, deliberately distinct from
+        // the current DOM so retaining its large allocation is observable.
+        let large = "previous".repeat(8192);
+        graph.full.get_mut(&id).unwrap().name = large.clone();
+        let ledger = ByteAdmission { live: Arc::new(AtomicUsize::new(0)) };
+        let mut producer = SemanticLeaseOwner { admission: &ledger, leases: Vec::new() };
+        graph.shared_refresh_node(document.arena(), id, &mut producer, &mut || Ok(())).unwrap();
+        let retained_large_receipts = producer.leases.iter().filter(|receipt|
+            receipt.payload.is_some()).count();
+        assert!(retained_large_receipts > 0, "live projected output must retain admission");
+        assert!(ledger.live.load(Ordering::SeqCst) < large.len(),
+            "dead previous-node comparison buffer must not remain charged");
+        let ordinary = {
+            let mut graph = SemanticGraph::new(PageId(901), 1);
+            graph.reset(document.arena(), 1);
+            graph
+        };
+        assert_eq!(graph.full.get(&id), ordinary.full.get(&id));
+        assert!(producer.leases.iter().any(|receipt| receipt.payload.is_none()),
+            "comparison receipt was released without removing metadata custody");
+        drop(graph);
+        drop(producer);
+        assert_eq!(ledger.live.load(Ordering::SeqCst), 0);
+    }
+
     #[test]
     fn property_signed_integer_matches_original_rust_parser() {
         for value in [

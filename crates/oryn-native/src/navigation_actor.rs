@@ -2967,7 +2967,13 @@ impl PageState {
             if let Some(pending) = self.poll_navigation_transaction() {
                 readiness = Some(pending);
             }
-            self.poll_page_tasks()?;
+            match self.poll_page_tasks() {
+                Ok(()) => {},
+                // Projection readiness is a retained actor turn, not a
+                // terminal navigation failure. Keep the original reply.
+                Err(RuntimeError::PageTaskYield) if !self.terminal_close_requested() => {},
+                Err(error) => return Err(error),
+            }
             if let Some(pending) = self.pending_committed_navigation_reply.take() {
                 readiness = Some(pending);
             }

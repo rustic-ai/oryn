@@ -28558,6 +28558,36 @@ mod tests {
     }
 
     #[cfg(feature = "v8-host")]
+    async fn settle_fixture_output(page: &PageHandle) -> String {
+        let deadline = tokio::time::Instant::now() + BrowserConfig::default().navigation_timeout;
+        loop {
+            // Each command yields to the actual page actor. Do not make the
+            // production drain block on parent IO or future timer deadlines.
+            let value = page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await.expect("read asynchronous fixture output");
+            if value != "pending" { return value; }
+            assert!(tokio::time::Instant::now() < deadline, "fixture output did not settle");
+            tokio::task::yield_now().await;
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn settle_fixture_document(page: &mut PageState) {
+        let deadline = Instant::now() + page.config.navigation_timeout;
+        loop {
+            match page.poll_page_tasks() {
+                Ok(()) => {},
+                Err(RuntimeError::PageTaskYield) if !page.terminal_close_requested() => {},
+                Err(error) => panic!("fixture page task failed: {error}"),
+            }
+            if page.executable.as_ref().is_some_and(|executable| executable.document_load_complete())
+                && page.lifecycle.contains(&LifecycleState::Load) { return; }
+            assert!(Instant::now() < deadline, "fixture document did not settle");
+            std::thread::yield_now();
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
     fn finish_fixture_rollback_publication(page: &mut PageState) {
         let deadline = Instant::now() + Duration::from_secs(3);
         while !page.history_publications.is_empty() {
@@ -31522,6 +31552,7 @@ mod tests {
             None,
         );
         page.load_document("https://history.test/source".into(),"<p>retained</p><script>globalThis.kept=document;globalThis.shown=[];onpageshow=e=>shown.push(e.persisted)</script>",None,None,HistoryUpdate::Push,&BTreeMap::new(),Vec::new()).unwrap();
+        settle_fixture_document(&mut page);
         let generation = page.document_generation;
         page.executable
             .as_mut()
@@ -32254,6 +32285,7 @@ mod tests {
                 Vec::new(),
             )
             .unwrap();
+            settle_fixture_document(&mut page);
             let control = NavigationControl::default();
             let strategy = if eager {
                 PageLoadStrategy::Eager
@@ -39960,9 +39992,7 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
         .await
         .expect("load stream fixture");
         assert_eq!(
-            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
-                .await
-                .expect("read stream result"),
+            settle_fixture_output(&page).await,
             "3:150000"
         );
         let trace = page.trace().await.expect("stream trace");
@@ -40046,10 +40076,7 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
         )
         .await
         .expect("load credential fixture");
-        let result = page
-            .evaluate("__oryn_drain(true);__oryn_drain(true);__oryn_drain(true);document.querySelector('#result').textContent")
-            .await
-            .expect("read credential result");
+        let result = settle_fixture_output(&page).await;
         assert_eq!(result, "none|session=ready");
         server.join().expect("CORS fixture server");
     }
