@@ -2880,13 +2880,14 @@ fn paragraph_owner_withdrawal_preserves_actual_committed_prefix() {
     let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<body><div id=host contenteditable><div>abcdef</div></div></body>").into_runtime().unwrap()));
     let state=install_generated_bindings(scope,realm,dom,RealmId(0),1).unwrap();
     assert!(eval(scope,"globalThis.host=document.getElementById('host');getSelection().collapse(host.firstChild.firstChild,3);document.execCommand('insertParagraph');globalThis.left=host.firstChild;true"));
+    assert!(eval(scope,"globalThis.right=left.nextSibling;globalThis.moving=right.firstChild;left.textContent==='abc'&&moving.data==='def'"));
     let unit=state.undo_history.borrow().undo.back().cloned().unwrap();
     FAIL_BEFORE_PREPARATION.with(|flag|flag.set(true));
     match editing_commands::paragraph_history::dispatch(scope,&state,false) {
         Err(V8BindingError::Allocation("injected editing author-boundary failure"))=>{},
         other=>panic!("unexpected owner withdrawal setup: {other:?}"),
     }
-    assert!(eval(scope,"host.textContent==='abcdef'"));
+    assert!(eval(scope,"host.textContent==='abc'&&left.textContent==='abc'&&right.textContent===''&&moving.data==='def'&&moving.parentNode===null"));
     assert!(eval(scope,"getSelection().collapse(left.firstChild,0);document.execCommand('insertText',false,'authored');left.textContent.startsWith('authored')"));
     assert!(!Rc::ptr_eq(&state.undo_history.borrow().undo.back().unwrap().identity,&unit.identity));
     editing_commands::paragraph_history::ready_for_test(&state);

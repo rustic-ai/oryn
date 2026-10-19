@@ -228,6 +228,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://example.test/start".into(),
             "<!doctype html><title>start</title>",

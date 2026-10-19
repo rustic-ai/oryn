@@ -6,6 +6,12 @@ pub(super) fn cancel_retired(state:&V8BindingState){
         (std::mem::take(&mut fonts.requests),fonts.request_retry.take(),fonts.request_capacity.take(),fonts.provider.take())};
     drop(requests);drop(retry);drop(capacity);drop(provider);
 }
+// A live suspended realm must not publish. Permanent retirement is different:
+// settling its retained promises does not reactivate input, navigation, or
+// execution authority, and cannot wait for a cursor which retirement revoked.
+fn publication_unavailable(state: &V8BindingState) -> bool {
+    state.execution_suspended() && !state.execution_retired()
+}
 pub(super) fn retire(scope:&mut v8::PinScope,state:&Rc<V8BindingState>)->Result<(),V8BindingError>{
     let original_owner=owner(state);
     cancel_retired(state);
@@ -15,7 +21,7 @@ pub(super) fn retire(scope:&mut v8::PinScope,state:&Rc<V8BindingState>)->Result<
     let mut cursor=None;
     loop{
         if !crate::v8_termination::checkpoint(scope){return Err(V8BindingError::JavaScriptException)}
-        if owner(state)!=original_owner||state.execution_suspended(){return Ok(())}
+        if owner(state)!=original_owner||publication_unavailable(state){return Ok(())}
         let next={let fonts=state.font_loading.borrow();fonts.face_objects.iter().find_map(|(id,face)|{
             if cursor.is_some_and(|last|*id<=last)||face.loaded.settled{return None}
             Some((*id,face.loaded.resolver.to_local(scope)))
@@ -29,7 +35,7 @@ pub(super) fn retire(scope:&mut v8::PinScope,state:&Rc<V8BindingState>)->Result<
     cursor=None;
     loop{
         if !crate::v8_termination::checkpoint(scope){return Err(V8BindingError::JavaScriptException)}
-        if owner(state)!=original_owner||state.execution_suspended(){return Ok(())}
+        if owner(state)!=original_owner||publication_unavailable(state){return Ok(())}
         let next={let fonts=state.font_loading.borrow();fonts.sets.iter().find_map(|(id,set)|{
             if cursor.is_some_and(|last|*id<=last)||set.ready.settled{return None}
             Some((*id,set.ready_published.is_some(),set.ready.resolver.to_local(scope)))
@@ -42,7 +48,7 @@ pub(super) fn retire(scope:&mut v8::PinScope,state:&Rc<V8BindingState>)->Result<
     }
     loop{
         if !crate::v8_termination::checkpoint(scope){return Err(V8BindingError::JavaScriptException)}
-        if owner(state)!=original_owner||state.execution_suspended(){return Ok(())}
+        if owner(state)!=original_owner||publication_unavailable(state){return Ok(())}
         let next={let fonts=state.font_loading.borrow();fonts.loads.first().map(|load|(load.published,v8::Local::new(scope,&load.resolver)))};
         let Some((published,resolver))=next else{return Ok(())};
         if !published{
@@ -51,7 +57,7 @@ pub(super) fn retire(scope:&mut v8::PinScope,state:&Rc<V8BindingState>)->Result<
             if v8::Local::new(scope,&load.resolver)!=resolver{return Err(V8BindingError::Allocation("retiring font load changed"))}load.published=true;
         }
         if !crate::v8_termination::checkpoint(scope){return Err(V8BindingError::JavaScriptException)}
-        if owner(state)!=original_owner||state.execution_suspended(){return Ok(())}
+        if owner(state)!=original_owner||publication_unavailable(state){return Ok(())}
         let removed={let mut fonts=state.font_loading.borrow_mut();let load=fonts.loads.first().ok_or(V8BindingError::Allocation("retiring font load missing"))?;
             if v8::Local::new(scope,&load.resolver)!=resolver{return Err(V8BindingError::Allocation("retiring font load changed"))}fonts.loads.remove(0)};
         drop(removed);

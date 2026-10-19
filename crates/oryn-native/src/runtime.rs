@@ -15323,6 +15323,7 @@ mod root_history_name_tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         let source =
             "<script>globalThis.shownName='';onpageshow=()=>shownName=window.name</script>";
         page.load_document(
@@ -15437,6 +15438,7 @@ mod root_history_name_tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         let source = "<script>globalThis.observedName=window.name</script>";
         page.load_document(
             "https://names.test/first".into(),
@@ -28572,6 +28574,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         let resources = unfinished_history_resources(&mut page, "https://example.test/unfinished");
         let stream = crate::host::DocumentStream {
             content_language: None,
@@ -28701,6 +28704,7 @@ mod tests {
             #[cfg(all(unix, feature = "v8-host"))]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.navigate("https://app.example/".into(), HistoryUpdate::Push)
             .expect("CSP-protected navigation");
         let state = page
@@ -28942,6 +28946,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://headers.test/source".into(),
             "<title>Source</title>",
@@ -30590,6 +30595,7 @@ mod tests {
             #[cfg(all(unix, feature = "v8-host"))]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.navigate("https://app.example/".into(), HistoryUpdate::Push)
             .unwrap();
         assert!(page.document.as_ref().unwrap().dom.iter().any(|(_, node)|
@@ -30996,6 +31002,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/original".into(),
             "<p id=kept>live</p>",
@@ -31055,6 +31062,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/one".into(),
             "<p>source</p>",
@@ -31422,6 +31430,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         let first = vec![
             (
                 "content-security-policy".into(),
@@ -31540,6 +31549,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document("https://history.test/source".into(),r#"<form><x-saved name=kept></x-saved></form><script>
             customElements.define('x-saved',class extends HTMLElement{
                 static formAssociated=true;
@@ -32061,6 +32071,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://first.test/one".into(),
             "<p>one</p>",
@@ -32377,6 +32388,7 @@ mod tests {
                 #[cfg(unix)]
                 None,
             );
+            page.bind_direct_fixture_terminal_owner();
             page.load_document(
                 "https://joint.test/root".into(),
                 "<p>ready</p>",
@@ -32491,6 +32503,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         let outputs = Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = outputs.clone();
         let observer = oryn_js::navigation::NavigationExecutionObserver::new(move |outcome| {
@@ -32552,6 +32565,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         let (reply, mut received) = oneshot::channel();
         let pending = page
             .dispatch_document_reply(NavigationReply::Html(reply), |page| {
@@ -32731,6 +32745,7 @@ mod tests {
                 #[cfg(unix)]
                 None,
             );
+            page.bind_direct_fixture_terminal_owner();
             let (reply, mut received) = oneshot::channel();
             let url = "data:text/html,%3Ctitle%3EReady%3C/title%3E";
             assert!(
@@ -32904,6 +32919,7 @@ mod tests {
                 #[cfg(unix)]
                 None,
             );
+            page.bind_direct_fixture_terminal_owner();
             page.load_document(
                 "https://history.test/source".into(),
                 "<p>retained</p>",
@@ -32998,6 +33014,7 @@ mod tests {
                 #[cfg(unix)]
                 None,
             );
+            page.bind_direct_fixture_terminal_owner();
             page.load_document(
                 "https://history.test/source".into(),
                 "<p>retained</p>",
@@ -33072,6 +33089,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://first.test/one".into(),
             "<p>one</p>",
@@ -33120,6 +33138,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/one".into(),
             "<p>one</p>",
@@ -33171,6 +33190,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/source".into(),
             "<p>source</p>",
@@ -33206,6 +33226,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/source".into(),
             "<p>retained</p>",
@@ -33267,6 +33288,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/source".into(),
             "<p>retained</p>",
@@ -33303,6 +33325,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/page".into(),
             "<p>source</p>",
@@ -33404,6 +33427,7 @@ mod tests {
                 #[cfg(unix)]
                 None,
             );
+            page.bind_direct_fixture_terminal_owner();
             page.navigate("https://a.test/original".into(), HistoryUpdate::Push)
                 .unwrap();
             page.navigate("https://b.test/destination".into(), HistoryUpdate::Push)
@@ -33474,6 +33498,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/page".into(),
             "<body></body>",
@@ -33554,6 +33579,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/one".into(),
             "<p>one</p>",
@@ -33673,6 +33699,7 @@ mod tests {
                 #[cfg(unix)]
                 None,
             );
+            page.bind_direct_fixture_terminal_owner();
             let post = oryn_js::navigation::PostResource {
                 bytes: b"field=original".to_vec(),
                 content_type: "application/x-www-form-urlencoded".into(),
@@ -33713,6 +33740,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/first".into(),
             "<iframe id=f srcdoc='<p>child</p>'></iframe>",
@@ -33877,6 +33905,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://first.test/".into(),
             "<p>first</p>",
@@ -34033,6 +34062,7 @@ mod tests {
                 #[cfg(unix)]
                 None,
             );
+            page.bind_direct_fixture_terminal_owner();
             page.load_document(
                 "https://first.test/".into(),
                 "first",
@@ -34132,6 +34162,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://first.test/".into(),
             "first",
@@ -34220,6 +34251,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/first".into(),
             "<p>first</p>",
@@ -34300,6 +34332,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.navigate(
             "https://timing.test/report-hash".into(),
             HistoryUpdate::Push,
@@ -34368,6 +34401,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/first".into(),
             "<input id=value value=first>",
@@ -34418,6 +34452,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         let source = "<script>globalThis.initialEntry=navigation.currentEntry;globalThis.initialEntryUrl=initialEntry.url;</script>";
         page.load_document(
             "https://history.test/one".into(),
@@ -34482,6 +34517,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/one".into(),
             "<title>Original</title>",
@@ -34549,6 +34585,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/one".into(),
             "<title>Original</title>",
@@ -34624,6 +34661,7 @@ mod tests {
             None,
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/one".into(),
             "<p>cached</p>",
@@ -34772,6 +34810,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         for name in ["one", "two"] {
             page.load_document(
                 format!("https://history.test/{name}"),
@@ -34817,6 +34856,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         for index in 0..6 {
             page.load_document(
                 format!("https://history.test/{index}"),
@@ -34860,6 +34900,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         let load = |page: &mut PageState, name: &str, update| {
             page.load_document(
                 format!("https://history.test/{name}"),
@@ -41004,6 +41045,7 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://example.test/products".into(),
             "<body><main id=products></main>",
@@ -45229,6 +45271,7 @@ mod semantic_sync_faults {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://semantics.test/".into(),
             "<button id=b>Before</button><input id=i required>",
@@ -45563,6 +45606,7 @@ mod semantic_sync_faults {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://semantics.test/first".into(),
             "<p>first</p>",

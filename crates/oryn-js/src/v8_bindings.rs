@@ -18326,15 +18326,15 @@ fn generated_attribute_setter_impl<'s>(
         }
         return;
     }
-    if interface=="CSSStyleRule" && member=="style" {
+    if matches!(interface, "CSSStyleRule" | "CSSPageRule" | "CSSNestedDeclarations") && member=="style" {
         if let Some(identity)=native_css_identity(scope,args.this(),"oryn.native.css.rule") {
             let handle=state.native_stylesheets.borrow().rule_records.get(&identity).cloned();
             let result=(|| {
                 let handle=handle.ok_or(V8BindingError::Unsupported {
-                    interface:"CSSStyleRule".into(),member:"incompatible receiver".into()})?;
-                let kind=handle.view().map_err(|error|native_css_read_error("CSSStyleRule",error))?.rule_type;
-                if !page_rules::supports_interface(kind,"CSSStyleRule") {
-                    return Err(V8BindingError::Unsupported {interface:"CSSStyleRule".into(),member:"incompatible receiver".into()});
+                    interface:interface.into(),member:"incompatible receiver".into()})?;
+                let kind=handle.view().map_err(|error|native_css_read_error(interface,error))?.rule_type;
+                if !page_rules::supports_interface(kind,interface) {
+                    return Err(V8BindingError::Unsupported {interface:interface.into(),member:"incompatible receiver".into()});
                 }
                 let style=wrap_native_rule_declaration(scope,&state,args.this(),&handle)?;
                 native_declaration_set_attribute(scope,&state,style,"cssText",args.get(0))

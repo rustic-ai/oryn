@@ -214,7 +214,8 @@ mod tests {
     check(mutation.length === 1 && mutation[0].type === 'characterData' && mutation[0].target === pi, 'CharacterData publication');
     check(pi.getAttribute('x') === 'a"&<>', 'reference decoding');
     const element = pi.ownerDocument.createElement('el'); element.setAttribute('x', 'a"&<>');
-    check(pi.data.endsWith(element.outerHTML.match(/el\s+([^>]+?)\s*\/?>/)[1]), 'serialization parity');
+    const serializedAttribute=(name)=>element.outerHTML.match(new RegExp('(?:^|\\s)'+name+'="([^"]*)"'))[0].trim();
+    check(pi.data.endsWith(serializedAttribute('x')), 'serialization parity');
     pi.removeAttribute('x'); pi.setAttribute('$foo','1'); pi.setAttribute('_bar','2');
     check(pi.getAttributeNames().join('|') === 'a|$foo|_bar', 'extended attribute names');
     pi.data='a=b x="yy"'; check(!pi.hasAttributes(), 'all-or-nothing quoted grammar');
@@ -223,7 +224,7 @@ mod tests {
       pi.setAttribute('special',value);
       element.setAttribute('special',value);
       check(pi.getAttribute('special')===value,'lossless special value');
-      check(pi.data.includes(element.outerHTML.match(/el\s+([^>]+?)\s*\/?>/)[1].split('special=')[1]),'special serialized parity');
+      check(pi.data.includes(serializedAttribute('special')),'special serialized parity');
     }
     const original=pi.data, marker={};
     try { pi.setAttribute('new', {toString(){throw marker}}); throw Error('accepted coercion'); }

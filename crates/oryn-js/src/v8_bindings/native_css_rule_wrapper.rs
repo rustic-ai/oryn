@@ -140,7 +140,7 @@ fn native_rule_relationship<'s>(
             let view = handle
                 .view()
                 .map_err(|error| native_css_read_error("CSSRule", error))?;
-            Ok(v8::Integer::new_from_unsigned(scope, u32::from(view.rule_type)).into())
+            Ok(v8::Integer::new_from_unsigned(scope, u32::from(if view.rule_type == 24 { 0 } else { view.rule_type })).into())
         }
         "cssText" | "selectorText" | "conditionText" | "name" | "namespaceURI" | "prefix" => {
             let view = handle

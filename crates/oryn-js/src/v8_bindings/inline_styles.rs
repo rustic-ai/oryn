@@ -11,6 +11,12 @@ fn names(
     let Some(state) = binding_state_for_receiver(scope, object) else {
         return Ok(None);
     };
+    if let Some(handle) = native_declaration_rule(scope, &state, object) {
+        let _scope = state.enter_retained_allocation(scope)?;
+        return handle.declaration("")
+            .map(|view| Some(view.names))
+            .map_err(|error| native_css_read_error("CSSStyleDeclaration", error));
+    }
     if computed_styles::is_computed(scope, &state, object) {
         return computed_styles::property_names(scope, &state, object).map(Some);
     }
@@ -195,6 +201,9 @@ fn property_getter(
         let state = binding_state_for_receiver(scope, args.this())
             .ok_or(V8BindingError::Allocation("CSS property receiver"))?;
         let property = args.data().to_rust_string_lossy(scope);
+        if let Some(result) = native_declaration_attribute(scope, &state, args.this(), "CSSStyleDeclaration", &property) {
+            return result;
+        }
         if page_rules::is_declaration(scope, args.this()) {
             return page_rules::declaration_attribute(scope, args.this(), &property);
         }
@@ -219,6 +228,9 @@ fn property_setter(
         let state = binding_state_for_receiver(scope, args.this())
             .ok_or(V8BindingError::Allocation("CSS property receiver"))?;
         let property = args.data().to_rust_string_lossy(scope);
+        if let Some(result) = native_declaration_set_attribute(scope, &state, args.this(), &property, args.get(0)) {
+            return result;
+        }
         if page_rules::is_declaration(scope, args.this()) {
             return page_rules::set_declaration_attribute(
                 scope,

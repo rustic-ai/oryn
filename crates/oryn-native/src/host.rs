@@ -2637,7 +2637,15 @@ mod raw_v8 {
                     if let Err(error) = &abort {
                         record_frame_binding_error(error);
                     }
-                    match abort{Ok(true)=>{},Ok(false)=>return Err(oryn_js::v8_bindings::V8BindingError::Allocation("frame abort publication incomplete")),Err(error)=>return Err(error)}
+                    match abort {
+                        Ok(true) => {},
+                        // An active abort listener still owns this child's
+                        // stack. Retain the closed lifetime, without turning
+                        // an ordinary pending suffix into an author exception.
+                        // Its completion checkpoint retries the same lifetime.
+                        Ok(false) => return Ok(()),
+                        Err(error) => return Err(error),
+                    }
                     // Enter the existing child context, never activate/revive
                     // its execution authority. Failure keeps the closed lifetime
                     // and original opener/environment for the next checkpoint.
@@ -2652,7 +2660,9 @@ mod raw_v8 {
                     let result={let child_scope=&mut v8::ContextScope::new(scope,context);child.retire_native_font_promises(child_scope)};
                     if let Err(error)=result{record_frame_binding_error(&error);return Err(error);}
                     if scope.is_execution_terminating(){return Err(oryn_js::v8_bindings::V8BindingError::JavaScriptException)}
-                    if child.execution_suspended(){return Err(oryn_js::v8_bindings::V8BindingError::Allocation("frame retirement suspended"))}
+                    // Suspension can belong to an outstanding input cursor.
+                    // Permanent retirement invalidates that cursor; it does
+                    // not need to resume execution to dispose this lifetime.
                 }
                 #[cfg(unix)]
                 if let Some(endpoint) = scope
@@ -10410,8 +10420,12 @@ mod raw_v8 {
                 .bind_stylesheet_document_owner(&state.dom().borrow(), owner)
                 .map_err(HostError::Execution)?;
             self.transfer_native_provider_allocation(realm, &provider)?;
+            let native_fonts = crate::executable::native_font_backend(provider.as_ref());
             state.set_layout_provider(provider);
-            self.activate_public_font_loading(realm)?;
+            // A callback-only layout provider does not supply font resources.
+            if native_fonts {
+                self.activate_public_font_loading(realm)?;
+            }
             let context = self
                 .contexts
                 .get(&realm)

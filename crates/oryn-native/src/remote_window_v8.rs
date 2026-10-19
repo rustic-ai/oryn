@@ -1807,6 +1807,9 @@ mod remote_window_tests {
     async fn saved_proxy_cannot_outlive_its_creating_document() {
         let context = crate::Browser::new().new_context();
         let parent = context.new_page();
+        context
+            .install_document_security(parent.page_id(), "https://a.test/".into(), &[])
+            .unwrap();
         let child = context.new_popup(parent.page_id(), None);
         let mut host = host(&context, parent.page_id());
         host.execute(&format!(

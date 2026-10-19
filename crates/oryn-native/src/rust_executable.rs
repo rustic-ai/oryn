@@ -7297,42 +7297,8 @@ globalThis.Request=OrynRequest;
 const __orynInputFiles=node=>Array.from(node.files||[]);
 class OrynFormData {constructor(form){this.items=[];if(form)for(const node of [...form.querySelectorAll('input'),...form.querySelectorAll('textarea'),...form.querySelectorAll('select')]){const name=node.getAttribute('name');if(!name||node.disabled)continue;const type=(node.getAttribute('type')||'').toLowerCase();if((type==='checkbox'||type==='radio')&&!node.checked)continue;if(type==='file'){for(const file of __orynInputFiles(node))this.append(name,file);continue}this.append(name,node.value)}}append(name,value,filename){if(filename!==undefined&&value instanceof OrynBlob)value=new OrynFile([value.__bytes],filename,{type:value.type});this.items.push([String(name),value instanceof OrynBlob?value:String(value)])}set(name,value,filename){this.delete(name);this.append(name,value,filename)}get(name){const item=this.items.find(item=>item[0]===String(name));return item?item[1]:null}getAll(name){return this.items.filter(item=>item[0]===String(name)).map(item=>item[1])}has(name){return this.items.some(item=>item[0]===String(name))}delete(name){this.items=this.items.filter(item=>item[0]!==String(name))}entries(){return this.items[Symbol.iterator]()}keys(){return this.items.map(item=>item[0])[Symbol.iterator]()}values(){return this.items.map(item=>item[1])[Symbol.iterator]()}[Symbol.iterator](){return this.entries()}}
 globalThis.FormData=OrynFormData;
-const __oryn_idb_call=command=>{const outer=contextCall({operation:'storage',request:{operation:'indexed_db',origin:globalThis.origin,command}});if(outer.result!=='storage'||outer.response.result!=='indexed_db')throw new Error('invalid IndexedDB response');return outer.response.response};
-const __oryn_clone_encode=value=>{if(value instanceof ArrayBuffer)return {__oryn_clone:'array_buffer',base64:bytesToBase64(value)};if(ArrayBuffer.isView(value))return {__oryn_clone:'typed_array',type:value.constructor.name,base64:bytesToBase64(new Uint8Array(value.buffer,value.byteOffset,value.byteLength))};if(value instanceof OrynFile)return {__oryn_clone:'file',base64:bytesToBase64(value.__bytes),type:value.type,name:value.name,last_modified:value.lastModified};if(value instanceof OrynBlob)return {__oryn_clone:'blob',base64:bytesToBase64(value.__bytes),type:value.type};if(Array.isArray(value))return value.map(__oryn_clone_encode);if(value&&typeof value==='object'){const result={};for(const [key,item] of Object.entries(value))result[key]=__oryn_clone_encode(item);return result}return value};
-const __oryn_clone_decode=value=>{if(Array.isArray(value))return value.map(__oryn_clone_decode);if(value&&typeof value==='object'){if(value.__oryn_clone==='array_buffer')return base64ToBytes(value.base64).buffer;if(value.__oryn_clone==='typed_array'){const bytes=base64ToBytes(value.base64),ctor=globalThis[value.type];return new ctor(bytes.buffer)}if(value.__oryn_clone==='blob')return new Blob([base64ToBytes(value.base64)],{type:value.type});if(value.__oryn_clone==='file')return new File([base64ToBytes(value.base64)],value.name,{type:value.type,lastModified:value.last_modified});const result={};for(const [key,item] of Object.entries(value))result[key]=__oryn_clone_decode(item);return result}return value};
-const __oryn_idb_slots=(target,values)=>{const descriptors={};for(const [name,value] of Object.entries(values))descriptors[name]={configurable:true,enumerable:true,writable:true,value};Object.defineProperties(target,descriptors)};
-class OrynIDBKeyRange {constructor(lower,upper,lowerOpen=false,upperOpen=false){this.__oryn_key_range=true;__oryn_idb_slots(this,{lower,upper,lowerOpen:!!lowerOpen,upperOpen:!!upperOpen});this.lower_open=this.lowerOpen;this.upper_open=this.upperOpen}includes(key){const compare=(left,right)=>typeof left==='number'&&typeof right==='number'?left-right:JSON.stringify(left).localeCompare(JSON.stringify(right));return (this.lower===undefined||(this.lower_open?compare(key,this.lower)>0:compare(key,this.lower)>=0))&&(this.upper===undefined||(this.upper_open?compare(key,this.upper)<0:compare(key,this.upper)<=0))}static only(value){return new this(value,value)}static lowerBound(value,open=false){return new this(value,undefined,open,false)}static upperBound(value,open=false){return new this(undefined,value,false,open)}static bound(lower,upper,lowerOpen=false,upperOpen=false){return new this(lower,upper,lowerOpen,upperOpen)}}
-globalThis.IDBKeyRange=OrynIDBKeyRange;
-class OrynIDBRequest {constructor(){__oryn_idb_slots(this,{result:undefined,error:null,transaction:null,onsuccess:null,onerror:null,onupgradeneeded:null,onblocked:null})}__fire(type,extra={}){const event={type,target:this,...extra};const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}__success(value){queueMicrotask(()=>{this.result=value;this.__fire('success')})}__failure(error){queueMicrotask(()=>{this.error=error;this.__fire('error')})}}
-class OrynIDBCursor {constructor(request,records,index=0){this.__request=request;this.__records=records;this.__index=index;__oryn_idb_slots(this,{key:undefined,primaryKey:undefined,value:undefined});this.__sync()}__sync(){const record=this.__records[this.__index];this.key=record?.key;this.primaryKey=record?.primary_key;this.value=__oryn_clone_decode(record?.value)}continue(key){let next=this.__index+1;if(key!==undefined)next=this.__records.findIndex((record,index)=>index>this.__index&&JSON.stringify(record.key)>=JSON.stringify(key));this.__index=next<0?this.__records.length:next;queueMicrotask(()=>{if(this.__index>=this.__records.length)this.__request.__success(null);else{this.__sync();this.__request.__success(this)}})}advance(count){this.__index+=Math.max(1,Number(count)||1);this.continue()}delete(){return this.__request.__store.delete(this.primaryKey)}update(value){return this.__request.__store.put(value,this.primaryKey)}}
-class OrynIDBIndex {constructor(store,name){this.store=store;__oryn_idb_slots(this,{name:String(name),objectStore:store})}get(query){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query,reverse:false});request.__success(__oryn_clone_decode(response.records[0]?.value))}catch(error){request.__failure(error)}return request}getAll(query,count){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query:query??null,reverse:false});request.__success(response.records.slice(0,count??response.records.length).map(record=>__oryn_clone_decode(record.value)))}catch(error){request.__failure(error)}return request}count(query){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query:query??null,reverse:false});request.__success(response.records.length)}catch(error){request.__failure(error)}return request}openCursor(query,direction='next'){return this.store.__cursor(query,direction,this.name)}}
-class OrynIDBObjectStore {constructor(transaction,name){__oryn_idb_slots(this,{transaction,name:String(name)})}put(value,key){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'batch',database:this.transaction.db.name,writes:[{store:this.name,key:key??null,value:__oryn_clone_encode(value),add_only:false}]});request.__success(response.key)}catch(error){request.__failure(error)}return request}add(value,key){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'batch',database:this.transaction.db.name,writes:[{store:this.name,key:key??null,value:__oryn_clone_encode(value),add_only:true}]});request.__success(response.key)}catch(error){request.__failure(error)}return request}get(key){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'get',database:this.transaction.db.name,store:this.name,key});request.__success(__oryn_clone_decode(response.value))}catch(error){request.__failure(error)}return request}getAll(query,count){const request=new OrynIDBRequest();try{const response=query===undefined?__oryn_idb_call({command:'get_all',database:this.transaction.db.name,store:this.name}):__oryn_idb_call({command:'cursor',database:this.transaction.db.name,store:this.name,index:null,query,reverse:false});const values=response.values?.length?response.values:response.records.map(record=>record.value);request.__success(values.slice(0,count??values.length).map(__oryn_clone_decode))}catch(error){request.__failure(error)}return request}delete(key){const request=new OrynIDBRequest();try{__oryn_idb_call({command:'delete',database:this.transaction.db.name,store:this.name,key});request.__success(undefined)}catch(error){request.__failure(error)}return request}clear(){const request=new OrynIDBRequest();try{__oryn_idb_call({command:'clear',database:this.transaction.db.name,store:this.name});request.__success(undefined)}catch(error){request.__failure(error)}return request}count(){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'count',database:this.transaction.db.name,store:this.name});request.__success(response.count||0)}catch(error){request.__failure(error)}return request}__cursor(query,direction='next',index=null){const request=new OrynIDBRequest();request.__store=this;try{const response=__oryn_idb_call({command:'cursor',database:this.transaction.db.name,store:this.name,index,query:query??null,reverse:String(direction).startsWith('prev')});queueMicrotask(()=>{if(!response.records.length)request.__success(null);else request.__success(new OrynIDBCursor(request,response.records))})}catch(error){request.__failure(error)}return request}openCursor(query,direction='next'){return this.__cursor(query,direction)}createIndex(name,keyPath,options={}){__oryn_idb_call({command:'create_index',database:this.transaction.db.name,store:this.name,definition:{name:String(name),key_path:String(keyPath),unique:!!options.unique}});return new OrynIDBIndex(this,name)}index(name){return new OrynIDBIndex(this,name)}}
-class OrynIDBTransaction {constructor(db,names,mode='readonly'){this.db=db;this.names=Array.isArray(names)?names:[String(names)];__oryn_idb_slots(this,{mode,objectStoreNames:this.names.slice(),oncomplete:null,onabort:null,onerror:null});queueMicrotask(()=>{if(typeof this.oncomplete==='function')this.oncomplete({type:'complete',target:this})})}objectStore(name){if(!this.names.includes(String(name)))throw new Error('NotFoundError');return new OrynIDBObjectStore(this,name)}abort(){if(typeof this.onabort==='function')this.onabort({type:'abort',target:this})}}
-class OrynIDBDatabase {constructor(name,version,stores=[]){__oryn_idb_slots(this,{name:String(name),version,objectStoreNames:stores})}createObjectStore(name,options={}){const response=__oryn_idb_call({command:'create_object_store',database:this.name,definition:{name:String(name),key_path:options.keyPath??null,auto_increment:!!options.autoIncrement}});this.objectStoreNames=response.object_stores;return new OrynIDBObjectStore(new OrynIDBTransaction(this,[name],'versionchange'),name)}transaction(names,mode='readonly'){return new OrynIDBTransaction(this,names,mode)}close(){}}
-globalThis.indexedDB={open(name,version=0){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'open',name:String(name),version:Number(version)||0});const db=new OrynIDBDatabase(name,response.version,response.object_stores);queueMicrotask(()=>{request.result=db;if(response.upgrade_needed)request.__fire('upgradeneeded',{oldVersion:response.old_version,newVersion:response.version});request.__fire('success')})}catch(error){request.__failure(error)}return request},deleteDatabase(name){const request=new OrynIDBRequest();try{__oryn_idb_call({command:'delete_database',name:String(name)});request.__success(undefined)}catch(error){request.__failure(error)}return request}};
-const __oryn_idb_event_target=prototype=>{prototype.addEventListener=function(type,callback){const listeners=this.__listeners||(this.__listeners=new Map()),list=listeners.get(String(type))||[];list.push(callback);listeners.set(String(type),list)};prototype.removeEventListener=function(type,callback){const listeners=this.__listeners;if(listeners)listeners.set(String(type),(listeners.get(String(type))||[]).filter(item=>item!==callback))};prototype.dispatchEvent=function(event){if(event.target!==this)try{Object.defineProperty(event,'target',{configurable:true,value:this})}catch(_){}for(const callback of this.__listeners?.get(event.type)||[])callback.call(this,event);const handler=this['on'+event.type];if(typeof handler==='function')handler.call(this,event);return !event.defaultPrevented}};
-for(const [implementation,name] of [[OrynIDBRequest,'IDBRequest'],[OrynIDBCursor,'IDBCursor'],[OrynIDBIndex,'IDBIndex'],[OrynIDBObjectStore,'IDBObjectStore'],[OrynIDBTransaction,'IDBTransaction'],[OrynIDBDatabase,'IDBDatabase']])if(globalThis[name]?.prototype)Object.setPrototypeOf(implementation.prototype,globalThis[name].prototype);
-for(const prototype of [OrynIDBRequest.prototype,OrynIDBTransaction.prototype,OrynIDBDatabase.prototype])__oryn_idb_event_target(prototype);
-OrynIDBRequest.prototype.__fire=function(type,extra={}){this.dispatchEvent({type,target:this,defaultPrevented:false,...extra})};
-OrynIDBObjectStore.prototype.getAllKeys=function(query,count){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.transaction.db.name,store:this.name,index:null,query:query??null,reverse:false});request.__success(response.records.slice(0,count??response.records.length).map(record=>__oryn_clone_decode(record.primary_key)))}catch(error){request.__failure(error)}return request};
-OrynIDBObjectStore.prototype.openKeyCursor=function(query,direction='next'){const request=this.__cursor(query,direction);const success=request.__success.bind(request);request.__success=value=>{if(value)value.value=undefined;success(value)};return request};
-OrynIDBIndex.prototype.getAllKeys=function(query,count){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query:query??null,reverse:false});request.__success(response.records.slice(0,count??response.records.length).map(record=>__oryn_clone_decode(record.primary_key)))}catch(error){request.__failure(error)}return request};
-OrynIDBIndex.prototype.getKey=function(query){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query,reverse:false});request.__success(__oryn_clone_decode(response.records[0]?.primary_key))}catch(error){request.__failure(error)}return request};
-OrynIDBIndex.prototype.openKeyCursor=function(query,direction='next'){const request=this.store.__cursor(query,direction,this.name);const success=request.__success.bind(request);request.__success=value=>{if(value)value.value=undefined;success(value)};return request};
-// Materialize an index snapshot once per script-visible index object. Besides
-// matching IndexedDB's transaction snapshot semantics, this prevents large
-// multiEntry lookup loops from crossing the typed parent boundary once per
-// key. Mutating transactions create fresh object/index wrappers, so snapshots
-// cannot leak across transaction boundaries.
-OrynIDBIndex.prototype.__records=function(query){if(!this.__oryn_records)this.__oryn_records=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query:null,reverse:false}).records;const matches=record=>query===undefined||query===null||(query&&query.__oryn_key_range?query.includes(__oryn_clone_decode(record.key)):indexedDB.cmp(__oryn_clone_decode(record.key),query)===0);return this.__oryn_records.filter(matches)};
-OrynIDBIndex.prototype.get=function(query){const request=new OrynIDBRequest();try{request.__success(__oryn_clone_decode(this.__records(query)[0]?.value))}catch(error){request.__failure(error)}return request};
-OrynIDBIndex.prototype.getKey=function(query){const request=new OrynIDBRequest();try{request.__success(__oryn_clone_decode(this.__records(query)[0]?.primary_key))}catch(error){request.__failure(error)}return request};
-OrynIDBIndex.prototype.getAll=function(query,count){const request=new OrynIDBRequest();try{const records=this.__records(query);request.__success(records.slice(0,count??records.length).map(record=>__oryn_clone_decode(record.value)))}catch(error){request.__failure(error)}return request};
-OrynIDBIndex.prototype.getAllKeys=function(query,count){const request=new OrynIDBRequest();try{const records=this.__records(query);request.__success(records.slice(0,count??records.length).map(record=>__oryn_clone_decode(record.primary_key)))}catch(error){request.__failure(error)}return request};
-OrynIDBIndex.prototype.count=function(query){const request=new OrynIDBRequest();try{request.__success(this.__records(query).length)}catch(error){request.__failure(error)}return request};
-globalThis.IDBRequest=OrynIDBRequest;globalThis.IDBOpenDBRequest=OrynIDBRequest;globalThis.IDBCursor=OrynIDBCursor;globalThis.IDBIndex=OrynIDBIndex;globalThis.IDBObjectStore=OrynIDBObjectStore;globalThis.IDBTransaction=OrynIDBTransaction;globalThis.IDBDatabase=OrynIDBDatabase;
-indexedDB.cmp=(left,right)=>{if(typeof left==='number'&&typeof right==='number')return Math.sign(left-right);if(typeof left==='string'&&typeof right==='string')return left<right?-1:left>right?1:0;const a=JSON.stringify(left),b=JSON.stringify(right);return a<b?-1:a>b?1:0};
-indexedDB.open=(name,version=0)=>{const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'open',name:String(name),version:Number(version)||0});const db=new OrynIDBDatabase(name,response.version,response.object_stores),transaction=new OrynIDBTransaction(db,response.object_stores,'versionchange');request.transaction=transaction;queueMicrotask(()=>{request.result=db;if(response.upgrade_needed)request.__fire('upgradeneeded',{oldVersion:response.old_version,newVersion:response.version});request.__fire('success')})}catch(error){request.__failure(error)}return request};
+// IndexedDB remains entirely owned by the generated native bindings.
+// Restoring a captured factory cannot undo mutations of that same object.
 if(typeof globalThis.__oryn_fetch_async==='function')globalThis.fetch=(input,init={})=>{
   const request=input instanceof OrynRequest?new OrynRequest(input.url,{method:init.method||input.method,headers:init.headers||input.headers,body:init.body??input.body,signal:init.signal||input.signal,credentials:init.credentials||input.credentials}):new OrynRequest(input,init);
   const method=request.method,headers=[...request.headers],signal=request.signal||null;if(signal&&signal.aborted)return Promise.reject(signal.reason||new Error('AbortError'));
@@ -7349,6 +7315,22 @@ if(typeof globalThis.__oryn_fetch_async==='function')globalThis.fetch=(input,ini
 // routes. Native adapters supply the same policy boundary for sync and async IO.
 for(const [name,value] of Object.entries(__oryn_generated_platform))if(value!==undefined&&(typeof globalThis.__oryn_context_call==='function'||['Blob','File','FormData','XMLHttpRequest'].includes(name)))globalThis[name]=value;
 "#;
+
+#[cfg(test)]
+mod native_idb_bootstrap_controls {
+    use super::RUST_RUNTIME_GLOBALS;
+
+    #[test]
+    fn compatibility_bootstrap_does_not_replace_native_idb_methods() {
+        // The saved factory is an object, not an independent copy. Restoring
+        // it after replacing its methods would retain the replacements.
+        assert!(!RUST_RUNTIME_GLOBALS.contains("const __oryn_idb_call="));
+        assert!(!RUST_RUNTIME_GLOBALS.contains("OrynIDB"));
+        assert!(!RUST_RUNTIME_GLOBALS.contains("indexedDB.open="));
+        assert!(!RUST_RUNTIME_GLOBALS.contains("indexedDB.cmp="));
+        assert!(RUST_RUNTIME_GLOBALS.contains("'fetch','indexedDB']"));
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsoleEntry {
@@ -14504,7 +14486,7 @@ impl RustExecutableDocument {
             .is_some_and(|provider| provider.animations_active())
     }
     pub(crate) fn compute_native_layout(
-        &self,
+        &mut self,
         input: &oryn_layout::LayoutInput,
         limits: &oryn_layout::LayoutLimits,
     ) -> Result<
@@ -14514,6 +14496,13 @@ impl RustExecutableDocument {
         ),
         oryn_layout::LayoutError,
     > {
+        // Refresh the original realm's admission after the preceding script
+        // scope expired. Keep it live for the entire native Stylo computation.
+        let realm = self.automation_realm();
+        let _admission = self.agent.host.native_retained_admission_for_realm(realm)
+            .map_err(|error| oryn_layout::LayoutError::StyleTraversal(error.to_string()))?;
+        let _retained_scope = self.agent.host.retained_allocation_scope(realm)
+            .map_err(|error| oryn_layout::LayoutError::StyleTraversal(error.to_string()))?;
         let provider = self
             .agent
             .host
@@ -40190,6 +40179,28 @@ mod retained_pointer_route_tests {
 mod retained_print_scope_tests {
     use super::*;
     #[test]
+    fn native_layout_refreshes_expired_admission_without_leaving_it_live() {
+        let mut page = RustExecutableDocument::load("<body><button id=b>Button</button></body>").unwrap();
+        page.execute("document.getElementById('b').style.color='red'").unwrap();
+        let snapshot = page.layout_snapshot().unwrap();
+        let input = crate::runtime::layout_input(
+            &snapshot, Default::default(), Default::default(),
+            oryn_common::v4::PreferredColorScheme::Light,
+            oryn_common::v4::ReducedMotion::NoPreference, &[],
+        );
+        let realm = page.automation_realm();
+        let admission = page.agent.host.native_retained_admission_for_realm(realm)
+            .unwrap().unwrap();
+        drop(page.agent.host.retained_allocation_scope(realm).unwrap());
+        assert!(admission.reserve(1).is_err(), "expired snapshots must remain inadmissible");
+        for _ in 0..2 {
+            let (output, _) = page.compute_native_layout(&input, &oryn_layout::LayoutLimits::default()).unwrap();
+            assert!(!output.geometry.is_empty());
+            assert!(admission.reserve(1).is_err(), "native layout must release its owning scope");
+        }
+    }
+
+    #[test]
     fn script_commands_reselect_their_scope_after_a_foreign_realm_turn() {
         let mut page = RustExecutableDocument::load("<body></body>").unwrap();
         page.execute("globalThis.marker='root';globalThis.frame=document.createElement('iframe');document.body.append(frame);frame.contentWindow.marker='child'").unwrap();
@@ -41461,6 +41472,11 @@ mod native_frame_input_membership_tests {
         );
         page.agent.host.execute("frame.remove();globalThis.outside=document.createElement('button');outside.textContent='outside';outside.style.cssText='position:absolute;left:0;top:0;width:100px;height:100px';globalThis.outsideClicks=0;outside.onclick=()=>outsideClicks++;document.body.append(outside)").unwrap();
         page.agent.host.poll_runtime_context().unwrap();
+        assert!(child_owner.execution_retired());
+        assert!(
+            child_owner.execution_suspended(),
+            "removal retires the held cursor without reactivating child execution"
+        );
         child_owner.set_execution_suspended(false);
         assert!(page.validate_pointer_context(&initial).is_err());
         assert!(page.poll_stationary_pointer_boundaries().is_err());

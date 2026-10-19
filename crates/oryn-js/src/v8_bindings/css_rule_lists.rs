@@ -340,6 +340,21 @@ fn deleter(
     args: v8::PropertyCallbackArguments,
     mut rv: v8::ReturnValue<v8::Boolean>,
 ) -> v8::Intercepted {
+    if let Some(state) = binding_state_for_receiver(scope, args.holder())
+        && let Some(owner) = native_rule_list_owner(scope, &state, args.holder())
+    {
+        match owner.count() {
+            Ok(count) => {
+                let allowed = index as usize >= count;
+                rv.set_bool(allowed);
+                if !allowed && args.should_throw_on_error() {
+                    throw_type_error(scope, "CSSRuleList indexed properties cannot be deleted");
+                }
+            }
+            Err(error) => throw_binding_error(scope, &native_css_read_error("CSSRuleList", error)),
+        }
+        return v8::Intercepted::kYes;
+    }
     match entries(scope, args.holder()) {
         Ok(None) => return v8::Intercepted::kNo,
         Err(error) => throw_binding_error(scope, &error),
