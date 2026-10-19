@@ -777,7 +777,7 @@ impl RustExecutableDocument {
                     if let Some(loader)=loader{return loader.load_dependency(&base,&initiator,&policy,reference);}
                     #[cfg(unix)] {
                     let(client,page_id,_)=context.expect("captured CSS endpoint");let creator=creator.ok_or_else(||HostError::Execution("CSS dependency native initiator absent".into()))?;
-                    match native.run(&client,page_id,creator.creator.clone(),css_subresource_request(page_id,&creator,&base,&initiator,&policy,reference)).map_err(|error|HostError::Execution(error.to_string()))?{
+                    match native.run(&client,page_id,creator.creator.clone(),css_subresource_request(page_id,&creator,&base,&initiator,&policy,reference)).map_err(stylesheet_fetch_host_error)?{
                         crate::context_service::ContextServiceResponse::PageBinaryResource{url,body_base64,..}=>{
                             if body_base64.len()>CSS_BINARY_RESPONSE_BYTES{return Err(HostError::LimitExceeded{resource:"CSS binary response".into()});}
                             let bytes=base64::Engine::decode(&base64::engine::general_purpose::STANDARD,body_base64).map_err(|error|HostError::Execution(error.to_string()))?;
@@ -1645,7 +1645,14 @@ mod tests {
             Some(custody),
         )
         .unwrap();
-        assert!(page.css_binary_resources.is_empty());
+        // Retain decoded original backing, but never select the late face.
+        assert_eq!(page.css_binary_resources.len(),1);
+        let mut input={let dom=page.agent.dom.borrow();crate::runtime::layout_input_from_dom(
+            dom.arena(),dom.document(),Default::default(),Default::default(),
+            oryn_common::v4::PreferredColorScheme::Light,oryn_common::v4::ReducedMotion::NoPreference,&[],
+        )};
+        page.populate_css_fonts(&mut input).unwrap();
+        assert!(!input.web_fonts.iter().any(|font|!font.pending&&font.family=="Demo"));
         assert!(!page.css_font_timelines[0].loaded);
     }
     #[test]
@@ -2207,6 +2214,14 @@ impl RustExecutableDocument {
             let Some(family) = &entry.family else {
                 continue;
             };
+            // Decoded backing can remain owned after font-display expires;
+            // ownership is not permission to publish it into used layout.
+            if self.css_font_timelines.iter().any(|timeline|
+                timeline.identity.realm==entry.identity.realm && timeline.node==entry.node
+                    && timeline.revision==entry.revision && Some(&timeline.font.key)==entry.font_group.as_ref()
+                    && timeline.phase(Instant::now())==FontDisplayPhase::Failure) {
+                continue;
+            }
             if !self
                 .agent
                 .host

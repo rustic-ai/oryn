@@ -10153,11 +10153,12 @@ mod raw_v8 {
             v8::scope!(let handles,&mut self.isolate);
             let context=v8::Local::new(handles,&context);
             let scope=&mut v8::ContextScope::new(handles,context);
+            v8::tc_scope!(let scope,scope);
             let result=match state.enter_retained_allocation(scope){
                 Ok(_admission)=>callback(scope,&state),
                 Err(error)=>Err(HostError::Execution(error.to_string())),
             };
-            if deadline.expired()||scope.is_execution_terminating(){
+            if deadline.expired()||scope.has_terminated()||scope.is_execution_terminating(){
                 scope.cancel_terminate_execution();
                 reset_mutation_observer_microtask_after_termination(scope);
                 return Err(HostError::LimitExceeded{resource:"wall time".into()});

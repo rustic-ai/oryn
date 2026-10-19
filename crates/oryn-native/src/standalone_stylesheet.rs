@@ -2113,6 +2113,11 @@ impl Loader {
                     continue;
                 }
                 if !(200..300).contains(&response.status) {
+                    if destination == "font" {
+                        return Err(HostError::ScriptLoad(crate::script_load_failure::ScriptLoadFailure::Fetch(
+                            format!("font response returned HTTP {}", response.status),
+                        )));
+                    }
                     return Err(self.web_failure(format!(
                         "CSS resource returned HTTP {}",
                         response.status
