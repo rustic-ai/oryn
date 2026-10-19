@@ -171,6 +171,7 @@ pub(crate) fn request(
         WorkerRequest::ObserveWith { .. } => "observe_with",
         WorkerRequest::ObserveSemantic { .. } => "observe_semantic",
         WorkerRequest::ObserveSemanticV6 { .. } => "observe_semantic_v6",
+        WorkerRequest::ObserveStyles { .. } => "observe_styles",
         WorkerRequest::ObserveDelta { .. } => "observe_delta",
         WorkerRequest::ObserveSemanticDelta { .. } => "observe_semantic_delta",
         _ => "other",

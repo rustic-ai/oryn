@@ -1474,15 +1474,18 @@ impl NativeOilSession {
                     .ok_or_else(|| NativeOilError::TargetNotFound(requested.clone()))?,
             )
         };
-        let observation = self
+        let snapshot = self
             .page
-            .observe_with(oryn_common::v4::ObservationOptions {
+            .observe_styles(oryn_common::v4::ObservationOptions {
                 profile: ProjectionProfile::Full,
                 include_geometry: true,
                 viewport_only: false,
                 include_hidden: false,
-            })
+            }, vec!["position".into(), "z-index".into()])
             .await?;
+        // Native styles and geometry were collected by one actor operation;
+        // transitions may advance later without mixing this selection epoch.
+        let observation = snapshot.observation;
         self.cache_v4_observation(&observation);
         let nodes = observation
             .nodes
@@ -1531,17 +1534,13 @@ impl NativeOilSession {
                     else {
                         continue;
                     };
-                    let style = self.page.computed_style(reference).await?;
-                    if style.style_revision != observation.style_revision {
-                        return Err(RuntimeError::StaleSemanticRef.into());
-                    }
+                    let style = snapshot.styles.get(&reference).ok_or_else(||
+                        RuntimeError::LayoutUnavailable("dismissal ancestor lacks native style snapshot".into()))?;
                     let position = style
-                        .properties
                         .get("position")
                         .map(String::as_str)
                         .unwrap_or("static");
                     let z = style
-                        .properties
                         .get("z-index")
                         .and_then(|value| value.parse::<i64>().ok())
                         .unwrap_or(0);
@@ -3149,6 +3148,35 @@ mod tests {
             "0,1"
         );
     }
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn native_style_observation_preserves_one_epoch_and_dismissal_identity() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html("https://example.test/atomic-dismiss", r#"<!doctype html>
+            <div id="panel" role="dialog" aria-label="Panel" style="position:fixed;left:100px;top:100px;width:250px;height:150px;z-index:3000">
+            <button id="close" onclick="globalThis.closedCount=(globalThis.closedCount||0)+1">Close</button></div>"#)
+            .await.unwrap();
+        let options = oryn_common::v4::ObservationOptions {
+            profile: ProjectionProfile::Full, include_geometry: true,
+            viewport_only: false, include_hidden: false,
+        };
+        let snapshot = page.observe_styles(options, vec!["position".into(), "z-index".into()]).await.unwrap();
+        let panel = snapshot.observation.nodes.iter().find(|node| node.semantic.name == "Panel").unwrap();
+        let style = snapshot.styles.get(&panel.semantic.semantic_ref).unwrap();
+        assert_eq!(style.get("position").map(String::as_str), Some("fixed"));
+        assert_eq!(style.get("z-index").map(String::as_str), Some("3000"));
+        assert!(panel.geometry.as_ref().and_then(|geometry| geometry.box_model.as_ref()).is_some());
+        let mut session = NativeOilSession::new(page.clone());
+        let (target, container) = session.resolve_dismiss_target("modal").await.unwrap();
+        page.evaluate("document.body.append(document.getElementById('close'))").await.unwrap();
+        let scoped = oryn_common::agent::Target::Inside {
+            target: Box::new(oryn_common::agent::Target::Reference { reference: target }),
+            container: Box::new(oryn_common::agent::Target::Reference { reference: container }),
+        };
+        assert!(page.resolve_semantic(scoped, SemanticAction::Click).await.is_err());
+        assert_eq!(page.evaluate("String(globalThis.closedCount||0)").await.unwrap(), "0");
+    }
+
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
     async fn dismiss_unnamed_icon_is_scoped_to_overlay_corner() {

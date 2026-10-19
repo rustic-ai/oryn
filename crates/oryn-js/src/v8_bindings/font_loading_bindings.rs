@@ -59,6 +59,7 @@ pub(super) fn set(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,id:u64,membe
     if state.execution_tasks_stopped()||owner(state)!=expected_owner||native.revision()!=expected_revision{
         return Err(V8BindingError::Message("InvalidStateError".into()));
     }
+    let _descriptor_entry=state.enter_retained_allocation(scope)?;
     if native.set_descriptor(member,&value.value).map_err(V8BindingError::EventCallback)? {
         let revision=native.revision();
         state.font_loading.borrow_mut().face_objects.get_mut(&id)

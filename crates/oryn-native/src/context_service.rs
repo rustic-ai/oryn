@@ -161,7 +161,7 @@ use crate::{
 #[path = "context_inventory_wire.rs"]
 mod inventory_wire;
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 60;
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 61;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NavigationNetworkAuthority {
@@ -1890,6 +1890,9 @@ pub enum ContextServiceResponse {
     ScriptLoadFailed {
         failure: crate::script_load_failure::ScriptLoadFailure,
     },
+    ResourceLoadFailed {
+        failure: crate::script_load_failure::ScriptLoadFailure,
+    },
     ScriptSource {
         #[serde(default)]
         timing: Option<oryn_js::platform::ResourceTimingMetadata>,
@@ -2288,6 +2291,9 @@ impl IpcContextClient {
         if let Some(error) = response.error {
             return Err(RuntimeError::ContextService(error));
         }
+        if let Some(ContextServiceResponse::ResourceLoadFailed { failure }) = response.response.as_ref() {
+            return Err(RuntimeError::StylesheetFailure(failure.clone()));
+        }
         response.response.ok_or_else(|| {
             RuntimeError::ProtocolViolation("context service returned no response".into())
         })
@@ -2600,6 +2606,10 @@ impl ContextTransport for IpcContextTransport {
         publication?;
         rpc.published();
         let result = delivered.response.map_err(RuntimeError::ContextService);
+        let result = result.and_then(|response| match response {
+            ContextServiceResponse::ResourceLoadFailed { failure } => Err(RuntimeError::StylesheetFailure(failure)),
+            response => Ok(response),
+        });
         rpc.finished(result.is_ok());
         result
     }
@@ -13238,6 +13248,8 @@ pub(crate) fn serve_context_transport(
                 } else if let Some(request) = request {
                     match service.request_routed(route.as_ref(), request) {
                         Ok(response) => (Some(response), None),
+                        Err(RuntimeError::StylesheetFailure(failure)) =>
+                            (Some(ContextServiceResponse::ResourceLoadFailed { failure }), None),
                         Err(error) => (None, Some(error.to_string())),
                     }
                 } else {

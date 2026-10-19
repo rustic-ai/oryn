@@ -95,6 +95,7 @@ fn native_rule_relationship<'s>(
     if !page_rules::supports_interface(kind,interface) {return Err(invalid());}
     // Query original list membership; no stale positional or captured parent.
     match member {
+        "media" => Ok(wrap_native_import_media(scope, state, object)?.into()),
         "matches" => {
             let view = handle.view().map_err(|e| native_css_read_error(interface, e))?;
             Ok(v8::Boolean::new(scope, view.properties.get("matches")

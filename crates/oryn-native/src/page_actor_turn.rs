@@ -17,6 +17,15 @@ pub(super) fn dispatch(
     } else {
         command
     };
+    #[cfg(feature = "v8-host")]
+    if action_navigation::targets_document(&command)
+        && state.document.is_none()
+        && state.executable.is_none()
+        && let Err(error) = state.ensure_initial_blank_document(_context_owner)
+    {
+        action_navigation::reject(command, error);
+        return None;
+    }
     match command {
         PageCommand::LoadHtml {
             #[cfg(all(unix, feature = "v8-host"))]
@@ -383,6 +392,10 @@ pub(super) fn dispatch(
                     .refresh_semantic_observation()
                     .map(|_| state.semantic_observation(profile)),
             );
+        }
+        PageCommand::ObserveStyles { options, properties, reply } => {
+            let _ = reply.send(state.refresh_semantic_observation()
+                .and_then(|_| state.observation_with_styles(options, &properties)));
         }
         PageCommand::ObserveSemanticV6 { options, reply } => {
             let result = reply.send(
@@ -2430,6 +2443,9 @@ fn reject_after_departure(command: PageCommand) -> Option<PageCommand> {
             let _ = reply.send(Err(RuntimeError::Closed));
         }
         PageCommand::ObserveSemantic { reply, .. } => {
+            let _ = reply.send(Err(RuntimeError::Closed));
+        }
+        PageCommand::ObserveStyles { reply, .. } => {
             let _ = reply.send(Err(RuntimeError::Closed));
         }
         PageCommand::ObserveSemanticV6 { reply, .. } => {

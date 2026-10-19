@@ -227,7 +227,18 @@ impl NativeImport {
     pub fn view(&self) -> Result<RuleView, String> {
         let lock = self.parent.shared_lock();
         let guard = lock.read();
-        rule_view(&CssRule::Import(self.rule.clone()), &guard)
+        let mut view=rule_view(&CssRule::Import(self.rule.clone()), &guard)?;
+        use style_traits::ToCss;
+        // Pending/refused imports have no child sheet, but retain their own
+        // original parsed media allocation independently of loading state.
+        let media=self.media.read_with(&guard);
+        let text=media.to_css_string();
+        view.properties.insert("media".into(),text.clone());
+        if self.rule.read_with(&guard).stylesheet.as_sheet().is_none() && !media.is_empty() {
+            let prefix=view.css_text.strip_suffix(';').ok_or("invalid retained import serialization")?;
+            view.css_text=format!("{prefix} {text};");
+        }
+        Ok(view)
     }
 
     pub fn media_count(&self) -> usize {
@@ -2780,6 +2791,9 @@ impl ImportGraph {
         if !LeaseArc::ptr_eq(&retained.owner.leases, &self.leases) {
             return Err("foreign native rule".into());
         }
+        if matches!(&retained.rule, CssRule::Page(_)) {
+            return self.set_page_selector_text(retained,text,admission);
+        }
         let CssRule::Style(rule) = &retained.rule else {
             return Err("native rule is not a style rule".into());
         };
@@ -3942,3 +3956,59 @@ include!("font_demand_projection.rs");
 include!("connected_font_face.rs");
 include!("font_matching_axes.rs");
 include!("constructed_font_face.rs");
+impl ImportGraph {
+    /// CSSPageRule selectorText edits only the original typed page selectors.
+    pub fn set_page_selector_text(&mut self, retained: &NativeRule, text: &str, admission: &dyn ImportAdmission) -> Result<bool,String> {
+        use style::parser::Parse;
+        if !LeaseArc::ptr_eq(&retained.owner.leases,&self.leases) {return Err("foreign native page rule".into())}
+        let CssRule::Page(rule)=&retained.rule else {return Err("native rule is not a page rule".into())};
+        admission.checkpoint()?;
+        let lease=admission.reserve(text.len())?;
+        let selectors={
+            let guard=self.lock.read();
+            let base=&retained.owner.sheet.contents(&guard).url_data;
+            let context=style::parser::ParserContext::new(Origin::Author,base,Some(style::stylesheets::CssRuleType::Page),style_traits::ParsingMode::DEFAULT,self.quirks,Default::default(),None,None,Default::default());
+            if text.trim().is_empty() {style::stylesheets::PageSelectors::default()}
+            else {
+                let mut input=cssparser::ParserInput::new(text);
+                match cssparser::Parser::new(&mut input).parse_entirely(|input|style::stylesheets::PageSelectors::parse(&context,input)) {Ok(value)=>value,Err(_)=>return Ok(false)}
+            }
+        };
+        self.leases.lock().map_err(|_|"native page selector ledger poisoned")?.try_reserve(1).map_err(|error|error.to_string())?;
+        admission.checkpoint()?;
+        let mut leases=self.leases.lock().map_err(|_|"native page selector ledger poisoned")?;
+        rule.write_with(&mut self.lock.write()).selectors=selectors;
+        leases.push(lease);
+        Ok(true)
+    }
+}
+impl NativeRule {
+    pub fn media_queries(&self) -> Result<Vec<String>, String> {
+        use style_traits::ToCss;
+        let CssRule::Media(rule) = &self.rule else { return Err("native rule has no media list".into()) };
+        let guard = self.owner.sheet.shared_lock.read();
+        Ok(rule.media_queries.read_with(&guard).media_queries.iter().map(|query| query.to_css_string()).collect())
+    }
+}
+impl ImportGraph {
+    /// Mutate the original retained MediaRule list, including detached rules.
+    pub fn edit_rule_media(&mut self, retained: &NativeRule, edit: super::MediaListEdit<'_>, admission: &dyn ImportAdmission) -> Result<super::StylesheetMediaMutation, String> {
+        if !LeaseArc::ptr_eq(&retained.owner.leases, &self.leases) { return Err("foreign native rule".into()) }
+        let CssRule::Media(rule) = &retained.rule else { return Err("native rule has no media list".into()) };
+        let text = match edit { super::MediaListEdit::Replace(text)|super::MediaListEdit::Append(text)|super::MediaListEdit::Delete(text)=>text };
+        admission.checkpoint()?;
+        let lease = admission.reserve(text.len())?;
+        let (base, mut media) = {
+            let guard=self.lock.read();
+            (retained.owner.sheet.contents(&guard).url_data.clone(), rule.media_queries.read_with(&guard).clone())
+        };
+        let mut context=style::parser::ParserContext::new(Origin::Author,&base,Some(style::stylesheets::CssRuleType::Media),style_traits::ParsingMode::DEFAULT,self.quirks,Default::default(),None,None,Default::default());
+        let (changed,not_found)=super::media_lists::edit_native_media_list(&mut media,&mut context,edit);
+        use style_traits::ToCss;
+        let queries=media.media_queries.iter().map(|query|query.to_css_string()).collect();
+        self.leases.lock().map_err(|_|"native media ledger poisoned")?.try_reserve(1).map_err(|error|error.to_string())?;
+        admission.checkpoint()?;
+        if changed { let mut leases=self.leases.lock().map_err(|_|"native media ledger poisoned")?; *rule.media_queries.write_with(&mut self.lock.write())=media; leases.push(lease); }
+        Ok(super::StylesheetMediaMutation {queries,changed,not_found})
+    }
+}

@@ -3,24 +3,28 @@
 enum NativeMediaOwner {
     Sheet(Rc<dyn BindingNativeStylesheet>),
     Import(Rc<dyn BindingNativeImport>),
+    Rule(Rc<dyn BindingNativeRule>),
 }
 impl NativeMediaOwner {
     fn text(&self) -> Result<String, BindingNativeCssError> {
         match self {
             Self::Sheet(value) => value.media_text(),
             Self::Import(value) => value.media_text(),
+            Self::Rule(value) => value.media_queries().map(|queries|queries.join(", ")),
         }
     }
     fn count(&self) -> Result<usize, BindingNativeCssError> {
         match self {
             Self::Sheet(value) => value.media_count(),
             Self::Import(value) => value.media_count(),
+            Self::Rule(value) => value.media_queries().map(|queries|queries.len()),
         }
     }
     fn at(&self, index: usize) -> Result<Option<String>, BindingNativeCssError> {
         match self {
             Self::Sheet(value) => value.media_at(index),
             Self::Import(value) => value.media_at(index),
+            Self::Rule(value) => value.media_queries().map(|queries|queries.get(index).cloned()),
         }
     }
     fn edit(
@@ -30,6 +34,7 @@ impl NativeMediaOwner {
         match self {
             Self::Sheet(value) => value.edit_media(edit),
             Self::Import(value) => value.edit_media(edit),
+            Self::Rule(value) => value.edit_media(edit),
         }
     }
 }
@@ -48,7 +53,10 @@ fn native_media_owner(
                 }),
         );
     }
-    private_object(scope, object, "oryn.native.css.media.rule").ok()?;
+    let rule=private_object(scope, object, "oryn.native.css.media.rule").ok()?;
+    if let Some(identity)=native_css_identity(scope,rule,"oryn.native.css.rule") {
+        return Some(state.native_stylesheets.borrow().rule_records.get(&identity).cloned().map(NativeMediaOwner::Rule).ok_or(V8BindingError::Unsupported {interface:"MediaList".into(),member:"incompatible receiver".into()}));
+    }
     Some(native_import_media_handle(scope, state, object).map(NativeMediaOwner::Import))
 }
 fn native_media_attribute<'s>(

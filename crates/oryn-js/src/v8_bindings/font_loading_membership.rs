@@ -151,6 +151,7 @@ pub(super) fn construct<'s>(scope:&mut v8::PinScope<'s,'_>,state:&Rc<V8BindingSt
     }
     let provider=state.font_loading.borrow().provider.clone().ok_or(V8BindingError::Allocation("native font loading provider"))?;
     if state.execution_retired()||owner(state)!=expected_owner{return Err(V8BindingError::Message("InvalidStateError".into()));}
+    let _construction_entry=state.enter_retained_allocation(scope)?;
     let native=provider.construct(&family.value,source,&descriptors).map_err(V8BindingError::EventCallback)?;
     if state.execution_retired()||owner(state)!=expected_owner{return Err(V8BindingError::Message("InvalidStateError".into()));}
     drop(descriptors);drop(descriptor_inputs);

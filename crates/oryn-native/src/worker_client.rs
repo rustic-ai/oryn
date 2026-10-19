@@ -2221,6 +2221,7 @@ fn request_diagnostic_label(request: &WorkerRequest) -> &'static str {
         WorkerRequest::ObserveWith { .. } => "observe_with",
         WorkerRequest::ObserveSemantic { .. } => "observe_semantic",
         WorkerRequest::ObserveSemanticV6 { .. } => "observe_semantic_v6",
+        WorkerRequest::ObserveStyles { .. } => "observe_styles",
         WorkerRequest::ComputedStyle { .. } => "computed_style",
         WorkerRequest::AccessibilitySnapshot => "accessibility_snapshot",
         WorkerRequest::AccessibilityText { .. } => "accessibility_text",

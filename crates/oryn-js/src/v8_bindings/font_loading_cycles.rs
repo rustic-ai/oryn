@@ -30,6 +30,13 @@ fn begin<'s>(
     let token=font_loading_transport::FontLoadToken {owner:owner(state),
         face:id,revision:native.revision(),serial:attempt.serial};
     // Provider callbacks and native admission occur outside font state borrows.
+    let _request_entry=match state.enter_retained_allocation(scope) {
+        Ok(entry)=>entry,
+        Err(error)=>{
+            state.font_loading.borrow_mut().cycles.rollback_start(attempt);
+            return Err(error);
+        }
+    };
     let request=match native.request(token,text) {
         Ok(request)=>request,
         Err(error)=>{

@@ -20,7 +20,7 @@ use crate::{
     runtime::{NativeAction, RuntimeError},
 };
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 20;
+pub const WORKER_PROTOCOL_VERSION: u32 = 21;
 use crate::worker_route::WorkerRoute;
 pub const MAX_IPC_FRAME_BYTES: usize = 24 * 1024 * 1024;
 static WORKER_BINARY_SHA256: OnceLock<String> = OnceLock::new();
@@ -227,6 +227,10 @@ pub enum WorkerRequest {
     ObserveSemantic {
         profile: ProjectionProfile,
     },
+    ObserveStyles {
+        options: oryn_common::v4::ObservationOptions,
+        properties: Vec<String>,
+    },
     ObserveSemanticV6 {
         options: oryn_common::v6::SemanticObservationOptions,
     },
@@ -356,6 +360,9 @@ pub enum WorkerResponse {
     },
     SemanticObservation {
         observation: oryn_common::v5::SemanticObservation,
+    },
+    StyleObservation {
+        snapshot: crate::runtime::NativeStyleObservation,
     },
     SemanticObservationV6 {
         observation: oryn_common::v6::SemanticObservation,
@@ -1151,6 +1158,10 @@ async fn dispatch(
         }
         WorkerRequest::ObserveWith { options } => match session.page.observe_with(options).await {
             Ok(observation) => WorkerResponse::ObservationV4 { observation },
+            Err(value) => error(value),
+        },
+        WorkerRequest::ObserveStyles { options, properties } => match session.page.observe_styles(options, properties).await {
+            Ok(snapshot) => WorkerResponse::StyleObservation { snapshot },
             Err(value) => error(value),
         },
         WorkerRequest::ObserveSemantic { profile } => {

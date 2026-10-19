@@ -2,7 +2,46 @@
 
 use super::*;
 
+/// Internal native rendering epoch, not an addition to public observation
+/// contracts. All styles below come from the observation's exact layout.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeStyleObservation {
+    pub(crate) observation: oryn_common::v4::Observation,
+    pub(crate) styles: BTreeMap<SemanticRef, BTreeMap<String, String>>,
+}
+
 impl PageState {
+    pub(super) fn observation_with_styles(
+        &mut self,
+        options: ObservationOptions,
+        properties: &[String],
+    ) -> Result<NativeStyleObservation, RuntimeError> {
+        #[cfg(feature = "v8-host")]
+        if self.terminal_close_requested() { return Err(RuntimeError::PageTaskYield); }
+        let observation = self.observation_v4(options)?;
+        let mut styles = BTreeMap::new();
+        #[cfg(feature = "v8-host")]
+        {
+            let layout = self.layout.as_ref().ok_or_else(||
+                RuntimeError::LayoutUnavailable("native style snapshot requires layout".into()))?;
+            for node in &observation.nodes {
+                if self.terminal_close_requested() { return Err(RuntimeError::PageTaskYield); }
+                let Some(computed) = layout.computed_styles.get(&node.semantic.semantic_ref.node) else {
+                    continue;
+                };
+                let selected = properties.iter().filter_map(|name|
+                    computed.get(name).map(|value| (name.clone(), value.clone())))
+                    .collect();
+                styles.insert(node.semantic.semantic_ref, selected);
+            }
+        }
+        #[cfg(not(feature = "v8-host"))]
+        { let _ = properties; }
+        #[cfg(feature = "v8-host")]
+        if self.terminal_close_requested() { return Err(RuntimeError::PageTaskYield); }
+        Ok(NativeStyleObservation { observation, styles })
+    }
+
     #[cfg(feature = "v8-host")]
     pub(super) fn refresh_layout(&mut self) -> Result<(), RuntimeError> {
         if self.refresh_page_task_layout()? {

@@ -2697,6 +2697,7 @@ pub struct ScrollRequest {
 
 #[path = "page_layout_projection.rs"]
 mod page_layout_projection;
+pub use page_layout_projection::NativeStyleObservation;
 #[cfg(feature = "v8-host")]
 #[path = "page_lifecycle_checkpoints.rs"]
 mod page_lifecycle_checkpoints;
@@ -2737,6 +2738,9 @@ mod script_close_state;
 #[cfg(feature = "v8-host")]
 #[path = "action_navigation.rs"]
 mod action_navigation;
+#[cfg(feature = "v8-host")]
+#[path = "initial_blank_document.rs"]
+mod initial_blank_document;
 #[cfg(all(test, feature = "v8-host"))]
 #[path = "action_navigation_tests.rs"]
 mod action_navigation_tests;
@@ -2899,6 +2903,11 @@ enum PageCommand {
     ObserveSemantic {
         profile: ProjectionProfile,
         reply: oneshot::Sender<Result<oryn_common::v5::SemanticObservation, RuntimeError>>,
+    },
+    ObserveStyles {
+        options: ObservationOptions,
+        properties: Vec<String>,
+        reply: oneshot::Sender<Result<NativeStyleObservation, RuntimeError>>,
     },
     ObserveSemanticV6 {
         options: oryn_common::v6::SemanticObservationOptions,
@@ -13418,6 +13427,26 @@ impl PageHandle {
             .send(PageCommand::ObserveWith { options, reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
+    pub(crate) async fn observe_styles(
+        &self,
+        options: ObservationOptions,
+        properties: Vec<String>,
+    ) -> Result<NativeStyleObservation, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(
+            crate::worker::WorkerRequest::ObserveStyles { options, properties: properties.clone() }
+        ).await {
+            return match response? {
+                crate::worker::WorkerResponse::StyleObservation { snapshot } => Ok(snapshot),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?.send(PageCommand::ObserveStyles { options, properties, reply })
+            .await.map_err(|_| RuntimeError::Closed)?;
         response.await.map_err(|_| RuntimeError::Closed)?
     }
 

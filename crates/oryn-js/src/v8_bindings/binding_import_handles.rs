@@ -65,6 +65,8 @@ pub trait BindingNativeStylesheet {
     ) -> Result<Option<Rc<dyn BindingNativeRule>>, BindingNativeCssError>;
 }
 pub trait BindingNativeRule {
+    fn media_queries(&self) -> Result<Vec<String>, BindingNativeCssError>;
+    fn edit_media(&self, edit: BindingMediaListEdit<'_>) -> Result<BindingStylesheetMediaMutation, BindingNativeCssError>;
     fn layer_name_count(&self) -> Result<Option<usize>, BindingNativeCssError>;
     fn layer_name_at(&self, index: usize) -> Result<Option<String>, BindingNativeCssError>;
     fn identity(&self) -> u64;

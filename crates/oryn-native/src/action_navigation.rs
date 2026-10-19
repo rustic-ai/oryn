@@ -431,7 +431,7 @@ impl Pending {
     }
 }
 
-fn targets_document(command: &PageCommand) -> bool {
+pub(super) fn targets_document(command: &PageCommand) -> bool {
     match command {
         PageCommand::WaitFor { .. } => true,
         PageCommand::WaitForUntil { .. } => true,
@@ -446,6 +446,7 @@ fn targets_document(command: &PageCommand) -> bool {
         PageCommand::ObserveSemantic { .. } => true,
         PageCommand::ObserveSemanticV6 { .. } => true,
         PageCommand::ComputedStyle { .. } => true,
+        PageCommand::ObserveStyles { .. } => true,
         PageCommand::AccessibilitySnapshot { .. } => true,
         PageCommand::AccessibilityText { .. } => true,
         PageCommand::BoxModel { .. } => true,
@@ -502,6 +503,7 @@ fn reply_closed(command: &PageCommand) -> bool {
         PageCommand::ObserveSemantic { reply, .. } => reply.is_closed(),
         PageCommand::ObserveSemanticV6 { reply, .. } => reply.is_closed(),
         PageCommand::ComputedStyle { reply, .. } => reply.is_closed(),
+        PageCommand::ObserveStyles { reply, .. } => reply.is_closed(),
         PageCommand::AccessibilitySnapshot { reply, .. } => reply.is_closed(),
         PageCommand::AccessibilityText { reply, .. } => reply.is_closed(),
         PageCommand::BoxModel { reply, .. } => reply.is_closed(),
@@ -528,7 +530,7 @@ fn reply_closed(command: &PageCommand) -> bool {
     }
 }
 
-fn reject(command: PageCommand, error: RuntimeError) {
+pub(super) fn reject(command: PageCommand, error: RuntimeError) {
     match command {
         PageCommand::WaitFor { reply, .. } => {
             let _ = reply.send(Err(error));
@@ -567,6 +569,9 @@ fn reject(command: PageCommand, error: RuntimeError) {
             let _ = reply.send(Err(error));
         }
         PageCommand::ComputedStyle { reply, .. } => {
+            let _ = reply.send(Err(error));
+        }
+        PageCommand::ObserveStyles { reply, .. } => {
             let _ = reply.send(Err(error));
         }
         PageCommand::AccessibilitySnapshot { reply, .. } => {

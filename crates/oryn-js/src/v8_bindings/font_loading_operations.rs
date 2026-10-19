@@ -112,6 +112,10 @@ pub(super) fn operation<'s>(
                 ids.extend(set.faces.iter().copied());faces.extend(set.faces.iter().filter_map(|id|fonts.face_objects.get(id).map(|face|face.native.clone())));
                 (fonts.provider.clone().ok_or(V8BindingError::Allocation("font provider"))?,ids,faces)
             };
+            // Earlier container preparation enters and then closes its own
+            // receipt. Refresh for the actual native selector/parser call;
+            // retain that receipt until all provider allocations have finished.
+            let _selection_entry=state.enter_retained_allocation(scope)?;
             let selected=provider.select(&font.value,&text.value,&faces).map_err(|error|match error{
                 font_loading_transport::FontSelectionError::Syntax=>V8BindingError::Message("SyntaxError: invalid font shorthand".into()),
                 font_loading_transport::FontSelectionError::Resource(error)=>V8BindingError::EventCallback(error),

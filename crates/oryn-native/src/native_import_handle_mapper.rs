@@ -768,6 +768,20 @@ impl NativeRuleHandle {
     }
 }
 impl oryn_js::v8_bindings::BindingNativeRule for NativeRuleHandle {
+    fn media_queries(&self) -> Result<Vec<String>, oryn_js::v8_bindings::BindingNativeCssError> {
+        self.require_origin_clean()?;
+        self.rule.media_queries().map_err(Into::into)
+    }
+    fn edit_media(&self, edit: oryn_js::v8_bindings::BindingMediaListEdit<'_>) -> Result<oryn_js::v8_bindings::BindingStylesheetMediaMutation, oryn_js::v8_bindings::BindingNativeCssError> {
+        use oryn_js::v8_bindings::BindingMediaListEdit as Binding;
+        use oryn_layout::cssom::MediaListEdit as Native;
+        self.require_origin_clean()?;
+        let edit=match edit {Binding::Replace(text)=>Native::Replace(text),Binding::Append(text)=>Native::Append(text),Binding::Delete(text)=>Native::Delete(text)};
+        let revision=self.publication.mutation_revision.get().checked_add(1).ok_or("native media revision exhausted")?;
+        let result=self.publication.graph.try_borrow_mut().map_err(|_|"native media graph borrow")?.edit_rule_media(&self.rule,edit,self.publication.admission.as_ref())?;
+        if result.changed {self.publication.mutation_revision.set(revision);}
+        Ok(oryn_js::v8_bindings::BindingStylesheetMediaMutation {queries:result.queries,changed:result.changed,not_found:result.not_found})
+    }
     fn layer_name_count(
         &self,
     ) -> Result<Option<usize>, oryn_js::v8_bindings::BindingNativeCssError> {

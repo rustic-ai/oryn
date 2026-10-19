@@ -73,6 +73,7 @@ impl PageState {
                     | WorkerRequest::ResolveTarget { .. }
                     | WorkerRequest::Extract { .. }
                     | WorkerRequest::ComputedStyle { .. }
+                    | WorkerRequest::ObserveStyles { .. }
                     | WorkerRequest::AccessibilitySnapshot
                     | WorkerRequest::BoxModel { .. }
                     | WorkerRequest::ObserveDelta { .. }
@@ -585,6 +586,9 @@ impl PageState {
             },
             Q::ObserveSemanticV6 { options } => R::SemanticObservationV6 {
                 observation: self.semantic_observation_v6(options)?,
+            },
+            Q::ObserveStyles { options, properties } => R::StyleObservation {
+                snapshot: self.observation_with_styles(options, &properties)?,
             },
             Q::ResolveFocusedForm => R::SemanticRef {
                 semantic_ref: self.resolve_focused_form()?,

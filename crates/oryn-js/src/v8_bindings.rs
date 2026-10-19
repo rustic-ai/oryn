@@ -18293,7 +18293,7 @@ fn generated_attribute_setter_impl<'s>(
         }
         return;
     }
-    if interface == "CSSStyleRule"
+    if matches!(interface, "CSSStyleRule" | "CSSPageRule")
         && member == "selectorText"
         && let Some(identity) = native_css_identity(scope, args.this(), "oryn.native.css.rule")
     {
@@ -18304,15 +18304,15 @@ fn generated_attribute_setter_impl<'s>(
             .get(&identity)
             .cloned();
         let Some(handle) = handle else {
-            throw_type_error(scope, "incompatible native CSSStyleRule receiver");
+            throw_type_error(scope, "incompatible native selector rule receiver");
             return;
         };
         let kind=match handle.view() {
             Ok(view)=>view.rule_type,
-            Err(error)=>{throw_binding_error(scope,&native_css_read_error("CSSStyleRule",error));return;}
+            Err(error)=>{throw_binding_error(scope,&native_css_read_error(interface,error));return;}
         };
-        if !page_rules::supports_interface(kind,"CSSStyleRule") {
-            throw_type_error(scope,"incompatible native CSSStyleRule receiver");
+        if !page_rules::supports_interface(kind,interface) {
+            throw_type_error(scope,"incompatible native selector rule receiver");
             return;
         }
         let selector=match cssom_string(scope,args.get(0),false) {
@@ -18322,7 +18322,7 @@ fn generated_attribute_setter_impl<'s>(
             Ok(guard)=>guard,Err(error)=>{throw_binding_error(scope,&error);return;}
         };
         if let Err(error) = handle.set_selector_text(&selector) {
-            throw_binding_error(scope, &native_css_read_error("CSSStyleRule", error));
+            throw_binding_error(scope, &native_css_read_error(interface, error));
         }
         return;
     }
@@ -18343,6 +18343,14 @@ fn generated_attribute_setter_impl<'s>(
             if let Err(error)=result {throw_binding_error(scope,&error);}
             return;
         }
+    }
+    if interface == "CSSMediaRule" && member == "media"
+        && native_css_identity(scope,args.this(),"oryn.native.css.rule").is_some()
+    {
+        let result=wrap_native_import_media(scope,&state,args.this()).and_then(|list|
+            native_media_set_text(scope,&state,list,args.get(0)).unwrap_or_else(||Err(V8BindingError::Unsupported {interface:"MediaList".into(),member:"incompatible receiver".into()})));
+        if let Err(error)=result {throw_binding_error(scope,&error);}
+        return;
     }
     if matches!(interface, "CSSMediaRule" | "CSSStyleRule" | "CSSPageRule") {
         if let Err(error) =
