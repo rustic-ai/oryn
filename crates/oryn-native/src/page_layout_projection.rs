@@ -19,7 +19,10 @@ impl PageState {
         #[cfg(feature = "v8-host")]
         if self.terminal_close_requested() { return Err(RuntimeError::PageTaskYield); }
         let observation = self.observation_v4(options)?;
+        #[cfg(feature = "v8-host")]
         let mut styles = BTreeMap::new();
+        #[cfg(not(feature = "v8-host"))]
+        let styles = BTreeMap::new();
         #[cfg(feature = "v8-host")]
         {
             let layout = self.layout.as_ref().ok_or_else(||

@@ -914,6 +914,12 @@ mod tests {
                 "https://destination.example.test/ready"
             };
             let parent_context = host.contexts[&parent].clone();
+            // This control invokes the native callback directly, rather than
+            // entering through ensure_standalone_author_task.
+            host.prepare_auxiliary_creator_fonts().unwrap();
+            let state = host.retained_binding_state(parent).unwrap();
+            assert!(state.native_layout_provider().is_some());
+            assert!(host.native_retained_admission_for_realm(parent).unwrap().is_some());
             let result = {
                 v8::scope!(let handles,&mut host.isolate);
                 let context = v8::Local::new(handles, &parent_context);

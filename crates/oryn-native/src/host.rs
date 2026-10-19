@@ -7919,6 +7919,7 @@ mod raw_v8 {
             opener_page_id: Option<PageId>,
             admission: crate::context_service::RelatedRootAdmission,
         ) -> Result<(), HostError> {
+            self.prepare_auxiliary_creator_fonts()?;
             let context = self
                 .contexts
                 .get(&self.active_realm)

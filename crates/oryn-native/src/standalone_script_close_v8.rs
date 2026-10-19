@@ -283,6 +283,8 @@ impl RawV8Host {
                 "standalone Window has completed departure".into(),
             ))
         } else {
+            #[cfg(unix)]
+            self.prepare_auxiliary_creator_fonts()?;
             Ok(())
         }
     }
