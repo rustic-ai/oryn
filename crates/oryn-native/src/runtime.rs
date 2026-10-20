@@ -42535,21 +42535,28 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
         );
         let page = context.new_page();
         let load_page = page.clone();
-        let load = tokio::spawn(async move {
+        let mut load = tokio::spawn(async move {
             load_page.load_html(
                 "https://paint.example.test/",
                 "<style>img{width:8px;height:8px}</style><img alt=slow src=/slow.png><script>globalThis.loadEvents=[];document.addEventListener('DOMContentLoaded',()=>loadEvents.push('dom'));window.addEventListener('load',()=>loadEvents.push('load'))</script>",
             ).await
         });
-        tokio::time::timeout(Duration::from_secs(5), async {
+        let mut last_events = String::new();
+        let dom_loaded = tokio::time::timeout(Duration::from_secs(5), async {
             let mut document_admitted = false;
             loop {
+                // A terminal constructor failure is not a held image. Retain
+                // its actual error instead of obscuring it as a DCL timeout.
+                if load.is_finished() {
+                    panic!("image fixture load terminated before image release: {:?}", (&mut load).await);
+                }
                 match page
                     .evaluate("typeof loadEvents==='undefined'?'':loadEvents.join(',')")
                     .await
                 {
                     Ok(events) => {
                         document_admitted = true;
+                        last_events.clone_from(&events);
                         if events == "dom" {
                             break;
                         }
@@ -42562,8 +42569,22 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
         })
-        .await
-        .expect("DOMContentLoaded remains observable while image load is suspended");
+        .await;
+        if dom_loaded.is_err() {
+            // Bound diagnostic observation independently: a blocked actor must
+            // remain a failure, not turn this timeout report into another wait.
+            let diagnostic = tokio::time::timeout(Duration::from_millis(250), page.trace()).await;
+            if let Ok(Ok(trace)) = diagnostic {
+                for entry in trace.iter().rev().filter(|entry| matches!(entry.kind,
+                    TraceEventKind::ScriptDiagnostic { .. } | TraceEventKind::LifecycleChanged { .. }
+                )).take(8) {
+                    eprintln!("slow image lifecycle diagnostic: {:?}", entry.kind);
+                }
+            }
+        }
+        assert!(dom_loaded.is_ok(),
+            "DOMContentLoaded remains observable while image load is suspended: last_events={last_events:?}, load_finished={}, image_started={}",
+            load.is_finished(), state.0.lock().unwrap().0);
         assert_eq!(page.evaluate("loadEvents.join(',')").await.unwrap(), "dom");
         assert!(!page.trace().await.unwrap().iter().any(|event| matches!(
             event.kind,

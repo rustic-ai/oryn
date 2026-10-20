@@ -202,7 +202,7 @@ mod tests {
     (data) => document.createProcessingInstruction('t', data),
     (data) => { const box = document.createElement('div'); box.innerHTML = `<?t ${data}?>`; return box.firstChild; },
     (data) => new DOMParser().parseFromString('<root/>', 'application/xml').createProcessingInstruction('t', data),
-    (data) => new DOMParser().parseFromString(`<?t ${data}?>`, 'application/xml').firstChild,
+    (data) => new DOMParser().parseFromString(`<?t ${data}?><root/>`, 'application/xml').firstChild,
   ];
   for (const create of creators) {
     const pi = create('a="b" x="yy"');
