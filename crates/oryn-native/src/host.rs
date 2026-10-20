@@ -21323,7 +21323,7 @@ mod raw_v8 {
                 return after!==before&&after===saved.ancestorOrigins&&after.length===0
                     &&after.item(0)===null&&!after.contains('null')
                     &&Object.prototype.toString.call(after)==='[object DOMStringList]'
-                    &&before.length===1&&before.item(0)==='null';
+                    &&before.length===1&&before.item(0)==='https://example.test';
             })()"#).unwrap(),"true");
         }
 

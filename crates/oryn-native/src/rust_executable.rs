@@ -36831,7 +36831,8 @@ mod frame_stylesheet_transfer_tests {
             false,
         );
         assert!(
-            matches!(result,Err(HostError::Execution(message)) if message.contains("construction deadline exceeded"))
+            matches!(&result,Err(HostError::Execution(message)) if message.contains("construction deadline exceeded")),
+            "construction result: {:?}", result.as_ref().err()
         );
         assert!(dropped.get());
     }
