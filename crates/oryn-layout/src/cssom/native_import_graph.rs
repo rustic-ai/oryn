@@ -1429,7 +1429,10 @@ impl ImportGraph {
                 None,
                 style_traits::ParsingMode::DEFAULT,
                 self.quirks,
-                retained.rule.rule_type(),
+                match retained.rule.rule_type() {
+                    style::stylesheets::CssRuleType::NestedDeclarations => style::stylesheets::CssRuleType::Style,
+                    kind => kind,
+                },
             )
             .is_err()
             {
@@ -1671,7 +1674,13 @@ impl ImportGraph {
                 CssRule::NestedDeclarations(rule) => rule.read_with(&guard).block.clone(),
                 _ => return Err("native rule has no declaration block".into()),
             };
-            (block, retained.rule.rule_type())
+            // Nested declarations use normal style-property grammar, not the
+            // internal CSSOM rule tag (which is preserved on the rule itself).
+            let kind = match retained.rule.rule_type() {
+                style::stylesheets::CssRuleType::NestedDeclarations => style::stylesheets::CssRuleType::Style,
+                kind => kind,
+            };
+            (block, kind)
         };
         admission.checkpoint()?;
         let lease = admission.reserve(text.len())?;

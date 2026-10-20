@@ -27238,6 +27238,7 @@ mod tests {
             ContextOptions::default(),
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://selector.test/parsed".into(),
             r#"<main><button id=first data-key="a,b">One</button><button id=second>Two</button></main>"#,
@@ -31234,7 +31235,9 @@ mod tests {
                 #[cfg(unix)]
                 None,
             );
+            page.bind_direct_fixture_terminal_owner();
             page.load_document("https://history.test/source".into(),"<p>retained</p><script>globalThis.kept=document;globalThis.transitions=[];onpagehide=e=>transitions.push('hide:'+e.persisted);onpageshow=e=>transitions.push('show:'+e.persisted)</script>",None,None,HistoryUpdate::Push,&BTreeMap::new(),Vec::new()).unwrap();
+            settle_fixture_document(&mut page);
             let generation = page.document_generation;
             page.executable
                 .as_mut()
@@ -31551,6 +31554,7 @@ mod tests {
             None,
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document("https://history.test/source".into(),"<p>retained</p><script>globalThis.kept=document;globalThis.shown=[];onpageshow=e=>shown.push(e.persisted)</script>",None,None,HistoryUpdate::Push,&BTreeMap::new(),Vec::new()).unwrap();
         settle_fixture_document(&mut page);
         let generation = page.document_generation;
@@ -31875,6 +31879,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/source".into(),
             "<p>retained</p>",
@@ -32918,6 +32923,7 @@ mod tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://history.test/source".into(),
             "<p>retained</p>",
@@ -40996,6 +41002,7 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
             Vec::new(),
         )
         .unwrap();
+        page.refresh_semantic_observation().unwrap();
         let initial = page.observation(ProjectionProfile::Full);
         let node = initial
             .nodes
@@ -41005,6 +41012,7 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
         assert!(node.validation.as_ref().unwrap().pattern_mismatch);
         let reference = node.semantic_ref;
         page.evaluate("Object.defineProperty(p,'validity',{get(){throw Error('authored getter')}});p.value='ABC';'ok'").unwrap();
+        page.refresh_semantic_observation().unwrap();
         let recovered = page.observation(ProjectionProfile::Full);
         let state = recovered
             .nodes
@@ -41016,6 +41024,7 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
             .unwrap();
         assert!(state.valid && !state.pattern_mismatch);
         page.evaluate("p.pattern='[0-9]+';'ok'").unwrap();
+        page.refresh_semantic_observation().unwrap();
         let changed = page.observation(ProjectionProfile::Full);
         let state = changed
             .nodes
@@ -41040,9 +41049,11 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document("https://example.test/form".into(),
             "<form id=f><input id=email aria-label=Email type=email required><input id=hidden aria-label=Hidden required style='display:none'><input id=radio aria-label=Radio type=radio name=g required disabled></form>",
             None, None, HistoryUpdate::Push, &BTreeMap::new(), Vec::new()).unwrap();
+        page.refresh_semantic_observation().unwrap();
         let initial = page.observation(ProjectionProfile::Full);
         let email = initial.nodes.iter().find(|n| n.name == "Email").unwrap();
         let email_ref = email.semantic_ref;
@@ -41071,6 +41082,7 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
             "Object.defineProperty(email,'validity',{get(){throw Error('must not call page getter')}});email.setCustomValidity('private-token-should-not-escape'); f.reportValidity(); 'ok'",
         )
         .unwrap();
+        page.refresh_semantic_observation().unwrap();
         let reported = page.observation(ProjectionProfile::Full);
         let email = reported
             .nodes

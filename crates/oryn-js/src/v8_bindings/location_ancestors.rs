@@ -105,7 +105,11 @@ pub(super) fn get<'s>(
             .map(Origin::serialize)
             .collect()
     };
-    let list = stylesheet_sets::snapshot(scope, state, &names)?;
+    let list = if state.execution_retired() {
+        stylesheet_sets::inactive_empty_snapshot(scope, state)?
+    } else {
+        stylesheet_sets::snapshot(scope, state, &names)?
+    };
     let template = v8::ObjectTemplate::new(scope);
     template.set_internal_field_count(2);
     let record = template

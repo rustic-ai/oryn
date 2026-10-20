@@ -156,6 +156,23 @@ pub(super) fn snapshot<'s, T: AsRef<str>>(
     state: &V8BindingState,
     names: &[T],
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    snapshot_owned(scope, state, names, false)
+}
+/// Only Location's defined inactive-document fallback may create an empty
+/// immutable list after retirement. No retired payload is read or published.
+pub(super) fn inactive_empty_snapshot<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    snapshot_owned(scope, state, &[] as &[String], true)
+}
+fn snapshot_owned<'s, T: AsRef<str>>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+    names: &[T],
+    inactive_empty: bool,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let unavailable = || state.execution_retired() && !(inactive_empty && names.is_empty());
     let template = state
         .instance_templates
         .borrow()
@@ -169,7 +186,7 @@ pub(super) fn snapshot<'s, T: AsRef<str>>(
         .map_err(|_| V8BindingError::Allocation("DOMStringList length"))?;
     let array = v8::Array::new(scope, length);
     for (index, name) in names.iter().enumerate() {
-        if scope.is_execution_terminating() || state.execution_retired() {
+        if scope.is_execution_terminating() || unavailable() {
             return Err(V8BindingError::JavaScriptException);
         }
         let value = v8_string(scope, name.as_ref())?;
@@ -177,7 +194,7 @@ pub(super) fn snapshot<'s, T: AsRef<str>>(
             return Err(V8BindingError::JavaScriptException);
         }
     }
-    if scope.is_execution_terminating() || state.execution_retired() {
+    if scope.is_execution_terminating() || unavailable() {
         return Err(V8BindingError::JavaScriptException);
     }
     object.set_internal_field(0, array.into());
