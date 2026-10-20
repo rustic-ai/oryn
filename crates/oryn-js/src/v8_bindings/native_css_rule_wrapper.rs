@@ -74,7 +74,7 @@ fn wrap_native_rule<'s>(
 fn native_rule_relationship<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
-    object: v8::Local<v8::Object>,
+    object: v8::Local<'s, v8::Object>,
     interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {

@@ -14,7 +14,7 @@ fn names(
     if let Some(handle) = native_declaration_rule(scope, &state, object) {
         let _scope = state.enter_retained_allocation(scope)?;
         return handle.declaration("")
-            .map(|view| Some(view.names))
+            .map(|view| Some(view.view.names))
             .map_err(|error| native_css_read_error("CSSStyleDeclaration", error));
     }
     if computed_styles::is_computed(scope, &state, object) {
