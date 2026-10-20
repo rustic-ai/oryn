@@ -231,7 +231,16 @@ mod tests {
       pi.setAttribute('special',value);
       element.setAttribute('special',value);
       check(pi.getAttribute('special')===value,'lossless special value');
-      check(pi.data.includes(serializedAttribute('special')),'special serialized parity');
+      if (value.length === 1 && value.charCodeAt(0) === 0xD800 && pi.ownerDocument.contentType !== 'text/html') {
+        // PI DOMString storage is lossless; strict XML cannot serialize a
+        // lone surrogate. Verify rejection and unchanged native attributes.
+        try { void element.outerHTML; throw Error('accepted invalid XML character'); }
+        catch(error) { check(error.name === 'InvalidStateError', 'strict XML lone surrogate rejection'); }
+        check(pi.getAttribute('special') === value && element.getAttribute('special') === value,
+          'XML rejection preserves native lossless attributes');
+      } else {
+        check(pi.data.includes(serializedAttribute('special')),'special serialized parity');
+      }
     }
     const original=pi.data, marker={};
     try { pi.setAttribute('new', {toString(){throw marker}}); throw Error('accepted coercion'); }

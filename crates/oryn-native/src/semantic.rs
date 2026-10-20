@@ -8185,8 +8185,20 @@ impl SemanticProducer for SemanticLeaseOwner<'_> {
         self.release_receipt_range(mark..self.leases.len())
     }
     fn release_receipt_range(&mut self, range: std::ops::Range<usize>) {
-        for receipt in &mut self.leases[range] {
+        let end = range.end.min(self.leases.len());
+        let start = range.start.min(end);
+        for receipt in &mut self.leases[start..end] {
             receipt.payload.take();
+        }
+        // Reclaim only a dead suffix. Interior indexes remain stable for
+        // outstanding range marks and later live payloads. Capacity receipts
+        // stay at their original index and continue charging the physical Vec.
+        // Thus repeated scratch cycles reuse tail slots without dropping
+        // metadata admission or compacting an externally bookmarked range.
+        while self.leases.last().is_some_and(|receipt|
+            receipt.payload.is_none() && receipt._metadata.is_none())
+        {
+            self.leases.pop();
         }
     }
     fn ordinary_dom_error(error: Self::Error) -> Result<crate::dom::DomError, Self::Error> {
@@ -14436,5 +14448,53 @@ mod admitted_sync_controls {
             .unwrap()
             .join()
             .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod scratch_receipt_reuse_controls {
+    use super::*;
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    struct Admission { live: Arc<AtomicUsize> }
+    struct Lease { live: Arc<AtomicUsize>, bytes: usize }
+    impl Drop for Lease { fn drop(&mut self) { self.live.fetch_sub(self.bytes, Ordering::SeqCst); } }
+    impl oryn_layout::cssom::native_import_graph::ImportAdmission for Admission {
+        fn checkpoint(&self) -> Result<(), String> { Ok(()) }
+        fn reserve(&self, bytes: usize) -> Result<Arc<dyn Send + Sync>, String> {
+            self.live.fetch_add(bytes, Ordering::SeqCst);
+            Ok(Arc::new(Lease { live: self.live.clone(), bytes }))
+        }
+    }
+    #[test]
+    fn scratch_tail_reuses_capacity_and_preserves_interior_live_range() {
+        let admission = Admission { live: Arc::new(AtomicUsize::new(0)) };
+        let mut owner = SemanticLeaseOwner { admission: &admission, leases: Vec::new() };
+        owner.reserve(123).unwrap();
+        let retained = owner.leases[0].payload.as_ref().unwrap().clone();
+        let before = owner.receipt_mark();
+        owner.reserve(17).unwrap();
+        let middle_end = owner.receipt_mark();
+        owner.reserve(31).unwrap();
+        let later = owner.leases[middle_end].payload.as_ref().unwrap().clone();
+        owner.release_receipt_range(before..middle_end);
+        assert!(owner.leases[before].payload.is_none());
+        assert!(Arc::ptr_eq(owner.leases[middle_end].payload.as_ref().unwrap(), &later));
+        assert!(Arc::ptr_eq(owner.leases[0].payload.as_ref().unwrap(), &retained));
+        for _ in 0..2 { let mark = owner.receipt_mark(); owner.reserve(7).unwrap(); owner.reserve(11).unwrap(); owner.release_scratch(mark); }
+        let capacity = owner.leases.capacity();
+        let count = owner.leases.len();
+        let charged = admission.live.load(Ordering::SeqCst);
+        for _ in 0..10000 {
+            let mark = owner.receipt_mark();
+            owner.reserve(7).unwrap();
+            owner.reserve(11).unwrap();
+            owner.release_scratch(mark);
+        }
+        assert_eq!(owner.leases.capacity(), capacity);
+        assert_eq!(owner.leases.len(), count);
+        assert_eq!(admission.live.load(Ordering::SeqCst), charged);
+        assert!(Arc::ptr_eq(owner.leases[middle_end].payload.as_ref().unwrap(), &later));
+        drop(retained); drop(later); drop(owner);
+        assert_eq!(admission.live.load(Ordering::SeqCst), 0);
     }
 }
