@@ -37683,6 +37683,42 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn paragraph_host_suffix_partition_keeps_prefix_and_history() {
+        let page=Browser::new().new_context().new_page();
+        page.load_html("https://editing.example.test/paragraph-host-control","<!doctype html><body></body>").await.unwrap();
+        let result=page.evaluate(r#"(() => {
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            for(const command of ['insertText','insertParagraph'])
+            for(const tag of ['p','span'])for(const display of ['block','inline','inline-block']){
+                const host=document.createElement(tag);host.contentEditable='true';host.style.display=display;
+                host.style.whiteSpace='normal';host.innerHTML='<div style="display:inline">ab</div>';document.body.append(host);
+                const original=host.firstChild,text=original.firstChild;
+                host.focus();const selection=getSelection();selection.collapse(text,1);
+                check(document.execCommand(command,false,command==='insertText'?'\n':''),'accepted');
+                const paragraphHost=tag==='p'&&display==='block';
+                const expected=paragraphHost
+                    ?'<div style="display:inline">a</div><div><div style="display:inline">b</div></div>'
+                    :'<div style="display:inline">a<br>b</div>';
+                check(host.innerHTML===expected,'topology '+command+'/'+tag+'/'+display+': '+host.innerHTML);
+                check(host.firstChild===original&&original.firstChild===text&&text.data==='a','prefix identity');
+                check(selection.isCollapsed&&host.contains(selection.anchorNode),'connected caret');
+                if(paragraphHost){
+                    const suffix=host.lastChild.firstChild.firstChild;
+                    check(suffix.nodeType===3&&suffix.data==='b'&&selection.anchorNode===suffix&&selection.anchorOffset===0,'suffix start caret');
+                }
+                check(document.execCommand('undo'),'undo accepted');
+                check(host.innerHTML==='<div style="display:inline">ab</div>'&&host.firstChild===original&&original.firstChild===text,'undo original prefix');
+                check(text.data==='ab'&&selection.isCollapsed&&selection.anchorNode===text&&selection.anchorOffset===1,'undo original caret');
+                check(document.execCommand('redo')&&host.innerHTML===expected,'redo topology');
+                check(host.firstChild===original&&original.firstChild===text,'redo prefix identity');
+                host.remove();
+            }
+            return 'passed';
+        })()"#).await.unwrap();assert_eq!(result,"passed");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn editing_historical_inline_div_newline_observations() {
         let context = Browser::new().new_context();
         let page = context.new_page();

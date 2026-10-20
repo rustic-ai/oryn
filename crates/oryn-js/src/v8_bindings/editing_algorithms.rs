@@ -2904,7 +2904,7 @@ pub(super) async fn split_editing_paragraph_contents(
         element_local_name(&state.dom.borrow(), block),
         Some("pre" | "listing" | "address" | "td" | "th" | "caption")
     );
-    let host_accepts_paragraphs = {
+    let (host_accepts_paragraphs, retain_host_paragraph_prefix) = {
         let dom = state.dom.borrow();
         let layout = state.layout.borrow();
         let flow_container = matches!(
@@ -2940,7 +2940,15 @@ pub(super) async fn split_editing_paragraph_contents(
                     )
                 },
             );
-        flow_container && block_display
+        // A paragraph editing root cannot itself be split into an outer
+        // sibling: it is the editing boundary. Preserve its existing prefix
+        // and create the next paragraph inside that boundary instead. Generic
+        // phrasing roots (for example a block-styled span) remain line-break
+        // hosts; CSS block display alone does not change their content model.
+        let paragraph_root = matches!(&dom.arena().get(host)?.kind,
+            NodeKind::Element { name }
+                if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "p");
+        ((flow_container || paragraph_root) && block_display, paragraph_root)
     };
     if (block == host && !host_accepts_paragraphs)
         || multiline_container
@@ -3067,20 +3075,31 @@ pub(super) async fn split_editing_paragraph_contents(
             } else {
                 "div"
             };
-            (dom.create_element(tag), dom.create_element(tag))
+            let left = if retain_host_paragraph_prefix { None } else { Some(dom.create_element(tag)) };
+            (left, dom.create_element(tag))
         };
         new_block = right_block;
-        context
-            .append(host, left_block, siblings.get(start).copied())
-            .await?;
-        context.after(host, left_block, new_block).await?;
-        for child in siblings[start..index].iter().copied() {
-            context.append(left_block, child, None).await?;
+        if retain_host_paragraph_prefix {
+            // The original left inline chain remains in the editing root.
+            // Only the suffix becomes the next paragraph. Use the same native
+            // mutation boundaries as ordinary wrapping for callbacks/undo.
+            context.append(host, new_block, siblings.get(index).copied()).await?;
+        } else {
+            let left_block = left_block.expect("flow-container paragraph prefix");
+            context
+                .append(host, left_block, siblings.get(start).copied())
+                .await?;
+            context.after(host, left_block, new_block).await?;
+            for child in siblings[start..index].iter().copied() {
+                context.append(left_block, child, None).await?;
+            }
         }
         for child in siblings[index..end].iter().copied() {
             context.append(new_block, child, None).await?;
         }
-        ensure_split_paragraph_placeholder(context, left_block).await?;
+        if let Some(left_block) = left_block {
+            ensure_split_paragraph_placeholder(context, left_block).await?;
+        }
         ensure_split_paragraph_placeholder(context, new_block).await?;
         // Host wrapping uses the transaction snapshot for undo; the special
         // block-split undo assumes that both halves existed as sibling blocks.
