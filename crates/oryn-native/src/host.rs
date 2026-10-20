@@ -5055,8 +5055,12 @@ mod raw_v8 {
             endpoints_for_environment(&self.isolate, *environment)
         }
         #[cfg(unix)]
-        pub(crate) fn context_endpoint_for_realm(&self, realm: RealmId) -> Option<ContextState> {
+        fn context_endpoint_for_realm(&self, realm: RealmId) -> Option<ContextState> {
             self.endpoints_for_realm(realm)?.context
+        }
+        #[cfg(unix)]
+        pub(crate) fn has_context_endpoint_for_realm(&self, realm: RealmId) -> bool {
+            self.context_endpoint_for_realm(realm).is_some()
         }
 
         pub(crate) fn network_broker_for_realm(

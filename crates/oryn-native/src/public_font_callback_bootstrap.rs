@@ -6,7 +6,7 @@ impl RawV8Host {
         let realm = self.active_realm();
         if !self.realm_execution_live(realm) { return Err(HostError::CachedAuthorityExpired); }
         let state = self.retained_binding_state(realm)?;
-        if self.context_endpoint_for_realm(realm).is_none() { return Ok(()); }
+        if !self.has_context_endpoint_for_realm(realm) { return Ok(()); }
         if self.native_layout_provider_in_realm(realm).is_none() {
             let provider = crate::executable::initial_layout_provider(state.dom(), state.document_root());
             self.install_layout_provider(provider)?;
