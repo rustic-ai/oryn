@@ -614,7 +614,14 @@ mod process {
         // This path applies macOS signature/manifest verification and Linux's
         // immutable multicall executable selection, including its role prefix.
         let (mut command, path, hash) = crate::worker_client::prepare_agent_command()
-            .map_err(|error| format!("XSLT helper discovery: {error}"))?;
+            .map_err(|error| {
+                // The JS synchronous value adapter exposes NetworkError for
+                // failed helper completions. Preserve a payload-free native
+                // category so unavailable signed infrastructure is not mistaken
+                // for a stylesheet fetch or transform algorithm failure.
+                crate::native_timing::count("xslt.helper_discovery_failure");
+                format!("XSLT helper discovery: {error}")
+            })?;
         let seal = BinarySeal::open(&path, &hash, deadline, &cancelled)?;
         command
             .arg("--xslt-helper")
