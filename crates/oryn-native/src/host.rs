@@ -21298,6 +21298,21 @@ mod raw_v8 {
             assert_eq!(host.evaluate_string("oldLocation.ancestorOrigins!==oldList&&oldLocation.ancestorOrigins===oldLocation.ancestorOrigins&&oldLocation.ancestorOrigins.length===0&&oldList.length===1").unwrap(),"true");
         }
         #[test]
+        fn inactive_location_empty_snapshot_retains_brand_and_old_values() {
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<body>").into_runtime().unwrap()));
+            host.install_dom(dom, 1).unwrap();
+            host.execute("globalThis.frame=document.createElement('iframe');document.body.append(frame);globalThis.saved=frame.contentWindow.location;globalThis.before=saved.ancestorOrigins;frame.remove();").unwrap();
+            assert_eq!(host.evaluate_string(r#"(()=>{
+                const after=saved.ancestorOrigins;
+                return after!==before&&after===saved.ancestorOrigins&&after.length===0
+                    &&after.item(0)===null&&!after.contains('null')
+                    &&Object.prototype.toString.call(after)==='[object DOMStringList]'
+                    &&before.length===1&&before.item(0)==='null';
+            })()"#).unwrap(),"true");
+        }
+
+        #[test]
         fn frame_ancestry_capture_uses_final_origin_and_frozen_element_policy() {
             let mut host = host();
             let dom = Rc::new(RefCell::new(
