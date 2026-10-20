@@ -42603,7 +42603,14 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
             "DOMContentLoaded remains observable while image load is suspended: last_events={last_events:?}, load_finished={}, image_started={}",
             load.is_finished(), state.0.lock().unwrap().0);
         assert_eq!(page.evaluate("loadEvents.join(',')").await.unwrap(), "dom");
-        assert!(!page.trace().await.unwrap().iter().any(|event| matches!(
+        let trace = page.trace().await.unwrap();
+        // Trace custody spans the initial about:blank and its successor.
+        // Assert this navigation's load barrier, not the predecessor's load.
+        let navigation_started = trace.iter().rev().find_map(|event| {
+            matches!(&event.kind, TraceEventKind::NavigationStarted { url }
+                if url == "https://paint.example.test/").then_some(event.sequence)
+        }).expect("held-image navigation has an actual start event");
+        assert!(!trace.iter().filter(|event| event.sequence > navigation_started).any(|event| matches!(
             event.kind,
             TraceEventKind::LifecycleChanged {
                 state: LifecycleState::Load
@@ -42645,7 +42652,8 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
             page.evaluate("loadEvents.join(',')").await.unwrap(),
             "dom,load"
         );
-        assert!(page.trace().await.unwrap().iter().any(|event| matches!(
+        assert!(page.trace().await.unwrap().iter()
+            .filter(|event| event.sequence > navigation_started).any(|event| matches!(
             event.kind,
             TraceEventKind::LifecycleChanged {
                 state: LifecycleState::Load
