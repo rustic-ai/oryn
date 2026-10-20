@@ -6344,10 +6344,8 @@ mod tests {
             .next()
             .unwrap()
             .snapshot
-            .active
-            .as_ref()
-            .unwrap()
-            .id;
+            .clone();
+        let first = first.waiting.as_ref().or(first.active.as_ref()).unwrap().id;
         update();
         let second = registry
             .state()
@@ -6357,10 +6355,8 @@ mod tests {
             .next()
             .unwrap()
             .snapshot
-            .active
-            .as_ref()
-            .unwrap()
-            .id;
+            .clone();
+        let second = second.waiting.as_ref().or(second.active.as_ref()).unwrap().id;
         assert_ne!(
             first, second,
             "UTF-8 BOM changes raw bytes even though native decoding yields identical JavaScript"
@@ -6374,10 +6370,8 @@ mod tests {
             .next()
             .unwrap()
             .snapshot
-            .active
-            .as_ref()
-            .unwrap()
-            .id;
+            .clone();
+        let third = third.waiting.as_ref().or(third.active.as_ref()).unwrap().id;
         assert_eq!(second, third);
         registry.retire().unwrap();
     }

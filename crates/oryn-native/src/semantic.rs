@@ -8034,6 +8034,16 @@ struct SemanticMetadataAdmission<'a> {
 impl crate::dom::projection_allocation::ProjectionAllocation for SemanticMetadataAdmission<'_> {
     type Error = SemanticPreparationError;
     fn reserve(&mut self, bytes: usize) -> Result<(), Self::Error> {
+        if bytes >= 1024 * 1024
+            && std::env::var("ORYN_NATIVE_ALLOCATION_DIAGNOSTICS").ok().as_deref() == Some("1")
+        {
+            static EMITTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            if EMITTED.fetch_update(std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed, |n| (n < 16).then_some(n + 1)).is_ok()
+            {
+                eprintln!("oryn-semantic-receipt-vector-growth bytes={bytes}");
+            }
+        }
         self.admission
             .checkpoint()
             .map_err(SemanticPreparationError::Admission)?;
@@ -8051,6 +8061,18 @@ impl crate::dom::projection_allocation::ProjectionAllocation for SemanticMetadat
 
 impl SemanticLeaseOwner<'_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), SemanticPreparationError> {
+        // Developer-only numeric source localization, using the existing
+        // allocation diagnostic opt-in and bound; no semantic payload text.
+        if bytes >= 1024 * 1024
+            && std::env::var("ORYN_NATIVE_ALLOCATION_DIAGNOSTICS").ok().as_deref() == Some("1")
+        {
+            static EMITTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            if EMITTED.fetch_update(std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed, |n| (n < 16).then_some(n + 1)).is_ok()
+            {
+                eprintln!("oryn-semantic-reserve bytes={bytes} receipts={} receipt_capacity={}", self.leases.len(), self.leases.capacity());
+            }
+        }
         // Preserve canonical infrastructure/expired/retired error text as an
         // admission error. Do not manufacture owner cancellation from strings.
         self.admission

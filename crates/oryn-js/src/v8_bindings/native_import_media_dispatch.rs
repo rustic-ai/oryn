@@ -103,7 +103,7 @@ fn native_media_set_text(
         Err(error) => return Some(Err(error)),
     };
     Some((|| {
-        let text = cssom_string(scope, input, false)?;
+        let text = cssom_string(scope, input, true)?;
         owner
             .edit(BindingMediaListEdit::Replace(&text))
             .map_err(|error| native_css_read_error("MediaList", error))?;

@@ -318,7 +318,15 @@ pub(super) fn migrate_targets(
     invalidate_samples(source);
     invalidate_samples(destination);
 }
+#[track_caller]
 fn failed() -> V8BindingError {
+    if std::env::var("ORYN_NATIVE_ALLOCATION_DIAGNOSTICS").ok().as_deref() == Some("1") {
+        static EMITTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        if EMITTED.fetch_update(std::sync::atomic::Ordering::Relaxed,
+            std::sync::atomic::Ordering::Relaxed, |n| (n < 16).then_some(n + 1)).is_ok() {
+            eprintln!("oryn-animation-failure source_line={}", std::panic::Location::caller().line());
+        }
+    }
     V8BindingError::Allocation("native animation")
 }
 #[derive(Default)]

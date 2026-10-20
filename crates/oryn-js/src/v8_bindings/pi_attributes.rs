@@ -217,7 +217,7 @@ mod tests {
     const serializedAttribute=(name)=> {
       let html;
       try { html=element.outerHTML; }
-      catch(error) { throw Error('attribute serialization threw: '+error.name+': '+error.message); }
+      catch(error) { throw Error('attribute serialization threw: '+JSON.stringify({errorName:error.name,errorMessage:error.message,name,value:element.getAttribute(name),documentType:pi.ownerDocument.contentType,piData:pi.data})); }
       const matched=html.match(new RegExp('(?:^|\\s)'+name+'="([^"]*)"'));
       check(matched !== null, 'serialized attribute missing: '+JSON.stringify({html,name,piData:pi.data,documentType:pi.ownerDocument.contentType}));
       return matched[0].trim();

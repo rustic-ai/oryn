@@ -4281,6 +4281,10 @@ mod raw_v8 {
             .map_err(HostError::Execution)?;
         timing.set_name_from(&url).map_err(HostError::Execution)?;
         freeze_usermedia_profile(scope, context)?;
+        // Capture the authenticated replacement endpoint while the original
+        // document is still live. Retired contexts remain inaccessible later.
+        #[cfg(unix)]
+        let platform_context = current_context_endpoint(scope);
         let previous = context.get_slot::<V8BindingState>();
         if let Some(previous)=&previous{
             // Publish cancellation in the original context before installing
@@ -4320,8 +4324,6 @@ mod raw_v8 {
                 &creator,
             );
         }
-        #[cfg(unix)]
-        let platform_context = current_context_endpoint(scope);
         let state = install_generated_bindings_with_root(
             scope,
             context,
@@ -21292,8 +21294,8 @@ mod raw_v8 {
             assert_eq!(request.script_authority.unwrap().authority.0, vec![1, 2, 3]);
             let count = backend.calls.load(Ordering::SeqCst);
             state.retire_execution();
-            host.execute("location.href='https://target.test/retired'")
-                .unwrap();
+            assert!(matches!(host.execute("location.href='https://target.test/retired'"),
+                Err(HostError::CachedAuthorityExpired)));
             assert!(state.take_location_navigation().is_none());
             assert_eq!(backend.calls.load(Ordering::SeqCst), count);
         }

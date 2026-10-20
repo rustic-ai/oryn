@@ -3548,6 +3548,7 @@ mod retained_navigation_history_tests {
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document("https://retained.test/reload".into(),"<input id=value value=initial><script>addEventListener('pagehide',()=>document.getElementById('value').value='saved-at-pagehide')</script>",None,None,HistoryUpdate::Push,&BTreeMap::new(),Vec::new()).unwrap();
         let old_key = page.history[0].navigation.as_ref().unwrap().key.clone();
         assert!(matches!(

@@ -39786,7 +39786,12 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
                             return;
                         }
                         match listener.accept() {
-                            Ok((stream, _)) => break stream,
+                            Ok((stream, _)) => {
+                                // Accepted sockets may inherit the listener's
+                                // nonblocking mode; bounded request IO is blocking.
+                                stream.set_nonblocking(false).unwrap();
+                                break stream;
+                            },
                             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                                 assert!(
                                     std::time::Instant::now() < end,
@@ -40991,6 +40996,7 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
             #[cfg(unix)]
             None,
         );
+        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://example.test/form".into(),
             "<input id=p aria-label=Reference pattern='[A-Z]{3}' value=abc>",

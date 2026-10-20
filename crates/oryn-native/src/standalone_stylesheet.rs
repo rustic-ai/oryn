@@ -1013,12 +1013,12 @@ mod tests {
         assert_eq!(css, "@import url(child.css);body{width:42px}");
         assert_eq!(
             page.evaluate(
-                "const owner=document.getElementById('dynamic'),root=owner.sheet;let denied=false;try{root.cssRules}catch(error){denied=error.name==='SecurityError'}[root===document.styleSheets[0],root.ownerNode===owner,denied,getComputedStyle(document.body).width,getComputedStyle(document.body).height].join('|')",
+                "const owner=document.getElementById('dynamic'),root=owner.sheet,list=root.cssRules,importRule=list[0],child=importRule.styleSheet;[root===document.styleSheets[0],root.ownerNode===owner,list.length===2&&importRule.parentStyleSheet===root&&child!==null&&child.ownerRule===importRule&&child.cssRules.length===1,getComputedStyle(document.body).width,getComputedStyle(document.body).height].join('|')",
             ).unwrap(),
             "true|true|true|42px|17px",
         );
-        // Sources is decoded, unproven response data: do not manufacture an
-        // origin-clean grant merely to inspect its native import relationships.
+        // The original same-origin Sources URL is readable under the captured
+        // native origin; the separate cross-origin control still denies access.
         let realm = page.agent.host.active_realm();
         let provider = page.agent.host.native_layout_provider_in_realm(realm).unwrap();
         let backend = provider.native_backend().unwrap().downcast_ref::<LiveLayoutProvider>().unwrap();

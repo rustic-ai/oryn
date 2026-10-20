@@ -147,6 +147,17 @@ pub fn reserve_vector<T, A: ProjectionAllocation>(
     }
     let total = checked_capacity_bytes::<T>(capacity).map_err(A::Error::from)?;
     let previous = checked_capacity_bytes::<T>(output.capacity()).map_err(A::Error::from)?;
+    if total - previous >= 1024 * 1024
+        && std::env::var("ORYN_NATIVE_ALLOCATION_DIAGNOSTICS").ok().as_deref() == Some("1")
+    {
+        static EMITTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        if EMITTED.fetch_update(std::sync::atomic::Ordering::Relaxed,
+            std::sync::atomic::Ordering::Relaxed, |n| (n < 16).then_some(n + 1)).is_ok()
+        {
+            eprintln!("oryn-projection-vector-growth type={} len={} capacity={} next_capacity={} delta_bytes={}",
+                std::any::type_name::<T>(), output.len(), output.capacity(), capacity, total - previous);
+        }
+    }
     allocation.reserve(total - previous)?;
     output
         .try_reserve_exact(capacity - output.len())

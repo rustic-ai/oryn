@@ -295,10 +295,10 @@ mod initial_blank_controls {
             second.page.document_generation
         );
         assert_eq!(
-            page.evaluate("navigation.currentEntry.index")
+            page.evaluate("navigation.currentEntry===null&&navigation.entries().length===0&&history.length===1")
                 .await
                 .unwrap(),
-            "0"
+            "true"
         );
     }
     #[test]
