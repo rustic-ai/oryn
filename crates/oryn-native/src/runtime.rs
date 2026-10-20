@@ -7262,10 +7262,27 @@ impl BrowserContext {
             })?;
         let lifetime = lifetimes.root_lifetimes.entry(page_id).or_default();
         let initial_document = lifetime.epoch == 0 && inherited;
+        let generation = if initial_document {
+            // Command admission may already own this initial about:blank
+            // principal. Materializing its native Document is not navigation
+            // and must not replace the source of a staged local load.
+            let hub = self.inner.group.messages.lock().map_err(|_| {
+                RuntimeError::ContextService("initial authority registry poisoned".into())
+            })?;
+            match hub.root_document_identity(page_id.0) {
+                Some((generation, 0)) if lifetime.current(generation)
+                    && hub.root_document_authority(page_id.0, generation, 0).is_ok() => generation,
+                Some(_) => return Err(RuntimeError::ProtocolViolation(
+                    "initial document authority retired".into(),
+                )),
+                None => lifetime.reserve().map_err(RuntimeError::ContextService)?,
+            }
+        } else {
+            lifetime.reserve().map_err(RuntimeError::ContextService)?
+        };
         if initial_document {
             lifetime.initial_materialized = true;
         }
-        let generation = lifetime.reserve().map_err(RuntimeError::ContextService)?;
         Ok((
             origin.serialize(),
             origin.is_opaque().then(|| origin.security_token_key()),
@@ -47284,7 +47301,19 @@ mod staged_load_html_policy_tests {
         let url = "https://staged.test/";
         let html = "<p>exact</p>";
         let lease = context.stage_load_html(id, url, html).unwrap();
-        assert!(context.native_initial_document_creator(id).is_ok());
+        let initial = context.native_initial_document_creator(id).unwrap();
+        let oryn_js::worker_wire::Creator::Window {
+            document_generation, stream_epoch, ..
+        } = initial else { panic!("initial native Window required") };
+        let constructed = context.native_document_authority(id, "about:blank").unwrap();
+        assert!(constructed.4);
+        assert_eq!(constructed.3, document_generation);
+        // The real constructor's root registration must preserve the staged
+        // source, not retire it by publishing an accidental successor.
+        context.handle_message_wire(id,
+            oryn_js::message_wire::MessageRequest::RegisterRootDocument {
+                document_generation: constructed.3, stream_epoch,
+            }).unwrap();
         assert!(
             context
                 .commit_prepared_local_navigation(id, &lease.token)
@@ -47336,6 +47365,47 @@ mod staged_load_html_policy_tests {
         context.finish_initial_document(id, parked, false).unwrap();
         page.close().await.unwrap();
         other.close().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn retired_initial_source_cannot_commit_a_staged_load() {
+        let context = Browser::in_process_probe().new_context();
+        let page = context.new_page();
+        let id = page.page_id();
+        let html = "<p>stale</p>";
+        let url = "https://stale-initial.test/";
+        let lease = context.stage_load_html(id, url, html).unwrap();
+        let oryn_js::worker_wire::Creator::Window {
+            document_generation, stream_epoch, ..
+        } = context.native_initial_document_creator(id).unwrap()
+        else { panic!("initial native Window required") };
+        context.handle_message_wire(id,
+            oryn_js::message_wire::MessageRequest::RetireRootDocument {
+                document_generation, stream_epoch,
+            }).unwrap();
+        assert!(context.commit_prepared_load_html(id, &lease.token, url, &[],
+            &format!("{:x}", Sha256::digest(html.as_bytes()))).is_err());
+        drop(lease);
+        page.close().await.unwrap();
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn admitted_load_html_survives_initial_document_observation() {
+        let context = Browser::in_process_probe().new_context();
+        let page = context.new_page();
+        let id = page.page_id();
+        let url = "https://initial-observation.test/";
+        let html = "<title>committed</title><script>globalThis.initialLoadRan=true</script>";
+        let lease = page.prepare_load_html_policy(url, html).unwrap().unwrap();
+        let before = context.native_initial_document_creator(id).unwrap();
+        page.observe().await.unwrap();
+        assert_eq!(context.capture_command_navigation_source(id).unwrap(), before);
+        page.load_html_with_policy(url.into(), html.into(), Some(lease.token.clone()))
+            .await.unwrap();
+        assert_eq!(page.evaluate("initialLoadRan").await.unwrap(), "true");
+        drop(lease);
+        page.close().await.unwrap();
     }
 
     #[tokio::test(flavor = "current_thread")]
