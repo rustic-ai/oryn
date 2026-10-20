@@ -3,7 +3,7 @@ impl RawV8Host {
     // synchronously create an auxiliary. Never replace an embedding provider.
     #[cfg(unix)]
     pub(crate) fn prepare_auxiliary_creator_fonts(&mut self) -> Result<(), HostError> {
-        let realm = self.active_realm;
+        let realm = self.active_realm();
         if !self.realm_execution_live(realm) { return Err(HostError::CachedAuthorityExpired); }
         let state = self.retained_binding_state(realm)?;
         if self.context_endpoint_for_realm(realm).is_none() { return Ok(()); }

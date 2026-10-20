@@ -195,7 +195,7 @@ impl PageState {
         }
         let computation = checked_layout_computation(|| {
             let _timing = crate::native_timing::stage("page.layout_compute");
-            if let Some(executable) = self.executable.as_ref() {
+            if let Some(executable) = self.executable.as_mut() {
                 executable.compute_native_layout(&input, &limits)
             } else {
                 let output = self.style_engine.compute(&input, &limits)?;

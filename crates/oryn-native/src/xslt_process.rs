@@ -619,7 +619,7 @@ mod process {
                 // failed helper completions. Preserve a payload-free native
                 // category so unavailable signed infrastructure is not mistaken
                 // for a stylesheet fetch or transform algorithm failure.
-                crate::native_timing::count("xslt.helper_discovery_failure");
+                crate::native_timing::count("xslt.helper_discovery_failure", 1);
                 format!("XSLT helper discovery: {error}")
             })?;
         let seal = BinarySeal::open(&path, &hash, deadline, &cancelled)?;

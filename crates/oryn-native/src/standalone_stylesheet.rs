@@ -871,10 +871,10 @@ mod tests {
         let mut page=RustExecutableDocument::load_with_environment(
             "<iframe srcdoc='<link id=owner rel=stylesheet href=https://other.test/child.css><script>const s=document.styleSheets[0];parent.sourceOwner=s.ownerNode===document.getElementById(\"owner\");try{void s.cssRules;parent.sourceAccess=\"allowed\"}catch(e){parent.sourceAccess=e.name}</script>'></iframe>",
             &resources,None,Some(Url::parse("https://example.test/").unwrap())).unwrap();
-        let deadline=Instant::now()+Duration::from_secs(5);
+        let deadline=std::time::Instant::now()+Duration::from_secs(5);
         while page.agent.host.evaluate_string("typeof sourceAccess").unwrap()!="string" {
             page.poll_context_events().unwrap();
-            assert!(Instant::now()<deadline,"cross-origin srcdoc preparation pending");
+            assert!(std::time::Instant::now()<deadline,"cross-origin srcdoc preparation pending");
             std::thread::yield_now();
         }
         assert_eq!(page.agent.host.evaluate_string("sourceOwner").unwrap(),"true");
@@ -1871,7 +1871,6 @@ impl Loader {
                     encoding.into(),
                     referrer_policy.into(),
                 );
-                self.retain(result.0.len().saturating_add(result.1.len()))?;
                 // Pinned decoded bytes have no CORS/redirect evidence. They
                 // remain opaque across origins, but a same-origin original URL
                 // is readable under the exact captured native document origin.
@@ -1879,6 +1878,7 @@ impl Loader {
                     !origin.is_opaque() && Url::parse(url).is_ok_and(|url|
                         !matches!(url.origin(),url::Origin::Opaque(_))
                             && oryn_js::origin::Origin::from_url(url.as_str())==*origin));
+                self.retain(result.0.len().saturating_add(result.1.len()))?;
                 return Ok(result);
             }
             module_graph_load::ModuleGraphBackend::Broker {
