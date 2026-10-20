@@ -12271,6 +12271,10 @@ mod raw_v8 {
                 .is_some_and(|state| !state.execution_retired())
         }
 
+        pub(crate) fn has_installed_document_in_realm(&self, realm: RealmId) -> bool {
+            self.binding_states.contains_key(&realm)
+        }
+
         pub fn realm_for_document(&self, dom: &SharedDom, document: NodeId) -> Option<RealmId> {
             self.binding_states.iter().find_map(|(realm, state)| {
                 (!state.execution_retired()

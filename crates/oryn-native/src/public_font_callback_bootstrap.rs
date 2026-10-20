@@ -7,7 +7,7 @@ impl RawV8Host {
         // A newly created VM has no installed Document yet. Raw host
         // intrinsics can run, but there is no Document font owner to prepare.
         // Existing (including retired) Document states never take this path.
-        if !self.binding_states.contains_key(&realm) { return Ok(()); }
+        if !self.has_installed_document_in_realm(realm) { return Ok(()); }
         if !self.realm_execution_live(realm) { return Err(HostError::CachedAuthorityExpired); }
         let state = self.retained_binding_state(realm)?;
         if !self.has_context_endpoint_for_realm(realm) { return Ok(()); }

@@ -171,7 +171,11 @@ impl PageState {
             })?;
             let mut entry: NavigationHistoryEntry = snapshot.url.clone().into();
             #[cfg(unix)]
-            { entry.origin = initial_origin.clone(); }
+            {
+                entry.origin = oryn_js::origin::Origin::from_broker_authority(
+                    &initial_origin.serialized, &initial_origin.authority,
+                ).map_err(|error| RuntimeError::ProtocolViolation(error.into()))?;
+            }
             entry.navigation = Some(snapshot.clone());
             history.push(entry);
             #[cfg(unix)]
