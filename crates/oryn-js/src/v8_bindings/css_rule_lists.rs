@@ -93,6 +93,9 @@ pub(super) fn item<'s>(
         let index = input
             .uint32_value(scope)
             .ok_or(V8BindingError::JavaScriptException)?;
+        // Conversion may execute author code. Refresh admission before
+        // resolving the original live list after a reentrant CSSOM mutation.
+        let _retained_scope = state.enter_retained_allocation(scope)?;
         return native_rule_list_at(scope, &state, object, index, false).ok_or_else(invalid)?;
     }
     if sheet(scope, object).is_none()

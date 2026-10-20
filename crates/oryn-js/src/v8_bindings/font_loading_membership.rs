@@ -5,6 +5,8 @@ fn synchronize_connected(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,id:u6
     if document!=Some(state.document_root())||state.execution_retired(){return Err(V8BindingError::Message("InvalidStateError".into()));}
     let provider=state.font_loading.borrow().provider.clone().ok_or(V8BindingError::Allocation("font provider"))?;
     let original_owner=owner(state);
+    // Conversion guards have closed before the connected-face provider walk.
+    let _connected_entry=state.enter_retained_allocation(scope)?;
     let current=provider.connected().map_err(V8BindingError::EventCallback)?;
     if owner(state)!=original_owner||state.execution_retired(){return Err(V8BindingError::Message("InvalidStateError".into()))}
     let count=state.font_loading.borrow().face_objects.len();

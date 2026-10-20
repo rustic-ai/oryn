@@ -18612,6 +18612,11 @@ mod raw_v8 {
         #[test]
         fn timer_nesting_clamps_callbacks_but_not_their_microtasks() {
             use super::*;
+            // Raw VM execution must not manufacture an installed Document.
+            let mut raw = RawV8Host::new();
+            assert!(raw.binding_states.is_empty());
+            assert_eq!(raw.evaluate_string("String(6*7)").unwrap(), "42");
+            assert!(raw.binding_states.is_empty());
             assert_eq!(nested_timer_delay(0, 5), Duration::ZERO);
             assert_eq!(nested_timer_delay(0, 6), Duration::from_millis(4));
             assert_eq!(nested_timer_delay(9, 6), Duration::from_millis(9));

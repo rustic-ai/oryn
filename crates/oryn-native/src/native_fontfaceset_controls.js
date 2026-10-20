@@ -31,7 +31,12 @@
   const b = new FontFace('NativeFamilyB', 'local("oryn-missing-b")', {weight: '700'});
   fonts.add(a); fonts.add(b);
   const loading = fonts.load('400 16px NativeFamilyA, NativeFamilyB', 'x');
-  check(a.status === 'loading' && b.status === 'loading', 'rank independently within each family');
+  check(a.status === 'loading' && b.status === 'loading',
+    'rank independently within each family: ' + JSON.stringify({
+      a: a.status, b: b.status, size: fonts.size,
+      hasA: fonts.has(a), hasB: fonts.has(b),
+      familyA: a.family, familyB: b.family, weightA: a.weight, weightB: b.weight
+    }));
   loading.catch(() => {});
   fonts.delete(a); fonts.delete(b);
 })();

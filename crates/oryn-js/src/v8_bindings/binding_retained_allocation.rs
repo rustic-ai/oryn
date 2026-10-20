@@ -3,10 +3,25 @@
 pub struct BindingRetainedAllocation {
     ledger: std::sync::Arc<crate::idb_owned_admission::Ledger>,
     retired: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    snapshot: std::sync::Mutex<Option<crate::idb_owned_admission::HeapReceipt>>,
+    snapshot: std::sync::Mutex<RetainedSnapshot>,
     owner_thread: std::thread::ThreadId,
     // Payload fields above dispose before the independent metadata lease.
     native_metadata: Option<std::sync::Arc<dyn Send + Sync>>,
+}
+#[derive(Default)]
+struct RetainedSnapshot {
+    receipt: Option<crate::idb_owned_admission::HeapReceipt>,
+    epoch: u64,
+    active: usize,
+}
+impl RetainedSnapshot {
+    fn revoke(&mut self) {
+        self.receipt = None;
+        self.active = 0;
+        // Exhaustion permanently fails closed; no stale guard can regain
+        // authority by wrapping its generation back to an earlier epoch.
+        self.epoch = self.epoch.checked_add(1).unwrap_or(u64::MAX);
+    }
 }
 impl BindingRetainedAllocation {
     /// Attach an already admitted metadata owner before publishing this receipt.
@@ -22,16 +37,23 @@ impl BindingRetainedAllocation {
         self.retired.load(std::sync::atomic::Ordering::Acquire)
     }
     pub fn invalidate(&self) -> Result<(), String> {
-        *self
-            .snapshot
-            .lock()
-            .map_err(|_| "retained allocation snapshot poisoned")? = None;
+        self.snapshot.lock()
+            .map_err(|_| "retained allocation snapshot poisoned")?.revoke();
         Ok(())
     }
     pub fn scope_guard(self: &std::sync::Arc<Self>) -> BindingRetainedAllocationScope {
-        BindingRetainedAllocationScope {
-            allocation: self.clone(),
-        }
+        let mut snapshot = self.snapshot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let epoch = if std::thread::current().id() == self.owner_thread
+            && snapshot.receipt.is_some() && snapshot.epoch != u64::MAX {
+            if let Some(active) = snapshot.active.checked_add(1) {
+                snapshot.active = active;
+                Some(snapshot.epoch)
+            } else {
+                snapshot.revoke();
+                None
+            }
+        } else { None };
+        BindingRetainedAllocationScope { allocation: self.clone(), epoch }
     }
     pub fn reserve(&self, bytes: usize) -> Result<std::sync::Arc<dyn Send + Sync>, String> {
         use std::sync::atomic::Ordering;
@@ -44,7 +66,7 @@ impl BindingRetainedAllocation {
         let snapshot = self
             .snapshot
             .lock()
-            .map_err(|_| "retained allocation snapshot poisoned")?.clone();
+            .map_err(|_| "retained allocation snapshot poisoned")?.receipt.clone();
         let receipt = snapshot.ok_or("retained allocation snapshot expired")?;
         let lease = self.ledger.reserve_from_receipt(
             bytes
@@ -71,7 +93,7 @@ impl BindingRetainedAllocation {
         let snapshot = self
             .snapshot
             .lock()
-            .map_err(|_| "retained allocation snapshot poisoned")?.clone();
+            .map_err(|_| "retained allocation snapshot poisoned")?.receipt.clone();
         let receipt = snapshot.ok_or("retained allocation snapshot expired")?;
         let text = crate::idb_owned_admission::Text::copy_string_from_receipt(&self.ledger, source, &receipt, || self.retired.load(Ordering::Acquire))
             .map_err(str::to_owned)?;
@@ -86,10 +108,16 @@ impl BindingRetainedAllocation {
                 "foreign retained allocation scope",
             ));
         }
-        *self
-            .snapshot
-            .lock()
-            .map_err(|_| V8BindingError::Allocation("retained snapshot lock"))? = None;
+        // Refreshing an inner native entry invalidates the old statistics
+        // during V8 adjustment, but preserves the live scope epoch on success.
+        let epoch = {
+            let mut snapshot = self.snapshot.lock()
+                .map_err(|_| V8BindingError::Allocation("retained snapshot lock"))?;
+            snapshot.receipt = None;
+            snapshot.epoch
+        };
+        if epoch == u64::MAX { return Err(V8BindingError::Allocation("retained scope epoch exhausted")); }
+        let result = (|| {
         if scope.is_execution_terminating()
             || self.retired.load(std::sync::atomic::Ordering::Acquire)
         {
@@ -117,17 +145,23 @@ impl BindingRetainedAllocation {
             .ok_or(V8BindingError::Allocation(
                 "native retained heap accounting",
             ))?;
-        *self
-            .snapshot
-            .lock()
-            .map_err(|_| V8BindingError::Allocation("retained snapshot lock"))? =
-            Some(self.ledger.heap_receipt_with_statistics(heap.heap_size_limit(),
-                heap.used_heap_size(),heap.external_memory()).map_err(V8BindingError::EventCallback)?);
+        let receipt = self.ledger.heap_receipt_with_statistics(heap.heap_size_limit(),
+            heap.used_heap_size(),heap.external_memory()).map_err(V8BindingError::EventCallback)?;
+        let mut snapshot = self.snapshot.lock()
+            .map_err(|_| V8BindingError::Allocation("retained snapshot lock"))?;
+        if snapshot.epoch != epoch {
+            return Err(V8BindingError::Allocation("retained scope revoked during refresh"));
+        }
+        snapshot.receipt = Some(receipt);
         Ok(())
+        })();
+        if result.is_err() { self.invalidate().map_err(V8BindingError::EventCallback)?; }
+        result
     }
 }
 pub struct BindingRetainedAllocationScope {
     allocation: std::sync::Arc<BindingRetainedAllocation>,
+    epoch: Option<u64>,
 }
 impl Drop for BindingRetainedAllocationScope {
     fn drop(&mut self) {
@@ -138,7 +172,11 @@ impl Drop for BindingRetainedAllocationScope {
             .snapshot
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *snapshot = None;
+        if self.epoch == Some(snapshot.epoch) {
+            debug_assert!(snapshot.active > 0, "retained scope count underflow");
+            snapshot.active = snapshot.active.checked_sub(1).unwrap_or(0);
+            if snapshot.active == 0 { snapshot.receipt = None; }
+        }
     }
 }
 pub struct BindingRetainedText {
@@ -215,11 +253,54 @@ impl V8BindingState {
         let admission = BindingRetainedAllocation {
             ledger: self.idb_payload_ledger.clone(),
             retired,
-            snapshot: std::sync::Mutex::new(None),
+            snapshot: std::sync::Mutex::new(RetainedSnapshot::default()),
             owner_thread: std::thread::current().id(),
             native_metadata: None,
         };
         admission.refresh(scope)?;
         Ok(admission)
+    }
+}
+
+#[cfg(test)]
+mod nested_retained_scope_controls {
+    use super::*;
+    #[test]
+    fn nested_native_scopes_preserve_outer_admission_and_explicit_revocation() {
+        crate::v8_bindings::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = std::rc::Rc::new(std::cell::RefCell::new(oryn_dom::html::parse("<body></body>").into_runtime().unwrap()));
+        let state = install_generated_bindings(scope, context, dom, RealmId(994), 1).unwrap();
+        let retired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let allocation = std::sync::Arc::new(state.capture_retained_allocation(scope, retired.clone()).unwrap());
+        state.install_retained_allocation(allocation.clone()).unwrap();
+        let outer = state.enter_retained_allocation(scope).unwrap();
+        {
+            let _inner = state.enter_retained_allocation(scope).unwrap();
+            assert!(allocation.reserve(8).is_ok());
+            assert!(allocation.copy_text("inner").is_ok());
+        }
+        assert!(allocation.reserve(8).is_ok(), "inner exit must preserve original active native owner");
+        assert!(allocation.copy_text("outer").is_ok());
+        let first = state.enter_retained_allocation(scope).unwrap();
+        let second = state.enter_retained_allocation(scope).unwrap();
+        drop(first);
+        assert!(allocation.reserve(8).is_ok(), "non-LIFO guard drop cannot expire another active entry");
+        drop(second);
+        allocation.invalidate().unwrap();
+        assert!(allocation.reserve(8).is_err());
+        { let _new = state.enter_retained_allocation(scope).unwrap(); assert!(allocation.reserve(8).is_ok()); }
+        assert!(allocation.reserve(8).is_err(), "revoked outer epoch must not resurrect admission");
+        drop(outer);
+        let fresh = state.enter_retained_allocation(scope).unwrap();
+        retired.store(true, std::sync::atomic::Ordering::Release);
+        assert!(state.enter_retained_allocation(scope).is_err());
+        assert!(allocation.reserve(8).is_err());
+        retired.store(false, std::sync::atomic::Ordering::Release);
+        assert!(allocation.reserve(8).is_err(), "failed nested refresh stays expired");
+        drop(fresh);
     }
 }

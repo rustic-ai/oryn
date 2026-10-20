@@ -32280,6 +32280,7 @@ mod tests {
                 #[cfg(unix)]
                 None,
             );
+            page.bind_direct_fixture_terminal_owner();
             page.load_document(
                 "https://joint.test/".into(),
                 "<p>ready</p>",
@@ -39328,9 +39329,7 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
             };
             </script>"#).await.expect("load typed key fixture");
         assert_eq!(
-            page.evaluate("__oryn_drain(true);document.getElementById('result').textContent")
-                .await
-                .unwrap(),
+            settle_fixture_output(&page).await,
             "ok"
         );
     }
@@ -45625,8 +45624,7 @@ mod semantic_sync_faults {
     #[test]
     fn selected_frame_projection_does_not_reuse_a_different_document_authority() {
         let mut page = page();
-        // Direct fixtures have no parent actor to bind publication authority.
-        page.bind_direct_fixture_terminal_owner();
+        // The shared page() constructor already owns publication authority.
         page.load_document(
             "https://semantics.test/frames".into(),
             "<iframe srcdoc='<button>Frame</button>'></iframe>",

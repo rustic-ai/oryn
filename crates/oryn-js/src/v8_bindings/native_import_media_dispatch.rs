@@ -122,6 +122,12 @@ fn native_media_operation<'s>(
         Err(error) => return Some(Err(error)),
     };
     Some((|| {
+        if member == "toString" {
+            let text = owner
+                .text()
+                .map_err(|error| native_css_read_error("MediaList", error))?;
+            return v8_string(scope, &text);
+        }
         if member == "item" {
             let index = args
                 .get(0)

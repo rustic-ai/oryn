@@ -214,7 +214,14 @@ mod tests {
     check(mutation.length === 1 && mutation[0].type === 'characterData' && mutation[0].target === pi, 'CharacterData publication');
     check(pi.getAttribute('x') === 'a"&<>', 'reference decoding');
     const element = pi.ownerDocument.createElement('el'); element.setAttribute('x', 'a"&<>');
-    const serializedAttribute=(name)=>element.outerHTML.match(new RegExp('(?:^|\\s)'+name+'="([^"]*)"'))[0].trim();
+    const serializedAttribute=(name)=> {
+      let html;
+      try { html=element.outerHTML; }
+      catch(error) { throw Error('attribute serialization threw: '+error.name+': '+error.message); }
+      const matched=html.match(new RegExp('(?:^|\\s)'+name+'="([^"]*)"'));
+      check(matched !== null, 'serialized attribute missing: '+JSON.stringify({html,name,piData:pi.data,documentType:pi.ownerDocument.contentType}));
+      return matched[0].trim();
+    };
     check(pi.data.endsWith(serializedAttribute('x')), 'serialization parity');
     pi.removeAttribute('x'); pi.setAttribute('$foo','1'); pi.setAttribute('_bar','2');
     check(pi.getAttributeNames().join('|') === 'a|$foo|_bar', 'extended attribute names');

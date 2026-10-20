@@ -151,6 +151,29 @@ impl PageState {
                 }
             }
             let document = executable.semantic_snapshot().map_err(map_host_error)?;
+            // Adopt the native initial entry before processing its retained
+            // update. No navigation, new identity, or epoch is fabricated.
+            let receipt = executable.peek_navigation_history_update()
+                .ok_or(RuntimeError::HistoryBoundary)?;
+            let update = receipt.update();
+            if update.current != 0 || update.entries.len() != 1 {
+                return Err(RuntimeError::HistoryBoundary);
+            }
+            let snapshot = &update.entries[0];
+            if snapshot.url != "about:blank" || snapshot.key.is_empty()
+                || snapshot.id.is_empty() || snapshot.document_id.is_empty()
+                || !snapshot.scroll.valid() {
+                return Err(RuntimeError::ProtocolViolation("invalid initial native history".into()));
+            }
+            let mut history = Vec::new();
+            history.try_reserve_exact(1).map_err(|_|RuntimeError::WorkerLimitExceeded {
+                resource: "initial native history allocation".into(),
+            })?;
+            let mut entry: NavigationHistoryEntry = snapshot.url.clone().into();
+            #[cfg(unix)]
+            { entry.origin = initial_origin.clone(); }
+            entry.navigation = Some(snapshot.clone());
+            history.push(entry);
             #[cfg(unix)]
             if context
                 .inner
@@ -177,9 +200,9 @@ impl PageState {
                 .controller()
                 .cloned()
                 .ok_or(RuntimeError::PageTaskYield)?;
-            Ok((*document_generation, document, controller))
+            Ok((*document_generation, document, controller, history))
         })();
-        let (generation, document, controller) = match prepared {
+        let (generation, document, controller, history) = match prepared {
             Ok(value) => value,
             Err(error) => {
                 // Retire native/root authority before dropping a failed draft.
@@ -211,6 +234,8 @@ impl PageState {
             let (executable, document, graph, url) = draft.take().expect("initial draft retained");
             self.url = url;
             self.document_generation = generation;
+            self.history = history;
+            self.history_index = Some(0);
             self.referrer_policy = referrer;
             #[cfg(unix)]
             {
