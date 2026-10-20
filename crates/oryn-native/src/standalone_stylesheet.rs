@@ -64,6 +64,8 @@ pub(super) struct Loader {
     render_blocking: bool,
     retained_fetch: bool,
     last_origin_clean: bool,
+    // Native fetch origin, not the srcdoc/about:blank serialization or a base URL.
+    source_origin: Option<oryn_js::origin::Origin>,
     preload_status: Option<crate::render_request_status::Status>,
     preload_trace: Vec<String>,
     quirks: bool,
@@ -864,6 +866,21 @@ mod tests {
         );
     }
     #[test]
+    fn standalone_srcdoc_cross_origin_source_keeps_owner_but_denies_css_rules() {
+        let resources=BTreeMap::from([("https://other.test/child.css".into(),"body{width:42px}".into())]);
+        let mut page=RustExecutableDocument::load_with_environment(
+            "<iframe srcdoc='<link id=owner rel=stylesheet href=https://other.test/child.css><script>const s=document.styleSheets[0];parent.sourceOwner=s.ownerNode===document.getElementById(\"owner\");try{void s.cssRules;parent.sourceAccess=\"allowed\"}catch(e){parent.sourceAccess=e.name}</script>'></iframe>",
+            &resources,None,Some(Url::parse("https://example.test/").unwrap())).unwrap();
+        let deadline=Instant::now()+Duration::from_secs(5);
+        while page.agent.host.evaluate_string("typeof sourceAccess").unwrap()!="string" {
+            page.poll_context_events().unwrap();
+            assert!(Instant::now()<deadline,"cross-origin srcdoc preparation pending");
+            std::thread::yield_now();
+        }
+        assert_eq!(page.agent.host.evaluate_string("sourceOwner").unwrap(),"true");
+        assert_eq!(page.agent.host.evaluate_string("sourceAccess").unwrap(),"SecurityError");
+    }
+    #[test]
     fn standalone_stylesheet_rejects_nosniff_cors_and_integrity_before_publication() {
         struct Reply {
             headers: Vec<(String, String)>,
@@ -1445,6 +1462,7 @@ impl Loader {
                 preload_trace: Vec::new(),
                 retained_fetch: false,
                 last_origin_clean: false,
+                source_origin: host.realm_descriptor(fetch.realm).map(|realm|realm.origin.clone()),
                 preload_status: None,
                 render_blocking: fetch.render_blocking,
                 quirks: fetch.quirks,
@@ -1854,6 +1872,13 @@ impl Loader {
                     referrer_policy.into(),
                 );
                 self.retain(result.0.len().saturating_add(result.1.len()))?;
+                // Pinned decoded bytes have no CORS/redirect evidence. They
+                // remain opaque across origins, but a same-origin original URL
+                // is readable under the exact captured native document origin.
+                self.last_origin_clean = self.source_origin.as_ref().is_some_and(|origin|
+                    !origin.is_opaque() && Url::parse(url).is_ok_and(|url|
+                        !matches!(url.origin(),url::Origin::Opaque(_))
+                            && oryn_js::origin::Origin::from_url(url.as_str())==*origin));
                 return Ok(result);
             }
             module_graph_load::ModuleGraphBackend::Broker {
@@ -2210,6 +2235,7 @@ pub(crate) fn preload(
         preload_trace: Vec::new(),
         retained_fetch: false,
         last_origin_clean: false,
+        source_origin: None,
         preload_status: Some(entry.status.clone()),
         render_blocking: false,
         quirks: key.quirks,

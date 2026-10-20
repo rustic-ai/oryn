@@ -103,8 +103,9 @@ impl Loader {
             requested, referrer, policy, encoding, "stylesheet", root)?;
         self.check()?;
         let origin_clean = self.last_origin_clean;
-        // The map-backed Sources backend has decoded text, not HTTP provenance:
-        // its resource() branch deliberately leaves classification false.
+        // Classification was checked by the actual response branch. Decoded
+        // Sources have no CORS evidence and only their captured tuple origin
+        // can make them readable; final owner/revision validation still applies.
         Ok(RetainedStylesheetResponse {
             sheet: None, final_url: url, source: Arc::from(source),
             referrer_policy: policy, encoding,
