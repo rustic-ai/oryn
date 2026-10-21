@@ -366,13 +366,14 @@ impl PageState {
     }
 
     pub(super) fn record_snapshot(&mut self) -> Result<(), RuntimeError> {
+        #[cfg(feature = "v8-host")]
         let owner = self.page_task_terminal_control.clone();
         let mut check = || {
+            #[cfg(feature = "v8-host")]
             if crate::page_terminal_control::retired(Some(&owner)) {
-                Err(crate::dom::DomError::ProjectionCancelled)
-            } else {
-                Ok(())
+                return Err(crate::dom::DomError::ProjectionCancelled);
             }
+            Ok(())
         };
         self.record_snapshot_with_checkpoint(&mut check)
     }
@@ -436,11 +437,11 @@ impl PageState {
         let bytes =
             crate::semantic::semantic_changes_bytes_with_checkpoint(&prepared, &mut wire_check)
                 .map_err(|error| {
+                    #[cfg(feature = "v8-host")]
                     if self.terminal_close_requested() {
-                        RuntimeError::PageTaskYield
-                    } else {
-                        RuntimeError::Semantic(error.to_string())
+                        return RuntimeError::PageTaskYield;
                     }
+                    RuntimeError::Semantic(error.to_string())
                 })?;
         check().map_err(map_error)?;
         prepared.set_verified_bytes(bytes);
@@ -479,13 +480,14 @@ impl PageState {
         &self,
         from: Revision,
     ) -> Result<oryn_common::v6::SemanticDelta, RuntimeError> {
+        #[cfg(feature = "v8-host")]
         let owner = self.page_task_terminal_control.clone();
         let mut check = || {
+            #[cfg(feature = "v8-host")]
             if crate::page_terminal_control::retired(Some(&owner)) {
-                Err(crate::dom::DomError::ProjectionCancelled)
-            } else {
-                Ok(())
+                return Err(crate::dom::DomError::ProjectionCancelled);
             }
+            Ok(())
         };
         let map_error = |error| match error {
             crate::dom::DomError::ProjectionCancelled => RuntimeError::PageTaskYield,
