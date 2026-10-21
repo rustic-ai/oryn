@@ -2277,6 +2277,19 @@ impl WorkerPage {
         let outcome = match self.checked_close_result(&mut active, response) {
             Ok(outcome) => outcome,
             Err(error) => {
+                // A response deadline can already reap the isolated child.
+                // Clear stale custody only after checking reap and route drain;
+                // preserve the deadline error rather than inventing a Close ACK.
+                if matches!(error.root_cause(), RuntimeError::WorkerLimitExceeded { resource } if resource.contains("wall time"))
+                    && let Ok(mut evidence) = active.checked_terminal_cleanup()
+                {
+                    evidence["operational_error"] = serde_json::json!(error.to_string());
+                    *self.exit_evidence.lock().unwrap_or_else(|error| error.into_inner()) = Some(evidence);
+                    self.process_id.store(0, Ordering::Release);
+                    self.attachment.lock().unwrap_or_else(|error| error.into_inner()).take();
+                    drop(active);
+                    return Err(error);
+                }
                 *client = Some(active);
                 self.remember_protocol_close_failure(&error);
                 return Err(error);
