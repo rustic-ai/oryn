@@ -2904,7 +2904,7 @@ pub(super) async fn split_editing_paragraph_contents(
         element_local_name(&state.dom.borrow(), block),
         Some("pre" | "listing" | "address" | "td" | "th" | "caption")
     );
-    let (host_accepts_paragraphs, retain_host_paragraph_prefix) = {
+    let (host_accepts_paragraphs, retain_host_paragraph_prefix, host_has_paragraph_content) = {
         let dom = state.dom.borrow();
         let layout = state.layout.borrow();
         let flow_container = matches!(
@@ -2948,9 +2948,12 @@ pub(super) async fn split_editing_paragraph_contents(
         let paragraph_root = matches!(&dom.arena().get(host)?.kind,
             NodeKind::Element { name }
                 if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "p");
-        ((flow_container || paragraph_root) && block_display, paragraph_root)
+        let paragraph_content = flow_container || paragraph_root;
+        (paragraph_content && block_display, paragraph_root, paragraph_content)
     };
-    if (block == host && !host_accepts_paragraphs)
+    // A descendant's CSS block box does not grant a phrasing editing root
+    // paragraph ownership. Keep the line inside its existing descendant.
+    if !host_has_paragraph_content || (block == host && !host_accepts_paragraphs)
         || multiline_container
         || *state.default_paragraph_separator.borrow() == "br"
     {

@@ -129,11 +129,26 @@ fn main() {
     verify_generated_registry();
     if env::var_os("CARGO_FEATURE_V8_HOST").is_some() {
         verify_v8_api_headers();
-        // libxslt is the browser's XSLT1 engine; use platform SDK libraries.
+        // macOS SDK libxml2 cannot install the allocator hooks required by
+        // the native budget. Use the explicitly supplied static engine there.
+        if let Some(directory) = env::var_os("ORYN_XSLT_STATIC_LIB_DIR") {
+            let include = env::var_os("ORYN_XSLT_INCLUDE_DIR")
+                .expect("static XSLT libraries require their matching headers");
+            let prefix = Path::new(&directory).parent().expect("XSLT prefix");
+            assert_eq!(Path::new(&include), prefix.join("include/libxml2"),
+                "XSLT headers and archives must use the same pinned prefix");
+            for header in ["include/libxml2/libxml/xmlversion.h", "include/libxslt/xsltconfig.h"] {
+                assert!(prefix.join(header).is_file(), "missing XSLT configuration header");
+                println!("cargo:rerun-if-changed={}", prefix.join(header).display());
+            }
+        }
         let mut xslt = cc::Build::new();
         xslt.file("src/xslt_bridge.c").flag_if_supported("-std=c11");
         if let Some(include) = env::var_os("ORYN_XSLT_INCLUDE_DIR") {
             xslt.include(include);
+            if let Some(directory) = env::var_os("ORYN_XSLT_STATIC_LIB_DIR") {
+                xslt.include(Path::new(&directory).parent().expect("XSLT prefix").join("include"));
+            }
         } else if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
             let sdk =
                 env::var("SDKROOT").expect("XSLT compilation requires the admitted macOS SDKROOT");
@@ -142,10 +157,24 @@ fn main() {
             xslt.include("/usr/include/libxml2");
         }
         xslt.compile("oryn_xslt");
-        println!("cargo:rustc-link-lib=xslt");
-        println!("cargo:rustc-link-lib=xml2");
+        if let Some(directory) = env::var_os("ORYN_XSLT_STATIC_LIB_DIR") {
+            let directory = Path::new(&directory);
+            for library in ["libxslt.a", "libxml2.a"] {
+                assert!(directory.join(library).is_file(), "missing pinned XSLT archive: {library}");
+                println!("cargo:rerun-if-changed={}", directory.join(library).display());
+            }
+            println!("cargo:rustc-link-search=native={}", directory.display());
+            println!("cargo:rustc-link-lib=static=xslt");
+            println!("cargo:rustc-link-lib=static=xml2");
+        } else {
+            assert!(env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos"),
+                "macOS XSLT requires pinned static libxml2/libxslt with working allocator hooks; run scripts/build-xslt-libraries.sh and set ORYN_XSLT_INCLUDE_DIR / ORYN_XSLT_STATIC_LIB_DIR");
+            println!("cargo:rustc-link-lib=xslt");
+            println!("cargo:rustc-link-lib=xml2");
+        }
         println!("cargo:rerun-if-changed=src/xslt_bridge.c");
         println!("cargo:rerun-if-env-changed=ORYN_XSLT_INCLUDE_DIR");
+        println!("cargo:rerun-if-env-changed=ORYN_XSLT_STATIC_LIB_DIR");
 
         let mut bridge = cc::Build::new();
         bridge
