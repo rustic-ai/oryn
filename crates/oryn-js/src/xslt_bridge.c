@@ -258,6 +258,9 @@ int oryn_xslt_transform(const unsigned char *style, size_t style_length,
     context->maxTemplateVars = 16384;
     context->opLimit = 1000000;
     /* document() is exposed as an XSLT1 function but returns the empty node set. */
+    /* libxslt already registered this function. libxml2 rejects duplicate
+     * registrations; remove it before installing the restricted replacement. */
+    if (xmlXPathRegisterFunc(context->xpathCtxt, BAD_CAST "document", NULL) != 0) goto done;
     if (xmlXPathRegisterFunc(context->xpathCtxt, BAD_CAST "document", empty_document) != 0) goto done;
     for (size_t i = 0; i < count; ++i) {
         const char *name = parameters[i].local;
