@@ -87,6 +87,7 @@ impl std::error::Error for PromptError {}
 
 #[derive(Default)]
 struct ControllerState {
+    replacing_document: bool,
     next_id: u64,
     pending: Option<PendingPrompt>,
     response: Option<PromptResponse>,
@@ -100,6 +101,30 @@ struct ControllerState {
 pub struct PromptController {
     state: Mutex<ControllerState>,
     changed: Condvar,
+}
+/// Reserves a no-pending-prompt replacement before execution services retire.
+/// No mutex is held across native cancellation callbacks.
+pub(crate) struct DocumentReplacement<'a> {
+    controller: &'a PromptController,
+    committed: bool,
+}
+impl DocumentReplacement<'_> {
+    pub(crate) fn commit(mut self) {
+        // Admission already established mutex ownership and excluded new waits.
+        // Recovering a poisoned lock here only closes the reserved transition;
+        // it never admits a prompt or discards an existing wait.
+        let mut state=self.controller.state.lock().unwrap_or_else(|error|error.into_inner());
+        state.retired=false;state.cancelled=false;state.response=None;
+        state.replacing_document=false;self.committed=true;
+    }
+}
+impl Drop for DocumentReplacement<'_> {
+    fn drop(&mut self){
+        if !self.committed{
+            let mut state=self.controller.state.lock().unwrap_or_else(|error|error.into_inner());
+            state.replacing_document=false;
+        }
+    }
 }
 
 impl std::fmt::Debug for PromptController {
@@ -116,6 +141,12 @@ impl std::fmt::Debug for PromptController {
 }
 
 impl PromptController {
+    pub(crate) fn prepare_document_replacement(&self)->Result<DocumentReplacement<'_>,PromptError>{
+        let mut state=self.state.lock().map_err(|_|PromptError::Poisoned)?;
+        if state.pending.is_some()||state.replacing_document{return Err(PromptError::AlreadyOpen);}
+        state.replacing_document=true;
+        Ok(DocumentReplacement{controller:self,committed:false})
+    }
     pub fn new() -> Self {
         Self::default()
     }
@@ -123,7 +154,7 @@ impl PromptController {
     /// wait unwound. Preserve backend/watchdog wiring and monotonically increasing IDs.
     pub fn renew_document(&self) -> Result<(), PromptError> {
         let mut state = self.state.lock().map_err(|_| PromptError::Poisoned)?;
-        if state.pending.is_some() {
+        if state.pending.is_some()||state.replacing_document {
             return Err(PromptError::AlreadyOpen);
         }
         state.retired = false;
@@ -233,7 +264,7 @@ impl PromptController {
     pub fn cancel(&self, token: PromptToken) -> Result<(), PromptError> {
         let backend = {
             let mut state = self.state.lock().map_err(|_| PromptError::Poisoned)?;
-            if state.retired {
+            if state.retired || state.replacing_document {
                 return Err(PromptError::Retired);
             }
             if state
@@ -285,7 +316,7 @@ impl PromptController {
     ) -> Result<PromptResponse, PromptError> {
         let token = {
             let mut state = self.state.lock().map_err(|_| PromptError::Poisoned)?;
-            if state.retired {
+            if state.retired||state.replacing_document {
                 return Err(PromptError::Retired);
             }
             state.next_id = state
@@ -316,7 +347,7 @@ impl PromptController {
             .clone();
         let _wait_guard = WaitGuard::new(observer);
         let mut state = self.state.lock().map_err(|_| PromptError::Poisoned)?;
-        if state.retired {
+        if state.retired || state.replacing_document {
             return Err(PromptError::Retired);
         }
         if state.cancelled_tokens.remove(&request.token) {
@@ -371,6 +402,23 @@ impl PromptController {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn document_replacement_excludes_waits_and_commits_after_retirement(){
+        let controller=PromptController::new();
+        let replacement=controller.prepare_document_replacement().unwrap();
+        assert!(matches!(controller.prepare_document_replacement(),Err(PromptError::AlreadyOpen)));
+        assert!(matches!(controller.renew_document(),Err(PromptError::AlreadyOpen)));
+        controller.retire();replacement.commit();
+        let state=controller.state.lock().unwrap();
+        assert!(!state.retired);assert!(!state.replacing_document);assert!(state.pending.is_none());
+    }
+    #[test]
+    fn abandoned_document_replacement_releases_exclusion_without_reviving_owner(){
+        let controller=PromptController::new();controller.retire();
+        drop(controller.prepare_document_replacement().unwrap());
+        let state=controller.state.lock().unwrap();
+        assert!(state.retired);assert!(!state.replacing_document);
+    }
     #[test]
     fn live_publication_linearizes_retirement_and_releases_on_failure() {
         let controller = Arc::new(PromptController::new());

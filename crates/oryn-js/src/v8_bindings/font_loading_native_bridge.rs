@@ -52,7 +52,7 @@ pub(super) fn request_current(state:&Rc<V8BindingState>,token:font_loading_trans
     if owner(state)!=token.owner || state.execution_retired(){return false;}
     let captured={
         let fonts=state.font_loading.borrow();
-        fonts.face_objects.get(&token.face).map(|face|(face.cycle_id,face.native.clone()))
+        fonts.face_objects.get(&token.face).filter(|face|face.owner==token.owner).map(|face|(face.cycle_id,face.native.clone()))
     };
     let Some((cycle,native))=captured else{return false};
     if native.revision()!=token.revision{return false;}
@@ -69,6 +69,7 @@ pub(super) fn install_provider(state:&Rc<V8BindingState>,provider:Rc<dyn NativeF
     drop(previous);
 }
 pub(super) fn synchronize_set(scope:&mut v8::PinScope,state:&Rc<V8BindingState>)->Result<(),V8BindingError>{
+    reclaim_font_records(scope,state);
     let set=state.font_loading.borrow().document_set;
     if let Some(set)=set{synchronize_connected(scope,state,set)?;}
     settle_loads(scope,state)?;

@@ -10152,7 +10152,7 @@ mod raw_v8 {
             self.binding_states.get(&realm)?.native_layout_provider()
         }
         pub(crate) fn with_public_font_scope<T>(&mut self,realm:RealmId,callback:impl FnOnce(&mut v8::PinScope,&Rc<V8BindingState>)->Result<T,HostError>)->Result<T,HostError>{
-            if !self.realm_execution_live(realm){return Err(HostError::CachedAuthorityExpired)}
+            if !self.font_publication_live(realm){return Err(HostError::CachedAuthorityExpired)}
             let state=self.retained_binding_state(realm)?;
             let original=(state.document_root(),state.document_generation(),state.document_stream_epoch(),state.document_authority_epoch());
             let context=self.contexts.get(&realm).cloned().ok_or(HostError::CachedAuthorityExpired)?;
@@ -10170,11 +10170,15 @@ mod raw_v8 {
                 reset_mutation_observer_microtask_after_termination(scope);
                 return Err(HostError::LimitExceeded{resource:"wall time".into()});
             }
-            if state.execution_retired()||original!=(state.document_root(),state.document_generation(),state.document_stream_epoch(),state.document_authority_epoch()){return Err(HostError::CachedAuthorityExpired)}
+            if state.execution_retired()||state.execution_suspended()||original!=(state.document_root(),state.document_generation(),state.document_stream_epoch(),state.document_authority_epoch()){return Err(HostError::CachedAuthorityExpired)}
             result
         }
         pub(crate) fn next_native_font_realm(&self,after:Option<RealmId>,materialized_only:bool)->Option<RealmId>{
-            self.binding_states.iter().filter(|(realm,state)|after.is_none_or(|last|**realm>last)&&self.realm_execution_live(**realm)&&(!materialized_only||state.native_font_loading_materialized())).map(|(realm,_)|*realm).min()
+            self.binding_states.iter().filter(|(realm,state)|after.is_none_or(|last|**realm>last)&&self.font_publication_live(**realm)&&(!materialized_only||state.native_font_loading_materialized())).map(|(realm,_)|*realm).min()
+        }
+        pub(crate) fn font_publication_live(&self,realm:RealmId)->bool{
+            self.isolate_entered&&!self.realm_is_parked(realm)&&self.binding_states.get(&realm)
+                .is_some_and(|state|!state.execution_retired()&&!state.execution_suspended())
         }
         pub(crate) fn standalone_page_controller(
             &mut self,
@@ -11592,6 +11596,13 @@ mod raw_v8 {
                 // Stage document-specific caches and admission before the
                 // verified initial Window transition changes its active NodeId.
                 let provider = self.prepare_initial_document_provider(previous, &state, document)?;
+                if let Some(provider)=provider.as_ref(){
+                    provider.bind_stylesheet_document_owner(&state.dom().borrow(),
+                        oryn_js::v8_bindings::BindingStylesheetDocumentOwner{
+                            realm:previous,document,document_generation:generation,
+                            stream_epoch:state.document_stream_epoch(),
+                        }).map_err(HostError::Execution)?;
+                }
                 v8::scope!(let scope, &mut self.isolate);
                 let context = v8::Local::new(scope, &context);
                 let scope = &mut v8::ContextScope::new(scope, context);
@@ -11602,18 +11613,13 @@ mod raw_v8 {
                     .unwrap()
                     .create(previous, generation, old_environment.owner)
                     .map_err(|error| HostError::Execution(error.into()))?;
-                if let Err(error) = state.replace_initial_document(document, generation) {
+                // Settle old-owner promises while its identity is still the
+                // active slot. A replacement never publishes into those slots.
+                if let Err(error) = state.replace_initial_document_with_fonts(scope,document,generation) {
                     retire_environment(scope, environment.id);
                     return Err(HostError::Execution(error.to_string()));
                 }
                 if let Some(provider) = provider {
-                    provider.bind_stylesheet_document_owner(&state.dom().borrow(),
-                        oryn_js::v8_bindings::BindingStylesheetDocumentOwner {
-                            realm: previous,
-                            document,
-                            document_generation: generation,
-                            stream_epoch: state.document_stream_epoch(),
-                        }).map_err(HostError::Execution)?;
                     state.set_layout_provider(provider);
                 }
                 // Reused initial Windows retain binding state, but the old

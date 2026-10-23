@@ -43,6 +43,22 @@ Temporary Git worktrees are appropriate for genuine isolation, such as a frozen 
 
 ## Everyday WPT and profiling
 
+### Fresh-worker integration requirement
+
+When Rust, native support libraries, generated bindings, startup snapshots or
+other worker inputs change, rebuild and sign the page worker before the complete
+native integration suite. Build the test targets and worker from the same frozen
+source and configuration. Set `ORYN_PAGE_WORKER` explicitly to the new signed
+bundle, record its executable SHA-256 and signature verification, and recheck
+the executable identity after the suite. Never silently use the fallback worker.
+If rebuilding/signing is blocked, report the blocker; a retained-worker run is
+only a diagnostic and cannot verify the changed batch. Keep its original evidence.
+
+The coordinator owns the compiler-cache and signing leases through build and
+test settlement. Do not edit native inputs between building the worker and
+running integration tests. Reuse is appropriate only for unchanged worker
+inputs (for example Python-only edits), with that fact explicitly recorded.
+
 Use `python3 scripts/oryn-validate.py wpt-dev --help` for selected developer tests.
 Supply an existing run manifest or a prior `developer-config.json` as a path/configuration template, its store and
 bundle roots, an include file, and a fresh output under `<store>/development/`.

@@ -34,7 +34,7 @@ impl RustExecutableDocument {
         let fetch=ParserFetchContext::capture(&self.agent.host,&dom,request.token.owner.document)?;
         if fetch.identity().document!=request.token.owner.document
             || fetch.identity().document_generation!=request.token.owner.generation
-            || fetch.identity().stream_epoch!=request.token.owner.epoch {return Err(HostError::CachedAuthorityExpired);}
+            || request.token.owner.epoch!=0 {return Err(HostError::CachedAuthorityExpired);}
         let creator=fetch.resource_initiator.clone().ok_or_else(||HostError::Execution("font native initiator absent".into()))?;
         let endpoint=self.context.as_ref().map(|(_,page_id,_)|self.agent.host.resource_client_for_realm(realm,*page_id)
             .map(|client|(client,*page_id))).transpose()?;

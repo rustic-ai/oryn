@@ -90,10 +90,30 @@ impl Cycles {
         self.retired=true;self.loading=0;
         for face in self.faces.values_mut() {if face.status==Status::Loading {face.status=Status::Error;}}
     }
+    // Only an initial-Window Document commit may create new authority. Existing
+    // records retain terminal states and monotonically increasing identities.
+    pub fn replacement_document(&mut self) {
+        debug_assert!(self.retired);
+        self.retired=false;
+    }
+    pub fn remove(&mut self,id:FaceId) {
+        if self.faces.remove(&id).is_some_and(|face|face.status==Status::Loading){self.loading-=1;}
+    }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn initial_replacement_keeps_old_terminal_faces_and_unique_ids(){
+        let mut cycles=Cycles::default();let old=cycles.create().unwrap();
+        let attempt=cycles.start(old).unwrap().unwrap();
+        cycles.retire();cycles.replacement_document();
+        let new=cycles.create().unwrap();assert_ne!(old,new);
+        assert_eq!(cycles.status(old),Some(Status::Error));
+        assert!(!cycles.finish(attempt,Terminal::Decoded));
+        assert_eq!(cycles.start(old).unwrap(),None);
+        assert!(cycles.start(new).unwrap().is_some());
+    }
     #[test]
     fn pending_cycle_identity_and_exact_completion() {
         let mut c=Cycles::default();let a=c.create().unwrap();let b=c.create().unwrap();

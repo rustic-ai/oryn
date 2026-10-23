@@ -6,6 +6,7 @@ impl RawV8Host {
     fn complete_public_font(&mut self,realm:RealmId,completion:oryn_js::v8_bindings::font_loading_transport::FontLoadCompletion)
         ->Result<bool,HostError>{
         if !self.public_font_request_current(realm,completion.token){return Ok(false);}
+        if !self.font_publication_live(realm){return Ok(false);}
         self.with_public_font_scope(realm,|scope,state|state.complete_native_font_request(scope,completion).map_err(|error|HostError::Execution(error.to_string())))
     }
 }
@@ -54,6 +55,9 @@ impl RustExecutableDocument {
                 }else{index+=1;}
                 continue;
             }
+            // Parking is not retirement: retain the token, producer and reply
+            // custody without installing layout data or publishing promises.
+            if !self.agent.host.font_publication_live(self.public_font_jobs[index].realm){index+=1;continue;}
             if let Some(terminal)=self.public_font_jobs[index].terminal {
                 let job=&self.public_font_jobs[index];
                 let completion=FontLoadCompletion{token:job.token,terminal};

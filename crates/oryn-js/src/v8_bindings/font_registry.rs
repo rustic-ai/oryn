@@ -14,11 +14,35 @@ impl<T> FontRegistry<T>{
     fn get_mut(&mut self,id:&u64)->Option<&mut T>{self.entries.binary_search_by_key(id,|(id,_)|*id).ok().map(|i|&mut self.entries[i].1)}
     fn iter(&self)->impl Iterator<Item=(&u64,&T)>{self.entries.iter().map(|(id,value)|(id,value))}
     fn values(&self)->impl Iterator<Item=&T>{self.entries.iter().map(|(_,value)|value)}
+    fn remove(&mut self,id:u64)->Option<T>{
+        let index=self.entries.binary_search_by_key(&id,|(id,_)|*id).ok()?;
+        Some(self.entries.remove(index).1)
+    }
     fn insert(&mut self,id:u64,value:T)->Result<Option<T>,V8BindingError>{
         match self.entries.binary_search_by_key(&id,|(id,_)|*id){
             Ok(i)=>Ok(Some(std::mem::replace(&mut self.entries[i].1,value))),
             Err(i)=>{if self.entries.len()==self.entries.capacity(){return Err(V8BindingError::Allocation("font registry capacity not prepared"))}self.entries.insert(i,(id,value));Ok(None)}
         }
+    }
+}
+// Private promise->wrapper and membership edges are the reachability roots.
+// Extract one dead record at a time; native provider/lease destructors run after
+// the RefCell borrow closes. In-flight jobs retain their own payload leases.
+fn reclaim_font_records(scope:&mut v8::PinScope,state:&Rc<V8BindingState>){
+    loop{
+        let dead={let fonts=state.font_loading.borrow();fonts.sets.iter().find_map(|(id,set)|
+            (Some(*id)!=fonts.document_set&&set.ready.resolver.to_local(scope).is_none()).then_some(*id))};
+        let Some(id)=dead else{break};
+        let removed=state.font_loading.borrow_mut().sets.remove(id);drop(removed);
+    }
+    loop{
+        let dead={let fonts=state.font_loading.borrow();fonts.face_objects.iter().find_map(|(id,face)|
+            (face.loaded.resolver.to_local(scope).is_none()
+                &&!fonts.loads.iter().any(|load|load.faces.contains(id))
+                &&!fonts.sets.values().any(|set|set.faces.contains(id))).then_some((*id,face.cycle_id)))};
+        let Some((id,cycle))=dead else{break};
+        let removed={let mut fonts=state.font_loading.borrow_mut();fonts.cycles.remove(cycle);fonts.face_objects.remove(id)};
+        drop(removed);
     }
 }
 fn font_prepare_face_registry(scope:&mut v8::PinScope,state:&Rc<V8BindingState>)->Result<(),V8BindingError>{

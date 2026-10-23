@@ -2,7 +2,9 @@ fn synchronize_connected(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,id:u6
     sweep_retired_font_edges(scope,state,id)?;
     let document=state.font_loading.borrow().sets.get(&id).and_then(|set|set.document);
     if document.is_none(){return Ok(());}
-    if document!=Some(state.document_root())||state.execution_retired(){return Err(V8BindingError::Message("InvalidStateError".into()));}
+    // Detached sets retain explicit members but have no connected CSS producer.
+    if document!=Some(state.document_root()){return Ok(());}
+    if state.execution_retired(){return Err(V8BindingError::Message("InvalidStateError".into()));}
     let provider=state.font_loading.borrow().provider.clone().ok_or(V8BindingError::Allocation("font provider"))?;
     let original_owner=owner(state);
     // Conversion guards have closed before the connected-face provider walk.
@@ -13,7 +15,7 @@ fn synchronize_connected(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,id:u6
     let _existing_charge=reserve_font_container(scope,state,count.checked_mul(std::mem::size_of::<(u64,Rc<dyn NativeFontFace>)>()).ok_or(V8BindingError::Allocation("font existing snapshot bytes"))?)?;
     let mut existing=Vec::new();existing.try_reserve_exact(count).map_err(|_|V8BindingError::Allocation("font existing snapshot"))?;
     if existing.capacity()>count{return Err(V8BindingError::Allocation("font existing snapshot admission"))}
-    {let fonts=state.font_loading.borrow();if fonts.face_objects.len()!=count{return Err(V8BindingError::Allocation("font registry changed"))}existing.extend(fonts.face_objects.iter().filter_map(|(id,face)|face.connected.then_some((*id,face.native.clone()))));}
+    {let fonts=state.font_loading.borrow();if fonts.face_objects.len()!=count{return Err(V8BindingError::Allocation("font registry changed"))}existing.extend(fonts.face_objects.iter().filter_map(|(id,face)|(face.connected&&face.owner==original_owner).then_some((*id,face.native.clone()))));}
     let (explicit_count,revision)={let fonts=state.font_loading.borrow();let set=fonts.sets.get(&id).ok_or(V8BindingError::Allocation("font set"))?;(set.faces.len(),set.membership_revision)};
     let target=current.faces.len().checked_add(explicit_count).ok_or(V8BindingError::Allocation("font members overflow"))?;
     let members_capacity=reserve_font_container(scope,state,target.checked_mul(std::mem::size_of::<u64>()).ok_or(V8BindingError::Allocation("font members bytes"))?)?;
@@ -165,7 +167,7 @@ pub(super) fn construct<'s>(scope:&mut v8::PinScope<'s,'_>,state:&Rc<V8BindingSt
     let invalid=native.initial_error();
     let observed_revision=native.revision();
     font_prepare_face_registry(scope,state)?;
-    state.font_loading.borrow_mut().face_objects.insert(id,FaceRecord{cycle_id,native,loaded,connected:false,observed_revision,completed_cycle:None})?;
+    state.font_loading.borrow_mut().face_objects.insert(id,FaceRecord{owner:owner(state),cycle_id,native,loaded,connected:false,observed_revision,completed_cycle:None})?;
     if invalid {
         let attempt=state.font_loading.borrow_mut().cycles.start(cycle_id)
             .map_err(|error|V8BindingError::EventCallback(error.into()))?.ok_or(V8BindingError::Allocation("font initial error"))?;

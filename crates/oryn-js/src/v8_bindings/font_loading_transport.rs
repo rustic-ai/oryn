@@ -1,5 +1,6 @@
 // Broker-neutral request/terminal transport. Exact receiver ownership is
-// (binding instance, document generation, stream epoch); a face serial cannot
+// (binding instance, document generation); epoch is reserved and currently zero.
+// Parser stylesheet producers carry their separate stream identity. A serial cannot
 // authorize another realm or an earlier document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FontLoadOwner {

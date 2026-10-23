@@ -4,10 +4,14 @@ fn reserve_font_container(
     scope:&mut v8::PinScope,state:&Rc<V8BindingState>,bytes:usize,
 )->Result<Option<std::sync::Arc<dyn Send+Sync>>,V8BindingError>{
     let original_owner=owner(state);
+    if state.execution_retired()||state.execution_suspended(){
+        return Err(V8BindingError::Message("InvalidStateError".into()));
+    }
     let _entry=state.enter_retained_allocation(scope)?;
     let allocation=state.retained_allocation.borrow().clone();
     let lease=allocation.map(|allocation|allocation.reserve(bytes)).transpose().map_err(V8BindingError::EventCallback)?;
-    if owner(state)!=original_owner||state.execution_retired()||state.execution_suspended()||scope.is_execution_terminating(){drop(lease);return Err(V8BindingError::Allocation("font container owner retired"))}
+    if scope.is_execution_terminating(){drop(lease);return Err(V8BindingError::JavaScriptException)}
+    if owner(state)!=original_owner||state.execution_retired()||state.execution_suspended(){drop(lease);return Err(V8BindingError::Message("InvalidStateError".into()))}
     Ok(lease)
 }
 fn font_prepare_event_capacity(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,additional:usize)->Result<(),V8BindingError>{

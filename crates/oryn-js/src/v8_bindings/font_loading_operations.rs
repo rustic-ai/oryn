@@ -68,7 +68,7 @@ pub(super) fn operation<'s>(
             if connected.capacity()>face_count||removed.capacity()>count{return Err(V8BindingError::Allocation("font clear snapshot admission"))}
             let mut fonts=state.font_loading.borrow_mut();
             if fonts.face_objects.len()>face_count{return Err(V8BindingError::Allocation("font clear registry changed"))}
-            connected.extend(fonts.face_objects.iter().filter_map(|(id,face)|face.connected.then_some(*id)));
+            connected.extend(fonts.face_objects.iter().filter_map(|(id,face)|(face.connected&&face.owner==super::font_loading::owner(state)).then_some(*id)));
             let set=fonts.sets.get_mut(&id).ok_or(V8BindingError::Allocation("font set"))?;
             if set.faces.len()!=count||set.membership_revision!=revision{return Err(V8BindingError::Allocation("font clear membership changed"))}
             removed.extend(set.faces.iter().copied().filter(|id|!connected.contains(id)));
@@ -116,7 +116,8 @@ pub(super) fn operation<'s>(
             // receipt. Refresh for the actual native selector/parser call;
             // retain that receipt until all provider allocations have finished.
             let _selection_entry=state.enter_retained_allocation(scope)?;
-            let selected=provider.select(&font.value,&text.value,&faces).map_err(|error|match error{
+            let document=state.font_loading.borrow().sets.get(&id).and_then(|set|set.document).unwrap_or(state.document_root());
+            let selected=provider.select_for_document(document,&font.value,&text.value,&faces).map_err(|error|match error{
                 font_loading_transport::FontSelectionError::Syntax=>V8BindingError::Message("SyntaxError: invalid font shorthand".into()),
                 font_loading_transport::FontSelectionError::Resource(error)=>V8BindingError::EventCallback(error),
             })?;

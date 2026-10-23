@@ -1,10 +1,48 @@
 // Producer cancellation has no V8 scope. Keep pending publication records in
 // their original binding State; disposal is naturally bounded by State lifetime.
 pub(super) fn cancel_retired(state:&V8BindingState){
-    let (requests,retry,capacity,provider)={let mut fonts=state.font_loading.borrow_mut();
+    let (requests,retry,capacity,provider,events,event_retry,event_capacity)={let mut fonts=state.font_loading.borrow_mut();
         fonts.cycles.retire();fonts.layout_readiness.retire();
-        (std::mem::take(&mut fonts.requests),fonts.request_retry.take(),fonts.request_capacity.take(),fonts.provider.take())};
+        (std::mem::take(&mut fonts.requests),fonts.request_retry.take(),fonts.request_capacity.take(),fonts.provider.take(),
+            std::mem::take(&mut fonts.events),fonts.event_retry.take(),fonts.event_capacity.take())};
     drop(requests);drop(retry);drop(capacity);drop(provider);
+    drop(events);drop(event_retry);drop(event_capacity);
+}
+pub(super) fn replacement_document(state:&V8BindingState){
+    let mut fonts=state.font_loading.borrow_mut();
+    // Retained wrappers continue to address their original scalar records.
+    // Only the Window's active document-set slot and producer authority change.
+    fonts.document_set=None;
+    fonts.cycles.replacement_document();
+    fonts.layout_readiness=font_layout_readiness::LayoutReadiness::default();
+}
+pub(super) fn document_set_for_receiver<'s>(scope:&mut v8::PinScope<'s,'_>,state:&Rc<V8BindingState>,receiver:v8::Local<'s,v8::Object>,interface:&str)
+    ->Result<v8::Local<'s,v8::Object>,V8BindingError>{
+    if interface=="Document"{
+        let (_,document)=node_identity::canonical(scope,receiver.into())?
+            .ok_or(V8BindingError::Message("TypeError".into()))?;
+        if document!=state.document_root(){
+            let key=v8::String::new(scope,"oryn.document.fonts").ok_or(V8BindingError::Allocation("font document edge"))?;
+            let key=v8::Private::for_api(scope,Some(key));
+            if let Some(value)=receiver.get_private(scope,key).filter(|value|value.is_object()){
+                return v8::Local::<v8::Object>::try_from(value).map_err(|_|V8BindingError::Allocation("font document set"));
+            }
+            let id=state.font_loading.borrow().sets.iter()
+                .find_map(|(id,set)|(set.document==Some(document)).then_some(*id));
+            let set=if let Some(id)=id{new_platform_object(scope,state,"FontFaceSet",id)?}else{
+                create_document_set(scope,state,document,
+                    font_loading_transport::ConnectedFontFaces{faces:Vec::new(),allocation:None},false)?};
+            if receiver.set_private(scope,key,set.into())!=Some(true){return Err(V8BindingError::JavaScriptException);}
+            return Ok(set);
+        }
+    }
+    let set=document_set(scope,state)?;
+    if interface=="Document"{
+        let key=v8::String::new(scope,"oryn.document.fonts").ok_or(V8BindingError::Allocation("font document edge"))?;
+        let key=v8::Private::for_api(scope,Some(key));
+        if receiver.set_private(scope,key,set.into())!=Some(true){return Err(V8BindingError::JavaScriptException);}
+    }
+    Ok(set)
 }
 // A live suspended realm must not publish. Permanent retirement is different:
 // settling its retained promises does not reactivate input, navigation, or

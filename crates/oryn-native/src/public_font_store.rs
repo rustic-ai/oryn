@@ -13,7 +13,7 @@ impl LiveLayoutProvider {
     )->Result<(),String>{
         let identity=self.native_document_identity.get().ok_or("public font document retired")?;
         if identity.document!=token.owner.document || identity.document_generation!=token.owner.generation
-            || identity.stream_epoch!=token.owner.epoch {return Err("public font owner retired".into());}
+            || token.owner.epoch!=0 {return Err("public font owner retired".into());}
         let next=self.font_revision.get().checked_add(1).ok_or("native font revision exhausted")?;
         let (length,capacity,replacing)={let fonts=self.public_fonts.borrow();(fonts.len(),fonts.capacity(),fonts.iter().any(|entry|entry.token.owner==token.owner&&entry.token.face==token.face))};
         if !replacing&&length.checked_add(self.fonts.borrow().len()).ok_or("native layout font count overflow")?>=NATIVE_LAYOUT_FONT_CAPACITY{return Err("native layout font capacity".into())}

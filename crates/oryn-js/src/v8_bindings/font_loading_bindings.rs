@@ -76,7 +76,16 @@ pub(super) fn document_set<'s>(scope:&mut v8::PinScope<'s,'_>,state:&Rc<V8Bindin
     }
     let provider=state.font_loading.borrow().provider.clone()
         .ok_or_else(||V8BindingError::Unsupported{interface:"Document".into(),member:"native font loading provider unavailable".into()})?;
+    let expected_owner=owner(state);
     let faces=provider.connected().map_err(V8BindingError::EventCallback)?;
+    if owner(state)!=expected_owner||state.execution_retired()||state.execution_suspended(){
+        return Err(V8BindingError::Message("InvalidStateError".into()));
+    }
+    create_document_set(scope,state,state.document_root(),faces,true)
+}
+fn create_document_set<'s>(scope:&mut v8::PinScope<'s,'_>,state:&Rc<V8BindingState>,document:NodeId,
+    faces:font_loading_transport::ConnectedFontFaces,active:bool)->Result<v8::Local<'s,v8::Object>,V8BindingError>{
+    let expected_owner=owner(state);
     let id=register_platform_object(state,PlatformObjectRecord::FontFaceSet);
     let object=new_platform_object(scope,state,"FontFaceSet",id)?;
     let ready=promise_slot(scope,state,object,"oryn.fontset.ready")?;
@@ -99,13 +108,22 @@ pub(super) fn document_set<'s>(scope:&mut v8::PinScope<'s,'_>,state:&Rc<V8Bindin
     if iteration_order.capacity()>ids.len(){return Err(V8BindingError::Allocation("font iteration admission"))}
     for(index,face)in ids.iter().enumerate(){iteration_order.push((u64::try_from(index).ok().and_then(|n|n.checked_add(1)).ok_or(V8BindingError::Allocation("font insertion serial exhausted"))?,*face));}
     let next_serial=u64::try_from(ids.len()).map_err(|_|V8BindingError::Allocation("font insertion serial exhausted"))?;
+    if owner(state)!=expected_owner||state.execution_retired()||state.execution_suspended(){return Err(V8BindingError::Message("InvalidStateError".into()));}
     state.font_loading.borrow_mut().sets.insert(id,SetRecord{
         retired_edges:None,
         pending_edges:None,
         members_capacity,iteration_capacity,next_serial,membership_revision:0,
-        faces:ids,iteration_order,ready,ready_cycle:0,ready_published:None,loading_event_cycle:None,done_event_cycle:None,error_event_cycle:None,document:Some(state.document_root())})?;
-    state.font_loading.borrow_mut().document_set=Some(id);
-    settle_sets(scope,state)?;
+        faces:ids,iteration_order,ready,ready_cycle:0,ready_published:None,loading_event_cycle:None,done_event_cycle:None,error_event_cycle:None,document:Some(document)})?;
+    if active{state.font_loading.borrow_mut().document_set=Some(id);settle_sets(scope,state)?;}
+    else{
+        // An inactive Document has no pending layout producer. Publish its
+        // own empty set, never the active Window's set or readiness stamp.
+        let resolver=state.font_loading.borrow().sets.get(&id).and_then(|set|set.ready.resolver.to_local(scope))
+            .ok_or(V8BindingError::Allocation("detached font ready resolver"))?;
+        if resolver.resolve(scope,object.into())!=Some(true){return Err(V8BindingError::JavaScriptException);}
+        let mut fonts=state.font_loading.borrow_mut();let set=fonts.sets.get_mut(&id).ok_or(V8BindingError::Allocation("detached font set"))?;
+        set.ready.settled=true;set.ready_published=Some(0);
+    }
     Ok(object)
 }
 fn register_face(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,native:Rc<dyn NativeFontFace>,connected:bool)
@@ -116,7 +134,7 @@ fn register_face(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,native:Rc<dyn
     let loaded=promise_slot(scope,state,object,"oryn.fontface.loaded")?;
     let cycle_id=state.font_loading.borrow_mut().cycles.create().map_err(|error|V8BindingError::EventCallback(error.into()))?;
     let observed_revision=native.revision();
-    state.font_loading.borrow_mut().face_objects.insert(id,FaceRecord{cycle_id,native,loaded,connected,observed_revision,completed_cycle:None})?;
+    state.font_loading.borrow_mut().face_objects.insert(id,FaceRecord{owner:owner(state),cycle_id,native,loaded,connected,observed_revision,completed_cycle:None})?;
     let decoded=state.font_loading.borrow().face_objects.get(&id).map(|face|face.native.clone()).unwrap().decoded_backing();
     if connected&&decoded{
         let attempt=state.font_loading.borrow_mut().cycles.start(cycle_id).map_err(|error|V8BindingError::EventCallback(error.into()))?

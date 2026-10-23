@@ -8,11 +8,17 @@ pub trait NativeFontLoading {
     fn connected(&self)->Result<font_loading_transport::ConnectedFontFaces,String>;
     fn select(&self,font:&str,text:&str,faces:&[Rc<dyn NativeFontFace>])
         ->Result<font_loading_transport::FontSelection,font_loading_transport::FontSelectionError>;
+    fn select_for_document(&self,document:NodeId,font:&str,text:&str,faces:&[Rc<dyn NativeFontFace>])
+        ->Result<font_loading_transport::FontSelection,font_loading_transport::FontSelectionError>{
+        let _=document;self.select(font,text,faces)
+    }
 }
 fn owner(state:&V8BindingState)->font_loading_transport::FontLoadOwner {
     font_loading_transport::FontLoadOwner {instance:state.instance_id,
         document:state.document_root(),generation:state.document_generation.get(),
-        epoch:state.document_stream_epoch.get()}
+        // document.open() replaces a parser stream, not this font owner.
+        // Stream-bound stylesheet providers validate their own parser identity.
+        epoch:0}
 }
 fn begin<'s>(
     scope:&mut v8::PinScope<'s,'_>,state:&Rc<V8BindingState>,id:u64,text:&str,
@@ -23,6 +29,12 @@ fn begin<'s>(
         (face.native.clone(),face.cycle_id,face.loaded.clone())
     };
     let loaded=promise(scope,&loaded_slot)?;
+    if state.font_loading.borrow().face_objects.get(&id).is_none_or(|face|face.owner!=owner(state)) {
+        return Ok(loaded);
+    }
+    if state.execution_retired()||state.execution_suspended(){
+        return Err(V8BindingError::Message("InvalidStateError".into()));
+    }
     if state.font_loading.borrow().cycles.status(cycle_id)==Some(font_cycles::Status::Loading){renew_loading_sets(scope,state,id)?;return Ok(loaded);}
     let attempt=state.font_loading.borrow_mut().cycles.start(cycle_id)
         .map_err(|error|V8BindingError::EventCallback(error.into()))?;
@@ -97,10 +109,11 @@ pub(super) fn complete(
     scope:&mut v8::PinScope,state:&Rc<V8BindingState>,
     completion:font_loading_transport::FontLoadCompletion,
 )->Result<bool,V8BindingError> {
-    if owner(state)!=completion.token.owner || state.execution_retired() {return Ok(false);}
+    if owner(state)!=completion.token.owner || state.execution_retired()||state.execution_suspended() {return Ok(false);}
     let (cycle_id,native,resolver)={
         let fonts=state.font_loading.borrow();
         let Some(face)=fonts.face_objects.get(&completion.token.face) else {return Ok(false)};
+        if face.owner!=completion.token.owner{return Ok(false);}
         (face.cycle_id,face.native.clone(),face.loaded.resolver.clone())
     };
     if native.revision()!=completion.token.revision {return Ok(false);}
@@ -140,7 +153,7 @@ fn settle_sets(scope:&mut v8::PinScope,state:&Rc<V8BindingState>)->Result<(),V8B
     {let fonts=state.font_loading.borrow();if fonts.sets.len()>count{return Err(V8BindingError::Allocation("font ready snapshot changed"))}ids.extend(fonts.sets.iter().filter_map(|(id,set)| {
         let pending=set.faces.iter().any(|id|fonts.face_objects.get(id)
             .is_some_and(|face|fonts.cycles.status(face.cycle_id)==Some(font_cycles::Status::Loading)));
-        let layout_ready=set.document.is_none() || fonts.layout_readiness.ready(owner(state));
+        let layout_ready=set.document!=Some(state.document_root()) || fonts.layout_readiness.ready(owner(state));
         (!pending&&layout_ready&&!set.ready.settled).then_some(*id)
     }));}
     for id in ids {
@@ -222,7 +235,7 @@ pub(super) fn implicit_font_started(
     faces.try_reserve_exact(count).map_err(|_|V8BindingError::Allocation("implicit font face snapshot"))?;
     if faces.capacity()>count{return Err(V8BindingError::Allocation("implicit font snapshot capacity admission"));}
     {let fonts=state.font_loading.borrow();
-        for (id,face) in &fonts.face_objects{faces.push((*id,face.native.clone(),face.cycle_id));}
+        for (id,face) in &fonts.face_objects{if face.owner==owner(state){faces.push((*id,face.native.clone(),face.cycle_id));}}
     }
     let mut tokens=Vec::new();
     tokens.try_reserve_exact(count).map_err(|_|V8BindingError::Allocation("implicit font tokens"))?;

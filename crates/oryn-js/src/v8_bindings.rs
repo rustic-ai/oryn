@@ -3460,6 +3460,9 @@ impl V8BindingState {
         oryn_dom::document_url::parse(input, Url::parse(&base).ok().as_ref(), encoding)
             .map_err(|_| V8BindingError::Message("invalid HTML resource URL".into()))
     }
+    pub fn native_retained_document_base_url(&self,document:NodeId)->Result<String,V8BindingError>{
+        retained_document_base_url(self,document)
+    }
 
     /// Read the native Location value without invoking author code.
     pub fn current_location_url(&self) -> String {
@@ -5972,12 +5975,41 @@ impl V8BindingState {
         document: NodeId,
         generation: u64,
     ) -> Result<(), V8BindingError> {
+        self.replace_initial_document_prepared(document,generation,||Ok(()))
+    }
+    pub fn replace_initial_document_with_fonts(self:&Rc<Self>,scope:&mut v8::PinScope,
+        document:NodeId,generation:u64)->Result<(),V8BindingError>{
+        self.replace_initial_document_prepared(document,generation,||{
+            let receiver=wrap_node(scope,self,self.document_root())?;
+            // Preserve the old Document's CSS membership even if author code
+            // has not requested fonts yet. No synthetic active-set alias.
+            if font_loading::provider_installed(self){
+                font_loading::document_set_for_receiver(scope,self,receiver,"Document")?;
+            }
+            if let Err(error)=font_loading::retire(scope,self){
+                // Promise publication cannot be rolled back. Fail closed after
+                // the irreversible boundary, never resume a half-retired owner.
+                self.retire_execution();return Err(error);
+            }
+            Ok(())
+        })
+    }
+    fn replace_initial_document_prepared(&self,document:NodeId,generation:u64,
+        before_commit:impl FnOnce()->Result<(),V8BindingError>)->Result<(),V8BindingError>{
         if self.execution_retired() || generation <= self.document_generation.get() {
             return Err(V8BindingError::Unsupported {
                 interface: "Window".into(),
                 member: "invalid initial document commit".into(),
             });
         }
+        let inherited_base={
+            let dom=self.dom.borrow();
+            dom.arena().document_id(document)?;
+            dom.arena().get(document)?.document_metadata.as_ref()
+                .and_then(|metadata|metadata.inherited_base_url.clone())
+        };
+        let prompt_replacement=self.prompt_controller.prepare_document_replacement()
+            .map_err(|error|V8BindingError::Unsupported{interface:"Window".into(),member:format!("document prompt preparation: {error}")})?;
         {
             let mut dom = self.dom.borrow_mut();
             dom.arena().document_id(document)?;
@@ -5990,13 +6022,10 @@ impl V8BindingState {
             }
         }
         custom_elements::initialize_replacement_document(self, document)?;
+        // No fallible preparation remains after old producer cancellation.
+        before_commit()?;
         self.retire_execution();
-        self.prompt_controller
-            .renew_document()
-            .map_err(|error| V8BindingError::Unsupported {
-                interface: "Window".into(),
-                member: format!("document prompt renewal: {error}"),
-            })?;
+        prompt_replacement.commit();
         self.control_tasks_retired.set(false);
         self.page_revealed.set(false);
         self.initial_pageshow_delivered.set(false);
@@ -6005,6 +6034,7 @@ impl V8BindingState {
         // document changes, so retained Documents cannot alias the new tree.
         self.document.set(document);
         self.document_generation.set(generation);
+        font_loading::replacement_document(self);
         // Replacement never revives any original-document allowance. A later
         // deferred native key lazily installs a fresh admitted identity mirror.
         let obsolete_input_identity=self.native_input_identity.borrow_mut().take();
@@ -6018,14 +6048,7 @@ impl V8BindingState {
         // Initial Window reuse does not carry the previous document's policy.
         // The navigation host installs the new response policy after commit.
         *self.document_referrer_policy.borrow_mut() = "strict-origin-when-cross-origin".into();
-        *self.inherited_base_url.borrow_mut() = self
-            .dom
-            .borrow()
-            .arena()
-            .get(document)?
-            .document_metadata
-            .as_ref()
-            .and_then(|metadata| metadata.inherited_base_url.clone());
+        *self.inherited_base_url.borrow_mut() = inherited_base;
         self.current_script.set(None);
         self.parser_input_active.set(false);
         self.pending_location_navigation.borrow_mut().take();
@@ -17252,7 +17275,7 @@ fn generated_attribute_getter<'s>(
         let result=(||{
             let state=font_loading::font_document_receiver(scope,args.this(),interface)?;
             let _admission=state.enter_retained_allocation(scope)?;
-            font_loading::document_set(scope,&state)
+            font_loading::document_set_for_receiver(scope,&state,args.this(),interface)
         })();
         match result {Ok(value)=>return_value.set(value.into()),Err(error)=>throw_binding_error(scope,&error)}
         return;

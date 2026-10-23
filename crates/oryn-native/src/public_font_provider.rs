@@ -39,10 +39,34 @@ impl NativeFontLoadingProvider {
         if state.execution_retired()||self.dom.borrow().mutation_cursor()!=cursor{return Err("font base changed during capture".into());}
         Ok(PublicFontBase{value,_allocation:allocation})
     }
+    fn retained_base(&self,document:NodeId)->Result<PublicFontBase,String>{
+        let state=self.state.upgrade().ok_or("font base owner retired")?;
+        if state.execution_retired(){return Err("font base owner retired".into());}
+        let (cursor,bytes)={let dom=self.dom.borrow();dom.arena().document_id(document).map_err(|error|error.to_string())?;
+            let mut bytes=0usize;
+            for (_,node) in dom.arena().iter(){
+                bytes=bytes.checked_add(std::mem::size_of::<NodeId>()).ok_or("font base traversal overflow")?;
+                for (_,value) in node.attributes.iter(){bytes=bytes.checked_add(value.len()).ok_or("font base input overflow")?;}
+                if let Some(metadata)=node.document_metadata.as_ref(){
+                    bytes=bytes.checked_add(metadata.url.as_ref().map_or(0,String::len))
+                        .and_then(|n|n.checked_add(metadata.inherited_base_url.as_ref().map_or(0,String::len))).ok_or("font base metadata overflow")?;
+                }
+            }
+            (dom.mutation_cursor(),bytes)};
+        let allocation=self.admission.reserve(bytes)?;
+        if state.execution_retired()||self.dom.borrow().mutation_cursor()!=cursor{return Err("font base owner changed".into());}
+        let value=state.native_retained_document_base_url(document).map_err(|error|error.to_string())?;
+        if state.execution_retired()||self.dom.borrow().mutation_cursor()!=cursor{return Err("font base changed during capture".into());}
+        Ok(PublicFontBase{value,_allocation:allocation})
+    }
 }
 impl oryn_js::v8_bindings::font_loading::NativeFontLoading for NativeFontLoadingProvider {
     fn same_provider(&self,identity:usize)->bool{
-        self.provider_identity==identity&&self.provider.upgrade().is_some_and(|provider|
+        self.state.upgrade().is_some_and(|state|!state.execution_retired()
+            &&state.document_root()==self.identity.document
+            &&state.document_generation()==self.identity.document_generation
+            &&state.document_stream_epoch()==self.identity.stream_epoch)
+        &&self.provider_identity==identity&&self.provider.upgrade().is_some_and(|provider|
             Rc::as_ptr(&provider) as *const () as usize==identity)
     }
     fn construct(&self,family:&str,source:oryn_js::v8_bindings::font_loading_transport::FontFaceSourceInput,descriptors:&[(String,String)])
@@ -104,9 +128,13 @@ impl oryn_js::v8_bindings::font_loading::NativeFontLoading for NativeFontLoading
     }
     fn select(&self,font:&str,text:&str,faces:&[Rc<dyn oryn_js::v8_bindings::font_loading::NativeFontFace>])
         ->Result<oryn_js::v8_bindings::font_loading_transport::FontSelection,oryn_js::v8_bindings::font_loading_transport::FontSelectionError>{
+        self.select_for_document(self.identity.document,font,text,faces)
+    }
+    fn select_for_document(&self,document:NodeId,font:&str,text:&str,faces:&[Rc<dyn oryn_js::v8_bindings::font_loading::NativeFontFace>])
+        ->Result<oryn_js::v8_bindings::font_loading_transport::FontSelection,oryn_js::v8_bindings::font_loading_transport::FontSelectionError>{
         use oryn_js::v8_bindings::font_loading_transport::FontSelectionError;
         let result=(||->Result<_,String>{
-        let base=self.live_base()?;
+        let base=if document==self.identity.document{self.live_base()?}else{self.retained_base(document)?};
         let query=match oryn_layout::cssom::native_import_graph::parse_native_font_shorthand_typed(font,&base.value,self.admission.as_ref()){
             Ok(query)=>query,
             Err(oryn_layout::cssom::native_import_graph::NativeFontShorthandError::Syntax)=>return Ok(None),

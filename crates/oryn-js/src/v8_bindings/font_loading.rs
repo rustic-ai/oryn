@@ -19,6 +19,7 @@ include!("font_source_input.rs");
 include!("font_owned_input.rs");
 
 // Scalar bridge operations keep State fields private to this compilation unit.
+pub(super) fn provider_installed(state:&V8BindingState)->bool{state.font_loading.borrow().provider.is_some()}
 pub(super) fn provider_matches(state:&V8BindingState,identity:usize)->bool{
     let provider=state.font_loading.borrow().provider.clone();
     provider.is_some_and(|provider|provider.same_provider(identity))

@@ -68,7 +68,7 @@ impl LiveLayoutProvider {
                 if entry.token != *token { return Err("font projection identity replaced".into()); }
                 if entry.token.owner.document != document
                     || entry.token.owner.generation != identity.document_generation
-                    || entry.token.owner.epoch != identity.stream_epoch
+                    || entry.token.owner.epoch != 0
                     || !current { continue; }
                 let copy_text = |source: &str| -> Result<String, String> {
                     let mut text = String::new();

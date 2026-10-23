@@ -31,6 +31,7 @@ fn promise<'s>(scope:&mut v8::PinScope<'s,'_>, slot:&PromiseSlot)
         .ok_or(V8BindingError::Allocation("font promise collected"))
 }
 struct FaceRecord {
+    owner:font_loading_transport::FontLoadOwner,
     completed_cycle:Option<u64>,
     cycle_id:font_cycles::FaceId,
     native:Rc<dyn NativeFontFace>,
