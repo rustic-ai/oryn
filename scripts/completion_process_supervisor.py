@@ -122,7 +122,64 @@ def group_exists(group):
     return True
 
 
-def process_table():
+def kernel_child_candidates(parent, *, initial_capacity=128, max_capacity=65536):
+    """Discovery only: returned PIDs still require kernel birth/PPID admission.
+
+    Avoid spawning ps beneath nested supervisors on macOS. Its protected,
+    transient helper can itself appear in an outer owner's discovery snapshot.
+    Never replace unreadable birth identity with discovery or PID authority.
+    """
+    global _LIBPROC
+    if not 1 <= initial_capacity <= max_capacity:
+        raise ValueError('invalid discovery capacity')
+    if _LIBPROC is None:
+        _LIBPROC = ctypes.CDLL('/usr/lib/libproc.dylib', use_errno=True)
+        _LIBPROC.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+        _LIBPROC.proc_pidinfo.restype = ctypes.c_int
+    api = _LIBPROC.proc_listchildpids
+    api.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+    api.restype = ctypes.c_int
+    capacity = initial_capacity
+    while True:
+        buffer = (ctypes.c_int * capacity)()
+        ctypes.set_errno(0)
+        count = api(parent, buffer, ctypes.sizeof(buffer))
+        failure = ctypes.get_errno()
+        if count < 0 or (count == 0 and failure):
+            # A candidate can exit between enumeration and descent. Only a
+            # fresh kernel absence result allows dropping that branch; a
+            # permission failure for a still-live parent remains fatal.
+            if process_identity(parent) is None:
+                return []
+            raise OSError(failure or errno.EIO, f'kernel child discovery failed: parent={parent}')
+        # proc_listchildpids returns a PID count, not a byte count. A full
+        # buffer cannot prove completeness; grow or explicitly fail closed.
+        if count >= capacity:
+            if capacity == max_capacity:
+                raise OverflowError('kernel child discovery reached its explicit bound')
+            capacity = min(capacity * 2, max_capacity)
+            continue
+        candidates = list(buffer[:count])
+        if any(pid <= 0 for pid in candidates) or len(set(candidates)) != len(candidates):
+            raise RuntimeError('invalid kernel candidate inventory')
+        return candidates
+
+
+def process_table(parents=()):
+    if sys.platform == 'darwin':
+        # Include newly discovered generations in this observation, but do not
+        # confer ownership here. OwnedTree validates each child and parent.
+        table, pending, seen = {}, list(parents), set(parents)
+        while pending:
+            parent = pending.pop()
+            for pid in kernel_child_candidates(parent):
+                table[pid] = parent
+                if pid not in seen:
+                    if len(seen) >= 65536:
+                        raise OverflowError('kernel descendant discovery reached its explicit bound')
+                    seen.add(pid)
+                    pending.append(pid)
+        return table
     raw = subprocess.check_output(['ps', '-axo', 'pid=,ppid='], text=True,
                                   timeout=3, env=dict(os.environ, LC_ALL='C'))
     return {int(pid): int(parent) for pid, parent in
@@ -141,7 +198,7 @@ class OwnedTree:
             self.owned = {pid: identity}
 
     def observe(self):
-        table = process_table()
+        table = process_table(self.owned)
         # Keep detached live descendants, but never scan accumulated dead
         # history across thousands of suite attempts. Identity errors raise
         # before pruning, preserving fail-closed observation custody.

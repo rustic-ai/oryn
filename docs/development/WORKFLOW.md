@@ -43,6 +43,28 @@ Temporary Git worktrees are appropriate for genuine isolation, such as a frozen 
 
 ## Everyday WPT and profiling
 
+### Long-running coordinator custody
+
+Jobs spanning chat turns need an independently owned coordinator, not an
+unverified shell background process. Before a long build, check the actual
+coordinator environment for Rust/Cargo, uv, Apple compiler and signing tools.
+Validate successful, failed and timed-out terminal receipts independently of
+the short-lived launcher. Use a one-shot owner without automatic retries,
+keep heartbeat and phase logs, and configure requested follow-through checks.
+Job submission is not evidence that compilation or WPT execution has started.
+
+On macOS, the canonical descendant supervisor discovers candidates through
+libproc rather than spawning `ps` beneath nested owners. Candidate PIDs are
+still admitted only through kernel birth identity, same-record PPID and parent
+birth revalidation. Permission failures remain fail-closed; discovery overflow
+must never silently truncate. Linux discovery behavior is unchanged.
+
+After interruption, preserve original receipts and reconcile only exact
+abandoned leases after verifying absent owners/children and acquiring their
+locks. Recovered resource custody does not make an interrupted run successful.
+Python-only supervision repairs may reuse an unchanged signed native worker;
+record the new runner commit separately from the original native build identity.
+
 ### Fresh-worker integration requirement
 
 When Rust, native support libraries, generated bindings, startup snapshots or

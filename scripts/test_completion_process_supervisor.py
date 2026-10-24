@@ -16,6 +16,73 @@ from unittest.mock import patch
 import completion_process_supervisor as supervisor
 
 
+class MacOSKernelDiscoveryTests(unittest.TestCase):
+    def candidates(self, api, **kwargs):
+        library = unittest.mock.Mock()
+        library.proc_listchildpids.side_effect = api
+        with patch.object(supervisor, '_LIBPROC', library), \
+             patch.object(supervisor, 'process_identity', return_value=((123, 456), 1)):
+            return supervisor.kernel_child_candidates(10, **kwargs)
+
+    def test_empty(self):
+        self.assertEqual(self.candidates(lambda *_: 0), [])
+
+    def test_grows_without_truncating(self):
+        capacities = []
+        def api(parent, buffer, size):
+            capacity = size // ctypes.sizeof(ctypes.c_int)
+            capacities.append(capacity)
+            for index, pid in enumerate([20, 21, 22][:capacity]):
+                buffer[index] = pid
+            return min(capacity, 3)
+        self.assertEqual(self.candidates(api, initial_capacity=2), [20, 21, 22])
+        self.assertEqual(capacities, [2, 4])
+
+    def test_saturation_is_not_silent_truncation(self):
+        with self.assertRaises(OverflowError):
+            self.candidates(lambda p, b, s: s // ctypes.sizeof(ctypes.c_int), initial_capacity=2, max_capacity=4)
+
+    def test_permission_error_is_not_empty_inventory(self):
+        def api(*unused):
+            ctypes.set_errno(errno.EPERM)
+            return 0
+        with self.assertRaises(PermissionError): self.candidates(api)
+
+    def test_negative_return_fails_closed(self):
+        with self.assertRaises(OSError): self.candidates(lambda *_: -1)
+
+    def test_failed_discovery_drops_branch_only_on_kernel_confirmed_absence(self):
+        library = unittest.mock.Mock()
+        library.proc_listchildpids.return_value = -1
+        with patch.object(supervisor, '_LIBPROC', library), \
+             patch.object(supervisor, 'process_identity', return_value=None):
+            self.assertEqual(supervisor.kernel_child_candidates(10), [])
+
+    def test_invalid_pid_fails_closed(self):
+        with self.assertRaises(RuntimeError): self.candidates(lambda *_: 1)
+
+    def test_duplicate_pid_fails_closed(self):
+        def api(parent, buffer, size):
+            buffer[0] = buffer[1] = 20
+            return 2
+        with self.assertRaises(RuntimeError): self.candidates(api)
+
+    def test_descendant_discovery_does_not_spawn_ps_and_handles_cycles(self):
+        rows = {10: [11, 12], 11: [13], 12: [], 13: [10]}
+        with patch.object(supervisor.sys, 'platform', 'darwin'), \
+             patch.object(supervisor, 'kernel_child_candidates', side_effect=rows.__getitem__) as query, \
+             patch.object(supervisor.subprocess, 'check_output') as ps:
+            self.assertEqual(supervisor.process_table([10]), {11: 10, 12: 10, 13: 11, 10: 13})
+            self.assertEqual(query.call_count, 4)
+            ps.assert_not_called()
+
+    def test_linux_discovery_unchanged(self):
+        with patch.object(supervisor.sys, 'platform', 'linux'), \
+             patch.object(supervisor.subprocess, 'check_output', return_value='10 1\n11 10\n') as ps:
+            self.assertEqual(supervisor.process_table([10]), {10: 1, 11: 10})
+            ps.assert_called_once()
+
+
 class MacOSBirthIdentityTests(unittest.TestCase):
     def identity(self, size, native_errno, probe):
         def pidinfo(*unused):
@@ -335,6 +402,54 @@ class OwnedTreeTests(unittest.TestCase):
 
 
 class NativeCancellationTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'darwin', 'macOS nested discovery helpers')
+    def test_nested_supervisors_observe_concurrently_without_ps_children(self):
+        code = '''
+import subprocess,sys,time
+sys.path.insert(0,sys.argv[1])
+from completion_process_supervisor import OwnedTree
+child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(5)'],start_new_session=True)
+try:
+ tree=OwnedTree(child.pid)
+ while child.poll() is None:
+  tree.observe()
+  time.sleep(.01)
+finally:
+ if child.poll() is None: child.kill()
+ child.wait()
+'''
+        child = subprocess.Popen([sys.executable, '-c', code, str(Path(supervisor.__file__).parent)], start_new_session=True)
+        try:
+            result = supervisor.supervise(child, supervisor.Cancellation(), timeout=15, grace=2)
+            self.assertIsNone(result['error'], result)
+            self.assertEqual(result['returncode'], 0, result)
+            self.assertTrue(result['cleanup_complete'], result)
+        finally:
+            if child.poll() is None: child.kill()
+            child.wait(timeout=3)
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'macOS gone discovery candidate')
+    def test_reaped_candidate_has_no_discoverable_children(self):
+        child = subprocess.Popen(['/usr/bin/true'])
+        child.wait(timeout=3)
+        self.assertEqual(supervisor.kernel_child_candidates(child.pid), [])
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'macOS kernel child discovery')
+    def test_live_child_discovery_growth_preserves_birth_and_parent(self):
+        children = [subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(10)']) for _ in range(3)]
+        try:
+            pids = {child.pid for child in children}
+            discovered = supervisor.kernel_child_candidates(os.getpid(), initial_capacity=2)
+            self.assertTrue(pids.issubset(discovered))
+            for pid in pids:
+                record = supervisor.process_identity(pid)
+                self.assertIsNotNone(record)
+                self.assertEqual(record[1], os.getpid())
+        finally:
+            for child in children:
+                if child.poll() is None: child.terminate()
+                child.wait(timeout=3)
+
     @unittest.skipUnless(sys.platform == 'darwin', 'macOS proc_pidinfo exit race')
     def test_reaped_subprocess_churn_does_not_erase_live_sibling_identity(self):
         sibling = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
