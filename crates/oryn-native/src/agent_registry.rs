@@ -287,6 +287,7 @@ pub struct AgentRegistry {
     shared: BTreeMap<SharedKey, AgentId>,
     retired: bool,
     retirement_inflight: bool,
+    retirement_owner: Option<std::thread::ThreadId>,
     pending_termination: BTreeMap<AgentId, Agent>,
     service_retirements: BTreeMap<AgentId, ServiceRetirementStatus>,
     frozen_owners: std::collections::BTreeSet<AgentOwner>,
@@ -358,6 +359,7 @@ impl AgentRegistry {
             shared: BTreeMap::new(),
             retired: false,
             retirement_inflight: false,
+            retirement_owner: None,
             pending_termination: BTreeMap::new(),
             service_retirements: BTreeMap::new(),
             frozen_owners: Default::default(),
@@ -1428,6 +1430,36 @@ impl AgentRegistry {
         result
     }
 
+    /// Wait only for the current detached owner, without holding broker locks.
+    /// A timeout is failure, not evidence that the owned processes have exited.
+    /// Callers must not hold the message hub lock while entering this function.
+    pub(crate) fn await_retirement<'a>(
+        registry: std::sync::MutexGuard<'a, Self>,
+        done: &std::sync::Condvar,
+        budget: std::time::Duration,
+    ) -> Result<std::sync::MutexGuard<'a, Self>, WorkerError> {
+        let started = std::time::Instant::now();
+        let mut registry = registry;
+        while registry.retirement_inflight {
+            if registry.retirement_owner == Some(std::thread::current().id()) {
+                return Err(error(
+                    "reentrant agent retirement cannot wait for its own owner",
+                ));
+            }
+            let remaining = budget.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return Err(error(
+                    "agent retirement handoff deadline exceeded; processes remain owned",
+                ));
+            }
+            registry = done
+                .wait_timeout(registry, remaining)
+                .map_err(|_| error("agent registry lock poisoned during retirement handoff"))?
+                .0;
+        }
+        Ok(registry)
+    }
+
     /// Revoke all admissions while locked, but do not join any agent here.
     /// Call terminate only after releasing both registry and message locks.
     pub fn detach_retirement(
@@ -1439,6 +1471,7 @@ impl AgentRegistry {
         }
         self.retired = true;
         self.retirement_inflight = true;
+        self.retirement_owner = Some(std::thread::current().id());
         self.shared.clear();
         let mut agents = std::mem::take(&mut self.agents);
         let mut failure = hub
@@ -1475,6 +1508,7 @@ impl AgentRegistry {
     pub fn retain_failed_retirement(&mut self, batch: DetachedAgentRetirement) {
         if batch.active {
             self.retirement_inflight = false;
+            self.retirement_owner = None;
         }
         for id in batch.completed_services {
             if let Some(status) = self.service_retirements.get_mut(&id) {
@@ -1530,6 +1564,7 @@ impl AgentRegistry {
             }
         }
         self.retirement_inflight = true;
+        self.retirement_owner = Some(std::thread::current().id());
         Ok(DetachedAgentRetirement {
             completed_services: Default::default(),
             agents: std::mem::take(&mut self.pending_termination),
@@ -1575,6 +1610,7 @@ impl AgentRegistry {
             return Err(error("agent retirement already in progress"));
         }
         self.retirement_inflight = true;
+        self.retirement_owner = Some(std::thread::current().id());
         let mut removed = std::collections::BTreeSet::new();
         let mut failure = hub
             .retry_shared_disposals()
@@ -1711,6 +1747,191 @@ impl AgentRegistry {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn retirement_handoff_rejects_self_wait_and_preserves_owner() {
+        let registry = Mutex::new(AgentRegistry::new(8));
+        let done = std::sync::Condvar::new();
+        let mut hub = oryn_js::message_wire::MessageHub::default();
+        let batch = registry
+            .lock()
+            .unwrap()
+            .detach_retirement(&mut hub)
+            .unwrap();
+        let failure = AgentRegistry::await_retirement(
+            registry.lock().unwrap(),
+            &done,
+            std::time::Duration::from_secs(60),
+        )
+        .err()
+        .unwrap();
+        assert!(failure.message.contains("reentrant"));
+        assert!(registry.lock().unwrap().retirement_inflight);
+        registry.lock().unwrap().retain_failed_retirement(batch);
+        assert!(
+            AgentRegistry::await_retirement(
+                registry.lock().unwrap(),
+                &done,
+                std::time::Duration::ZERO,
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn retirement_handoff_deadline_does_not_release_detached_custody() {
+        let registry = Mutex::new(AgentRegistry::new(8));
+        let done = std::sync::Condvar::new();
+        let mut hub = oryn_js::message_wire::MessageHub::default();
+        let batch = registry
+            .lock()
+            .unwrap()
+            .detach_retirement(&mut hub)
+            .unwrap();
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let failure = AgentRegistry::await_retirement(
+                        registry.lock().unwrap(),
+                        &done,
+                        std::time::Duration::from_millis(1),
+                    )
+                    .err()
+                    .unwrap();
+                    assert!(failure.message.contains("deadline"));
+                    assert!(registry.lock().unwrap().retirement_inflight);
+                })
+                .join()
+                .unwrap();
+        });
+        registry.lock().unwrap().retain_failed_retirement(batch);
+        assert!(registry.lock().unwrap().retirement_owner.is_none());
+    }
+
+    #[test]
+    fn retirement_handoff_releases_registry_and_observes_settlement() {
+        let registry = Mutex::new(AgentRegistry::new(8));
+        let done = std::sync::Condvar::new();
+        let mut hub = oryn_js::message_wire::MessageHub::default();
+        let batch = registry
+            .lock()
+            .unwrap()
+            .detach_retirement(&mut hub)
+            .unwrap();
+        let (ready, waiting) = std::sync::mpsc::sync_channel(0);
+        std::thread::scope(|scope| {
+            let waiter = scope.spawn(|| {
+                let guard = registry.lock().unwrap();
+                ready.send(()).unwrap();
+                let guard = AgentRegistry::await_retirement(
+                    guard,
+                    &done,
+                    std::time::Duration::from_secs(5),
+                )
+                .unwrap();
+                assert!(!guard.retirement_inflight);
+                assert!(guard.retirement_owner.is_none());
+            });
+            waiting.recv().unwrap();
+            // Acquiring this lock proves the waiter releases it. No sleeps or
+            // scheduling guesses are needed to order retention/notification.
+            registry.lock().unwrap().retain_failed_retirement(batch);
+            done.notify_all();
+            waiter.join().unwrap();
+        });
+    }
+
+    #[test]
+    fn retirement_handoff_poison_fails_closed() {
+        let registry = Mutex::new(AgentRegistry::new(8));
+        let done = std::sync::Condvar::new();
+        let mut hub = oryn_js::message_wire::MessageHub::default();
+        let batch = registry
+            .lock()
+            .unwrap()
+            .detach_retirement(&mut hub)
+            .unwrap();
+        let (ready, waiting) = std::sync::mpsc::sync_channel(0);
+        std::thread::scope(|scope| {
+            let waiter = scope.spawn(|| {
+                let guard = registry.lock().unwrap();
+                ready.send(()).unwrap();
+                let failure = AgentRegistry::await_retirement(
+                    guard,
+                    &done,
+                    std::time::Duration::from_secs(5),
+                )
+                .err()
+                .unwrap();
+                assert!(failure.message.contains("poisoned"));
+            });
+            waiting.recv().unwrap();
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _guard = registry.lock().unwrap();
+                panic!("poison while owner settles");
+            }));
+            done.notify_all();
+            waiter.join().unwrap();
+        });
+        let mut guard = registry.lock().unwrap_or_else(|error| error.into_inner());
+        assert!(guard.retirement_inflight);
+        guard.retain_failed_retirement(batch);
+        assert!(registry.is_poisoned());
+    }
+
+    #[test]
+    fn retirement_handoff_retains_failed_process_before_waiter_retries() {
+        let registry = Mutex::new(AgentRegistry::new(8));
+        let done = std::sync::Condvar::new();
+        let mut hub = oryn_js::message_wire::MessageHub::default();
+        let state = Arc::new(Mutex::new(State {
+            reject_stop: true,
+            ..State::default()
+        }));
+        let process = state.clone();
+        let connection = registry
+            .lock()
+            .unwrap()
+            .connect(owner(1), bootstrap(), move |_| {
+                Ok(Box::new(Process(process)))
+            })
+            .unwrap();
+        let mut batch = registry
+            .lock()
+            .unwrap()
+            .detach_retirement(&mut hub)
+            .unwrap();
+        assert!(batch.terminate().is_err());
+        let (ready, waiting) = std::sync::mpsc::sync_channel(0);
+        std::thread::scope(|scope| {
+            let waiter = scope.spawn(|| {
+                let guard = registry.lock().unwrap();
+                ready.send(()).unwrap();
+                let mut guard = AgentRegistry::await_retirement(
+                    guard,
+                    &done,
+                    std::time::Duration::from_secs(5),
+                )
+                .unwrap();
+                assert!(guard.agents.contains_key(&connection.agent));
+                assert!(guard.agents[&connection.agent].failure.is_some());
+                assert!(guard.principal(connection.agent).is_err());
+                state.lock().unwrap().reject_stop = false;
+                let mut retry = guard.detach_retirement(&mut hub).unwrap();
+                drop(guard);
+                retry.terminate().unwrap();
+                registry.lock().unwrap().retain_failed_retirement(retry);
+                done.notify_all();
+            });
+            waiting.recv().unwrap();
+            registry.lock().unwrap().retain_failed_retirement(batch);
+            done.notify_all();
+            waiter.join().unwrap();
+        });
+        let guard = registry.lock().unwrap();
+        assert!(guard.agents.is_empty());
+        assert!(!guard.retirement_inflight);
+    }
     #[derive(Default)]
     struct State {
         starts: usize,

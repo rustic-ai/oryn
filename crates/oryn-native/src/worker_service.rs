@@ -1128,6 +1128,7 @@ impl BrowserContext {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .retain_failed_retirement(batch);
+        self.inner.agent_retirement_done.notify_all();
         match (result, cleanup) {
             (Ok(value), Ok(())) => Ok(value),
             (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),

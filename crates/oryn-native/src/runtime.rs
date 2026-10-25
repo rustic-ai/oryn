@@ -1026,6 +1026,9 @@ struct BrowserContextInner {
     platform_control: Mutex<crate::platform_control::State>,
     pub(crate) media_capture: Mutex<crate::media_capture::Registry>,
     agents: Mutex<crate::agent_registry::AgentRegistry>,
+    // Cleanup owners wait with the registry lock released. Ordinary broker
+    // dispatch must remain available while a detached process drains replies.
+    agent_retirement_done: std::sync::Condvar,
     worker_policies: Mutex<worker_service::WorkerPolicyRegistry>,
     #[cfg(unix)]
     window_idb: window_idb_custody::Ledger,
@@ -3577,6 +3580,7 @@ impl Browser {
                 platform_control: Mutex::new(crate::platform_control::State::default()),
                 media_capture: Mutex::new(crate::media_capture::Registry::default()),
                 agents: Mutex::new(crate::agent_registry::AgentRegistry::new(64)),
+                agent_retirement_done: std::sync::Condvar::new(),
                 worker_policies: Mutex::new(Default::default()),
                 #[cfg(unix)]
                 window_idb: Default::default(),
@@ -3649,6 +3653,7 @@ impl Browser {
                 platform_control: Mutex::new(crate::platform_control::State::default()),
                 media_capture: Mutex::new(crate::media_capture::Registry::default()),
                 agents: Mutex::new(crate::agent_registry::AgentRegistry::new(64)),
+                agent_retirement_done: std::sync::Condvar::new(),
                 worker_policies: Mutex::new(Default::default()),
                 #[cfg(unix)]
                 window_idb: Default::default(),
@@ -3720,6 +3725,7 @@ impl Browser {
                 platform_control: Mutex::new(crate::platform_control::State::default()),
                 media_capture: Mutex::new(crate::media_capture::Registry::default()),
                 agents: Mutex::new(crate::agent_registry::AgentRegistry::new(64)),
+                agent_retirement_done: std::sync::Condvar::new(),
                 worker_policies: Mutex::new(Default::default()),
                 #[cfg(unix)]
                 window_idb: Default::default(),
@@ -3882,6 +3888,12 @@ impl BrowserContext {
                 let mut agents = context.inner.agents.lock().map_err(|_| {
                     RuntimeError::ContextService("agent registry lock poisoned".into())
                 })?;
+                agents = crate::agent_registry::AgentRegistry::await_retirement(
+                    agents,
+                    &context.inner.agent_retirement_done,
+                    Duration::from_secs(2),
+                )
+                .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
                 let mut messages = context.inner.group.messages.lock().map_err(|_| {
                     RuntimeError::ContextService("message hub lock poisoned".into())
                 })?;
@@ -3900,6 +3912,7 @@ impl BrowserContext {
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
             agents.retain_failed_retirement(batch);
+            context.inner.agent_retirement_done.notify_all();
             drop(agents);
             #[cfg(unix)]
             let response_cleanup = context.retry_context_response_reclaims();
@@ -11921,6 +11934,12 @@ impl BrowserContext {
                     let mut registry = context.inner.agents.lock().map_err(|_| {
                         RuntimeError::ContextService("agent registry lock poisoned".into())
                     })?;
+                    registry = crate::agent_registry::AgentRegistry::await_retirement(
+                        registry,
+                        &context.inner.agent_retirement_done,
+                        Duration::from_secs(2),
+                    )
+                    .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
                     let mut hub = context.inner.group.messages.lock().map_err(|_| {
                         RuntimeError::ContextService("message hub lock poisoned".into())
                     })?;
@@ -11937,6 +11956,7 @@ impl BrowserContext {
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
                     .retain_failed_retirement(batch);
+                context.inner.agent_retirement_done.notify_all();
                 result
             })();
             #[cfg(unix)]
@@ -27268,7 +27288,6 @@ mod tests {
             ContextOptions::default(),
             None,
         );
-        page.bind_direct_fixture_terminal_owner();
         page.load_document(
             "https://selector.test/parsed".into(),
             r#"<main><button id=first data-key="a,b">One</button><button id=second>Two</button></main>"#,
