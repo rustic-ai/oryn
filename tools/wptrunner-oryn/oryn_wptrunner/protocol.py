@@ -14,6 +14,7 @@ from wptrunner.executors.protocol import BidiPermissionsProtocolPart, BidiEmulat
 
 
 from .navigation_evidence import NavigationEvidenceMixin
+from .completion_diagnostics import capture as capture_completion_diagnostics
 
 
 from .transport import AuthenticatedTransport, TransportRetiredError
@@ -200,7 +201,10 @@ class OrynTestDriverProtocolPart(WebDriverTestDriverProtocolPart):
         # Includes navigation, asynchronous test work, actions and result wait.
         # This is wall time, not a claim of pure JavaScript execution time.
         with phase(self.parent, 'harness.run', test_id=url):
-            return super().run(url, script_resume, test_window)
+            try:
+                return super().run(url, script_resume, test_window)
+            finally:
+                capture_completion_diagnostics(self.parent, url)
 
     def get_next_message(self, url, script_resume, test_window):
         # The required async permission/location actions use native HTTP routes.

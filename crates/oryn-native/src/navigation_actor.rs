@@ -2454,6 +2454,15 @@ impl PageState {
     ) -> Result<NavigationProgress, RuntimeError> {
         let observer = request.execution_observer.clone();
         let result = self.begin_script_navigation_inner(request, history);
+        crate::native_timing::point(
+            "script_navigation_actor_admission",
+            serde_json::json!({
+                "page_id": self.page_id.0,
+                "accepted": result.is_ok(),
+                "canceled": matches!(&result, Err(RuntimeError::NavigationCancelled)),
+                "completion_inferred": false
+            }),
+        );
         if let (Err(error), Some(observer)) = (&result, observer) {
             observer.complete(if matches!(error, RuntimeError::NavigationCancelled) {
                 oryn_js::navigation::NavigationExecutionOutcome::Canceled

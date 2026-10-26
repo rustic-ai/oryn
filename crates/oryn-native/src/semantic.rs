@@ -13524,12 +13524,14 @@ impl SemanticGraph {
             check()?;
             refs_by_dom_id.insert(*id, node.semantic_ref);
         }
+        let accessibility_receipt_start = producer.receipt_mark();
         let mut accessibility = AccessibilityListOwner(producer.vector(0)?);
         for node in self.accessibility.values() {
             check()?;
             let node = shared_accessibility(node, producer, check)?;
             shared_vector_push(&mut accessibility.0, node, producer, check)?;
         }
+        let accessibility_receipt_end = producer.receipt_mark();
         let mut next = StructureMapOwner(BTreeMap::new());
         for structure in
             shared_project_structures(dom, &accessibility.0, &refs_by_dom_id, producer, check)?
@@ -13538,6 +13540,10 @@ impl SemanticGraph {
             next.0
                 .insert(producer.text(&structure.structure_id, check)?, structure);
         }
+        // Structure output owns independent buffers. The copied accessibility
+        // list is scratch, not part of the graph's retained publication.
+        drop(accessibility);
+        producer.release_receipt_range(accessibility_receipt_start..accessibility_receipt_end);
         let mut removed = producer.vector(0)?;
         let mut upserts = StructureMapOwner(BTreeMap::new());
         for id in self.structures.keys() {
@@ -13630,11 +13636,13 @@ impl SemanticGraph {
         check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
     ) -> Result<(), P::Error> {
         check()?;
+        let previous_receipt_start = producer.receipt_mark();
         let mut previous = BTreeMap::new();
         for (id, node) in &self.accessibility {
             check()?;
             previous.insert(*id, shared_accessibility(node, producer, check)?);
         }
+        let previous_receipt_end = producer.receipt_mark();
         self.diagnostics.clear();
         let mut available = BTreeSet::new();
         for node in self.accessibility.values() {
@@ -13720,6 +13728,10 @@ impl SemanticGraph {
             }
         }
         check()?;
+        for (_, node) in previous {
+            drop(AccessibilityOwner(Some(node)));
+        }
+        producer.release_receipt_range(previous_receipt_start..previous_receipt_end);
         Ok(())
     }
 }
@@ -14465,6 +14477,34 @@ mod scratch_receipt_reuse_controls {
             Ok(Arc::new(Lease { live: self.live.clone(), bytes }))
         }
     }
+    #[test]
+    fn ownership_and_structure_comparison_release_copied_accessibility_payloads() {
+        let document = crate::html::parse("<button id=b>Visible</button>").into_runtime().unwrap();
+        let id = document.find_by_id("b").unwrap();
+        let mut graph = SemanticGraph::new(PageId(902), 1);
+        graph.reset(document.arena(), 1);
+        // Make the comparison-only allocation larger than receipt metadata so
+        // accidental retention is unambiguous without production limit changes.
+        graph.accessibility.get_mut(&id).unwrap().name = "comparison".repeat(16384);
+        let expected = graph.accessibility.get(&id).unwrap().clone();
+        let admission = Admission { live: Arc::new(AtomicUsize::new(0)) };
+        let mut producer = SemanticLeaseOwner { admission: &admission, leases: Vec::new() };
+        graph.shared_rebuild_ownership(document.arena(), &mut producer, &mut || Ok(())).unwrap();
+        assert!(accessibility_equal_with_checkpoint(
+            graph.accessibility.get(&id).unwrap(), &expected, &mut || Ok(()),
+        ).unwrap());
+        assert!(admission.live.load(Ordering::SeqCst) < expected.name.len(),
+            "ownership comparison must not retain its dead copied name");
+        graph.shared_rebuild_structures(document.arena(), &mut producer, &mut || Ok(())).unwrap();
+        assert!(graph.structures.is_empty());
+        assert!(admission.live.load(Ordering::SeqCst) < expected.name.len(),
+            "structure scan must not retain its dead accessibility copy");
+        assert!(producer.leases.iter().any(|receipt| receipt.payload.is_none()),
+            "copied payload receipts must be released without losing metadata custody");
+        drop(producer);
+        assert_eq!(admission.live.load(Ordering::SeqCst), 0);
+    }
+
     #[test]
     fn scratch_tail_reuses_capacity_and_preserves_interior_live_range() {
         let admission = Admission { live: Arc::new(AtomicUsize::new(0)) };

@@ -492,6 +492,17 @@ impl PageSession {
         let parent_policy_authority = broker.is_some() && context_client.is_some();
         #[cfg(not(unix))]
         let parent_policy_authority = false;
+        #[cfg(all(unix, feature = "v8-host"))]
+        if let Some(actor) = related_actor.as_ref() {
+            let route = context_client.as_ref().and_then(|client| client.current_route())
+                .ok_or_else(|| crate::runtime::RuntimeError::ProtocolViolation("related root route unavailable".into()))?;
+            if let Some(page) = crate::runtime::claim_owned_related_page(
+                actor, &route, &config, &context, opener_page_id,
+            )? {
+                return Ok(Self { wire_limits, oil: NativeOilSession::new(page.clone()), page,
+                    parent_policy_authority });
+            }
+        }
         let browser = Browser::in_process_with_config(config);
         #[cfg(all(unix, not(feature = "v8-host")))]
         let _ = &context_client;

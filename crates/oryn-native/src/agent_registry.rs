@@ -1749,6 +1749,70 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
+    fn inactive_dispatch_settlement_does_not_release_page_retirement_owner() {
+        let mut registry = AgentRegistry::new(8);
+        let mut hub = oryn_js::message_wire::MessageHub::default();
+        let page = registry.detach_page_retirement(&mut hub, PageId(1)).unwrap();
+        let owner = registry.retirement_owner;
+        // Reentrant broker progress may produce an empty, inactive batch while
+        // another owner terminates outside the registry and hub locks.
+        let mut dispatch = registry.detach_pending_retirement(&mut hub).unwrap();
+        dispatch.terminate().unwrap();
+        registry.retain_failed_retirement(dispatch);
+        assert!(registry.retirement_inflight);
+        assert_eq!(registry.retirement_owner, owner);
+        assert!(registry.detach_retirement(&mut hub).is_err());
+        registry.retain_failed_retirement(page);
+        assert!(!registry.retirement_inflight);
+        assert!(registry.retirement_owner.is_none());
+    }
+
+    #[test]
+    fn page_retirement_handoff_preserves_shared_peer_until_context_cleanup() {
+        let registry = Mutex::new(AgentRegistry::new(8));
+        let done = std::sync::Condvar::new();
+        let mut hub = oryn_js::message_wire::MessageHub::default();
+        let state = Arc::new(Mutex::new(State::default()));
+        let process = state.clone();
+        let first = registry.lock().unwrap().connect(owner(1), bootstrap(), move |_| {
+            Ok(Box::new(Process(process)))
+        }).unwrap();
+        let second = registry.lock().unwrap().connect(owner(2), bootstrap(), |_| {
+            panic!("shared peer must reuse its original process")
+        }).unwrap();
+        assert_eq!(first.agent, second.agent);
+        let mut page = registry.lock().unwrap()
+            .detach_page_retirement(&mut hub, PageId(1)).unwrap();
+        let (ready, waiting) = std::sync::mpsc::sync_channel(0);
+        std::thread::scope(|scope| {
+            let cleanup = scope.spawn(|| {
+                let guard = registry.lock().unwrap();
+                ready.send(()).unwrap();
+                let mut guard = AgentRegistry::await_retirement(
+                    guard, &done, std::time::Duration::from_secs(5),
+                ).unwrap();
+                assert!(guard.agents.contains_key(&second.agent));
+                assert_eq!(state.lock().unwrap().stops, 0);
+                let mut context = guard.detach_retirement(&mut hub).unwrap();
+                drop(guard);
+                context.terminate().unwrap();
+                registry.lock().unwrap().retain_failed_retirement(context);
+                done.notify_all();
+            });
+            waiting.recv().unwrap();
+            page.terminate().unwrap();
+            registry.lock().unwrap().retain_failed_retirement(page);
+            done.notify_all();
+            cleanup.join().unwrap();
+        });
+        assert_eq!(state.lock().unwrap().stops, 1);
+        let guard = registry.lock().unwrap();
+        assert!(guard.agents.is_empty());
+        assert!(!guard.retirement_inflight);
+        assert!(guard.retirement_owner.is_none());
+    }
+
+    #[test]
     fn retirement_handoff_rejects_self_wait_and_preserves_owner() {
         let registry = Mutex::new(AgentRegistry::new(8));
         let done = std::sync::Condvar::new();

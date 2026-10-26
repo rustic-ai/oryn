@@ -1695,6 +1695,7 @@ mod related_actor {
         sender: mpsc::WeakSender<PageCommand>,
         control: std::sync::mpsc::SyncSender<Attach>,
         claimed: bool,
+        owned_page: Option<PageHandle>,
     }
     struct Attach {
         route: WorkerRoute,
@@ -1782,7 +1783,7 @@ mod related_actor {
         }
         let entry = entries
             .get_mut(route)
-            .filter(|entry| &entry.actor == actor && !entry.claimed)
+            .filter(|entry| &entry.actor == actor && !entry.claimed && entry.owned_page.is_none())
             .ok_or_else(|| {
                 RuntimeError::ProtocolViolation(
                     "related root was not admitted by this agent".into(),
@@ -1799,6 +1800,48 @@ mod related_actor {
         entry.claimed = true;
         Ok(sender)
     }
+    pub(crate) fn claim_owned_page(
+        actor: &WorkerRoute,
+        route: &WorkerRoute,
+        config: &BrowserConfig,
+        options: &ContextOptions,
+        opener: Option<PageId>,
+    ) -> Result<Option<PageHandle>, RuntimeError> {
+        let mut entries = registry().lock().map_err(|_| {
+            RuntimeError::ProtocolViolation("related root registry poisoned".into())
+        })?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !entries.contains_key(route) {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() { break; }
+            let (next, timeout) = published().wait_timeout(entries, remaining).map_err(|_| {
+                RuntimeError::ProtocolViolation("related root publication poisoned".into())
+            })?;
+            entries = next;
+            if timeout.timed_out() { break; }
+        }
+        let entry = entries.get_mut(route).filter(|entry| &entry.actor == actor && !entry.claimed)
+            .ok_or_else(|| RuntimeError::ProtocolViolation("related root was not admitted by this agent".into()))?;
+        let Some(page) = entry.owned_page.as_ref() else { return Ok(None); };
+        let owner = page.context.upgrade().ok_or(RuntimeError::Closed)?;
+        if !owner.group.pages.lock().map_err(|_| {
+            RuntimeError::ContextService("page registry lock poisoned".into())
+        })?.get(&page.page_id()).is_some_and(|record| record.is_live())
+            || !page.sender.as_ref().is_some_and(|sender| !sender.is_closed())
+        {
+            return Err(RuntimeError::Closed);
+        }
+        if page.page_id().0 != route.environment || page.opener_page_id != opener
+            || owner.config.document_generation_base != config.document_generation_base
+            || crate::worker::WorkerLimits::from(&owner.config) != crate::worker::WorkerLimits::from(config)
+            || &owner.options != options
+            || owner.context_client.as_ref().and_then(|client| client.current_route()).as_ref() != Some(route)
+        {
+            return Err(RuntimeError::ProtocolViolation("related local owner does not match initialization".into()));
+        }
+        entry.claimed = true;
+        Ok(entry.owned_page.take())
+    }
     struct Entry {
         retiring: bool,
         close_reply: Option<oneshot::Sender<()>>,
@@ -1813,10 +1856,15 @@ mod related_actor {
     struct PublicationGuard(WorkerRoute);
     impl Drop for PublicationGuard {
         fn drop(&mut self) {
-            registry()
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .retain(|_, entry| entry.actor != self.0);
+            // Published remote roots now retain their exact local page owner.
+            // Never destroy a context or its replies under the publication lock.
+            let removed = {
+                let mut entries = registry().lock().unwrap_or_else(|error| error.into_inner());
+                let routes: Vec<_> = entries.iter().filter(|(_, entry)| entry.actor == self.0)
+                    .map(|(route, _)| route.clone()).collect();
+                routes.into_iter().filter_map(|route| entries.remove(&route)).collect::<Vec<_>>()
+            };
+            drop(removed);
             direct_reservations()
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
@@ -1826,6 +1874,61 @@ mod related_actor {
     #[cfg(test)]
     mod registration_tests {
         use super::*;
+        struct UnusedTransport;
+        impl crate::context_service::ContextTransport for UnusedTransport {
+            fn request(&self, _: crate::context_service::ContextServiceRequest)
+                -> Result<crate::context_service::ContextServiceResponse, RuntimeError> {
+                panic!("claim must not issue a broker request")
+            }
+        }
+        struct UnusedNetwork;
+        impl crate::network::NetworkBroker for UnusedNetwork {
+            fn send(&self, _: crate::network::NetworkRequest)
+                -> Result<crate::network::NetworkResponse, crate::network::NetworkError> {
+                panic!("claim must not issue a network request")
+            }
+        }
+        #[test]
+        fn remote_claim_reuses_exact_registered_controller_and_rejects_foreign_identity() {
+            let config = BrowserConfig::default();
+            let options = ContextOptions::default();
+            let actor = WorkerRoute::issue(703, 1, 0).unwrap();
+            let route = WorkerRoute::issue(703, 2, config.document_generation_base).unwrap();
+            let context = Browser::in_process_with_config(config.clone())
+                .new_context_with_broker_and_services(options.clone(),
+                    SharedNetworkBroker::new(UnusedNetwork),
+                    SharedContextClient::for_test_transport(Arc::new(UnusedTransport), route.clone()));
+            let (sender, _receiver) = mpsc::channel(4);
+            let (control, _updates) = std::sync::mpsc::sync_channel(2);
+            let page = PageHandle { id: 2, opener_page_id: Some(PageId(1)),
+                context: Arc::downgrade(&context.inner), context_guard: Some(context.inner.clone()),
+                frame_scope: None, sender: Some(sender.clone()), worker: None };
+            context.inner.group.register(PageRegistrationInputs {
+                handle: page.clone(), opener_page_id: Some(PageId(1)), activate: true,
+                attention_required: false, document_generation: config.document_generation_base + 1,
+                native_origin: SecurityOrigin::opaque().security_token_key(), creator: None,
+                target_name: String::new(), sandbox_navigator: None, hidden_prerender: false,
+            }).unwrap();
+            let original = page.prompt_controller().unwrap();
+            registry().lock().unwrap().insert(route.clone(), Published {
+                actor: actor.clone(), sender: sender.downgrade(), control,
+                claimed: false, owned_page: Some(page),
+            });
+            let _guard = PublicationGuard(actor.clone());
+            let forged = WorkerRoute::issue(703, 1, 0).unwrap();
+            assert!(claim_owned_page(&forged, &route, &config, &options, Some(PageId(1))).is_err());
+            assert!(claim_owned_page(&actor, &route, &config, &options, Some(PageId(9))).is_err());
+            let mut changed_options = options.clone();
+            changed_options.allow_popups = !changed_options.allow_popups;
+            assert!(claim_owned_page(&actor, &route, &config, &changed_options, Some(PageId(1))).is_err());
+            assert!(!registry().lock().unwrap().get(&route).unwrap().claimed);
+            let claimed = claim_owned_page(&actor, &route, &config, &options, Some(PageId(1)))
+                .unwrap().unwrap();
+            assert!(Arc::ptr_eq(&original, &claimed.prompt_controller().unwrap()));
+            assert_eq!(claimed.context.upgrade().unwrap().id, context.id());
+            assert!(claim_owned_page(&actor, &route, &config, &options, Some(PageId(1))).is_err());
+            assert!(claim(&actor, &route, context.downgrade()).is_err());
+        }
         #[test]
         fn auxiliary_claim_requires_exact_actor_and_route_and_is_one_use() {
             let browser = Browser::in_process_with_config(Default::default());
@@ -1843,6 +1946,7 @@ mod related_actor {
                     sender: sender.downgrade(),
                     control,
                     claimed: false,
+                    owned_page: None,
                 },
             );
             let _guard = PublicationGuard(actor.clone());
@@ -1884,6 +1988,7 @@ mod related_actor {
                     sender: sender.downgrade(),
                     control,
                     claimed: false,
+                    owned_page: None,
                 },
             );
             let guard = PublicationGuard(actor.clone());
@@ -2222,10 +2327,25 @@ mod related_actor {
                         ) {
                             Ok(value) => value,
                             Err(_) => {
+                                crate::native_timing::point(
+                                    "auxiliary_root_adoption",
+                                    serde_json::json!({
+                                        "page_id": page.0, "adopted": false,
+                                        "completion_inferred": false
+                                    }),
+                                );
                                 let _ = owned.discard_created_auxiliary_root(created_realm);
                                 continue;
                             }
                         };
+                    crate::native_timing::point(
+                        "auxiliary_root_adoption",
+                        serde_json::json!({
+                            "page_id": page.0, "adopted": true,
+                            "pending_navigation": owned.has_location_navigation(),
+                            "completion_inferred": false
+                        }),
+                    );
                     let direct_reservation = if direct {
                         direct_reservations()
                             .lock()
@@ -2249,10 +2369,21 @@ mod related_actor {
                             let (sender, receiver) = mpsc::channel(config.worker_queue_capacity);
                             (Some(sender), receiver, source_context.clone())
                         };
+                    let mut root_config = config.clone();
+                    // Environment authority remains stable across document replacement.
+                    root_config.document_generation_base = route.generation;
+                    let local_owner = if !direct {
+                        let Some(broker) = broker.clone() else {
+                            let _ = owned.discard_created_auxiliary_root(created_realm);
+                            continue;
+                        };
+                        Some(Browser::in_process_with_config(root_config.clone())
+                            .new_context_with_broker_and_services(options.clone(), broker, endpoint.clone()))
+                    } else { None };
                     let mut state = PageState::new(
                         page,
                         opener,
-                        config.clone(),
+                        root_config,
                         options.clone(),
                         broker,
                         Some(endpoint),
@@ -2273,9 +2404,9 @@ mod related_actor {
                         executable,
                         url,
                         generation,
-                        origin: origin.unwrap(),
+                        origin: origin.clone().unwrap(),
                         history,
-                        policy,
+                        policy: policy.clone(),
                         referrer,
                         isolation,
                     });
@@ -2297,6 +2428,33 @@ mod related_actor {
                         };
                         sender.downgrade()
                     };
+                    let owned_page = if let Some(context) = local_owner.as_ref() {
+                        let handle = PageHandle {
+                            id: page.0, opener_page_id: opener,
+                            context: Arc::downgrade(&context.inner),
+                            context_guard: Some(context.inner.clone()),
+                            frame_scope: None, sender: weak.upgrade(), worker: None,
+                        };
+                        context.inner.security_origins.lock().unwrap().insert(page, origin.clone().unwrap());
+                        context.inner.document_security.lock().unwrap().insert(page,
+                            policy.clone());
+                        context.inner.document_referrer_policy.lock().unwrap().insert(page, referrer);
+                        context.inner.worker_policies.lock().unwrap().root_isolation.insert(page, isolation);
+                        if context.inner.group.register(PageRegistrationInputs {
+                            handle: handle.clone(), opener_page_id: opener, activate: true,
+                            attention_required: false, document_generation: generation,
+                            native_origin: origin.as_ref().unwrap().security_token_key(),
+                            creator: None, target_name: String::new(), sandbox_navigator: None,
+                            hidden_prerender: false,
+                        }).is_err() {
+                            let _ = owned.discard_created_auxiliary_root(created_realm);
+                            continue;
+                        }
+                        state.page_task_terminal_control.bind(context.page_prompt_controller(page).unwrap());
+                        Some(handle)
+                    } else { None };
+                    let reserved_context = local_owner.as_ref().map(|context| context.downgrade())
+                        .unwrap_or(reserved_context);
                     let mut registry = registry().lock().unwrap_or_else(|error| error.into_inner());
                     if registry.contains_key(&route) {
                         let _ = owned.discard_created_auxiliary_root(
@@ -2311,6 +2469,7 @@ mod related_actor {
                             sender: weak.clone(),
                             control: control_sender.clone(),
                             claimed: direct,
+                            owned_page,
                         },
                     );
                     drop(registry);
@@ -2366,6 +2525,7 @@ mod related_actor {
 #[cfg(all(unix, feature = "v8-host"))]
 pub(super) use related_actor::{
     cancel_direct as cancel_direct_root, claim as claim_related_root,
+    claim_owned_page as claim_owned_related_page,
     reserve_direct as reserve_direct_root, run as run_related_actor,
 };
 

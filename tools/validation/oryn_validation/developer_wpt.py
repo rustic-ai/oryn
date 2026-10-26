@@ -158,6 +158,10 @@ def runtime_environment(bound, output, config_path):
         ORYN_WPT_PROTOCOL_CUSTODY=str(output / 'protocol-custody.jsonl'), PYTHONDONTWRITEBYTECODE='1',
         PYTHONPATH=os.pathsep.join([str(bound['assets']['wpt_checkout']), *[str(SOURCE_ROOT / p)
             for p in ('tools/validation/bootstrap', 'tools/validation', 'tools/wptrunner-oryn')]]))
+    # Developer-only post-result observations. This selects Python diagnostics,
+    # not worker authority: native launches still clear ambient environment.
+    if os.environ.get('ORYN_WPT_COMPLETION_DIAGNOSTICS') == '1':
+        env['ORYN_WPT_COMPLETION_DIAGNOSTICS'] = '1'
     assert_worker_environment(bound, env)
     return env
 

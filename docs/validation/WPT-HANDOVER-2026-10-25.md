@@ -475,3 +475,89 @@ Correct the workflow as follows:
    final full-run decision explicit and retain all original results.
 6. Update this status only from actual implementation and terminal verification;
    no new native fix is currently proven by this handover.
+
+## Batch A implementation update — October 25
+
+The preceding stocktake and original full-Core outcomes remain unchanged.
+Batch A is **open**, with uncommitted changes based on
+`588fa4f2a81fd5f308425633f9af4f42333981f6` in the integration checkout.
+
+- Added deterministic controls for inactive retirement settlement and shared
+  page/context handoff. All 44 registry controls pass in focused developer runs.
+- Released receipts for independently copied, comparison-only accessibility
+  payloads after their buffers are dropped. All 103 semantic controls pass,
+  including the new retained-byte regression. This is not yet evidence that the
+  encoding WPT allocation rejection is repaired.
+- Added a deterministic dropped-close-future control for open and crashed pages,
+  exact retry custody and sibling preservation. It and both existing
+  crashed-page cleanup controls pass on the expanded draft.
+- Added an initial same/cross-origin popup-navigation regression and bounded
+  native timing points for scheduling, adoption and actor admission. Its V8 test
+  targets are compiling under the independently owned `remaining04-owner`; the
+  popup regression has not yet run. Native inputs remain frozen for that owner.
+- Explicit opt-in Python completion diagnostics pass five focused controls;
+  21 developer tests pass. The broader runner comparison has the same three
+  failures and six errors with the draft and preserved pre-edit protocol;
+  this is not a clean regression gate or a full pre-edit-source baseline.
+
+The retained-worker BlobURL probe still times out: popup creation and initial
+navigation authorization succeed, but the first popup is observed at
+`about:blank` with no scripts. Its broken local completion handoff is unresolved.
+The encoding allocation rejection is also retained. These developer diagnostics
+do not verify the native draft.
+
+Both original 900-second semantic compilation attempts expired before test
+startup and completed cleanup. A separately budgeted retry compiled in 6m35s
+and passed the semantic/registry suites with complete cleanup. The expanded
+draft compiled without V8 in 1m39s and passed the controls listed above.
+Compilation time must remain separate from test-execution deadlines.
+
+Source snapshots, hashes, reviews, fixed seven-URL acceptance inventory and raw
+failure receipts are retained under
+`../.local-patches/wpt-batch-a-closure-20261025/coordinator/`. No fresh signed
+worker, complete native integration, one/four-worker WPT acceptance or closure
+commit exists for this draft. Do not close Batch A until those gates settle.
+
+### Popup owner repair in progress
+
+The `remaining04-owner` subsequently settled with clean process cleanup. V8
+compilation completed and the direct popup regression failed on a five-second
+descriptor-cache wait. Source review established that `wait_for_page` reads a
+cache refreshed by observations, not every autonomous navigation. The original
+failure is retained; it is not proof of a direct-path navigation defect.
+
+The retained remote trace separately identifies the first popup's controller
+as unbound after a failed local PageRecord lookup; it binds only during a later
+diagnostic command. Actor polling can extract navigation before publication
+rejects that unbound owner. The reviewed repair now registers the destination
+local context/PageRecord before polling, using the admitted root's endpoints,
+generation and security metadata. Later authenticated one-use claims reuse that
+exact page/controller, checking actor, route, generation, limits, policy and
+opener. No fallback controller, publication bypass or budget increase was added.
+Published page owners are destroyed outside the registry mutex.
+
+New controls check exact controller reuse and rejected foreign/repeated claims.
+The direct and remote popup regressions observe the actual destination broker
+request before issuing a destination command, then require load and inline
+script execution. The remote test explicitly selects worker-process placement
+and requires `ORYN_PAGE_WORKER`; unit tests otherwise default to in-process.
+
+The first repair compile failed for a missing initializer in the included
+prerender actor source; no tests ran, cleanup passed, and the failure is retained.
+That initializer was corrected to retain the legacy path's absent owned page.
+The corrected draft compiled under `owner06-owner` and all three claim controls
+passed. Its popup assertion still selected the initial blank document's Load
+state; that original failure is retained. The revised test waits for the exact
+destination URL before Load and script execution. Under `owner07-owner`, both
+same/cross-origin cases and all three claim controls pass with complete cleanup.
+Both settled registrations were unloaded. New test files are formatted.
+
+Final review tightened claims to compare all context options and to preserve
+the environment route generation independently of current document generation.
+The claim test now covers changed popup permission and a newer document within
+the same environment. These final checks are reviewed source changes awaiting
+fresh-worker integration, not additional focused-pass claims.
+
+The coherent repair is ready for a source commit and fresh signing. Batch A is
+still open; the fixed seven-URL acceptance inventory, complete integration and
+terminal operational custody must settle before a closure result is recorded.

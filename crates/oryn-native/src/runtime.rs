@@ -2765,6 +2765,16 @@ mod action_navigation_tests;
 mod ipc_boundary_native_tests;
 #[path = "page_actor_turn.rs"]
 mod page_actor_turn;
+#[cfg(all(unix, feature = "v8-host"))]
+pub(crate) fn claim_owned_related_page(
+    actor: &crate::worker_route::WorkerRoute,
+    route: &crate::worker_route::WorkerRoute,
+    config: &BrowserConfig,
+    options: &ContextOptions,
+    opener: Option<PageId>,
+) -> Result<Option<PageHandle>, RuntimeError> {
+    page_actor_turn::claim_owned_related_page(actor, route, config, options, opener)
+}
 #[path = "wait_fairness.rs"]
 mod wait_fairness;
 #[cfg(all(test, unix))]
@@ -47700,6 +47710,17 @@ mod crashed_page_cleanup_tests {
         context.retire_workers().await.unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "cancelled_page_close_tests.rs"]
+mod cancelled_page_close_tests;
+
+#[cfg(all(test, unix, feature = "v8-host"))]
+#[path = "initial_popup_navigation_tests.rs"]
+mod initial_popup_navigation_tests;
+#[cfg(all(test, unix, feature = "v8-host"))]
+#[path = "remote_initial_popup_navigation_tests.rs"]
+mod remote_initial_popup_navigation_tests;
 
 #[cfg(all(test, feature = "v8-host"))]
 #[path = "navigation_settlement_error_tests.rs"]

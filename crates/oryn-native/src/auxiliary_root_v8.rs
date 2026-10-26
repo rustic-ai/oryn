@@ -287,6 +287,14 @@ pub(super) fn create_admitted_auxiliary_root(
                 referrer_policy: None,
                 download: None,
             });
+            crate::native_timing::point(
+                "auxiliary_initial_navigation_scheduled",
+                serde_json::json!({
+                    "page_id": page_id.0,
+                    "pending": target.has_location_navigation(),
+                    "completion_inferred": false
+                }),
+            );
         }
         Ok(())
     });

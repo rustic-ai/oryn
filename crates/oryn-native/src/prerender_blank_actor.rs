@@ -87,7 +87,7 @@ impl BlankTransfer{
             state.lifecycle=vec![LifecycleState::Commit];
             if state.executable.as_ref().is_some_and(|page|page.document_interactive()){state.lifecycle.push(LifecycleState::DomContentLoaded);}
             if state.executable.as_ref().is_some_and(|page|page.document_load_complete()){state.lifecycle.push(LifecycleState::Load);}
-            registry().lock().unwrap_or_else(|error|error.into_inner()).insert(route.clone(),Published{actor:actor.clone(),sender:weak.clone(),control:control.clone(),claimed:direct});published().notify_all();
+            registry().lock().unwrap_or_else(|error|error.into_inner()).insert(route.clone(),Published{actor:actor.clone(),sender:weak.clone(),control:control.clone(),claimed:direct,owned_page:None});published().notify_all();
             entries.push(Entry{retiring:false,close_reply:None,retire_realms:Vec::new(),root:Root::new(state,receiver,weak),context:context.clone(),context_guard:if direct{None}else{context.upgrade()},route:Some(route),reserved_sender:sender,next_poll:std::time::Instant::now()});
             self.reservation=Some(reservation);self.phase=3;
         }
