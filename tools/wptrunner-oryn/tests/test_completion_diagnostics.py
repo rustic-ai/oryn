@@ -5,6 +5,37 @@ from oryn_wptrunner.completion_diagnostics import capture
 
 
 class CompletionDiagnosticsTests(unittest.TestCase):
+    def test_encoding_population_counts_are_opt_in_and_validated(self):
+        for span_count, test_count, expected in (
+            (13459, 636.0, '"encoding_test_count": 636'),
+            (True, -1, None),
+            (1000001, 'private payload', None),
+            (1.5, float('nan'), None),
+        ):
+            logs = []
+            commands = []
+            def send(method, uri, body=None, timeout=None):
+                commands.append(uri)
+                if uri == 'window' and method == 'GET':
+                    return 'original'
+                if uri == 'window/handles':
+                    return ['child']
+                if uri == 'execute/sync':
+                    return {'encoding_span_count': span_count,
+                            'encoding_test_count': test_count}
+            protocol = SimpleNamespace(webdriver=SimpleNamespace(send_session_command=send),
+                                       logger=SimpleNamespace(info=logs.append))
+            with patch.dict('os.environ', {'ORYN_WPT_COMPLETION_DIAGNOSTICS': '1'}):
+                capture(protocol, '/encoding/legacy-mb-japanese/euc-jp/eucjp-decode-cseucpkdfmtjapanese.html?1001-2000')
+            self.assertIn('execute/sync', commands)
+            if expected is not None:
+                self.assertIn(expected, logs[0])
+                self.assertIn('"encoding_span_count": 13459', logs[0])
+            else:
+                self.assertNotIn('encoding_span_count', logs[0])
+                self.assertNotIn('encoding_test_count', logs[0])
+            self.assertNotIn('private payload', logs[0])
+
     def test_disabled_does_not_touch_driver(self):
         with patch.dict('os.environ', {}, clear=True):
             capture(SimpleNamespace(), '/FileAPI/BlobURL/cross-partition.https.html')

@@ -713,3 +713,36 @@ machine. Its outer clean exit is not successful diagnostic execution. Original
 service failure evidence is retained. No job is running at this checkpoint.
 Restore the required IPv6 environment or review a replacement fixture binding
 before further original WPT execution. No fixture contract was weakened.
+
+### Follow-up diagnostic controls and environment blocker
+
+The user-requested forty-minute status schedule was deleted. No automatic
+retry or status schedule remains. Diagnostic31 failed before any test started:
+the private-IP substitute was correctly rejected for the required public address
+space. Diagnostics29/30 also failed before tests; their outer wrapper's clean
+exit did not propagate the child failure and must not be read as success.
+
+Against unchanged signed worker build27, the popup control now covers same- and
+cross-origin external dispatcher scripts starting GET polling during parsing,
+in addition to the existing timer-started POST controls. All four variants passed
+in diagnostic32 (5.59 seconds test execution). This is not the original BlobURL
+fixture and does not clear its timeout.
+
+A streamed-child control verifies that the parent load callback observes the
+terminal chunk: 2,048 spans, split after 1,636, with a hidden iframe. Diagnostic36
+passed in 13.20 seconds. The earlier full-size 13,459-span controls exceeded the
+unchanged worker RSS limit before initial load completed (diagnostic34 visible,
+diagnostic35 hidden). Both failures are retained; the smaller passing control
+does not replace the original encoding population or qualify the large case.
+Count-only post-result encoding observations have six passing Python tests.
+
+Diagnostic33 was intentionally canceled after workspace-wide formatter changes
+were detected. Its inner and outer cleanup settled without forced cleanup. The
+unrelated formatting changes were restored; only intended test/diagnostic edits
+remain. Raw failure evidence and staged patches remain in the coordinator lane.
+
+Batch A is still open with the same three required failures/missing observations.
+The configured public IPv6 address is absent from en0; original WPT cannot start.
+Restoring network configuration requires explicit user direction. No fixture
+validation, TLS checks, worker limits, timeouts or original count gates were
+weakened. At this checkpoint all diagnostic owners have settled; no job is running.

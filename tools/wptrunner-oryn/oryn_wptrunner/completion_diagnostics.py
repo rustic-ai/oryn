@@ -13,6 +13,8 @@ SCRIPT = """return {
   receive_type: typeof receive,
   send_queue_count: typeof sendQueues === 'undefined' ? null : sendQueues.size,
   uuid_is_string: typeof uuid === 'undefined' ? null : typeof uuid === 'string',
+  encoding_span_count: document.getElementById('scrwin')?.contentDocument?.querySelectorAll('span').length,
+  encoding_test_count: typeof tests === 'undefined' || !Array.isArray(tests) ? null : tests.filter(Boolean).length,
   recent_requests: typeof __oryn_context_trace === 'undefined' ? [] :
     __oryn_context_trace.filter(e => ['request_started','response_received','stream_chunk','capability_failure'].includes(e.kind)).slice(-8).map(e => ({
       kind: e.kind,
@@ -36,6 +38,7 @@ def capture(protocol, url):
         selected = urlsplit(url).path in (
             '/FileAPI/BlobURL/cross-partition.https.html',
             '/content-security-policy/inside-worker/dedicatedworker-connect-src.html',
+            '/encoding/legacy-mb-japanese/euc-jp/eucjp-decode-cseucpkdfmtjapanese.html',
         )
     except ValueError:
         return
@@ -54,7 +57,7 @@ def capture(protocol, url):
                                                 {'script': SCRIPT, 'args': []}, timeout=2)
             observation = {}
             if isinstance(value, dict):
-                for name in ('frame_count', 'script_count', 'send_queue_count'):
+                for name in ('frame_count', 'script_count', 'send_queue_count', 'encoding_span_count', 'encoding_test_count'):
                     count = value.get(name)
                     if type(count) in (int, float) and 0 <= count <= 1_000_000 and int(count) == count:
                         observation[name] = int(count)

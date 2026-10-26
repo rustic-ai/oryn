@@ -102,6 +102,100 @@ async fn production_worker_redirect_csp_event_reaches_worker_listener() {
     assert_eq!(result.unwrap(), "true");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn production_parent_load_waits_for_complete_streamed_child_population() {
+    assert!(std::env::var_os("ORYN_PAGE_WORKER").is_some());
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let server_stop = stop.clone();
+    let server = std::thread::spawn(move || {
+        while !server_stop.load(std::sync::atomic::Ordering::Acquire) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    stream
+                        .set_write_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    let mut header = Vec::new();
+                    let mut byte = [0];
+                    while header.len() < 16384 && !header.ends_with(b"\r\n\r\n") {
+                        if stream.read(&mut byte).unwrap_or(0) == 0 {
+                            break;
+                        }
+                        header.push(byte[0]);
+                    }
+                    let prefix = format!(
+                        "<!doctype html><body>{}",
+                        "<span data-cp='1234'>abcdefghij</span>".repeat(1636)
+                    );
+                    let suffix = format!(
+                        "{}</body>",
+                        "<span data-cp='1234'>abcdefghij</span>".repeat(2048 - 1636)
+                    );
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{prefix}",
+                        prefix.len() + suffix.len()
+                    );
+                    if stream.write_all(response.as_bytes()).is_ok() {
+                        // Deliberately separate prefix admission from terminal input.
+                        std::thread::sleep(Duration::from_millis(250));
+                        let _ = stream.write_all(suffix.as_bytes());
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(2))
+                }
+                Err(error) => panic!("streamed child fixture: {error}"),
+            }
+        }
+    });
+    let fixture = ExecutorFixture {
+        stop,
+        server: Some(server),
+    };
+    let routes = crate::network::EndpointRoutes::new([(
+        "http".into(),
+        "source.test".into(),
+        port,
+        "127.0.0.1".parse().unwrap(),
+    )])
+    .unwrap();
+    let mut browser = Browser::new();
+    browser.worker_process = true;
+    let context = browser
+        .with_fixture_network(Vec::new(), routes)
+        .unwrap()
+        .new_audited_context_with_isolated_auxiliaries(ContextOptions::loopback_test());
+    let page = context.new_page();
+    let loaded = page.load_html(&format!("http://source.test:{port}/parent"),
+        "<!doctype html><body onload=\"globalThis.loadCount=document.getElementById('scrwin').contentDocument.querySelectorAll('span').length\"><iframe id='scrwin' style='display:none' src='/child'></iframe></body>").await;
+    let observed = if loaded.is_ok() {
+        page.wait_for_timeout(
+            WaitPredicate::Lifecycle(LifecycleState::Load),
+            Some(Duration::from_secs(10)),
+        )
+        .await
+    } else {
+        Err(RuntimeError::PageWaitTimeout)
+    };
+    let counts = page.evaluate("JSON.stringify([globalThis.loadCount,document.getElementById('scrwin').contentDocument.querySelectorAll('span').length])").await;
+    for entry in context.pages() {
+        context.close_page(entry.page.page_id).await.unwrap();
+    }
+    context.retire_workers().await.unwrap();
+    fixture.finish();
+    assert!(loaded.is_ok(), "initial load: {loaded:?}");
+    assert!(
+        observed.is_ok(),
+        "load completion: {observed:?}; counts: {counts:?}"
+    );
+    assert_eq!(counts.unwrap(), "[2048,2048]");
+}
+
 struct ExecutorFixture {
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     server: Option<std::thread::JoinHandle<()>>,
@@ -127,7 +221,12 @@ async fn remote_popup_navigates_before_first_destination_command() {
         std::env::var_os("ORYN_PAGE_WORKER").is_some(),
         "production-path regression requires an explicitly selected signed worker"
     );
-    for host in ["source.test", "foreign.test"] {
+    for (host, parser_receive) in [
+        ("source.test", false),
+        ("foreign.test", false),
+        ("source.test", true),
+        ("foreign.test", true),
+    ] {
         // Unit-test builds default to in-process; explicitly select production
         // placement rather than accidentally exercising the direct root path.
         let mut browser = Browser::new();
@@ -169,32 +268,38 @@ async fn remote_popup_navigates_before_first_destination_command() {
                             }
                         }
                         if !header.ends_with(b"\r\n\r\n") { return; }
-                        let count = if header.starts_with(b"POST /ping?uuid=popup-probe ") {
+                        let is_ping = header.starts_with(b"POST /ping?uuid=popup-probe ")
+                            || header.starts_with(b"GET /ping?uuid=popup-probe ");
+                        let count = if is_ping {
                             ping_count.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1
                         } else { 0 };
                         if header.starts_with(b"GET /executor?") {
                             let _ = requested.send("executor");
-                        } else if header.starts_with(b"POST /ping?uuid=popup-probe ") {
+                        } else if is_ping {
                             let length = String::from_utf8_lossy(&header).lines()
                                 .find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:")
                                     .and_then(|value| value.trim().parse::<usize>().ok())).unwrap_or(0);
                             let mut body = vec![0; length.min(16384)];
-                            if stream.read_exact(&mut body).is_ok() && body == b"popup-payload" && count == 2 {
+                            if stream.read_exact(&mut body).is_ok() && (parser_receive || body == b"popup-payload") && count == 2 {
                                 let _ = requested.send("ping");
                             }
                         } else if header.starts_with(b"GET /dynamic.js ") {
                             let _ = requested.send("script");
                         }
-                        let body = if header.starts_with(b"POST /ping?uuid=popup-probe ") && count == 1 {
+                        let body = if is_ping && count == 1 {
                             "not ready"
-                        } else if header.starts_with(b"POST /ping?uuid=popup-probe ") {
+                        } else if is_ping {
                             "globalThis.fetchResult='pong';const importScript=url=>{const s=document.createElement('script');s.src=url;const loaded=new Promise(resolve=>s.onload=()=>{globalThis.scriptLoaded=true;resolve()});document.body.appendChild(s);return loaded};await importScript('/dynamic.js');document.body.appendChild(document.createElement('iframe'));"
                         } else if header.starts_with(b"GET /dynamic.js ") {
                             "globalThis.dynamicLoaded=true"
+                        } else if header.starts_with(b"GET /dispatcher.js ") {
+                            "globalThis.receive=async()=>{while(true){const v=await(await fetch('/ping?uuid=popup-probe')).text();if(v!=='not ready')return v;await new Promise(resolve=>setTimeout(resolve,20))}};"
+                        } else if parser_receive {
+                            "<!doctype html><p>executor</p><script src='/dispatcher.js'></script><script>globalThis.executorStarted=true;(async()=>{try{const v=await receive();eval('(async()=>{'+v+'})()')}catch(e){globalThis.fetchResult=e.name}})()</script>"
                         } else {
                             "<!doctype html><p>executor</p><script>globalThis.executorStarted=true;setTimeout(async()=>{try{let v;do{v=await(await fetch('/ping?uuid=popup-probe',{method:'POST',body:'popup-payload'})).text();if(v==='not ready')await new Promise(resolve=>setTimeout(resolve,20))}while(v==='not ready');eval('(async()=>{'+v+'})()')}catch(e){globalThis.fetchResult=e.name}},20)</script>"
                         };
-                        let media = if header.starts_with(b"GET /dynamic.js ") { "text/javascript" } else { "text/html" };
+                        let media = if header.starts_with(b"GET /dynamic.js ") || header.starts_with(b"GET /dispatcher.js ") { "text/javascript" } else { "text/html" };
                         let response = format!(
                             "HTTP/1.1 200 OK\r\nContent-Type: {media}\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{body}",
                             body.len()
