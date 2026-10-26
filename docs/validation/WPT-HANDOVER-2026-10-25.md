@@ -561,3 +561,57 @@ fresh-worker integration, not additional focused-pass claims.
 The coherent repair is ready for a source commit and fresh signing. Batch A is
 still open; the fixed seven-URL acceptance inventory, complete integration and
 terminal operational custody must settle before a closure result is recorded.
+
+### Fresh-worker verification update — October 26
+
+Repair commit `eb815dd8b05654aa67a5735d9112ac66c24faaf7` is integrated.
+Canonical fresh signing and production handshake succeeded for
+`git-eb815dd8-batch-a-closure-20261025-02`. The worker executable SHA-256 is
+`2b3a41f29b802449aa2965298ffdd4d37c9a6833afff7e0b1b2b495f1af5dbc8`.
+The complete DOM/JS/layout/native library test targets compiled successfully.
+
+The initial coordinator used launchd `ProcessType=Background`, imposing a
+substantial scheduling penalty. The user authorized normal-scheduling rerun.
+A reviewed one-shot Standard coordinator reused the exact four test binaries
+and signed worker without recompilation or source changes. DOM/JS/layout passed
+495/2,063/643 tests respectively. Native passed 3,470 with two failures and seven
+ignored tests: `classic_dynamic_import_keeps_native_preparation_metadata` and
+`duplex_transfer_drains_output_before_helper_consumes_large_input`.
+Both direct and production remote popup-navigation controls and claim controls
+passed. Complete cleanup succeeded; no forced cleanup or owner timeout occurred.
+
+Normal rerun elapsed about nine minutes. Identical DOM/JS/layout executables
+ran approximately 4.6/5.1/5.2 times faster than under Background scheduling.
+Seven of nine original native failures disappeared; none was erased from the
+original evidence. This measures execution, not a corrected compiler build.
+The XSLT test subsequently passed alone in 1.32 seconds; its full-suite failure
+remains unresolved. The classic import test immediately reads asynchronous
+results; a reviewed, unapplied completion-polling draft preserves every original
+metadata and value assertion. Neither observation establishes a clean native gate.
+
+The fixed seven URLs were then run diagnostically at one and four workers
+against the unchanged signed worker. Both populations produced exactly seven
+unique terminal records, with these same observations:
+
+- Opaque BlobURL, Blob DOM constructor, Blob worker new-object and form-action
+  fixtures: harness OK, all eleven assertions PASS. The formerly short-CRASH
+  Blob DOM constructor now publishes all four passing assertions.
+- Cross-partition BlobURL: TIMEOUT, one TIMEOUT and seven NOTRUN assertions.
+  Native timing proves the popup was adopted and script navigation admitted;
+  subsequent dispatcher/iframe completion is not yet repaired.
+- Dedicated-worker CSP: TIMEOUT, eight PASS, two TIMEOUT and four NOTRUN.
+  Execution reaches the self-policy cross-origin fetch case; full named worker
+  populations are missing.
+- Encoding: CRASH, zero assertions, semantic admission IDB allocation limit.
+  Comparison-scratch repair has not resolved this fixture.
+
+These are diagnostics, not Batch A acceptance. Worker hash/signature were
+rechecked after each run. Both child and outer receipts report complete cleanup
+without forced cleanup or owner timeout; the exact inactive registrations were
+unloaded after settlement. No build, WPT coordinator or automation remains active.
+Source and all original failure evidence remain preserved. Custody, hashes and
+next repair items are recorded under the existing closure coordinator staging
+lane, including `diagnostic04-manifest.json` and `ledger.json`.
+
+**Batch A remains open.** Do not substitute these diagnostic completions for
+the clean native integration and restored affected observations required at exit.
