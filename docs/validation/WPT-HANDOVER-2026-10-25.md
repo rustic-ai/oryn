@@ -675,3 +675,41 @@ unchanged seven-URL WPT populations remain required before closure.
 
 Repair and raw failure custody:
 `../.local-patches/wpt-batch-a-popup-completion-20261026/coordinator/`.
+
+## Fresh verification and remaining blockers — October 26
+
+Batch A remains **open**. Commit `fe94c85d64dec09878c72f31ba543f23a27f6972`
+releases dead semantic exclusion traversal receipts before retaining the reason.
+Limits and checkpoints are unchanged. All 111 semantic tests passed. The
+keep-alive popup control originally failed because its server did not read
+reused connections; the corrected fixture passes. That failure was not a
+demonstrated runtime keep-alive defect; its raw evidence is retained.
+
+Fresh build `git-fe94c85d-batch-a-completion-20261026-27` has a strictly verified
+signed worker with SHA-256
+`f36be87a2e5a553a95f97346188ba236a6e5d216d0791b71cc79c7607301d918`.
+Full integration passed: 495 DOM, 2063 JS, 643 layout and 3478 native tests;
+6679 PASS, zero FAIL. Native execution took 483.08 seconds. The owner settled
+with complete cleanup, no timeout and no forced cleanup.
+
+Both fixed seven-URL WPT populations ran against that worker:
+
+- Four fixtures passed all eleven assertions at both worker counts.
+- Cross-partition BlobURL: one TIMEOUT, seven NOTRUN at one/four workers.
+- Dedicated-worker CSP: one worker completed with 19 PASS and two report-content
+  FAIL; four workers timed out with ten PASS, two TIMEOUT and two NOTRUN.
+- Encoding no longer crashed, but both runs reported only 636 PASS assertions.
+  Do not lower the required 1000 count: the pinned child contains 13,459 spans
+  and subset-tests selects indexes 1001–2000. Child loading/observation needs
+  investigation; harness OK does not prove population completeness.
+
+Raw results are under `oryn-data/development/` with the build identity above and
+suffixes `-native-integration`, `-wpt-1` and `-wpt-4`. Coordinator custody:
+`../.local-patches/wpt-batch-a-remaining-20261026/coordinator/`.
+
+Diagnostic28 failed before WPT execution: its required public IPv6 fixture
+relay could not bind because the configured address disappeared from the
+machine. Its outer clean exit is not successful diagnostic execution. Original
+service failure evidence is retained. No job is running at this checkpoint.
+Restore the required IPv6 environment or review a replacement fixture binding
+before further original WPT execution. No fixture contract was weakened.
