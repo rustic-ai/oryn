@@ -654,3 +654,24 @@ Drafts, exact failures, source hashes and ownership are retained in
 Batch A remains open pending clean native integration and restored fixed WPT
 observations. Consult current owner receipts for active-job state; this dated
 entry is not a claim of completion or unattended continuation.
+
+### Isolated popup generation repair — October 26
+
+Fresh signed build `git-26561fd8-batch-a-completion-20261026-09` passed
+495 DOM, 2063 JS and 643 layout tests. Native integration recorded 3473 PASS,
+one FAIL and seven ignored: the real isolated popup received its HTTP response
+but never committed the destination. WPT was not started after that failure.
+Both supervision receipts settled with complete cleanup.
+
+The failure trace reaches `transaction_headers_ready`. The adopted native realm
+has generation 1, whereas the isolated worker navigation namespace starts at
+`2 << 32`. Seeding PageState from the realm generation made root departure's
+checked generation allocation fail and retry. The repair seeds isolated adopted
+PageState navigation generations from the authenticated worker route base;
+native realm identities and direct in-process adoption remain unchanged.
+Controls cover subsequent navigation allocation and exhaustion without widening
+deadlines or weakening namespace checks. Fresh signing, full integration and the
+unchanged seven-URL WPT populations remain required before closure.
+
+Repair and raw failure custody:
+`../.local-patches/wpt-batch-a-popup-completion-20261026/coordinator/`.

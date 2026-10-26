@@ -1690,6 +1690,19 @@ mod related_actor {
     use super::*;
     use crate::worker_route::WorkerRoute;
     use std::sync::{Mutex, OnceLock};
+    fn adopted_document_generation(
+        direct: bool,
+        worker_base: u64,
+        native_generation: u64,
+    ) -> Result<u64, RuntimeError> {
+        if direct {
+            Ok(native_generation)
+        } else {
+            // Native realm identities and worker-incarnation navigation identities
+            // are separate namespaces. Seed the latter without changing the former.
+            advance_document_generation(worker_base, worker_base)
+        }
+    }
     struct Published {
         actor: WorkerRoute,
         sender: mpsc::WeakSender<PageCommand>,
@@ -1874,6 +1887,16 @@ mod related_actor {
     #[cfg(test)]
     mod registration_tests {
         use super::*;
+        #[test]
+        fn adopted_popup_generation_preserves_worker_navigation_namespace() {
+            let base = 2_u64 << 32;
+            assert!(advance_document_generation(1, base).is_err());
+            let generation = adopted_document_generation(false, base, 1).unwrap();
+            assert_eq!(generation, base + 1);
+            assert_eq!(advance_document_generation(generation, base).unwrap(), base + 2);
+            assert_eq!(adopted_document_generation(true, 0, 7).unwrap(), 7);
+            assert!(adopted_document_generation(false, u64::MAX, 1).is_err());
+        }
         struct UnusedTransport;
         impl crate::context_service::ContextTransport for UnusedTransport {
             fn request(&self, _: crate::context_service::ContextServiceRequest)
@@ -2311,10 +2334,19 @@ mod related_actor {
                     let Some(owned) = host.as_mut() else {
                         break;
                     };
-                    let generation = owned
+                    let native_generation = owned
                         .realm_descriptor(created.realm)
                         .map(|realm| realm.document_generation)
                         .unwrap_or(0);
+                    let generation = match adopted_document_generation(
+                        direct, route.generation, native_generation,
+                    ) {
+                        Ok(generation) => generation,
+                        Err(_) => {
+                            let _ = owned.discard_created_auxiliary_root(created_realm);
+                            continue;
+                        }
+                    };
                     let origin = owned
                         .realm_descriptor(created.realm)
                         .map(|realm| realm.origin.clone());

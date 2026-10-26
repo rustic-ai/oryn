@@ -152,6 +152,16 @@ async fn remote_popup_navigates_before_first_destination_command() {
             },
             Err(error) => Err(error),
         };
+        if observed.is_err() {
+            eprintln!("popup descriptors after failure: {:?}", context.pages());
+            for entry in context.pages() {
+                if entry.page.page_id != source.page_id() {
+                    if let Some(handle) = context.inner.group.handle(entry.page.page_id) {
+                        eprintln!("failed popup completion trace: {:?}", handle.trace().await);
+                    }
+                }
+            }
+        }
         // Retain teardown custody even when the initial navigation never arrives.
         for page in context.pages() {
             context.close_page(page.page.page_id).await.unwrap();
