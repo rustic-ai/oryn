@@ -1,22 +1,23 @@
 //! Production-worker popup must navigate before its first explicit command.
 use super::*;
-use crate::network::{NetworkBroker, NetworkError, NetworkRequest, NetworkResponse};
+use std::io::{Read, Write};
 
-struct Executor(tokio::sync::mpsc::UnboundedSender<()>);
-impl NetworkBroker for Executor {
-    fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
-        if request.url.ends_with("/executor") {
-            let _ = self.0.send(());
+struct ExecutorFixture {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    server: Option<std::thread::JoinHandle<()>>,
+}
+impl ExecutorFixture {
+    fn finish(mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Release);
+        self.server.take().unwrap().join().unwrap();
+    }
+}
+impl Drop for ExecutorFixture {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Release);
+        if let Some(server) = self.server.take() {
+            let _ = server.join();
         }
-        Ok(NetworkResponse {
-            response_policy: None,
-            timing: None,
-            request_id: request.request_id,
-            status: 200,
-            headers: vec![("content-type".into(), "text/html".into())],
-            body: b"<!doctype html><p>executor</p><script>globalThis.executorStarted=true</script>"
-                .to_vec(),
-        })
     }
 }
 
@@ -26,22 +27,80 @@ async fn remote_popup_navigates_before_first_destination_command() {
         std::env::var_os("ORYN_PAGE_WORKER").is_some(),
         "production-path regression requires an explicitly selected signed worker"
     );
-    for destination in [
-        "https://source.test/executor",
-        "https://foreign.test/executor",
-    ] {
+    for host in ["source.test", "foreign.test"] {
         // Unit-test builds default to in-process; explicitly select production
         // placement rather than accidentally exercising the direct root path.
         let mut browser = Browser::new();
         browser.worker_process = true;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let destination = format!("http://{host}:{port}/executor");
         let (requested, mut requests) = tokio::sync::mpsc::unbounded_channel();
-        let context = browser.new_context_with_broker(
-            Default::default(),
-            SharedNetworkBroker::new(Executor(requested)),
-        );
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let server_stop = stop.clone();
+        let server = std::thread::spawn(move || {
+            while !server_stop.load(std::sync::atomic::Ordering::Acquire) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(2)))
+                            .unwrap();
+                        stream
+                            .set_write_timeout(Some(Duration::from_secs(2)))
+                            .unwrap();
+                        let mut header = Vec::new();
+                        let mut byte = [0];
+                        while header.len() < 16384 && !header.ends_with(b"\r\n\r\n") {
+                            if stream.read(&mut byte).unwrap_or(0) == 0 {
+                                break;
+                            }
+                            header.push(byte[0]);
+                        }
+                        if header.starts_with(b"GET /executor ") {
+                            let _ = requested.send(());
+                        }
+                        let body = "<!doctype html><p>executor</p><script>globalThis.executorStarted=true</script>";
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        );
+                        let _ = stream.write_all(response.as_bytes());
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(error) => panic!("popup fixture accept: {error}"),
+                }
+            }
+        });
+        let fixture = ExecutorFixture {
+            stop,
+            server: Some(server),
+        };
+        let routes =
+            crate::network::EndpointRoutes::new(["source.test", "foreign.test"].map(|host| {
+                (
+                    "http".into(),
+                    host.into(),
+                    port,
+                    "127.0.0.1".parse().unwrap(),
+                )
+            }))
+            .unwrap();
+        browser = browser.with_fixture_network(Vec::new(), routes).unwrap();
+        // Unlike the custom-broker constructor, this is the same isolated
+        // auxiliary production placement selected by WebDriver sessions.
+        let context =
+            browser.new_audited_context_with_isolated_auxiliaries(ContextOptions::loopback_test());
+        assert!(context.inner.worker_process);
         let source = context.new_page();
+        assert!(source.worker.is_some());
         source
-            .load_html("https://source.test/start", "<!doctype html><p>source</p>")
+            .load_html(
+                &format!("http://source.test:{port}/start"),
+                "<!doctype html><p>source</p>",
+            )
             .await
             .unwrap();
         assert_eq!(
@@ -55,6 +114,17 @@ async fn remote_popup_navigates_before_first_destination_command() {
         );
         // No destination command may bootstrap the controller under test.
         let reached = tokio::time::timeout(Duration::from_secs(5), requests.recv()).await;
+        if !matches!(reached, Ok(Some(()))) {
+            // Read only after the original no-command arrival deadline failed;
+            // this diagnostic cannot turn that failed observation into a pass.
+            for entry in context.pages() {
+                if entry.page.page_id != source.page_id() {
+                    if let Some(handle) = context.inner.group.handle(entry.page.page_id) {
+                        eprintln!("failed initial popup trace: {:?}", handle.trace().await);
+                    }
+                }
+            }
+        }
         let result = if matches!(reached, Ok(Some(()))) {
             context
                 .wait_for_page(
@@ -87,6 +157,7 @@ async fn remote_popup_navigates_before_first_destination_command() {
             context.close_page(page.page.page_id).await.unwrap();
         }
         context.retire_workers().await.unwrap();
+        fixture.finish();
         assert_eq!(observed.unwrap(), "true");
     }
 }

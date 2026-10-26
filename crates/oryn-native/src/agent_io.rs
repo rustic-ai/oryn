@@ -1308,17 +1308,22 @@ impl AgentIo {
         if !matches!(url.scheme(), "ws" | "wss") || url.fragment().is_some() {
             return Err("invalid agent WebSocket URL".into());
         }
-        if !policy
-            .authorize(&crate::csp::CspRequest {
+        let decision = policy.authorize(&crate::csp::CspRequest {
                 destination: crate::csp::CspDestination::Connect,
                 url: url.to_string(),
                 nonce: None,
                 inline_source: None,
                 parser_inserted: false,
                 initiated_by_trusted_script: false,
-            })
-            .allowed
-        {
+            });
+        context.report_worker_csp(
+            &crate::agent_registry::AgentOwner::Agent(self.bootstrap.id),
+            &policy,
+            decision.violations,
+            self.bootstrap.top_level_url.as_deref().unwrap_or(&self.bootstrap.script_url),
+            false,
+        ).map_err(|error| error.to_string())?;
+        if !decision.allowed {
             return Err("agent WebSocket blocked by CSP".into());
         }
         crate::context_service::enforce_mixed_content(&self.bootstrap.script_url, &url)

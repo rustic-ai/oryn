@@ -733,6 +733,7 @@ mod tests {
             disposition: crate::csp::CspDisposition::Enforce,
             effective_directive: "script-src".into(),
             blocked_uri: "inline".into(),
+            worker_event_blocked_uri: None,
             document_uri: scope.url.clone(),
             source: "inline".into(),
             original_policy: "script-src 'none'".into(),

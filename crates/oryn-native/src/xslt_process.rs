@@ -734,8 +734,23 @@ mod process {
 
         #[test]
         fn duplex_transfer_drains_output_before_helper_consumes_large_input() {
-            let (writer, mut helper_input) = UnixStream::pair().unwrap();
-            let (reader, mut helper_output) = UnixStream::pair().unwrap();
+            fn pipe() -> (File, File) {
+                use std::os::fd::FromRawFd;
+                let mut descriptors = [-1; 2];
+                // SAFETY: pipe initializes two fresh owned descriptors.
+                assert_eq!(unsafe { libc::pipe(descriptors.as_mut_ptr()) }, 0);
+                let ends = unsafe {
+                    (File::from_raw_fd(descriptors[0]), File::from_raw_fd(descriptors[1]))
+                };
+                for end in [&ends.0, &ends.1] {
+                    assert_eq!(unsafe { libc::fcntl(end.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) }, 0);
+                }
+                ends
+            }
+            // Production exchanges ChildStdin/ChildStdout pipes, not sockets.
+            // Exercise that descriptor behavior with the same opposing order.
+            let (mut helper_input, writer) = pipe();
+            let (reader, mut helper_output) = pipe();
             nonblocking(&writer).unwrap();
             nonblocking(&reader).unwrap();
             let input = vec![b'i'; 2 * 1024 * 1024];
@@ -753,7 +768,11 @@ mod process {
             let result = (|| {
                 let mut transfer = PipeTransfer::new(&input, writer, reader, MAX_JSON_BYTES);
                 while !transfer.complete() {
-                    check(deadline, &|| false)?;
+                    check(deadline, &|| false).map_err(|error| format!(
+                        "{error}; written={} output={} eof={} writer_open={}",
+                        transfer.written, transfer.output.len(), transfer.eof,
+                        transfer.writer.is_some(),
+                    ))?;
                     if !transfer.step()? {
                         std::thread::sleep(POLL_INTERVAL);
                     }

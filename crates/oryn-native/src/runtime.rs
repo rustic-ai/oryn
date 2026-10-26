@@ -30527,6 +30527,7 @@ mod tests {
             disposition: crate::csp::CspDisposition::Report,
             effective_directive: "script-src".into(),
             blocked_uri: "https://cdn.example/app.js".into(),
+            worker_event_blocked_uri: Some("https://cdn.example/app.js?token=local".into()),
             document_uri: "https://app.example/private".into(),
             source: "header".into(),
             original_policy: "script-src 'none'; report-uri /csp".into(),

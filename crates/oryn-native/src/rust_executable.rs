@@ -26109,6 +26109,16 @@ mod tests {
             const meta=document.createElement('meta');meta.name='referrer';meta.content='no-referrer';document.head.append(meta);
             privateImport();publicImport();opaqueImport();
         "#).unwrap();
+        // Starting imports does not mean their asynchronous reactions ran.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while page.agent.host.evaluate_string(
+            "String(typeof privateValue!=='undefined'&&typeof publicValue!=='undefined'&&typeof opaqueRejected!=='undefined')",
+        ).unwrap() != "true" {
+            page.poll_context_events().unwrap();
+            assert!(std::time::Instant::now() < deadline,
+                "classic dynamic imports did not complete: {:?}", page.diagnostics);
+            std::thread::yield_now();
+        }
         assert_eq!(
             page.evaluate("[privateValue,publicValue,opaqueRejected].join('|')")
                 .unwrap(),

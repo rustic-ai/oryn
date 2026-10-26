@@ -577,8 +577,10 @@ and signed worker without recompilation or source changes. DOM/JS/layout passed
 495/2,063/643 tests respectively. Native passed 3,470 with two failures and seven
 ignored tests: `classic_dynamic_import_keeps_native_preparation_metadata` and
 `duplex_transfer_drains_output_before_helper_consumes_large_input`.
-Both direct and production remote popup-navigation controls and claim controls
-passed. Complete cleanup succeeded; no forced cleanup or owner timeout occurred.
+Direct popup-navigation and claim controls passed. The purported production
+popup control also passed, but later source review found its custom-broker
+constructor forces in-process placement. That pass is not remote-worker proof.
+Complete cleanup succeeded; no forced cleanup or owner timeout occurred.
 
 Normal rerun elapsed about nine minutes. Identical DOM/JS/layout executables
 ran approximately 4.6/5.1/5.2 times faster than under Background scheduling.
@@ -615,3 +617,40 @@ lane, including `diagnostic04-manifest.json` and `ledger.json`.
 
 **Batch A remains open.** Do not substitute these diagnostic completions for
 the clean native integration and restored affected observations required at exit.
+
+### Completion repair investigation — October 26
+
+The replacement popup regression asserts real worker placement and uses actual
+fixture-routed HTTP. Against the retained worker it fails before broker arrival.
+Its post-failure trace shows navigation policy consumed, then immediate broker
+rejection: `network transport does not accept route authority`. The root's
+in-process `ServiceNavigationBroker` lacked explicit routed forwarding, so the
+auxiliary route stopped before the authenticating parent router. A narrow draft
+forwards routed start/cancel/report cleanup unchanged; unrouted requests retain
+local interception. Fresh signed-worker verification remains required.
+
+The user approved narrow worker CSP event/report separation. The draft retains
+redacted network report URLs and a separately sanitized original-request URL for
+worker events, including redirect-original and WebSocket-handshake handling.
+WebSocket violations now enter the existing bounded publication/report path.
+Before these later extensions, current-source controls passed 35 CSP tests,
+104 semantic tests and the legacy/Reporting API report-redaction test. These are
+developer controls, not restored WPT observations.
+
+The actual V8-enabled XSLT group reproduces the duplex failure (7 PASS, 1 FAIL),
+as does the isolated identical debug executable. The earlier non-V8 XSLT filter
+matched zero tests and is not pass evidence. Failure counters show all 2 MiB of
+output drained with EOF, but input remained partly unwritten at the original
+five-second fixture deadline. Preallocating the receive buffer did not repair
+that failure and the experiment was removed. The fixture now uses real pipes,
+matching production ChildStdin/ChildStdout, rather than UnixStream sockets.
+Opposing ordering, 2 MiB messages, exact-byte assertions and the original
+five-second deadline remain unchanged. All eight XSLT controls pass (0.62 s).
+The routed-forwarding control and 35 CSP controls also pass. Full fresh-worker
+integration and WPT verification remain outstanding.
+
+Drafts, exact failures, source hashes and ownership are retained in
+`../.local-patches/wpt-batch-a-completion-20261026/coordinator/`.
+Batch A remains open pending clean native integration and restored fixed WPT
+observations. Consult current owner receipts for active-job state; this dated
+entry is not a claim of completion or unattended continuation.

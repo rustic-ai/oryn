@@ -8078,6 +8078,11 @@ impl SemanticLeaseOwner<'_> {
         self.admission
             .checkpoint()
             .map_err(SemanticPreparationError::Admission)?;
+        // Empty payloads have no backing allocation. Preserve the owner
+        // checkpoint, but do not grow receipt metadata for absent buffers.
+        if bytes == 0 {
+            return Ok(());
+        }
         let needed = self
             .leases
             .len()
@@ -14262,6 +14267,42 @@ mod admitted_sync_controls {
                 .count(),
             metadata.len()
         );
+    }
+    #[test]
+    fn empty_payloads_do_not_grow_receipts_but_still_checkpoint() {
+        struct EmptyAdmission {
+            checkpoints: AtomicUsize,
+            reject: bool,
+        }
+        impl oryn_layout::cssom::native_import_graph::ImportAdmission for EmptyAdmission {
+            fn checkpoint(&self) -> Result<(), String> {
+                self.checkpoints.fetch_add(1, Ordering::SeqCst);
+                if self.reject {
+                    Err("expired empty owner".into())
+                } else {
+                    Ok(())
+                }
+            }
+            fn reserve(&self, _: usize) -> Result<Arc<dyn Send + Sync>, String> {
+                panic!("empty payload must not allocate receipt metadata")
+            }
+        }
+        for reject in [false, true] {
+            let admission = EmptyAdmission {
+                checkpoints: AtomicUsize::new(0),
+                reject,
+            };
+            let mut owner = SemanticLeaseOwner {
+                admission: &admission,
+                leases: Vec::new(),
+            };
+            for _ in 0..4096 {
+                assert_eq!(owner.reserve(0).is_err(), reject);
+            }
+            assert_eq!(admission.checkpoints.load(Ordering::SeqCst), 4096);
+            assert_eq!(owner.leases.len(), 0);
+            assert_eq!(owner.leases.capacity(), 0);
+        }
     }
     impl oryn_layout::cssom::native_import_graph::ImportAdmission for Admission {
         fn checkpoint(&self) -> Result<(), String> {

@@ -117,7 +117,8 @@ impl WorkerPolicyRegistry {
                 id: self.csp_event_id + offset as u64 + 1,
                 document_uri: violation.document_uri.clone(),
                 referrer: violation.referrer.clone(),
-                blocked_uri: violation.blocked_uri.clone(),
+                blocked_uri: violation.worker_event_blocked_uri.as_ref()
+                    .unwrap_or(&violation.blocked_uri).clone(),
                 effective_directive: violation.effective_directive.clone(),
                 original_policy: violation.original_policy.clone(),
                 source_file: violation.source_file.clone(),

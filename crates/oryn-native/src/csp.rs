@@ -62,6 +62,9 @@ pub struct CspViolation {
     pub disposition: CspDisposition,
     pub effective_directive: String,
     pub blocked_uri: String,
+    /// Local worker-event URL, distinct from the redacted network report URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_event_blocked_uri: Option<String>,
     pub document_uri: String,
     pub source: String,
     pub original_policy: String,
@@ -473,6 +476,7 @@ impl CspPolicySet {
             let blocked = strip_url_for_report(original_url, &self.document_url);
             for violation in &mut decision.violations {
                 violation.blocked_uri = blocked.clone();
+                violation.worker_event_blocked_uri = worker_event_url(original_url);
             }
         }
         decision
@@ -530,6 +534,11 @@ impl CspPolicySet {
                     violation.effective_directive = (*effective).into();
                 }
                 violations.push(violation);
+            }
+        }
+        if request.inline_source.is_none() {
+            for violation in &mut violations {
+                violation.worker_event_blocked_uri = worker_event_url(&request.url);
             }
         }
         CspDecision {
@@ -856,6 +865,7 @@ impl CspPolicySet {
             disposition: policy.disposition,
             effective_directive: effective_directive.into(),
             blocked_uri,
+            worker_event_blocked_uri: None,
             document_uri: strip_url_for_report(&self.document_url, &self.document_url),
             source: policy.source.clone(),
             original_policy: policy.serialized.clone(),
@@ -1702,7 +1712,7 @@ fn blocked_uri(request: &CspRequest, document_url: &str) -> String {
 }
 
 /// CSP's strip-URL-for-use-in-reports algorithm, shared by initial and frozen
-/// redirect producers. Credentials/fragments never enter events or endpoints;
+/// redirect producers. Credentials/fragments never enter network reports;
 /// same-origin queries remain observable, cross-origin paths do not.
 pub(crate) fn strip_url_for_report(value: &str, document_url: &str) -> String {
     let Ok(mut url) = Url::parse(value) else {
@@ -1721,6 +1731,23 @@ pub(crate) fn strip_url_for_report(value: &str, document_url: &str) -> String {
     let _ = url.set_password(None);
     url.set_fragment(None);
     url.to_string()
+}
+
+fn worker_event_url(value: &str) -> Option<String> {
+    let mut url = Url::parse(value).ok()?;
+    if !matches!(url.scheme(), "http" | "https" | "ws" | "wss") {
+        return None;
+    }
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    url.set_fragment(None);
+    // WebSocket CSP observations identify the HTTP(S) handshake URL.
+    if url.scheme() == "ws" {
+        let _ = url.set_scheme("http");
+    } else if url.scheme() == "wss" {
+        let _ = url.set_scheme("https");
+    }
+    Some(url.to_string())
 }
 
 #[cfg(test)]
@@ -2005,6 +2032,19 @@ mod tests {
             "https://app.test/private?document=1"
         );
         assert_eq!(violation.blocked_uri, "https://foreign.test");
+        assert_eq!(violation.worker_event_blocked_uri.as_deref(),
+            Some("https://foreign.test/secret?x=1"));
+        let original = "https://user:pass@foreign.test/private?x=1#hidden";
+        let redirected = policy.authorize_redirect_from(
+            &request(CspDestination::Image, "https://undisclosed.test/secret"),
+            true, original,
+        );
+        assert!(!redirected.allowed);
+        assert_eq!(redirected.violations[0].blocked_uri, "https://foreign.test");
+        assert_eq!(redirected.violations[0].worker_event_blocked_uri.as_deref(),
+            Some("https://foreign.test/private?x=1"));
+        assert_eq!(super::worker_event_url("wss://user:pass@foreign.test/socket#hidden"),
+            Some("https://foreign.test/socket".into()));
     }
 
     #[test]
