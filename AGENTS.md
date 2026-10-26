@@ -11,6 +11,23 @@ before exact-file cleanup. Never overwrite this checkout from the older tree.
 
 ## Core and OIL delivery work
 
+Read [project memory](MEMORY.md) at task startup. Use normal scheduling for
+user-requested builds/tests: macOS launchd one-shot owners should use
+`ProcessType=Standard`, not Background, unless low-priority work was explicitly
+requested. Verify effective policy and actual child progress. Durable execution
+is not a reason to throttle CPU priority; do not substitute Interactive priority.
+
+Investigate anomalous duration before another expensive rebuild or budget change:
+check scheduling, phase progress, cache reuse and contention. Group coherent edits
+and distinguish compiler time from test execution. Unchanged-artifact diagnostics
+do not replace fresh-worker verification after native inputs change.
+
+Carry authorized implementation through required gates, not just a draft or
+future-work promise. Separate committed repairs, diagnostics and qualification.
+Required failures or missing observations keep a batch open. If work stops,
+state why and whether an independently owned job is still running; do not imply
+follow-through without an actual owner.
+
 Native changes require a freshly rebuilt and signed worker before complete
 integration testing. Explicitly select that worker with `ORYN_PAGE_WORKER` and
 record/recheck its executable hash; a retained fallback-worker run is diagnostic
