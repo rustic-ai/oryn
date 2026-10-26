@@ -12,7 +12,16 @@ SCRIPT = """return {
   executor_type: typeof executeOrders,
   receive_type: typeof receive,
   send_queue_count: typeof sendQueues === 'undefined' ? null : sendQueues.size,
-  uuid_is_string: typeof uuid === 'undefined' ? null : typeof uuid === 'string'
+  uuid_is_string: typeof uuid === 'undefined' ? null : typeof uuid === 'string',
+  recent_requests: typeof __oryn_context_trace === 'undefined' ? [] :
+    __oryn_context_trace.filter(e => ['request_started','response_received','stream_chunk','capability_failure'].includes(e.kind)).slice(-8).map(e => ({
+      kind: e.kind,
+      method: ['GET','POST'].includes(e.detail?.method) ? e.detail.method : null,
+      status: typeof e.detail?.status === 'number' ? e.detail.status : null,
+      bytes: typeof e.detail?.bytes === 'number' ? e.detail.bytes : null,
+      dispatcher: typeof e.detail?.url === 'string' && new URL(e.detail.url,location.href).pathname === '/common/dispatcher/dispatcher.py',
+      uuid_matches: typeof uuid === 'string' && typeof e.detail?.url === 'string' ? new URL(e.detail.url,location.href).searchParams.get('uuid') === uuid : null
+    }))
 };"""
 
 
@@ -24,7 +33,10 @@ def capture(protocol, url):
     if not isinstance(url, str):
         return
     try:
-        selected = urlsplit(url).path == '/FileAPI/BlobURL/cross-partition.https.html'
+        selected = urlsplit(url).path in (
+            '/FileAPI/BlobURL/cross-partition.https.html',
+            '/content-security-policy/inside-worker/dedicatedworker-connect-src.html',
+        )
     except ValueError:
         return
     if not selected:
@@ -55,6 +67,26 @@ def capture(protocol, url):
                     observation['uuid_is_string'] = value['uuid_is_string']
                 if value.get('location_kind') in ('initial', 'dispatcher', 'other'):
                     observation['location_kind'] = value['location_kind']
+                recent = value.get('recent_requests')
+                if isinstance(recent, list):
+                    safe = []
+                    for entry in recent[:8]:
+                        if not isinstance(entry, dict):
+                            continue
+                        if entry.get('kind') not in ('request_started', 'response_received', 'stream_chunk', 'capability_failure'):
+                            continue
+                        item = {'kind': entry['kind']}
+                        if entry.get('method') in ('GET', 'POST'):
+                            item['method'] = entry['method']
+                        for key in ('status', 'bytes'):
+                            number = entry.get(key)
+                            if type(number) in (int, float) and 0 <= number <= 100_000_000 and int(number) == number:
+                                item[key] = int(number)
+                        for key in ('dispatcher', 'uuid_matches'):
+                            if type(entry.get(key)) is bool:
+                                item[key] = entry[key]
+                        safe.append(item)
+                    observation['recent_requests'] = safe
             records.append({'window_index': index, 'observation': observation})
     except Exception as error:
         records.append({'collection_error_type': type(error).__name__})

@@ -2042,6 +2042,89 @@ mod live_redirect_authority_regressions {
         }
     }
     #[test]
+    fn registered_agent_csp_redirect_publishes_original_request_event() {
+        let context = crate::Browser::new().new_context();
+        let page = context.new_page();
+        let id = page.page_id();
+        context
+            .commit_page_url(id, "https://a.example/".into())
+            .unwrap();
+        context
+            .install_document_security(id, "https://a.example/".into(), &[])
+            .unwrap();
+        context
+            .handle_message_wire(
+                id,
+                MessageRequest::RegisterRootDocument {
+                    document_generation: 1,
+                    stream_epoch: 0,
+                },
+            )
+            .unwrap();
+        let (owner, partition, origin) = context
+            .window_worker_creator(id, &WindowTarget::Root, 1, 0)
+            .unwrap();
+        let ancestry = vec![
+            "https://a.example/".into(),
+            "https://cross.example/frame".into(),
+            "https://a.example/frame".into(),
+        ];
+        let bootstrap = AgentBootstrap {
+            cookie_ancestor_urls: ancestry.clone(),
+            import_metadata: Default::default(),
+            service_skip_waiting: false,
+            resource_digests: Default::default(),
+            secure_context: true,
+            service_registration: None,
+            service_controller: None,
+            policy: AgentPolicy {
+                hide_nonces: false,
+                policy_sources: Vec::new(),
+                policy_self_urls: Vec::new(),
+                document_self_url: None,
+                policy_self_url: None,
+                url: "https://a.example/worker.js".into(),
+                headers: vec![("content-security-policy".into(), "connect-src 'self'".into())],
+            },
+            top_level_url: Some("https://a.example/".into()),
+            id: AgentId(0),
+            kind: AgentKind::Dedicated,
+            partition,
+            origin,
+            script_url: "https://a.example/worker.js".into(),
+            source: Vec::new(),
+            modules: Default::default(),
+            options: Default::default(),
+            referrer_policy: "no-referrer".into(),
+            limits: Default::default(),
+        };
+        let connection = context
+            .dispatch_worker_registry(|registry, hub| {
+                registry.connect_with_ports(hub, owner, bootstrap, |_| Ok(Box::new(Process)))
+            })
+            .unwrap();
+        let bootstrap = context.worker_bootstrap(connection.agent).unwrap();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let io = AgentIo::new(
+            context.downgrade(),
+            bootstrap,
+            SharedNetworkBroker::new(Redirects(seen.clone())),
+        );
+        let original = "https://a.example/start?status=307&location=https://b.example/hop?cross-origin-fetch";
+        let result = io.http_start(HostOperationId(1), PlatformHttpRequest {
+            upgrade_mixed_image: false, fetch: None, use_cors_preflight: false,
+            method: "GET".into(), url: original.into(), headers: Vec::new(),
+            body: Vec::new(), credentials: "same-origin".into(),
+            initiator_url: None, referrer_policy: None,
+        }, false, true, &Arc::new(AtomicBool::new(false)));
+        assert!(result.is_err());
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        let events = context.poll_agent_csp_events(connection.agent, 0).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].blocked_uri, original);
+        assert_eq!(events[0].effective_directive, "connect-src");
+    }
+    #[test]
     fn registered_agent_redirects_preserve_native_cookie_ancestry_and_reject_retired_owner() {
         let context = crate::Browser::new().new_context();
         let page = context.new_page();

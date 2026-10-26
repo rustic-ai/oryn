@@ -8810,6 +8810,39 @@ mod shared_admission_controls {
         atomic::{AtomicUsize, Ordering},
     };
     struct Receipt(Arc<AtomicUsize>);
+    #[test]
+    fn modal_exclusion_search_releases_document_wide_scratch() {
+        struct BytesReceipt(Arc<AtomicUsize>, usize);
+        impl Drop for BytesReceipt {
+            fn drop(&mut self) { self.0.fetch_sub(self.1, Ordering::SeqCst); }
+        }
+        struct Limited(Arc<AtomicUsize>);
+        impl oryn_layout::cssom::native_import_graph::ImportAdmission for Limited {
+            fn checkpoint(&self) -> Result<(), String> { Ok(()) }
+            fn reserve(&self, bytes: usize) -> Result<Arc<dyn Send + Sync>, String> {
+                let live = self.0.load(Ordering::SeqCst);
+                if live.checked_add(bytes).is_none_or(|n| n > 1024 * 1024) {
+                    return Err("scratch control allocation limit".into());
+                }
+                self.0.fetch_add(bytes, Ordering::SeqCst);
+                Ok(Arc::new(BytesReceipt(self.0.clone(), bytes)))
+            }
+        }
+        let html = format!("<div><span id=target>text</span>{}</div>", "<span>text</span>".repeat(2048));
+        let document = crate::html::parse(&html).into_runtime().unwrap();
+        let target = document.find_by_id("target").unwrap();
+        let admission = Limited(Arc::new(AtomicUsize::new(0)));
+        let mut producer = SemanticLeaseOwner { admission: &admission, leases: Vec::new() };
+        for _ in 0..32 {
+            assert_eq!(shared_tree_exclusion(document.arena(), target, "generic", &mut producer, &mut || Ok(())).unwrap(), None);
+        }
+        let reason = shared_tree_exclusion(document.arena(), target, "presentation", &mut producer, &mut || Ok(())).unwrap();
+        assert_eq!(reason.as_deref(), Some("presentational_role"));
+        assert!(producer.leases.last().unwrap().payload.is_some(), "returned reason retains its admission");
+        drop(reason);
+        drop(producer);
+        assert_eq!(admission.0.load(Ordering::SeqCst), 0);
+    }
     impl Drop for Receipt {
         fn drop(&mut self) {
             self.0.fetch_sub(1, Ordering::SeqCst);
@@ -12457,83 +12490,90 @@ fn shared_tree_exclusion<P: SemanticProducer>(
     producer: &mut P,
     check: &mut impl FnMut() -> Result<(), crate::dom::DomError>,
 ) -> Result<Option<String>, P::Error> {
-    check()?;
-    let Ok(node) = dom.get(id) else {
-        return Ok(None);
-    };
-    if matches!(role, "none" | "presentation") {
-        return Ok(Some(producer.text("presentational_role", check)?));
-    }
-    if matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "input")
-        && node
-            .attributes
-            .get_null_with_checkpoint("type", check)?
-            .is_some_and(|value| value.eq_ignore_ascii_case("hidden"))
-    {
-        return Ok(Some(producer.text("hidden_input", check)?));
-    }
-    let mut lineage = producer.vector(1)?;
-    lineage.push(id);
-    for ancestor in shared_default::<Vec<NodeId>, P>(shared_ancestors_with_checkpoint(
-        dom, id, producer, check,
-    ))? {
+    let mark = producer.receipt_mark();
+    let result = (|| -> Result<Option<&'static str>, P::Error> {
         check()?;
-        shared_vector_push(&mut lineage, ancestor, producer, check)?;
-    }
-    for candidate in &lineage {
-        check()?;
-        if let Ok(node) = dom.get(*candidate)
+        let Ok(node) = dom.get(id) else {
+            return Ok(None);
+        };
+        if matches!(role, "none" | "presentation") {
+            return Ok(Some("presentational_role"));
+        }
+        if matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "input")
             && node
                 .attributes
-                .contains_null_with_checkpoint("inert", check)?
+                .get_null_with_checkpoint("type", check)?
+                .is_some_and(|value| value.eq_ignore_ascii_case("hidden"))
         {
-            return Ok(Some(producer.text("inert_subtree", check)?));
+            return Ok(Some("hidden_input"));
         }
-    }
-    let document = lineage.iter().copied().find(|candidate| {
-        dom.get(*candidate)
-            .is_ok_and(|node| matches!(node.kind, NodeKind::Document))
-    });
-    if let Some(document) = document {
-        let mut candidates = producer.vector(1)?;
-        candidates.push(document);
-        for descendant in shared_descendants_with_checkpoint(dom, document, producer, check)? {
+        let mut lineage = producer.vector(1)?;
+        lineage.push(id);
+        for ancestor in shared_default::<Vec<NodeId>, P>(shared_ancestors_with_checkpoint(
+            dom, id, producer, check,
+        ))? {
             check()?;
-            shared_vector_push(&mut candidates, descendant, producer, check)?;
+            shared_vector_push(&mut lineage, ancestor, producer, check)?;
         }
-        let mut modal = None;
-        for candidate in candidates.into_iter().rev() {
+        for candidate in &lineage {
             check()?;
-            if let Ok(candidate_node) = dom.get(candidate)
-                && candidate_node
-                    .accessibility_attribute_with_checkpoint("aria-modal", check)?
-                    .is_some_and(|value| value.eq_ignore_ascii_case("true"))
-                && !shared_is_hidden(dom, candidate, producer, check)?
-                && matches!(
-                    shared_role_for_node(dom, candidate, producer, check)?.as_str(),
-                    "dialog" | "alertdialog"
-                )
+            if let Ok(node) = dom.get(*candidate)
+                && node
+                    .attributes
+                    .contains_null_with_checkpoint("inert", check)?
             {
-                modal = Some(candidate);
-                break;
+                return Ok(Some("inert_subtree"));
             }
         }
-        if let Some(modal) = modal {
-            let owners = accepted_aria_owners_with_checkpoint(dom, check)?;
-            if !shared_accessibility_ancestors(dom, id, &owners, producer, check)?.contains(&modal)
-                && id != modal
-                && !shared_accessibility_ancestors(dom, modal, &owners, producer, check)?
-                    .contains(&id)
-            {
-                return Ok(Some(producer.text("aria_modal_scope", check)?));
+        let document = lineage.iter().copied().find(|candidate| {
+            dom.get(*candidate)
+                .is_ok_and(|node| matches!(node.kind, NodeKind::Document))
+        });
+        if let Some(document) = document {
+            let mut candidates = producer.vector(1)?;
+            candidates.push(document);
+            for descendant in shared_descendants_with_checkpoint(dom, document, producer, check)? {
+                check()?;
+                shared_vector_push(&mut candidates, descendant, producer, check)?;
+            }
+            let mut modal = None;
+            for candidate in candidates.into_iter().rev() {
+                check()?;
+                if let Ok(candidate_node) = dom.get(candidate)
+                    && candidate_node
+                        .accessibility_attribute_with_checkpoint("aria-modal", check)?
+                        .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+                    && !shared_is_hidden(dom, candidate, producer, check)?
+                    && matches!(
+                        shared_role_for_node(dom, candidate, producer, check)?.as_str(),
+                        "dialog" | "alertdialog"
+                    )
+                {
+                    modal = Some(candidate);
+                    break;
+                }
+            }
+            if let Some(modal) = modal {
+                let owners = accepted_aria_owners_with_checkpoint(dom, check)?;
+                if !shared_accessibility_ancestors(dom, id, &owners, producer, check)?.contains(&modal)
+                    && id != modal
+                    && !shared_accessibility_ancestors(dom, modal, &owners, producer, check)?
+                        .contains(&id)
+                {
+                    return Ok(Some("aria_modal_scope"));
+                }
             }
         }
-    }
-    if shared_is_hidden(dom, id, producer, check)? {
-        Ok(Some(producer.text("hidden_subtree", check)?))
-    } else {
-        Ok(None)
-    }
+        if shared_is_hidden(dom, id, producer, check)? {
+            Ok(Some("hidden_subtree"))
+        } else {
+            Ok(None)
+        }
+    })();
+    // Traversal vectors and role/visibility probes are dead before retaining
+    // the returned reason. Release their payloads without changing checkpoints.
+    producer.release_scratch(mark);
+    result?.map(|reason| producer.text(reason, check)).transpose()
 }
 
 fn shared_accessibility_ancestors<P: SemanticProducer>(
