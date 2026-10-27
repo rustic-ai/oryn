@@ -69,6 +69,27 @@ fn outer_history_publication_does_not_keep_checkpoint_spinning() {
 }
 
 #[test]
+fn empty_fetch_checkpoint_leaves_peer_timer_to_page_scheduler() {
+    let mut page = quiet_page();
+    page.agent
+        .host
+        .execute("globalThis.peerTimerRan=false;setTimeout(()=>peerTimerRan=true,0)")
+        .unwrap();
+    page.agent.host.drain_async_fetches(false).unwrap();
+    assert_eq!(
+        page.agent.host.evaluate_string("String(peerTimerRan)").unwrap(),
+        "false",
+        "an empty fetch/platform checkpoint must not drain a peer timer task"
+    );
+    assert!(page.has_runnable_page_work());
+    page.agent.host.drain_scheduled_timers(false).unwrap();
+    assert_eq!(
+        page.agent.host.evaluate_string("String(peerTimerRan)").unwrap(),
+        "true"
+    );
+}
+
+#[test]
 fn late_timer_yields_checkpoint_without_losing_page_work() {
     let mut page = quiet_page();
     page.agent

@@ -968,7 +968,14 @@ impl RawV8Host {
             // platform-completion turns so a self-sustaining request
             // chain cannot starve cancellation, transaction release, or
             // other zero-delay work.
-            delivered += self.drain_scheduled_timers(false)?;
+            // An empty nonblocking completion probe is not a platform task
+            // turn. Leave peer timers with the page scheduler instead of
+            // polling every live binding again at each fetch checkpoint.
+            // Waiting probes still service timers, and every real completion
+            // retains the fairness boundary above.
+            if pass != 0 || wait {
+                delivered += self.drain_scheduled_timers(false)?;
+            }
             if delivered >= MAX_COMPLETIONS_PER_CHECKPOINT {
                 break;
             }
