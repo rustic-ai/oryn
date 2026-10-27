@@ -115,3 +115,6 @@ def capture(protocol, url):
             protocol.logger.info('oryn-completion-diagnostic ' + json.dumps(records))
         except Exception:
             pass
+    if os.environ.get('ORYN_WPT_COMPLETION_REPLAY') == '1':
+        from .completion_replay import replay
+        replay(protocol, url)
