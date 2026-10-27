@@ -54,6 +54,7 @@ mod autocomplete;
 mod form_controls;
 mod numeric_controls;
 mod slots;
+pub use slots::InertChecker;
 pub use numeric_controls::parse_html_floating_point;
 mod insertion;
 mod selected_content;
@@ -4603,6 +4604,14 @@ impl DomRuntime {
         node: NodeId,
         checkpoint: &mut impl FnMut() -> Result<(), DomError>,
     ) -> Result<bool, DomError> {
+        self.is_inert_with_shadow_lookup(node, &mut slots::ShadowRootLookup::default(), checkpoint)
+    }
+    fn is_inert_with_shadow_lookup(
+        &self,
+        node: NodeId,
+        roots: &mut slots::ShadowRootLookup,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
         checkpoint()?;
         let document = self.arena.node_document(node)?;
         let mut modal = None;
@@ -4623,7 +4632,7 @@ impl DomRuntime {
                     inside = true;
                     break;
                 }
-                ancestor = self.flat_tree_parent_with_checkpoint(current, checkpoint)?;
+                ancestor = self.flat_tree_parent_with_shadow_lookup(current, roots, checkpoint)?;
             }
             if !inside {
                 return Ok(true);
@@ -4642,7 +4651,7 @@ impl DomRuntime {
             if Some(node) == modal {
                 break;
             }
-            current = self.flat_tree_parent_with_checkpoint(node, checkpoint)?;
+            current = self.flat_tree_parent_with_shadow_lookup(node, roots, checkpoint)?;
         }
         Ok(false)
     }
@@ -4701,12 +4710,20 @@ impl DomRuntime {
         node: NodeId,
         checkpoint: &mut impl FnMut() -> Result<(), DomError>,
     ) -> Result<Option<NodeId>, DomError> {
+        self.flat_tree_parent_with_shadow_lookup(node, &mut slots::ShadowRootLookup::default(), checkpoint)
+    }
+    fn flat_tree_parent_with_shadow_lookup(
+        &self,
+        node: NodeId,
+        roots: &mut slots::ShadowRootLookup,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<NodeId>, DomError> {
         checkpoint()?;
         let record = self.arena.get(node)?;
         if matches!(record.kind, NodeKind::Document) {
             return Ok(None);
         }
-        if let Some(slot) = self.assigned_slot_with_checkpoint(node, false, checkpoint)? {
+        if let Some(slot) = self.assigned_slot_with_shadow_lookup(node, false, roots, checkpoint)? {
             return Ok(Some(slot));
         }
         let Some(parent) = record.parent else {
@@ -4715,9 +4732,7 @@ impl DomRuntime {
         if matches!(self.arena.get(parent)?.kind, NodeKind::ShadowRoot { .. }) {
             return Ok(self.arena.get(parent)?.parent);
         }
-        if self
-            .attached_shadow_root_with_checkpoint(parent, false, checkpoint)?
-            .is_some()
+        if roots.root(self, parent, checkpoint)?.is_some()
             && !matches!(record.kind, NodeKind::ShadowRoot { .. })
         {
             return Ok(None);

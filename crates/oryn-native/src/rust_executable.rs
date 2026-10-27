@@ -742,12 +742,13 @@ fn populate_validation_states_for_root(
     let pack = |id: NodeId| (u64::from(id.generation) << 32) | u64::from(id.slot);
     // Manual/default assignment is authoritative only in the live runtime.
     input.shadow_trees.assigned_slots.clear();
+    let mut slot_lookup = dom.inert_checker();
     for node in &input.nodes {
         let id = NodeId {
             slot: node.id as u32,
             generation: (node.id >> 32) as u32,
         };
-        if let Some(slot) = dom.assigned_slot(id, false)? {
+        if let Some(slot) = slot_lookup.assigned_slot_with_checkpoint(id, false, &mut || Ok(()))? {
             input
                 .shadow_trees
                 .assigned_slots
@@ -755,7 +756,7 @@ fn populate_validation_states_for_root(
         }
         for child in &dom.arena().get(id)?.children {
             if matches!(dom.arena().get(*child)?.kind, NodeKind::Text { .. })
-                && let Some(slot) = dom.assigned_slot(*child, false)?
+                && let Some(slot) = slot_lookup.assigned_slot_with_checkpoint(*child, false, &mut || Ok(()))?
             {
                 input
                     .shadow_trees

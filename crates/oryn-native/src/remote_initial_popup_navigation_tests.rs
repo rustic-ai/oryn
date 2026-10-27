@@ -414,6 +414,7 @@ async fn remote_popup_navigates_before_first_destination_command() {
         } else {
             false
         };
+        let source_pending_at_script = busy_command.as_ref().is_none_or(|command| !command.is_finished());
         if let Some(command) = busy_command {
             assert!(command.await.unwrap().is_ok(), "busy source script must settle");
         }
@@ -501,6 +502,7 @@ async fn remote_popup_navigates_before_first_destination_command() {
         }
         context.retire_workers().await.unwrap();
         fixture.finish();
+        assert!(source_pending_at_script, "popup requests must progress while the source command is still pending");
         assert_eq!(observed.unwrap(), "true");
     }
 }

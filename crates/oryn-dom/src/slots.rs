@@ -2,7 +2,57 @@
 //! calculation native gives script accessors and event parenting one authority.
 use super::{DomError, DomRuntime, NodeId, NodeKind, ShadowMode};
 
+/// One immutable DOM borrow owns this cache; no entry survives a mutation.
+pub struct InertChecker<'a> {
+    dom: &'a DomRuntime,
+    roots: ShadowRootLookup,
+}
+impl InertChecker<'_> {
+    /// Reuse shadow-host discovery while projecting the same immutable DOM.
+    pub fn assigned_slot_with_checkpoint(
+        &mut self,
+        node: NodeId,
+        open_only: bool,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<NodeId>, DomError> {
+        self.dom.assigned_slot_with_shadow_lookup(node, open_only, &mut self.roots, checkpoint)
+    }
+
+    pub fn is_inert_with_checkpoint(
+        &mut self,
+        node: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<bool, DomError> {
+        self.dom.is_inert_with_shadow_lookup(node, &mut self.roots, checkpoint)
+    }
+}
+
+#[derive(Default)]
+pub(super) struct ShadowRootLookup {
+    cached: bool,
+    roots: std::collections::BTreeMap<NodeId, Option<NodeId>>,
+}
+impl ShadowRootLookup {
+    pub(super) fn root(
+        &mut self,
+        dom: &DomRuntime,
+        host: NodeId,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<NodeId>, DomError> {
+        checkpoint()?;
+        if self.cached && let Some(root) = self.roots.get(&host) {
+            return Ok(*root);
+        }
+        let root = dom.attached_shadow_root_with_checkpoint(host, false, checkpoint)?;
+        if self.cached { self.roots.insert(host, root); }
+        Ok(root)
+    }
+}
+
 impl DomRuntime {
+    pub fn inert_checker(&self) -> InertChecker<'_> {
+        InertChecker { dom: self, roots: ShadowRootLookup { cached: true, ..Default::default() } }
+    }
     /// Click without pointer capture targets the nearest inclusive common
     /// ancestor of the down/up nodes. Disconnected endpoints cannot activate.
     pub fn pointer_click_target(
@@ -275,6 +325,15 @@ impl DomRuntime {
         open_only: bool,
         checkpoint: &mut impl FnMut() -> Result<(), DomError>,
     ) -> Result<Option<NodeId>, DomError> {
+        self.assigned_slot_with_shadow_lookup(node, open_only, &mut ShadowRootLookup::default(), checkpoint)
+    }
+    pub(super) fn assigned_slot_with_shadow_lookup(
+        &self,
+        node: NodeId,
+        open_only: bool,
+        roots: &mut ShadowRootLookup,
+        checkpoint: &mut impl FnMut() -> Result<(), DomError>,
+    ) -> Result<Option<NodeId>, DomError> {
         checkpoint()?;
         if !self.is_slottable(node)? {
             return Ok(None);
@@ -282,10 +341,13 @@ impl DomRuntime {
         let Some(host) = self.arena.get(node)?.parent else {
             return Ok(None);
         };
-        let Some(root) = self.attached_shadow_root_with_checkpoint(host, open_only, checkpoint)?
+        let Some(root) = roots.root(self, host, checkpoint)?
         else {
             return Ok(None);
         };
+        if open_only && matches!(self.arena.get(root)?.kind, NodeKind::ShadowRoot { mode: ShadowMode::Closed, .. }) {
+            return Ok(None);
+        }
         if self.has_manual_slot_assignment(root) {
             let candidate = self.manual_node_slots.get(&node).copied();
             return match candidate {
@@ -446,6 +508,57 @@ impl DomRuntime {
 mod tests {
     use super::*;
     use crate::html;
+
+    #[test]
+    fn inert_checker_coalesces_wide_light_tree_shadow_queries() {
+        let dom = html::parse(&format!("<main inert><section>{}</section></main>",
+            "<span>x</span>".repeat(1024))).into_runtime().unwrap();
+        let spans = dom.arena().iter().filter_map(|(id, node)|
+            matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "span").then_some(id)
+        ).collect::<Vec<_>>();
+        let mut checker = dom.inert_checker();
+        let mut checks = 0usize;
+        for node in spans {
+            assert_eq!(checker.assigned_slot_with_checkpoint(node, false, &mut || { checks += 1; Ok(()) }).unwrap(), None);
+            assert!(checker.is_inert_with_checkpoint(node, &mut || { checks += 1; Ok(()) }).unwrap());
+        }
+        assert!(checks < 32768, "a wide light tree must not rescan its siblings for every inert query: {checks}");
+    }
+
+    #[test]
+    fn inert_checker_preserves_closed_manual_slots_modal_rules_and_cancellation() {
+        let mut dom = html::parse("<div id=host inert><button id=assigned></button></div><dialog id=modal><button id=inside></button></dialog>")
+            .into_runtime().unwrap();
+        let host = dom.find_by_id("host").unwrap();
+        let assigned = dom.find_by_id("assigned").unwrap();
+        let modal = dom.find_by_id("modal").unwrap();
+        let root = dom.create(NodeKind::ShadowRoot { mode: ShadowMode::Closed, clonable: false });
+        dom.set_manual_slot_assignment(root).unwrap();
+        dom.append_child(host, root).unwrap();
+        let slot = dom.create_element("slot");
+        dom.append_child(root, slot).unwrap();
+        dom.assign_slot_nodes(slot, &[assigned]).unwrap();
+        let compare = |dom: &DomRuntime| {
+            let nodes = dom.arena().iter().map(|(id, _)| id).collect::<Vec<_>>();
+            let mut checker = dom.inert_checker();
+            for node in nodes {
+                for open_only in [false, true] {
+                    assert_eq!(checker.assigned_slot_with_checkpoint(node, open_only, &mut || Ok(())).unwrap(), dom.assigned_slot(node, open_only).unwrap());
+                }
+                assert_eq!(checker.is_inert_with_checkpoint(node, &mut || Ok(())).unwrap(), dom.is_inert(node).unwrap());
+            }
+            assert!(matches!(checker.is_inert_with_checkpoint(assigned, &mut || Err(DomError::ProjectionCancelled)),
+                Err(DomError::ProjectionCancelled)));
+        };
+        compare(&dom);
+        dom.assign_slot_nodes(slot, &[]).unwrap();
+        dom.remove_attribute(host, "inert").unwrap();
+        compare(&dom);
+        dom.add_to_top_layer(modal, crate::TopLayerKind::ModalDialog).unwrap();
+        compare(&dom);
+        dom.set_attribute(modal, "inert", "").unwrap();
+        compare(&dom);
+    }
 
     #[test]
     fn pointer_click_common_ancestor_requires_connected_endpoints() {
