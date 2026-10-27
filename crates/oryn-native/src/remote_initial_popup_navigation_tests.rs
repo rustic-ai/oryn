@@ -1,6 +1,7 @@
 //! Production-worker popup must navigate before its first explicit command.
 use super::*;
 use std::io::{Read, Write};
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn production_worker_redirect_csp_event_reaches_worker_listener() {
     assert!(std::env::var_os("ORYN_PAGE_WORKER").is_some());
@@ -104,12 +105,21 @@ async fn production_worker_redirect_csp_event_reaches_worker_listener() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn production_parent_load_waits_for_complete_streamed_child_population() {
+    streamed_child_load_control(false, false, false).await;
+    streamed_child_load_control(true, false, false).await;
+    streamed_child_load_control(true, true, false).await;
+    streamed_child_load_control(true, false, true).await;
+}
+
+async fn streamed_child_load_control(navigate: bool, late_encoding: bool, blocking_script: bool) {
+    let parent = format!("<!doctype html><head>{}</head><body onload=\"globalThis.loadCount=document.getElementById('scrwin').contentWindow.document.querySelectorAll('span').length\"><iframe id='scrwin' name='scriptWindow' style='display:none' src='/child'></iframe></body>", if blocking_script { "<script src='/blocking.js'></script>" } else { "" });
     assert!(std::env::var_os("ORYN_PAGE_WORKER").is_some());
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let port = listener.local_addr().unwrap().port();
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let server_stop = stop.clone();
+    let server_parent = parent.clone();
     let server = std::thread::spawn(move || {
         while !server_stop.load(std::sync::atomic::Ordering::Acquire) {
             match listener.accept() {
@@ -128,16 +138,30 @@ async fn production_parent_load_waits_for_complete_streamed_child_population() {
                         }
                         header.push(byte[0]);
                     }
+                    if header.starts_with(b"GET /parent ") {
+                        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{server_parent}", server_parent.len());
+                        let _ = stream.write_all(response.as_bytes());
+                        continue;
+                    }
+                    if header.starts_with(b"GET /blocking.js ") {
+                        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/javascript\r\nContent-Length: 5\r\nConnection: close\r\n\r\ntrue;");
+                        continue;
+                    }
+                    let prologue = if late_encoding {
+                        format!("<!doctype html><head>{}<meta charset=windows-1251></head><body>", " ".repeat(1100))
+                    } else { "<!doctype html><body>".to_owned() };
+                    let span = "<span data-cp='1234'>abcdefghij</span>";
                     let prefix = format!(
-                        "<!doctype html><body>{}",
-                        "<span data-cp='1234'>abcdefghij</span>".repeat(1636)
+                        "{prologue}{}",
+                        span.repeat(1636)
                     );
                     let suffix = format!(
                         "{}</body>",
-                        "<span data-cp='1234'>abcdefghij</span>".repeat(2048 - 1636)
+                        span.repeat(2048 - 1636)
                     );
+                    let media = if late_encoding { "text/html" } else { "text/html; charset=utf-8" };
                     let response = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{prefix}",
+                        "HTTP/1.1 200 OK\r\nContent-Type: {media}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{prefix}",
                         prefix.len() + suffix.len()
                     );
                     if stream.write_all(response.as_bytes()).is_ok() {
@@ -171,8 +195,12 @@ async fn production_parent_load_waits_for_complete_streamed_child_population() {
         .unwrap()
         .new_audited_context_with_isolated_auxiliaries(ContextOptions::loopback_test());
     let page = context.new_page();
-    let loaded = page.load_html(&format!("http://source.test:{port}/parent"),
-        "<!doctype html><body onload=\"globalThis.loadCount=document.getElementById('scrwin').contentDocument.querySelectorAll('span').length\"><iframe id='scrwin' style='display:none' src='/child'></iframe></body>").await;
+    let url = format!("http://source.test:{port}/parent");
+    let loaded = if navigate {
+        page.goto(url).await.map(|_| ())
+    } else {
+        page.load_html(url, parent).await.map(|_| ())
+    };
     let observed = if loaded.is_ok() {
         page.wait_for_timeout(
             WaitPredicate::Lifecycle(LifecycleState::Load),
@@ -193,7 +221,7 @@ async fn production_parent_load_waits_for_complete_streamed_child_population() {
         observed.is_ok(),
         "load completion: {observed:?}; counts: {counts:?}"
     );
-    assert_eq!(counts.unwrap(), "[2048,2048]");
+    assert_eq!(counts.unwrap(), "[2048,2048]", "navigate={navigate},late_encoding={late_encoding},blocking_script={blocking_script}");
 }
 
 struct ExecutorFixture {
@@ -347,6 +375,16 @@ async fn remote_popup_navigates_before_first_destination_command() {
             )
             .await
             .unwrap();
+        let busy_command = if parser_receive {
+            let running = source.clone();
+            let body = format!("globalThis.popup=window.open({destination:?});const done=arguments[0];setTimeout(()=>done(true),2000)");
+            Some(tokio::spawn(async move {
+                running.execute_webdriver_script(crate::host::webdriver_script::ScriptRequest {
+                    body: body.encode_utf16().collect(), args: vec![], asynchronous: true,
+                    timeout_ms: Some(5000),
+                }).await
+            }))
+        } else {
         assert_eq!(
             source
                 .evaluate(&format!(
@@ -356,6 +394,8 @@ async fn remote_popup_navigates_before_first_destination_command() {
                 .unwrap(),
             "true"
         );
+            None
+        };
         // No destination command may bootstrap the controller under test.
         let reached = tokio::time::timeout(Duration::from_secs(5), requests.recv()).await;
         let ping = if matches!(reached, Ok(Some("executor"))) {
@@ -374,6 +414,9 @@ async fn remote_popup_navigates_before_first_destination_command() {
         } else {
             false
         };
+        if let Some(command) = busy_command {
+            assert!(command.await.unwrap().is_ok(), "busy source script must settle");
+        }
         if !matches!(reached, Ok(Some("executor"))) {
             // Read only after the original no-command arrival deadline failed;
             // this diagnostic cannot turn that failed observation into a pass.

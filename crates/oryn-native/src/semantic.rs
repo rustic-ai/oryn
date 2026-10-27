@@ -8130,6 +8130,8 @@ impl SemanticLeaseOwner<'_> {
 // staging source: shared-context-v40.rs
 trait SemanticProducer {
     type Error: From<crate::dom::DomError>;
+    fn cached_modal(&self, _: &DomArena, _: NodeId) -> Option<Option<NodeId>> { None }
+    fn remember_modal(&mut self, _: &DomArena, _: NodeId, _: Option<NodeId>) {}
     fn receipt_mark(&self) -> usize {
         0
     }
@@ -8169,6 +8171,32 @@ trait SemanticProducer {
     }
 }
 struct OrdinarySemanticProducer;
+
+// This cache borrows the exact immutable arena for a single preparation pass.
+// It is dropped before that pass returns, never retained on the graph or reused
+// after an author mutation. The single entry is inline, with no heap capacity.
+struct ModalCachingProducer<'a, 'p, P> {
+    dom: &'a DomArena,
+    inner: &'p mut P,
+    modal: Option<(NodeId, Option<NodeId>)>,
+}
+impl<P: SemanticProducer> SemanticProducer for ModalCachingProducer<'_, '_, P> {
+    type Error = P::Error;
+    fn cached_modal(&self, dom: &DomArena, document: NodeId) -> Option<Option<NodeId>> {
+        std::ptr::eq(self.dom, dom).then_some(self.modal).flatten()
+            .filter(|(owner, _)| *owner == document).map(|(_, modal)| modal)
+    }
+    fn remember_modal(&mut self, dom: &DomArena, document: NodeId, modal: Option<NodeId>) {
+        if std::ptr::eq(self.dom, dom) { self.modal = Some((document, modal)); }
+    }
+    fn receipt_mark(&self) -> usize { self.inner.receipt_mark() }
+    fn release_scratch(&mut self, mark: usize) { self.inner.release_scratch(mark); }
+    fn release_receipt_range(&mut self, range: std::ops::Range<usize>) { self.inner.release_receipt_range(range); }
+    fn ordinary_dom_error(error: Self::Error) -> Result<crate::dom::DomError, Self::Error> { P::ordinary_dom_error(error) }
+    fn reserve(&mut self, bytes: usize) -> Result<(), Self::Error> { self.inner.reserve(bytes) }
+    fn allocation_error(&self, error: std::collections::TryReserveError) -> Self::Error { self.inner.allocation_error(error) }
+}
+
 impl SemanticProducer for OrdinarySemanticProducer {
     type Error = crate::dom::DomError;
     fn ordinary_dom_error(error: Self::Error) -> Result<crate::dom::DomError, Self::Error> {
@@ -8810,6 +8838,44 @@ mod shared_admission_controls {
         atomic::{AtomicUsize, Ordering},
     };
     struct Receipt(Arc<AtomicUsize>);
+    #[test]
+    fn ownership_reconciliation_runs_once_per_immutable_mutation_batch() {
+        let html = format!("<button id=target>target</button>{}", "<span>text</span>".repeat(128));
+        let dom = crate::html::parse(&html).into_runtime().unwrap();
+        let target = dom.find_by_id("target").unwrap();
+        let mut one = SemanticGraph::new(PageId(1), 1);
+        one.reset(dom.arena(), 1);
+        let mut many = one.try_clone_with_checkpoint(&mut || Ok(())).unwrap();
+        let mutation = crate::dom::Mutation::HostedDocument { frame: target };
+        let mut first = 0;
+        one.shared_apply_mutations(dom.arena(), std::slice::from_ref(&mutation), &mut OrdinarySemanticProducer, &mut || { first += 1; Ok(()) }).unwrap();
+        let mutations = vec![mutation; 128];
+        let mut repeated = 0;
+        many.shared_apply_mutations(dom.arena(), &mutations, &mut OrdinarySemanticProducer, &mut || { repeated += 1; Ok(()) }).unwrap();
+        assert_eq!(format!("{:?}", one.full), format!("{:?}", many.full));
+        assert_eq!(format!("{:?}", one.accessibility), format!("{:?}", many.accessibility));
+        assert!(repeated <= first + 256, "repeated associations must not rescan the arena: {first}/{repeated}");
+    }
+    #[test]
+    fn modal_cache_is_scoped_to_one_immutable_arena_and_preserves_exclusion() {
+        for modal in ["", "<div role=dialog aria-modal=true><button>modal</button></div>"] {
+            let html = format!("<span id=target>outside</span>{modal}{}", "<span>text</span>".repeat(256));
+            let document = crate::html::parse(&html).into_runtime().unwrap();
+            let target = document.find_by_id("target").unwrap();
+            let expected = shared_tree_exclusion(document.arena(), target, "generic", &mut OrdinarySemanticProducer, &mut || Ok(())).unwrap();
+            let mut inner = OrdinarySemanticProducer;
+            let mut scoped = ModalCachingProducer { dom: document.arena(), inner: &mut inner, modal: None };
+            let mut first = 0;
+            assert_eq!(shared_tree_exclusion(document.arena(), target, "generic", &mut scoped, &mut || { first += 1; Ok(()) }).unwrap(), expected);
+            let mut second = 0;
+            assert_eq!(shared_tree_exclusion(document.arena(), target, "generic", &mut scoped, &mut || { second += 1; Ok(()) }).unwrap(), expected);
+            assert!(second < first, "the repeated document-wide scan must be avoided");
+            let other = crate::html::parse(&html).into_runtime().unwrap();
+            assert_eq!(scoped.cached_modal(other.arena(), document.document()), None);
+            let canceled = shared_tree_exclusion(document.arena(), target, "generic", &mut scoped, &mut || Err(crate::dom::DomError::SemanticProjectionCapacity));
+            assert!(canceled.is_err(), "cache hits still honor owner checkpoints");
+        }
+    }
     #[test]
     fn modal_exclusion_search_releases_document_wide_scratch() {
         struct BytesReceipt(Arc<AtomicUsize>, usize);
@@ -12530,29 +12596,36 @@ fn shared_tree_exclusion<P: SemanticProducer>(
                 .is_ok_and(|node| matches!(node.kind, NodeKind::Document))
         });
         if let Some(document) = document {
-            let mut candidates = producer.vector(1)?;
-            candidates.push(document);
-            for descendant in shared_descendants_with_checkpoint(dom, document, producer, check)? {
+            let modal = if let Some(modal) = producer.cached_modal(dom, document) {
                 check()?;
-                shared_vector_push(&mut candidates, descendant, producer, check)?;
-            }
-            let mut modal = None;
-            for candidate in candidates.into_iter().rev() {
-                check()?;
-                if let Ok(candidate_node) = dom.get(candidate)
-                    && candidate_node
-                        .accessibility_attribute_with_checkpoint("aria-modal", check)?
-                        .is_some_and(|value| value.eq_ignore_ascii_case("true"))
-                    && !shared_is_hidden(dom, candidate, producer, check)?
-                    && matches!(
-                        shared_role_for_node(dom, candidate, producer, check)?.as_str(),
-                        "dialog" | "alertdialog"
-                    )
-                {
-                    modal = Some(candidate);
-                    break;
+                modal
+            } else {
+                let mut candidates = producer.vector(1)?;
+                candidates.push(document);
+                for descendant in shared_descendants_with_checkpoint(dom, document, producer, check)? {
+                    check()?;
+                    shared_vector_push(&mut candidates, descendant, producer, check)?;
                 }
-            }
+                let mut modal = None;
+                for candidate in candidates.into_iter().rev() {
+                    check()?;
+                    if let Ok(candidate_node) = dom.get(candidate)
+                        && candidate_node
+                            .accessibility_attribute_with_checkpoint("aria-modal", check)?
+                            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+                        && !shared_is_hidden(dom, candidate, producer, check)?
+                        && matches!(
+                            shared_role_for_node(dom, candidate, producer, check)?.as_str(),
+                            "dialog" | "alertdialog"
+                        )
+                    {
+                        modal = Some(candidate);
+                        break;
+                    }
+                }
+                producer.remember_modal(dom, document, modal);
+                modal
+            };
             if let Some(modal) = modal {
                 let owners = accepted_aria_owners_with_checkpoint(dom, check)?;
                 if !shared_accessibility_ancestors(dom, id, &owners, producer, check)?.contains(&modal)
@@ -13818,6 +13891,8 @@ impl SemanticGraph {
         }
         let projection = self.layout_projection_with_checkpoint(dom, check)?;
         let dom = projection.as_ref().unwrap_or(dom);
+        let mut scoped = ModalCachingProducer { dom, inner: producer, modal: None };
+        let producer = &mut scoped;
         self.native_control_cursor = None;
         for node in self.full.values() {
             check()?;
@@ -13890,10 +13965,12 @@ impl SemanticGraph {
     ) -> Result<(), P::Error> {
         check()?;
         let projection = self.layout_projection_with_checkpoint(dom, check)?;
+        let dom = projection.as_ref().unwrap_or(dom);
+        let mut scoped = ModalCachingProducer { dom, inner: producer, modal: None };
         self.shared_apply_projected_mutations(
-            projection.as_ref().unwrap_or(dom),
+            dom,
             mutations,
-            producer,
+            &mut scoped,
             check,
         )
     }
@@ -13912,6 +13989,7 @@ impl SemanticGraph {
         use crate::dom::Mutation;
         let mut dirty = BTreeSet::new();
         let mut dependency_change = false;
+        let mut ownership_reconciled = false;
         // Modal accessibility scope affects siblings, not only descendants of
         // the changed dialog. Include the prior scope when a modal is removed.
         let mut modal = false;
@@ -13956,16 +14034,22 @@ impl SemanticGraph {
                     // Association changes are not DOM child-list mutations.
                     // Reconcile old retained documents as well as the new tree.
                     dirty.insert(*frame);
-                    for id in self.full.keys() {
-                        check()?;
-                        dirty.insert(*id);
-                    }
-                    {
-                        let mut cursor = 0usize;
-                        while let Some((id, _)) = dom.next_with_checkpoint(&mut cursor, check)? {
+                    if !ownership_reconciled {
+                        // All mutations see the same final immutable arena;
+                        // full can only shrink until the refresh below. The
+                        // first reconciliation therefore covers later ones.
+                        for id in self.full.keys() {
                             check()?;
-                            dirty.insert(id);
+                            dirty.insert(*id);
                         }
+                        {
+                            let mut cursor = 0usize;
+                            while let Some((id, _)) = dom.next_with_checkpoint(&mut cursor, check)? {
+                                check()?;
+                                dirty.insert(id);
+                            }
+                        }
+                        ownership_reconciled = true;
                     }
                     dependency_change = true;
                 }

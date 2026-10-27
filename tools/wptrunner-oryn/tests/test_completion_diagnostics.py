@@ -22,6 +22,8 @@ class CompletionDiagnosticsTests(unittest.TestCase):
                     return ['child']
                 if uri == 'execute/sync':
                     return {'encoding_span_count': span_count,
+                            'encoding_live_span_count': span_count,
+                            'encoding_child_ready_state': 'loading' if expected else 'private payload',
                             'encoding_test_count': test_count}
             protocol = SimpleNamespace(webdriver=SimpleNamespace(send_session_command=send),
                                        logger=SimpleNamespace(info=logs.append))
@@ -31,8 +33,12 @@ class CompletionDiagnosticsTests(unittest.TestCase):
             if expected is not None:
                 self.assertIn(expected, logs[0])
                 self.assertIn('"encoding_span_count": 13459', logs[0])
+                self.assertIn('"encoding_live_span_count": 13459', logs[0])
+                self.assertIn('"encoding_child_ready_state": "loading"', logs[0])
             else:
                 self.assertNotIn('encoding_span_count', logs[0])
+                self.assertNotIn('encoding_live_span_count', logs[0])
+                self.assertNotIn('encoding_child_ready_state', logs[0])
                 self.assertNotIn('encoding_test_count', logs[0])
             self.assertNotIn('private payload', logs[0])
 

@@ -14,6 +14,8 @@ SCRIPT = """return {
   send_queue_count: typeof sendQueues === 'undefined' ? null : sendQueues.size,
   uuid_is_string: typeof uuid === 'undefined' ? null : typeof uuid === 'string',
   encoding_span_count: document.getElementById('scrwin')?.contentDocument?.querySelectorAll('span').length,
+  encoding_live_span_count: document.getElementById('scrwin')?.contentDocument?.getElementsByTagName('span').length,
+  encoding_child_ready_state: document.getElementById('scrwin')?.contentDocument?.readyState,
   encoding_test_count: typeof tests === 'undefined' || !Array.isArray(tests) ? null : tests.filter(Boolean).length,
   recent_requests: typeof __oryn_context_trace === 'undefined' ? [] :
     __oryn_context_trace.filter(e => ['request_started','response_received','stream_chunk','capability_failure'].includes(e.kind)).slice(-8).map(e => ({
@@ -57,12 +59,14 @@ def capture(protocol, url):
                                                 {'script': SCRIPT, 'args': []}, timeout=2)
             observation = {}
             if isinstance(value, dict):
-                for name in ('frame_count', 'script_count', 'send_queue_count', 'encoding_span_count', 'encoding_test_count'):
+                for name in ('frame_count', 'script_count', 'send_queue_count', 'encoding_span_count', 'encoding_live_span_count', 'encoding_test_count'):
                     count = value.get(name)
                     if type(count) in (int, float) and 0 <= count <= 1_000_000 and int(count) == count:
                         observation[name] = int(count)
                 if value.get('ready_state') in ('loading', 'interactive', 'complete'):
                     observation['ready_state'] = value['ready_state']
+                if value.get('encoding_child_ready_state') in ('loading', 'interactive', 'complete'):
+                    observation['encoding_child_ready_state'] = value['encoding_child_ready_state']
                 for name in ('executor_type', 'receive_type'):
                     if value.get(name) in ('undefined', 'function'):
                         observation[name] = value[name]
