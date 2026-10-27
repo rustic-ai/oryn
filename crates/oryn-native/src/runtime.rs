@@ -38519,9 +38519,19 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
         let page = context.new_page();
         page.goto("https://encoding.test/root").await.unwrap();
         assert_eq!(page.evaluate("[document.characterSet,seen,document.querySelector('p').textContent,staticFrame.contentDocument.characterSet,staticFrame.contentWindow.seen,staticFrame.contentDocument.querySelector('p').textContent].join('|')").await.unwrap(), "windows-1252|windows-1252|é|windows-1252|windows-1252|é");
-        page.evaluate("globalThis.dynamicFrame=document.createElement('iframe');dynamicFrame.src='/child';document.body.appendChild(dynamicFrame);true").await.unwrap();
+        // Dynamic frame navigation is asynchronous. Observe its load event,
+        // rather than depending on incidental work between two evaluations.
+        page.evaluate("globalThis.dynamicFrameLoaded=false;globalThis.dynamicFrame=document.createElement('iframe');dynamicFrame.onload=()=>globalThis.dynamicFrameLoaded=true;dynamicFrame.src='/child';document.body.appendChild(dynamicFrame);true").await.unwrap();
+        page.wait_for_timeout(
+            WaitPredicate::JavaScript("dynamicFrameLoaded".into()),
+            Some(Duration::from_secs(5)),
+        ).await.unwrap();
         assert_eq!(page.evaluate("[dynamicFrame.contentDocument.characterSet,dynamicFrame.contentWindow.seen].join('|')").await.unwrap(), "windows-1252|windows-1252");
-        page.evaluate("globalThis.plainFrame=document.createElement('iframe');plainFrame.src='/plain';document.body.appendChild(plainFrame);true").await.unwrap();
+        page.evaluate("globalThis.plainFrameLoaded=false;globalThis.plainFrame=document.createElement('iframe');plainFrame.onload=()=>globalThis.plainFrameLoaded=true;plainFrame.src='/plain';document.body.appendChild(plainFrame);true").await.unwrap();
+        page.wait_for_timeout(
+            WaitPredicate::JavaScript("plainFrameLoaded".into()),
+            Some(Duration::from_secs(5)),
+        ).await.unwrap();
         assert_eq!(page.evaluate("[plainFrame.contentDocument.characterSet,plainFrame.contentDocument.body.textContent].join('|')").await.unwrap(),
             "UTF-8|<meta charset=windows-1252>é");
         page.goto("https://encoding.test/bom").await.unwrap();
