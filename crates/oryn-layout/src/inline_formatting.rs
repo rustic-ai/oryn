@@ -238,6 +238,28 @@ pub(super) fn collect(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cluster_line_index_preserves_visual_order_and_ignores_invalid_lines() {
+        use crate::text_source::TextCluster;
+        let rect = CssRect { x: 0., y: 0., width: 1., height: 1. };
+        let clusters = vec![
+            TextCluster { bytes: 8..10, rect, line: 1, rtl: true },
+            TextCluster { bytes: 0..2, rect, line: 0, rtl: false },
+            TextCluster { bytes: 6..8, rect, line: 1, rtl: true },
+            TextCluster { bytes: 2..4, rect, line: 0, rtl: true },
+            TextCluster { bytes: 10..12, rect, line: 9, rtl: false },
+        ];
+        let index = ClusterIndex::new(&clusters, 2);
+        for line in 0..2 {
+            let original: Vec<_> = clusters.iter().filter(|c| c.line == line).collect();
+            assert_eq!(index.select(line, 0, 12), original);
+            for range in [0..12, 2..8, 6..10, 9..8] {
+                let selected = index.select(line, range.start, range.end);
+                let original: Vec<_> = clusters.iter().filter(|c| c.line == line && c.bytes.start >= range.start && c.bytes.end <= range.end).collect();
+                assert_eq!(selected, original);
+            }
+        }
+    }
     fn node(id: u64, parent: Option<u64>, tag: &str, text: &str) -> LayoutNode {
         LayoutNode {
             tree_scope: None,
@@ -347,6 +369,32 @@ mod tests {
     }
 }
 
+/// Byte-range lookup retaining the native visual order of each line.
+struct ClusterIndex<'a>(Vec<Vec<(usize, &'a crate::text_source::TextCluster)>>);
+impl<'a> ClusterIndex<'a> {
+    fn new(clusters: &'a [crate::text_source::TextCluster], line_count: usize) -> Self {
+        let mut index = vec![Vec::new(); line_count];
+        for (visual_order, cluster) in clusters.iter().enumerate() {
+            if let Some(line) = index.get_mut(cluster.line) {
+                line.push((visual_order, cluster));
+            }
+        }
+        for line in &mut index {
+            line.sort_unstable_by_key(|(order, cluster)| (cluster.bytes.start, *order));
+        }
+        Self(index)
+    }
+    fn select(&self, line: usize, start: usize, end: usize) -> Vec<&'a crate::text_source::TextCluster> {
+        let line = &self.0[line];
+        let lower = line.partition_point(|(_, c)| c.bytes.start < start);
+        let upper = line.partition_point(|(_, c)| c.bytes.start <= end);
+        if lower > upper { return Vec::new(); }
+        let mut selected: Vec<_> = line[lower..upper].iter().copied().filter(|(_, c)| c.bytes.end <= end).collect();
+        selected.sort_unstable_by_key(|(order, _)| *order);
+        selected.into_iter().map(|(_, c)| c).collect()
+    }
+}
+
 /// Partition native shaped runs without re-shaping, distributing characters by
 /// glyph count, or changing the original DOM text. Ligature clusters retain the
 /// complete native byte range selected by their owning run.
@@ -358,6 +406,9 @@ pub(super) fn paint_fragments(
     styles: &ComputedStyles,
 ) -> BTreeMap<u64, Vec<PaintTextFragment>> {
     let mut output = BTreeMap::<u64, Vec<PaintTextFragment>>::new();
+    // Preserve visual order within each line without scanning every other
+    // line's clusters for every source span (quadratic for large documents).
+    let clusters_by_line = ClusterIndex::new(&layout.clusters, layout.lines.len());
     for (line_index, line) in layout.lines.iter().enumerate() {
         let Some(line_range) = layout.line_ranges.get(line_index) else {
             continue;
@@ -393,14 +444,9 @@ pub(super) fn paint_fragments(
             Option<bool>,
         )>::new();
         for ((owner, start, end), mut runs) in grouped {
-            let mut directions = layout
-                .clusters
+            let selected = clusters_by_line.select(line_index, start, end);
+            let mut directions = selected
                 .iter()
-                .filter(|cluster| {
-                    cluster.line == line_index
-                        && cluster.bytes.start >= start
-                        && cluster.bytes.end <= end
-                })
                 .map(|cluster| cluster.rtl);
             let direction = directions
                 .next()
@@ -475,14 +521,9 @@ pub(super) fn paint_fragments(
             } else {
                 ""
             };
-            let clusters = layout
-                .clusters
+            let selected = clusters_by_line.select(line_index, start, end);
+            let clusters = selected
                 .iter()
-                .filter(|cluster| {
-                    cluster.line == line_index
-                        && cluster.bytes.start >= start
-                        && cluster.bytes.end <= end
-                })
                 .map(|cluster| oryn_common::v4::PaintTextCluster {
                     start: cluster.bytes.start - start,
                     end: cluster.bytes.end - start,

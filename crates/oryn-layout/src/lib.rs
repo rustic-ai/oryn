@@ -6666,6 +6666,11 @@ fn stylo_computed_values_with_instances_controlled(
         *result=Some(LegacyFontResolution{demand,pixels});
     }
     let mut shared_styles = BTreeSet::<ComputedStyle>::new();
+    // Native style sharing is already authoritative. Serialize each exact
+    // immutable computed object once in this cascade, retaining its Arc so
+    // temporary resolved styles cannot reuse an identity during the pass.
+    let mut serialized_native_styles = BTreeMap::<usize, ComputedStyle>::new();
+    let mut retained_native_styles = Vec::new();
     let mut author_whitespace = BTreeSet::new();
     let mut pending = BTreeSet::new();
     for node in &input.nodes {
@@ -6678,6 +6683,18 @@ fn stylo_computed_values_with_instances_controlled(
                 LayoutError::StyleTraversal(format!("missing mirror for node {}", node.id))
             })?;
             if let Some(computed) = document.resolved_primary_style(mirror) {
+                use style::computed_value_flags::ComputedValueFlags;
+                if computed.flags.intersects(
+                    ComputedValueFlags::HAS_AUTHOR_WHITE_SPACE_COLLAPSE
+                        | ComputedValueFlags::HAS_AUTHOR_TEXT_WRAP_MODE,
+                ) {
+                    author_whitespace.insert(node.id);
+                }
+                let identity = (&*computed as *const style::properties::ComputedValues) as usize;
+                if let Some(shared) = serialized_native_styles.get(&identity) {
+                    output.insert(node.id, shared.clone());
+                    continue;
+                }
                 values.insert(
                     "oryn-effective-zoom".into(),
                     computed.effective_zoom.value().to_string(),
@@ -6700,13 +6717,6 @@ fn stylo_computed_values_with_instances_controlled(
                     }
                     .into(),
                 );
-                use style::computed_value_flags::ComputedValueFlags;
-                if computed.flags.intersects(
-                    ComputedValueFlags::HAS_AUTHOR_WHITE_SPACE_COLLAPSE
-                        | ComputedValueFlags::HAS_AUTHOR_TEXT_WRAP_MODE,
-                ) {
-                    author_whitespace.insert(node.id);
-                }
                 for name in COMPUTED_PROPERTIES {
                     layout_checkpoint(&cancelled)?;
                     let Ok(property) = PropertyId::parse_enabled_for_all_content(name) else {
@@ -6758,6 +6768,11 @@ fn stylo_computed_values_with_instances_controlled(
                         values.insert(format!("--{name}"), value.to_css_string());
                     }
                 }
+                let shared = intern_computed_style(values, &mut shared_styles);
+                serialized_native_styles.insert(identity, shared.clone());
+                retained_native_styles.push(computed);
+                output.insert(node.id, shared);
+                continue;
             } else {
                 return Err(LayoutError::StyleTraversal(format!(
                     "Stylo did not resolve element {}",
@@ -6788,6 +6803,12 @@ fn stylo_computed_values_with_instances_controlled(
             };
             if author_whitespace.contains(&parent) {
                 author_whitespace.insert(*id);
+            }
+            if matches!(node.tag.as_str(), "#text" | "#comment")
+                && parent_style.get("display").is_some_and(|display| display == "inline")
+            {
+                output.insert(*id, parent_style);
+                return false;
             }
             let mut style = (*parent_style).clone();
             if node.tag == "#text" || node.tag == "#comment" {
