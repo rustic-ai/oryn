@@ -442,9 +442,15 @@ impl RawV8Host {
             registry.scheduler.advance_to(now_ms);
         }
         let mut delivered = external_delivered;
+        // Each page owner pumps its own root and live child frames. Shared
+        // standalone roots have independent PageState drivers; polling them
+        // here repeats their platform sweep in every sibling's actor turn.
+        // Direct standalone host drains retain global scheduling.
+        let page_realms = terminal.map(|_| self.active_root_realm_ids());
         let input_realms = self
             .binding_states
             .iter()
+            .filter(|(realm, _)| page_realms.as_ref().is_none_or(|realms| realms.contains(realm)))
             .filter(|(realm, _)| !self.realm_is_parked(**realm))
             .filter(|(_, state)| !state.is_unloading())
             .map(|(realm, state)| (*realm, state.clone()))
@@ -469,6 +475,7 @@ impl RawV8Host {
         let selection_realms = self
             .binding_states
             .iter()
+            .filter(|(realm, _)| page_realms.as_ref().is_none_or(|realms| realms.contains(realm)))
             .filter(|(realm, state)| !self.realm_is_parked(**realm) && !state.is_unloading())
             .map(|(realm, state)| (*realm, state.clone()))
             .collect::<Vec<_>>();

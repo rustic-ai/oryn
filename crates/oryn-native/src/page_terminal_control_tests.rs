@@ -1,6 +1,35 @@
 // Included alongside the real actor tests. Phase hooks observe actual production
 // boundaries; no sleeping, fabricated completion, or replacement task loop.
 #[test]
+fn page_owned_platform_sweep_does_not_poll_independent_root() {
+    let (mut root, _sender) = timer_root(1889);
+    let _control = close_yield_control(&mut root);
+    let owner = root.state.page_task_terminal_control.clone();
+    let page = root.state.executable.as_mut().unwrap();
+    let mut host = page.take_agent_host().unwrap();
+    let selected = host.active_realm();
+    let sibling = host.create_realm_with_dom(
+        "https://example.test", 1, Some(1),
+        std::rc::Rc::new(std::cell::RefCell::new(oryn_dom::DomRuntime::new())),
+    ).unwrap();
+    host.activate_realm(selected).unwrap();
+    let (result, labels) =
+        crate::ipc_progress::close_admission::capture_test_phase_labels(|| {
+            host.drain_scheduled_timers_with_terminal_control(false, Some(&owner))
+        });
+    result.unwrap();
+    assert_eq!(labels.iter().filter(|label| **label == "timer_platform_defaults").count(), 1);
+    let (result, labels) =
+        crate::ipc_progress::close_admission::capture_test_phase_labels(|| {
+            host.drain_scheduled_timers(false)
+        });
+    result.unwrap();
+    assert_eq!(labels.iter().filter(|label| **label == "timer_platform_defaults").count(), 2);
+    assert_ne!(selected, sibling);
+    assert!(matches!(page.return_agent_host_after_turn(host), Ok(None)));
+}
+
+#[test]
 fn prepared_semantics_cancelled_before_commit_retains_all_public_custody() {
     let (mut root, _sender) = timer_root(1875);
     let control = close_yield_control(&mut root);
