@@ -48,7 +48,9 @@ impl Field {
 pub struct TemporalEdit {
     kind: String,
     locale: String,
-    profile: Option<ControlLocale>,
+    // A locale profile contains large fixed arrays. TemporalEdit is optional
+    // on every DOM Node; absent temporal state must not reserve those arrays.
+    profile: Option<Box<ControlLocale>>,
     fields: Vec<(Field, Option<u32>)>,
     active: usize,
     digits: usize,
@@ -428,7 +430,7 @@ impl DomRuntime {
             fractional || step.fract() != 0.,
         );
         edit.locale = self.temporal_language(node)?;
-        edit.profile = self.control_locale(node)?.cloned();
+        edit.profile = self.control_locale(node)?.cloned().map(Box::new);
         if value.is_empty() {
             edit.active = edit.display_indices()[0];
         }
@@ -634,6 +636,27 @@ impl DomRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn optional_locale_profile_keeps_nodes_compact_and_clones_independent() {
+        assert!(std::mem::size_of::<Option<TemporalEdit>>() <= 128);
+        assert!(std::mem::size_of::<Node>() <= 1536);
+        let mut edit = TemporalEdit::new("date", "2024-02-29", false, false);
+        edit.profile = Some(Box::new(ControlLocale {
+            months: std::array::from_fn(|i| format!("month{i}")),
+            weekdays: std::array::from_fn(|i| format!("day{i}")),
+            first_weekday: 0,
+            date_order: [0, 1, 2],
+            separators: ["-".into(), "-".into()],
+            digits: std::array::from_fn(|i| char::from(b'0' + i as u8)),
+        }));
+        let mut cloned = edit.clone();
+        assert_eq!(cloned, edit);
+        cloned.profile.as_mut().unwrap().months[0] = "clone only".into();
+        assert_eq!(edit.profile.as_ref().unwrap().months[0], "month0");
+        assert_ne!(cloned, edit);
+        assert_eq!(cloned.render(false), edit.render(false));
+    }
+
     fn digits(dom: &mut DomRuntime, node: NodeId, value: &str) {
         for byte in value.bytes() {
             dom.edit_temporal_control(node, TemporalAction::Digit(byte - b'0'))
