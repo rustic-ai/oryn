@@ -36939,6 +36939,46 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn repeated_popup_child_blob_fetch_and_script_close_settle() {
+        struct Fixture(Arc<Mutex<String>>);
+        impl NetworkBroker for Fixture {
+            fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, crate::network::NetworkError> {
+                let path = Url::parse(&request.url).unwrap().path().to_owned();
+                let body = match path.as_str() {
+                    "/popup" => r#"<!doctype html><script>onmessage=event=>opener.postMessage(event.data,'*')</script><iframe src="https://a.test/child"></iframe>"#.to_owned(),
+                    "/child" => {
+                        let url = self.0.lock().unwrap().clone();
+                        format!(r#"<!doctype html><script>(async()=>{{try{{parent.postMessage(await (await fetch({url})).text(),'*')}}catch(error){{parent.postMessage(error.name,'*')}}}})()</script>"#)
+                    }
+                    _ => panic!("unexpected fixture request {}", request.url),
+                };
+                Ok(NetworkResponse {response_policy: None, timing: None,
+                    request_id: request.request_id, status: 200,
+                    headers: vec![("content-type".into(), "text/html".into())], body: body.into_bytes()})
+            }
+        }
+        let url = Arc::new(Mutex::new(String::new()));
+        let context = Browser::in_process_with_config(BrowserConfig::default())
+            .new_context_with_broker(ContextOptions::default(), SharedNetworkBroker::new(Fixture(url.clone())));
+        let creator = context.new_page();
+        creator.load_html("https://a.test/creator", "<!doctype html><body>creator").await.unwrap();
+        let blob_url = creator.evaluate("globalThis.replies=[];onmessage=event=>replies.push(event.data);URL.createObjectURL(new Blob(['blob data']))").await.unwrap();
+        *url.lock().unwrap() = serde_json::to_string(&blob_url).unwrap();
+        for round in 0..5 {
+            for (index, (top, expected)) in [("https://b.test/popup", "TypeError"), ("https://a.test/popup", "blob data")].into_iter().enumerate() {
+                let count = round * 2 + index + 1;
+                creator.evaluate(&format!("globalThis.popup=window.open({top:?});String(popup!==null)")).await.unwrap();
+                creator.wait_for(WaitPredicate::JavaScript(format!("replies.length==={count}"))).await.expect("popup child fetch must settle");
+                assert_eq!(creator.evaluate("replies[replies.length-1]").await.unwrap(), expected);
+                creator.evaluate("popup.close();true").await.unwrap();
+                creator.wait_for(WaitPredicate::JavaScript("popup.closed".into())).await.expect("script popup close must settle");
+            }
+        }
+        creator.close().await.unwrap();
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn same_task_history_rewrite_is_used_by_script_referrer_before_checkpoint() {
         struct Fixture(Arc<Mutex<Vec<NetworkRequest>>>);
         impl NetworkBroker for Fixture {
