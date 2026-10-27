@@ -36899,6 +36899,46 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn child_frame_blob_fetch_settles_for_same_and_cross_top_level_partition() {
+        struct Fixture(Arc<Mutex<String>>);
+        impl NetworkBroker for Fixture {
+            fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, crate::network::NetworkError> {
+                assert_eq!(request.url, "https://a.test/child");
+                let url = self.0.lock().unwrap().clone();
+                let body = format!(r#"<!doctype html><script>
+                    (async()=>{{try{{const response=await fetch({url});
+                    parent.postMessage(await response.text(),'*')}}
+                    catch(error){{parent.postMessage(error.name,'*')}}}})();
+                    </script>"#);
+                Ok(NetworkResponse {
+                    response_policy: None, timing: None, request_id: request.request_id,
+                    status: 200, headers: vec![("content-type".into(), "text/html".into())],
+                    body: body.into_bytes(),
+                })
+            }
+        }
+        let url = Arc::new(Mutex::new(String::new()));
+        let context = Browser::in_process_with_config(BrowserConfig::default())
+            .new_context_with_broker(ContextOptions::default(), SharedNetworkBroker::new(Fixture(url.clone())));
+        let creator = context.new_page();
+        creator.load_html("https://a.test/creator", "<!doctype html><body>creator").await.unwrap();
+        let blob_url = creator.evaluate("URL.createObjectURL(new Blob(['blob data']))").await.unwrap();
+        *url.lock().unwrap() = serde_json::to_string(&blob_url).unwrap();
+        for (top, expected) in [("https://b.test/", "TypeError"), ("https://a.test/", "blob data")] {
+            let consumer = context.new_page();
+            consumer.load_html(top, r#"<!doctype html><output id=result>pending</output>
+                <script>onmessage=event=>{const result=document.getElementById('result');
+                result.textContent=event.data;result.setAttribute('data-done','')}</script>
+                <iframe src="https://a.test/child"></iframe>"#).await.unwrap();
+            consumer.wait_for(WaitPredicate::SelectorExists("#result[data-done]".into())).await.unwrap();
+            assert_eq!(consumer.evaluate("document.getElementById('result').textContent").await.unwrap(), expected);
+            consumer.close().await.unwrap();
+        }
+        creator.close().await.unwrap();
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn same_task_history_rewrite_is_used_by_script_referrer_before_checkpoint() {
         struct Fixture(Arc<Mutex<Vec<NetworkRequest>>>);
         impl NetworkBroker for Fixture {
