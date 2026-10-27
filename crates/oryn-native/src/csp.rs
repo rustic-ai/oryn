@@ -473,7 +473,7 @@ impl CspPolicySet {
     ) -> CspDecision {
         let mut decision = self.authorize_redirect(request, redirected);
         if request.inline_source.is_none() {
-            let blocked = strip_url_for_report(original_url, &self.document_url);
+            let blocked = request_url_for_report(original_url, request.destination, &self.document_url);
             for violation in &mut decision.violations {
                 violation.blocked_uri = blocked.clone();
                 violation.worker_event_blocked_uri = worker_event_url(original_url);
@@ -1707,25 +1707,30 @@ fn blocked_uri(request: &CspRequest, document_url: &str) -> String {
     if request.inline_source.is_some() {
         "inline".into()
     } else {
-        strip_url_for_report(&request.url, document_url)
+        request_url_for_report(&request.url, request.destination, document_url)
     }
+}
+
+fn request_url_for_report(value: &str, destination: CspDestination, document_url: &str) -> String {
+    // WebSocket CSP checks concern the HTTP(S) handshake request, not the
+    // WebSocket URL. Other non-HTTP resources retain the scheme-only rule.
+    if destination == CspDestination::Connect {
+        if let Some(url) = worker_event_url(value) {
+            return strip_url_for_report(&url, document_url);
+        }
+    }
+    strip_url_for_report(value, document_url)
 }
 
 /// CSP's strip-URL-for-use-in-reports algorithm, shared by initial and frozen
 /// redirect producers. Credentials/fragments never enter network reports;
-/// same-origin queries remain observable, cross-origin paths do not.
-pub(crate) fn strip_url_for_report(value: &str, document_url: &str) -> String {
+/// HTTP(S) paths and queries remain observable regardless of origin.
+pub(crate) fn strip_url_for_report(value: &str, _document_url: &str) -> String {
     let Ok(mut url) = Url::parse(value) else {
         return String::new();
     };
     if !matches!(url.scheme(), "http" | "https") {
         return url.scheme().into();
-    }
-    if Url::parse(document_url)
-        .ok()
-        .is_none_or(|document| document.origin() != url.origin())
-    {
-        return url.origin().ascii_serialization();
     }
     let _ = url.set_username("");
     let _ = url.set_password(None);
@@ -1992,7 +1997,7 @@ mod tests {
     }
 
     #[test]
-    fn reporting_urls_preserve_same_origin_query_and_strip_foreign_paths_and_credentials() {
+    fn reporting_urls_preserve_http_paths_and_queries_and_strip_credentials() {
         let document = "https://app.test/private?document=1#fragment";
         assert_eq!(
             strip_url_for_report(
@@ -2006,7 +2011,7 @@ mod tests {
                 "https://user:pass@foreign.test:8443/private?q=secret#fragment",
                 document
             ),
-            "https://foreign.test:8443"
+            "https://foreign.test:8443/private?q=secret"
         );
         for (value, expected) in [
             ("data:text/javascript,secret", "data"),
@@ -2031,7 +2036,7 @@ mod tests {
             violation.document_uri,
             "https://app.test/private?document=1"
         );
-        assert_eq!(violation.blocked_uri, "https://foreign.test");
+        assert_eq!(violation.blocked_uri, "https://foreign.test/secret?x=1");
         assert_eq!(violation.worker_event_blocked_uri.as_deref(),
             Some("https://foreign.test/secret?x=1"));
         let original = "https://user:pass@foreign.test/private?x=1#hidden";
@@ -2040,11 +2045,17 @@ mod tests {
             true, original,
         );
         assert!(!redirected.allowed);
-        assert_eq!(redirected.violations[0].blocked_uri, "https://foreign.test");
+        assert_eq!(redirected.violations[0].blocked_uri, "https://foreign.test/private?x=1");
         assert_eq!(redirected.violations[0].worker_event_blocked_uri.as_deref(),
             Some("https://foreign.test/private?x=1"));
         assert_eq!(super::worker_event_url("wss://user:pass@foreign.test/socket#hidden"),
             Some("https://foreign.test/socket".into()));
+        let connect = CspPolicySet::from_headers(document,
+            &[("content-security-policy".into(), "connect-src 'none'".into())]);
+        let socket = connect.authorize(&request(CspDestination::Connect,
+            "wss://user:pass@foreign.test/echo?query=1#hidden"));
+        assert!(!socket.allowed);
+        assert_eq!(socket.violations[0].blocked_uri, "https://foreign.test/echo?query=1");
     }
 
     #[test]
@@ -2097,7 +2108,7 @@ mod tests {
                     true,
                     "https://public.test/original?q=1",
                 );
-                assert_eq!(foreign.violations[0].blocked_uri, "https://public.test");
+                assert_eq!(foreign.violations[0].blocked_uri, "https://public.test/original?q=1");
             }
         }
     }
@@ -2691,7 +2702,7 @@ mod tests {
             ),
             (
                 "https://other.example/private/script.js?secret=1",
-                "https://other.example",
+                "https://other.example/private/script.js?secret=1",
             ),
         ] {
             let location = SourceLocation {
