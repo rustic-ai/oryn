@@ -36945,16 +36945,29 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, crate::network::NetworkError> {
                 let path = Url::parse(&request.url).unwrap().path().to_owned();
                 let body = match path.as_str() {
-                    "/popup" => r#"<!doctype html><script>onmessage=event=>opener.postMessage(event.data,'*')</script><iframe src="https://a.test/child"></iframe>"#.to_owned(),
+                    "/popup" => r#"<!doctype html><script>
+                        onmessage=event=>opener.postMessage(event.data,'*');
+                        (async()=>{while(true){await (await fetch('/poll')).text();await new Promise(r=>setTimeout(r,10))}})();
+                        </script><iframe src="https://a.test/child"></iframe>"#.to_owned(),
                     "/child" => {
-                        let url = self.0.lock().unwrap().clone();
-                        format!(r#"<!doctype html><script>(async()=>{{try{{parent.postMessage(await (await fetch({url})).text(),'*')}}catch(error){{parent.postMessage(error.name,'*')}}}})()</script>"#)
+                        r#"<!doctype html><script>
+                            const worker=new Worker('/worker');
+                            worker.onmessage=event=>parent.postMessage(event.data,'*');
+                            worker.onerror=event=>parent.postMessage('worker error: '+event.message,'*');
+                            (async()=>{while(true){await (await fetch('/poll')).text();await new Promise(r=>setTimeout(r,10))}})();
+                            </script>"#.to_owned()
                     }
+                    "/worker" => {
+                        let url = self.0.lock().unwrap().clone();
+                        format!(r#"(async()=>{{try{{postMessage(await (await fetch({url})).text())}}catch(error){{postMessage(error.name)}}
+                            while(true){{await (await fetch('/poll')).text();await new Promise(r=>setTimeout(r,10))}}}})();"#)
+                    }
+                    "/poll" => "not ready".to_owned(),
                     _ => panic!("unexpected fixture request {}", request.url),
                 };
                 Ok(NetworkResponse {response_policy: None, timing: None,
                     request_id: request.request_id, status: 200,
-                    headers: vec![("content-type".into(), "text/html".into())], body: body.into_bytes()})
+                    headers: vec![("content-type".into(), if path == "/worker" { "text/javascript" } else if path == "/poll" { "text/plain" } else { "text/html" }.into())], body: body.into_bytes()})
             }
         }
         let url = Arc::new(Mutex::new(String::new()));
@@ -36970,8 +36983,25 @@ mod tests {
                 creator.evaluate(&format!("globalThis.popup=window.open({top:?});String(popup!==null)")).await.unwrap();
                 creator.wait_for(WaitPredicate::JavaScript(format!("replies.length==={count}"))).await.expect("popup child fetch must settle");
                 assert_eq!(creator.evaluate("replies[replies.length-1]").await.unwrap(), expected);
+                let popup_id = context.pages().into_iter()
+                    .filter(|page| page.page.page_id != creator.page_id() && page.status != PageStatus::Closed)
+                    .map(|page| page.page.page_id).last().expect("live popup descriptor");
                 creator.evaluate("popup.close();true").await.unwrap();
                 creator.wait_for(WaitPredicate::JavaScript("popup.closed".into())).await.expect("script popup close must settle");
+                // The synchronous Window.closed flag is not proof that the
+                // actor, child tasks and network polling have been retired.
+                let cleanup = async {
+                    loop {
+                        let complete = context.inner.group.pages.lock().unwrap()
+                            .get(&popup_id).is_some_and(|record|
+                                !record.is_live() && record.physical_close_complete);
+                        if complete { break; }
+                        creator.evaluate("true").await.unwrap();
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                };
+                tokio::time::timeout(Duration::from_secs(5), cleanup).await
+                    .expect("script popup close must retire its actor and child tasks");
             }
         }
         creator.close().await.unwrap();
