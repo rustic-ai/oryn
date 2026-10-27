@@ -45564,6 +45564,33 @@ mod semantic_sync_faults {
         page
     }
     #[test]
+    fn unchanged_sync_avoids_drafts_but_metadata_and_controls_require_publication() {
+        let mut page = page();
+        page.sync_executable_semantics().unwrap();
+        page.presentation.building = true;
+        assert!(page.executable.as_ref().unwrap().semantic_projection_current(
+            &page.semantic_graph, page.document.as_ref().unwrap(), page.document_generation,
+        ));
+        let fault = Fault::at(Stage::Snapshot);
+        page.sync_executable_semantics().unwrap();
+        drop(fault);
+        page.executable.as_mut().unwrap().document.errors.push("late parser metadata".into());
+        let fault = Fault::at(Stage::Snapshot);
+        assert!(page.sync_executable_semantics().is_err());
+        drop(fault);
+        page.sync_executable_semantics().unwrap();
+        assert!(page.document.as_ref().unwrap().errors.iter().any(|error| error == "late parser metadata"));
+        page.executable.as_mut().unwrap().execute("document.getElementById('i').value='changed'").unwrap();
+        assert!(!page.executable.as_ref().unwrap().semantic_projection_current(
+            &page.semantic_graph, page.document.as_ref().unwrap(), page.document_generation,
+        ));
+        let fault = Fault::at(Stage::Controls);
+        assert!(page.sync_executable_semantics().is_err());
+        drop(fault);
+        page.sync_executable_semantics().unwrap();
+    }
+
+    #[test]
     fn delayed_diagnostics_survive_projection_failure_and_publish_once() {
         for stage in [Stage::Snapshot, Stage::Controls] {
             let mut page = page();

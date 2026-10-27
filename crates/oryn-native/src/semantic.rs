@@ -906,6 +906,15 @@ impl SemanticGraph {
         self.apply_native_control_state_with_checkpoint(dom, &mut || Ok(()))
     }
 
+    #[cfg(feature = "v8-host")]
+    pub(crate) fn native_control_projection_current(
+        &self,
+        generation: u64,
+        cursor: crate::dom::MutationCursor,
+    ) -> bool {
+        self.document_generation == generation && self.native_control_cursor == Some(cursor)
+    }
+
     /// The caller must discard its private graph draft on error.
     #[cfg(feature = "v8-host")]
     pub(crate) fn apply_native_control_state_with_checkpoint(

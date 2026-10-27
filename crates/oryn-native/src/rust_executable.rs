@@ -14431,6 +14431,31 @@ impl RustExecutableDocument {
         pending
     }
 
+    /// Only an already-published root projection can avoid another owned draft.
+    /// Frame scopes, changed metadata, unavailable borrows and diagnostics fall
+    /// back to the full path; this does not consume any journal or receipt.
+    pub(crate) fn semantic_projection_current(
+        &self,
+        graph: &crate::semantic::SemanticGraph,
+        document: &ParsedDocument,
+        generation: u64,
+    ) -> bool {
+        if self.automation_scope.is_some()
+            || self.diagnostics.len() != self.published_diagnostics
+            || self.document.errors != document.errors
+            || self.document.events != document.events
+            || self.document.quirks_mode != document.quirks_mode
+        {
+            return false;
+        }
+        let Ok(dom) = self.selected_dom() else { return false };
+        let Ok(dom) = dom.try_borrow() else { return false };
+        let cursor = dom.mutation_cursor();
+        dom.document() == document.document
+            && cursor == self.semantic_mutation_cursor
+            && graph.native_control_projection_current(generation, cursor)
+    }
+
     /// Read without advancing custody: publication commits this cursor only
     /// after the snapshot and live control projection both succeed.
     pub(crate) fn semantic_mutations(&self) -> oryn_dom::MutationBatch {

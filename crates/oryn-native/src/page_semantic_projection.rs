@@ -26,6 +26,29 @@ pub(super) struct RetiredSemanticPublication {
 impl PageState {
     #[cfg(feature = "v8-host")]
     pub(super) fn sync_executable_semantics(&mut self) -> Result<(), RuntimeError> {
+        if self.terminal_close_requested() {
+            return Err(RuntimeError::PageTaskYield);
+        }
+        // Only automatic painting may reuse the preceding publication. Explicit
+        // observations keep their full fallible projection/admission contract.
+        let unchanged = self.presentation.building && self.executable.as_ref().zip(self.document.as_ref()).is_some_and(|(executable, document)| {
+            let lifecycle_pending = self.pending_navigation_response.is_none()
+                && ((!self.lifecycle.contains(&LifecycleState::DomContentLoaded) && executable.document_interactive())
+                    || (!self.lifecycle.contains(&LifecycleState::Load) && executable.document_load_complete()));
+            !lifecycle_pending
+                && (self.frame_scope.is_some() || executable.peek_navigation_history_update().is_none())
+                && executable.semantic_projection_current(&self.semantic_graph, document, self.document_generation)
+        });
+        if unchanged {
+            self.executable.as_mut().unwrap().with_semantic_retained_admission(|admission| {
+                admission.checkpoint().map_err(crate::semantic::SemanticPreparationError::Admission)
+            }).map_err(|error| RuntimeError::Semantic(format!("unchanged semantic owner: {error:?}")))?;
+            if self.terminal_close_requested() {
+                return Err(RuntimeError::PageTaskYield);
+            }
+            crate::native_timing::count("page.semantic_sync_unchanged", 1);
+            return Ok(());
+        }
         let Some(prepared) = self.prepare_executable_semantics()? else {
             return Ok(());
         };
