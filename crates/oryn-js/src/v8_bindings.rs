@@ -8589,6 +8589,10 @@ fn install_url_statics(
         .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
         .ok_or(V8BindingError::MissingInterface("URL"))?;
     url_statics::install(scope, constructor)?;
+    // File API object URL lifecycle methods exclude ServiceWorker globals.
+    // URL parsing statics and the internal retained-source callback remain.
+    if !context.get_slot::<WorkerExposureKind>()
+        .is_some_and(|kind| kind.0 == crate::worker_wire::AgentKind::Service) {
     let create = v8::Function::builder(blob_url_create_callback)
         .length(1)
         .constructor_behavior(v8::ConstructorBehavior::Throw)
@@ -8607,6 +8611,7 @@ fn install_url_statics(
         .ok_or(V8BindingError::Allocation("URL.revokeObjectURL name"))?;
     revoke.set_name(revoke_name);
     constructor.create_data_property(scope, revoke_name.into(), revoke.into());
+    }
     let source = v8::Function::new(scope, blob_url_source_callback)
         .ok_or(V8BindingError::Allocation("blob URL source callback"))?;
     let source_name = v8::String::new(scope, "__oryn_blob_url_source")

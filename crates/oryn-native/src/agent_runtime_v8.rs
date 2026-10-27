@@ -3099,6 +3099,15 @@ mod agent_runtime_tests {
         );
     }
     #[test]
+    fn service_worker_object_url_factory_is_not_exposed() {
+        let mut runtime = inline(AgentKind::Service,
+            "globalThis.objectUrlExposure=['createObjectURL' in URL,'revokeObjectURL' in URL];");
+        assert_eq!(runtime.host.evaluate_string("JSON.stringify(objectUrlExposure)").unwrap(),
+            "[false,false]", "service workers retain URL parsing, not object URL lifecycle methods");
+        assert_eq!(runtime.host.evaluate_string("new URL('/a','https://example.test/root').href").unwrap(),
+            "https://example.test/a");
+    }
+    #[test]
     fn independent_worker_globals_have_distinct_scope_and_native_platform_bindings() {
         for (kind, name) in [
             (AgentKind::Dedicated, "DedicatedWorkerGlobalScope"),
@@ -3129,11 +3138,13 @@ mod agent_runtime_tests {
                 target.addEventListener('probe',e=>during=e.composedPath().length);target.dispatchEvent(event);
                 const controller=new AbortController(),signal=AbortSignal.any([controller.signal]);controller.abort();
                 const error=new DOMException('missing','NotFoundError');const blob=new Blob(['x']);
-                const url=URL.createObjectURL(blob);URL.revokeObjectURL(url);
+                const service=self.constructor.name==='ServiceWorkerGlobalScope';
+                const url=service?null:URL.createObjectURL(blob);if(!service)URL.revokeObjectURL(url);
                 return event instanceof Event&&event.target===target&&during===1&&event.composedPath().length===0
                     &&signal.aborted&&signal.reason instanceof DOMException&&error.name==='NotFoundError'&&error.code===8
                     &&new URL('/a','https://example.test/root').href==='https://example.test/a'
-                    &&url.startsWith('blob:')&&typeof XMLHttpRequest==='function'&&typeof FileReader==='function';
+                    &&(service?(!('createObjectURL' in URL)&&!('revokeObjectURL' in URL)):url.startsWith('blob:'))
+                    &&typeof XMLHttpRequest==='function'&&typeof FileReader==='function';
             })()"#).unwrap(),"true");
         }
     }
