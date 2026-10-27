@@ -10305,6 +10305,18 @@ impl RustExecutableDocument {
         Ok(true)
     }
 
+    #[cfg(test)]
+    pub(crate) fn execute_without_task_checkpoint_for_test(&mut self, source: &str) -> Result<(), HostError> {
+        self.activate_selected_script_realm()?;
+        self.agent.host.execute(source)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn evaluate_without_task_checkpoint_for_test(&mut self, source: &str) -> Result<String, HostError> {
+        self.activate_selected_script_realm()?;
+        self.agent.host.evaluate_string(source)
+    }
+
     pub fn execute(&mut self, source: &str) -> Result<(), HostError> {
         self.activate_selected_script_realm()?;
         self.agent.host.execute(source)?;

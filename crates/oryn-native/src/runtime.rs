@@ -26276,12 +26276,20 @@ mod tests {
             Vec::new(),
         )
         .unwrap();
+        // Arm an already-due timer without ExecutablePage::execute's normal
+        // actor checkpoint. Inventory must be the only operation under test;
+        // neither setup nor the counter reads may dispatch scheduled tasks.
         page.executable
             .as_mut()
             .unwrap()
-            .execute("globalThis.inventoryTimerRuns=0;setTimeout(()=>{inventoryTimerRuns++},10)")
+            .execute_without_task_checkpoint_for_test("globalThis.inventoryTimerRuns=0;setTimeout(()=>{inventoryTimerRuns++},0)")
             .unwrap();
-        std::thread::sleep(Duration::from_millis(30));
+        assert_eq!(
+            page.executable.as_mut().unwrap()
+                .evaluate_without_task_checkpoint_for_test("String(inventoryTimerRuns)").unwrap(),
+            "0",
+            "the due callback must still be queued before inventory"
+        );
         let FrameResponse::Inventory(realms) =
             page.webdriver_frames(FrameCommand::Inventory).unwrap()
         else {
@@ -26296,7 +26304,7 @@ mod tests {
             page.executable
                 .as_mut()
                 .unwrap()
-                .evaluate("String(inventoryTimerRuns)")
+                .evaluate_without_task_checkpoint_for_test("String(inventoryTimerRuns)")
                 .unwrap(),
             "0",
             "read-only frame inventory must not run arbitrary author callbacks"
@@ -26306,7 +26314,7 @@ mod tests {
             page.executable
                 .as_mut()
                 .unwrap()
-                .evaluate("String(inventoryTimerRuns)")
+                .evaluate_without_task_checkpoint_for_test("String(inventoryTimerRuns)")
                 .unwrap(),
             "1",
             "normal actor task turns must still dispatch the queued callback"
