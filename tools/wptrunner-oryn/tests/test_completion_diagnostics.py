@@ -62,7 +62,9 @@ class CompletionDiagnosticsTests(unittest.TestCase):
             if (method, uri) == ('GET', 'window/handles'):
                 return ['secret-handle'] * 10
             if uri == 'execute/sync':
-                return {'frame_count': 0.0, 'ready_state': 'private payload', 'extra': 'private'}
+                return {'frame_count': 0.0, 'ready_state': 'private payload', 'extra': 'private',
+                        'body_present': True, 'iframe_task_parses': False,
+                        'import_source_native': 'private payload'}
         protocol = SimpleNamespace(webdriver=SimpleNamespace(send_session_command=send),
                                    logger=SimpleNamespace(info=logs.append))
         with patch.dict('os.environ', {'ORYN_WPT_COMPLETION_DIAGNOSTICS': '1'}):
@@ -73,6 +75,9 @@ class CompletionDiagnosticsTests(unittest.TestCase):
         self.assertNotIn('secret-handle', logs[0])
         self.assertNotIn('private', logs[0])
         self.assertIn('"frame_count": 0', logs[0])
+        self.assertIn('"body_present": true', logs[0])
+        self.assertIn('"iframe_task_parses": false', logs[0])
+        self.assertNotIn('import_source_native', logs[0])
 
     def test_collection_failure_never_emits_exception_payload(self):
         def fail(*args, **kwargs):

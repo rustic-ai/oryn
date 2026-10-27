@@ -5,6 +5,12 @@ from urllib.parse import urlsplit
 
 SCRIPT = """return {
   ready_state: document.readyState,
+  body_present: document.body !== null,
+  iframe_task_parses: typeof add_iframe_js !== 'function' ? null : (() => {
+    try { new Function('return (async()=>{' + add_iframe_js('https://diagnostic.invalid', 'diagnostic') + '})'); return true; }
+    catch (_) { return false; }
+  })(),
+  import_source_native: typeof importScript !== 'function' ? null : String(importScript).includes('[native code]'),
   frame_count: frames.length,
   script_count: document.querySelectorAll('script').length,
   location_kind: location.href === 'about:blank' ? 'initial' :
@@ -70,8 +76,9 @@ def capture(protocol, url):
                 for name in ('executor_type', 'receive_type'):
                     if value.get(name) in ('undefined', 'function'):
                         observation[name] = value[name]
-                if type(value.get('uuid_is_string')) is bool:
-                    observation['uuid_is_string'] = value['uuid_is_string']
+                for name in ('uuid_is_string', 'body_present', 'iframe_task_parses', 'import_source_native'):
+                    if type(value.get(name)) is bool:
+                        observation[name] = value[name]
                 if value.get('location_kind') in ('initial', 'dispatcher', 'other'):
                     observation['location_kind'] = value['location_kind']
                 recent = value.get('recent_requests')
