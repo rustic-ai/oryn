@@ -69,6 +69,29 @@ fn outer_history_publication_does_not_keep_checkpoint_spinning() {
 }
 
 #[test]
+fn idle_later_realm_does_not_repeat_platform_task_checkpoint() {
+    let mut page = quiet_page();
+    page.agent.host
+        .create_realm_with_dom(
+            "https://example.test", 1, Some(1),
+            std::rc::Rc::new(std::cell::RefCell::new(oryn_dom::DomRuntime::new())),
+        ).unwrap();
+    page.agent.host.activate_realm(RealmId(0)).unwrap();
+    page.agent.host.execute(
+        "globalThis.reader=new FileReader();reader.readAsText(new Blob(['value']))"
+    ).unwrap();
+    let (result, labels) = crate::ipc_progress::close_admission::capture_test_phase_labels(
+        || page.agent.host.drain_async_fetches(false)
+    );
+    result.unwrap();
+    assert_eq!(
+        labels.into_iter().filter(|label| *label == "platform_completion_microtask").count(),
+        1,
+        "only the realm that completed a platform task gets its post-task checkpoint"
+    );
+}
+
+#[test]
 fn empty_fetch_checkpoint_leaves_peer_timer_to_page_scheduler() {
     let mut page = quiet_page();
     page.agent

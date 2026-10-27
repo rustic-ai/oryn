@@ -945,10 +945,17 @@ impl RawV8Host {
                 queue_mutation_observer_microtask(scope);
                 // Each platform completion is a task; its promise jobs
                 // must run before the next completion is delivered.
-                pass += state
+                let completed = state
                     .drain_platform_completions(scope, 1)
                     .map_err(|error| HostError::Execution(error.to_string()))?;
-                if pass > 0 {
+                pass += completed;
+                // A preceding realm's task does not authorize an additional
+                // post-task checkpoint for this realm's empty completion probe.
+                if completed > 0 {
+                    #[cfg(test)]
+                    let _phase = crate::ipc_progress::close_admission::phase(
+                        "platform_completion_microtask",
+                    );
                     queue_mutation_observer_microtask(scope);
                     scope.perform_microtask_checkpoint();
                     if _execution_deadline.expired() || scope.is_execution_terminating() {
