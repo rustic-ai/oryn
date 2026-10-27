@@ -3128,6 +3128,39 @@ mod webdriver_script_tests {
     }
 
     #[test]
+    fn automatic_observer_environment_does_not_force_unobserved_layout() {
+        struct Provider(std::rc::Rc<std::cell::Cell<usize>>);
+        impl oryn_js::v8_bindings::BindingLayoutProvider for Provider {
+            fn compute_layout(&self, _: &std::collections::BTreeMap<oryn_dom::NodeId, std::collections::BTreeSet<String>>) -> Result<oryn_js::v8_bindings::BindingLayout, String> {
+                self.0.set(self.0.get() + 1);
+                Ok(oryn_js::v8_bindings::BindingLayout { viewport: Some((100., 100.)), ..Default::default() })
+            }
+        }
+        let mut host = RawV8Host::new();
+        let dom = std::rc::Rc::new(std::cell::RefCell::new(
+            oryn_dom::html::parse("<body><main></main></body>").into_runtime().unwrap(),
+        ));
+        host.install_dom(dom, 1).unwrap();
+        let realm = host.active_realm;
+        let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+        host.binding_states[&realm].set_layout_provider(std::rc::Rc::new(Provider(calls.clone())));
+        assert!(!host.binding_states[&realm].has_native_geometry_observers());
+        for _ in 0..10 {
+            assert!(host.sample_native_observer_environment_in_scope(realm).is_some());
+        }
+        assert_eq!(calls.get(), 0, "automatic sampling must not lay out unobserved owners");
+        assert!(host.sample_native_paint_revision_in_scope(realm).is_some());
+        assert_eq!(calls.get(), 1, "explicit capture must still acquire geometry");
+        for constructor in ["ResizeObserver", "IntersectionObserver"] {
+            host.execute(&format!("globalThis.geometryObserver=new {constructor}(()=>{{}});geometryObserver.observe(document.querySelector('main'))")).unwrap();
+            assert!(host.binding_states[&realm].has_native_geometry_observers());
+            let before = calls.get();
+            assert!(host.sample_native_observer_environment_in_scope(realm).is_some());
+            assert!(calls.get() > before, "registered observers retain all-realm scoped sampling");
+        }
+    }
+
+    #[test]
     fn native_focus_reopened_document_preserves_replacement_stream_selection() {
         let mut host = RawV8Host::new();
         let dom = std::rc::Rc::new(std::cell::RefCell::new(
@@ -3636,6 +3669,22 @@ impl RawV8Host {
             }
         }
         self.native_paint_revision(realm)
+    }
+
+    /// Automatic presentation already acquired the root and presented child
+    /// layouts. Only geometry observers need the additional all-realm pass:
+    /// otherwise it would lay out unpresented, still-parsing hidden documents
+    /// on every rendering opportunity. Explicit capture keeps its scoped pass.
+    pub(crate) fn sample_native_observer_environment_in_scope(&mut self, realm: RealmId) -> Option<u64> {
+        if self.binding_states.iter().any(|(id, state)| {
+            !state.execution_retired()
+                && self.realm_execution_live(*id)
+                && state.has_native_geometry_observers()
+        }) {
+            self.sample_native_paint_revision_in_scope(realm)
+        } else {
+            self.native_paint_revision(realm)
+        }
     }
 
     pub(crate) fn native_paint_revision(&self, realm: RealmId) -> Option<u64> {

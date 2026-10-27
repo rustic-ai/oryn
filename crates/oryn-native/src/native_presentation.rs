@@ -158,7 +158,7 @@ impl PageState {
                 .executable
                 .as_mut()
                 .ok_or(RuntimeError::EvaluationUnavailable)?;
-            page.sample_paint_environment_in_scope()
+            page.sample_observer_environment_in_scope()
                 .map_err(map_host_error)?;
             let before = page.selected_accessibility_stamp();
             let delivered = page.broadcast_resize_observers().map_err(map_host_error)?;

@@ -70,6 +70,8 @@ pub(super) struct State {
     loop_error: Option<v8::Global<v8::Value>>,
     #[cfg(test)]
     fail_prepare: bool,
+}pub(super) fn has_observers(state: &V8BindingState) -> bool {
+    !state.resize_observers.borrow().observers.is_empty()
 }
 fn fail(message: &str) -> V8BindingError {
     V8BindingError::Message(format!("TypeError: {message}"))

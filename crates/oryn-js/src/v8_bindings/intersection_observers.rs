@@ -1,5 +1,8 @@
 //! Native intersection observation snapshots and deferred callback tasks.
 use super::*;
+pub(super) fn has_observers(state: &V8BindingState) -> bool {
+    !state.intersection_observers.borrow().observers.is_empty()
+}
 #[derive(Clone, Copy, Debug, Default)]
 struct Margin {
     value: f64,

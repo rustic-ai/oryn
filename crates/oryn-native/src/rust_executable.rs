@@ -39268,6 +39268,14 @@ impl RustExecutableDocument {
             .ok_or_else(|| HostError::Execution("paint environment owner unavailable".into()))?;
         Ok(())
     }
+    pub(crate) fn sample_observer_environment_in_scope(&mut self) -> Result<(), HostError> {
+        let realm = self.automation_realm();
+        self.agent
+            .host
+            .sample_native_observer_environment_in_scope(realm)
+            .ok_or_else(|| HostError::Execution("observer environment owner unavailable".into()))?;
+        Ok(())
+    }
     pub(crate) fn install_root_paint_capture_inventory(
         &self,
         stamp: (u64, u64, u64),

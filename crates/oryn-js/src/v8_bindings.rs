@@ -3749,6 +3749,11 @@ impl V8BindingState {
         self.document_rendering_allowed()
             && native_platform::rendering_visible(self).unwrap_or(false)
     }
+    /// Conservative native observer inventory, without entering author code.
+    /// Even disconnected registered observers retain the scoped sampling path.
+    pub fn has_native_geometry_observers(&self) -> bool {
+        resize_observers::has_observers(self) || intersection_observers::has_observers(self)
+    }
     pub fn has_pending_web_animations(&self) -> bool {
         web_animations::has_pending(self)
     }
