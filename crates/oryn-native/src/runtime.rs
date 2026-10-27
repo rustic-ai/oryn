@@ -40058,6 +40058,13 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
         )
         .await
         .expect("load binary fetch fixture");
+        // One drain is not a network completion barrier. Await the real
+        // response without relying on localhost thread scheduling.
+        page.wait_for(WaitPredicate::JavaScript(
+            "document.querySelector('#result').textContent !== 'pending'".into(),
+        ))
+        .await
+        .expect("binary fetch completes within the native wait deadline");
         assert_eq!(
             page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
                 .await
@@ -40078,6 +40085,11 @@ async fn formatting_font_size_uses_native_hint_equivalence_and_keeps_selection()
         )
         .await
         .expect("load abort fixture");
+        page.wait_for(WaitPredicate::JavaScript(
+            "document.querySelector('#result').textContent !== 'pending'".into(),
+        ))
+        .await
+        .expect("aborted fetch settles within the native wait deadline");
         assert_eq!(
             page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
                 .await
