@@ -69,6 +69,38 @@ fn outer_history_publication_does_not_keep_checkpoint_spinning() {
 }
 
 #[test]
+fn late_timer_yields_checkpoint_without_losing_page_work() {
+    let mut page = quiet_page();
+    page.agent
+        .host
+        .execute("globalThis.lateTimerRan=false")
+        .unwrap();
+    {
+        let _hook = HookGuard::install(|page, pass| {
+            if pass == 0 {
+                page.agent
+                    .host
+                    .execute("setTimeout(()=>lateTimerRan=true,0)")
+                    .unwrap();
+            }
+        });
+        assert_eq!(
+            checkpoint_passes(&mut page), 1,
+            "a peer timer must not keep an unchanged document checkpoint spinning"
+        );
+    }
+    assert!(
+        page.has_runnable_page_work(),
+        "the timer must remain scheduled"
+    );
+    page.agent.host.drain_scheduled_timers(false).unwrap();
+    assert_eq!(
+        page.agent.host.evaluate_string("String(lateTimerRan)").unwrap(),
+        "true"
+    );
+}
+
+#[test]
 fn intercepted_navigation_waits_without_spinning_and_resumes_on_settlement() {
     let mut page = RustExecutableDocument::load_with_environment(
         "<body></body>",

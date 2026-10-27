@@ -1095,6 +1095,9 @@ impl RawV8Host {
     pub fn has_runnable_page_work(&mut self) -> bool {
         self.has_runnable_checkpoint_work()
             || self
+                .next_non_rendering_delay()
+                .is_some_and(|delay| delay.is_zero())
+            || self
                 .next_rendering_delay()
                 .is_some_and(|delay| delay.is_zero())
     }
@@ -1122,9 +1125,9 @@ impl RawV8Host {
                         .is_none_or(|pending| !self.realm_is_parked(pending.environment.realm))
                 })
             })
-            || self
-                .next_non_rendering_delay()
-                .is_some_and(|delay| delay.is_zero())
+            // Due timers are peer page tasks, not a reason to repeat an
+            // unchanged document checkpoint. The outer page scheduler still
+            // observes them through has_runnable_page_work above.
             || self
                 .binding_states
                 .iter()
