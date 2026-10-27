@@ -465,7 +465,9 @@ pub struct Node {
 #[derive(Debug, Clone)]
 struct Slot {
     generation: u32,
-    node: Option<Node>,
+    // Scoped snapshots preserve slot identity even when a node is omitted.
+    // Do not reserve a full Node payload for every tombstone or spare slot.
+    node: Option<Box<Node>>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -799,7 +801,7 @@ impl DomArena {
         if slot.node.is_some() {
             return Err(DomError::StaleNode(id));
         }
-        slot.node = Some(new_node(kind));
+        slot.node = Some(Box::new(new_node(kind)));
         self.initialize_node_document(id);
         if let NodeKind::Attribute {
             owner: Some(owner),
@@ -821,7 +823,7 @@ impl DomArena {
             } => Some((*owner, data.key())),
             _ => None,
         };
-        let node = new_node(kind);
+        let node = Box::new(new_node(kind));
         let id = if let Some(index) = self.free.pop() {
             let slot = &mut self.slots[index as usize];
             slot.node = Some(node);
@@ -901,13 +903,13 @@ impl DomArena {
 
     pub fn get(&self, id: NodeId) -> Result<&Node, DomError> {
         self.slot(id)
-            .and_then(|slot| slot.node.as_ref())
+            .and_then(|slot| slot.node.as_deref())
             .ok_or(DomError::StaleNode(id))
     }
 
     pub fn get_mut(&mut self, id: NodeId) -> Result<&mut Node, DomError> {
         self.slot_mut(id)
-            .and_then(|slot| slot.node.as_mut())
+            .and_then(|slot| slot.node.as_deref_mut())
             .ok_or(DomError::StaleNode(id))
     }
 
@@ -1032,7 +1034,7 @@ impl DomArena {
                 self.attribute_nodes.remove(&key);
             }
         }
-        Ok(node)
+        Ok(*node)
     }
 
     pub fn existing_attribute_node(&self, element: NodeId, name: &str) -> Option<NodeId> {
@@ -1098,7 +1100,7 @@ impl DomArena {
 
     pub fn iter(&self) -> impl Iterator<Item = (NodeId, &Node)> {
         self.slots.iter().enumerate().filter_map(|(index, slot)| {
-            slot.node.as_ref().map(|node| {
+            slot.node.as_deref().map(|node| {
                 (
                     NodeId {
                         slot: index as u32,
@@ -6124,6 +6126,31 @@ fn is_void_html_element(name: &LocalName) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sparse_slots_keep_identity_without_inline_node_payloads() {
+        assert!(std::mem::size_of::<Slot>() <= 3 * std::mem::size_of::<usize>());
+        let mut arena = DomArena::default();
+        let id = NodeId {
+            slot: 16_383,
+            generation: 7,
+        };
+        arena.restore(id, NodeKind::Document).unwrap();
+        assert_eq!(
+            arena.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+            vec![id]
+        );
+        let mut snapshot = arena.snapshot_document_scope(id).unwrap();
+        snapshot.get_mut(id).unwrap().custom_validity_message = "snapshot only".into();
+        assert!(arena.get(id).unwrap().custom_validity_message.is_empty());
+        let removed = snapshot.remove(id).unwrap();
+        assert_eq!(removed.custom_validity_message, "snapshot only");
+        assert_eq!(snapshot.get(id).unwrap_err(), DomError::StaleNode(id));
+        let replacement = snapshot.insert(NodeKind::Document);
+        assert_eq!(replacement.slot, id.slot);
+        assert_eq!(replacement.generation, id.generation + 1);
+        assert!(arena.get(id).is_ok());
+    }
 
     #[test]
     fn memory_snapshot_is_numeric_and_tracks_actual_removal_custody() {
