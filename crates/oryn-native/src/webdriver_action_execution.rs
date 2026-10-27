@@ -1061,8 +1061,12 @@ pub(crate) struct ReleaseExecution {
     keyboard: Option<KeyboardProgress>,
     pointer: Option<PointerProgress>,
     done: bool,
+    released_input: bool,
 }
 impl ReleaseExecution {
+    pub(crate) fn completed_without_input_events(&self) -> bool {
+        self.done && !self.released_input
+    }
     pub(crate) fn new(selected: AutomationRealmSnapshot) -> Self {
         Self {
             selected,
@@ -1070,6 +1074,7 @@ impl ReleaseExecution {
             keyboard: None,
             pointer: None,
             done: false,
+            released_input: false,
         }
     }
     pub(crate) fn poll(
@@ -1105,6 +1110,7 @@ impl ReleaseExecution {
                 self.done = true;
                 return Ok(true);
             };
+            self.released_input = true;
             match release.input {
                 HeldInput::Key(value) => {
                     self.keyboard =

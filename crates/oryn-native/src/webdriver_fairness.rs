@@ -665,6 +665,13 @@ impl Actions {
         } else {
             true
         };
+        if self.release.as_ref().is_some_and(|release| release.completed_without_input_events()) {
+            // No author-visible input event or default action was dispatched.
+            // Preserve selected-context authority, but leave unrelated page
+            // tasks to their outer scheduler instead of delaying cleanup.
+            executable.validate_action_context(selected)?;
+            return Ok(true);
+        }
         state
             .executable
             .as_ref()
@@ -1839,6 +1846,26 @@ mod tests {
                 .current_automation_scope()
                 .is_none()
         );
+    }
+    #[test]
+    fn empty_release_finishes_without_unrelated_page_task_drain() {
+        let mut state = state(1899);
+        let (reply, mut response) = oneshot::channel();
+        let pending = Pending::from_command(
+            &mut Some(PageCommand::WebdriverActions {
+                command: ActionCommand::Release,
+                context: Default::default(),
+                cancellation: None,
+                reply,
+            }),
+            &state,
+        ).unwrap();
+        let (pending, labels) =
+            crate::ipc_progress::close_admission::capture_test_phase_labels(|| pending.poll(&mut state));
+        assert!(pending.is_none(), "an empty release has no input suffix to resume");
+        response.try_recv().unwrap().0.unwrap();
+        assert!(!labels.contains(&"executable_drain"),
+            "empty input cleanup must not drain unrelated author tasks before replying");
     }
     #[test]
     fn ordinary_action_error_preserves_held_inputs_until_release() {
