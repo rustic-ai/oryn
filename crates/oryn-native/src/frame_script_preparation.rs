@@ -3316,7 +3316,7 @@ impl RustExecutableDocument {
                         }
                         self.refresh_embedded_intrinsics()?;
                         self.agent.host.set_current_script(None)?;
-                        self.agent.host.prepare_document_images()?;
+                        self.agent.host.prepare_document_images_for_lifecycle()?;
                         self.agent.host.drain_async_fetches(false)?;
                         if self.agent.host.automation_realm_identity(load.realm)
                             == Some(load.identity)

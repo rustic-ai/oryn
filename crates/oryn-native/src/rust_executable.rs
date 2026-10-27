@@ -8881,7 +8881,7 @@ impl RustExecutableDocument {
             if self.terminal_retired() {
                 return Ok(());
             }
-            self.agent.host.prepare_document_images()?;
+            self.agent.host.prepare_document_images_for_lifecycle()?;
             if self.terminal_retired() {
                 return Ok(());
             }
@@ -8945,7 +8945,7 @@ impl RustExecutableDocument {
         if self.terminal_retired() {
             return Ok(());
         }
-        self.agent.host.prepare_document_images()?;
+        self.agent.host.prepare_document_images_for_lifecycle()?;
         if self.terminal_retired() {
             return Ok(());
         }

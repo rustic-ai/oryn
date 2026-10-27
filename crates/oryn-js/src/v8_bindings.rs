@@ -4335,11 +4335,19 @@ impl V8BindingState {
             self.prefer_deferred_platform_tasks
                 .set(count > 0 && !prefer_deferred);
             self.expire_xhr_timeouts(scope)?;
-            if !self.document_load_stopped()
-                && (self.images_deferred.replace(false)
-                    || self.image_selection_cursor.get() != self.dom.borrow().mutation_cursor().0)
-            {
-                prepare_document_images(scope, self)?;
+            if !self.document_load_stopped() {
+                let deferred = self.images_deferred.replace(false);
+                let cursor = self.dom.borrow().mutation_cursor().0;
+                if deferred || self.image_selection_cursor.get() != cursor {
+                    if document_has_image_candidates(scope, self)? {
+                        prepare_document_images(scope, self)?;
+                    } else {
+                        // Parser or environment changes cannot change image
+                        // selection when this document has no image candidates.
+                        // Do not force geometry for an empty image-loader pass.
+                        self.image_selection_cursor.set(cursor);
+                    }
+                }
             }
             platform_listener_graph::refresh_all(scope, self)?;
             Ok(count)
@@ -45479,6 +45487,30 @@ fn dispatch_image_event(
     Ok(())
 }
 
+fn document_has_image_candidates(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+) -> Result<bool, V8BindingError> {
+    let _retained_scope = state.enter_retained_allocation(scope)?;
+    let dom = state.dom.borrow();
+    let mut cursor = 0;
+    let mut check = || {
+        if crate::v8_termination::checkpoint(scope) { Ok(()) }
+        else { Err(DomError::ProjectionCancelled) }
+    };
+    while let Some((id, node)) = dom.arena().next_with_checkpoint(&mut cursor, &mut check)? {
+        if matches!(&node.kind, NodeKind::Element { name }
+            if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                && matches!(name.local.as_ref(), "img" | "input" | "video"))
+            && dom.node_document(id)? == Some(state.document_root())
+            && dom.is_connected(id)?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub fn prepare_document_images(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
@@ -45492,6 +45524,21 @@ pub fn prepare_document_images(
         .image_selection_cursor
         .set(state.dom.borrow().mutation_cursor().0);
     Ok(())
+}
+
+/// Automatic lifecycle preparation need not compute layout when there are no
+/// image participants. Explicit preparation retains its admission-refresh
+/// contract even for an empty document.
+pub fn prepare_document_images_for_lifecycle(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+) -> Result<(), V8BindingError> {
+    if document_has_image_candidates(scope, state)? {
+        prepare_document_images(scope, state)
+    } else {
+        state.image_selection_cursor.set(state.dom.borrow().mutation_cursor().0);
+        Ok(())
+    }
 }
 
 /// Seed the generated image element of a native image Document from its
@@ -50035,6 +50082,52 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
         "#).unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert_eq!(script.run(scope).unwrap().to_rust_string_lossy(scope), "ok");
+    }
+
+    #[test]
+    fn mutation_only_image_check_skips_empty_layout_and_tracks_live_candidates() {
+        struct CountProvider(Rc<Cell<usize>>);
+        impl BindingLayoutProvider for CountProvider {
+            fn compute_layout(&self, _: &BTreeMap<NodeId, BTreeSet<String>>) -> Result<BindingLayout, String> {
+                self.0.set(self.0.get() + 1);
+                Ok(BindingLayout::default())
+            }
+        }
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(html::parse("<main id=root>text</main>").into_runtime().unwrap()));
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(613), 1).unwrap();
+        let calls = Rc::new(Cell::new(0));
+        state.set_layout_provider(Rc::new(CountProvider(calls.clone())));
+        prepare_document_images_for_lifecycle(scope, &state).unwrap();
+        assert_eq!(calls.get(), 0);
+        for deferred in [false, true] {
+            state.images_deferred.set(deferred);
+            state.image_selection_cursor.set(u64::MAX);
+            state.drain_platform_completions(scope, 1).unwrap();
+        }
+        assert_eq!(calls.get(), 0);
+        assert_eq!(state.image_selection_cursor.get(), dom.borrow().mutation_cursor().0);
+        let root = dom.borrow().find_by_id("root").unwrap();
+        for tag in ["img", "input", "video"] {
+            let node = dom.borrow_mut().create_element(tag);
+            dom.borrow_mut().append_child(root, node).unwrap();
+            assert!(document_has_image_candidates(scope, &state).unwrap());
+            dom.borrow_mut().retain_native(node).unwrap();
+            dom.borrow_mut().remove_child(root, node).unwrap();
+            assert!(!document_has_image_candidates(scope, &state).unwrap());
+            dom.borrow_mut().release_native(node).unwrap();
+        }
+        let canceled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let allocation = std::sync::Arc::new(state.capture_retained_allocation(scope, canceled.clone()).unwrap());
+        state.install_retained_allocation(allocation).unwrap();
+        canceled.store(true, std::sync::atomic::Ordering::Release);
+        assert!(document_has_image_candidates(scope, &state).is_err());
+        assert!(prepare_document_images_for_lifecycle(scope, &state).is_err());
+        assert_eq!(calls.get(), 0);
     }
 
     #[test]

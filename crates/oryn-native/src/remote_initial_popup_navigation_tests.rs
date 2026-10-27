@@ -30,11 +30,11 @@ async fn production_worker_redirect_csp_event_reaches_worker_listener() {
                     }
                     let (status, extra, body) = if header.starts_with(b"GET /worker.js ") {
                         (200, "Content-Type: text/javascript\r\nContent-Security-Policy: connect-src 'self'; report-uri /report\r\n".to_owned(),
-                            "const original=new URL('/redirect?case=original',self.location.href).href;let blocked=null,rejected=false;function publish(){if(blocked!==null&&rejected)postMessage(blocked===original)}addEventListener('securitypolicyviolation',e=>{if(e.blockedURI===original){blocked=e.blockedURI;publish()}});(async()=>{const foreign=self.location.origin.replace('source.test','foreign.test');await fetch(foreign+'/first').catch(()=>{});await fetch(foreign+'/second').catch(()=>{});fetch(original).then(()=>postMessage('unexpected success')).catch(e=>{rejected=e instanceof TypeError;publish()})})();".to_owned())
-                    } else if header.starts_with(b"GET /redirect?") {
+                            "const original=new URL('/common/redirect-opt-in.py?status=307&location=https://foreign.test:__PORT__/denied?cross-origin-fetch',self.location.href).href;let blocked=null,rejected=false;function publish(){if(blocked!==null&&rejected)postMessage(blocked===original)}addEventListener('securitypolicyviolation',e=>{if(e.blockedURI===original){blocked=e.blockedURI;publish()}});(async()=>{const foreign=self.location.origin.replace('source.test','foreign.test');await fetch(foreign+'/first').catch(()=>{});await new Promise(resolve=>{const xhr=new XMLHttpRequest();xhr.open('GET',foreign+'/second');xhr.onerror=resolve;xhr.send()});fetch(original).then(()=>postMessage('unexpected success')).catch(e=>{rejected=e instanceof TypeError;publish()})})();".replace("__PORT__", &port.to_string()))
+                    } else if header.starts_with(b"GET /common/redirect-opt-in.py?") {
                         (
                             307,
-                            format!("Location: http://foreign.test:{port}/denied\r\n"),
+                            format!("Location: https://foreign.test:{port}/denied?cross-origin-fetch\r\nTiming-Allow-Origin: *\r\n"),
                             String::new(),
                         )
                     } else {

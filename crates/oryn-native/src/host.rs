@@ -9518,6 +9518,14 @@ mod raw_v8 {
         }
 
         pub fn prepare_document_images(&mut self) -> Result<(), HostError> {
+            self.prepare_document_images_impl(false)
+        }
+
+        pub fn prepare_document_images_for_lifecycle(&mut self) -> Result<(), HostError> {
+            self.prepare_document_images_impl(true)
+        }
+
+        fn prepare_document_images_impl(&mut self, automatic: bool) -> Result<(), HostError> {
             let state = self
                 .binding_states
                 .get(&self.active_realm)
@@ -9536,7 +9544,11 @@ mod raw_v8 {
             v8::scope!(let handle_scope, &mut self.isolate);
             let context = v8::Local::new(handle_scope, &context);
             let scope = &mut v8::ContextScope::new(handle_scope, context);
-            oryn_js::v8_bindings::prepare_document_images(scope, &state)
+            (if automatic {
+                oryn_js::v8_bindings::prepare_document_images_for_lifecycle(scope, &state)
+            } else {
+                oryn_js::v8_bindings::prepare_document_images(scope, &state)
+            })
                 .map_err(|error| HostError::Execution(error.to_string()))
         }
 

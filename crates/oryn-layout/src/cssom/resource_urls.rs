@@ -26,6 +26,12 @@ pub fn resource_urls(source: &str) -> Vec<String> {
 /// Discover references with their containing font-face context. A font rule
 /// does not change the destination of sibling image declarations.
 pub fn resource_references(source: &str) -> Vec<CssResourceReference> {
+    // Every URL token and image-set function requires a literal opening
+    // parenthesis, even when its function name is escaped. Plain computed
+    // values cannot contain external resources; avoid tokenizing each one.
+    if !source.as_bytes().contains(&b'(') {
+        return Vec::new();
+    }
     let mut input = ParserInput::new(source);
     let mut parser = Parser::new(&mut input);
     let mut urls = Vec::new();
@@ -103,6 +109,14 @@ fn collect(
 #[cfg(test)]
 mod tests {
     use super::resource_urls;
+
+    #[test]
+    fn plain_values_and_escaped_parentheses_do_not_form_url_functions() {
+        for value in ["none", "inherit", "rgb", "url", "'image.png'", r"url\28 image.png\29 "] {
+            assert!(resource_urls(value).is_empty(), "{value}");
+        }
+        assert_eq!(resource_urls(r"\75\72\6c(image.png)"), ["image.png"]);
+    }
 
     #[test]
     fn stylesheet_resource_requirement_uses_parsed_css() {

@@ -3106,8 +3106,15 @@ impl TextEngine {
 /// Resource demand from native computed boxes and generated content.
 pub fn image_requests(output: &LayoutOutput) -> BTreeSet<String> {
     let mut urls = output.css_image_requests.clone();
+    let mut visited_styles = BTreeSet::new();
     for (id, style) in &output.computed_styles {
         if !output.geometry.contains_key(id) {
+            continue;
+        }
+        // Output retains every Arc for this immutable pass. Resource demand
+        // is a set, so identical style identities need discovery only once,
+        // after confirming at least one owning node has geometry.
+        if !visited_styles.insert(Arc::as_ptr(style)) {
             continue;
         }
         for value in style.values() {
@@ -9256,6 +9263,18 @@ fn length(value: &str, basis: f64, font_size: f64, viewport: ViewportState) -> f
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn image_requests_preserve_shared_visible_styles() {
+        let input = column_fixture("div{}", vec![node(2, Some(1), "div", ""), node(3, Some(1), "div", "")]);
+        let mut output = compute(&input, &LayoutLimits::default()).unwrap();
+        let shared = Arc::new(BTreeMap::from([("background-image".into(), "url(https://example.test/shared.png)".into())]));
+        output.computed_styles = BTreeMap::from([(2, shared.clone()), (3, shared)]);
+        output.css_image_requests.clear();
+        output.geometry.remove(&2);
+        assert_eq!(image_requests(&output), BTreeSet::from(["https://example.test/shared.png".into()]));
+        output.geometry.remove(&3);
+        assert!(image_requests(&output).is_empty());
+    }
     #[test]
     fn controlled_layout_retry_and_noop_match_complete_legacy_output() {
         use std::sync::atomic::{AtomicUsize, Ordering};
