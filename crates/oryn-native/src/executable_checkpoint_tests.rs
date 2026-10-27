@@ -69,6 +69,38 @@ fn outer_history_publication_does_not_keep_checkpoint_spinning() {
 }
 
 #[test]
+fn sibling_platform_task_does_not_keep_root_checkpoint_spinning() {
+    let mut page = quiet_page();
+    let sibling = page.agent.host.create_realm_with_dom(
+        "https://example.test", 1, Some(1),
+        std::rc::Rc::new(std::cell::RefCell::new(oryn_dom::DomRuntime::new())),
+    ).unwrap();
+    page.agent.host.activate_realm(RealmId(0)).unwrap();
+    page.checkpoint().unwrap();
+    {
+        let _hook = HookGuard::install(move |page, pass| {
+            if pass == 0 {
+                page.agent.host.activate_realm(sibling).unwrap();
+                page.agent.host.execute(
+                    "globalThis.siblingLoads=0;globalThis.reader=new FileReader();reader.onload=()=>siblingLoads++;reader.readAsText(new Blob(['value']))"
+                ).unwrap();
+                page.agent.host.activate_realm(RealmId(0)).unwrap();
+                assert!(page.agent.host.has_runnable_page_work(),
+                    "the outer scheduler must retain sibling task readiness");
+            }
+        });
+        assert_eq!(checkpoint_passes(&mut page), 1,
+            "a sibling task must not repeat an unchanged selected-root checkpoint");
+    }
+    page.agent.host.activate_realm(sibling).unwrap();
+    for _ in 0..16 {
+        page.agent.host.drain_async_fetches(false).unwrap();
+    }
+    assert_eq!(page.agent.host.evaluate_string("String(siblingLoads)").unwrap(), "1",
+        "the sibling's task must still run exactly once");
+}
+
+#[test]
 fn idle_later_realm_does_not_repeat_platform_task_checkpoint() {
     let mut page = quiet_page();
     page.agent.host

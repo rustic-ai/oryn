@@ -1107,7 +1107,7 @@ impl RawV8Host {
     }
 
     pub fn has_runnable_page_work(&mut self) -> bool {
-        self.has_runnable_checkpoint_work()
+        self.has_runnable_completion_work(false)
             || self
                 .next_non_rendering_delay()
                 .is_some_and(|delay| delay.is_zero())
@@ -1117,6 +1117,10 @@ impl RawV8Host {
     }
 
     pub(crate) fn has_runnable_checkpoint_work(&mut self) -> bool {
+        self.has_runnable_completion_work(true)
+    }
+
+    fn has_runnable_completion_work(&mut self, root_only: bool) -> bool {
         if self.has_pending_root_navigation() {
             return true;
         }
@@ -1127,6 +1131,10 @@ impl RawV8Host {
         if self.has_css_dependencies() {
             return true;
         }
+        // A document fixed point follows its selected root and child frames.
+        // The outer page task scheduler still observes all agent completions;
+        // sibling work is retained, not mistaken for this document's mutation.
+        let roots = root_only.then(|| self.active_root_realm_ids());
         // External completions are collected by the bounded actor poll. Waiting
         // for one must not force zero-delay polling or repeated checkpoints.
         self.isolate
@@ -1136,7 +1144,12 @@ impl RawV8Host {
                     fetches
                         .pending
                         .get(id)
-                        .is_none_or(|pending| !self.realm_is_parked(pending.environment.realm))
+                        .is_none_or(|pending| {
+                            !self.realm_is_parked(pending.environment.realm)
+                                && roots.as_ref().is_none_or(|realms| {
+                                    realms.contains(&pending.environment.realm)
+                                })
+                        })
                 })
             })
             // Due timers are peer page tasks, not a reason to repeat an
@@ -1146,6 +1159,7 @@ impl RawV8Host {
                 .binding_states
                 .iter()
                 .filter(|(realm, _)| !self.realm_is_parked(**realm))
+                .filter(|(realm, _)| roots.as_ref().is_none_or(|realms| realms.contains(realm)))
                 .map(|(_, state)| state)
                 .any(|state| state.has_ready_platform_work() || state.has_closed_document_stream())
     }
