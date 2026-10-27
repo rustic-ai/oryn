@@ -1857,10 +1857,40 @@ pub(super) fn initialize_event(
     }
     Ok(())
 }
+fn css_layout_discovery_required(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+) -> Result<bool, V8BindingError> {
+    let provider = state.layout_provider.borrow().clone();
+    if !provider.is_some_and(|provider| provider.css_animation_sources_are_dom_owned())
+        || !state.web_animations.borrow().observed_css.is_empty()
+        || !state.constructed_stylesheets.borrow().is_empty()
+    { return Ok(true); }
+    let _retained_scope = state.enter_retained_allocation(scope)?;
+    let dom = state.dom.borrow();
+    let mut cursor = 0;
+    let mut check = || {
+        if crate::v8_termination::checkpoint(scope) { Ok(()) }
+        else { Err(DomError::ProjectionCancelled) }
+    };
+    while let Some((id, node)) = dom.arena().next_with_checkpoint(&mut cursor, &mut check)? {
+        if dom.node_document(id)? != Some(state.document_root()) || !dom.is_connected(id)? { continue; }
+        // Conservative sources: all style/link elements, inline declarations,
+        // adopted sheets and XML stylesheet instructions. No lexical CSS guesses.
+        if !node.adopted_stylesheets.is_empty()
+            || matches!(&node.kind, NodeKind::ProcessingInstruction { .. })
+            || matches!(&node.kind, NodeKind::Element { name }
+                if matches!(name.local.as_ref(), "style" | "link") || node.attributes.contains_null("style"))
+        { return Ok(true); }
+    }
+    Ok(false)
+}
+
 fn collect_css_events(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
 ) -> Result<(), V8BindingError> {
+    if !css_layout_discovery_required(scope, state)? { return Ok(()); }
     {
         let _profile = native_binding_stage(scope, "deep.animation_layout_flush");
         refresh_layout_in_scope(scope, state)?;
@@ -3334,6 +3364,33 @@ pub(super) fn release_collected(state: &V8BindingState, id: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn stylesheet_free_animation_tick_skips_layout_but_native_sources_restore_it() {
+        struct Provider;
+        impl BindingLayoutProvider for Provider {
+            fn css_animation_sources_are_dom_owned(&self) -> bool { true }
+            fn compute_layout(&self, _: &BTreeMap<NodeId, BTreeSet<String>>) -> Result<BindingLayout, String> {
+                panic!("stylesheet-free CSS discovery must not compute geometry")
+            }
+        }
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<main id='probe'>text</main>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        state.set_layout_provider(Rc::new(Provider));
+        assert!(!css_layout_discovery_required(scope, &state).unwrap());
+        collect_css_events(scope, &state).unwrap();
+        let node = dom.borrow().find_by_id("probe").unwrap();
+        dom.borrow_mut().set_attribute_ns(node, None, "style", "color:red").unwrap();
+        assert!(css_layout_discovery_required(scope, &state).unwrap());
+        dom.borrow_mut().remove_attribute_ns(node, None, "style").unwrap();
+        assert!(!css_layout_discovery_required(scope, &state).unwrap());
+        eval(scope, "document.body.appendChild(document.createElement('style'))");
+        assert!(css_layout_discovery_required(scope, &state).unwrap());
+    }
     #[test]
     fn animation_failure_diagnostic_is_disabled_bounded_reentrant_and_owner_local() {
         thread_local! {

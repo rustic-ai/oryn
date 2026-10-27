@@ -2,9 +2,19 @@
 use super::*;
 use std::io::{Read, Write};
 
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn production_worker_redirect_csp_event_reaches_worker_listener() {
     assert!(std::env::var_os("ORYN_PAGE_WORKER").is_some());
+    worker_redirect_csp_event_control(true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn local_worker_redirect_csp_event_reaches_worker_listener() {
+    worker_redirect_csp_event_control(false).await;
+}
+
+async fn worker_redirect_csp_event_control(production_worker: bool) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -30,7 +40,7 @@ async fn production_worker_redirect_csp_event_reaches_worker_listener() {
                     }
                     let (status, extra, body) = if header.starts_with(b"GET /worker.js ") {
                         (200, "Content-Type: text/javascript\r\nContent-Security-Policy: connect-src 'self'; report-uri /report\r\n".to_owned(),
-                            "const original=new URL('/common/redirect-opt-in.py?status=307&location=https://foreign.test:__PORT__/denied?cross-origin-fetch',self.location.href).href;let blocked=null,rejected=false;function publish(){if(blocked!==null&&rejected)postMessage(blocked===original)}addEventListener('securitypolicyviolation',e=>{if(e.blockedURI===original){blocked=e.blockedURI;publish()}});(async()=>{const foreign=self.location.origin.replace('source.test','foreign.test');await fetch(foreign+'/first').catch(()=>{});await new Promise(resolve=>{const xhr=new XMLHttpRequest();xhr.open('GET',foreign+'/second');xhr.onerror=resolve;xhr.send()});fetch(original).then(()=>postMessage('unexpected success')).catch(e=>{rejected=e instanceof TypeError;publish()})})();".replace("__PORT__", &port.to_string()))
+                            "const original=new URL('/common/redirect-opt-in.py?status=307&location=https://foreign.test:__PORT__/denied?cross-origin-fetch',self.location.href).href;addEventListener('securitypolicyviolation',e=>postMessage({stage:'event:'+e.blockedURI}));function waitFor(url){return new Promise(resolve=>{const handler=e=>{postMessage({stage:'listener:'+String(e.blockedURI===url)});if(e.blockedURI===url){try{removeEventListener('securitypolicyviolation',handler);postMessage({stage:'removed'});resolve(e);postMessage({stage:'resolved'})}catch(error){postMessage(error.name+':'+error.message)}}};addEventListener('securitypolicyviolation',handler)})}function xhr(url){return new Promise(resolve=>{const request=new XMLHttpRequest();request.open('GET',url);request.onload=()=>resolve(true);request.onerror=()=>resolve(false);request.send()})}(async()=>{postMessage({stage:'same-fetch-start'});await fetch('/same-fetch');postMessage({stage:'same-fetch-done'});if(!await xhr('/same-xhr'))throw new Error('same-origin XHR');postMessage({stage:'same-xhr-done'});const foreign=self.location.origin.replace('source.test','foreign.test');for(const [url,operation] of [[foreign+'/first',url=>fetch(url).catch(e=>{postMessage({stage:'rejected:'+url});return e instanceof TypeError})],[foreign+'/second',xhr],[original,url=>fetch(url).catch(e=>e instanceof TypeError)]]){postMessage({stage:url});const [event,result]=await Promise.all([waitFor(url),operation(url)]);postMessage({stage:'all-settled'});if(event.blockedURI!==url||(url===original&&!result))throw new Error('CSP result')}postMessage(true)})().catch(e=>postMessage(e.message));".replace("__PORT__", &port.to_string()))
                     } else if header.starts_with(b"GET /common/redirect-opt-in.py?") {
                         (
                             307,
@@ -71,7 +81,7 @@ async fn production_worker_redirect_csp_event_reaches_worker_listener() {
     }))
     .unwrap();
     let mut browser = Browser::new();
-    browser.worker_process = true;
+    browser.worker_process = production_worker;
     let context = browser
         .with_fixture_network(Vec::new(), routes)
         .unwrap()
@@ -83,7 +93,7 @@ async fn production_worker_redirect_csp_event_reaches_worker_listener() {
     )
     .await
     .unwrap();
-    page.evaluate("globalThis.workerResult=null;globalThis.worker=new Worker('/worker.js');worker.onmessage=e=>globalThis.workerResult=e.data;worker.onerror=()=>globalThis.workerResult='worker error';true").await.unwrap();
+    page.evaluate("globalThis.workerResult=null;globalThis.workerStages=[];globalThis.worker=new Worker('/worker.js');worker.onmessage=e=>{if(e.data&&e.data.stage)workerStages.push(e.data.stage);else globalThis.workerResult=e.data};worker.onerror=()=>globalThis.workerResult='worker error';true").await.unwrap();
     let wait = page
         .wait_for_timeout(
             WaitPredicate::JavaScript("workerResult!==null".into()),
@@ -91,6 +101,7 @@ async fn production_worker_redirect_csp_event_reaches_worker_listener() {
         )
         .await;
     let result = page.evaluate("String(workerResult)").await;
+    eprintln!("worker CSP stages: {:?}", page.evaluate("JSON.stringify(workerStages)").await);
     for entry in context.pages() {
         context.close_page(entry.page.page_id).await.unwrap();
     }
@@ -314,16 +325,16 @@ async fn remote_popup_navigates_before_first_destination_command() {
                         } else if header.starts_with(b"GET /dynamic.js ") {
                             let _ = requested.send("script");
                         }
-                        let body = if is_ping && count == 1 {
+                        let body = if is_ping && count != 2 {
                             "not ready"
                         } else if is_ping {
-                            "globalThis.fetchResult='pong';const importScript=url=>{const s=document.createElement('script');s.src=url;const loaded=new Promise(resolve=>s.onload=()=>{globalThis.scriptLoaded=true;resolve()});document.body.appendChild(s);return loaded};await importScript('/dynamic.js');document.body.appendChild(document.createElement('iframe'));"
+                            "globalThis.fetchResult='pong';const importScript=url=>{const s=document.createElement('script');s.type='text/javascript';s.src=url;const loaded=new Promise(resolve=>s.onload=()=>{globalThis.scriptLoaded=true;resolve()});document.body.appendChild(s);return loaded};await importScript('/dynamic.js');await importScript('/dynamic.js');await importScript('/dynamic.js');document.body.appendChild(document.createElement('iframe'));"
                         } else if header.starts_with(b"GET /dynamic.js ") {
                             "globalThis.dynamicLoaded=true"
                         } else if header.starts_with(b"GET /dispatcher.js ") {
                             "globalThis.receive=async()=>{while(true){const v=await(await fetch('/ping?uuid=popup-probe')).text();if(v!=='not ready')return v;await new Promise(resolve=>setTimeout(resolve,20))}};"
                         } else if parser_receive {
-                            "<!doctype html><p>executor</p><script src='/dispatcher.js'></script><script>globalThis.executorStarted=true;(async()=>{try{const v=await receive();eval('(async()=>{'+v+'})()')}catch(e){globalThis.fetchResult=e.name}})()</script>"
+                            "<!doctype html><p>executor</p><script src='/dispatcher.js'></script><script>globalThis.executorStarted=true;(async()=>{try{while(true){const v=await receive();eval('(async()=>{'+v+'})()')}}catch(e){globalThis.fetchResult=e.name}})()</script>"
                         } else {
                             "<!doctype html><p>executor</p><script>globalThis.executorStarted=true;setTimeout(async()=>{try{let v;do{v=await(await fetch('/ping?uuid=popup-probe',{method:'POST',body:'popup-payload'})).text();if(v==='not ready')await new Promise(resolve=>setTimeout(resolve,20))}while(v==='not ready');eval('(async()=>{'+v+'})()')}catch(e){globalThis.fetchResult=e.name}},20)</script>"
                         };

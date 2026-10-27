@@ -1324,6 +1324,7 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         }
         Ok(self.style_engine.borrow().animation_style_values(id))
     }
+    fn css_animation_sources_are_dom_owned(&self) -> bool { true }
     fn css_animations(&self) -> Result<Vec<oryn_js::v8_bindings::BindingCssAnimation>, String> {
         Ok(self
             .style_engine

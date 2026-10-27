@@ -1003,7 +1003,14 @@ impl AgentRuntime for NativeAgentRuntime {
                     let state = context
                         .get_slot::<V8BindingState>()
                         .ok_or_else(|| agent_error("retired worker"))?;
-                    state.poll_external_ports(scope).map_err(agent_error)?;
+                    let delivered = state.poll_external_ports(scope).map_err(agent_error)?;
+                    if delivered > 0 {
+                        // Native event callbacks can settle promises without any
+                        // subsequent fetch or timer task. Finish this task even
+                        // if its callback called close(); retirement happens later.
+                        scope.perform_microtask_checkpoint();
+                        state.finish_platform_task_checkpoint().map_err(agent_error)?;
+                    }
                     if !state.execution_tasks_stopped() && self.bootstrap.kind == AgentKind::Service
                     {
                         for event in
@@ -1754,6 +1761,60 @@ mod agent_runtime_tests {
         let before = Instant::now();
         process.terminate().unwrap();
         assert!(before.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn worker_external_csp_event_checkpoints_promise_without_another_task() {
+        struct CspBackend(Backend);
+        impl WorkerTransport for CspBackend {
+            fn request(&self, request: AgentServiceRequest) -> Result<AgentServiceResponse, WorkerError> {
+                if let AgentServiceRequest::CspEvents { after } = request {
+                    return Ok(AgentServiceResponse::CspEvents(if after == 0 {
+                        vec![oryn_js::platform_control::CspEvent {
+                            id: 1,
+                            document_uri: "https://a.test/worker.js".into(),
+                            referrer: String::new(),
+                            blocked_uri: "https://blocked.test/".into(),
+                            effective_directive: "connect-src".into(),
+                            original_policy: "connect-src 'self'".into(),
+                            source_file: String::new(),
+                            sample: String::new(),
+                            disposition: "enforce".into(),
+                            status_code: 200,
+                            line_number: 0,
+                            column_number: 0,
+                        }]
+                    } else { Vec::new() }));
+                }
+                self.0.request(request)
+            }
+        }
+        let backend = Arc::new(CspBackend(Backend {
+            blobs: Default::default(), hub: Default::default(), scripts: Default::default(),
+        }));
+        let boot = bootstrap(
+            "new Promise(resolve=>addEventListener('securitypolicyviolation',resolve,{once:true})).then(event=>{postMessage(event.blockedURI);close()});",
+            AgentKind::Dedicated, ScriptType::Classic,
+        );
+        let mut process = AgentThreadProcess::spawn(boot, move |boot| NativeAgentRuntime::create(boot, backend)).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut values = Vec::new();
+        let mut closed = false;
+        while !closed && Instant::now() < deadline {
+            for event in process.poll(32).unwrap() {
+                match event {
+                    AgentEvent::Message { value, .. } => values.push(value),
+                    AgentEvent::Closed => closed = true,
+                    AgentEvent::Ready => {},
+                    event => panic!("unexpected CSP event: {event:?}"),
+                }
+            }
+            std::thread::yield_now();
+        }
+        process.terminate().unwrap();
+        assert!(closed, "external event promise must run without another task");
+        assert_eq!(values.len(), 1);
+        verify(values.remove(0), "received==='https://blocked.test/'");
     }
 
     #[test]

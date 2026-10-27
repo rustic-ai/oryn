@@ -2216,6 +2216,9 @@ pub trait BindingLayoutProvider {
     fn css_animations(&self) -> Result<Vec<BindingCssAnimation>, String> {
         Ok(Vec::new())
     }
+    /// Opt in only when CSS animation sources are owned by this native DOM.
+    /// Unknown providers may synthesize CSS animations and keep full sampling.
+    fn css_animation_sources_are_dom_owned(&self) -> bool { false }
     fn animation_style_values(
         &self,
         _id: u64,
