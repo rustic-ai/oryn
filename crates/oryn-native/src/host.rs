@@ -3119,7 +3119,9 @@ mod raw_v8 {
         args: v8::FunctionCallbackArguments,
         _: v8::ReturnValue,
     ) {
+        let _close_diagnostic = crate::native_timing::stage("window.close.callback");
         let Some(context) = native_window_callback_context(scope, &args) else {
+            crate::native_timing::count("window.close.invalid_receiver", 1);
             throw_type_error(scope, "Window.close requires a Window receiver");
             return;
         };
@@ -3129,12 +3131,15 @@ mod raw_v8 {
             .get_slot::<RealmDescriptor>()
             .is_some_and(|realm| realm.frame_id.is_some())
         {
+            crate::native_timing::count("window.close.frame_target", 1);
             return;
         }
         let Some(window) = context.get_slot::<NativeWindowLifecycle>() else {
+            crate::native_timing::count("window.close.missing_lifecycle", 1);
             return;
         };
         if window.closed.get() {
+            crate::native_timing::count("window.close.already_closed", 1);
             return;
         }
         if let Err(error) = flush_local_history_projections(scope) {
@@ -3148,14 +3153,18 @@ mod raw_v8 {
             let Some(source) = oryn_js::v8_context_bridge::incumbent_slot::<V8BindingState>(scope)
                 .or_else(|| scope.get_current_context().get_slot::<V8BindingState>())
             else {
+                crate::native_timing::count("window.close.missing_source", 1);
                 return;
             };
             let Ok(creator) = source.native_worker_creator() else {
+                crate::native_timing::count("window.close.invalid_creator", 1);
                 return;
             };
             let Some(source_endpoint) = context_endpoint_for_binding(scope, &source) else {
+                crate::native_timing::count("window.close.missing_source_endpoint", 1);
                 return;
             };
+            crate::native_timing::count("window.close.parent_request", 1);
             match source_endpoint
                 .client
                 .request(ContextServiceRequest::ClosePage {
@@ -3164,13 +3173,19 @@ mod raw_v8 {
                     creator,
                     expected: None,
                 }) {
-                Ok(ContextServiceResponse::PageClosed) => window.closed.set(true),
-                Ok(ContextServiceResponse::PageDenied { .. }) => {}
+                Ok(ContextServiceResponse::PageClosed) => {
+                    crate::native_timing::count("window.close.parent_admitted", 1);
+                    window.closed.set(true)
+                }
+                Ok(ContextServiceResponse::PageDenied { .. }) => {
+                    crate::native_timing::count("window.close.parent_denied", 1);
+                }
                 Ok(_) => throw_type_error(scope, "Window.close admission ACK mismatch"),
                 Err(error) => throw_type_error(scope, &error.to_string()),
             }
             return;
         }
+        crate::native_timing::count("window.close.standalone_request", 1);
         if let Err(error) = admit_standalone_script_close(scope, context, &window) {
             throw_type_error(scope, &error);
         }

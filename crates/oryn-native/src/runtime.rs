@@ -36986,7 +36986,9 @@ mod tests {
                 let popup_id = context.pages().into_iter()
                     .filter(|page| page.page.page_id != creator.page_id() && page.status != PageStatus::Closed)
                     .map(|page| page.page.page_id).last().expect("live popup descriptor");
-                creator.evaluate("popup.close();true").await.unwrap();
+                creator.evaluate("globalThis.closeDone=false;Promise.resolve().then(()=>{popup.close();closeDone=true});true").await.unwrap();
+                creator.wait_for(WaitPredicate::JavaScript("closeDone".into())).await
+                    .expect("promise cleanup callback must execute");
                 creator.wait_for(WaitPredicate::JavaScript("popup.closed".into())).await.expect("script popup close must settle");
                 // The synchronous Window.closed flag is not proof that the
                 // actor, child tasks and network polling have been retired.

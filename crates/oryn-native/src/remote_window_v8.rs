@@ -679,7 +679,9 @@ fn remote_window_operation_for(
                     .map_err(|e| e.to_string())?;
             }
             3 => {
+                crate::native_timing::count("window.close.remote_callback", 1);
                 if matches!(entry.target, oryn_js::message_wire::WindowTarget::Frame(_)) {
+                    crate::native_timing::count("window.close.remote_frame_target", 1);
                     return Ok(());
                 }
                 flush_local_history_projections(scope).map_err(|error| error.to_string())?;
@@ -693,8 +695,12 @@ fn remote_window_operation_for(
                     })
                     .map_err(|e| e.to_string())?
                 {
-                    ContextServiceResponse::PageClosed
-                    | ContextServiceResponse::PageDenied { .. } => {}
+                    ContextServiceResponse::PageClosed => {
+                        crate::native_timing::count("window.close.remote_admitted", 1);
+                    }
+                    ContextServiceResponse::PageDenied { .. } => {
+                        crate::native_timing::count("window.close.remote_denied", 1);
+                    }
                     _ => return Err("Window.close admission ACK mismatch".into()),
                 }
             }
