@@ -703,8 +703,16 @@ impl RawV8Host {
     /// callback. Waiting is bounded by the page execution wall limit and
     /// all ready completions run a real V8 microtask checkpoint.
     pub fn drain_async_fetches(&mut self, wait: bool) -> Result<usize, HostError> {
+        self.drain_async_fetches_with_terminal_control(wait, None)
+    }
+
+    pub(crate) fn drain_async_fetches_with_terminal_control(
+        &mut self,
+        wait: bool,
+        terminal: Option<&crate::page_terminal_control::PageTerminalControl>,
+    ) -> Result<usize, HostError> {
         let _stage = crate::native_timing::stage("host.async_fetch");
-        if self.worker_tasks_stopped() {
+        if self.worker_tasks_stopped() || terminal.is_some_and(|control| control.retired()) {
             return Ok(0);
         }
         let closed = self.poll_standalone_script_closes()?;
@@ -906,12 +914,16 @@ impl RawV8Host {
             }
             delivered += 1;
         }
-        delivered += self.drain_generated_platform_operations(wait)?;
+        delivered += self.drain_generated_platform_operations(wait, terminal)?;
         crate::native_timing::count("host.async_fetch.delivered", delivered as u64);
         Ok(delivered)
     }
 
-    fn drain_generated_platform_operations(&mut self, wait: bool) -> Result<usize, HostError> {
+    fn drain_generated_platform_operations(
+        &mut self,
+        wait: bool,
+        terminal: Option<&crate::page_terminal_control::PageTerminalControl>,
+    ) -> Result<usize, HostError> {
         // A transaction keep-alive loop is legitimate browser activity:
         // every success handler may enqueue the next request forever.
         // Bound one scheduler checkpoint so that such a chain yields to
@@ -922,14 +934,30 @@ impl RawV8Host {
         let deadline = Instant::now() + self.execution_wall_limit;
         let mut delivered = 0;
         loop {
+            if terminal.is_some_and(|control| control.retired()) {
+                break;
+            }
+            // Independent roots have their own PageState drivers. A page-owned
+            // fixed point pumps only its root and live descendants; direct host
+            // drains without an owner retain the global standalone semantics.
+            let page_realms = terminal.map(|_| self.active_root_realm_ids());
             let mut pass = 0;
             let scheduled = self
                 .binding_states
                 .iter()
+                .filter(|(realm, _)| page_realms.as_ref().is_none_or(|realms| realms.contains(realm)))
                 .filter_map(|(realm, state)| {
                     if state.execution_retired() || self.realm_is_parked(*realm) {
                         return None;
                     }
+                    #[cfg(test)]
+                    let _probe = crate::ipc_progress::close_admission::phase(
+                        if *realm == self.active_realm {
+                            "generated_platform_selected_probe"
+                        } else {
+                            "generated_platform_sibling_probe"
+                        },
+                    );
                     self.contexts
                         .get(realm)
                         .cloned()
@@ -937,6 +965,9 @@ impl RawV8Host {
                 })
                 .collect::<Vec<_>>();
             for (context, state) in scheduled {
+                if terminal.is_some_and(|control| control.retired()) {
+                    return Ok(delivered + pass);
+                }
                 // Earlier completion callbacks may synchronously retire another
                 // scheduled owner. Never resume its discarded execution queues.
                 if state.execution_retired() {
@@ -988,7 +1019,7 @@ impl RawV8Host {
             // Waiting probes still service timers, and every real completion
             // retains the fairness boundary above.
             if pass != 0 || wait {
-                delivered += self.drain_scheduled_timers(false)?;
+                delivered += self.drain_scheduled_timers_with_terminal_control(false, terminal)?;
             }
             if delivered >= MAX_COMPLETIONS_PER_CHECKPOINT {
                 break;
@@ -996,6 +1027,7 @@ impl RawV8Host {
             let pending = self
                 .binding_states
                 .iter()
+                .filter(|(realm, _)| page_realms.as_ref().is_none_or(|realms| realms.contains(realm)))
                 .filter(|(realm, _)| !self.realm_is_parked(**realm))
                 .map(|(_, state)| state)
                 .any(|state| state.has_pending_non_image_work());

@@ -14894,7 +14894,7 @@ impl RustExecutableDocument {
             {
                 let _close_phase =
                     crate::ipc_progress::close_admission::phase("checkpoint_async_fetches_before");
-                self.agent.host.drain_async_fetches(false)?;
+                self.agent.host.drain_async_fetches_with_terminal_control(false, terminal_control)?;
             }
             if Self::page_task_retired(terminal_control) {
                 return Ok(());
@@ -14982,7 +14982,7 @@ impl RustExecutableDocument {
             {
                 let _close_phase =
                     crate::ipc_progress::close_admission::phase("checkpoint_async_fetches_after");
-                self.agent.host.drain_async_fetches(false)?;
+                self.agent.host.drain_async_fetches_with_terminal_control(false, terminal_control)?;
             }
             if Self::page_task_retired(terminal_control) {
                 return Ok(());

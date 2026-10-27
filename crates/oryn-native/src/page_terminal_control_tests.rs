@@ -1,6 +1,31 @@
 // Included alongside the real actor tests. Phase hooks observe actual production
 // boundaries; no sleeping, fabricated completion, or replacement task loop.
 #[test]
+fn page_owned_completion_drain_does_not_probe_independent_root() {
+    let (mut root, _sender) = timer_root(1891);
+    let _control = close_yield_control(&mut root);
+    let owner = root.state.page_task_terminal_control.clone();
+    let page = root.state.executable.as_mut().unwrap();
+    let mut host = page.take_agent_host().unwrap();
+    let selected = host.active_realm();
+    host.create_realm_with_dom("https://example.test", 1, Some(1),
+        std::rc::Rc::new(std::cell::RefCell::new(oryn_dom::DomRuntime::new()))).unwrap();
+    host.activate_realm(selected).unwrap();
+    let (result, labels) = crate::ipc_progress::close_admission::capture_test_phase_labels(|| {
+        host.drain_async_fetches_with_terminal_control(false, Some(&owner))
+    });
+    result.unwrap();
+    assert_eq!(labels.iter().filter(|label| **label == "generated_platform_sibling_probe").count(), 0,
+        "page-owned completion drain must leave independent root with its owner");
+    let (result, labels) = crate::ipc_progress::close_admission::capture_test_phase_labels(|| {
+        host.drain_async_fetches(false)
+    });
+    result.unwrap();
+    assert_eq!(labels.iter().filter(|label| **label == "generated_platform_sibling_probe").count(), 1);
+    assert!(matches!(page.return_agent_host_after_turn(host), Ok(None)));
+}
+
+#[test]
 fn page_owned_platform_sweep_does_not_poll_independent_root() {
     let (mut root, _sender) = timer_root(1889);
     let _control = close_yield_control(&mut root);
