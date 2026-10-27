@@ -1771,12 +1771,15 @@ impl FrameScriptPreparation {
         Ok(())
     }
     fn poll_html_parser(&mut self, page: &mut RustExecutableDocument) -> Result<(), HostError> {
+        self.poll_html_parser_after_script(page, false)
+    }
+    fn poll_html_parser_after_script(&mut self, page: &mut RustExecutableDocument, after_script: bool) -> Result<(), HostError> {
         for _ in 0..64 {
             if self.html_bytes_remaining == 0 {
                 break;
             }
             if self
-                .poll_html_parser_slice(page, self.html_bytes_remaining)?
+                .poll_html_parser_slice(page, self.html_bytes_remaining, after_script)?
                 .is_none()
             {
                 break;
@@ -1788,6 +1791,7 @@ impl FrameScriptPreparation {
         &mut self,
         page: &mut RustExecutableDocument,
         byte_limit: usize,
+        after_script: bool,
     ) -> Result<Option<usize>, HostError> {
         if !self.ordered.is_empty() || self.live_parser.is_none() {
             return Ok(None);
@@ -1898,6 +1902,10 @@ impl FrameScriptPreparation {
                     }
                 };
             let suffix = chunk.split_off(progress.consumed_bytes);
+            let trailing_script_whitespace = after_script
+                && chunk.as_transport().bytes().all(|value| {
+                    matches!(value, b'\t' | b'\n' | 0x0c | b'\r' | b' ')
+                });
             self.html_bytes_remaining = self
                 .html_bytes_remaining
                 .saturating_sub(progress.consumed_bytes);
@@ -1909,7 +1917,8 @@ impl FrameScriptPreparation {
                 events.push(event);
                 parser.parser.pause();
             }
-            let data_only = !events.is_empty()
+            let no_events = events.is_empty();
+            let data_only = !no_events
                 && events.iter().all(|event| {
                     matches!(
                         event,
@@ -1935,18 +1944,21 @@ impl FrameScriptPreparation {
             xml_publication_failure(XmlPublicationFailure::AfterHtmlTokenization)?;
             self.publish_html_slice(page)?;
             self.drain_parser_events(page)?;
-            // Data preparation still runs its observer/microtask checkpoint
-            // before subsequent tokens. Batch only retained input after that
-            // checkpoint, with no new source read or executable script job.
-            if data_only
+            // Immediately after a blocking script, consume ready trailing
+            // whitespace and EOF before unrelated Fetch tasks
+            // can resume script in a document whose implicit body is absent.
+            // The caller retains the byte/iteration budgets and Pending still
+            // yields. Data preparation batches only already-retained input;
+            // executable/resource events retain their existing turn boundary.
+            if ((no_events && trailing_script_whitespace) || data_only)
                 && self.live(&page.agent.host)
                 && self.ordered.is_empty()
                 && self.asynchronous.is_empty()
                 && self.xml_deferred.is_empty()
-                && self
-                    .live_parser
-                    .as_ref()
-                    .is_some_and(|parser| !parser.input.is_empty() || parser.parser.has_input())
+                && (trailing_script_whitespace
+                    || self.live_parser.as_ref().is_some_and(|parser| {
+                        !parser.input.is_empty() || parser.parser.has_input()
+                    }))
             {
                 return Ok(Some(progress.consumed_bytes));
             }
@@ -3188,7 +3200,7 @@ impl RustExecutableDocument {
                             // unrelated task sources. Spend only this turn's
                             // remaining byte budget; a new script stays queued
                             // for the next turn and slow input never blocks it.
-                            if let Err(error) = pending.poll_html_parser(self) {
+                            if let Err(error) = pending.poll_html_parser_after_script(self, true) {
                                 pending.parser_retry =
                                     Some(std::time::Instant::now() + Duration::from_millis(25));
                                 self.frame_script_preparations.push_back(pending);

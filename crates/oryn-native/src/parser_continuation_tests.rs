@@ -111,6 +111,28 @@ fn live_parser_distinguishes_pending_input_from_eof() {
         "true"
     );
 }
+
+#[test]
+fn ready_trailing_whitespace_reaches_eof_before_unrelated_tasks() {
+    let mut page = RustExecutableDocument::load("").unwrap();
+    page.agent.host.execute("document.documentElement.remove()").unwrap();
+    assert_eq!(page.agent.host.evaluate_string("String(document.body===null)").unwrap(), "true");
+    let (input, _, _, _) = controlled(vec![
+        "<script>globalThis.parserStarted=true;globalThis.bodyAbsentInsideScript=document.body===null;</script>".into(),
+        "\n".into(),
+    ], true);
+    install(&mut page, input);
+    for _ in 0..8 {
+        tick(&mut page).unwrap();
+        if page.agent.host.evaluate_string("String(globalThis.parserStarted===true)").unwrap() == "true" {
+            assert_eq!(page.agent.host.evaluate_string("String(globalThis.bodyAbsentInsideScript)").unwrap(), "true");
+            assert_eq!(page.agent.host.evaluate_string("String(document.body!==null)").unwrap(), "true",
+                "ready whitespace and EOF must resume before unrelated task sources");
+            return;
+        }
+    }
+    panic!("inline parser script did not execute");
+}
 #[test]
 fn live_parser_continuation_yields_between_input_slices() {
     let mut page = RustExecutableDocument::load("").unwrap();
