@@ -9895,6 +9895,27 @@ impl BrowserContext {
         let context = Arc::downgrade(&self.inner);
         let cancelled = self.inner.csp_report_lifetime.0.clone();
         let deadline = now + Duration::from_secs(10);
+        // Reports are non-CORS POSTs, so Fetch still appends Origin. Apply the
+        // client's referrer policy without exposing URL credentials or paths.
+        let referrer_policy = page_id
+            .and_then(|page| self.page_referrer_policy(page).ok())
+            .unwrap_or_default();
+        let report_origin = match (Url::parse(&document_url), Url::parse(&target.url)) {
+            (Ok(source), Ok(endpoint)) => crate::referrer::request_origin_header(
+                &if page_id.is_some_and(|page| !self.is_opaque_origin(page).unwrap_or(true)) {
+                    source.origin().ascii_serialization()
+                } else {
+                    "null".into()
+                },
+                &source,
+                &endpoint,
+                "POST",
+                false,
+                referrer_policy,
+            )
+            .unwrap_or_else(|| "null".into()),
+            _ => "null".into(),
+        };
         let failed_target = target.clone();
         let submitted = submit_csp_report(move || {
             let _permit = permit;
@@ -9913,6 +9934,7 @@ impl BrowserContext {
                         headers: vec![
                             ("content-type".into(), content_type),
                             ("cache-control".into(), "no-store".into()),
+                            ("origin".into(), report_origin),
                         ],
                         body,
                         credentials: false,
@@ -30564,6 +30586,7 @@ mod tests {
         struct ReportingFixture {
             requests: Arc<Mutex<Vec<NetworkRequest>>>,
             scripts: usize,
+            referrer_policy: &'static str,
         }
         impl NetworkBroker for ReportingFixture {
             fn send(
@@ -30586,6 +30609,7 @@ mod tests {
                     status: 200,
                     headers: vec![
                         ("content-type".into(), "text/html".into()),
+                        ("referrer-policy".into(), self.referrer_policy.into()),
                         (
                             "content-security-policy-report-only".into(),
                             "script-src 'none'; report-uri /csp-report".into(),
@@ -30599,7 +30623,11 @@ mod tests {
                 })
             }
         }
-        for scripts in [1usize, 2] {
+        for (scripts, referrer_policy, expected_origin) in [
+            (1usize, "strict-origin-when-cross-origin", "https://app.example"),
+            (2, "strict-origin-when-cross-origin", "https://app.example"),
+            (1, "no-referrer", "null"),
+        ] {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let context = Browser::in_process_with_config(BrowserConfig::default())
                 .new_context_with_broker(
@@ -30607,6 +30635,7 @@ mod tests {
                     SharedNetworkBroker::new(ReportingFixture {
                         requests: requests.clone(),
                         scripts,
+                        referrer_policy,
                     }),
                 );
             let page = context.new_page();
@@ -30663,6 +30692,11 @@ mod tests {
                 .filter(|request| request.url.ends_with("/csp-report"))
             {
                 assert!(!report.credentials);
+                assert_eq!(
+                    report.headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("origin"))
+                        .map(|(_, value)| value.as_str()),
+                    Some(expected_origin)
+                );
                 let body: serde_json::Value = serde_json::from_slice(&report.body).unwrap();
                 assert_eq!(body["csp-report"]["effective-directive"], "script-src-elem");
                 assert_eq!(body["csp-report"]["disposition"], "report");
