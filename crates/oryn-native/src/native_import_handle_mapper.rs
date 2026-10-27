@@ -376,6 +376,8 @@ impl oryn_js::v8_bindings::BindingNativeStylesheet for NativeSheetHandle {
     }
 
     fn disabled(&self) -> Result<bool, oryn_js::v8_bindings::BindingNativeCssError> {
+        self.publication.reconcile_owner_state_admitted()
+            .map_err(|error| oryn_js::v8_bindings::BindingNativeCssError::Native(error.to_string()))?;
         Ok(self.sheet.disabled())
     }
     fn set_disabled(

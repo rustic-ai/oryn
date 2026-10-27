@@ -651,8 +651,12 @@ fn named_stylesheet_sets_control_native_layout_and_parser_applicability() {
         &mut page,
         "sets===document.styleSheetSets&&sets instanceof DOMStringList&&sets.length===2&&sets[0]==='Day'&&sets.item(1)==='Night'&&sets.contains('Night')&&sets.item(9)===null",
     );
-    page.execute("document.selectedStyleSheetSet='Night'")
-        .unwrap();
+    // Read the wrappers in the same author turn, before any incidental image
+    // preparation or geometry request could reconcile native sheet state.
+    check(
+        &mut page,
+        "(()=>{document.selectedStyleSheetSet='Night';return a.sheet.disabled&&!b.sheet.disabled})()",
+    );
     check(
         &mut page,
         "document.lastStyleSheetSet==='Night'&&document.selectedStyleSheetSet==='Night'&&a.sheet.disabled&&!b.sheet.disabled&&getComputedStyle(document.body).width==='73px'",
