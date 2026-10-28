@@ -1746,6 +1746,24 @@ mod reflection_metadata_tests {
     use super::*;
 
     #[test]
+    fn global_handlers_are_shared_without_duplicate_owner_members() {
+        let definitions = parse_definitions(include_str!("../idl/browser.webidl")).unwrap();
+        let interfaces = merge_partial_interfaces(&definitions).unwrap();
+        let Definition::InterfaceMixin(mixin) = definitions.iter().find(|definition|
+            matches!(definition, Definition::InterfaceMixin(interface) if interface.name == "GlobalEventHandlers")
+        ).unwrap() else { unreachable!() };
+        for owner in ["HTMLElement", "Document", "SVGElement"] {
+            let interface = interfaces.iter().find(|interface| interface.name == owner).unwrap();
+            for member in &mixin.members {
+                let Member::Attribute { name, .. } = member else { panic!("handler must be an attribute") };
+                assert_eq!(interface.members.iter().filter(|member|
+                    matches!(member, Member::Attribute { name: candidate, .. } if candidate == name)
+                ).count(), 1, "{owner}.{name}");
+            }
+        }
+    }
+
+    #[test]
     fn global_input_enumerations_are_owned_by_html_not_svg() {
         let definitions = parse_definitions(include_str!("../idl/browser.webidl")).unwrap();
         for (interface_name, expected) in [("HTMLElement", true), ("SVGElement", false)] {

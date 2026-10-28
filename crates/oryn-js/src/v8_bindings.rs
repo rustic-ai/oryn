@@ -31934,6 +31934,14 @@ fn validate_interface_node(
         "HTMLSlotElement" => Some("slot"),
         _ => None,
     };
+    if interface == "SVGElement" && !matches!(&dom.arena().get(node)?.kind,
+        NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/2000/svg")
+    {
+        return Err(BindingError::WrongBrand {
+            expected: InterfaceBrand::Element,
+            actual: most_derived_brand(&dom.arena().get(node)?.kind),
+        }.into());
+    }
     if matches!(interface, "HTMLMediaElement" | "HTMLPreElement" | "HTMLTableColElement" | "HTMLTableSectionElement" | "HTMLTableCellElement" | "HTMLHeadingElement" | "HTMLQuoteElement" | "HTMLModElement") {
         let record = dom.arena().get(node)?;
         let valid = match &record.kind {
@@ -34578,6 +34586,18 @@ mod reflected_long_tests {
             const eq=(a,b,label)=>{if(a!==b)throw Error(label+': '+a+' != '+b)};
             const table=document.createElement('table');
             eq(table instanceof HTMLTableElement,true,'table interface');
+            for(const [target,prototype] of [[document,Document.prototype],[document.createElementNS('http://www.w3.org/2000/svg','svg'),SVGElement.prototype]]) {
+                for(const name of ['abort','click','beforeinput','wheel','copy','scrollend']) {
+                    const key='on'+name,descriptor=Object.getOwnPropertyDescriptor(prototype,key);
+                    eq(typeof descriptor.get,'function','mixin own getter');eq(typeof descriptor.set,'function','mixin own setter');
+                    eq(target[key],null,'mixin null default');let calls=0;const handler=function(event){eq(this,target,'mixin this');calls++};
+                    target[key]=handler;target.dispatchEvent(new Event(name));eq(calls,1,'mixin native dispatch');
+                    target[key]=null;target.dispatchEvent(new Event(name));eq(calls,1,'mixin handler cleared');
+                    let rejected=false;try{descriptor.set.call(table,handler)}catch(e){rejected=e instanceof TypeError}eq(rejected,true,'mixin specific brand');
+                }
+                const lenient=Object.getOwnPropertyDescriptor(prototype,'onmouseenter');
+                eq(lenient.get.call(table),undefined,'mixin lenient getter wrong brand');eq(lenient.set.call(table,()=>{}),undefined,'mixin lenient setter wrong brand');
+            }
             const meter=document.createElement('meter'),progress=document.createElement('progress');
             eq(meter.min,0,'meter min default');eq(meter.max,1,'meter max default');eq(meter.low,0,'meter low default');eq(meter.high,1,'meter high default');eq(meter.optimum,0.5,'meter optimum default');
             meter.min=2;meter.max=8;meter.low=7;meter.high=3;meter.value=20;
