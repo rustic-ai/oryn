@@ -66,6 +66,7 @@ mod temporal_edit;
 mod temporal_picker;
 mod text_controls;
 mod rendered_text;
+pub use rendered_text::{RenderedTextItem, reduce_rendered_text};
 pub use file_picker::FilePicker;
 mod permission_prompt;
 pub use permission_prompt::PermissionPrompt;

@@ -1,6 +1,35 @@
 //! HTML rendered-text fragment construction shared by innerText and outerText.
 use super::{DomError, DomRuntime, NodeId, dom_string};
 
+/// Items produced by HTML rendered-text collection, before final reduction.
+/// Required breaks are distinct from author text (including literal newlines).
+pub enum RenderedTextItem {
+    Text(String),
+    RequiredLineBreaks(u8),
+}
+
+/// Remove empty strings and edge break requirements, and replace each run of
+/// required breaks with its maximum count. Never trim or normalize author text.
+pub fn reduce_rendered_text(items: impl IntoIterator<Item = RenderedTextItem>) -> String {
+    let mut units = Vec::new();
+    let mut pending = 0;
+    for item in items {
+        match item {
+            RenderedTextItem::RequiredLineBreaks(count) => pending = pending.max(count),
+            RenderedTextItem::Text(text) => {
+                let text = dom_string::units(&text);
+                if text.is_empty() { continue; }
+                if !units.is_empty() {
+                    units.extend(std::iter::repeat_n(10, usize::from(pending)));
+                }
+                pending = 0;
+                units.extend(text);
+            }
+        }
+    }
+    dom_string::from_units(&units)
+}
+
 impl DomRuntime {
     /// Native outerText replacement. The binding must validate its receiver,
     /// convert the DOMString and prepare script effects before calling this.
@@ -102,6 +131,18 @@ impl DomRuntime {
 mod tests {
     use super::*;
     use crate::NodeKind;
+
+    #[test]
+    fn required_break_reduction_preserves_literal_newlines_and_utf16() {
+        use RenderedTextItem::{Text, RequiredLineBreaks as Break};
+        let result = reduce_rendered_text([
+            Break(2), Text(String::new()), Break(1), Text("a\n\n".into()),
+            Break(1), Text(String::new()), Break(2),
+            Text(dom_string::from_units(&[0xd800])), Break(2), Break(1),
+        ]);
+        assert_eq!(dom_string::units(&result), [97,10,10,10,10,0xd800]);
+        assert_eq!(reduce_rendered_text([Break(2),Text(String::new()),Break(1)]), "");
+    }
 
     #[test]
     fn outer_text_replacement_merges_only_boundary_text_nodes() {
