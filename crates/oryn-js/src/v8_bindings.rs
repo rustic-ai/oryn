@@ -36913,7 +36913,15 @@ fn get_attribute_value<'s>(
                 .get_null(member)
                 .map_or("", String::as_str),
         )?,
-        ("HTMLElement", "hidden" | "inert" | "autofocus") | ("SVGElement", "autofocus") => {
+        ("HTMLElement", "hidden") => {
+            match record.attributes.get_null("hidden") {
+                Some(value) if value.eq_ignore_ascii_case("until-found") => {
+                    v8_string(scope, "until-found")?
+                }
+                value => v8::Boolean::new(scope, value.is_some()).into(),
+            }
+        }
+        ("HTMLElement", "inert" | "autofocus") | ("SVGElement", "autofocus") => {
             v8::Boolean::new(scope, record.attributes.get_null(member).is_some()).into()
         }
         ("CSSStyleDeclaration", "parentRule") => v8::null(scope).into(),
@@ -37466,13 +37474,30 @@ fn set_attribute_value<'s>(
         return attribute_resource_changed(scope, &owner, node, None, "headingoffset");
     }
     if interface == "HTMLElement" && member == "hidden" {
-        // WebIDL ToBoolean does not invoke user conversion hooks.
-        if value.boolean_value(scope) {
-            state.dom.borrow_mut().set_attribute_ns(node, None, "hidden", "")?;
+        let original = wrap_node(scope, state, node)?;
+        // Nullable union conversion selects primitive boolean/number directly;
+        // other non-null values use DOMString, including observable object conversion.
+        let attribute = if value.is_null_or_undefined() {
+            None
+        } else if value.is_boolean() || value.is_number() {
+            value.boolean_value(scope).then_some("")
         } else {
-            state.dom.borrow_mut().remove_attribute_ns(node, None, "hidden")?;
+            let string = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+            let string = rust_string_preserving_utf16(scope, string)?;
+            if string.eq_ignore_ascii_case("until-found") {
+                Some("until-found")
+            } else {
+                (!string.is_empty()).then_some("")
+            }
+        };
+        let (owner, node) = node_identity::argument(scope, original.into())?
+            .ok_or(DomError::StaleNode(node))?;
+        if let Some(attribute) = attribute {
+            owner.dom.borrow_mut().set_attribute_ns(node, None, "hidden", attribute)?;
+        } else {
+            owner.dom.borrow_mut().remove_attribute_ns(node, None, "hidden")?;
         }
-        return Ok(());
+        return attribute_resource_changed(scope, &owner, node, None, "hidden");
     }
     if (interface == "HTMLMeterElement" && matches!(member, "value" | "min" | "max" | "low" | "high" | "optimum"))
         || (interface == "HTMLProgressElement" && matches!(member, "value" | "max"))
@@ -38718,13 +38743,6 @@ fn set_attribute_value<'s>(
             drop(dom);
             attribute_resource_changed(scope, state, node, None, member)?;
             return Ok(());
-        }
-        ("HTMLElement", "hidden") => {
-            if value == "true" {
-                dom.set_attribute_ns(node, None, "hidden", "")?;
-            } else {
-                dom.remove_attribute_ns(node, None, "hidden")?;
-            }
         }
         ("Element", "scrollLeft" | "scrollTop") => {
             let numeric = value.parse::<f64>().unwrap_or(0.0);
@@ -56363,7 +56381,7 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
         let source = v8::String::new(scope, r#"
             const reactions=[];
             customElements.define('access-key-control',class extends HTMLElement {
-                static get observedAttributes(){return ['accesskey','translate','spellcheck']}
+                static get observedAttributes(){return ['accesskey','translate','spellcheck','hidden']}
                 attributeChangedCallback(name,oldValue,newValue){reactions.push([name,oldValue,newValue])}
             });
             const custom=document.createElement('access-key-control');
@@ -56371,13 +56389,32 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
             if(reactions.length!==1||reactions[0].join('|')!=='accesskey||A')throw Error('accessKey reactions');
             custom.translate=false;custom.spellcheck=true;
             if(reactions.length!==3||reactions[1].join('|')!=='translate||no'||reactions[2].join('|')!=='spellcheck||true')throw Error('boolean reflection reactions');
+            custom.hidden='UNTIL-FOUND';custom.hidden=null;
+            if(reactions.length!==5||reactions[3].join('|')!=='hidden||until-found'||reactions[4].join('|')!=='hidden|until-found|')throw Error('hidden union reactions');
+            const hiddenDescriptor=Object.getOwnPropertyDescriptor(HTMLElement.prototype,'hidden');let converted=false,brandRejected=false;
+            try{hiddenDescriptor.set.call({},{toString(){converted=true;return 'until-found'}})}catch(e){brandRejected=e instanceof TypeError}
+            if(!brandRejected||converted)throw Error('hidden brand conversion precedence');
             for(const tag of ['div','input','table','meter','progress']) {
                 const element=document.createElement(tag);
-                for(const value of [false,true,0,-0,NaN,1,Infinity,'','false',' foo ',null,undefined,{},[],{toString(){throw Error('must not stringify boolean')}}]) {
+                for(const value of [false,true,0,-0,NaN,1,Infinity,'','false',' foo ',null,undefined]) {
                     element.hidden=value;
                     if(element.hidden!==Boolean(value)||element.hasAttribute('hidden')!==Boolean(value))throw Error('hidden boolean reflection '+tag);
                     if(Boolean(value)&&element.getAttribute('hidden')!=='')throw Error('hidden attribute value '+tag);
                 }
+                for(const value of ['until-found','UNTIL-FOUND','UnTiL-FoUnD']) {
+                    element.hidden=value;if(element.hidden!=='until-found'||element.getAttribute('hidden')!=='until-found')throw Error('hidden union keyword');
+                    element.setAttribute('hidden',value);if(element.hidden!=='until-found')throw Error('hidden canonical getter');
+                }
+                for(const value of ['unt\u0131l-found','unt\u0130l-found']) {
+                    element.hidden=value;if(element.hidden!==true||element.getAttribute('hidden')!=='')throw Error('hidden non-ASCII keyword');
+                }
+                for(const [value,expected] of [[{},true],[[],false],[0n,true],[{toString(){return 'UNTIL-FOUND'}},'until-found']]) {
+                    element.hidden=value;if(element.hidden!==expected)throw Error('hidden DOMString branch');
+                }
+                const sentinel={};try{element.hidden={toString(){throw sentinel}};throw Error('hidden accepted exception')}catch(e){if(e!==sentinel)throw e}
+                let rejected=false;try{element.hidden=Symbol()}catch(e){rejected=e instanceof TypeError}if(!rejected)throw Error('hidden Symbol accepted');
+                const owner=document.implementation.createHTMLDocument('hidden');element.hidden={toString(){owner.adoptNode(element);return 'until-found'}};
+                if(element.ownerDocument!==owner||element.hidden!=='until-found')throw Error('hidden adopted conversion');
                 for(const member of ['translate','spellcheck']) {
                     for(const value of [false,true,0,1,'false',{},null,undefined]) {
                         element[member]=value;

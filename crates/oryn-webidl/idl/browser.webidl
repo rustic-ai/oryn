@@ -1437,7 +1437,7 @@ interface HTMLElement : Element {
   [CEReactions] attribute DOMString accessKey;
   [CEReactions] attribute boolean translate;
   [CEReactions] attribute boolean spellcheck;
-  [CEReactions] attribute boolean hidden;
+  [CEReactions] attribute (boolean or unrestricted double or DOMString)? hidden;
   [CEReactions] attribute boolean inert;
   [CEReactions] attribute DOMString innerText;
   [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;

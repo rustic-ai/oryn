@@ -30619,7 +30619,7 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         named_getter: false,
         value_iterable: false,
         constant_value: None,
-        type_name: Some("boolean"),
+        type_name: Some("(boolean or unrestricted double or DOMString)?"),
         secure_context: false,
         same_object: false,
         new_object: false,
