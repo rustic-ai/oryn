@@ -165,6 +165,7 @@ fn attribute(
             Some("rel") => "rel",
             Some("for") => "for",
             Some("blocking") => "blocking",
+            Some("sizes") => "sizes",
             _ => "class",
         },
     )
@@ -302,7 +303,7 @@ pub(super) fn associated_call<'s>(
         _ => vec![required_string(scope, args, 0)?],
     };
     if member == "supports" {
-        if matches!(attribute(scope, object)?, "class" | "for") {
+        if matches!(attribute(scope, object)?, "class" | "for" | "sizes") {
             return Err(V8BindingError::Unsupported {
                 interface: "DOMTokenList".into(),
                 member: "TypeError: attribute has no supported tokens".into(),

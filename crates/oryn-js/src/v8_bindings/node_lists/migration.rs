@@ -52,9 +52,10 @@ fn cache<'a>(
             root,
             filter: ElementFilter::Children,
         } => (&store.element_children, *root),
+        Contents::Elements { root, filter: ElementFilter::TableBodies } => (&store.table_bodies, *root),
         Contents::Elements {
             root,
-            filter: ElementFilter::TableRows,
+            filter: ElementFilter::TableRows | ElementFilter::TableCells,
         } => (&store.table_rows, *root),
         Contents::Elements {
             root,

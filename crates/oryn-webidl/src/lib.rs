@@ -387,6 +387,8 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
              pub replaceable: bool,\n\
              pub exposed: &'static [&'static str],\n\
              pub put_forwards: Option<&'static str>,\n\
+             pub reflect_attribute: Option<&'static str>,\n\
+             pub legacy_null_to_empty_string: bool,\n\
          }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub struct GeneratedInterface {\n\
@@ -518,13 +520,20 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
                 || has_extended_attribute(attributes, "Unforgeable");
             let replaceable = has_extended_attribute(attributes, "Replaceable");
             let put_forwards = extended_attribute_value(attributes, "PutForwards");
+            let reflect_attribute = has_extended_attribute(attributes, "Reflect").then(|| {
+                extended_attribute_value(attributes, "Reflect")
+                    .unwrap_or(name)
+                    .to_ascii_lowercase()
+            });
+            let legacy_null_to_empty_string =
+                has_extended_attribute(attributes, "LegacyNullToEmptyString");
             let exposed = if has_extended_attribute(attributes, "Exposed") {
                 exposure_set(attributes)
             } else {
                 Vec::new()
             };
             output.push_str(&format!(
-                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, static_member: {static_member}, indexed_getter: {indexed_getter}, named_getter: {named_getter}, value_iterable: {value_iterable}, constant_value: {constant_value:?}, type_name: {type_name:?}, secure_context: {secure_context}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unscopable: {unscopable}, unforgeable: {unforgeable}, replaceable: {replaceable}, exposed: &{exposed:?}, put_forwards: {put_forwards:?} }},",
+                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, static_member: {static_member}, indexed_getter: {indexed_getter}, named_getter: {named_getter}, value_iterable: {value_iterable}, constant_value: {constant_value:?}, type_name: {type_name:?}, secure_context: {secure_context}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unscopable: {unscopable}, unforgeable: {unforgeable}, replaceable: {replaceable}, exposed: &{exposed:?}, put_forwards: {put_forwards:?}, reflect_attribute: {reflect_attribute:?}, legacy_null_to_empty_string: {legacy_null_to_empty_string} }},",
                 token = ((interface_index as u32) << 16) | member_index as u32,
             ));
         }
@@ -1292,7 +1301,10 @@ mod tests {
         let registry = emit_binding_registry(&definitions).unwrap();
         assert!(registry.contains(r#"global_names: &["Window"]"#));
         assert!(registry.contains(r#"global_names: &["Worker", "DedicatedWorker"]"#));
-        assert!(registry.contains(r#"name: "WorkerGlobalScope", parent: None, exposed: &["Worker"], global_names: &[], secure_context: false"#));
+        // The emitted registry is pretty-printed. Check the full field sequence
+        // without requiring it to fit on a single physical line.
+        let compact: String = registry.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(compact.contains(r#"name:"WorkerGlobalScope",parent:None,exposed:&["Worker"],global_names:&[],secure_context:false"#));
         assert!(registry.contains(r#"name: "indexedDB""#));
     }
 
@@ -1724,5 +1736,44 @@ mod variadic_tests {
         ] {
             assert!(parse_arguments(invalid).is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod reflection_metadata_tests {
+    use super::*;
+
+    #[test]
+    fn global_input_enumerations_are_owned_by_html_not_svg() {
+        let definitions = parse_definitions(include_str!("../idl/browser.webidl")).unwrap();
+        for (interface_name, expected) in [("HTMLElement", true), ("SVGElement", false)] {
+            let interface = definitions.iter().find_map(|definition| match definition {
+                Definition::Interface(interface) if interface.name == interface_name => Some(interface),
+                _ => None,
+            }).unwrap();
+            for property in ["inputMode", "enterKeyHint"] {
+                let present = interface.members.iter().any(|member| {
+                    matches!(member, Member::Attribute { name, .. } if name == property)
+                });
+                assert_eq!(present, expected, "{interface_name}.{property}");
+            }
+        }
+    }
+
+    #[test]
+    fn reflection_names_aliases_and_legacy_conversion_survive_generation() {
+        let definitions = parse_definitions(
+            r#"[Exposed=Window] interface HTMLExampleElement {
+                [CEReactions, Reflect] attribute DOMString bgColor;
+                [CEReactions, Reflect=charoff, LegacyNullToEmptyString] attribute DOMString chOff;
+                attribute DOMString ordinary;
+            };"#,
+        ).unwrap();
+        let generated = emit_binding_registry(&definitions).unwrap();
+        assert!(generated.contains("reflect_attribute: Some(\"bgcolor\")"));
+        assert!(generated.contains("reflect_attribute: Some(\"charoff\")"));
+        assert!(generated.contains("legacy_null_to_empty_string: true"));
+        assert!(generated.contains("reflect_attribute: None"));
+        assert!(generated.contains("ce_reactions: true"));
     }
 }

@@ -10,6 +10,8 @@ pub(super) use migration::{Prepared as MigrationPrepared, capture_migration};
 pub(super) enum ElementFilter {
     Children,
     TableRows,
+    TableCells,
+    TableBodies,
     SelectedOptions,
     Options,
     Links,
@@ -80,6 +82,7 @@ pub(super) struct Store {
     fieldsets: RefCell<BTreeMap<NodeId, u64>>,
     element_children: RefCell<BTreeMap<NodeId, u64>>,
     table_rows: RefCell<BTreeMap<NodeId, u64>>,
+    table_bodies: RefCell<BTreeMap<NodeId, u64>>,
     selected_options: RefCell<BTreeMap<NodeId, u64>>,
     options: RefCell<BTreeMap<NodeId, u64>>,
     collection_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
@@ -365,6 +368,19 @@ fn contents(state: &V8BindingState, id: u64) -> Result<Vec<NodeId>, V8BindingErr
             root,
             filter: ElementFilter::WindowName { name },
         } => (root, window_named_nodes(&state.dom.borrow(), root, &name)?),
+        Contents::Elements { root, filter: ElementFilter::TableBodies } => {
+            let dom = state.dom.borrow();
+            let bodies = light_children(&dom, root)?.into_iter().filter(|child| dom.is_element(*child, "http://www.w3.org/1999/xhtml", "tbody")).collect();
+            (root, bodies)
+        }
+        Contents::Elements { root, filter: ElementFilter::TableCells } => {
+            let dom = state.dom.borrow();
+            let cells = light_children(&dom, root)?.into_iter().filter(|child| {
+                dom.is_element(*child, "http://www.w3.org/1999/xhtml", "td")
+                    || dom.is_element(*child, "http://www.w3.org/1999/xhtml", "th")
+            }).collect();
+            (root, cells)
+        }
         Contents::Elements {
             root,
             filter: ElementFilter::TableRows,
@@ -379,6 +395,7 @@ fn contents(state: &V8BindingState, id: u64) -> Result<Vec<NodeId>, V8BindingErr
                 .map_err(|_| V8BindingError::Allocation("table row scratch"))?;
             // THEAD rows precede the table/TBODY rows; TFOOT rows follow
             // them, regardless of section placement in the DOM tree.
+            let table = dom.is_element(root, "http://www.w3.org/1999/xhtml", "table");
             for phase in 0..3 {
                 for child in &children {
                     let record = dom.arena().get(*child)?;
@@ -397,7 +414,7 @@ fn contents(state: &V8BindingState, id: u64) -> Result<Vec<NodeId>, V8BindingErr
                         1 => local == "tbody",
                         _ => local == "tfoot",
                     };
-                    if section {
+                    if table && section {
                         for row in light_children(&dom, *child)? {
                             if matches!(&dom.arena().get(row)?.kind,
                                     NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "tr")
@@ -433,7 +450,7 @@ fn contents(state: &V8BindingState, id: u64) -> Result<Vec<NodeId>, V8BindingErr
                     };
                     match &filter {
                         ElementFilter::Children => true,
-                        ElementFilter::TableRows => false, // handled above
+                        ElementFilter::TableRows | ElementFilter::TableCells | ElementFilter::TableBodies => false, // handled above
                         ElementFilter::SelectedOptions => record.selected(),
                         ElementFilter::Options => true,
                         ElementFilter::Links => {
@@ -666,9 +683,14 @@ pub(super) fn collect(state: &V8BindingState) -> Result<(), BindingError> {
                 state.node_lists.labels.borrow_mut().remove(root);
             }
         }
+        if let Contents::Elements { root, filter: ElementFilter::TableBodies } = &list.contents
+            && state.node_lists.table_bodies.borrow().get(root).copied() == Some(id)
+        {
+            state.node_lists.table_bodies.borrow_mut().remove(root);
+        }
         if let Contents::Elements {
             root,
-            filter: ElementFilter::TableRows,
+            filter: ElementFilter::TableRows | ElementFilter::TableCells,
         } = &list.contents
             && state.node_lists.table_rows.borrow().get(root).copied() == Some(id)
         {
@@ -740,9 +762,10 @@ fn create<'s>(
             root,
             filter: ElementFilter::Children,
         } => Some((*root, &state.node_lists.element_children)),
+        Contents::Elements { root, filter: ElementFilter::TableBodies } => Some((*root, &state.node_lists.table_bodies)),
         Contents::Elements {
             root,
-            filter: ElementFilter::TableRows,
+            filter: ElementFilter::TableRows | ElementFilter::TableCells,
         } => Some((*root, &state.node_lists.table_rows)),
         _ => None,
     };
@@ -905,6 +928,8 @@ fn create<'s>(
             Contents::Elements { filter, .. } => match filter {
                 ElementFilter::Children
                 | ElementFilter::TableRows
+                | ElementFilter::TableCells
+                | ElementFilter::TableBodies
                 | ElementFilter::Links
                 | ElementFilter::SelectedOptions
                 | ElementFilter::Options => 0,

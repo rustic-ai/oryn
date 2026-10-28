@@ -1096,7 +1096,71 @@ interface SVGAElement : SVGElement {
 
 [Exposed=Window]
 interface HTMLDivElement : HTMLElement {
-  [CEReactions] attribute DOMString align;
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute DOMString align;
+};
+
+[Exposed=Window]
+interface HTMLParagraphElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute DOMString align;
+};
+
+[Exposed=Window]
+interface HTMLHeadingElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute DOMString align;
+};
+
+[Exposed=Window]
+interface HTMLHRElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute DOMString align;
+  [CEReactions, Reflect] attribute DOMString color;
+  [CEReactions, Reflect] attribute boolean noShade;
+  [CEReactions, Reflect] attribute DOMString size;
+  [CEReactions, Reflect] attribute DOMString width;
+};
+
+[Exposed=Window]
+interface HTMLPreElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions] attribute long width;
+};
+
+[Exposed=Window]
+interface HTMLQuoteElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions] attribute USVString cite;
+};
+
+[Exposed=Window]
+interface HTMLOListElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute boolean reversed;
+  [CEReactions] attribute long start;
+  [CEReactions, Reflect] attribute DOMString type;
+  [CEReactions, Reflect] attribute boolean compact;
+};
+
+[Exposed=Window]
+interface HTMLUListElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute DOMString type;
+  [CEReactions, Reflect] attribute boolean compact;
+};
+
+[Exposed=Window]
+interface HTMLLIElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions] attribute long value;
+  [CEReactions, Reflect] attribute DOMString type;
+};
+
+[Exposed=Window]
+interface HTMLDListElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute boolean compact;
 };
 
 [Exposed=Window]
@@ -1106,7 +1170,38 @@ interface HTMLSpanElement : HTMLElement {};
 interface HTMLUnknownElement : HTMLElement {};
 
 [Exposed=Window]
-interface HTMLHtmlElement : HTMLElement {};
+interface HTMLHtmlElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute DOMString version;
+};
+
+[Exposed=Window]
+interface HTMLModElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions] attribute USVString cite;
+  [CEReactions, Reflect] attribute DOMString dateTime;
+};
+
+[Exposed=Window]
+interface HTMLMenuElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute boolean compact;
+};
+
+[Exposed=Window]
+interface HTMLMarqueeElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions] attribute DOMString behavior;
+  [CEReactions, Reflect] attribute DOMString bgColor;
+  [CEReactions] attribute DOMString direction;
+  [CEReactions, Reflect] attribute DOMString height;
+  [CEReactions] attribute unsigned long hspace;
+  [CEReactions] attribute unsigned long scrollAmount;
+  [CEReactions] attribute unsigned long scrollDelay;
+  [CEReactions, Reflect] attribute boolean trueSpeed;
+  [CEReactions] attribute unsigned long vspace;
+  [CEReactions, Reflect] attribute DOMString width;
+};
 
 [Exposed=Window]
 interface HTMLHeadElement : HTMLElement {};
@@ -1122,7 +1217,13 @@ interface HTMLBaseElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLBodyElement : HTMLElement {
-  [CEReactions] attribute USVString background;
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute DOMString background;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString text;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString link;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString vLink;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString aLink;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString bgColor;
   attribute EventListener? onpageshow;
   attribute EventListener? onpagehide;
   attribute EventListener? onpageswap;
@@ -1149,7 +1250,9 @@ interface HTMLFrameSetElement : HTMLElement {
 interface HTMLMetaElement : HTMLElement {
   [CEReactions, Reflect] attribute DOMString name;
   [CEReactions, Reflect] attribute DOMString content;
-  [CEReactions, Reflect] attribute DOMString httpEquiv;
+  [CEReactions, Reflect=http-equiv] attribute DOMString httpEquiv;
+  [CEReactions, Reflect] attribute DOMString media;
+  [CEReactions, Reflect] attribute DOMString scheme;
 };
 
 [Exposed=Window]
@@ -1285,6 +1388,8 @@ interface DOMTokenList {
 
 [Exposed=Window]
 interface HTMLElement : Element {
+  [CEReactions] attribute DOMString inputMode;
+  [CEReactions] attribute DOMString enterKeyHint;
   [CEReactions] attribute boolean autofocus;
   attribute DOMString nonce;
   [CEReactions] attribute DOMString? popover;
@@ -1972,6 +2077,11 @@ interface HTMLAreaElement : HTMLElement {
 interface HTMLLinkElement : HTMLElement {
   [SameObject, PutForwards=value] readonly attribute DOMTokenList blocking;
   [SameObject, PutForwards=value] readonly attribute DOMTokenList relList;
+  [SameObject, PutForwards=value] readonly attribute DOMTokenList sizes;
+  [CEReactions, Reflect] attribute DOMString hreflang;
+  [CEReactions, Reflect] attribute DOMString charset;
+  [CEReactions, Reflect] attribute DOMString rev;
+  [CEReactions, Reflect] attribute DOMString target;
   [CEReactions] attribute DOMString integrity;
   [CEReactions] attribute DOMString as;
   [CEReactions] attribute DOMString? crossOrigin;
@@ -2034,7 +2144,93 @@ interface HTMLScriptElement : HTMLElement {
 [Exposed=Window]
 interface HTMLTableElement : HTMLElement {
   [HTMLConstructor] constructor();
+  [CEReactions] attribute HTMLTableCaptionElement? caption;
+  [CEReactions] attribute HTMLTableSectionElement? tHead;
+  [CEReactions] attribute HTMLTableSectionElement? tFoot;
+  [SameObject] readonly attribute HTMLCollection tBodies;
+  HTMLTableCaptionElement createCaption();
+  [CEReactions] undefined deleteCaption();
+  HTMLTableSectionElement createTHead();
+  [CEReactions] undefined deleteTHead();
+  HTMLTableSectionElement createTFoot();
+  [CEReactions] undefined deleteTFoot();
+  HTMLTableSectionElement createTBody();
+  [CEReactions] HTMLTableRowElement insertRow(optional long index = -1);
+  [CEReactions] undefined deleteRow(long index);
   [SameObject] readonly attribute HTMLCollection rows;
+  [CEReactions, Reflect] attribute DOMString align;
+  [CEReactions, Reflect] attribute DOMString border;
+  [CEReactions, Reflect] attribute DOMString frame;
+  [CEReactions, Reflect] attribute DOMString rules;
+  [CEReactions, Reflect] attribute DOMString summary;
+  [CEReactions, Reflect] attribute DOMString width;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString bgColor;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString cellPadding;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString cellSpacing;
+};
+
+[Exposed=Window]
+interface HTMLTableCaptionElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute DOMString align;
+};
+
+[Exposed=Window]
+interface HTMLTableColElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions] attribute unsigned long span;
+  [CEReactions, Reflect] attribute DOMString align;
+  [CEReactions, Reflect=char] attribute DOMString ch;
+  [CEReactions, Reflect=charoff] attribute DOMString chOff;
+  [CEReactions, Reflect] attribute DOMString vAlign;
+  [CEReactions, Reflect] attribute DOMString width;
+};
+
+[Exposed=Window]
+interface HTMLTableSectionElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions] HTMLTableRowElement insertRow(optional long index = -1);
+  [CEReactions] undefined deleteRow(long index);
+  [SameObject] readonly attribute HTMLCollection rows;
+  [CEReactions, Reflect] attribute DOMString align;
+  [CEReactions, Reflect=char] attribute DOMString ch;
+  [CEReactions, Reflect=charoff] attribute DOMString chOff;
+  [CEReactions, Reflect] attribute DOMString vAlign;
+};
+
+[Exposed=Window]
+interface HTMLTableRowElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  readonly attribute long rowIndex;
+  readonly attribute long sectionRowIndex;
+  [CEReactions] HTMLTableCellElement insertCell(optional long index = -1);
+  [CEReactions] undefined deleteCell(long index);
+  [SameObject] readonly attribute HTMLCollection cells;
+  [CEReactions, Reflect] attribute DOMString align;
+  [CEReactions, Reflect=char] attribute DOMString ch;
+  [CEReactions, Reflect=charoff] attribute DOMString chOff;
+  [CEReactions, Reflect] attribute DOMString vAlign;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString bgColor;
+};
+
+[Exposed=Window]
+interface HTMLTableCellElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  readonly attribute long cellIndex;
+  [CEReactions] attribute unsigned long colSpan;
+  [CEReactions] attribute unsigned long rowSpan;
+  [CEReactions, Reflect] attribute DOMString headers;
+  [CEReactions] attribute DOMString scope;
+  [CEReactions, Reflect] attribute DOMString abbr;
+  [CEReactions, Reflect] attribute DOMString align;
+  [CEReactions, Reflect] attribute DOMString axis;
+  [CEReactions, Reflect] attribute DOMString height;
+  [CEReactions, Reflect] attribute DOMString width;
+  [CEReactions, Reflect=char] attribute DOMString ch;
+  [CEReactions, Reflect=charoff] attribute DOMString chOff;
+  [CEReactions, Reflect] attribute boolean noWrap;
+  [CEReactions, Reflect] attribute DOMString vAlign;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString bgColor;
 };
 
 [Exposed=Window]
@@ -2056,6 +2252,12 @@ interface HTMLDialogElement : HTMLElement {
 
 [Exposed=Window]
 interface Document : Node {
+  attribute DOMString dir;
+  [LegacyNullToEmptyString] attribute DOMString fgColor;
+  [LegacyNullToEmptyString] attribute DOMString linkColor;
+  [LegacyNullToEmptyString] attribute DOMString vlinkColor;
+  [LegacyNullToEmptyString] attribute DOMString alinkColor;
+  [LegacyNullToEmptyString] attribute DOMString bgColor;
   [CEReactions] attribute DOMString title;
   static Document parseHTMLUnsafe((TrustedHTML or DOMString) html, optional ParseHTMLUnsafeOptions options = {});
   static Document parseHTML(DOMString html, optional SetHTMLOptions options = {});
@@ -4559,10 +4761,31 @@ interface VTTRegion {
 
 [Exposed=Window]
 interface HTMLFrameElement : HTMLElement {
+  [HTMLConstructor] constructor();
   [CEReactions] attribute DOMString name;
   [CEReactions] attribute USVString src;
+  [CEReactions, Reflect] attribute DOMString scrolling;
+  [CEReactions, Reflect] attribute DOMString frameBorder;
+  [CEReactions] attribute USVString longDesc;
+  [CEReactions, Reflect] attribute boolean noResize;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString marginHeight;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString marginWidth;
   readonly attribute Document? contentDocument;
   readonly attribute Window? contentWindow;
+};
+
+[Exposed=Window]
+interface HTMLDirectoryElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute boolean compact;
+};
+
+[Exposed=Window]
+interface HTMLFontElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString color;
+  [CEReactions, Reflect] attribute DOMString face;
+  [CEReactions, Reflect] attribute DOMString size;
 };
 
 [Exposed=Window]

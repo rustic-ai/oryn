@@ -18152,6 +18152,17 @@ fn generated_attribute_getter<'s>(
     let result = resolve_receiver(scope, &state, args.this(), interface).and_then(|node| {
         if interface == "DOMTokenList" {
             token_lists::associated_get(scope, args.this(), member)
+        } else if interface.starts_with("HTML")
+            && interface != "HTMLGeolocationElement"
+            && let Some(attribute) = metadata.reflect_attribute
+            && matches!(metadata.type_name, Some("DOMString" | "boolean"))
+        {
+            let value = state.dom.borrow().attribute_in_null_namespace(node, attribute)?.map(str::to_owned);
+            if metadata.type_name == Some("boolean") {
+                Ok(v8::Boolean::new(scope, value.is_some()).into())
+            } else {
+                v8_string(scope, value.as_deref().unwrap_or(""))
+            }
         } else {
             get_attribute_value(scope, &state, node, interface, member)
         }
@@ -18693,6 +18704,34 @@ fn generated_attribute_setter_impl<'s>(
     let result = resolve_receiver(scope, &state, args.this(), interface).and_then(|node| {
         if interface == "DOMTokenList" {
             token_lists::associated_set(scope, args.this(), args.get(0))
+        } else if interface.starts_with("HTML")
+            && interface != "HTMLGeolocationElement"
+            && let Some(attribute) = metadata.reflect_attribute
+            && matches!(metadata.type_name, Some("DOMString" | "boolean"))
+        {
+            let value = args.get(0);
+            if metadata.type_name == Some("boolean") {
+                if value.boolean_value(scope) {
+                    state.dom.borrow_mut().set_attribute_ns(node, None, attribute, "")?;
+                } else {
+                    state.dom.borrow_mut().remove_attribute_ns(node, None, attribute)?;
+                }
+                attribute_resource_changed(scope, &state, node, None, attribute)
+            } else {
+                let string = if metadata.legacy_null_to_empty_string && value.is_null() {
+                    String::new()
+                } else {
+                    let string = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+                    rust_string_preserving_utf16(scope, string)?
+                };
+                // Conversion can execute author code and adopt the receiver.
+                // Resolve its current owner again before mutating native state.
+                let (owner, node) = node_identity::argument(scope, args.this().into())?
+                    .ok_or(DomError::StaleNode(node))?;
+                validate_interface_node(&owner.dom.borrow(), node, interface)?;
+                owner.dom.borrow_mut().set_attribute_ns(node, None, attribute, string)?;
+                attribute_resource_changed(scope, &owner, node, None, attribute)
+            }
         } else {
             set_attribute_value(scope, &state, node, interface, member, args.get(0))
         }
@@ -31818,6 +31857,17 @@ fn validate_interface_node(
 ) -> Result<(), V8BindingError> {
     let expected_tag = match interface {
         "HTMLDivElement" => Some("div"),
+        "HTMLParagraphElement" => Some("p"),
+        "HTMLHRElement" => Some("hr"),
+        "HTMLPreElement" => Some("pre"),
+        "HTMLOListElement" => Some("ol"),
+        "HTMLUListElement" => Some("ul"),
+        "HTMLLIElement" => Some("li"),
+        "HTMLDListElement" => Some("dl"),
+        "HTMLDirectoryElement" => Some("dir"),
+        "HTMLFontElement" => Some("font"),
+        "HTMLMenuElement" => Some("menu"),
+        "HTMLMarqueeElement" => Some("marquee"),
         "HTMLBodyElement" => Some("body"),
         "HTMLVideoElement" => Some("video"),
         "HTMLFrameSetElement" => Some("frameset"),
@@ -31835,6 +31885,8 @@ fn validate_interface_node(
         "HTMLInstallElement" => Some("install"),
         "HTMLFormElement" => Some("form"),
         "HTMLTableElement" => Some("table"),
+        "HTMLTableCaptionElement" => Some("caption"),
+        "HTMLTableRowElement" => Some("tr"),
         "HTMLFieldSetElement" => Some("fieldset"),
         "HTMLLabelElement" => Some("label"),
         "HTMLMeterElement" => Some("meter"),
@@ -31855,6 +31907,28 @@ fn validate_interface_node(
         "HTMLSlotElement" => Some("slot"),
         _ => None,
     };
+    if matches!(interface, "HTMLTableColElement" | "HTMLTableSectionElement" | "HTMLTableCellElement" | "HTMLHeadingElement" | "HTMLQuoteElement" | "HTMLModElement") {
+        let record = dom.arena().get(node)?;
+        let valid = match &record.kind {
+            NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" => {
+                match interface {
+                    "HTMLTableColElement" => matches!(name.local.as_ref(), "col" | "colgroup"),
+                    "HTMLTableSectionElement" => matches!(name.local.as_ref(), "thead" | "tbody" | "tfoot"),
+                    "HTMLHeadingElement" => matches!(name.local.as_ref(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6"),
+                    "HTMLQuoteElement" => matches!(name.local.as_ref(), "q" | "blockquote"),
+                    "HTMLModElement" => matches!(name.local.as_ref(), "ins" | "del"),
+                    _ => matches!(name.local.as_ref(), "td" | "th"),
+                }
+            }
+            _ => false,
+        };
+        if !valid {
+            return Err(BindingError::WrongBrand {
+                expected: InterfaceBrand::HtmlElement,
+                actual: most_derived_brand(&record.kind),
+            }.into());
+        }
+    }
     if let Some(expected_tag) = expected_tag {
         let NodeKind::Element { name } = &dom.arena().get(node)?.kind else {
             return Err(BindingError::WrongBrand {
@@ -32047,6 +32121,20 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
         }
         NodeKind::Element { name } => match name.local.as_ref() {
             "div" => "HTMLDivElement",
+            "p" => "HTMLParagraphElement",
+            "hr" => "HTMLHRElement",
+            "pre" => "HTMLPreElement",
+            "q" | "blockquote" => "HTMLQuoteElement",
+            "ol" => "HTMLOListElement",
+            "ul" => "HTMLUListElement",
+            "li" => "HTMLLIElement",
+            "dl" => "HTMLDListElement",
+            "dir" => "HTMLDirectoryElement",
+            "font" => "HTMLFontElement",
+            "menu" => "HTMLMenuElement",
+            "marquee" => "HTMLMarqueeElement",
+            "ins" | "del" => "HTMLModElement",
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => "HTMLHeadingElement",
             "span" => "HTMLSpanElement",
             "html" => "HTMLHtmlElement",
             "head" => "HTMLHeadElement",
@@ -32075,6 +32163,11 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "install" => "HTMLInstallElement",
             "form" => "HTMLFormElement",
             "table" => "HTMLTableElement",
+            "caption" => "HTMLTableCaptionElement",
+            "col" | "colgroup" => "HTMLTableColElement",
+            "thead" | "tbody" | "tfoot" => "HTMLTableSectionElement",
+            "tr" => "HTMLTableRowElement",
+            "td" | "th" => "HTMLTableCellElement",
             "fieldset" => "HTMLFieldSetElement",
             "label" => "HTMLLabelElement",
             "meter" => "HTMLMeterElement",
@@ -34385,6 +34478,272 @@ fn set_window_content_handler(
     Ok(())
 }
 
+// HTML integer parsing accepts an ASCII-whitespace prefix, optional sign and
+// decimal digit prefix. Trailing non-digits do not invalidate the prefix.
+fn parse_reflected_long(input: &str) -> Option<i32> {
+    let (negative, value) = parse_reflected_integer(input)?;
+    if negative && value == (i32::MAX as u64) + 1 { return Some(i32::MIN); }
+    let value = i32::try_from(value).ok()?;
+    Some(if negative { -value } else { value })
+}
+
+fn parse_reflected_integer(input: &str) -> Option<(bool, u64)> {
+    let mut bytes = input.bytes().skip_while(|b| matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0c)).peekable();
+    let negative = match bytes.peek().copied() {
+        Some(b'-') => { bytes.next(); true }
+        Some(b'+') => { bytes.next(); false }
+        _ => false,
+    };
+    let mut value = 0u64;
+    let mut digits = false;
+    while let Some(byte @ b'0'..=b'9') = bytes.peek().copied() {
+        bytes.next();
+        digits = true;
+        // Saturation retains the out-of-range classification while allowing
+        // bounded getters to clamp arbitrarily long valid digit prefixes.
+        value = value.saturating_mul(10).saturating_add(u64::from(byte - b'0'));
+    }
+    if !digits { return None; }
+    Some((negative && value != 0, value))
+}
+
+fn table_span_bounds(interface: &str, member: &str) -> Option<(&'static str, u32, u32)> {
+    match (interface, member) {
+        ("HTMLTableColElement", "span") => Some(("span", 1, 1000)),
+        ("HTMLTableCellElement", "colSpan") => Some(("colspan", 1, 1000)),
+        ("HTMLTableCellElement", "rowSpan") => Some(("rowspan", 0, 65534)),
+        _ => None,
+    }
+}
+
+fn reflected_span(input: Option<&str>, min: u32, max: u32) -> u32 {
+    let Some((false, value)) = input.and_then(parse_reflected_integer) else { return 1; };
+    value.clamp(u64::from(min), u64::from(max)) as u32
+}
+
+#[cfg(test)]
+mod reflected_long_tests {
+    use super::{parse_reflected_long, reflected_span};
+
+    #[test]
+    fn generated_reflection_uses_native_attributes_and_validates_receiver() {
+        use super::*;
+        super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<!doctype html><html><body></body></html>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"(() => {
+            const eq=(a,b,label)=>{if(a!==b)throw Error(label+': '+a+' != '+b)};
+            const table=document.createElement('table');
+            eq(table instanceof HTMLTableElement,true,'table interface');
+            table.bgColor=null;eq(table.getAttribute('bgcolor'),'','legacy null');
+            table.bgColor=undefined;eq(table.bgColor,'undefined','undefined not null');
+            table.cellPadding='\ud800';eq(table.getAttribute('cellpadding'),'\ud800','lossless DOMString');
+            const col=document.createElement('col');col.ch='x';eq(col.getAttribute('char'),'x','alias');
+            col.setAttribute('span','+1001tail');eq(col.span,1000,'bounded getter');
+            eq(col.getAttribute('span'),'+1001tail','getter preserves author content');
+            const td=document.createElement('td');td.rowSpan=0;eq(td.rowSpan,0,'row zero');
+            td.colSpan=0;eq(td.colSpan,1,'col minimum');
+            td.scope='RoW';eq(td.scope,'row','enum canonical');eq(td.getAttribute('scope'),'RoW','enum raw');
+            td.noWrap=true;eq(td.getAttribute('nowrap'),'','boolean presence');
+            td.noWrap=false;eq(td.hasAttribute('nowrap'),false,'boolean removal');
+            const setter=Object.getOwnPropertyDescriptor(HTMLTableCellElement.prototype,'noWrap').set;
+            let rejected=false;try{setter.call(table,true)}catch(e){rejected=e instanceof TypeError}
+            eq(rejected,true,'wrong brand rejected');
+            const ol=document.createElement('ol');eq(ol.start,1,'list default');
+            ol.setAttribute('start',' -17tail');eq(ol.start,-17,'signed prefix');
+            const meta=document.createElement('meta');meta.httpEquiv='refresh';
+            eq(meta.getAttribute('http-equiv'),'refresh','hyphen alias');
+            const unknown=document.createElement('undefinedelement');
+            unknown.inputMode='NuMeRiC';eq(unknown.inputMode,'numeric','global input mode');
+            eq(unknown.getAttribute('inputmode'),'NuMeRiC','global enum raw');
+            unknown.enterKeyHint='SEND';eq(unknown.enterKeyHint,'send','global enter hint');
+            unknown.enterKeyHint='other';eq(unknown.enterKeyHint,'','invalid global keyword');
+            const link=document.createElement('link');eq(link.sizes,link.sizes,'same token list');
+            link.as='StYlE';eq(link.as,'style','as canonical');eq(link.getAttribute('as'),'StYlE','as raw');
+            link.sizes='16x16';eq(link.getAttribute('sizes'),'16x16','put forwards');
+            link.sizes.add('32x32');eq(link.relList.contains('32x32'),false,'association separation');
+            document.fgColor=null;eq(document.body.getAttribute('text'),'','document forwarding');
+            const section=document.createElement('tbody'),row=document.createElement('tr');
+            const sectionRows=section.rows,cells=row.cells;
+            eq(section.rows,sectionRows,'section same object');eq(row.cells,cells,'cells same object');
+            section.appendChild(row);eq(sectionRows.length,1,'live section append');
+            const first=document.createElement('td'),second=document.createElement('th');
+            row.appendChild(first);row.appendChild(second);row.appendChild(document.createElement('div'));
+            eq(cells.length,2,'direct cells only');eq(cells[1],second,'cell order');
+            table.appendChild(section);const nested=document.createElement('table');
+            const nestedBody=document.createElement('tbody'),nestedRow=document.createElement('tr');
+            nestedBody.appendChild(nestedRow);nested.appendChild(nestedBody);first.appendChild(nested);
+            eq(table.rows.length,1,'nested table rows excluded');
+            row.removeChild(second);eq(cells.length,1,'live cells removal');
+            section.removeChild(row);eq(sectionRows.length,0,'live section removal');
+            const edited=document.createElement('table');
+            const inserted=edited.insertRow();eq(edited.rows[0],inserted,'insert row creates tbody');
+            eq(inserted.parentNode.localName,'tbody','automatic section');eq(inserted.rowIndex,0,'row index');
+            const insertedCell=inserted.insertCell();eq(insertedCell.localName,'td','insert cell');
+            eq(insertedCell.cellIndex,0,'cell index');
+            const earlier=edited.insertRow(0);eq(edited.rows[0],earlier,'row insertion order');
+            eq(inserted.rowIndex,1,'row index live');eq(inserted.sectionRowIndex,1,'section row index');
+            inserted.insertCell(0);eq(insertedCell.cellIndex,1,'cell index live');
+            inserted.deleteCell(-1);eq(insertedCell.cellIndex,-1,'removed cell index');
+            let bounds=false;try{edited.insertRow(10)}catch(e){bounds=e.name==='IndexSizeError'}
+            eq(bounds,true,'row bounds');edited.deleteRow(-1);eq(inserted.rowIndex,-1,'removed row index');
+            const detachedSection=document.createElement('tbody');
+            const detachedRow=detachedSection.insertRow();eq(detachedRow.rowIndex,-1,'detached section table index');
+            eq(detachedRow.sectionRowIndex,0,'detached section index');detachedSection.deleteRow(0);
+            eq(detachedSection.rows.length,0,'section deletion');
+            const parts=document.createElement('table'),bodies=parts.tBodies;
+            eq(parts.tBodies,bodies,'same bodies');eq(parts.rows===bodies,false,'collection separation');
+            const body=parts.createTBody(),foot=parts.createTFoot(),head=parts.createTHead();
+            eq(parts.firstChild,head,'head before body');eq(parts.tHead,head,'head getter');
+            eq(parts.createTHead(),head,'head reuse');eq(parts.tFoot,foot,'foot getter');
+            const anotherBody=parts.createTBody();eq(body.nextSibling,anotherBody,'body after last body');
+            eq(anotherBody.nextSibling,foot,'body before following foot');eq(bodies.length,2,'live bodies');
+            const caption=parts.createCaption();eq(parts.firstChild,caption,'caption first');
+            eq(parts.caption,caption,'caption getter');eq(parts.createCaption(),caption,'caption reuse');
+            let hierarchy=false;try{parts.tHead=foot}catch(e){hierarchy=e.name==='HierarchyRequestError'}
+            eq(hierarchy,true,'wrong section type');eq(parts.tHead,head,'rejected setter preserves head');
+            parts.deleteCaption();eq(parts.caption,null,'caption deletion');parts.deleteTHead();eq(parts.tHead,null,'head deletion');
+            parts.tFoot=null;eq(parts.tFoot,null,'nullable foot removal');
+            const partOwner=document.implementation.createHTMLDocument('parts');
+            const foreignCaption=partOwner.createElement('caption');parts.caption=foreignCaption;
+            eq(parts.caption,foreignCaption,'foreign caption identity');eq(foreignCaption.ownerDocument,document,'foreign caption adoption');
+            const spaced=document.createElement('table');
+            const space=document.createTextNode(' '),spacedBody=spaced.createTBody();
+            spaced.insertBefore(space,spacedBody);const spacedHead=spaced.createTHead();
+            eq(spaced.firstChild,space,'head skips non-elements');eq(space.nextSibling,spacedHead,'head before first eligible element');
+            const rowsDescriptor=Object.getOwnPropertyDescriptor(HTMLTableElement.prototype,'rows');
+            eq(typeof rowsDescriptor.get,'function','rows native getter');eq(rowsDescriptor.set,undefined,'rows readonly');
+            eq(rowsDescriptor.enumerable,true,'rows enumerable');eq(rowsDescriptor.configurable,true,'rows configurable');
+            const insertionDescriptor=Object.getOwnPropertyDescriptor(HTMLTableElement.prototype,'insertRow');
+            eq(insertionDescriptor.writable,true,'method writable');eq(insertionDescriptor.enumerable,true,'method enumerable');
+            eq(insertionDescriptor.configurable,true,'method configurable');eq(insertionDescriptor.value.length,0,'optional index arity');
+            let wrongReceiver=false,converted=false;
+            try{HTMLTableElement.prototype.insertRow.call({}, {valueOf(){converted=true;return 0}})}catch(e){wrongReceiver=e instanceof TypeError}
+            eq(wrongReceiver,true,'method receiver brand');eq(converted,false,'brand before index conversion');
+            body.id='named-body';eq(bodies.namedItem('named-body'),body,'named bodies');eq(bodies['named-body'],body,'named property');
+            body.id='renamed-body';eq(bodies.namedItem('named-body'),null,'named mutation');eq(bodies.namedItem('renamed-body'),body,'named refresh');
+            const moving=document.createElement('table');moving.insertRow();
+            const moveOwner=document.implementation.createHTMLDocument('move');
+            const movedRow=moving.insertRow({valueOf(){moveOwner.adoptNode(moving);return 0}});
+            eq(movedRow.ownerDocument,moveOwner,'index conversion adoption');eq(moving.rows[0],movedRow,'adopted insertion');
+            eq(moving.tBodies.length,1,'adopted body collection');
+            const quote=document.createElement('blockquote');eq(quote.cite,'','missing URL');
+            const reflectionBase=document.createElement('base');reflectionBase.href='https://reflection.example/path';
+            document.head.appendChild(reflectionBase);
+            quote.cite='';eq(quote.cite,'https://reflection.example/path','present empty URL resolves');
+            quote.removeAttribute('cite');eq(quote.cite,'','removed URL');reflectionBase.remove();
+            const foreign=document.implementation.createHTMLDocument('other');
+            td.align={toString(){foreign.adoptNode(td);return 'right'}};
+            eq(td.ownerDocument,foreign,'adopted receiver');eq(td.getAttribute('align'),'right','post-conversion mutation');
+            return true;
+        })()"#).unwrap();
+        v8::tc_scope!(let scope, scope);
+        let value = v8::Script::compile(scope, source, None).unwrap().run(scope);
+        let exception = scope.exception().map(|error| error.to_rust_string_lossy(scope));
+        assert!(value.is_some_and(|value| value.is_true()), "native reflection behavioral control failed: {exception:?}");
+    }
+
+    #[test]
+    fn span_default_zero_negative_and_large_values() {
+        assert_eq!(reflected_span(None, 0, 65534), 1);
+        assert_eq!(reflected_span(Some("-0"), 0, 65534), 0);
+        assert_eq!(reflected_span(Some("-1"), 0, 65534), 1);
+        assert_eq!(reflected_span(Some("0"), 1, 1000), 1);
+        assert_eq!(reflected_span(Some("+1001x"), 1, 1000), 1000);
+        assert_eq!(reflected_span(Some("99999999999999999999999999"), 0, 65534), 65534);
+        assert_eq!(reflected_span(Some("\u{b}7"), 1, 1000), 1);
+    }
+
+    #[test]
+    fn html_digit_prefix_sign_and_i32_boundaries() {
+        for (input, expected) in [
+            (" \t\n\r\u{c}+17tail", Some(17)),
+            ("-0", Some(0)), ("-2147483648", Some(i32::MIN)),
+            ("2147483647x", Some(i32::MAX)), ("2147483648", None),
+            ("-2147483649", None), ("+ 1", None), ("", None),
+            ("\u{a0}1", None), ("99999999999999999999999999999", None),
+            ("00000000000000000000000000001", Some(1)),
+        ] {
+            assert_eq!(parse_reflected_long(input), expected, "{input:?}");
+        }
+    }
+}
+
+/// Shared native table ordering for index access and row mutation. Only direct
+/// HTML children participate; nested tables cannot leak rows into their parent.
+fn table_native_items(dom: &DomRuntime, root: NodeId, cells: bool) -> Result<Vec<NodeId>, V8BindingError> {
+    let children = dom.children(root)?;
+    if cells {
+        return Ok(children.iter().copied().filter(|child| dom.is_element(*child, "http://www.w3.org/1999/xhtml", "td") || dom.is_element(*child, "http://www.w3.org/1999/xhtml", "th")).collect());
+    }
+    let table = dom.is_element(root, "http://www.w3.org/1999/xhtml", "table");
+    let mut result = Vec::new();
+    for phase in 0..3 {
+        for child in children {
+            if phase == 1 && dom.is_element(*child, "http://www.w3.org/1999/xhtml", "tr") {
+                result.push(*child);
+            }
+            let section = ["thead", "tbody", "tfoot"][phase];
+            if table && dom.is_element(*child, "http://www.w3.org/1999/xhtml", section) {
+                result.extend(dom.children(*child)?.iter().copied().filter(|row| dom.is_element(*row, "http://www.w3.org/1999/xhtml", "tr")));
+            }
+        }
+    }
+    Ok(result)
+}
+
+fn table_index(dom: &DomRuntime, node: NodeId, member: &str) -> Result<i32, V8BindingError> {
+    let Some(parent) = dom.parent(node)? else { return Ok(-1) };
+    let html = "http://www.w3.org/1999/xhtml";
+    let root = if member == "cellIndex" {
+        if !dom.is_element(parent, html, "tr") { return Ok(-1) }
+        parent
+    } else if member == "sectionRowIndex" {
+        if !["table", "thead", "tbody", "tfoot"].iter().any(|tag| dom.is_element(parent, html, tag)) { return Ok(-1) }
+        parent
+    } else if dom.is_element(parent, html, "table") {
+        parent
+    } else if ["thead", "tbody", "tfoot"].iter().any(|tag| dom.is_element(parent, html, tag)) {
+        let Some(table) = dom.parent(parent)? else { return Ok(-1) };
+        if !dom.is_element(table, html, "table") { return Ok(-1) }
+        table
+    } else { return Ok(-1) };
+    Ok(table_native_items(dom, root, member == "cellIndex")?.iter().position(|item| *item == node).map_or(-1, |index| index as i32))
+}
+
+fn table_part(dom: &DomRuntime, table: NodeId, tag: &str) -> Result<Option<NodeId>, V8BindingError> {
+    Ok(dom.children(table)?.iter().copied().find(|child| dom.is_element(*child, "http://www.w3.org/1999/xhtml", tag)))
+}
+
+fn table_part_reference(dom: &DomRuntime, table: NodeId, tag: &str) -> Result<Option<NodeId>, V8BindingError> {
+    let children = dom.children(table)?;
+    Ok(match tag {
+        "caption" => children.first().copied(),
+        "thead" => children.iter().copied().find(|child| matches!(dom.arena().get(*child).map(|record| &record.kind), Ok(NodeKind::Element { .. })) && !["caption", "colgroup"].iter().any(|tag| dom.is_element(*child, "http://www.w3.org/1999/xhtml", tag))),
+        "tbody" => children.iter().rposition(|child| dom.is_element(*child, "http://www.w3.org/1999/xhtml", "tbody")).and_then(|index| children.get(index + 1).copied()),
+        _ => None,
+    })
+}
+
+fn document_reflection_target(dom: &DomRuntime, document: NodeId, member: &str) -> Result<Option<(NodeId, &'static str)>, V8BindingError> {
+    if member == "dir" {
+        return Ok(dom.first_element_child(document)?
+            .filter(|root| dom.is_element(*root, "http://www.w3.org/1999/xhtml", "html"))
+            .map(|root| (root, "dir")));
+    }
+    let attribute = match member {
+        "fgColor" => "text", "linkColor" => "link", "vlinkColor" => "vlink",
+        "alinkColor" => "alink", "bgColor" => "bgcolor", _ => return Ok(None),
+    };
+    Ok(dom.document_body(document)?
+        .filter(|body| dom.is_element(*body, "http://www.w3.org/1999/xhtml", "body"))
+        .map(|body| (body, attribute)))
+}
+
 fn get_attribute_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
@@ -34392,6 +34751,91 @@ fn get_attribute_value<'s>(
     interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if interface == "HTMLTableElement" {
+        let tag = match member { "caption" => Some("caption"), "tHead" => Some("thead"), "tFoot" => Some("tfoot"), _ => None };
+        if let Some(tag) = tag {
+            let child = table_part(&state.dom.borrow(), node, tag)?;
+            return optional_node(scope, state, child);
+        }
+        if member == "tBodies" {
+            return node_lists::elements(scope, state, node, node_lists::ElementFilter::TableBodies);
+        }
+    }
+    if (interface == "HTMLTableRowElement" && matches!(member, "rowIndex" | "sectionRowIndex")) || (interface == "HTMLTableCellElement" && member == "cellIndex") {
+        return Ok(v8::Integer::new(scope, table_index(&state.dom.borrow(), node, member)?).into());
+    }
+    if matches!((interface, member), ("HTMLElement", "inputMode" | "enterKeyHint") | ("HTMLLinkElement", "as")) {
+        let attribute = member.to_ascii_lowercase();
+        let value = state.dom.borrow().attribute_in_null_namespace(node, &attribute)?.unwrap_or("").to_ascii_lowercase();
+        let valid = match member {
+            "inputMode" => matches!(value.as_str(), "none" | "text" | "tel" | "url" | "email" | "numeric" | "decimal" | "search"),
+            "enterKeyHint" => matches!(value.as_str(), "enter" | "done" | "go" | "next" | "previous" | "search" | "send"),
+            _ => matches!(value.as_str(), "fetch" | "audio" | "document" | "embed" | "font" | "image" | "manifest" | "object" | "report" | "script" | "sharedworker" | "style" | "track" | "video" | "worker" | "xslt"),
+        };
+        return v8_string(scope, if valid { &value } else { "" });
+    }
+    if interface == "HTMLMarqueeElement" && matches!(member, "hspace" | "vspace" | "scrollAmount" | "scrollDelay") {
+        let default = match member { "scrollAmount" => 6, "scrollDelay" => 85, _ => 0 };
+        let attribute = member.to_ascii_lowercase();
+        let value = state.dom.borrow().attribute_in_null_namespace(node, &attribute)?
+            .and_then(parse_reflected_integer).filter(|(negative, value)| !negative && *value <= i32::MAX as u64)
+            .map(|(_, value)| value as u32).unwrap_or(default);
+        return Ok(v8::Integer::new_from_unsigned(scope, value).into());
+    }
+    if interface == "HTMLMarqueeElement" && matches!(member, "behavior" | "direction") {
+        let value = state.dom.borrow().attribute_in_null_namespace(node, member)?.unwrap_or("").to_ascii_lowercase();
+        let canonical = match member {
+            "behavior" if matches!(value.as_str(), "scroll" | "slide" | "alternate") => value.as_str(),
+            "direction" if matches!(value.as_str(), "up" | "right" | "down" | "left") => value.as_str(),
+            "behavior" => "scroll", _ => "left",
+        };
+        return v8_string(scope, canonical);
+    }
+    if interface == "HTMLLinkElement" && member == "sizes" {
+        return associated_wrapper(scope, state, node, "DOMTokenList.sizes");
+    }
+    if matches!((interface, member), ("HTMLQuoteElement" | "HTMLModElement", "cite") | ("HTMLFrameElement", "longDesc")) {
+        let attribute = if member == "longDesc" { "longdesc" } else { "cite" };
+        let Some(value) = state.dom.borrow().attribute_in_null_namespace(node, attribute)?.map(str::to_owned) else {
+            return v8_string(scope, "");
+        };
+        // The URL reflection getter returns USVString even for malformed
+        // content authored through setAttribute (which accepts DOMString).
+        let value = v8_string(scope, &value)?.to_string(scope)
+            .ok_or(V8BindingError::JavaScriptException)?.to_rust_string_lossy(scope);
+        let document = owner_document_for_node(state, node)?;
+        let base = hyperlinks::document_base(scope, state, document)?.0;
+        let encoding = hyperlinks::document_encoding(state, document)?;
+        let resolved = Url::parse(&base).and_then(|base| hyperlinks::parse(&value, Some(&base), encoding))
+            .map(|url| url.to_string()).unwrap_or(value);
+        return v8_string(scope, &resolved);
+    }
+    if interface == "Document" && matches!(member, "dir" | "fgColor" | "linkColor" | "vlinkColor" | "alinkColor" | "bgColor") {
+        let dom = state.dom.borrow();
+        let value = if let Some((target, attribute)) = document_reflection_target(&dom, node, member)? {
+            dom.attribute_in_null_namespace(target, attribute)?.unwrap_or("").to_owned()
+        } else { String::new() };
+        if member == "dir" {
+            let canonical = value.to_ascii_lowercase();
+            return v8_string(scope, if matches!(canonical.as_str(), "ltr" | "rtl" | "auto") { &canonical } else { "" });
+        }
+        return v8_string(scope, &value);
+    }
+    if let Some((attribute, min, max)) = table_span_bounds(interface, member) {
+        let value = reflected_span(state.dom.borrow().attribute_in_null_namespace(node, attribute)?, min, max);
+        return Ok(v8::Integer::new_from_unsigned(scope, value).into());
+    }
+    if interface == "HTMLTableCellElement" && member == "scope" {
+        let value = state.dom.borrow().attribute_in_null_namespace(node, "scope")?
+            .unwrap_or("").to_ascii_lowercase();
+        return v8_string(scope, if matches!(value.as_str(), "row" | "col" | "rowgroup" | "colgroup") { &value } else { "" });
+    }
+    if matches!((interface, member), ("HTMLPreElement", "width") | ("HTMLOListElement", "start") | ("HTMLLIElement", "value")) {
+        let default = if interface == "HTMLOListElement" { 1 } else { 0 };
+        let value = state.dom.borrow().attribute_in_null_namespace(node, member)?
+            .and_then(parse_reflected_long).unwrap_or(default);
+        return Ok(v8::Integer::new(scope, value).into());
+    }
     if interface=="HTMLElement"&&member=="editContext"{let host=wrap_node(scope,state,node)?;return edit_context::attached(scope,host);}
     if interface == "HTMLOutputElement" && matches!(member, "value" | "defaultValue" | "type") {
         let value = match member {
@@ -35467,8 +35911,11 @@ fn get_attribute_value<'s>(
         let control = state.dom.borrow().label_control(node)?;
         return optional_node(scope, state, control);
     }
-    if interface == "HTMLTableElement" && member == "rows" {
+    if matches!(interface, "HTMLTableElement" | "HTMLTableSectionElement") && member == "rows" {
         return node_lists::elements(scope, state, node, node_lists::ElementFilter::TableRows);
+    }
+    if interface == "HTMLTableRowElement" && member == "cells" {
+        return node_lists::elements(scope, state, node, node_lists::ElementFilter::TableCells);
     }
     if interface == "HTMLFormElement" && member == "elements" {
         return node_lists::form_elements(scope, state, node);
@@ -36451,6 +36898,109 @@ fn set_attribute_value<'s>(
     member: &str,
     value: v8::Local<'s, v8::Value>,
 ) -> Result<(), V8BindingError> {
+    if interface == "HTMLTableElement" && matches!(member, "caption" | "tHead" | "tFoot") {
+        let tag = match member { "caption" => "caption", "tHead" => "thead", _ => "tfoot" };
+        if !value.is_null() && !value.is_undefined() {
+            let Some((owner, candidate)) = node_identity::argument(scope, value)? else {
+                return Err(V8BindingError::Unsupported { interface: interface.into(), member: "TypeError".into() });
+            };
+            let expected = if member == "caption" { "HTMLTableCaptionElement" } else { "HTMLTableSectionElement" };
+            validate_interface_node(&owner.dom.borrow(), candidate, expected)?;
+            if !owner.dom.borrow().is_element(candidate, "http://www.w3.org/1999/xhtml", tag) {
+                return Err(V8BindingError::Unsupported { interface: interface.into(), member: "HierarchyRequestError".into() });
+            }
+        }
+        let previous = table_part(&state.dom.borrow(), node, tag)?;
+        if let Some(previous) = previous { state.dom.borrow_mut().remove_child(node, previous)?; }
+        if value.is_null() || value.is_undefined() { return Ok(()) }
+        let reference = table_part_reference(&state.dom.borrow(), node, tag)?;
+        let prepared = node_migration::insertion_argument(scope, state, node, value, reference, None)?;
+        let connection = post_connection_scripts::capture_insertion(scope, &prepared.owner, prepared.parent, prepared.node)?;
+        let mutation = prepared.owner.dom.borrow_mut().insert_dom_node(prepared.parent, prepared.node, prepared.reference);
+        return connection.finish_mutation(scope, mutation).map(|_| ());
+    }
+    if interface == "HTMLElement" && matches!(member, "inputMode" | "enterKeyHint") {
+        let original = wrap_node(scope, state, node)?;
+        let value = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let value = rust_string_preserving_utf16(scope, value)?;
+        let (owner, node) = node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
+        let attribute = member.to_ascii_lowercase();
+        owner.dom.borrow_mut().set_attribute_ns(node, None, &attribute, value)?;
+        return attribute_resource_changed(scope, &owner, node, None, &attribute);
+    }
+    if interface == "HTMLMarqueeElement" && matches!(member, "hspace" | "vspace" | "scrollAmount" | "scrollDelay" | "behavior" | "direction") {
+        let original = wrap_node(scope, state, node)?;
+        let string = if matches!(member, "behavior" | "direction") {
+            let value = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+            rust_string_preserving_utf16(scope, value)?
+        } else {
+            let value = value.uint32_value(scope).ok_or(V8BindingError::JavaScriptException)?;
+            let default = match member { "scrollAmount" => 6, "scrollDelay" => 85, _ => 0 };
+            (if value > i32::MAX as u32 { default } else { value }).to_string()
+        };
+        let (owner, node) = node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
+        validate_interface_node(&owner.dom.borrow(), node, interface)?;
+        let attribute = member.to_ascii_lowercase();
+        owner.dom.borrow_mut().set_attribute_ns(node, None, &attribute, string)?;
+        return attribute_resource_changed(scope, &owner, node, None, &attribute);
+    }
+    if matches!((interface, member), ("HTMLQuoteElement" | "HTMLModElement", "cite") | ("HTMLFrameElement", "longDesc")) {
+        let original = wrap_node(scope, state, node)?;
+        let value = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?.to_rust_string_lossy(scope);
+        let (owner, node) = node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
+        validate_interface_node(&owner.dom.borrow(), node, interface)?;
+        let attribute = if member == "longDesc" { "longdesc" } else { "cite" };
+        owner.dom.borrow_mut().set_attribute_ns(node, None, attribute, value)?;
+        return attribute_resource_changed(scope, &owner, node, None, attribute);
+    }
+    if interface == "Document" && matches!(member, "dir" | "fgColor" | "linkColor" | "vlinkColor" | "alinkColor" | "bgColor") {
+        let original = wrap_node(scope, state, node)?;
+        let value = if member != "dir" && value.is_null() {
+            String::new()
+        } else {
+            let string = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+            rust_string_preserving_utf16(scope, string)?
+        };
+        let (owner, document) = node_identity::argument(scope, original.into())?
+            .ok_or(DomError::StaleNode(node))?;
+        let target = document_reflection_target(&owner.dom.borrow(), document, member)?;
+        if let Some((target, attribute)) = target {
+            owner.dom.borrow_mut().set_attribute_ns(target, None, attribute, value)?;
+            attribute_resource_changed(scope, &owner, target, None, attribute)?;
+        }
+        return Ok(());
+    }
+    if let Some((attribute, _, _)) = table_span_bounds(interface, member) {
+        let original = wrap_node(scope, state, node)?;
+        let value = value.uint32_value(scope).ok_or(V8BindingError::JavaScriptException)?;
+        // Generic reflected unsigned-long setters use the default for values
+        // above INT32_MAX. Getter clamping must not rewrite the stored value.
+        let value = if value > i32::MAX as u32 { 1 } else { value };
+        let (owner, node) = node_identity::argument(scope, original.into())?
+            .ok_or(DomError::StaleNode(node))?;
+        validate_interface_node(&owner.dom.borrow(), node, interface)?;
+        owner.dom.borrow_mut().set_attribute_ns(node, None, attribute, value.to_string())?;
+        return attribute_resource_changed(scope, &owner, node, None, attribute);
+    }
+    if interface == "HTMLTableCellElement" && member == "scope" {
+        let original = wrap_node(scope, state, node)?;
+        let value = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let value = rust_string_preserving_utf16(scope, value)?;
+        let (owner, node) = node_identity::argument(scope, original.into())?
+            .ok_or(DomError::StaleNode(node))?;
+        validate_interface_node(&owner.dom.borrow(), node, interface)?;
+        owner.dom.borrow_mut().set_attribute_ns(node, None, "scope", value)?;
+        return attribute_resource_changed(scope, &owner, node, None, "scope");
+    }
+    if matches!((interface, member), ("HTMLPreElement", "width") | ("HTMLOListElement", "start") | ("HTMLLIElement", "value")) {
+        let original = wrap_node(scope, state, node)?;
+        let value = value.int32_value(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let (owner, node) = node_identity::argument(scope, original.into())?
+            .ok_or(DomError::StaleNode(node))?;
+        validate_interface_node(&owner.dom.borrow(), node, interface)?;
+        owner.dom.borrow_mut().set_attribute_ns(node, None, member, value.to_string())?;
+        return attribute_resource_changed(scope, &owner, node, None, member);
+    }
     if interface=="HTMLElement"&&member=="editContext"{return edit_context::attach(scope,state,node,value);}
     let value = if (value.is_null_or_undefined()
         && matches!(
@@ -37857,6 +38407,68 @@ fn call_operation<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    if interface == "HTMLTableElement" && matches!(member, "createCaption" | "deleteCaption" | "createTHead" | "deleteTHead" | "createTFoot" | "deleteTFoot" | "createTBody") {
+        let tag = match member { "createCaption" | "deleteCaption" => "caption", "createTHead" | "deleteTHead" => "thead", "createTFoot" | "deleteTFoot" => "tfoot", _ => "tbody" };
+        let existing = table_part(&state.dom.borrow(), node, tag)?;
+        if member.starts_with("delete") {
+            if let Some(existing) = existing { state.dom.borrow_mut().remove_child(node, existing)?; }
+            return Ok(None);
+        }
+        if member != "createTBody" && let Some(existing) = existing {
+            return Ok(Some(wrap_node(scope, state, existing)?.into()));
+        }
+        let mut dom = state.dom.borrow_mut();
+        let reference = table_part_reference(&dom, node, tag)?;
+        let created = dom.create_element(tag);
+        dom.insert_before(node, created, reference)?;
+        drop(dom);
+        return Ok(Some(wrap_node(scope, state, created)?.into()));
+    }
+    if (matches!(interface, "HTMLTableElement" | "HTMLTableSectionElement") && matches!(member, "insertRow" | "deleteRow"))
+        || (interface == "HTMLTableRowElement" && matches!(member, "insertCell" | "deleteCell"))
+    {
+        // Conversion may run author code and adopt the receiver. Resolve the
+        // current owner only after conversion, before inspecting or mutating.
+        let original = wrap_node(scope, state, node)?;
+        let index = if args.length() == 0 || (member.starts_with("insert") && args.get(0).is_undefined()) { -1 }
+            else { args.get(0).int32_value(scope).ok_or(V8BindingError::JavaScriptException)? };
+        let (owner, node) = node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
+        let cells = interface == "HTMLTableRowElement";
+        let items = table_native_items(&owner.dom.borrow(), node, cells)?;
+        let insert = member.starts_with("insert");
+        let length = items.len() as i64;
+        if index < -1 || index as i64 > length || (!insert && index as i64 == length) {
+            return Err(V8BindingError::Unsupported { interface: interface.into(), member: "IndexSizeError".into() });
+        }
+        if !insert {
+            let target = if index == -1 { items.last().copied() } else { items.get(index as usize).copied() };
+            if let Some(target) = target {
+                let parent = owner.dom.borrow().parent(target)?.ok_or(DomError::StaleNode(target))?;
+                owner.dom.borrow_mut().remove_child(parent, target)?;
+            }
+            return Ok(None);
+        }
+        let reference = if index == -1 { None } else { items.get(index as usize).copied() };
+        let mut dom = owner.dom.borrow_mut();
+        let parent = if let Some(reference) = reference {
+            dom.parent(reference)?.ok_or(DomError::StaleNode(reference))?
+        } else if interface == "HTMLTableElement" {
+            if let Some(last) = items.last() {
+                dom.parent(*last)?.ok_or(DomError::StaleNode(*last))?
+            } else {
+                let existing = dom.children(node)?.iter().copied().filter(|child| dom.is_element(*child, "http://www.w3.org/1999/xhtml", "tbody")).last();
+                if let Some(body) = existing { body } else {
+                    let body = dom.create_element("tbody");
+                    dom.append_child(node, body)?;
+                    body
+                }
+            }
+        } else { node };
+        let created = dom.create_element(if cells { "td" } else { "tr" });
+        dom.insert_before(parent, created, reference)?;
+        drop(dom);
+        return Ok(Some(wrap_node(scope, &owner, created)?.into()));
+    }
     if interface == "ProcessingInstruction" && matches!(member,
         "getAttribute"|"getAttributeNames"|"hasAttribute"|"hasAttributes"|"setAttribute"|"removeAttribute"|"toggleAttribute")
     {
@@ -46001,7 +46613,7 @@ fn associated_wrapper<'s>(
     let association = interface;
     let interface = if matches!(
         interface,
-        "DOMTokenList.rel" | "DOMTokenList.blocking" | "DOMTokenList.for"
+        "DOMTokenList.rel" | "DOMTokenList.blocking" | "DOMTokenList.for" | "DOMTokenList.sizes"
     ) {
         "DOMTokenList"
     } else {
@@ -46063,6 +46675,9 @@ fn associated_wrapper<'s>(
     }
     if association == "DOMTokenList.rel" {
         token_lists::mark_attribute(scope, object, "rel")?;
+    }
+    if association == "DOMTokenList.sizes" {
+        token_lists::mark_attribute(scope, object, "sizes")?;
     }
     if association == "DOMTokenList.blocking" {
         token_lists::mark_attribute(scope, object, "blocking")?;
