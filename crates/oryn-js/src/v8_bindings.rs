@@ -36914,6 +36914,9 @@ fn get_attribute_value<'s>(
                 .get_null("accesskey")
                 .map_or("", String::as_str),
         )?,
+        // This native user agent does not assign access-key shortcuts. The
+        // label describes an assigned shortcut, not the reflected token list.
+        ("HTMLElement", "accessKeyLabel") => v8_string(scope, "")?,
         ("HTMLElement", "title" | "lang") | ("HTMLSlotElement", "name") => v8_string(
             scope,
             record
@@ -56439,9 +56442,14 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
                     if(element[member]!==true)throw Error('explicit override '+member);
                 }
                 if(element.accessKey!=='')throw Error('accessKey missing default');
+                if(element.accessKeyLabel!=='')throw Error('unassigned accessKeyLabel');
+                const labelDescriptor=Object.getOwnPropertyDescriptor(HTMLElement.prototype,'accessKeyLabel');
+                if(!labelDescriptor||labelDescriptor.set!==undefined||!labelDescriptor.enumerable||!labelDescriptor.configurable)throw Error('accessKeyLabel descriptor');
+                let wrongLabelReceiver=false;try{labelDescriptor.get.call({})}catch(e){wrongLabelReceiver=e instanceof TypeError}if(!wrongLabelReceiver)throw Error('accessKeyLabel receiver');
                 for(const value of ['A b','',null,undefined,7,'\uD800']) {
                     element.accessKey=value;
                     if(element.accessKey!==String(value)||element.getAttribute('accesskey')!==String(value))throw Error('accessKey setter '+tag);
+                    if(element.accessKeyLabel!=='')throw Error('accessKeyLabel must not reflect tokens');
                 }
                 element.setAttribute('accesskey','Mixed CASE');
                 if(element.accessKey!=='Mixed CASE')throw Error('accessKey raw reflection');

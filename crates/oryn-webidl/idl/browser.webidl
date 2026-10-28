@@ -1435,6 +1435,7 @@ interface HTMLElement : Element {
   [CEReactions] attribute DOMString lang;
   [CEReactions] attribute DOMString dir;
   [CEReactions] attribute DOMString accessKey;
+  readonly attribute DOMString accessKeyLabel;
   [CEReactions] attribute boolean translate;
   [CEReactions] attribute boolean spellcheck;
   [CEReactions] attribute (boolean or unrestricted double or DOMString)? hidden;
