@@ -1539,7 +1539,7 @@ fn legacy_type(name: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-fn handler_value<'s>(
+pub(super) fn handler_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     object: v8::Local<v8::Object>,
     name: &str,
@@ -1558,6 +1558,12 @@ fn handler_value<'s>(
 }
 pub(super) fn is_animation_event(name: &str) -> bool {
     HANDLER_TYPES.contains(&name)
+}
+pub(super) fn handler_event_type(property: &str) -> Option<&'static str> {
+    HANDLER_TYPES
+        .iter()
+        .copied()
+        .find(|name| handler_property(name) == property)
 }
 fn node_handler_invoke<'s>(
     scope: &mut v8::PinScope<'s, '_>,
@@ -1589,7 +1595,7 @@ fn node_handler_invoke<'s>(
         throw_binding_error(scope, &error)
     }
 }
-fn set_node_handler(
+pub(super) fn set_node_handler(
     scope: &mut v8::PinScope,
     receiver: v8::Local<v8::Object>,
     name: &str,
@@ -3677,11 +3683,15 @@ mod tests {
             )
             .is_true()
         );
+        eval(
+            scope,
+            "globalThis.svg=document.createElementNS('http://www.w3.org/2000/svg','svg');document.body.append(svg);globalThis.sharedHandler=e=>seen.push('shared:'+e.type);for(const target of [document,svg]){target.onwebkitanimationstart=sharedHandler;if(target.onwebkitanimationstart!==sharedHandler)throw Error('generated handler identity');target.dispatchEvent(new AnimationEvent('webkitAnimationStart'))}if(seen.slice(-2).join()!=='shared:webkitAnimationStart,shared:webkitAnimationStart')throw Error('generated handler dispatch')",
+        );
         clear_document_stream_listeners(scope, &state, state.document_root()).unwrap();
         assert!(
             eval(
                 scope,
-                "child.onwebkitanimationstart===null&&document.body.onanimationstart===null"
+                "child.onwebkitanimationstart===null&&document.body.onanimationstart===null&&document.onwebkitanimationstart===null&&svg.onwebkitanimationstart===null"
             )
             .is_true()
         );

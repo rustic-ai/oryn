@@ -35522,6 +35522,10 @@ fn get_attribute_value<'s>(
             | "SVGElement"
     ) && member.starts_with("on")
     {
+        if let Some(event_type) = web_animations::handler_event_type(member) {
+            let receiver = wrap_node(scope, state, node)?;
+            return web_animations::handler_value(scope, receiver, event_type);
+        }
         if is_window_handler_alias(state, node, member) {
             return Ok(match active_document_state_for_node(scope, state, node) {
                 Some(owner) => global_events::handler_value(scope, &owner, &member[2..]),
@@ -38215,6 +38219,10 @@ fn set_attribute_value<'s>(
             | "SVGElement"
     ) && member.starts_with("on")
     {
+        if let Some(event_type) = web_animations::handler_event_type(member) {
+            let receiver = wrap_node(scope, state, node)?;
+            return web_animations::set_node_handler(scope, receiver, event_type, value);
+        }
         if is_window_handler_alias(state, node, member) {
             if let Some(owner) = active_document_state_for_node(scope, state, node) {
                 global_events::set_handler_value(scope, &owner, &member[2..], value);
