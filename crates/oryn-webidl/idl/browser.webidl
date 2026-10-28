@@ -1440,7 +1440,8 @@ interface HTMLElement : Element {
   [CEReactions] attribute boolean spellcheck;
   [CEReactions] attribute (boolean or unrestricted double or DOMString)? hidden;
   [CEReactions] attribute boolean inert;
-  [CEReactions] attribute DOMString innerText;
+  [CEReactions, LegacyNullToEmptyString] attribute DOMString innerText;
+  [CEReactions, LegacyNullToEmptyString] attribute DOMString outerText;
   [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;
   [SameObject] readonly attribute DOMStringMap dataset;
   [CEReactions] attribute boolean draggable;

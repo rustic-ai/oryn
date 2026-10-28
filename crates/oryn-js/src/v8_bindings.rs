@@ -35230,8 +35230,8 @@ fn get_attribute_value<'s>(
         if !contents && !matches!(layout.geometry.get(&node_key(node)), Some(BindingGeometry::Available(_))) {
             return Err(V8BindingError::Message("rendered text root layout is unavailable".into()));
         }
-        let sources = crate::rendered_text_source::semantic_nodes(&layout.resolved_text).map_err(V8BindingError::Message)?;
         let dom = owner.dom.borrow();
+        let sources = crate::rendered_text_source::semantic_dom_nodes(&dom, &layout.resolved_text).map_err(V8BindingError::Message)?;
         let items = crate::rendered_text_source::collect_items(&dom, node, &layout.styles, &sources).map_err(V8BindingError::Message)?;
         return v8_string(scope, &oryn_dom::reduce_rendered_text(items));
     }
@@ -37661,7 +37661,7 @@ fn set_attribute_value<'s>(
         ))
         || (value.is_null()
             && matches!(interface, "HTMLElement" | "HTMLScriptElement")
-            && member == "innerText")
+            && matches!(member, "innerText" | "outerText"))
     {
         v8::String::empty(scope).into()
     } else {
@@ -38569,7 +38569,7 @@ fn set_attribute_value<'s>(
             (_, "textContent")
                 | ("Node", "nodeValue")
                 | ("CharacterData", "data")
-                | ("HTMLElement", "innerText")
+                | ("HTMLElement", "innerText" | "outerText")
                 | ("HTMLScriptElement", "text" | "innerText")
                 | ("Element", "id" | "className")
         ) {
@@ -38645,7 +38645,7 @@ fn set_attribute_value<'s>(
             .to_string(scope)
             .ok_or(V8BindingError::JavaScriptException)?;
         if matches!(interface, "Node" | "CharacterData" | "HTMLScriptElement")
-            || member == "innerText"
+            || matches!(member, "innerText" | "outerText")
             || (interface == "Element" && matches!(member, "id" | "className"))
         {
             rust_string_preserving_utf16(scope, string)?
@@ -38706,12 +38706,35 @@ fn set_attribute_value<'s>(
     } else { None };
     let mut queue_scroll = false;
     let mut dom = state.dom.borrow_mut();
+    if interface == "HTMLElement" && member == "outerText" {
+        let parent = dom.arena().get(node)?.parent.ok_or_else(|| V8BindingError::Unsupported {
+            interface: "HTMLElement".into(), member: "NoModificationAllowedError".into(),
+        })?;
+        drop(dom);
+        let preparation = post_connection_scripts::capture_replacement(scope, state, parent, &[node])?;
+        let result = state.dom.borrow_mut().replace_element_with_rendered_text(parent, node, &value);
+        preparation.finish_mutation(scope, result)?;
+        return Ok(());
+    }
+    if matches!(interface, "HTMLElement" | "HTMLScriptElement") && member == "innerText" {
+        drop(dom);
+        let preparation = post_connection_scripts::capture_replacement(scope, state, node, &[node])?;
+        let result = state.dom.borrow_mut().set_rendered_text(node, &value);
+        if result.is_ok() && interface == "HTMLScriptElement" {
+            // br nodes do not contribute script child text. Retain the actual
+            // accepted post-fragment source rather than the pre-fragment value.
+            let mut dom = state.dom.borrow_mut();
+            let accepted = dom.arena().text_content(node)?;
+            dom.arena_mut().get_mut(node)?.script_trusted_text = accepted;
+        }
+        preparation.finish_mutation(scope, result)?;
+        return Ok(());
+    }
     match (interface, member) {
         (_, "textContent") if matches!(dom.arena().get(node)?.kind, NodeKind::Attribute { .. }) => {
             dom.set_attribute_node_value(node, value)?
         }
         (_, "textContent")
-        | ("HTMLElement" | "HTMLScriptElement", "innerText")
         | ("HTMLScriptElement", "text") => {
             let text = matches!(
                 dom.arena().get(node)?.kind,
@@ -60902,6 +60925,18 @@ fn document_head_body_getters_keep_foreign_owner_and_namespace() {
             for(const value of samples){text.data=value;check(text.data===value,'lossless CharacterData');text.nodeValue=value;check(text.nodeValue===value,'lossless nodeValue')}
             text.nodeValue=undefined;check(text.nodeValue==='','nullable nodeValue');
             const ordinary=document.createElementNS('urn:custom','script');ordinary.textContent='raw';check(ordinary.textContent==='raw','foreign script name is ordinary text');
+            const rendered=document.createElement('div');
+            rendered.innerText='A\r\nB\rC\n\uD800';
+            check(rendered.childNodes.length===7,'innerText text/br fragment');
+            check(rendered.innerHTML==='A<br>B<br>C<br>\uD800','innerText CRLF and lone surrogate');
+            check(rendered.textContent==='ABC\uD800','br does not contribute DOM text');
+            rendered.innerText='';check(rendered.childNodes.length===0,'empty innerText removes children');
+            rendered.innerText=null;check(rendered.textContent==='','innerText legacy null conversion');
+            const replacement=document.createElement('span');rendered.append('A','B',replacement,'D','E');
+            replacement.outerText='X';check(rendered.textContent==='ABXDE','outerText replacement');
+            check(rendered.childNodes.length===3 && rendered.childNodes[1].data==='BXD','outerText boundary-only merge');
+            let detachedError=false;try{replacement.outerText=''}catch(e){detachedError=e.name==='NoModificationAllowedError'&&e.code===7}
+            check(detachedError,'outerText detached native exception');
             return true;
         })()"#).unwrap();
         assert!(

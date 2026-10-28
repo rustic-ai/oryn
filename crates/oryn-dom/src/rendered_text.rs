@@ -31,6 +31,16 @@ pub fn reduce_rendered_text(items: impl IntoIterator<Item = RenderedTextItem>) -
 }
 
 impl DomRuntime {
+    /// Replace light children with HTML rendered-text fragment nodes. Conversion
+    /// and script preparation remain the binding caller's responsibility.
+    pub fn set_rendered_text(&mut self, node: NodeId, value: &str) -> Result<(), DomError> {
+        if !matches!(self.arena().get(node)?.kind, super::NodeKind::Element { .. }) {
+            return Err(DomError::NotAnElement(node));
+        }
+        let fragment = self.create_rendered_text_fragment(value, false)?;
+        self.replace_dom_children(node, fragment)?;
+        Ok(())
+    }
     /// Native outerText replacement. The binding must validate its receiver,
     /// convert the DOMString and prepare script effects before calling this.
     /// Passing the parent explicitly keeps detached-node exception selection
@@ -174,6 +184,25 @@ mod tests {
         }
         let detached = dom.create_element("span");
         assert!(matches!(dom.replace_element_with_rendered_text(parent,detached,"x"), Err(DomError::NotAChild(..))));
+    }
+
+    #[test]
+    fn inner_text_fragment_replaces_children_and_preserves_empty_breaks() {
+        let mut dom = DomRuntime::new();
+        let parent = dom.create_element("div");
+        let old = dom.create_text("old");
+        dom.append_child(parent, old).unwrap();
+        dom.set_rendered_text(parent, "\r\nA\n\n").unwrap();
+        let children = dom.arena().get(parent).unwrap().children.clone();
+        assert_eq!(children.len(), 4);
+        assert!(dom.arena().get(old).unwrap().parent.is_none());
+        assert_eq!(dom.arena().text_content(parent).unwrap(), "A");
+        for index in [0, 2, 3] {
+            assert!(matches!(&dom.arena().get(children[index]).unwrap().kind,
+                super::super::NodeKind::Element { name } if name.local.as_ref() == "br"));
+        }
+        dom.set_rendered_text(parent, "").unwrap();
+        assert!(dom.arena().get(parent).unwrap().children.is_empty());
     }
 
     #[test]

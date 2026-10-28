@@ -107,8 +107,11 @@ pub fn collect_items(
                 if breaks != 0 {
                     items.push(RenderedTextItem::RequiredLineBreaks(breaks));
                 }
-                if html && tag == "br" && visible {
+                if html && tag == "br" && visible && node != root {
                     items.push(RenderedTextItem::Text("\n".into()));
+                }
+                if html && tag == "br" {
+                    continue;
                 }
                 // Replaced controls and inert template contents are not child
                 // rendered text. The target fallback decision is separate.
@@ -231,10 +234,83 @@ pub fn semantic_nodes(runs: &[ResolvedTextRun]) -> Result<BTreeMap<u64, String>,
     Ok(result)
 }
 
+/// Verify that native source identities still name DOM character data and that
+/// UTF16 provenance does not escape the owning node's actual source.
+pub fn semantic_dom_nodes(
+    dom: &DomRuntime,
+    runs: &[ResolvedTextRun],
+) -> Result<BTreeMap<u64, String>, String> {
+    let result = semantic_nodes(runs)?;
+    for run in runs {
+        for span in &run
+            .semantic_source
+            .as_ref()
+            .ok_or("missing semantic text source")?
+            .spans
+        {
+            let Some(identity) = span.source_node else {
+                continue;
+            };
+            let node = NodeId {
+                slot: identity as u32,
+                generation: (identity >> 32) as u32,
+            };
+            let record = dom
+                .arena()
+                .get(node)
+                .map_err(|_| "stale semantic text source identity")?;
+            let data = match &record.kind {
+                NodeKind::Text { data } | NodeKind::CDataSection { data } => data,
+                _ => return Err("semantic text source is not DOM character data".into()),
+            };
+            if span.source_end > oryn_dom::dom_string::units(data).len() {
+                return Err("semantic text source range exceeds DOM data".into());
+            }
+        }
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use oryn_common::v4::{ResolvedTextSpan, SemanticTextSource};
+    #[test]
+    fn br_has_child_separator_but_no_root_or_authored_child_text() {
+        let mut dom = DomRuntime::new();
+        let root = dom.create_element("div");
+        let br = dom.create_element("br");
+        let child = dom.create_text("ignored");
+        dom.append_child(root, br).unwrap();
+        dom.append_child(br, child).unwrap();
+        let text = BTreeMap::from([(key(child), "ignored".into())]);
+        assert_eq!(
+            oryn_dom::reduce_rendered_text(
+                collect_items(&dom, root, &BTreeMap::new(), &text).unwrap()
+            ),
+            "\n"
+        );
+        assert_eq!(
+            oryn_dom::reduce_rendered_text(
+                collect_items(&dom, br, &BTreeMap::new(), &text).unwrap()
+            ),
+            ""
+        );
+    }
+    #[test]
+    fn semantic_provenance_requires_live_character_data_within_source_bounds() {
+        let mut dom = DomRuntime::new();
+        let node = dom.create_text("a");
+        let mut value = run("A", 0, 1);
+        value.semantic_source.as_mut().unwrap().spans[0].source_node = Some(key(node));
+        assert!(semantic_dom_nodes(&dom, &[value.clone()]).is_ok());
+        value.semantic_source.as_mut().unwrap().spans[0].source_end = 2;
+        value.semantic_source.as_mut().unwrap().spans[0].transformed = true;
+        assert!(semantic_dom_nodes(&dom, &[value.clone()]).is_err());
+        let element = dom.create_element("div");
+        value.semantic_source.as_mut().unwrap().spans[0].source_node = Some(key(element));
+        assert!(semantic_dom_nodes(&dom, &[value]).is_err());
+    }
     #[test]
     fn closed_details_selects_only_first_direct_summary() {
         let mut dom = DomRuntime::new();
