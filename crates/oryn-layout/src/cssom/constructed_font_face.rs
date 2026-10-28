@@ -331,6 +331,27 @@ pub struct NativeFontStyleProjection {
     pub declarations: Vec<(String, String)>,
     _allocation: LeaseArc<dyn Send + Sync>,
 }
+/// Project computed native font longhands for the shared Canvas shaper. The
+/// specified shorthand must not be reused here: relative sizes are already
+/// resolved against the Canvas font source and must remain absolute.
+pub fn project_computed_canvas_font(
+    computed: &style::properties::ComputedValues,
+    admission: &dyn ImportAdmission,
+) -> Result<NativeFontStyleProjection, String> {
+    use style::properties::{ShorthandId, SourcePropertyDeclaration};
+    admission.checkpoint()?;
+    let count = ShorthandId::Font.longhands().count();
+    let allocation = admission.reserve(count.checked_mul(std::mem::size_of::<style::properties::PropertyDeclaration>())
+        .and_then(|bytes| bytes.checked_add(std::mem::size_of::<SourcePropertyDeclaration>()))
+        .ok_or("computed canvas font projection overflow")?)?;
+    let mut declarations = SourcePropertyDeclaration::default();
+    for id in ShorthandId::Font.longhands() {
+        admission.checkpoint()?;
+        declarations.declarations.push(computed.computed_or_resolved_declaration(id, None));
+    }
+    let font = NativeFontShorthand { declarations, _allocation: allocation };
+    font.style_projection(admission)
+}
 fn write_native_font_value<W: std::fmt::Write>(declaration: &style::properties::PropertyDeclaration, writer: &mut style_traits::CssWriter<W>) -> Result<bool, std::fmt::Error> {
     use style::properties::PropertyDeclaration as P;
     use style_traits::ToCss;

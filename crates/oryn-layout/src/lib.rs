@@ -662,6 +662,7 @@ pub struct CanvasFontResolution {
     pub canvas: u64,
     pub style: style::servo_arc::Arc<style::properties::ComputedValues>,
     pub css: cssom::native_import_graph::NativeCanvasFontSerialization,
+    pub shaping: cssom::native_import_graph::NativeFontStyleProjection,
     _allocation: Arc<dyn Send + Sync>,
 }
 impl std::fmt::Debug for CanvasFontResolution {
@@ -6787,9 +6788,10 @@ fn stylo_computed_values_with_instances_controlled(
         let block = style::servo_arc::Arc::new(document.guard().wrap(block));
         let computed = document.resolve_canvas_font_for_source(source, block).ok_or_else(|| LayoutError::StyleTraversal("native canvas font context unresolved".into()))?;
         let css = cssom::native_import_graph::serialize_native_canvas_font(&computed, admission).map_err(LayoutError::StyleTraversal)?;
+        let shaping = cssom::native_import_graph::project_computed_canvas_font(&computed, admission).map_err(LayoutError::StyleTraversal)?;
         layout_checkpoint(&cancelled)?;
         admission.checkpoint().map_err(LayoutError::StyleTraversal)?;
-        *result = Some(CanvasFontResolution { canvas, style: computed, css, _allocation: allocation });
+        *result = Some(CanvasFontResolution { canvas, style: computed, css, shaping, _allocation: allocation });
     }
     let mut output = ComputedStyles::new();
     if let Some((demand,result))=legacy_font {
@@ -10318,6 +10320,43 @@ mod tests {
         let resolved = engine.resolve_canvas_font_at_controlled(&input, &LayoutLimits::default(), 0., 2, &parsed, &Admission(true), None).unwrap();
         assert_eq!(resolved.canvas, 2);
         assert_eq!(resolved.style.get_font().font_size.computed_size().px(), 30.);
+        let projection = cssom::native_import_graph::project_computed_canvas_font(&resolved.style, &Admission(true)).unwrap();
+        assert!(projection.declarations.iter().any(|(name, value)| name == "font-size" && value == "30px"));
+        assert!(projection.declarations.iter().any(|(name, value)| name == "font-family" && value == "sans-serif"));
+        let font_style = projection.declarations.iter().cloned().collect();
+        let shaped = canvas_text::shape("Ag  x", &font_style, ViewportState::default(), &[]).unwrap();
+        let absolute = BTreeMap::from([("font-size".into(), "30px".into()), ("font-family".into(), "sans-serif".into())]);
+        let expected = canvas_text::shape("Ag  x", &absolute, ViewportState::default(), &[]).unwrap();
+        assert_eq!(shaped.font_size, 30.);
+        assert_eq!(shaped.width, expected.width);
+        assert_eq!(shaped.glyph_runs, expected.glyph_runs);
+        assert!(cssom::native_import_graph::project_computed_canvas_font(&resolved.style, &Admission(false)).is_err());
+        {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            struct Charge(Arc<AtomicUsize>);
+            impl Drop for Charge { fn drop(&mut self) { self.0.fetch_sub(1, Ordering::SeqCst); } }
+            struct Controlled { live: Arc<AtomicUsize>, checks: AtomicUsize, deny_at: usize }
+            impl ImportAdmission for Controlled {
+                fn checkpoint(&self) -> Result<(), String> {
+                    if self.checks.fetch_add(1, Ordering::SeqCst) >= self.deny_at { Err("cancelled".into()) } else { Ok(()) }
+                }
+                fn reserve(&self, _: usize) -> Result<Arc<dyn Send + Sync>, String> {
+                    self.live.fetch_add(1, Ordering::SeqCst);
+                    Ok(Arc::new(Charge(self.live.clone())))
+                }
+            }
+            let admitted = Controlled { live: Arc::new(AtomicUsize::new(0)), checks: AtomicUsize::new(0), deny_at: usize::MAX };
+            let projection = cssom::native_import_graph::project_computed_canvas_font(&resolved.style, &admitted).unwrap();
+            assert_eq!(admitted.live.load(Ordering::SeqCst), 1, "only exported projection lease remains");
+            let stages = admitted.checks.load(Ordering::SeqCst);
+            drop(projection);
+            assert_eq!(admitted.live.load(Ordering::SeqCst), 0);
+            for deny_at in 0..stages {
+                let cancelled = Controlled { live: admitted.live.clone(), checks: AtomicUsize::new(0), deny_at };
+                assert!(cssom::native_import_graph::project_computed_canvas_font(&resolved.style, &cancelled).is_err(), "checkpoint {deny_at}");
+                assert_eq!(cancelled.live.load(Ordering::SeqCst), 0, "checkpoint {deny_at} leaked charge");
+            }
+        }
         let serialized = cssom::native_import_graph::serialize_native_canvas_font(&resolved.style, &Admission(true)).unwrap();
         assert_eq!(serialized.value, "30px sans-serif");
         let parsed_with_height = parse_native_font_shorthand_typed("italic bold 1.5em/2 Example, serif", "https://example.test/", &Admission(true)).unwrap();
