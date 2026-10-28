@@ -6,6 +6,7 @@ pub mod box_shadow;
 pub mod builtin_image;
 pub mod canvas_size;
 pub mod canvas_gradient;
+pub mod canvas_pattern;
 pub mod color;
 pub mod error;
 pub mod error_mapping;
