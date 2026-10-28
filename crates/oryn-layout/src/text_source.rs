@@ -933,10 +933,18 @@ impl TextSource {
         // edges or authored hard breaks. Use only native zero-advance CSS cuts
         // at those boundaries; never trim preserved spaces or interior wraps.
         let semantic_cuts: Vec<_> = cuts.iter().filter(|range| {
-            let before = self.text[..range.start].chars().rev().find(|ch| !matches!(ch, ' ' | '\t'));
-            let after = self.text[range.end..].chars().find(|ch| !matches!(ch, ' ' | '\t'));
-            before.is_none_or(|ch| matches!(ch, '\n' | '\u{2028}' | '\u{2029}'))
-                || after.is_none_or(|ch| matches!(ch, '\n' | '\u{2028}' | '\u{2029}'))
+            let before = self.text[..range.start].char_indices().rev().find(|(_, ch)| !matches!(ch, ' ' | '\t'));
+            let after = self.text[range.end..].char_indices().find(|(_, ch)| !matches!(ch, ' ' | '\t'));
+            // Replaced inline boxes occupy the line even though they have no
+            // text bytes. A space beside one is not a paragraph-edge space.
+            let left = before.map_or(0, |(byte, ch)| byte + ch.len_utf8());
+            let right = after.map_or(self.text.len(), |(byte, _)| range.end + byte);
+            let left_box = self.spans.iter().any(|span| span.atomic
+                && span.bytes.start >= left && span.bytes.start <= range.start);
+            let right_box = self.spans.iter().any(|span| span.atomic
+                && span.bytes.start >= range.end && span.bytes.start <= right);
+            (before.is_none_or(|(_, ch)| matches!(ch, '\n' | '\u{2028}' | '\u{2029}')) && !left_box)
+                || (after.is_none_or(|(_, ch)| matches!(ch, '\n' | '\u{2028}' | '\u{2029}')) && !right_box)
         }).cloned().collect();
         let mut semantic_prefix = vec![0usize];
         let mut semantic_text = String::new();
@@ -1037,6 +1045,25 @@ mod tests {
             let style = BTreeMap::from([("white-space".into(), mode.into())]);
             let normalized = source.normalize(&BTreeMap::new(), &style);
             assert_eq!(normalized.resolved_run(1, &clusters, &BTreeMap::new(), &style).semantic_source.unwrap().text, expected);
+        }
+    }
+    #[test]
+    fn semantic_paragraph_edges_include_atomic_boxes_without_emitting_box_text() {
+        for leading in [true, false] {
+            let mut source = TextSource::default();
+            if leading { source.append_box(2); }
+            source.append(1, Some(300), if leading { " abc" } else { "abc " });
+            if !leading { source.append_box(2); }
+            let source = source.normalize(&BTreeMap::new(), &BTreeMap::new());
+            let run = source.resolved_run(1, &[TextCluster {
+                bytes: if leading { 0..1 } else { 3..4 },
+                rect: oryn_common::v4::CssRect { x: 0., y: 0., width: 0., height: 1. },
+                line: 0, rtl: false,
+            }], &BTreeMap::new(), &BTreeMap::new());
+            assert_eq!(run.text, "abc");
+            let semantic = run.semantic_source.unwrap();
+            assert_eq!(semantic.text, if leading { " abc" } else { "abc " });
+            assert!(semantic.spans.iter().any(|span| span.atomic && span.source_node.is_none()));
         }
     }
     #[test]

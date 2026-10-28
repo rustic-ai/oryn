@@ -147,14 +147,41 @@ pub fn collect_items(
                     if let Some(summary) = summary {
                         stack.push((*summary, false));
                     }
-                } else if html && matches!(tag, "select" | "optgroup") {
-                    // Select text is its option stream, not arbitrary light-DOM
-                    // text inserted by scripts. Optgroups contribute options.
-                    stack.extend(record.children.iter().rev().filter(|child| {
-                        matches!(dom.arena().get(**child).map(|record| &record.kind),
-                            Ok(NodeKind::Element { name }) if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
-                            && (name.local.as_ref() == "option" || (tag == "select" && name.local.as_ref() == "optgroup")))
-                    }).map(|child| (*child, false)));
+                } else if html && tag == "select" {
+                    // Use the native option ownership algorithm, including
+                    // options under permitted intervening descendants. An
+                    // optgroup outside a select is ordinary rendered content.
+                    for option in dom
+                        .select_options(node)
+                        .map_err(|error| format!("{error:?}"))?
+                        .into_iter()
+                        .rev()
+                    {
+                        let mut cursor =
+                            dom.parent(option).map_err(|error| format!("{error:?}"))?;
+                        let mut hidden = false;
+                        while let Some(ancestor) = cursor {
+                            visited += 1;
+                            if visited > 2_097_152 {
+                                return Err("rendered text traversal budget exceeded".into());
+                            }
+                            if ancestor == node {
+                                break;
+                            }
+                            if styles
+                                .get(&key(ancestor))
+                                .and_then(|style| style.get("display"))
+                                .is_some_and(|display| display == "none")
+                            {
+                                hidden = true;
+                                break;
+                            }
+                            cursor = dom.parent(ancestor).map_err(|error| format!("{error:?}"))?;
+                        }
+                        if !hidden {
+                            stack.push((option, false));
+                        }
+                    }
                 } else {
                     stack.extend(record.children.iter().rev().map(|child| (*child, false)));
                 }
@@ -376,6 +403,22 @@ mod tests {
         );
     }
     #[test]
+    fn optgroup_outside_select_preserves_ordinary_rendered_children() {
+        let mut dom = DomRuntime::new();
+        let root = dom.create_element("div");
+        let group = dom.create_element("optgroup");
+        let node = dom.create_text("123");
+        dom.append_child(root, group).unwrap();
+        dom.append_child(group, node).unwrap();
+        let text = BTreeMap::from([(key(node), "123".into())]);
+        assert_eq!(
+            oryn_dom::reduce_rendered_text(
+                collect_items(&dom, root, &BTreeMap::new(), &text).unwrap()
+            ),
+            "123"
+        );
+    }
+    #[test]
     fn select_uses_options_not_arbitrary_text_or_nested_optgroups() {
         let mut dom = DomRuntime::new();
         let root = dom.create_element("select");
@@ -396,6 +439,15 @@ mod tests {
                 collect_items(&dom, root, &BTreeMap::new(), &text).unwrap()
             ),
             "one\ntwo"
+        );
+        let group = dom.arena().get(root).unwrap().children[1];
+        let styles = BTreeMap::from([(
+            key(group),
+            Arc::new(BTreeMap::from([("display".into(), "none".into())])),
+        )]);
+        assert_eq!(
+            oryn_dom::reduce_rendered_text(collect_items(&dom, root, &styles, &text).unwrap()),
+            "two"
         );
     }
     #[test]
