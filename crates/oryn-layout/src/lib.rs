@@ -1826,8 +1826,17 @@ impl TextEngine {
             })
             .collect::<Vec<_>>();
         if !has_text_line_content(&source, styles, style) && inline_boxes.is_empty() {
+            // No line was generated for this collapsing whitespace. Record
+            // the same zero-advance cut used by shaped paragraph edges while
+            // retaining its authored source offsets as erased provenance.
+            let cuts = [text_source::TextCluster {
+                bytes: 0..source.text.len(),
+                rect: CssRect { x: 0., y: 0., width: 0., height: 0. },
+                line: 0,
+                rtl: false,
+            }];
             return TextLayout {
-                resolved_text: vec![source.resolved_run(0, &[], styles, style)],
+                resolved_text: vec![source.resolved_run(0, &cuts, styles, style)],
                 ..TextLayout::default()
             };
         }
@@ -13603,6 +13612,9 @@ mod tests {
                 assert!(shaped.clusters.is_empty());
                 assert!(shaped.glyph_runs.is_empty());
                 assert_eq!(shaped.width, 0.);
+                assert!(shaped.resolved_text.iter().all(|run| {
+                    run.semantic_source.as_ref().is_some_and(|source| source.text.is_empty())
+                }), "non-rendered collapsing whitespace must not leak into semantic text");
             }
         }
     }
