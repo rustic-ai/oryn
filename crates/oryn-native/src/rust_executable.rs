@@ -1119,6 +1119,52 @@ mod selected_paint_image_load;
 pub(crate) use selected_paint_image_load::SelectedPaintImageLoad;
 
 impl BindingLayoutProvider for LiveLayoutProvider {
+    fn resolve_canvas_font(
+        &self, dom: &Rc<RefCell<DomRuntime>>,
+        request: oryn_js::v8_bindings::BindingCanvasFontRequest, font: &str,
+        custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
+        scroll: (f64, f64), element_scrolls: &BTreeMap<NodeId, (f64, f64)>,
+    ) -> Option<Result<oryn_layout::CanvasFontResolution, oryn_js::v8_bindings::BindingCanvasFontError>> {
+        use oryn_js::v8_bindings::BindingCanvasFontError as Error;
+        Some((|| {
+            let validate = || -> Result<_, String> {
+                if !Rc::ptr_eq(dom, &self.dom) || request.document != self.document { return Err("foreign canvas font document owner".into()); }
+                let identity = self.native_document_identity.get().ok_or("unbound canvas font owner")?;
+                if identity.document != request.document || identity.document_generation != request.document_generation
+                    || identity.stream_epoch != request.stream_epoch || self.layout_revision() != request.style_generation {
+                    return Err("stale canvas font document/style owner".into());
+                }
+                if dom.try_borrow().map_err(|_| "canvas font DOM borrow conflict")?.node_document(request.canvas).map_err(|e| e.to_string())? != Some(request.document) {
+                    return Err("foreign canvas font target".into());
+                }
+                Ok(identity)
+            };
+            let identity = validate().map_err(Error::Native)?;
+            let witness = (dom.borrow().mutation_cursor(), self.font_revision.get(), self.animation_revision.get(), self.stylesheet_graph_revision.get());
+            let admission = self.retained_revision_admission().map_err(Error::Native)?;
+            admission.checkpoint().map_err(Error::Native)?;
+            let input = self.capture_layout_input(Some(request.document), custom_states, scroll, element_scrolls).map_err(Error::Native)?;
+            if validate().map_err(Error::Native)? != identity { return Err(Error::Native("canvas font owner changed during capture".into())); }
+            let parsed = oryn_layout::cssom::native_import_graph::parse_native_font_shorthand_typed(font, &input.input.document_base_url, admission.as_ref())
+                .map_err(|error| match error {
+                    oryn_layout::cssom::native_import_graph::NativeFontShorthandError::Syntax => Error::Syntax,
+                    oryn_layout::cssom::native_import_graph::NativeFontShorthandError::Resource(error) => Error::Native(error),
+                })?;
+            if !parsed.supports_canvas_syntax() {
+                return Err(Error::Syntax);
+            }
+            let cancellation = self.native_retained_allocation.try_borrow().map_err(|_| Error::Native("canvas font admission borrow conflict".into()))?.as_ref().cloned();
+            let cancelled = cancellation.map(|scope| Arc::new(move || scope.owner_cancelled()) as Arc<dyn Fn() -> bool + Send + Sync>);
+            let canvas = (u64::from(request.canvas.generation) << 32) | u64::from(request.canvas.slot);
+            let result = self.style_engine.try_borrow_mut().map_err(|_| Error::Native("canvas font engine borrow conflict".into()))?
+                .resolve_canvas_font_source_at_controlled(&input.input, &oryn_layout::LayoutLimits::default(), self.animation_time.get() / 1000., canvas, request.source_element, &parsed, admission.as_ref(), cancelled)
+                .map_err(|e| Error::Native(e.to_string()))?;
+            admission.checkpoint().map_err(Error::Native)?;
+            if validate().map_err(Error::Native)? != identity { return Err(Error::Native("canvas font owner changed during computation".into())); }
+            if witness != (dom.borrow().mutation_cursor(), self.font_revision.get(), self.animation_revision.get(), self.stylesheet_graph_revision.get()) { return Err(Error::Native("canvas font input changed during computation".into())); }
+            Ok(result)
+        })())
+    }
     fn resolve_legacy_font_keyword(
         &self,dom:&Rc<RefCell<DomRuntime>>,
         request:oryn_js::v8_bindings::BindingLegacyFontRequest,
@@ -20069,6 +20115,70 @@ mod tests {
         assert_eq!(prepared.document, next_document);
         assert!(Arc::ptr_eq(&receipt, prepared.native_retained_allocation.borrow().as_ref().unwrap()));
         assert_eq!(state.document_root(), old_document, "preparation alone must not commit active document");
+    }
+
+    #[test]
+    fn native_canvas_font_provider_checks_document_style_and_syntax_ownership() {
+        use oryn_js::v8_bindings::{BindingCanvasFontRequest, BindingCanvasFontError as Error};
+        let mut page = RustExecutableDocument::load("<!doctype html><canvas style='font-size:20px'></canvas><p></p>").unwrap();
+        let realm = page.top_realm;
+        let provider = page.agent.host.native_layout_provider_in_realm(realm).unwrap();
+        page.agent.host.with_public_font_scope(realm, |_scope, state| {
+            provider.compute_layout(&BTreeMap::new()).unwrap();
+            let dom = state.dom();
+            let (canvas, other) = {
+                let borrowed = dom.borrow();
+                let canvas = borrowed.arena().iter().find(|(_, node)| matches!(&node.kind, NodeKind::Element { name, .. } if name.local.as_ref() == "canvas")).map(|(id, _)| id).unwrap();
+                let other = borrowed.arena().iter().find(|(_, node)| matches!(&node.kind, NodeKind::Element { name, .. } if name.local.as_ref() == "p")).map(|(id, _)| id).unwrap();
+                (canvas, other)
+            };
+            let request = BindingCanvasFontRequest { document: state.document_root(), canvas,
+                document_generation: state.document_generation(), stream_epoch: state.document_stream_epoch(),
+                style_generation: provider.layout_revision(), source_element: true };
+            let query = |request, font| provider.resolve_canvas_font(&dom, request, font, &BTreeMap::new(), (0., 0.), &BTreeMap::new()).unwrap();
+            let result = query(request, "1.5em sans-serif").unwrap();
+            assert_eq!(result.style.get_font().font_size.computed_size().px(), 30.);
+            assert!(matches!(query(request, "not a font"), Err(Error::Syntax)));
+            for stale in [BindingCanvasFontRequest { document_generation: request.document_generation + 1, ..request },
+                BindingCanvasFontRequest { stream_epoch: request.stream_epoch + 1, ..request },
+                BindingCanvasFontRequest { style_generation: request.style_generation.map(|revision| revision + 1), ..request },
+                BindingCanvasFontRequest { canvas: other, ..request }] {
+                assert!(matches!(query(stale, "20px sans-serif"), Err(Error::Native(_))));
+            }
+            Ok(())
+        }).unwrap();
+    }
+    #[test]
+    fn native_canvas_font_public_accessors_compute_and_preserve_drawing_state() {
+        let mut page = RustExecutableDocument::load("<!doctype html><canvas id=c style='font-size:20px'></canvas>").unwrap();
+        page.execute(r#"
+            const canvas=document.getElementById('c'), onscreen=canvas.getContext('2d');
+            for(const [ctx,size] of [[onscreen,30],[new OffscreenCanvas(2,2).getContext('2d'),15]]) {
+                if(ctx.font!=='10px sans-serif')throw Error('default font');
+                ctx.font='italic bold 1.5em/2 serif';
+                if(ctx.font!==`italic 700 ${size}px serif`)throw Error('computed font '+ctx.font);
+                const kept=ctx.font;ctx.save();ctx.font='12px monospace';ctx.restore();
+                if(ctx.font!==kept)throw Error('saved font');
+                for(const invalid of ['inherit','initial','unset','revert','revert-layer','var(--font)','not a font']){
+                    ctx.font=invalid;if(ctx.font!==kept)throw Error('invalid font '+invalid);
+                }
+                const sentinel={};let caught;
+                try{ctx.font={toString(){throw sentinel}}}catch(e){caught=e}
+                if(caught!==sentinel||ctx.font!==kept)throw Error('font conversion');
+                let owner=ctx,descriptor;
+                while(owner&&!descriptor){descriptor=Object.getOwnPropertyDescriptor(owner,'font');owner=Object.getPrototypeOf(owner);}
+                let converted=false;
+                try{descriptor.set.call({}, {toString(){converted=true;return '12px serif'}});throw Error('brand accepted')}catch(e){if(!(e instanceof TypeError))throw e;}
+                if(converted)throw Error('font brand precedence');
+                ctx.font={toString(){ctx.reset();return '20px serif'}};
+                if(ctx.font!=='20px serif')throw Error('reset during font conversion');
+                ctx.reset();if(ctx.font!=='10px sans-serif')throw Error('reset font');
+            }
+            canvas.style.fontSize='40px';onscreen.font='1.5em serif';
+            if(onscreen.font!=='60px serif')throw Error('new canvas style');
+            canvas.style.display='none';onscreen.font='1.5em serif';
+            if(onscreen.font!=='15px serif')throw Error('non-rendered font source');
+        "#).unwrap();
     }
 
     #[test]

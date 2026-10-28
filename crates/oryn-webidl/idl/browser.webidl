@@ -1610,6 +1610,7 @@ enum CanvasDirection { "ltr", "rtl", "inherit" };
 
 [Exposed=Window]
 interface CanvasRenderingContext2D {
+  attribute DOMString font;
   attribute CanvasTextAlign textAlign;
   attribute CanvasTextBaseline textBaseline;
   attribute CanvasDirection direction;
@@ -1687,6 +1688,7 @@ interface OffscreenCanvas : EventTarget {
 
 [Exposed=(Window,Worker)]
 interface OffscreenCanvasRenderingContext2D {
+  attribute DOMString font;
   attribute CanvasTextAlign textAlign;
   attribute CanvasTextBaseline textBaseline;
   attribute CanvasDirection direction;

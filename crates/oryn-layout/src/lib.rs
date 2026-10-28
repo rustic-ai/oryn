@@ -658,7 +658,46 @@ pub enum LegacyFontKeyword{XSmall,Small,Medium,Large,XLarge,XXLarge,XXXLarge}
 pub struct LegacyFontDemand{pub body:u64,pub keyword:LegacyFontKeyword}
 #[derive(Clone,Copy,Debug,PartialEq)]
 pub struct LegacyFontResolution{pub demand:LegacyFontDemand,pub pixels:f32}
+pub struct CanvasFontResolution {
+    pub canvas: u64,
+    pub style: style::servo_arc::Arc<style::properties::ComputedValues>,
+    pub css: cssom::native_import_graph::NativeCanvasFontSerialization,
+    _allocation: Arc<dyn Send + Sync>,
+}
+impl std::fmt::Debug for CanvasFontResolution {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("CanvasFontResolution").field("canvas", &self.canvas).field("css", &self.css.value).finish_non_exhaustive()
+    }
+}
 impl StyleEngine {
+    pub fn resolve_canvas_font_at_controlled(
+        &mut self, input: &LayoutInput, limits: &LayoutLimits, now: f64,
+        canvas: u64, font: &cssom::native_import_graph::NativeFontShorthand,
+        admission: &dyn cssom::native_import_graph::ImportAdmission,
+        cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    ) -> Result<CanvasFontResolution, LayoutError> {
+        self.resolve_canvas_font_source_at_controlled(input, limits, now, canvas, true, font, admission, cancelled)
+    }
+    pub fn resolve_canvas_font_source_at_controlled(
+        &mut self, input: &LayoutInput, limits: &LayoutLimits, now: f64,
+        canvas: u64, source_element: bool, font: &cssom::native_import_graph::NativeFontShorthand,
+        admission: &dyn cssom::native_import_graph::ImportAdmission,
+        cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    ) -> Result<CanvasFontResolution, LayoutError> {
+        layout_checkpoint(&cancelled)?;
+        admission.checkpoint().map_err(LayoutError::StyleTraversal)?;
+        validate(input, limits)?;
+        let mut result = None;
+        stylo_computed_values_with_instances_controlled(input, false, now,
+            Some(&mut self.continuity), &self.effects, Some(&mut self.samples),
+            StyloControlledOptions { instances: None, legacy_font: None,
+                canvas_font: Some((canvas, source_element, font, admission, &mut result)),
+                cancelled: cancelled.clone(), retained: self.retained_sheets.as_ref(),
+                slot_admission: self.slot_projection_admission.as_ref().map(|a| a.0.as_ref() as &dyn cssom::native_import_graph::ImportAdmission) })?;
+        layout_checkpoint(&cancelled)?;
+        admission.checkpoint().map_err(LayoutError::StyleTraversal)?;
+        result.ok_or_else(|| LayoutError::StyleTraversal("missing native canvas font resolution".into()))
+    }
     /// Bind known slot projection allocations to the native owning receipt.
     pub fn set_slot_projection_admission(&mut self, admission: Option<Arc<dyn cssom::native_import_graph::ImportAdmission + Send + Sync>>) {
         self.slot_projection_admission = admission.map(flattened_slot_projection::Admission);
@@ -672,7 +711,7 @@ pub fn resolve_legacy_font_at_controlled(
     let mut result=None;
     stylo_computed_values_with_instances_controlled(input,false,now,
         Some(&mut self.continuity),&self.effects,Some(&mut self.samples),
-        StyloControlledOptions{instances:None,cancelled:cancelled.clone(),retained:self.retained_sheets.as_ref(),slot_admission:self.slot_projection_admission.as_ref().map(|a| a.0.as_ref() as &dyn cssom::native_import_graph::ImportAdmission),legacy_font:Some((demand,&mut result))})?;
+        StyloControlledOptions{instances:None,canvas_font:None,cancelled:cancelled.clone(),retained:self.retained_sheets.as_ref(),slot_admission:self.slot_projection_admission.as_ref().map(|a| a.0.as_ref() as &dyn cssom::native_import_graph::ImportAdmission),legacy_font:Some((demand,&mut result))})?;
     layout_checkpoint(&cancelled)?;
     result.ok_or_else(||LayoutError::StyleTraversal("missing owning body font resolution".into()))
 }
@@ -775,6 +814,7 @@ pub fn resolve_legacy_font_at_controlled(
                 Some(&mut self.samples),
                 StyloControlledOptions {
                     instances: None,
+                    canvas_font: None,
                     legacy_font: None,
                     cancelled: cancelled.clone(),
                     retained: self.retained_sheets.as_ref(),
@@ -5987,6 +6027,7 @@ fn stylo_computed_values_with_instances(
         samples,
         StyloControlledOptions {
             instances,
+            canvas_font: None,
             legacy_font: None,
             cancelled: None,
             retained: None,
@@ -5996,6 +6037,8 @@ fn stylo_computed_values_with_instances(
 }
 
 struct StyloControlledOptions<'a> {
+    canvas_font: Option<(u64, bool, &'a cssom::native_import_graph::NativeFontShorthand,
+        &'a dyn cssom::native_import_graph::ImportAdmission, &'a mut Option<CanvasFontResolution>)>,
     legacy_font: Option<(LegacyFontDemand, &'a mut Option<LegacyFontResolution>)>,
     instances: Option<(
         &'a [svg_instances::StyleInstance],
@@ -6018,6 +6061,7 @@ fn stylo_computed_values_with_instances_controlled(
 ) -> Result<StyloStyleProjection, LayoutError> {
     let StyloControlledOptions {
         instances,
+        canvas_font,
         legacy_font,
         cancelled,
         retained,
@@ -6717,6 +6761,36 @@ fn stylo_computed_values_with_instances_controlled(
         )?;
     }
 
+    if let Some((canvas, source_element, font, admission, result)) = canvas_font {
+        layout_checkpoint(&cancelled)?;
+        admission.checkpoint().map_err(LayoutError::StyleTraversal)?;
+        let source = if source_element {
+            let native = by_id.get(&canvas).ok_or_else(|| LayoutError::StyleTraversal("canvas font target absent".into()))?;
+            if native.tag != "canvas" || native.namespace != "http://www.w3.org/1999/xhtml" { return Err(LayoutError::StyleTraversal("canvas font target is not an HTML canvas".into())); }
+            Some(mirror_ids.get(&canvas).copied().ok_or_else(|| LayoutError::StyleTraversal("canvas font target outside snapshot".into()))?)
+        } else { None };
+        let bytes = font.declarations.declarations.len().checked_mul(2 * std::mem::size_of::<style::properties::PropertyDeclaration>())
+            .and_then(|n| n.checked_add(2 * std::mem::size_of::<style::properties::PropertyDeclarationBlock>()))
+            .and_then(|n| n.checked_add(2 * std::mem::size_of::<style::properties::ComputedValues>()))
+            .and_then(|n| n.checked_add(std::mem::size_of::<CanvasFontResolution>() + 2 * std::mem::size_of::<usize>()))
+            .ok_or_else(|| LayoutError::StyleTraversal("canvas native font allocation overflow".into()))?;
+        let allocation = admission.reserve(bytes).map_err(LayoutError::StyleTraversal)?;
+        admission.checkpoint().map_err(LayoutError::StyleTraversal)?;
+        let mut block = style::properties::PropertyDeclarationBlock::default();
+        for declaration in &font.declarations.declarations {
+            layout_checkpoint(&cancelled)?;
+            let declaration = if matches!(declaration, style::properties::PropertyDeclaration::LineHeight(_)) {
+                style::properties::PropertyDeclaration::LineHeight(style::properties::longhands::line_height::get_initial_specified_value())
+            } else { declaration.clone() };
+            block.push(declaration, style::properties::Importance::Normal);
+        }
+        let block = style::servo_arc::Arc::new(document.guard().wrap(block));
+        let computed = document.resolve_canvas_font_for_source(source, block).ok_or_else(|| LayoutError::StyleTraversal("native canvas font context unresolved".into()))?;
+        let css = cssom::native_import_graph::serialize_native_canvas_font(&computed, admission).map_err(LayoutError::StyleTraversal)?;
+        layout_checkpoint(&cancelled)?;
+        admission.checkpoint().map_err(LayoutError::StyleTraversal)?;
+        *result = Some(CanvasFontResolution { canvas, style: computed, css, _allocation: allocation });
+    }
     let mut output = ComputedStyles::new();
     if let Some((demand,result))=legacy_font {
         let body=mirror_ids.get(&demand.body).copied().ok_or_else(||LayoutError::StyleTraversal("legacy font body outside owner snapshot".into()))?;
@@ -10187,6 +10261,83 @@ mod tests {
         document.set_media_type(style::media_queries::MediaType::screen());
         let size = document.stylist_device().viewport_size();
         assert_eq!((size.width, size.height), (0., 0.));
+    }
+
+    #[test]
+    fn native_canvas_font_context_resolves_relative_sizes_without_dom_mutation() {
+        use cssom::native_import_graph::{ImportAdmission, parse_native_font_shorthand_typed};
+        struct Admission;
+        impl ImportAdmission for Admission {
+            fn checkpoint(&self) -> Result<(), String> { Ok(()) }
+            fn reserve(&self, _: usize) -> Result<Arc<dyn Send + Sync>, String> { Ok(Arc::new(())) }
+        }
+        let mut document = BaseDocument::new(DocumentConfig::default());
+        let root = document.root_node().id;
+        let canvas = {
+            let mut mutator = document.mutate();
+            let html = mutator.create_element(QualName::new(None, Namespace::from("http://www.w3.org/1999/xhtml"), LocalName::from("html")), Vec::new());
+            let canvas = mutator.create_element(QualName::new(None, Namespace::from("http://www.w3.org/1999/xhtml"), LocalName::from("canvas")), Vec::new());
+            mutator.append_children(root, &[html]);
+            mutator.append_children(html, &[canvas]);
+            canvas
+        };
+        document.set_style_property(canvas, "font-size", "20px");
+        document.set_style_property(canvas, "font-family", "serif");
+        assert!(document.resolve_stylist_controlled(0., None));
+        let before = document.resolved_primary_style(canvas).unwrap();
+        for (font, expected, fallback) in [("1.5em sans-serif", 30., 15.), ("150% sans-serif", 30., 15.), ("calc(1em + 5px) sans-serif", 25., 15.), ("10pt sans-serif", 40. / 3., 40. / 3.)] {
+            let parsed = parse_native_font_shorthand_typed(font, "https://example.test/", &Admission).unwrap();
+            let mut block = style::properties::PropertyDeclarationBlock::default();
+            for declaration in &parsed.declarations.declarations {
+                block.push(declaration.clone(), style::properties::Importance::Normal);
+            }
+            let block = style::servo_arc::Arc::new(document.guard().wrap(block));
+            let computed = document.resolve_canvas_font(canvas, block.clone()).unwrap();
+            let offscreen = document.resolve_canvas_font_for_source(None, block).unwrap();
+            assert!((offscreen.get_font().font_size.computed_size().px() - fallback).abs() < 0.01);
+            let size = computed.get_font().font_size.computed_size().px();
+            assert!((size - expected).abs() < 0.01, "{font}: {size}");
+            let after = document.resolved_primary_style(canvas).unwrap();
+            assert_eq!(after.get_font().font_size.computed_size().px(), 20.);
+            assert!(style::servo_arc::Arc::ptr_eq(&before, &after));
+        }
+    }
+    #[test]
+    fn native_canvas_font_owner_query_uses_document_style_and_rejects_bad_targets() {
+        use cssom::native_import_graph::{ImportAdmission, parse_native_font_shorthand_typed};
+        struct Admission(bool);
+        impl ImportAdmission for Admission {
+            fn checkpoint(&self) -> Result<(), String> { Ok(()) }
+            fn reserve(&self, _: usize) -> Result<Arc<dyn Send + Sync>, String> {
+                if self.0 { Ok(Arc::new(())) } else { Err("denied".into()) }
+            }
+        }
+        let mut input = column_fixture("canvas{font-size:20px;font-family:serif}", vec![node(2, Some(1), "canvas", "")]);
+        let parsed = parse_native_font_shorthand_typed("1.5em sans-serif", "https://example.test/", &Admission(true)).unwrap();
+        let mut engine = StyleEngine::default();
+        let resolved = engine.resolve_canvas_font_at_controlled(&input, &LayoutLimits::default(), 0., 2, &parsed, &Admission(true), None).unwrap();
+        assert_eq!(resolved.canvas, 2);
+        assert_eq!(resolved.style.get_font().font_size.computed_size().px(), 30.);
+        let serialized = cssom::native_import_graph::serialize_native_canvas_font(&resolved.style, &Admission(true)).unwrap();
+        assert_eq!(serialized.value, "30px sans-serif");
+        let parsed_with_height = parse_native_font_shorthand_typed("italic bold 1.5em/2 Example, serif", "https://example.test/", &Admission(true)).unwrap();
+        let resolved_with_height = engine.resolve_canvas_font_at_controlled(&input, &LayoutLimits::default(), 0., 2, &parsed_with_height, &Admission(true), None).unwrap();
+        let serialized = cssom::native_import_graph::serialize_native_canvas_font(&resolved_with_height.style, &Admission(true)).unwrap();
+        assert!(serialized.value.starts_with("italic 700 30px "), "{}", serialized.value);
+        assert!(!serialized.value.contains('/'));
+        assert!(cssom::native_import_graph::serialize_native_canvas_font(&resolved.style, &Admission(false)).is_err());
+        assert!(engine.resolve_canvas_font_at_controlled(&input, &LayoutLimits::default(), 0., 1, &parsed, &Admission(true), None).is_err());
+        assert!(engine.resolve_canvas_font_at_controlled(&input, &LayoutLimits::default(), 0., 99, &parsed, &Admission(true), None).is_err());
+        assert!(engine.resolve_canvas_font_at_controlled(&input, &LayoutLimits::default(), 0., 2, &parsed, &Admission(false), None).is_err());
+        assert!(matches!(engine.resolve_canvas_font_at_controlled(&input, &LayoutLimits::default(), 0., 2, &parsed, &Admission(true), Some(Arc::new(|| true))), Err(LayoutError::Cancelled)));
+        input.stylesheets[0] = "canvas{font-size:40px}".into();
+        let resolved = engine.resolve_canvas_font_at_controlled(&input, &LayoutLimits::default(), 0., 2, &parsed, &Admission(true), None).unwrap();
+        assert_eq!(resolved.style.get_font().font_size.computed_size().px(), 60.);
+        for css in ["canvas{font-size:40px;display:none}", "div{display:none}canvas{font-size:40px}"] {
+            input.stylesheets[0] = css.into();
+            let hidden = engine.resolve_canvas_font_at_controlled(&input, &LayoutLimits::default(), 0., 2, &parsed, &Admission(true), None).unwrap();
+            assert_eq!(hidden.style.get_font().font_size.computed_size().px(), 15., "{css}");
+        }
     }
 
     #[test]

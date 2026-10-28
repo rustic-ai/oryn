@@ -62,6 +62,14 @@ impl Source {
 pub(super) fn identify(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Option<Source> {
     let object = v8::Local::<v8::Object>::try_from(value).ok()?;
     let owner = binding_state_for_receiver(scope, object)?;
+    // DOM wrappers use a BigInt node identity. This is a non-coercing brand
+    // probe: passing those identities to stateful_id would leave a pending
+    // ToNumber exception even when this probe subsequently returns None.
+    if object.internal_field_count() == 0
+        || !object.get_internal_field(scope, 0)?.is_number()
+    {
+        return None;
+    }
     let id = stateful_id(scope, object).ok()?;
     if !owner
         .platform_wrappers

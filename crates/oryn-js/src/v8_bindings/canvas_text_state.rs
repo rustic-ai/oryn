@@ -3,6 +3,7 @@ use super::*;
 
 #[derive(Debug, Clone)]
 pub(super) struct TextState {
+    pub(super) font: Option<Rc<oryn_layout::CanvasFontResolution>>,
     direction: &'static str,
     align: &'static str,
     baseline: &'static str,
@@ -10,6 +11,7 @@ pub(super) struct TextState {
 impl Default for TextState {
     fn default() -> Self {
         Self {
+            font: None,
             direction: "inherit",
             align: "start",
             baseline: "alphabetic",
@@ -76,7 +78,7 @@ pub(super) fn install(
     scope: &mut v8::PinScope,
     context: v8::Local<v8::Object>,
 ) -> Result<(), V8BindingError> {
-    for name in ["direction", "textAlign", "textBaseline"] {
+    for name in ["direction", "textAlign", "textBaseline", "font"] {
         let key = v8::String::new(scope, name)
             .ok_or(V8BindingError::Allocation("canvas text state key"))?;
         let getter = v8::Function::builder(get)
@@ -108,6 +110,21 @@ fn get(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8
         return;
     };
     let name = args.data().to_rust_string_lossy(scope);
+    if name == "font" {
+        let font = state
+            .canvas_draw_states
+            .borrow()
+            .get(&canvas)
+            .and_then(|draw| draw.text.font.clone());
+        if let Some(value) = v8::String::new(
+            scope,
+            font.as_ref()
+                .map_or("10px sans-serif", |font| font.css.value.as_str()),
+        ) {
+            rv.set(value.into());
+        }
+        return;
+    }
     let value = state
         .canvas_draw_states
         .borrow()
@@ -131,13 +148,100 @@ fn set(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::R
     let Some(value) = args.get(0).to_string(scope) else {
         return;
     };
-    let value = value.to_rust_string_lossy(scope);
     let Ok(current) = canvas_receiver_node(scope, &state, &args) else {
         return;
     };
     if current != canvas {
         return;
     }
+    if name == "font" {
+        let result = (|| -> Result<(), V8BindingError> {
+            let _entry = state.enter_retained_allocation(scope)?;
+            let owned = font_loading::font_owned_input(scope, &state, value.into())?;
+            refresh_layout_in_scope(scope, &state)?;
+            let provider = state
+                .native_layout_provider()
+                .ok_or(V8BindingError::Allocation("native canvas font provider"))?;
+            let source_element = canvas_context_owner(scope, args.this())
+                .is_some_and(|owner| offscreen_canvas::identify(scope, owner.into()).is_none());
+            let request = BindingCanvasFontRequest {
+                document: state.document_root(),
+                canvas,
+                document_generation: state.document_generation(),
+                stream_epoch: state.document_stream_epoch(),
+                style_generation: provider.layout_revision(),
+                source_element,
+            };
+            let inputs = state.native_font_layout_inputs()?;
+            // Logical admission for the transport-to-map projection, including
+            // conservative B-tree node metadata and copied CSS state strings.
+            let mut bytes = inputs
+                .states
+                .len()
+                .checked_add(state.scroll_offsets.borrow().len())
+                .and_then(|n| n.checked_mul(128))
+                .ok_or(V8BindingError::Allocation("canvas font snapshot overflow"))?;
+            for (_, values) in &inputs.states {
+                for value in values {
+                    bytes = bytes
+                        .checked_add(128)
+                        .and_then(|n| n.checked_add(value.len()))
+                        .ok_or(V8BindingError::Allocation(
+                            "canvas font state snapshot overflow",
+                        ))?;
+                }
+            }
+            let _maps = font_loading::reserve_font_container(scope, &state, bytes)?;
+            let states = inputs
+                .states
+                .iter()
+                .map(|(node, values)| (*node, values.iter().cloned().collect()))
+                .collect();
+            let result = provider
+                .resolve_canvas_font(
+                    &state.dom,
+                    request,
+                    &owned.value,
+                    &states,
+                    state.document_scroll_offset(),
+                    &state.element_scroll_offsets(),
+                )
+                .ok_or(V8BindingError::Allocation(
+                    "native canvas font provider unavailable",
+                ))?;
+            let font = match result {
+                Ok(font) => font,
+                Err(BindingCanvasFontError::Syntax) => return Ok(()),
+                Err(BindingCanvasFontError::Native(error)) => {
+                    return Err(V8BindingError::Message(error));
+                }
+            };
+            if state.execution_retired()
+                || state.execution_suspended()
+                || state.document_root() != request.document
+                || state.document_generation() != request.document_generation
+                || state.document_stream_epoch() != request.stream_epoch
+                || canvas_receiver_node(scope, &state, &args)? != canvas
+            {
+                return Err(V8BindingError::Message("InvalidStateError".into()));
+            }
+            let obsolete = state
+                .canvas_draw_states
+                .borrow_mut()
+                .entry(canvas)
+                .or_default()
+                .text
+                .font
+                .replace(Rc::new(font));
+            drop(obsolete);
+            Ok(())
+        })();
+        if let Err(error) = result {
+            throw_binding_error(scope, &error);
+        }
+        return;
+    }
+    let value = value.to_rust_string_lossy(scope);
     state
         .canvas_draw_states
         .borrow_mut()

@@ -1,6 +1,6 @@
 // Included in font_loading. Preparation admits replacement buffers while the
 // old buffer and its lease remain owned; callbacks never run under State borrow.
-fn reserve_font_container(
+pub(super) fn reserve_font_container(
     scope:&mut v8::PinScope,state:&Rc<V8BindingState>,bytes:usize,
 )->Result<Option<std::sync::Arc<dyn Send+Sync>>,V8BindingError>{
     let original_owner=owner(state);

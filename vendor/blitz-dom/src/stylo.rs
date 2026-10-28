@@ -355,6 +355,71 @@ impl crate::document::BaseDocument {
     /// or change the element's display value.
     /// Query the HTML FONT legacy size keyword under the actual body inherited
     /// style/device. No DOM node, cascade rule, property publication or cache.
+    /// Compute canvas font declarations beneath the actual canvas element's
+    /// inherited style/device, without mutating its DOM or inserting rules.
+    /// The caller owns and admits the declaration block and resulting style.
+    pub fn resolve_canvas_font(
+        &self,
+        canvas: NodeId,
+        declarations: Arc<Locked<PropertyDeclarationBlock>>,
+    ) -> Option<Arc<ComputedValues>> {
+        self.resolve_canvas_font_for_source(Some(canvas), declarations)
+    }
+    /// Offscreen and non-rendered sources resolve relative values against the
+    /// native normal-weight 10px sans-serif default, not a document element.
+    pub fn resolve_canvas_font_for_source(
+        &self, source: Option<NodeId>, declarations: Arc<Locked<PropertyDeclarationBlock>>,
+    ) -> Option<Arc<ComputedValues>> {
+        struct LayoutThreadState(bool);
+        impl Drop for LayoutThreadState {
+            fn drop(&mut self) {
+                if self.0 { style::thread_state::exit(ThreadState::LAYOUT); }
+            }
+        }
+        let entered = !style::thread_state::get().contains(ThreadState::LAYOUT);
+        if entered { style::thread_state::enter(ThreadState::LAYOUT); }
+        let _thread = LayoutThreadState(entered);
+        let mut parent = None;
+        if let Some(canvas) = source {
+            let element = self.get_node(canvas)?.as_element()?;
+            let mut rendered = element.native_css_animations_rendered;
+            let mut ancestor = Some(element);
+            let mut remaining = self.nodes.len();
+            while let Some(node) = ancestor {
+                if remaining == 0 { return None; }
+                remaining -= 1;
+                let computed = self.resolved_primary_style(node.id)?;
+                if computed.get_box().clone_display().is_none()
+                    || (node.id == canvas && computed.get_box().clone_display().is_contents()) {
+                    rendered = false;
+                }
+                ancestor = TNode::traversal_parent(&node);
+            }
+            if rendered { parent = self.resolved_primary_style(canvas); }
+        }
+        if parent.is_none() {
+            use style::properties::{PropertyId, SourcePropertyDeclaration, Importance};
+            let mut parsed = SourcePropertyDeclaration::default();
+            style::properties::declaration_block::parse_one_declaration_into(
+                &mut parsed, PropertyId::parse_enabled_for_all_content("font").ok()?,
+                "10px sans-serif", style::stylesheets::Origin::Author,
+                &self.url.url_extra_data(), None, style_traits::ParsingMode::DEFAULT,
+                style::context::QuirksMode::NoQuirks, style::stylesheets::CssRuleType::Style,
+            ).ok()?;
+            let mut default = PropertyDeclarationBlock::default();
+            default.extend(parsed.drain(), Importance::Normal);
+            let default = Arc::new(self.guard.wrap(default));
+            let guard = self.guard.read();
+            parent = Some(self.stylist.compute_for_declarations::<BlitzNode<'_>>(
+                &StylesheetGuards::same(&guard), self.stylist.device().default_computed_values(), default,
+            ));
+        }
+        let parent = parent?;
+        let guard = self.guard.read();
+        Some(self.stylist.compute_for_declarations::<BlitzNode<'_>>(
+            &StylesheetGuards::same(&guard), &parent, declarations,
+        ))
+    }
     pub fn resolve_legacy_font_keyword(
         &self, body:NodeId, keyword:style::values::specified::font::FontSizeKeyword,
     )->Option<f32>{

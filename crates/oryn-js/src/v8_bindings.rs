@@ -2166,7 +2166,20 @@ pub struct BindingLegacyFontRequest {
 pub struct BindingLegacyFontResult {
     pub request:BindingLegacyFontRequest,pub pixels:f32,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BindingCanvasFontRequest {
+    pub document: NodeId, pub canvas: NodeId, pub document_generation: u64,
+    pub stream_epoch: u64, pub style_generation: Option<u64>, pub source_element: bool,
+}
+#[derive(Debug)]
+pub enum BindingCanvasFontError { Syntax, Native(String) }
 pub trait BindingLayoutProvider {
+    #[expect(clippy::too_many_arguments, reason = "Keep font input and document snapshot ownership separate")]
+    fn resolve_canvas_font(
+        &self, _dom: &Rc<RefCell<DomRuntime>>, _request: BindingCanvasFontRequest,
+        _font: &str, _custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
+        _scroll: (f64, f64), _element_scrolls: &BTreeMap<NodeId, (f64, f64)>,
+    ) -> Option<Result<oryn_layout::CanvasFontResolution, BindingCanvasFontError>> { None }
     fn resolve_legacy_font_keyword(
         &self,
         _dom: &Rc<RefCell<DomRuntime>>,

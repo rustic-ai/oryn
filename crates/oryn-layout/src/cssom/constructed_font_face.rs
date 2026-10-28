@@ -285,6 +285,45 @@ pub struct NativeFontShorthand {
     pub declarations: style::properties::SourcePropertyDeclaration,
     _allocation: LeaseArc<dyn Send + Sync>,
 }
+pub struct NativeCanvasFontSerialization {
+    pub value: String,
+    _allocation: LeaseArc<dyn Send + Sync>,
+}
+impl NativeCanvasFontSerialization {
+    pub fn into_parts(self) -> (String, LeaseArc<dyn Send + Sync>) { (self.value, self._allocation) }
+}
+/// Canonical native CSS font shorthand serialization. Canvas ignores the
+/// shorthand's line-height component; normalize it before native serialization.
+pub fn serialize_native_canvas_font(
+    computed: &style::properties::ComputedValues, admission: &dyn ImportAdmission,
+) -> Result<NativeCanvasFontSerialization, String> {
+    use style::properties::{ShorthandId, LonghandId, PropertyDeclaration};
+    use style_traits::ToCss;
+    admission.checkpoint()?;
+    let count = ShorthandId::Font.longhands().count();
+    let _scratch = admission.reserve(count.checked_mul(std::mem::size_of::<PropertyDeclaration>()).ok_or("canvas font serialization overflow")?)?;
+    let mut declarations = Vec::new();
+    declarations.try_reserve_exact(count).map_err(|e| e.to_string())?;
+    if declarations.capacity() > count { return Err("canvas font serialization exceeded admission".into()); }
+    for id in ShorthandId::Font.longhands() {
+        admission.checkpoint()?;
+        declarations.push(if id == LonghandId::LineHeight {
+            PropertyDeclaration::LineHeight(style::properties::longhands::line_height::get_initial_specified_value())
+        } else { computed.computed_or_resolved_declaration(id, None) });
+    }
+    let shorthand = style::properties::shorthands::font::LonghandsToSerialize::from_iter(declarations.iter()).map_err(|_| "native canvas font shorthand incomplete")?;
+    let mut count = FontDescriptorCount::default();
+    shorthand.to_css(&mut style_traits::CssWriter::new(&mut count)).map_err(|e| e.to_string())?;
+    if count.bytes == 0 { return Err("native canvas font is not serializable".into()); }
+    let allocation = admission.reserve(count.bytes.checked_add(std::mem::size_of::<NativeCanvasFontSerialization>()).ok_or("canvas font output overflow")?)?;
+    admission.checkpoint()?;
+    let mut value = String::new();
+    value.try_reserve_exact(count.bytes).map_err(|e| e.to_string())?;
+    if value.capacity() > count.bytes { return Err("canvas font output exceeded admission".into()); }
+    shorthand.to_css(&mut style_traits::CssWriter::new(&mut FontBoundedWriter { text: &mut value, limit: count.bytes })).map_err(|e| e.to_string())?;
+    admission.checkpoint()?;
+    Ok(NativeCanvasFontSerialization { value, _allocation: allocation })
+}
 /// Serialized native shaping longhands, retained with their output admission.
 /// Consumers resolve relative values in their native canvas style context;
 /// this projection does not approximate font sizes or choose fallback fonts.
@@ -307,6 +346,10 @@ fn write_native_font_value<W: std::fmt::Write>(declaration: &style::properties::
         FontVariantEastAsian, FontVariantPosition, LineHeight)
 }
 impl NativeFontShorthand {
+    pub fn supports_canvas_syntax(&self) -> bool {
+        !self.declarations.declarations.iter().any(|declaration| matches!(declaration,
+            style::properties::PropertyDeclaration::CSSWideKeyword(..) | style::properties::PropertyDeclaration::WithVariables(..)))
+    }
     pub fn style_projection(&self, admission: &dyn ImportAdmission) -> Result<NativeFontStyleProjection, String> {
         admission.checkpoint()?;
         let count = self.declarations.declarations.len();

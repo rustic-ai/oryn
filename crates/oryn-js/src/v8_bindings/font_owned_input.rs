@@ -1,8 +1,8 @@
 // Preserve the WebIDL DOMString code units. The scalar value is the native
 // CSS parser input: CSS Syntax preprocessing replaces surrogate code points.
 // This is not an implicit USVString conversion in the generated binding.
-struct FontOwnedInput { value:String, _units:Vec<u16>, _allocation:Option<std::sync::Arc<dyn Send+Sync>> }
-fn font_owned_input(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,value:v8::Local<v8::Value>)
+pub(super) struct FontOwnedInput { pub(super) value:String, _units:Vec<u16>, _allocation:Option<std::sync::Arc<dyn Send+Sync>> }
+pub(super) fn font_owned_input(scope:&mut v8::PinScope,state:&Rc<V8BindingState>,value:v8::Local<v8::Value>)
     ->Result<FontOwnedInput,V8BindingError>{
     let expected_owner=owner(state);
     let value=value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
