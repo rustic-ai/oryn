@@ -8646,7 +8646,7 @@ fn install_image_factory(
     context: v8::Local<v8::Context>,
 ) -> Result<(), V8BindingError> {
     let template = v8::FunctionTemplate::builder(image_factory_callback)
-        .length(2)
+        .length(0)
         .build(scope);
     template.set_class_name(
         v8::String::new(scope, "Image").ok_or(V8BindingError::Allocation("Image name"))?,
@@ -8668,9 +8668,22 @@ fn install_image_factory(
         scope,
         prototype_name.into(),
         image_element_prototype,
-        v8::PropertyAttribute::DONT_ENUM | v8::PropertyAttribute::DONT_DELETE,
+        v8::PropertyAttribute::READ_ONLY
+            | v8::PropertyAttribute::DONT_ENUM
+            | v8::PropertyAttribute::DONT_DELETE,
     );
     let name = v8::String::new(scope, "Image").ok_or(V8BindingError::Allocation("Image name"))?;
+    let handler = v8::Object::new(scope);
+    let construct = v8::String::new(scope, "construct")
+        .ok_or(V8BindingError::Allocation("Image construct key"))?;
+    let marker = v8::Integer::new(scope, 3);
+    let trap = v8::Function::builder(image_factory_callback)
+        .data(marker.into())
+        .build(scope)
+        .ok_or(V8BindingError::Allocation("Image construct trap"))?;
+    handler.create_data_property(scope, construct.into(), trap.into());
+    let factory = v8::Proxy::new(scope, factory.into(), handler)
+        .ok_or(V8BindingError::Allocation("Image factory proxy"))?;
     context.global(scope).define_own_property(
         scope,
         name.into(),
@@ -8801,9 +8814,49 @@ fn option_factory<'s>(
     Ok(wrapper.into())
 }
 
-fn image_factory_callback(
-    scope: &mut v8::PinScope,
-    args: v8::FunctionCallbackArguments,
+fn image_factory<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: &v8::FunctionCallbackArguments<'s>,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    let values = args
+        .get(1)
+        .try_cast::<v8::Array>()
+        .map_err(|_| V8BindingError::Allocation("Image arguments"))?;
+    let state = scope
+        .get_current_context()
+        .get_slot::<V8BindingState>()
+        .ok_or(V8BindingError::MissingInterface("Image realm"))?;
+    let mut dimensions = Vec::new();
+    for (index, name) in [(0, "width"), (1, "height")] {
+        if index >= values.length() {
+            break;
+        }
+        let value = values
+            .get_index(scope, index)
+            .ok_or(V8BindingError::JavaScriptException)?;
+        let value = value
+            .uint32_value(scope)
+            .ok_or(V8BindingError::JavaScriptException)?;
+        dimensions.push((name, value));
+    }
+    let prototype =
+        custom_elements::html_constructor_prototype(scope, args.get(2), "HTMLImageElement")?;
+    let node = {
+        let mut dom = state.dom.borrow_mut();
+        let node = dom.create_element("img");
+        for (name, value) in dimensions {
+            dom.set_attribute_ns(node, None, name, value.to_string())?;
+        }
+        node
+    };
+    let wrapper = wrap_node(scope, &state, node)?;
+    wrapper.set_prototype(scope, prototype);
+    Ok(wrapper.into())
+}
+
+fn image_factory_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
     mut return_value: v8::ReturnValue,
 ) {
     if args.data().int32_value(scope) == Some(1) {
@@ -8815,6 +8868,17 @@ fn image_factory_callback(
             Ok(value) => return_value.set(value),
             Err(error) => throw_binding_error(scope, &error),
         }
+        return;
+    }
+    if args.data().int32_value(scope) == Some(3) {
+        match image_factory(scope, &args) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
+    if !args.is_construct_call() {
+        throw_type_error(scope, "Image constructor requires new");
         return;
     }
     let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
@@ -64380,7 +64444,20 @@ opening.onsuccess = () => {
         install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "class CustomImage extends Image{};const image=new CustomImage(12,7);[image instanceof CustomImage,image instanceof HTMLImageElement,image.width===12,image.height===7,Reflect.ownKeys(Image).slice(0,3).join(',')].join('|')",
+            r#"class CustomImage extends Image{};const image=new CustomImage(12,7);
+            if(Image.length!==0||Image.prototype!==HTMLImageElement.prototype)throw Error('Image factory metadata');
+            const descriptor=Object.getOwnPropertyDescriptor(Image,'prototype');
+            if(descriptor.writable||descriptor.enumerable||descriptor.configurable)throw Error('Image prototype descriptor');
+            let rejected=false;try{Image()}catch(e){rejected=e instanceof TypeError}if(!rejected)throw Error('Image call');
+            if(new Image().hasAttribute('width')||new Image(undefined).getAttribute('width')!=='0')throw Error('Image omitted vs undefined');
+            if(new Image(-1,4294967297).getAttribute('width')!=='4294967295')throw Error('Image unsigned conversion');
+            const order=[];
+            const target=new Proxy(function Target(){},{get(target,key,receiver){if(key==='prototype')order.push('prototype');return Reflect.get(target,key,receiver)}});
+            Reflect.construct(Image,[{valueOf(){order.push('width');return 3}},{valueOf(){order.push('height');return 4}}],target);
+            if(order.join('|')!=='width|height|prototype')throw Error('Image conversion order '+order);
+            function Fallback(){}Fallback.prototype=null;
+            if(Object.getPrototypeOf(Reflect.construct(Image,[],Fallback))!==HTMLImageElement.prototype)throw Error('Image fallback prototype');
+            [image instanceof CustomImage,image instanceof HTMLImageElement,image.width===12,image.height===7,Reflect.ownKeys(Image).slice(0,3).join(',')].join('|')"#,
         )
         .unwrap();
         let result = v8::Script::compile(scope, source, None)
