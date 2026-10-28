@@ -99,6 +99,13 @@ pub fn collect_items(
         }
         match &record.kind {
             NodeKind::Text { data } | NodeKind::CDataSection { data } => {
+                if record.parent.is_some_and(|parent| {
+                    matches!(dom.arena().get(parent).map(|record| &record.kind),
+                        Ok(NodeKind::Element { name }) if name.ns.as_ref() == "http://www.w3.org/2000/svg"
+                        && !matches!(name.local.as_ref(), "text" | "tspan" | "textPath" | "foreignObject"))
+                }) {
+                    continue;
+                }
                 let parent_style = record.parent.and_then(|parent| styles.get(&key(parent)));
                 let parent_display = parent_style
                     .and_then(|style| style.get("display"))
@@ -131,6 +138,75 @@ pub fn collect_items(
             NodeKind::Element { name } => {
                 let html = name.ns.as_ref() == "http://www.w3.org/1999/xhtml";
                 let tag = name.local.as_ref();
+                if name.ns.as_ref() == "http://www.w3.org/2000/svg"
+                    && matches!(tag, "tspan" | "textPath")
+                {
+                    let mut parent = record.parent;
+                    let mut text_owner = false;
+                    while let Some(node) = parent {
+                        visited += 1;
+                        if visited > 2_097_152 {
+                            return Err("rendered text traversal budget exceeded".into());
+                        }
+                        let ancestor = dom
+                            .arena()
+                            .get(node)
+                            .map_err(|error| format!("{error:?}"))?;
+                        match &ancestor.kind {
+                            NodeKind::Element { name }
+                                if name.ns.as_ref() == "http://www.w3.org/2000/svg" =>
+                            {
+                                if name.local.as_ref() == "text" {
+                                    text_owner = true;
+                                    break;
+                                }
+                                if !matches!(name.local.as_ref(), "tspan" | "textPath") {
+                                    break;
+                                }
+                            }
+                            _ => break,
+                        }
+                        parent = ancestor.parent;
+                    }
+                    if !text_owner {
+                        continue;
+                    }
+                }
+                // SVG definitions and leaf graphics have no rendered authored
+                // text subtree. Referenced instances belong to native instance
+                // layout, not to textContent of the definition in the DOM.
+                if name.ns.as_ref() == "http://www.w3.org/2000/svg"
+                    && matches!(
+                        tag,
+                        "defs"
+                            | "symbol"
+                            | "clipPath"
+                            | "mask"
+                            | "pattern"
+                            | "marker"
+                            | "linearGradient"
+                            | "radialGradient"
+                            | "stop"
+                            | "filter"
+                            | "metadata"
+                            | "title"
+                            | "desc"
+                            | "view"
+                            | "script"
+                            | "style"
+                            | "image"
+                            | "use"
+                            | "path"
+                            | "rect"
+                            | "circle"
+                            | "ellipse"
+                            | "line"
+                            | "polyline"
+                            | "polygon"
+                    )
+                {
+                    continue;
+                }
                 let visible = !matches!(property("visibility"), Some("hidden" | "collapse"));
                 let breaks = if !visible {
                     0
@@ -533,6 +609,49 @@ mod tests {
         assert_eq!(
             oryn_dom::reduce_rendered_text(collect_items(&dom, root, &styles, &text).unwrap()),
             "two"
+        );
+    }
+    #[test]
+    fn svg_definitions_and_graphics_do_not_publish_authored_text() {
+        let mut dom = DomRuntime::new();
+        let root = dom.create_element("div");
+        let svg = dom.create_element_ns("http://www.w3.org/2000/svg", "svg");
+        dom.append_child(root, svg).unwrap();
+        let mut text = BTreeMap::new();
+        let mut text_owner = svg;
+        for tag in ["defs", "stop", "rect", "text", "tspan", "foreignObject"] {
+            let element = dom.create_element_ns("http://www.w3.org/2000/svg", tag);
+            let child = dom.create_text(tag);
+            dom.append_child(if tag == "tspan" { text_owner } else { svg }, element)
+                .unwrap();
+            if tag == "text" {
+                text_owner = element;
+            }
+            dom.append_child(element, child).unwrap();
+            text.insert(key(child), tag.into());
+            if tag == "defs" {
+                let nested = dom.create_element_ns("http://www.w3.org/2000/svg", "text");
+                let child = dom.create_text("definition");
+                dom.append_child(element, nested).unwrap();
+                dom.append_child(nested, child).unwrap();
+                text.insert(key(child), "definition".into());
+            }
+        }
+        let orphan = dom.create_element_ns("http://www.w3.org/2000/svg", "tspan");
+        let child = dom.create_text("orphan");
+        dom.append_child(svg, orphan).unwrap();
+        dom.append_child(orphan, child).unwrap();
+        text.insert(key(child), "orphan".into());
+        let html = dom.create_element("defs");
+        let child = dom.create_text("HTML");
+        dom.append_child(root, html).unwrap();
+        dom.append_child(html, child).unwrap();
+        text.insert(key(child), "HTML".into());
+        assert_eq!(
+            oryn_dom::reduce_rendered_text(
+                collect_items(&dom, root, &BTreeMap::new(), &text).unwrap()
+            ),
+            "texttspanforeignObjectHTML"
         );
     }
     #[test]
