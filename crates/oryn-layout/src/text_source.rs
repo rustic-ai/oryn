@@ -929,21 +929,44 @@ impl TextSource {
                 atomic: span.atomic,
             }
         };
+        // DOM rendered text ignores soft wrapping, but not actual paragraph
+        // edges or authored hard breaks. Use only native zero-advance CSS cuts
+        // at those boundaries; never trim preserved spaces or interior wraps.
+        let semantic_cuts: Vec<_> = cuts.iter().filter(|range| {
+            let before = self.text[..range.start].chars().rev().find(|ch| !matches!(ch, ' ' | '\t'));
+            let after = self.text[range.end..].chars().find(|ch| !matches!(ch, ' ' | '\t'));
+            before.is_none_or(|ch| matches!(ch, '\n' | '\u{2028}' | '\u{2029}'))
+                || after.is_none_or(|ch| matches!(ch, '\n' | '\u{2028}' | '\u{2029}'))
+        }).cloned().collect();
+        let mut semantic_prefix = vec![0usize];
+        let mut semantic_text = String::new();
+        let mut cursor = 0;
+        for range in &semantic_cuts {
+            semantic_text.push_str(&self.text[cursor..range.start]);
+            cursor = range.end;
+            semantic_prefix.push(semantic_prefix.last().copied().unwrap() + range.len());
+        }
+        semantic_text.push_str(&self.text[cursor..]);
+        let semantic_project = |byte: usize| {
+            let count = semantic_cuts.partition_point(|range| range.end <= byte);
+            let partial = semantic_cuts.get(count).map_or(0, |range| byte.saturating_sub(range.start));
+            byte.saturating_sub(semantic_prefix[count] + partial)
+        };
         let mut output = ResolvedTextRun {
             layout_node,
             text,
             spans: Vec::new(),
             aliases: Vec::new(),
             semantic_source: Some(oryn_common::v4::SemanticTextSource {
-                text: self.text.clone(),
+                text: semantic_text,
                 spans: self.spans.iter().map(|span| ResolvedTextSpan {
                     owner: span.owner,
                     source_node: span.text_node,
-                    rendered_start: span.bytes.start,
-                    rendered_end: span.bytes.end,
+                    rendered_start: semantic_project(span.bytes.start),
+                    rendered_end: semantic_project(span.bytes.end),
                     source_start: span.utf16_start,
                     source_end: span.utf16_start.saturating_add(span.utf16_len),
-                    transformed: span.transformed,
+                    transformed: span.transformed || semantic_cuts.get(semantic_cuts.partition_point(|range| range.end <= span.bytes.start)).is_some_and(|range| range.start < span.bytes.end),
                     atomic: span.atomic,
                 }).collect(),
             }),
@@ -1001,6 +1024,37 @@ impl TextSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn semantic_source_trims_hard_break_edges_but_not_preserved_spaces() {
+        let mut source = TextSource::default();
+        source.append(1, Some(300), "a ");
+        source.append(2, None, "\u{2028}");
+        source.append(1, Some(301), " b");
+        let clusters: Vec<_> = [1..2, 5..6].into_iter().map(|bytes| TextCluster {
+            bytes, rect:oryn_common::v4::CssRect { x:0., y:0., width:0., height:1. }, line:0, rtl:false,
+        }).collect();
+        for (mode, expected) in [("normal", "a\u{2028}b"), ("pre", "a \u{2028} b")] {
+            let style = BTreeMap::from([("white-space".into(), mode.into())]);
+            let normalized = source.normalize(&BTreeMap::new(), &style);
+            assert_eq!(normalized.resolved_run(1, &clusters, &BTreeMap::new(), &style).semantic_source.unwrap().text, expected);
+        }
+    }
+    #[test]
+    fn semantic_source_trims_native_paragraph_edges_but_keeps_soft_wrap_space() {
+        let mut source = TextSource::default();
+        source.append(1, Some(300), " a b ");
+        let source = source.normalize(&BTreeMap::new(), &BTreeMap::new());
+        let clusters: Vec<_> = [0..1, 2..3, 4..5].into_iter().map(|bytes| TextCluster {
+            bytes, rect:oryn_common::v4::CssRect { x:0., y:0., width:0., height:1. }, line:0, rtl:false,
+        }).collect();
+        let run = source.resolved_run(1, &clusters, &BTreeMap::new(), &BTreeMap::new());
+        assert_eq!(run.text, "ab");
+        let semantic = run.semantic_source.unwrap();
+        assert_eq!(semantic.text, "a b");
+        assert_eq!(semantic.spans.first().unwrap().rendered_start, 0);
+        assert_eq!(semantic.spans.first().unwrap().rendered_end, 0);
+        assert_eq!(semantic.spans.last().unwrap().source_end, 5);
+    }
     #[test]
     fn semantic_source_keeps_soft_line_space_separate_from_paint_projection() {
         let mut source = TextSource::default();
