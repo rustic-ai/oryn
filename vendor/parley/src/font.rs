@@ -5,6 +5,14 @@ use fontique::Collection;
 
 use fontique::SourceCache;
 
+/// Resolve the same CSS descriptor and element variation settings used by
+/// shaping, for glyph-independent font metrics at an identical instance.
+pub fn font_instance_variations(synthesis: &fontique::Synthesis,
+    attributes: fontique::Attributes, item: Option<&[crate::FontVariation]>,
+    descriptor: Option<&FontFaceOverrides>) -> alloc::vec::Vec<crate::FontVariation> {
+    crate::shape::face_variations(synthesis, attributes, item, descriptor)
+}
+
 /// A font database/cache (wrapper around a Fontique [`Collection`] and [`SourceCache`]).
 ///
 /// This type is designed to be a global resource with only one per-application (or per-thread).

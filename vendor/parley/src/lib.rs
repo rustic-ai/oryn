@@ -139,7 +139,7 @@ pub use break_overrides::{
 pub use builder::{RangedBuilder, StyleRunBuilder, TreeBuilder};
 pub use context::LayoutContext;
 pub use parlance::BaseDirection;
-pub use font::{FontContext,FontFaceOverrides};
+pub use font::{FontContext,FontFaceOverrides,font_instance_variations};
 pub use inline_box::{InlineBox, InlineBoxKind};
 #[doc(inline)]
 pub use layout::Layout;

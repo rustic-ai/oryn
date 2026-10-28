@@ -518,7 +518,7 @@ fn shape_item<'a, B: Brush>(
     }
 }
 
-fn face_variations(synthesis:&fontique::Synthesis,attrs:fontique::Attributes,item:Option<&[FontVariation]>,descriptor:Option<&crate::FontFaceOverrides>)->Vec<FontVariation>{
+pub(crate) fn face_variations(synthesis:&fontique::Synthesis,attrs:fontique::Attributes,item:Option<&[FontVariation]>,descriptor:Option<&crate::FontFaceOverrides>)->Vec<FontVariation>{
     let mut values=alloc::collections::BTreeMap::new();
     // CSS descriptors supply defaults; explicit element settings win. Clamp
     // inferred weight/width/style axes before applying explicit low-level axes.

@@ -7,6 +7,7 @@ use skrifa::{
 };
 use std::collections::BTreeMap;
 pub mod baselines;
+pub mod font_selection;
 mod ink;
 pub mod metrics;
 
@@ -23,6 +24,7 @@ pub struct CanvasTextShape {
     pub neutral_font_metrics: Option<skrifa::metrics::Metrics>,
     pub font_size: f64,
     neutral_font_run: Option<PaintGlyphRun>,
+    pub first_available_font: font_selection::MetricFont,
 }
 
 impl CanvasTextShape {
@@ -199,6 +201,7 @@ pub fn shape(
     ]);
     let font_size = length(style_value(&style, "font-size", "10px"), 16., 16., viewport);
     let mut engine = TextEngine::new(fonts);
+    let first_available_font = font_selection::select(&mut engine, &style, font_size)?;
     let shaped = engine.shape_styled(&text, 1_000_000_000., font_size, &style, viewport);
     let neutral = engine.shape_styled(" ", 1_000_000_000., font_size, &style, viewport);
     if let Some(error) = engine.font_demand_error {
@@ -234,6 +237,7 @@ pub fn shape(
         neutral_font_metrics,
         font_size,
         neutral_font_run: neutral.glyph_runs.into_iter().flatten().next(),
+        first_available_font,
     })
 }
 
