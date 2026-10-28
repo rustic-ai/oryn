@@ -3915,7 +3915,16 @@ impl DomRuntime {
     pub fn normalize_text_boundaries(
         &mut self,
         node: NodeId,
+        length: u32,
+    ) -> Result<Vec<NodeId>, DomError> {
+        self.normalize_text_boundaries_limited(node, length, usize::MAX)
+    }
+
+    fn normalize_text_boundaries_limited(
+        &mut self,
+        node: NodeId,
         mut length: u32,
+        limit: usize,
     ) -> Result<Vec<NodeId>, DomError> {
         let Some(parent) = self.arena.get(node)?.parent else {
             return Ok(Vec::new());
@@ -3930,6 +3939,7 @@ impl DomRuntime {
                     Ok(NodeKind::Text { .. })
                 )
             })
+            .take(limit)
             .collect::<Vec<_>>();
         for sibling in &siblings {
             let index = self.child_index(parent, *sibling)?;

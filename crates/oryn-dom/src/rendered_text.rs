@@ -2,6 +2,31 @@
 use super::{DomError, DomRuntime, NodeId, dom_string};
 
 impl DomRuntime {
+    /// Merge exactly one following Text node, retaining the first node's
+    /// identity and applying normalize's live-range transfer rules. This is
+    /// deliberately not parent.normalize(): outerText must leave farther
+    /// adjacent text nodes separate.
+    pub fn merge_next_text_node(&mut self, node: NodeId) -> Result<bool, DomError> {
+        let record = self.arena().get(node)?;
+        let super::NodeKind::Text { data } = &record.kind else {
+            return Ok(false);
+        };
+        let length = super::utf16_len(data);
+        let Some(parent) = record.parent else { return Ok(false) };
+        let index = self.child_index(parent, node)? as usize;
+        let Some(next) = self.arena().get(parent)?.children.get(index + 1).copied() else {
+            return Ok(false);
+        };
+        let super::NodeKind::Text { data } = &self.arena().get(next)?.kind else {
+            return Ok(false);
+        };
+        let data = data.clone();
+        self.replace_character_data(node, length, 0, data)?;
+        for sibling in self.normalize_text_boundaries_limited(node, length, 1)? {
+            self.remove(sibling)?;
+        }
+        Ok(true)
+    }
     /// Build the HTML text fragment without interpreting text as markup.
     /// CRLF is one break; bare CR and LF each produce an HTML br element.
     /// outerText needs an empty text node for an empty replacement, whereas
@@ -44,6 +69,31 @@ impl DomRuntime {
 mod tests {
     use super::*;
     use crate::NodeKind;
+
+    #[test]
+    fn adjacent_text_merge_does_not_normalize_the_remaining_run() {
+        let mut dom = crate::html::parse("<body>").into_runtime().unwrap();
+        let parent = dom.create_element("div");
+        let first = dom.create_text("a");
+        let second = dom.create_text(dom_string::from_units(&[0xd800]));
+        let third = dom.create_text("c");
+        for node in [first, second, third] { dom.append_child(parent, node).unwrap(); }
+        let range = dom.create_live_range(
+            crate::BoundaryPoint { container: second, offset: 1 },
+            crate::BoundaryPoint { container: third, offset: 1 },
+        ).unwrap();
+        assert!(dom.merge_next_text_node(first).unwrap());
+        assert_eq!(dom.arena().get(parent).unwrap().children, [first, third]);
+        match &dom.arena().get(first).unwrap().kind {
+            NodeKind::Text { data } => assert_eq!(dom_string::units(data), [97, 0xd800]),
+            _ => panic!("merged node lost text identity"),
+        }
+        assert!(!dom.merge_next_text_node(third).unwrap());
+        assert!(!dom.merge_next_text_node(parent).unwrap());
+        let range = dom.live_range(range).unwrap();
+        assert_eq!(range.start, crate::BoundaryPoint { container: first, offset: 2 });
+        assert_eq!(range.end, crate::BoundaryPoint { container: third, offset: 1 });
+    }
 
     #[test]
     fn rendered_text_fragment_preserves_utf16_and_normalizes_only_line_breaks() {
