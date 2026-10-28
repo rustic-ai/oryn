@@ -35161,6 +35161,44 @@ mod reflected_long_tests {
     }
 
     #[test]
+    fn autocapitalize_full_form_inheritance_population() {
+        use super::*;
+        super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<!doctype html><html><body></body></html>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"(() => {
+            const values=[null,'','on','off','none','characters','words','sentences','foo'];
+            const elements=[['button',true],['fieldset',true],['img',false],['input',true],
+                ['object',false],['output',true],['select',true],['textarea',true]];
+            const canonical=value=>value===null||value===''?'':value==='on'||value==='foo'?'sentences':value==='off'?'none':value;
+            const form=document.createElement('form');form.id='full-capital-form';document.body.appendChild(form);
+            let checks=0;
+            for(const formValue of values) for(const elementValue of values) {
+                form.removeAttribute('autocapitalize');
+                if(formValue!==null)form.setAttribute('autocapitalize',formValue);
+                for(const [tag,inherits] of elements) for(const explicit of [false,true]) {
+                    const element=document.createElement(tag);
+                    if(explicit){element.setAttribute('form',form.id);document.body.appendChild(element)}
+                    else form.appendChild(element);
+                    if(elementValue!==null)element.setAttribute('autocapitalize',elementValue);
+                    const expected=canonical(inherits&&(elementValue===null||elementValue==='')?formValue:elementValue);
+                    if(element.autocapitalize!==expected)throw Error(JSON.stringify({tag,explicit,formValue,elementValue,expected,actual:element.autocapitalize}));
+                    checks++;
+                }
+            }
+            return checks===1296;
+        })()"#).unwrap();
+        v8::tc_scope!(let scope, scope);
+        let value = v8::Script::compile(scope, source, None).unwrap().run(scope);
+        let exception = scope.exception().map(|error| error.to_rust_string_lossy(scope));
+        assert!(value.is_some_and(|value| value.is_true()), "full autocapitalize population failed: {exception:?}");
+    }
+
+    #[test]
     fn span_default_zero_negative_and_large_values() {
         assert_eq!(reflected_span(None, 0, 65534), 1);
         assert_eq!(reflected_span(Some("-0"), 0, 65534), 0);
