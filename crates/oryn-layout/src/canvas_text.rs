@@ -6,7 +6,9 @@ use skrifa::{
     instance::{LocationRef, NormalizedCoord, Size},
 };
 use std::collections::BTreeMap;
+pub mod baselines;
 mod ink;
+pub mod metrics;
 
 /// Original native glyphs and fonts, not estimated character advances.
 #[derive(Debug)]
@@ -15,9 +17,50 @@ pub struct CanvasTextShape {
     pub baseline: f64,
     pub glyph_runs: Vec<PaintGlyphRun>,
     pub fonts: BTreeMap<String, PaintFontResource>,
+    /// Native face selected for a neutral space independently of text ink.
+    /// This preserves a metric source for empty strings. CSS first-available-
+    /// font selection still needs reconciliation with unicode-range faces.
+    pub neutral_font_metrics: Option<skrifa::metrics::Metrics>,
+    pub font_size: f64,
+    neutral_font_run: Option<PaintGlyphRun>,
 }
 
 impl CanvasTextShape {
+    /// Horizontal BASE data for the selected neutral face, if present. This
+    /// connects the native parser to original font bytes without synthesizing
+    /// absent baselines or pretending neutral selection is first-available.
+    pub fn neutral_baselines(
+        &self,
+        script: skrifa::raw::types::Tag,
+    ) -> Result<Option<BTreeMap<skrifa::raw::types::Tag, f64>>, LayoutError> {
+        use skrifa::raw::{TableProvider, types::Tag};
+        let Some(run) = &self.neutral_font_run else {
+            return Ok(None);
+        };
+        let source = self.fonts.get(&run.font_key).ok_or_else(|| {
+            LayoutError::InvalidRenderedTree("canvas neutral font is missing".into())
+        })?;
+        let face = FontRef::from_index(&source.bytes, source.collection_index)
+            .map_err(|e| LayoutError::InvalidRenderedTree(e.to_string()))?;
+        let Some(table) = face.table_data(Tag::new(b"BASE")) else {
+            return Ok(None);
+        };
+        let units = face
+            .head()
+            .map_err(|e| LayoutError::InvalidRenderedTree(e.to_string()))?
+            .units_per_em();
+        if units == 0 {
+            return Err(LayoutError::InvalidRenderedTree(
+                "zero font units per em".into(),
+            ));
+        }
+        baselines::read_horizontal(
+            table.as_bytes(),
+            script,
+            run.font_size / f64::from(units),
+            &run.normalized_coords,
+        )
+    }
     /// Ink union in the shaped line's coordinate system (y increases down).
     pub fn ink_bounds(&self) -> Result<Option<[f64; 4]>, LayoutError> {
         use skrifa::{GlyphId, outline::DrawSettings};
@@ -157,14 +200,40 @@ pub fn shape(
     let font_size = length(style_value(&style, "font-size", "10px"), 16., 16., viewport);
     let mut engine = TextEngine::new(fonts);
     let shaped = engine.shape_styled(&text, 1_000_000_000., font_size, &style, viewport);
+    let neutral = engine.shape_styled(" ", 1_000_000_000., font_size, &style, viewport);
     if let Some(error) = engine.font_demand_error {
         return Err(error);
     }
+    let neutral_font_metrics = neutral
+        .glyph_runs
+        .iter()
+        .flatten()
+        .next()
+        .map(|run| {
+            let source = engine.paint_fonts.get(&run.font_key).ok_or_else(|| {
+                LayoutError::InvalidRenderedTree("canvas neutral font is missing".into())
+            })?;
+            let face = FontRef::from_index(&source.bytes, source.collection_index)
+                .map_err(|e| LayoutError::InvalidRenderedTree(e.to_string()))?;
+            let coordinates = run
+                .normalized_coords
+                .iter()
+                .map(|v| NormalizedCoord::from_bits(*v))
+                .collect::<Vec<_>>();
+            Ok(face.metrics(
+                Size::new(run.font_size as f32),
+                LocationRef::new(&coordinates),
+            ))
+        })
+        .transpose()?;
     Ok(CanvasTextShape {
         width: shaped.width,
         baseline: shaped.baselines.first().copied().unwrap_or(0.),
         glyph_runs: shaped.glyph_runs.into_iter().flatten().collect(),
         fonts: engine.paint_fonts,
+        neutral_font_metrics,
+        font_size,
+        neutral_font_run: neutral.glyph_runs.into_iter().flatten().next(),
     })
 }
 
@@ -179,6 +248,19 @@ mod tests {
         ]);
         let measure = |text| shape(text, &style, ViewportState::default(), &[]).unwrap();
         let single = measure("a b");
+        let empty = measure("");
+        assert_eq!(empty.width, 0.);
+        assert_eq!(empty.ink_bounds().unwrap(), None);
+        assert!(empty.neutral_font_metrics.unwrap().ascent > 0.);
+        assert_eq!(empty.neutral_font_metrics, single.neutral_font_metrics);
+        assert_eq!(
+            empty
+                .neutral_baselines(skrifa::raw::types::Tag::new(b"latn"))
+                .unwrap(),
+            single
+                .neutral_baselines(skrifa::raw::types::Tag::new(b"latn"))
+                .unwrap()
+        );
         let double = measure("a  b");
         assert!(double.width > single.width);
         assert_eq!(measure("a\r\nb").width, double.width);
