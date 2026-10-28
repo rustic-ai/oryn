@@ -199,6 +199,7 @@ use crate::{
 mod document_parser_gate;
 pub use document_parser_gate::{DocumentParserGate, with_parser_construction};
 mod canvas_composite;
+mod canvas_gradients;
 mod canvas_path;
 mod canvas_path_svg;
 mod rect_lists;
@@ -868,6 +869,8 @@ struct ImageRequestKey {
 struct CanvasDrawState {
     fill_color: [u8; 4],
     stroke_color: [u8; 4],
+    fill_gradient: Option<canvas_gradients::Paint>,
+    stroke_gradient: Option<canvas_gradients::Paint>,
     stroke: kurbo::Stroke,
     global_alpha: f64,
     composite: Composite,
@@ -880,6 +883,8 @@ impl Default for CanvasDrawState {
         Self {
             fill_color: [0, 0, 0, 255],
             stroke_color: [0, 0, 0, 255],
+            fill_gradient: None,
+            stroke_gradient: None,
             stroke: kurbo::Stroke::new(1.0)
                 .with_caps(kurbo::Cap::Butt)
                 .with_join(kurbo::Join::Miter)
@@ -1260,6 +1265,7 @@ enum PlatformObjectRecord {
     Touch(touch_objects::TouchRecord),
     TouchList(Vec<v8::Global<v8::Object>>),
     Path2D(Rc<RefCell<canvas_path::CanvasPath>>),
+    CanvasGradient(Rc<RefCell<canvas_gradients::Gradient>>),
     XhrUpload,
     Crypto {
         subtle_id: u64,
@@ -13049,6 +13055,7 @@ fn is_platform_interface(interface: &str) -> bool {
     matches!(
         interface,
         "Sanitizer"
+            | "CanvasGradient"
             | "EditContext"
             | "TextFormat"
             | "TextUpdateEvent"
@@ -28151,6 +28158,9 @@ fn call_platform_operation<'s>(
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     if interface=="EditContext"{return edit_context::call(scope,object,member,args);}
+    if interface == "CanvasGradient" && member == "addColorStop" {
+        return canvas_gradients::add_stop(scope, object, args).map(Some);
+    }
     if interface=="TextFormatUpdateEvent"&&member=="getTextFormats"{return edit_context_events::formats(scope,object).map(Some);}
     if interface == "Sanitizer" {
         return sanitizer::call(scope, state, object, member, args);
@@ -40856,6 +40866,7 @@ fn install_canvas_context_members(
     scope: &mut v8::PinScope,
     context: v8::Local<v8::Object>,
 ) -> Result<(), V8BindingError> {
+    canvas_gradients::install_factories(scope, context)?;
     for name in [
         "strokeStyle",
         "lineWidth",
@@ -43766,6 +43777,10 @@ fn canvas_stroke_get(
         .cloned()
         .unwrap_or_default();
     let name = args.data().to_rust_string_lossy(scope);
+    if name == "strokeStyle" && let Some(paint) = &draw.stroke_gradient {
+        rv.set(v8::Local::new(scope, &paint.object).into());
+        return;
+    }
     let text = match name.as_str() {
         "strokeStyle" => canvas_color_string(draw.stroke_color),
         "lineCap" => match draw.stroke.start_cap {
@@ -43806,6 +43821,10 @@ fn canvas_stroke_set(
         return;
     };
     let name = args.data().to_rust_string_lossy(scope);
+    if name == "strokeStyle" && let Some(paint) = canvas_gradients::Paint::from_value(scope, args.get(0)) {
+        state.canvas_draw_states.borrow_mut().entry(canvas).or_default().stroke_gradient = Some(paint);
+        return;
+    }
     if matches!(name.as_str(), "lineWidth" | "miterLimit" | "lineDashOffset") {
         let Some(n) = args.get(0).number_value(scope) else {
             return;
@@ -43831,6 +43850,7 @@ fn canvas_stroke_set(
             "strokeStyle" => {
                 if let Some(color) = oryn_common::color::parse_color(&value) {
                     draw.stroke_color = color;
+                    draw.stroke_gradient = None;
                 }
             }
             "lineCap" => {
@@ -43965,14 +43985,17 @@ fn canvas_fill_style_get(
     let Ok(canvas) = canvas_receiver_node(scope, &state, &args) else {
         return;
     };
-    let color = state
+    let draw = state
         .canvas_draw_states
         .borrow()
         .get(&canvas)
         .cloned()
-        .unwrap_or_default()
-        .fill_color;
-    let serialized = canvas_color_string(color);
+        .unwrap_or_default();
+    if let Some(paint) = &draw.fill_gradient {
+        rv.set(v8::Local::new(scope, &paint.object).into());
+        return;
+    }
+    let serialized = canvas_color_string(draw.fill_color);
     if let Some(value) = v8::String::new(scope, &serialized) {
         rv.set(value.into());
     }
@@ -43989,16 +44012,18 @@ fn canvas_fill_style_set(
     let Ok(canvas) = canvas_receiver_node(scope, &state, &args) else {
         return;
     };
+    if let Some(paint) = canvas_gradients::Paint::from_value(scope, args.get(0)) {
+        state.canvas_draw_states.borrow_mut().entry(canvas).or_default().fill_gradient = Some(paint);
+        return;
+    }
     let Some(value) = args.get(0).to_string(scope) else {
         return;
     };
     if let Some(color) = oryn_common::color::parse_color(&value.to_rust_string_lossy(scope)) {
-        state
-            .canvas_draw_states
-            .borrow_mut()
-            .entry(canvas)
-            .or_default()
-            .fill_color = color;
+        let mut states = state.canvas_draw_states.borrow_mut();
+        let draw = states.entry(canvas).or_default();
+        draw.fill_color = color;
+        draw.fill_gradient = None;
     }
 }
 
@@ -44469,42 +44494,7 @@ fn canvas_path_operation(
             let target = images
                 .get_mut(&canvas)
                 .ok_or(V8BindingError::Allocation("canvas bitmap"))?;
-            use kurbo::Shape;
-            let bounds = path.bounding_box();
-            let (left, top, right, bottom) = if draw.composite.affects_outside_source() {
-                (0, 0, width, height)
-            } else {
-                (
-                    bounds.x0.floor().clamp(0.0, width as f64) as u32,
-                    bounds.y0.floor().clamp(0.0, height as f64) as u32,
-                    bounds.x1.ceil().clamp(0.0, width as f64) as u32,
-                    bounds.y1.ceil().clamp(0.0, height as f64) as u32,
-                )
-            };
-            for y in top..bottom {
-                for x in left..right {
-                    let (coverage, clip_coverage) =
-                        canvas_path::coverage_in_clip(&path, x, y, evenodd, &draw.clips);
-                    let color = if stroking {
-                        draw.stroke_color
-                    } else {
-                        draw.fill_color
-                    };
-                    let alpha = color[3] as f64 / 255.0 * draw.global_alpha * coverage;
-                    let pixel = [
-                        color[0] as f64 * alpha,
-                        color[1] as f64 * alpha,
-                        color[2] as f64 * alpha,
-                        alpha,
-                    ];
-                    let offset = (y as usize * width as usize + x as usize) * 4;
-                    draw.composite.apply_clipped(
-                        &mut target.rgba[offset..offset + 4],
-                        pixel,
-                        clip_coverage,
-                    );
-                }
-            }
+            canvas_gradients::paint_path(target, &path, &draw, stroking, evenodd);
             return Ok(());
         }
         let mut paths = state.canvas_paths.borrow_mut();
@@ -44616,6 +44606,14 @@ fn canvas_fill_rect(
             .get(&canvas)
             .cloned()
             .unwrap_or_default();
+        if draw.fill_gradient.is_some() {
+            if canvas_matrix_inverse(draw.transform).is_none() { return Ok(()); }
+            let point = |x,y| { let point = canvas_matrix_point(draw.transform,x,y); kurbo::Point::new(point.0,point.1) };
+            let mut path = canvas_path::CanvasPath::default();
+            path.rectangle([point(rect[0],rect[1]), point(rect[0]+rect[2],rect[1]), point(rect[0]+rect[2],rect[1]+rect[3]), point(rect[0],rect[1]+rect[3])]);
+            canvas_gradients::paint_path(bitmap, &path.closed(), &draw, false, false);
+            return Ok(());
+        }
         raster_canvas_image_transformed(
             bitmap,
             &source,
@@ -53656,6 +53654,89 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
             return true;
         })()"#,
         );
+    }
+
+    #[test]
+    fn native_canvas_gradients_are_live_paint_styles_with_fill_time_transforms() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<canvas id=c width=4 height=4></canvas>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"(() => {
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            const ctx=document.getElementById('c').getContext('2d');
+            const pixel=(c,x,y)=>Array.from(c.getImageData(x,y,1,1).data).join(',');
+            const g=ctx.createLinearGradient(0,0,4,0);g.addColorStop(0,'red');g.addColorStop(1,'blue');
+            ctx.fillStyle=g;ctx.strokeStyle=g;ctx.save();ctx.fillStyle='green';ctx.restore();
+            check(ctx.fillStyle===g&&ctx.strokeStyle===g,'save restore identity');
+            ctx.fillRect(0,0,4,4);check(pixel(ctx,0,0)==='223,0,32,255','linear sample');
+            g.addColorStop(.5,'lime');ctx.fillRect(0,0,4,4);
+            check(pixel(ctx,1,0)==='64,191,0,255','live stops after style assignment');
+            ctx.fillStyle='invalid color';check(ctx.fillStyle===g,'invalid color preserves gradient');
+            ctx.clearRect(0,0,4,4);ctx.beginPath();ctx.rect(0,0,4,4);ctx.fill();
+            check(pixel(ctx,1,0)==='64,191,0,255','gradient path fill');
+            ctx.clearRect(0,0,4,4);ctx.lineWidth=2;ctx.strokeRect(0,0,4,4);
+            check(pixel(ctx,1,0)==='64,191,0,255','gradient stroke');
+            const off=new OffscreenCanvas(100,50).getContext('2d');
+            off.translate(100,0);const transformed=off.createLinearGradient(0,0,200,0);
+            transformed.addColorStop(0,'red');transformed.addColorStop(.25,'lime');transformed.addColorStop(.75,'lime');transformed.addColorStop(1,'red');
+            off.fillStyle=transformed;off.translate(-150,0);off.fillRect(50,0,100,50);
+            check(pixel(off,25,25)==='0,255,0,255'&&pixel(off,75,25)==='0,255,0,255','fill-time not creation transform');
+            const radial=ctx.createRadialGradient(2,2,0,2,2,2);radial.addColorStop(0,'red');radial.addColorStop(1,'blue');
+            ctx.fillStyle=radial;ctx.fillRect(0,0,4,4);check(ctx.getImageData(2,2,1,1).data[3]===255,'radial paints');
+            const conic=ctx.createConicGradient(0,2,2);conic.addColorStop(0,'red');conic.addColorStop(1,'blue');
+            ctx.fillStyle=conic;ctx.fillRect(0,0,4,4);
+            check(ctx.getImageData(3,2,1,1).data[2]<ctx.getImageData(2,3,1,1).data[2],'conic clockwise paint');
+            ctx.clearRect(0,0,4,4);const empty=ctx.createLinearGradient(0,0,1,0);ctx.fillStyle=empty;ctx.fillRect(0,0,4,4);
+            check(pixel(ctx,1,1)==='0,0,0,0','empty gradient transparent');
+            return true;
+        })()"#).unwrap();
+        v8::tc_scope!(let scope, scope);
+        let result = v8::Script::compile(scope, source, None).unwrap().run(scope);
+        let exception = scope.exception().map(|error| error.to_rust_string_lossy(scope));
+        assert!(result.is_some_and(|value| value.is_true()), "gradient paint diagnostic: {exception:?}");
+    }
+
+    #[test]
+    fn native_gradient_factories_preserve_brand_and_conversion_order() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<canvas id=c width=2 height=2></canvas>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"(() => {
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            const ctx=document.getElementById('c').getContext('2d');
+            for(const [name,length] of [['createLinearGradient',4],['createRadialGradient',6],['createConicGradient',3]]) {
+                const f=ctx[name];check(f.name===name&&f.length===length,'factory descriptor');
+                let error;try{f.apply({},Array(length).fill(0))}catch(e){error=e}check(error instanceof TypeError,'factory brand');
+            }
+            const g=ctx.createLinearGradient(0,0,2,0);
+            check(g instanceof CanvasGradient&&Object.prototype.toString.call(g)==='[object CanvasGradient]','opaque brand');
+            g.addColorStop(0,'red');g.addColorStop(1,'blue');
+            let error;try{CanvasGradient.prototype.addColorStop.call({},0,'red')}catch(e){error=e}check(error instanceof TypeError,'stop brand');
+            try{g.addColorStop(-1,'red')}catch(e){error=e}check(error.name==='IndexSizeError','offset bounds');
+            try{g.addColorStop(0,'not a color')}catch(e){error=e}check(error.name==='SyntaxError','color syntax');
+            let converted=false;try{g.addColorStop(Infinity,{toString(){converted=true;return 'red'}})}catch(e){error=e}
+            check(error instanceof TypeError&&!converted,'finite double precedes string');
+            const marker=Error('original');try{g.addColorStop(-1,{toString(){throw marker}})}catch(e){error=e}check(error===marker,'conversion before bounds');
+            try{ctx.createRadialGradient(0,0,-1,{valueOf(){throw marker}},0,1)}catch(e){error=e}check(error===marker,'all coordinates before radius validation');
+            check(ctx.createRadialGradient(0,0,0,0,0,1) instanceof CanvasGradient,'radial factory');
+            check(new OffscreenCanvas(1,1).getContext('2d').createConicGradient(0,0,0) instanceof CanvasGradient,'offscreen factory');
+            return g;
+        })()"#).unwrap();
+        v8::tc_scope!(let scope, scope);
+        let result = v8::Script::compile(scope, source, None).unwrap().run(scope);
+        let exception = scope.exception().map(|error| error.to_rust_string_lossy(scope));
+        let gradient = result.and_then(|value| canvas_gradients::identify(scope, value));
+        assert!(gradient.is_some(), "gradient native factory diagnostic: {exception:?}");
+        let gradient = gradient.unwrap();
+        assert_eq!(gradient.borrow().stops.sample(0.5), [128,0,128,255]);
     }
 
     #[test]

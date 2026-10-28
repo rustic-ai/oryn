@@ -1591,8 +1591,16 @@ interface Path2D {
   undefined ellipse(unrestricted double x, unrestricted double y, unrestricted double radiusX, unrestricted double radiusY, unrestricted double rotation, unrestricted double startAngle, unrestricted double endAngle, optional boolean counterclockwise = false);
 };
 
+[Exposed=(Window,Worker)]
+interface CanvasGradient {
+  undefined addColorStop(double offset, DOMString color);
+};
+
 [Exposed=Window]
 interface CanvasRenderingContext2D {
+  CanvasGradient createLinearGradient(double x0, double y0, double x1, double y1);
+  CanvasGradient createRadialGradient(double x0, double y0, double r0, double x1, double y1, double r1);
+  CanvasGradient createConicGradient(double startAngle, double x, double y);
   readonly attribute HTMLCanvasElement canvas;
   attribute any fillStyle;
   attribute any strokeStyle;
@@ -1663,6 +1671,9 @@ interface OffscreenCanvas : EventTarget {
 
 [Exposed=(Window,Worker)]
 interface OffscreenCanvasRenderingContext2D {
+  CanvasGradient createLinearGradient(double x0, double y0, double x1, double y1);
+  CanvasGradient createRadialGradient(double x0, double y0, double r0, double x1, double y1, double r1);
+  CanvasGradient createConicGradient(double startAngle, double x, double y);
   readonly attribute OffscreenCanvas canvas;
   attribute any fillStyle;
   attribute any strokeStyle;
