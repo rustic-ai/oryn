@@ -48,6 +48,38 @@ SCRIPT = """return {
 };"""
 
 
+def capture_result(protocol, url, result):
+    """Count an upstream result before cleanup; never alter or retain payloads."""
+    if os.environ.get('ORYN_WPT_COMPLETION_DIAGNOSTICS') != '1':
+        return
+    try:
+        if not isinstance(url, str) or urlsplit(url).path != '/FileAPI/BlobURL/cross-partition.https.html':
+            return
+        if not isinstance(result, (list, tuple)) or len(result) != 5:
+            return
+        status = result[1]
+        subtests = result[4]
+        if type(status) not in (int, float) or status not in range(4):
+            return
+        if not isinstance(subtests, (list, tuple)) or len(subtests) > 10000:
+            return
+        counts = [0] * 5
+        for subtest in subtests:
+            if not isinstance(subtest, (list, tuple)) or len(subtest) != 4:
+                return
+            code = subtest[1]
+            if type(code) not in (int, float) or code not in range(5):
+                return
+            counts[int(code)] += 1
+        protocol.logger.info('oryn-completion-result ' + json.dumps({
+            'harness_code': int(status), 'subtest_count': len(subtests),
+            'subtest_codes': counts, 'before_cleanup': True,
+        }))
+    except Exception:
+        # Diagnostic collection must not replace a returned result or failure.
+        pass
+
+
 def capture(protocol, url):
     if os.environ.get('ORYN_WPT_COMPLETION_DIAGNOSTICS') != '1':
         return

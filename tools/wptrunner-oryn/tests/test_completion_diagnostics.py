@@ -1,10 +1,51 @@
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
-from oryn_wptrunner.completion_diagnostics import capture
+from oryn_wptrunner.completion_diagnostics import capture, capture_result
 
 
 class CompletionDiagnosticsTests(unittest.TestCase):
+    def test_returned_result_counts_are_payload_free_and_do_not_mutate_input(self):
+        logs = []
+        result = ['private-url', 2.0, 'private-message', 'private-stack', [
+            ['private-name', code, 'private-message', 'private-stack']
+            for code in (0.0, 0, 2.0, 3, 3.0)]]
+        protocol = SimpleNamespace(logger=SimpleNamespace(info=logs.append))
+        with patch.dict('os.environ', {'ORYN_WPT_COMPLETION_DIAGNOSTICS': '1'}):
+            capture_result(protocol, '/FileAPI/BlobURL/cross-partition.https.html', result)
+        self.assertIn('"subtest_codes": [2, 0, 1, 2, 0]', logs[0])
+        self.assertIn('"harness_code": 2', logs[0])
+        self.assertNotIn('private', logs[0])
+        self.assertEqual(result[2], 'private-message')
+        self.assertEqual(len(result[4]), 5)
+
+    def test_result_diagnostic_is_opt_in_selected_and_rejects_malformed_codes(self):
+        logs = []
+        protocol = SimpleNamespace(logger=SimpleNamespace(info=logs.append))
+        good = ['', 0, None, None, []]
+        with patch.dict('os.environ', {}, clear=True):
+            capture_result(protocol, '/FileAPI/BlobURL/cross-partition.https.html', good)
+        with patch.dict('os.environ', {'ORYN_WPT_COMPLETION_DIAGNOSTICS': '1'}):
+            capture_result(protocol, '/other', good)
+            for value in (None, ['', True, None, None, []],
+                          ['', 0, None, None, [['', True, None, None]]],
+                          ['', 0.5, None, None, []],
+                          ['', float('nan'), None, None, []],
+                          ['', 0, None, None, [['', 1.5, None, None]]],
+                          ['', 0, None, None, [['', float('inf'), None, None]]],
+                          ['', 0, None, None, [[]]],
+                          ['', 0, None, None, [None] * 10001]):
+                capture_result(protocol, '/FileAPI/BlobURL/cross-partition.https.html', value)
+        self.assertEqual(logs, [])
+
+    def test_result_logger_failure_does_not_replace_result(self):
+        def fail(message):
+            raise RuntimeError('private')
+        with patch.dict('os.environ', {'ORYN_WPT_COMPLETION_DIAGNOSTICS': '1'}):
+            capture_result(SimpleNamespace(logger=SimpleNamespace(info=fail)),
+                           '/FileAPI/BlobURL/cross-partition.https.html',
+                           ['', 0, None, None, []])
+
     def test_child_realm_observation_restores_top_level_scope(self):
         commands = []
         logs = []

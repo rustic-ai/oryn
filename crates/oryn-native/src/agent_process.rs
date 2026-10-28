@@ -791,6 +791,18 @@ impl AgentProcess for AgentChildProcess {
             }
             self.child = None;
         }
+        // A broker callback can trigger registry cleanup on one of this
+        // process's own IPC threads. Revocation and child reaping above are
+        // still required, but waiting for that caller to finish cannot make
+        // progress until we return. Keep its handle for an external retry;
+        // never report physical cleanup complete or spend the join deadline
+        // waiting for ourselves.
+        let caller = std::thread::current().id();
+        if self.threads.iter().any(|thread| thread.thread().id() == caller) {
+            return Err(failure(
+                "reentrant agent IPC termination cannot wait for its own thread; teardown remains owned for retry",
+            ));
+        }
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         let mut panicked = false;
         loop {
@@ -905,6 +917,28 @@ mod tests {
             }),
         }
     }
+    #[test]
+    fn termination_rejects_own_ipc_thread_and_preserves_external_retry() {
+        let (admit, admitted) = std::sync::mpsc::sync_channel::<AgentChildProcess>(1);
+        let (return_process, returned) = std::sync::mpsc::sync_channel(1);
+        let caller = std::thread::spawn(move || {
+            let mut process = admitted.recv().unwrap();
+            let error = process.terminate().expect_err("a thread cannot join itself");
+            let retained = process.threads.len();
+            assert!(return_process.send((process, error, retained)).is_ok());
+        });
+        let mut process = bounded_event_test_process();
+        process.threads.push(caller);
+        assert!(admit.send(process).is_ok());
+        let (mut process, error, retained) = returned.recv_timeout(Duration::from_secs(10)).unwrap();
+        // Settle the real handle before checking the diagnostic, so a failing
+        // assertion cannot abandon a live thread or change retry custody.
+        process.terminate().unwrap();
+        assert!(process.threads.is_empty());
+        assert_eq!(retained, 1);
+        assert!(error.message.contains("reentrant"), "{error}");
+    }
+
     #[test]
     fn event_backpressure_preserves_large_batch_order_and_wakes_after_poll() {
         let mut process = bounded_event_test_process();

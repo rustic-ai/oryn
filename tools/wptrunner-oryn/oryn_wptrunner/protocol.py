@@ -15,6 +15,7 @@ from wptrunner.executors.protocol import BidiPermissionsProtocolPart, BidiEmulat
 
 from .navigation_evidence import NavigationEvidenceMixin
 from .completion_diagnostics import capture as capture_completion_diagnostics
+from .completion_diagnostics import capture_result as capture_completion_result
 
 
 from .transport import AuthenticatedTransport, TransportRetiredError
@@ -202,7 +203,9 @@ class OrynTestDriverProtocolPart(WebDriverTestDriverProtocolPart):
         # This is wall time, not a claim of pure JavaScript execution time.
         with phase(self.parent, 'harness.run', test_id=url):
             try:
-                return super().run(url, script_resume, test_window)
+                result = super().run(url, script_resume, test_window)
+                capture_completion_result(self.parent, url, result)
+                return result
             finally:
                 capture_completion_diagnostics(self.parent, url)
 
