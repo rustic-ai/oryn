@@ -34786,6 +34786,43 @@ mod reflected_long_tests {
             const eq=(a,b,label)=>{if(a!==b)throw Error(label+': '+a+' != '+b)};
             const table=document.createElement('table');
             eq(table instanceof HTMLTableElement,true,'table interface');
+            for(const tag of ['img','input','canvas']) {
+                const element=document.createElement(tag);if(tag==='input')element.type='image';
+                for(const member of ['width','height']) {
+                    for(const value of [2147483648,4294967295]) {
+                        element[member]=value;
+                        eq(element.getAttribute(member),String(tag==='canvas'?(member==='width'?300:150):0),'dimension upper bound');
+                    }
+                }
+            }
+            const zeroCanvas=document.createElement('canvas');
+            zeroCanvas.setAttribute('width','-0');zeroCanvas.setAttribute('height','-00tail');
+            eq(zeroCanvas.width,0,'canvas negative zero width');eq(zeroCanvas.height,0,'canvas negative zero height');
+            for(const tag of ['input','textarea']) {
+                const control=document.createElement(tag);
+                for(const member of ['minLength','maxLength']) {
+                    control.setAttribute(member.toLowerCase(),'-0');eq(control[member],0,'length negative zero');
+                }
+            }
+            const exponentProgress=document.createElement('progress');exponentProgress.setAttribute('max','1.e2');
+            eq(exponentProgress.max,100,'progress exponent after decimal');
+            for(const [tag,members] of [['img',['srcset','sizes']],['object',['width','height']],['embed',['width','height']]]) {
+                const element=document.createElement(tag);
+                for(const member of members) {
+                    eq(element[member],'','embedded string default');
+                    for(const raw of ['17%',' 12px ','\ud800',null,undefined]) {
+                        element[member]=raw;eq(element[member],String(raw),'embedded string roundtrip');
+                        eq(element.getAttribute(member),String(raw),'embedded native attribute');
+                    }
+                    const descriptor=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element),member);
+                    let converted=false,rejected=false;
+                    try{descriptor.set.call(table,{toString(){converted=true;return 'x'}})}catch(e){rejected=e instanceof TypeError}
+                    eq(rejected,true,'embedded receiver brand');eq(converted,false,'embedded brand before conversion');
+                    const other=document.implementation.createHTMLDocument('embedded');
+                    element[member]={toString(){other.adoptNode(element);return 'adopted'}};
+                    eq(element.ownerDocument,other,'embedded adoption');eq(element[member],'adopted','embedded adopted mutation');
+                }
+            }
             for(const [target,prototype] of [[document,Document.prototype],[document.createElementNS('http://www.w3.org/2000/svg','svg'),SVGElement.prototype]]) {
                 for(const name of ['abort','click','beforeinput','wheel','copy','scrollend']) {
                     const key='on'+name,descriptor=Object.getOwnPropertyDescriptor(prototype,key);
@@ -36166,6 +36203,9 @@ fn get_attribute_value<'s>(
     }
     if (interface == "Element" && member == "slot")
         || (interface == "HTMLSourceElement" && matches!(member, "srcset" | "sizes"))
+        || (interface == "HTMLImageElement" && matches!(member, "srcset" | "sizes"))
+        || (matches!(interface, "HTMLObjectElement" | "HTMLEmbedElement")
+            && matches!(member, "width" | "height"))
     {
         return v8_string(
             scope,
@@ -37763,6 +37803,8 @@ fn set_attribute_value<'s>(
         return Ok(());
     }
     if (interface == "HTMLDivElement" && member == "align")
+        || (matches!(interface, "HTMLObjectElement" | "HTMLEmbedElement")
+            && matches!(member, "width" | "height"))
         || (interface == "HTMLInputElement"
             && matches!(
                 member,
@@ -37803,6 +37845,7 @@ fn set_attribute_value<'s>(
         return document_domain::set(scope, state, node, value);
     }
     if (interface == "Element" && member == "slot")
+        || (interface == "HTMLImageElement" && matches!(member, "srcset" | "sizes"))
         || (interface == "HTMLSourceElement"
             && matches!(
                 member,
@@ -37831,7 +37874,7 @@ fn set_attribute_value<'s>(
             .dom
             .borrow_mut()
             .set_attribute_ns(node, None, member, string)?;
-        if interface == "HTMLSourceElement" {
+        if matches!(interface, "HTMLSourceElement" | "HTMLImageElement") {
             return attribute_resource_changed(scope, &owner, node, None, member);
         }
         return Ok(());
@@ -38120,6 +38163,7 @@ fn set_attribute_value<'s>(
         let value = value
             .uint32_value(scope)
             .ok_or(V8BindingError::JavaScriptException)?;
+        let value = if value > i32::MAX as u32 { 0 } else { value };
         let (owner, node) =
             node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
         owner
@@ -38819,10 +38863,14 @@ fn set_attribute_value<'s>(
             dom.set_attribute_ns(node, None, member, value)?;
         }
         ("HTMLCanvasElement", "width" | "height") => {
+            let dimension = value.parse::<u32>().unwrap_or_default();
+            let dimension = if dimension > i32::MAX as u32 {
+                if member == "width" { 300 } else { 150 }
+            } else { dimension };
             dom.set_attribute(
                 node,
                 member,
-                value.parse::<u32>().unwrap_or_default().to_string(),
+                dimension.to_string(),
             )?;
             drop(dom);
             attribute_resource_changed(scope, state, node, None, member)?;

@@ -44,7 +44,8 @@ fn number(value: &str, strict: bool) -> Option<f64> {
             if strict || integer_digits == 0 {
                 return None;
             }
-            return input[..i - 1].parse::<f64>().ok().filter(|n| n.is_finite());
+            // The permissive attribute parser continues into an exponent even
+            // when the decimal point has no following fraction (e.g. 1.e2).
         }
     } else if integer_digits == 0 {
         return None;
@@ -803,6 +804,9 @@ mod tests {
         }
         assert_eq!(number("-.8", true), Some(-0.8));
         assert_eq!(number(" +1.5tail", false), Some(1.5));
+        assert_eq!(number("1.e2", false), Some(100.0));
+        assert_eq!(number("1.e+2tail", false), Some(100.0));
+        assert_eq!(number("1.e2", true), None);
     }
     #[test]
     fn exact_decimal_step_arithmetic_is_bounded_by_finite_numbers() {

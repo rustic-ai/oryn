@@ -185,11 +185,13 @@ impl DomRuntime {
             return Ok(None);
         };
         let raw = raw.trim_start_matches(['\t', '\n', '\x0c', '\r', ' ']);
-        let raw = raw.strip_prefix('+').unwrap_or(raw);
+        let negative = raw.starts_with('-');
+        let raw = raw.strip_prefix('-').or_else(|| raw.strip_prefix('+')).unwrap_or(raw);
         let digits: String = raw.chars().take_while(char::is_ascii_digit).collect();
         Ok(digits
             .parse::<u32>()
             .ok()
+            .filter(|n| !negative || *n == 0)
             .filter(|n| *n <= i32::MAX as u32)
             .map(|n| n as usize))
     }
@@ -393,6 +395,11 @@ mod tests {
         }
         dom.set_attribute(t, "maxlength", " +5rest").unwrap();
         assert_eq!(dom.control_length_limit(t, "maxlength").unwrap(), Some(5));
+        for raw in ["-0", "-00rest", " -0"] {
+            dom.set_attribute(t, "maxlength", raw).unwrap();
+            assert_eq!(dom.control_length_limit(t, "maxlength").unwrap(), Some(0));
+        }
+        dom.set_attribute(t, "maxlength", " +5rest").unwrap();
         dom.set_value(t, "abcd", false).unwrap();
         assert_eq!(dom.edit_control_value(t, 1, 3, "😀😀").unwrap(), 3);
         assert_eq!(dom.control_value(t).unwrap(), "a😀d");

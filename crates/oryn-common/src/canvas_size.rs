@@ -10,11 +10,13 @@ fn dimension(value: Option<&str>, fallback: u32) -> u32 {
     value
         .and_then(|value| {
             let value = value.trim_start_matches([' ', '\t', '\n', '\r', '\u{c}']);
-            let value = value.strip_prefix('+').unwrap_or(value);
+            let negative = value.starts_with('-');
+            let value = value.strip_prefix('-').or_else(|| value.strip_prefix('+')).unwrap_or(value);
             let digits = value.bytes().take_while(u8::is_ascii_digit).count();
             value[..digits]
                 .parse::<u32>()
                 .ok()
+                .filter(|value| !negative || *value == 0)
                 .filter(|value| *value <= i32::MAX as u32)
         })
         .unwrap_or(fallback)
@@ -28,6 +30,7 @@ mod tests {
     fn canvas_attributes_follow_html_integer_rules() {
         assert_eq!(dimensions(None, None), (300, 150));
         assert_eq!(dimensions(Some("0"), Some("0")), (0, 0));
+        assert_eq!(dimensions(Some("-0"), Some(" -00tail")), (0, 0));
         assert_eq!(dimensions(Some(" \t+80px"), Some("40.9")), (80, 40));
         assert_eq!(
             dimensions(Some("2147483647"), Some("12e3")),
