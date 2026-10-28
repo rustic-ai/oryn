@@ -44,6 +44,7 @@ pub(crate) struct ParagraphShapeInputs<'a> {
 mod anchor_positioning;
 mod backdrop;
 mod columns;
+pub mod canvas_text;
 mod control_state;
 mod counter_tree;
 pub mod cssom;
