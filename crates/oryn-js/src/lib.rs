@@ -60,6 +60,7 @@ pub mod drag_image;
 pub mod cache_wire;
 
 pub mod accessibility;
+pub mod rendered_text_source;
 
 pub mod shared_memory;
 
