@@ -8,8 +8,8 @@ use skrifa::{
 use std::collections::BTreeMap;
 use std::sync::Arc;
 pub mod baselines;
-pub mod font_selection;
 pub mod font_inputs;
+pub mod font_selection;
 mod ink;
 pub mod metrics;
 pub mod outlines;
@@ -100,7 +100,7 @@ impl CanvasTextShape {
         for run in &self.glyph_runs {
             self.checkpoint()?;
             if !run.font_size.is_finite()
-                || run.font_size <= 0.
+                || run.font_size < 0.
                 || run.font_size > f64::from(f32::MAX)
                 || !run.scale_x.is_finite()
                 || run.scale_x <= 0.
@@ -125,6 +125,9 @@ impl CanvasTextShape {
             })?;
             let font = FontRef::from_index(&source.bytes, source.collection_index)
                 .map_err(|e| LayoutError::InvalidRenderedTree(e.to_string()))?;
+            if run.font_size == 0. {
+                continue;
+            }
             let coords = run
                 .normalized_coords
                 .iter()
@@ -305,6 +308,65 @@ pub fn shape_controlled(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_canvas_zero_size_font_has_zero_metrics_and_no_ink() {
+        let style = BTreeMap::from([
+            ("font-size".into(), "0px".into()),
+            ("font-family".into(), "sans-serif".into()),
+        ]);
+        let shaped = shape("Ag", &style, ViewportState::default(), &[]).unwrap();
+        assert_eq!(shaped.font_size, 0.);
+        assert_eq!(shaped.width, 0.);
+        assert_eq!(shaped.ink_bounds().unwrap(), None);
+        struct NoOutline;
+        impl outlines::OutlinePen for NoOutline {
+            fn move_to(&mut self, _: f32, _: f32) {
+                panic!("zero-size outline");
+            }
+            fn line_to(&mut self, _: f32, _: f32) {
+                panic!("zero-size outline");
+            }
+            fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {
+                panic!("zero-size outline");
+            }
+            fn curve_to(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: f32) {
+                panic!("zero-size outline");
+            }
+            fn close(&mut self) {
+                panic!("zero-size outline");
+            }
+        }
+        for (run_index, run) in shaped.glyph_runs.iter().enumerate() {
+            for glyph_index in 0..run.glyphs.len() {
+                shaped
+                    .draw_glyph_outline(run_index, glyph_index, &mut NoOutline)
+                    .unwrap();
+            }
+        }
+        use metrics::Baseline::*;
+        for baseline in [Top, Hanging, Middle, Alphabetic, Ideographic, Bottom] {
+            let metrics = shaped
+                .measure(skrifa::raw::types::Tag::new(b"latn"), baseline, 0.)
+                .unwrap();
+            assert_eq!(
+                [
+                    metrics.width,
+                    metrics.actual_bounding_box_left,
+                    metrics.actual_bounding_box_right,
+                    metrics.font_bounding_box_ascent,
+                    metrics.font_bounding_box_descent,
+                    metrics.actual_bounding_box_ascent,
+                    metrics.actual_bounding_box_descent,
+                    metrics.em_height_ascent,
+                    metrics.em_height_descent,
+                    metrics.hanging_baseline,
+                    metrics.alphabetic_baseline,
+                    metrics.ideographic_baseline
+                ],
+                [0.; 12]
+            );
+        }
+    }
     #[test]
     fn canvas_text_cancellation_stops_input_and_retained_measurement() {
         use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

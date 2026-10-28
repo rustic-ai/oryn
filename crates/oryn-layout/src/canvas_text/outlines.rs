@@ -62,7 +62,7 @@ impl CanvasTextShape {
             .get(glyph_index)
             .ok_or_else(|| LayoutError::InvalidRenderedTree("canvas outline glyph index".into()))?;
         if !run.font_size.is_finite()
-            || run.font_size <= 0.
+            || run.font_size < 0.
             || run.font_size > f64::from(f32::MAX)
             || run
                 .normalized_coords
@@ -82,6 +82,9 @@ impl CanvasTextShape {
         let glyph = outlines.get(GlyphId::new(glyph.id)).ok_or_else(|| {
             LayoutError::InvalidRenderedTree("canvas glyph outline is missing".into())
         })?;
+        if run.font_size == 0. {
+            return Ok(());
+        }
         let coordinates = run
             .normalized_coords
             .iter()
