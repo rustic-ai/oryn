@@ -2196,6 +2196,7 @@ fn request_diagnostic_label(request: &WorkerRequest) -> &'static str {
         WorkerRequest::LoadHtml { .. } => "load_html",
         WorkerRequest::Evaluate { .. } => "evaluate",
         WorkerRequest::WebdriverScript { .. } => "webdriver_script",
+        WorkerRequest::PollScript { .. } => "poll_script",
         WorkerRequest::WebdriverActions { .. } => "webdriver_actions",
         WorkerRequest::WebdriverFrames { .. } => "webdriver_frames",
         WorkerRequest::Oil { .. } => "oil",
@@ -2741,7 +2742,26 @@ impl WorkerClient {
             )?;
         }
         let timeout = request_timeout(&request, &self.limits);
-        self.request_with_timeout(request, timeout)
+        let allows_pending = match &request {
+            WorkerRequest::WebdriverScript { request, .. } => request.asynchronous,
+            WorkerRequest::Scoped { request, .. } => matches!(request.as_ref(),
+                WorkerRequest::WebdriverScript { request, .. } if request.asynchronous),
+            _ => false,
+        };
+        let mut response = self.request_with_timeout(request, timeout)?;
+        let mut expected_ticket = None;
+        while let WorkerResponse::ScriptPending { ticket } = response {
+            if !allows_pending || ticket == 0 || expected_ticket.is_some_and(|expected| expected != ticket) {
+                self.kill();
+                return Err(RuntimeError::ProtocolViolation("unexpected pending script ticket".into()));
+            }
+            expected_ticket = Some(ticket);
+            // Each correlated exchange releases the shared session lock. The
+            // native script deadline remains in the actor, including null.
+            std::thread::sleep(Duration::from_millis(10));
+            response = self.request_with_timeout(WorkerRequest::PollScript { ticket }, timeout)?;
+        }
+        Ok(response)
     }
 
     /// Shorten only the next test caller's transport budgets after real startup.

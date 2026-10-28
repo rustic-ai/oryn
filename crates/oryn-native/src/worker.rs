@@ -20,7 +20,7 @@ use crate::{
     runtime::{NativeAction, RuntimeError},
 };
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 21;
+pub const WORKER_PROTOCOL_VERSION: u32 = 22;
 use crate::worker_route::WorkerRoute;
 pub const MAX_IPC_FRAME_BYTES: usize = 24 * 1024 * 1024;
 static WORKER_BINARY_SHA256: OnceLock<String> = OnceLock::new();
@@ -194,6 +194,7 @@ pub enum WorkerRequest {
         request: crate::host::webdriver_script::ScriptRequest,
         context: crate::host::webdriver_script::ScriptContext,
     },
+    PollScript { ticket: u64 },
     WebdriverActions {
         #[serde(rename = "operation")]
         command: crate::webdriver_actions::ActionCommand,
@@ -322,6 +323,7 @@ pub enum WorkerResponse {
             crate::host::webdriver_script::ScriptError,
         >,
     },
+    ScriptPending { ticket: u64 },
     WebdriverActions {
         result: Result<(), crate::host::webdriver_script::ScriptError>,
         feedback: oryn_js::drag_image::FeedbackBatch,
@@ -454,6 +456,76 @@ struct PageSession {
     parent_policy_authority: bool,
     page: PageHandle,
     oil: NativeOilSession,
+    pending_script: Option<PendingScript>,
+}
+
+// One outstanding script per environment. The actor owns execution and its
+// native deadline; this future only retains the response, without occupying
+// the process's sole command reader. Tickets never repeat across environments.
+struct PendingScript {
+    ticket: u64,
+    future: std::pin::Pin<Box<dyn std::future::Future<Output = WorkerResponse>>>,
+}
+static NEXT_SCRIPT_TICKET: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1);
+
+impl PageSession {
+    fn poll_script(&mut self, ticket: u64) -> WorkerResponse {
+        let Some(pending) = self.pending_script.as_mut() else {
+            return error(RuntimeError::ProtocolViolation("no pending script".into()));
+        };
+        if pending.ticket != ticket {
+            return error(RuntimeError::ProtocolViolation("foreign script ticket".into()));
+        }
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        match pending.future.as_mut().poll(&mut context) {
+            std::task::Poll::Pending => WorkerResponse::ScriptPending { ticket },
+            std::task::Poll::Ready(response) => {
+                self.pending_script.take();
+                response
+            }
+        }
+    }
+
+    fn start_script(&mut self, request: WorkerRequest) -> WorkerResponse {
+        if self.pending_script.is_some() {
+            return error(RuntimeError::ProtocolViolation("script already pending".into()));
+        }
+        let Ok(ticket) = NEXT_SCRIPT_TICKET.fetch_update(
+            std::sync::atomic::Ordering::Relaxed,
+            std::sync::atomic::Ordering::Relaxed,
+            |value| value.checked_add(1),
+        ) else {
+            return error(RuntimeError::ProtocolViolation("script ticket exhausted".into()));
+        };
+        let page = self.page.clone();
+        self.pending_script = Some(PendingScript {
+            ticket,
+            future: Box::pin(async move {
+                match request {
+                    WorkerRequest::WebdriverScript { request, context } =>
+                        WorkerResponse::WebdriverScript {
+                            result: page.execute_webdriver_script_in_context(request, context).await,
+                        },
+                    WorkerRequest::Scoped { scope, request } =>
+                        match page.scoped_worker_request(scope, *request).await {
+                            Ok(response) => response,
+                            Err(value) => error(value),
+                        },
+                    _ => unreachable!("only async scripts are admitted"),
+                }
+            }),
+        });
+        self.poll_script(ticket)
+    }
+}
+
+fn asynchronous_script(request: &WorkerRequest) -> bool {
+    match request {
+        WorkerRequest::WebdriverScript { request, .. } => request.asynchronous,
+        WorkerRequest::Scoped { request, .. } => asynchronous_script(request),
+        _ => false,
+    }
 }
 
 impl PageSession {
@@ -500,7 +572,7 @@ impl PageSession {
                 actor, &route, &config, &context, opener_page_id,
             )? {
                 return Ok(Self { wire_limits, oil: NativeOilSession::new(page.clone()), page,
-                    parent_policy_authority });
+                    parent_policy_authority, pending_script: None });
             }
         }
         let browser = Browser::in_process_with_config(config);
@@ -539,6 +611,7 @@ impl PageSession {
             page,
             oil,
             parent_policy_authority,
+            pending_script: None,
         })
     }
 }
@@ -1005,7 +1078,11 @@ async fn dispatch(
             )),
         };
     };
+    if asynchronous_script(&request) {
+        return session.start_script(request);
+    }
     match request {
+        WorkerRequest::PollScript { ticket } => session.poll_script(ticket),
         WorkerRequest::ControlledNavigate { id, request } => {
             match session.page.run_remote_navigation(id, request).await {
                 Ok(()) => WorkerResponse::Satisfied,
@@ -1438,6 +1515,60 @@ fn secret_environment_present() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(all(unix, feature = "v8-host"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn pending_script_transport_preserves_tickets_deadlines_and_close() {
+        let mut session = PageSession::new(
+            BrowserConfig::default(), ContextOptions::default(), None, None,
+            PageId(1), None,
+        );
+        session.page.goto("about:blank").await.unwrap();
+        let script = |timeout_ms| WorkerRequest::WebdriverScript {
+            request: crate::host::webdriver_script::ScriptRequest {
+                body: "void 0;".encode_utf16().collect(), args: vec![],
+                asynchronous: true, timeout_ms,
+            },
+            context: Default::default(),
+        };
+        let WorkerResponse::ScriptPending { ticket } = session.start_script(script(Some(30))) else {
+            panic!("async command must release the dispatcher while pending");
+        };
+        assert!(matches!(session.start_script(script(None)), WorkerResponse::Error { .. }));
+        assert!(matches!(session.poll_script(ticket + 1), WorkerResponse::Error { .. }));
+        assert_eq!(session.pending_script.as_ref().unwrap().ticket, ticket);
+        let completion = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                match session.poll_script(ticket) {
+                    WorkerResponse::ScriptPending { ticket: observed } => {
+                        assert_eq!(observed, ticket);
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                    response => break response,
+                }
+            }
+        }).await.unwrap();
+        assert!(matches!(completion, WorkerResponse::WebdriverScript { result: Err(ref error) }
+            if error.code == "script timeout"));
+        assert!(session.pending_script.is_none());
+        assert!(matches!(session.poll_script(ticket), WorkerResponse::Error { .. }));
+        let WorkerResponse::ScriptPending { ticket: next } = session.start_script(script(None)) else {
+            panic!("null timeout script should remain pending");
+        };
+        assert_ne!(next, ticket);
+        tokio::time::timeout(Duration::from_secs(2), session.page.close()).await.unwrap().unwrap();
+        let completion = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                match session.poll_script(next) {
+                    WorkerResponse::ScriptPending { .. } =>
+                        tokio::time::sleep(Duration::from_millis(10)).await,
+                    response => break response,
+                }
+            }
+        }).await.unwrap();
+        assert!(matches!(completion, WorkerResponse::WebdriverScript { result: Err(_) }));
+        assert!(session.pending_script.is_none());
+    }
+
     #[test]
     fn native_scrollbar_width_round_trips_and_rejects_nonfinite_geometry() {
         let config = BrowserConfig {

@@ -43595,6 +43595,56 @@ include!("frame_runtime.rs");
 #[cfg(all(test, feature = "v8-host"))]
 mod webdriver_cancellation_regressions {
     use super::*;
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn sibling_popup_physically_closes_during_pending_shared_worker_script() {
+        let mut browser = Browser::new();
+        // Unit tests default to in-process execution. Explicitly exercise the
+        // signed production transport, including its shared session lock.
+        browser.worker_process = true;
+        let context = browser.new_context();
+        let opener = context.new_page();
+        opener.goto("about:blank").await.unwrap();
+        opener.evaluate("globalThis.popup=window.open('about:blank');true").await.unwrap();
+        let popup_id = context.pages().into_iter()
+            .find(|page| page.page.page_id != opener.page_id())
+            .expect("popup must be admitted").page.page_id;
+        let popup = context.inner.group.handle(popup_id).unwrap();
+        assert_eq!(opener.worker.as_ref().unwrap().process_id.load(Ordering::Acquire),
+            popup.worker.as_ref().unwrap().process_id.load(Ordering::Acquire),
+            "regression requires sibling roots in the same production worker");
+        let running = opener.clone();
+        let script = tokio::spawn(async move {
+            running.execute_webdriver_script(crate::host::webdriver_script::ScriptRequest {
+                body: "const done=arguments[0];setTimeout(()=>popup.close(),0);setTimeout(()=>done(true),2500)"
+                    .encode_utf16().collect(),
+                args: vec![], asynchronous: true, timeout_ms: Some(5000),
+            }).await
+        });
+        let admission = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if context.inner.group.pages.lock().unwrap().get(&popup_id)
+                    .is_some_and(|record| record.is_closing) { break; }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await;
+        let cleanup = tokio::time::timeout(Duration::from_millis(750), async {
+            loop {
+                if context.inner.group.pages.lock().unwrap().get(&popup_id)
+                    .is_some_and(|record| !record.is_live() && record.physical_close_complete) { break; }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await;
+        let still_pending = !script.is_finished();
+        // Settle the original command and owned processes even on the baseline
+        // failure; do not turn an assertion into abandoned worker custody.
+        let result = script.await.unwrap();
+        opener.close().await.unwrap();
+        assert!(admission.is_ok(), "script close must be admitted");
+        assert!(result.is_ok(), "opener command must finish normally: {result:?}");
+        assert!(cleanup.is_ok() && still_pending,
+            "sibling physical cleanup must not wait for the opener's response exchange");
+    }
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn null_timeout_pending_script_is_cancelled_before_actor_close() {
         let context = Browser::in_process_with_config(BrowserConfig::default()).new_context();
