@@ -1588,6 +1588,8 @@ interface HTMLTemplateElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLMediaElement : HTMLElement {
+  [CEReactions, Reflect] attribute boolean controls;
+  [CEReactions, Reflect=muted] attribute boolean defaultMuted;
   [SameObject] readonly attribute AudioTrackList audioTracks;
   [SameObject] readonly attribute VideoTrackList videoTracks;
   [SameObject] readonly attribute TextTrackList textTracks;
@@ -1637,6 +1639,7 @@ interface HTMLMediaElement : HTMLElement {
 };
 [Exposed=Window]
 interface HTMLVideoElement : HTMLMediaElement {
+  [CEReactions, Reflect] attribute boolean playsInline;
   [CEReactions] attribute USVString poster;
   readonly attribute unsigned long videoWidth;
   readonly attribute unsigned long videoHeight;
@@ -1801,6 +1804,11 @@ interface OffscreenCanvasRenderingContext2D {
 
 [Exposed=Window]
 interface HTMLImageElement : HTMLElement {
+  [CEReactions, Reflect] attribute DOMString alt;
+  [CEReactions, Reflect] attribute DOMString align;
+  [CEReactions, Reflect] attribute DOMString useMap;
+  [CEReactions, Reflect] attribute boolean isMap;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString border;
   [CEReactions] attribute DOMString fetchPriority;
   [CEReactions] attribute DOMString srcset;
   [CEReactions] attribute DOMString sizes;
@@ -2082,6 +2090,14 @@ interface HTMLFieldSetElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLObjectElement : HTMLElement {
+  [CEReactions, Reflect] attribute DOMString align;
+  [CEReactions, Reflect] attribute DOMString archive;
+  [CEReactions, Reflect] attribute DOMString code;
+  [CEReactions, Reflect] attribute boolean declare;
+  [CEReactions, Reflect] attribute DOMString standby;
+  [CEReactions, Reflect] attribute DOMString codeType;
+  [CEReactions, Reflect] attribute DOMString useMap;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString border;
   readonly attribute Window? contentWindow;
   Document? getSVGDocument();
   [CEReactions] attribute DOMString type;
@@ -2123,6 +2139,12 @@ interface HTMLFormElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLAnchorElement : HTMLElement {
+  [CEReactions, Reflect] attribute DOMString coords;
+  [CEReactions, Reflect] attribute DOMString charset;
+  [CEReactions, Reflect] attribute DOMString rev;
+  [CEReactions, Reflect] attribute DOMString shape;
+  [CEReactions, Reflect] attribute DOMString hreflang;
+  [CEReactions, Reflect] attribute DOMString type;
   [CEReactions] attribute DOMString download;
   [SameObject, PutForwards=value] readonly attribute DOMTokenList relList;
   [CEReactions] attribute DOMString rel;
@@ -2145,6 +2167,10 @@ interface HTMLAnchorElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLAreaElement : HTMLElement {
+  [CEReactions, Reflect] attribute DOMString alt;
+  [CEReactions, Reflect] attribute DOMString hreflang;
+  [CEReactions, Reflect] attribute DOMString type;
+  [CEReactions, Reflect] attribute boolean noHref;
   [CEReactions] attribute DOMString coords;
   [CEReactions] attribute DOMString shape;
   [CEReactions] attribute DOMString download;
@@ -2199,6 +2225,11 @@ interface HTMLStyleElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLIFrameElement : HTMLElement {
+  [CEReactions, Reflect] attribute DOMString align;
+  [CEReactions, Reflect] attribute DOMString scrolling;
+  [CEReactions, Reflect] attribute DOMString frameBorder;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString marginHeight;
+  [CEReactions, Reflect, LegacyNullToEmptyString] attribute DOMString marginWidth;
   Document? getSVGDocument();
   [CEReactions] attribute DOMString allow;
   [CEReactions] attribute boolean allowFullscreen;
@@ -4753,6 +4784,7 @@ interface AudioContext : BaseAudioContext {
 // Native URL-reflection interfaces used by document resource selection.
 [Exposed=Window]
 interface HTMLEmbedElement : HTMLElement {
+  [CEReactions, Reflect] attribute DOMString align;
   Document? getSVGDocument();
   [CEReactions] attribute DOMString name;
   [CEReactions] attribute DOMString width;

@@ -31920,6 +31920,8 @@ fn validate_interface_node(
         "HTMLObjectElement" => Some("object"),
         "HTMLFrameElement" => Some("frame"),
         "HTMLAnchorElement" => Some("a"),
+        "HTMLAreaElement" => Some("area"),
+        "HTMLAudioElement" => Some("audio"),
         "HTMLBaseElement" => Some("base"),
         "HTMLEmbedElement" => Some("embed"),
         "HTMLTrackElement" => Some("track"),
@@ -31932,12 +31934,13 @@ fn validate_interface_node(
         "HTMLSlotElement" => Some("slot"),
         _ => None,
     };
-    if matches!(interface, "HTMLPreElement" | "HTMLTableColElement" | "HTMLTableSectionElement" | "HTMLTableCellElement" | "HTMLHeadingElement" | "HTMLQuoteElement" | "HTMLModElement") {
+    if matches!(interface, "HTMLMediaElement" | "HTMLPreElement" | "HTMLTableColElement" | "HTMLTableSectionElement" | "HTMLTableCellElement" | "HTMLHeadingElement" | "HTMLQuoteElement" | "HTMLModElement") {
         let record = dom.arena().get(node)?;
         let valid = match &record.kind {
             NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" => {
                 match interface {
                     "HTMLPreElement" => matches!(name.local.as_ref(), "pre" | "listing" | "xmp"),
+                    "HTMLMediaElement" => matches!(name.local.as_ref(), "audio" | "video"),
                     "HTMLTableColElement" => matches!(name.local.as_ref(), "col" | "colgroup"),
                     "HTMLTableSectionElement" => matches!(name.local.as_ref(), "thead" | "tbody" | "tfoot"),
                     "HTMLHeadingElement" => matches!(name.local.as_ref(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6"),
@@ -34575,6 +34578,31 @@ mod reflected_long_tests {
             const eq=(a,b,label)=>{if(a!==b)throw Error(label+': '+a+' != '+b)};
             const table=document.createElement('table');
             eq(table instanceof HTMLTableElement,true,'table interface');
+            for(const [tag,members] of [['a',['coords','charset','rev','shape','hreflang','type']],['area',['alt','hreflang','type']],['img',['alt','align','useMap','border']],['iframe',['align','scrolling','frameBorder','marginHeight','marginWidth']],['object',['align','archive','code','standby','codeType','useMap','border']],['embed',['align']]]) {
+                const element=document.createElement(tag);
+                for(const member of members) {
+                    const attribute=member.toLowerCase();eq(element[member],'','missing string '+tag+'.'+member);
+                    for(const value of ['Mixed Case','\ud800',undefined,null,7]) {
+                        element[member]=value;
+                        const legacy=['border','marginHeight','marginWidth'].includes(member);
+                        const expected=legacy&&value===null?'':String(value);
+                        eq(element[member],expected,'string getter '+tag+'.'+member);eq(element.getAttribute(attribute),expected,'string attribute '+tag+'.'+member);
+                    }
+                    element.removeAttribute(attribute);eq(element[member],'','removed string '+tag+'.'+member);
+                }
+            }
+            for(const [tag,member,attribute] of [['area','noHref','nohref'],['img','isMap','ismap'],['object','declare','declare'],['audio','controls','controls'],['video','controls','controls'],['audio','defaultMuted','muted'],['video','defaultMuted','muted'],['video','playsInline','playsinline']]) {
+                const element=document.createElement(tag);eq(element[member],false,'missing boolean '+member);
+                for(const value of [false,true,0,1,'false',{},null,undefined]) {
+                    element[member]=value;eq(element[member],Boolean(value),'boolean getter '+member);
+                    eq(element.hasAttribute(attribute),Boolean(value),'boolean attribute '+member);
+                }
+                element.setAttribute(attribute,'false');eq(element[member],true,'boolean author presence '+member);
+                const prototype=member==='controls'||member==='defaultMuted'?HTMLMediaElement.prototype:Object.getPrototypeOf(element);
+                const descriptor=Object.getOwnPropertyDescriptor(prototype,member);
+                let rejected=false;try{descriptor.set.call(table,true)}catch(e){rejected=e instanceof TypeError}
+                eq(rejected,true,'boolean specific receiver '+tag+'.'+member);
+            }
             for(const [tag,name,member,attribute] of [['br','HTMLBRElement','clear','clear'],['data','HTMLDataElement','value','value'],['time','HTMLTimeElement','dateTime','datetime'],['legend','HTMLLegendElement','align','align'],['map','HTMLMapElement','name','name'],['param','HTMLParamElement','valueType','valuetype'],['listing','HTMLPreElement','width','width'],['xmp','HTMLPreElement','width','width']]) {
                 const element=document.createElement(tag);eq(Object.prototype.toString.call(element),'[object '+name+']','HTML primary interface '+tag);
                 eq(element instanceof globalThis[name],true,'HTML prototype '+tag);
