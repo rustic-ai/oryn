@@ -229,7 +229,11 @@ pub(super) fn construct<'s>(
     }));
     let connection = match response {
         Ok(AgentServiceResponse::Connected(connection)) => connection,
-        Err(failure) => return error(scope, &failure.name),
+        Err(failure) => {
+            let exception = dom_exception_with_message(scope, &failure.name, &failure.message)?;
+            scope.throw_exception(exception);
+            return Err(V8BindingError::JavaScriptException);
+        }
         _ => return Err(V8BindingError::Allocation("worker creation response")),
     };
     let port = (|| -> Result<Option<u64>, V8BindingError> {
@@ -763,6 +767,30 @@ mod delivery_tests {
             .get_slot::<V8BindingState>()
             .unwrap();
         result.set_uint32(poll(scope, &state).unwrap() as u32);
+    }
+    #[test]
+    fn worker_creation_preserves_native_failure_message_and_intrinsic() {
+        struct Failure;
+        impl WorkerTransport for Failure {
+            fn request(&self, request: AgentServiceRequest) -> Result<AgentServiceResponse, WorkerError> {
+                if matches!(request, AgentServiceRequest::Create(_)) {
+                    Err(WorkerError::new("NetworkError", "worker script response MIME mismatch"))
+                } else {
+                    Ok(AgentServiceResponse::Done)
+                }
+            }
+        }
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(oryn_dom::html::parse("<body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        install_fixture_source(&state);
+        state.set_message_transport(Arc::new(Messages));
+        state.set_worker_transport(Arc::new(Failure), None, Some("https://example.test/".into()));
+        assert!(eval(scope, "(()=>{const intrinsic=DOMException;globalThis.DOMException=function(){throw Error('author constructor')};try{new Worker('/worker.js')}catch(e){return e instanceof intrinsic&&e.name==='NetworkError'&&e.code===19&&e.message==='worker script response MIME mismatch'}return false})()").is_true());
     }
     #[test]
     fn worker_delivery_retains_decoded_payload_callback_progress_and_terminal_receipt() {

@@ -7468,9 +7468,17 @@ fn dom_exception_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     name: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    dom_exception_with_message(scope, name, name)
+}
+
+fn dom_exception_with_message<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    name: &str,
+    detail: &str,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
     if matches!(name, "TypeError" | "RangeError") {
         let message =
-            v8::String::new(scope, name).ok_or(V8BindingError::Allocation("exception name"))?;
+            v8::String::new(scope, detail).ok_or(V8BindingError::Allocation("exception name"))?;
         return Ok(if name == "TypeError" {
             v8::Exception::type_error(scope, message)
         } else {
@@ -7485,7 +7493,7 @@ fn dom_exception_value<'s>(
             &state,
             PlatformObjectRecord::DomException {
                 name: name.into(),
-                message: name.into(),
+                message: detail.into(),
                 code: dom_exception_code(name),
             },
         );
@@ -7497,7 +7505,7 @@ fn dom_exception_value<'s>(
         && let Some(constructor) = global.get(scope, constructor_key.into())
         && let Ok(constructor) = v8::Local::<v8::Function>::try_from(constructor)
     {
-        let message = v8_string(scope, name)?;
+        let message = v8_string(scope, detail)?;
         let exception_name = v8_string(scope, name)?;
         if let Some(object) = constructor.new_instance(scope, &[message, exception_name]) {
             return Ok(object.into());
@@ -7506,7 +7514,7 @@ fn dom_exception_value<'s>(
     let object = v8::Object::new(scope);
     let name_value = v8_string(scope, name)?;
     set_object_property(scope, object, "name", name_value)?;
-    let message = v8_string(scope, name)?;
+    let message = v8_string(scope, detail)?;
     set_object_property(scope, object, "message", message)?;
     Ok(object.into())
 }
