@@ -746,3 +746,65 @@ The configured public IPv6 address is absent from en0; original WPT cannot start
 Restoring network configuration requires explicit user direction. No fixture
 validation, TLS checks, worker limits, timeouts or original count gates were
 weakened. At this checkpoint all diagnostic owners have settled; no job is running.
+
+## Batch A verified closure — October 27
+
+Batch A is **closed for the implementation and affected-fixture exit gates**.
+This supersedes the open checkpoints above without replacing their raw failures.
+It is not full Core conformance or release qualification.
+
+The integration source is `712b777dbef6caa787eab4b518bd7f1b18c14223` on
+`codex/conformance-next`. The final repair rejects an IPC thread waiting for its
+own termination while retaining its handle for external retry. The preceding
+admission repair retains capacity for retiring processes without blocking an
+unrelated live page or a shared peer's reuse of its original process. Focused
+baseline failures and repair diagnostics remain preserved; they are not used
+instead of the fresh-worker results below.
+
+Fresh signed build `git-712b777d-batch-a-completion-20261026-270` was built and
+tested from the same frozen source. Worker SHA-256:
+`a97960a27476db43c302c7a51db31c18f70bb8de7a8ad24b7cbaa33385b8eead`.
+The executable hash remained unchanged after execution, and final strict/deep
+signature verification passed. `ORYN_PAGE_WORKER` explicitly selected this
+worker; no fallback-worker diagnostics qualify the changed native source.
+
+Full integration passed: DOM 499, JavaScript 2,065 (3 ignored), layout 646
+(1 ignored), native 3,506 (7 ignored), zero failures. Integration compilation
+took 13m07s; execution took 499.942s, including 447.92s native execution.
+The required concurrent cleanup, reentrant broker/self-wait, failed join/retry,
+panic/unwind, cancelled close, closed/crashed custody, service/shared worker,
+document replacement and poisoned-lock regression groups passed.
+
+The unchanged seven-fixture originals passed at both one and four workers:
+
+| Fixture | Assertions passing in each original |
+| --- | ---: |
+| Cross-partition BlobURL | 8 |
+| Opaque-origin BlobURL | 2 |
+| Blob constructor DOM | 4 |
+| Blob worker new-object | 4 |
+| CSP form-action JavaScript | 1 |
+| Dedicated-worker CSP connect-src | 21 |
+| Original EUC-JP encoding `?1001-2000` | 1,000 |
+
+Each original reports seven parent `OK` outcomes and 1,040 assertion `PASS`
+outcomes, with complete starts/ends, no duplicates or discrepancies, and complete
+process custody. Diagnostics and replay were disabled. No assertions, RSS/heap
+limits, command/navigation deadlines, sandbox restrictions or fixture admission
+checks were weakened. BlobURL assertions **and required cleanup** passed; the
+previous callback-only passes with official cleanup `CRASH` remain failures.
+
+Signing, integration, both WPT processes, fixture services and the independent
+coordinator settled cleanly, without timeout, forced cleanup or cleanup errors.
+Owner 32398 completed in 2,415.615s at normal scheduling; observed owners and
+runner processes are absent. No independently owned job or schedule remains.
+
+Evidence is retained under `oryn-data/development/` with the build prefix above:
+`-signed`, `-integration-compile`, `-native-integration`, `-wpt-1` and `-wpt-4`.
+Raw WPT reports and timing/reconciliation receipts were reviewed individually.
+Coordinator custody, reviews and prior failure evidence remain under
+`../.local-patches/wpt-batch-a-remaining-20261026/coordinator/`, especially
+`build270-review.md`, `build270-owner/terminal.json` and worker identity receipt.
+Developer reports correctly retain `qualification=not-evaluated`; this batch
+exit does not claim the broader frozen-artifact, independent review, platform,
+full/lite, security/recovery, performance or full-Core release gates.
