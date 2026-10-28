@@ -55,6 +55,15 @@ pub(super) fn paint_path(
         &draw.fill_gradient
     };
     let gradient = paint.as_ref().map(|paint| paint.gradient.borrow());
+    let pattern_paint = if stroking { &draw.stroke_pattern } else { &draw.fill_pattern };
+    let pattern = pattern_paint.as_ref().map(|paint| paint.pattern.borrow());
+    let pattern_sample = pattern.as_ref().and_then(|pattern| {
+        Some((
+            oryn_common::canvas_pattern::Bitmap::new(pattern.image.width, pattern.image.height, &pattern.image.rgba)?,
+            canvas_matrix_inverse(pattern.transform)?,
+            pattern.repeat,
+        ))
+    });
     let inverse = canvas_matrix_inverse(draw.transform);
     for y in top..bottom {
         for x in left..right {
@@ -73,12 +82,21 @@ pub(super) fn paint_path(
                 draw.fill_color
             };
             let alpha = color[3] as f64 / 255.0 * draw.global_alpha * coverage;
-            let pixel = [
+            let mut pixel = [
                 color[0] as f64 * alpha,
                 color[1] as f64 * alpha,
                 color[2] as f64 * alpha,
                 alpha,
             ];
+            if pattern.is_some() {
+                let sample = inverse.and_then(|inverse| {
+                    let point = canvas_matrix_point(inverse, x as f64 + 0.5, y as f64 + 0.5);
+                    let (bitmap, inverse_pattern, repeat) = pattern_sample?;
+                    let point = canvas_matrix_point(inverse_pattern, point.0, point.1);
+                    Some(bitmap.sample(repeat, point.0, point.1, draw.image_smoothing))
+                }).unwrap_or([0.0; 4]);
+                pixel = sample.map(|channel| channel * draw.global_alpha * coverage);
+            }
             let offset = (y as usize * width as usize + x as usize) * 4;
             draw.composite.apply_clipped(
                 &mut target.rgba[offset..offset + 4],

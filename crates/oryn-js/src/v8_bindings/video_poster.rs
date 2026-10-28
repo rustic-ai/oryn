@@ -7,6 +7,7 @@ pub(super) fn is_video(state: &V8BindingState, node: NodeId) -> bool {
         .is_element(node, "http://www.w3.org/1999/xhtml", "video")
 }
 pub(super) fn clear_image(state: &V8BindingState, node: NodeId) -> Result<(), V8BindingError> {
+    state.failed_images.borrow_mut().remove(&node);
     state.image_response_urls.borrow_mut().remove(&node);
     if is_video(state, node) {
         state

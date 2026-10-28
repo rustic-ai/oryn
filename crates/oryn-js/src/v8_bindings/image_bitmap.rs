@@ -140,6 +140,7 @@ fn source_with_orientation(
     let dom = owner.dom.borrow();
     let canvas = dom.is_element(node, "http://www.w3.org/1999/xhtml", "canvas");
     let image = dom.is_element(node, "http://www.w3.org/1999/xhtml", "img")
+        || dom.is_element(node, "http://www.w3.org/2000/svg", "image")
         || dom.is_element(node, "http://www.w3.org/1999/xhtml", "video");
     drop(dom);
     if !canvas && !image {
@@ -161,6 +162,9 @@ fn source_with_orientation(
         bitmap.origin_clean &= !owner.tainted_canvases.borrow().contains(&node);
         Ok(Some(bitmap))
     } else {
+        if owner.failed_images.borrow().contains(&node) {
+            return Err(error("InvalidStateError"));
+        }
         Ok(owner.decoded_images.borrow().get(&node).cloned())
     }
 }

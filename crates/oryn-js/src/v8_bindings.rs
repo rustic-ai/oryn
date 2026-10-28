@@ -200,6 +200,7 @@ mod document_parser_gate;
 pub use document_parser_gate::{DocumentParserGate, with_parser_construction};
 mod canvas_composite;
 mod canvas_gradients;
+mod canvas_patterns;
 mod canvas_path;
 mod canvas_path_svg;
 mod rect_lists;
@@ -871,6 +872,8 @@ struct CanvasDrawState {
     stroke_color: [u8; 4],
     fill_gradient: Option<canvas_gradients::Paint>,
     stroke_gradient: Option<canvas_gradients::Paint>,
+    fill_pattern: Option<canvas_patterns::Paint>,
+    stroke_pattern: Option<canvas_patterns::Paint>,
     stroke: kurbo::Stroke,
     global_alpha: f64,
     composite: Composite,
@@ -885,6 +888,8 @@ impl Default for CanvasDrawState {
             stroke_color: [0, 0, 0, 255],
             fill_gradient: None,
             stroke_gradient: None,
+            fill_pattern: None,
+            stroke_pattern: None,
             stroke: kurbo::Stroke::new(1.0)
                 .with_caps(kurbo::Cap::Butt)
                 .with_join(kurbo::Join::Miter)
@@ -1266,6 +1271,7 @@ enum PlatformObjectRecord {
     TouchList(Vec<v8::Global<v8::Object>>),
     Path2D(Rc<RefCell<canvas_path::CanvasPath>>),
     CanvasGradient(Rc<RefCell<canvas_gradients::Gradient>>),
+    CanvasPattern(Rc<RefCell<canvas_patterns::Pattern>>),
     XhrUpload,
     Crypto {
         subtle_id: u64,
@@ -3028,6 +3034,7 @@ pub struct V8BindingState {
     intersection_observers: RefCell<intersection_observers::State>,
     preload_resources: RefCell<preload_resources::State>,
     image_sources: RefCell<BTreeMap<NodeId, ImageRequestKey>>,
+    failed_images: RefCell<BTreeSet<NodeId>>,
     image_generations: RefCell<BTreeMap<NodeId, HostOperationId>>,
     images_deferred: Cell<bool>,
     image_selection_cursor: Cell<u64>,
@@ -6228,6 +6235,7 @@ impl V8BindingState {
         self.image_response_urls
             .borrow_mut()
             .retain(|node, _| dom.arena().get(*node).is_ok());
+        self.failed_images.borrow_mut().retain(|node| dom.arena().get(*node).is_ok());
         self.decoded_svg_images
             .borrow_mut()
             .retain(|node, _| dom.arena().get(*node).is_ok());
@@ -13056,6 +13064,7 @@ fn is_platform_interface(interface: &str) -> bool {
         interface,
         "Sanitizer"
             | "CanvasGradient"
+            | "CanvasPattern"
             | "EditContext"
             | "TextFormat"
             | "TextUpdateEvent"
@@ -28161,6 +28170,9 @@ fn call_platform_operation<'s>(
     if interface == "CanvasGradient" && member == "addColorStop" {
         return canvas_gradients::add_stop(scope, object, args).map(Some);
     }
+    if interface == "CanvasPattern" && member == "setTransform" {
+        return canvas_patterns::set_transform(scope, object, args).map(Some);
+    }
     if interface=="TextFormatUpdateEvent"&&member=="getTextFormats"{return edit_context_events::formats(scope,object).map(Some);}
     if interface == "Sanitizer" {
         return sanitizer::call(scope, state, object, member, args);
@@ -40867,6 +40879,7 @@ fn install_canvas_context_members(
     context: v8::Local<v8::Object>,
 ) -> Result<(), V8BindingError> {
     canvas_gradients::install_factories(scope, context)?;
+    canvas_patterns::install_factory(scope, context)?;
     for name in [
         "strokeStyle",
         "lineWidth",
@@ -43781,6 +43794,10 @@ fn canvas_stroke_get(
         rv.set(v8::Local::new(scope, &paint.object).into());
         return;
     }
+    if name == "strokeStyle" && let Some(paint) = &draw.stroke_pattern {
+        rv.set(v8::Local::new(scope, &paint.object).into());
+        return;
+    }
     let text = match name.as_str() {
         "strokeStyle" => canvas_color_string(draw.stroke_color),
         "lineCap" => match draw.stroke.start_cap {
@@ -43822,7 +43839,18 @@ fn canvas_stroke_set(
     };
     let name = args.data().to_rust_string_lossy(scope);
     if name == "strokeStyle" && let Some(paint) = canvas_gradients::Paint::from_value(scope, args.get(0)) {
-        state.canvas_draw_states.borrow_mut().entry(canvas).or_default().stroke_gradient = Some(paint);
+        let mut states = state.canvas_draw_states.borrow_mut();
+        let draw = states.entry(canvas).or_default();
+        draw.stroke_gradient = Some(paint);
+        draw.stroke_pattern = None;
+        return;
+    }
+    if name == "strokeStyle" && let Some(paint) = canvas_patterns::Paint::from_value(scope, args.get(0)) {
+        if !paint.pattern.borrow().image.origin_clean { state.tainted_canvases.borrow_mut().insert(canvas); }
+        let mut states = state.canvas_draw_states.borrow_mut();
+        let draw = states.entry(canvas).or_default();
+        draw.stroke_pattern = Some(paint);
+        draw.stroke_gradient = None;
         return;
     }
     if matches!(name.as_str(), "lineWidth" | "miterLimit" | "lineDashOffset") {
@@ -43851,6 +43879,7 @@ fn canvas_stroke_set(
                 if let Some(color) = oryn_common::color::parse_color(&value) {
                     draw.stroke_color = color;
                     draw.stroke_gradient = None;
+                    draw.stroke_pattern = None;
                 }
             }
             "lineCap" => {
@@ -43995,6 +44024,10 @@ fn canvas_fill_style_get(
         rv.set(v8::Local::new(scope, &paint.object).into());
         return;
     }
+    if let Some(paint) = &draw.fill_pattern {
+        rv.set(v8::Local::new(scope, &paint.object).into());
+        return;
+    }
     let serialized = canvas_color_string(draw.fill_color);
     if let Some(value) = v8::String::new(scope, &serialized) {
         rv.set(value.into());
@@ -44013,7 +44046,18 @@ fn canvas_fill_style_set(
         return;
     };
     if let Some(paint) = canvas_gradients::Paint::from_value(scope, args.get(0)) {
-        state.canvas_draw_states.borrow_mut().entry(canvas).or_default().fill_gradient = Some(paint);
+        let mut states = state.canvas_draw_states.borrow_mut();
+        let draw = states.entry(canvas).or_default();
+        draw.fill_gradient = Some(paint);
+        draw.fill_pattern = None;
+        return;
+    }
+    if let Some(paint) = canvas_patterns::Paint::from_value(scope, args.get(0)) {
+        if !paint.pattern.borrow().image.origin_clean { state.tainted_canvases.borrow_mut().insert(canvas); }
+        let mut states = state.canvas_draw_states.borrow_mut();
+        let draw = states.entry(canvas).or_default();
+        draw.fill_pattern = Some(paint);
+        draw.fill_gradient = None;
         return;
     }
     let Some(value) = args.get(0).to_string(scope) else {
@@ -44024,6 +44068,7 @@ fn canvas_fill_style_set(
         let draw = states.entry(canvas).or_default();
         draw.fill_color = color;
         draw.fill_gradient = None;
+        draw.fill_pattern = None;
     }
 }
 
@@ -44606,7 +44651,7 @@ fn canvas_fill_rect(
             .get(&canvas)
             .cloned()
             .unwrap_or_default();
-        if draw.fill_gradient.is_some() {
+        if draw.fill_gradient.is_some() || draw.fill_pattern.is_some() {
             if canvas_matrix_inverse(draw.transform).is_none() { return Ok(()); }
             let point = |x,y| { let point = canvas_matrix_point(draw.transform,x,y); kurbo::Point::new(point.0,point.1) };
             let mut path = canvas_path::CanvasPath::default();
@@ -46771,6 +46816,11 @@ fn dispatch_image_event(
     }
     if video_poster::is_video(state, node) {
         return Ok(());
+    }
+    if success {
+        state.failed_images.borrow_mut().remove(&node);
+    } else {
+        state.failed_images.borrow_mut().insert(node);
     }
     let event = create_event_object(
         scope,
@@ -53698,6 +53748,101 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
         let result = v8::Script::compile(scope, source, None).unwrap().run(scope);
         let exception = scope.exception().map(|error| error.to_rust_string_lossy(scope));
         assert!(result.is_some_and(|value| value.is_true()), "gradient paint diagnostic: {exception:?}");
+    }
+
+    #[test]
+    fn native_canvas_patterns_preserve_origin_clean_and_source_usability() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<canvas id=s width=1 height=1></canvas><canvas id=c width=2 height=2></canvas>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let setup = v8::String::new(scope, "globalThis.sourceCanvas=document.getElementById('s');sourceCanvas.getContext('2d').fillRect(0,0,1,1);sourceCanvas").unwrap();
+        let value = v8::Script::compile(scope, setup, None).unwrap().run(scope).unwrap();
+        let source_node = argument_node(scope, &state, value).unwrap();
+        state.tainted_canvases.borrow_mut().insert(source_node);
+        let source = v8::String::new(scope, r#"(() => {
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            const c=document.getElementById('c'),ctx=c.getContext('2d');
+            const dirty=ctx.createPattern(sourceCanvas,'repeat');
+            check(ctx.getImageData(0,0,1,1).data[3]===0,'creation does not taint destination');
+            sourceCanvas.width=1;
+            ctx.fillStyle=dirty;
+            let error;try{ctx.getImageData(0,0,1,1)}catch(e){error=e}
+            check(error.name==='SecurityError','pattern retains source taint after source reset');
+            ctx.fillStyle='red';try{c.toDataURL()}catch(e){error=e}
+            check(error.name==='SecurityError','color replacement does not clear taint');
+            c.width=2;check(ctx.getImageData(0,0,1,1).data[3]===0,'destination reset clears taint');
+            ctx.strokeStyle=dirty;try{ctx.getImageData(0,0,1,1)}catch(e){error=e}
+            check(error.name==='SecurityError','stroke assignment taints');
+            c.width=2;
+            const clean=ctx.createPattern(sourceCanvas,'repeat');ctx.fillStyle=clean;ctx.fillRect(0,0,2,2);
+            check(ctx.getImageData(0,0,1,1).data[3]===0,'fresh clean source snapshot');
+            const zero=document.createElement('canvas');zero.width=0;
+            try{ctx.createPattern(zero,'repeat')}catch(e){error=e}check(error.name==='InvalidStateError','zero HTML canvas');
+            try{ctx.createPattern(new OffscreenCanvas(0,1),'repeat')}catch(e){error=e}check(error.name==='InvalidStateError','zero offscreen canvas');
+            check(ctx.createPattern(document.createElement('img'),'repeat')===null,'unavailable image returns null');
+            const marker=Error('conversion');try{ctx.createPattern(zero,{toString(){throw marker}})}catch(e){error=e}
+            check(error===marker,'conversion before usability');
+            return true;
+        })()"#).unwrap();
+        v8::tc_scope!(let scope, scope);
+        let result = v8::Script::compile(scope, source, None).unwrap().run(scope);
+        let exception = scope.exception().map(|error| error.to_rust_string_lossy(scope));
+        assert!(result.is_some_and(|value| value.is_true()), "pattern security diagnostic: {exception:?}");
+        let setup = v8::String::new(scope, "globalThis.brokenImage=document.createElement('img');brokenImage").unwrap();
+        let image = v8::Script::compile(scope, setup, None).unwrap().run(scope).unwrap();
+        let image_node = argument_node(scope, &state, image).unwrap();
+        dispatch_image_event(scope, &state, image_node, false).unwrap();
+        let check = v8::String::new(scope, "(()=>{try{document.getElementById('c').getContext('2d').createPattern(brokenImage,'repeat')}catch(e){return e.name==='InvalidStateError'}return false})()").unwrap();
+        assert!(v8::Script::compile(scope, check, None).unwrap().run(scope).unwrap().is_true());
+        video_poster::clear_image(&state, image_node).unwrap();
+        assert!(image_bitmap::source(scope, &state, image, false).unwrap().is_none());
+    }
+
+    #[test]
+    fn native_canvas_patterns_snapshot_sources_and_retain_live_transforms() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<canvas id=c width=4 height=2></canvas>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"(() => {
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            const ctx=document.getElementById('c').getContext('2d');
+            const src=new OffscreenCanvas(1,1),s=src.getContext('2d');
+            s.fillStyle='red';s.fillRect(0,0,1,1);
+            const p=ctx.createPattern(src,'no-repeat');
+            check(p instanceof CanvasPattern,'native brand');
+            check(ctx.createPattern.name==='createPattern'&&ctx.createPattern.length===2,'factory descriptor');
+            s.fillStyle='blue';s.fillRect(0,0,1,1);
+            ctx.imageSmoothingEnabled=false;ctx.fillStyle=p;
+            const pixel=(x,y)=>Array.from(ctx.getImageData(x,y,1,1).data).join();
+            ctx.fillRect(0,0,4,2);
+            check(pixel(0,0)==='255,0,0,255'&&pixel(1,0)==='0,0,0,0','snapshot and no-repeat');
+            ctx.clearRect(0,0,4,2);p.setTransform({e:1});ctx.fillRect(0,0,4,2);
+            check(pixel(0,0)==='0,0,0,0'&&pixel(1,0)==='255,0,0,255','live transform');
+            p.setTransform({e:Infinity});ctx.clearRect(0,0,4,2);ctx.fillRect(0,0,4,2);
+            check(pixel(1,0)==='255,0,0,255','nonfinite leaves transform');
+            ctx.save();ctx.fillStyle='blue';ctx.restore();check(ctx.fillStyle===p,'saved identity');
+            ctx.fillStyle='invalid color';check(ctx.fillStyle===p,'invalid leaves pattern');
+            let error;try{p.setTransform({a:1,m11:2})}catch(e){error=e}check(error instanceof TypeError,'alias mismatch');
+            try{CanvasPattern.prototype.setTransform.call({})}catch(e){error=e}check(error instanceof TypeError,'transform receiver');
+            let converted=false;try{ctx.createPattern({}, {toString(){converted=true;return 'repeat'}})}catch(e){error=e}
+            check(error instanceof TypeError&&!converted,'source brand before repetition');
+            try{ctx.createPattern(src,'null')}catch(e){error=e}check(error.name==='SyntaxError','invalid repetition');
+            const repeat=ctx.createPattern(src,null);ctx.fillStyle=repeat;ctx.fillRect(0,0,4,2);
+            check(pixel(3,1)==='0,0,255,255','null repetition and fresh source snapshot');
+            return true;
+        })()"#).unwrap();
+        v8::tc_scope!(let scope, scope);
+        let result = v8::Script::compile(scope, source, None).unwrap().run(scope);
+        let exception = scope.exception().map(|error| error.to_rust_string_lossy(scope));
+        assert!(result.is_some_and(|value| value.is_true()), "pattern diagnostic: {exception:?}");
     }
 
     #[test]

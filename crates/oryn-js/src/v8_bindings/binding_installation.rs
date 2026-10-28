@@ -417,6 +417,7 @@ pub(super) fn create_state(
         intersection_observers: RefCell::new(Default::default()),
         preload_resources: RefCell::new(preload_resources::State::default()),
         image_sources: RefCell::new(BTreeMap::new()),
+        failed_images: RefCell::new(BTreeSet::new()),
         image_generations: RefCell::new(BTreeMap::new()),
         images_deferred: Cell::new(false),
         image_selection_cursor: Cell::new(0),
