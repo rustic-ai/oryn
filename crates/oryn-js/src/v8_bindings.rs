@@ -34536,7 +34536,11 @@ fn table_span_bounds(interface: &str, member: &str) -> Option<(&'static str, u32
 }
 
 fn reflected_span(input: Option<&str>, min: u32, max: u32) -> u32 {
-    let Some((false, value)) = input.and_then(parse_reflected_integer) else { return 1; };
+    reflected_clamped_unsigned(input, min, max, 1)
+}
+
+fn reflected_clamped_unsigned(input: Option<&str>, min: u32, max: u32, default: u32) -> u32 {
+    let Some((false, value)) = input.and_then(parse_reflected_integer) else { return default; };
     value.clamp(u64::from(min), u64::from(max)) as u32
 }
 
@@ -34558,6 +34562,34 @@ mod reflected_long_tests {
             const eq=(a,b,label)=>{if(a!==b)throw Error(label+': '+a+' != '+b)};
             const table=document.createElement('table');
             eq(table instanceof HTMLTableElement,true,'table interface');
+            eq(table.headingOffset,0,'heading default');eq(table.headingReset,false,'reset default');
+            for(const [raw,expected] of [['',0],['garbage',0],['-1',0],[' +3tail',3],['8',8],['9',8],['9999999999999999999999999999999999',8]]) {
+                table.setAttribute('headingoffset',raw);eq(table.headingOffset,expected,'heading parse '+raw);
+                eq(table.getAttribute('headingoffset'),raw,'heading raw retained');
+            }
+            for(const [value,raw,expected] of [[0,'0',0],[8,'8',8],[9,'9',8],[-1,'0',0],[4294967297,'1',1],[NaN,'0',0]]) {
+                table.headingOffset=value;eq(table.getAttribute('headingoffset'),raw,'heading setter raw');eq(table.headingOffset,expected,'heading setter get');
+            }
+            table.headingReset='false';eq(table.headingReset,true,'reset ToBoolean');eq(table.getAttribute('headingreset'),'','reset presence');
+            table.headingReset=0;eq(table.hasAttribute('headingreset'),false,'reset removal');
+            const headingOwner=document.implementation.createHTMLDocument('heading');
+            const heading=document.createElement('h2');heading.headingOffset={valueOf(){headingOwner.adoptNode(heading);return 4}};
+            eq(heading.ownerDocument,headingOwner,'heading conversion adoption');eq(heading.headingOffset,4,'heading adopted setter');
+            const headingChanges=[];
+            customElements.define('heading-reflection-control',class extends HTMLElement {
+                static get observedAttributes(){return ['headingoffset','headingreset']}
+                attributeChangedCallback(name,oldValue,newValue){headingChanges.push([name,oldValue,newValue])}
+            });
+            const headingControl=document.createElement('heading-reflection-control');headingControl.headingOffset=9;headingControl.headingReset=true;
+            eq(headingChanges.length,2,'heading reactions');eq(headingChanges[0].join('|'),'headingoffset||9','heading integer reaction');
+            eq(headingChanges[1].join('|'),'headingreset||','heading boolean reaction');
+            for(const key of ['headingOffset','headingReset']) {
+                const descriptor=Object.getOwnPropertyDescriptor(HTMLElement.prototype,key);
+                eq(descriptor.enumerable,true,'heading descriptor enumerable');eq(descriptor.configurable,true,'heading descriptor configurable');
+                let converted=false,rejected=false;
+                try{descriptor.set.call({}, {valueOf(){converted=true;return 1}})}catch(e){rejected=e instanceof TypeError}
+                eq(rejected,true,'heading receiver rejection');eq(converted,false,'heading brand before conversion');
+            }
             for(const key of ['onmouseenter','onmouseleave']) {
                 const descriptor=Object.getOwnPropertyDescriptor(HTMLElement.prototype,key);
                 for(const receiver of [{},HTMLElement.prototype,document,document.createElementNS('http://www.w3.org/2000/svg','svg'),new Proxy(table,{})]) {
@@ -34814,6 +34846,10 @@ fn get_attribute_value<'s>(
         if member == "tBodies" {
             return node_lists::elements(scope, state, node, node_lists::ElementFilter::TableBodies);
         }
+    }
+    if interface == "HTMLElement" && member == "headingOffset" {
+        let value = reflected_clamped_unsigned(state.dom.borrow().attribute_in_null_namespace(node, "headingoffset")?, 0, 8, 0);
+        return Ok(v8::Integer::new_from_unsigned(scope, value).into());
     }
     if (interface == "HTMLTableRowElement" && matches!(member, "rowIndex" | "sectionRowIndex")) || (interface == "HTMLTableCellElement" && member == "cellIndex") {
         return Ok(v8::Integer::new(scope, table_index(&state.dom.borrow(), node, member)?).into());
@@ -36970,6 +37006,14 @@ fn set_attribute_value<'s>(
         let connection = post_connection_scripts::capture_insertion(scope, &prepared.owner, prepared.parent, prepared.node)?;
         let mutation = prepared.owner.dom.borrow_mut().insert_dom_node(prepared.parent, prepared.node, prepared.reference);
         return connection.finish_mutation(scope, mutation).map(|_| ());
+    }
+    if interface == "HTMLElement" && member == "headingOffset" {
+        let original = wrap_node(scope, state, node)?;
+        let value = value.uint32_value(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let (owner, node) = node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
+        let value = if value > i32::MAX as u32 { 0 } else { value };
+        owner.dom.borrow_mut().set_attribute_ns(node, None, "headingoffset", value.to_string())?;
+        return attribute_resource_changed(scope, &owner, node, None, "headingoffset");
     }
     if interface == "HTMLElement" && member == "hidden" {
         // WebIDL ToBoolean does not invoke user conversion hooks.

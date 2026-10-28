@@ -1388,6 +1388,8 @@ interface DOMTokenList {
 
 [Exposed=Window]
 interface HTMLElement : Element {
+  [CEReactions, Reflect, ReflectRange=(0, 8)] attribute unsigned long headingOffset;
+  [CEReactions, Reflect] attribute boolean headingReset;
   attribute EventHandler onabort;
   attribute EventHandler onauxclick;
   attribute EventHandler onbeforeinput;
