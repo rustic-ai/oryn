@@ -33659,6 +33659,26 @@ mod tests {
     #[cfg(feature = "v8-host")]
     #[test]
     fn native_fragment_history_uses_typed_trusted_events_and_stable_entries() {
+        fn pump_history_tasks(page: &mut PageState, count: usize) {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            loop {
+                page.poll_page_tasks().unwrap();
+                let observed = page
+                    .executable
+                    .as_mut()
+                    .unwrap()
+                    .evaluate("String(events.length)")
+                    .unwrap();
+                if observed == count.to_string() {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "history event task did not settle: {observed}"
+                );
+                std::thread::park_timeout(Duration::from_millis(1));
+            }
+        }
         let mut page = PageState::new(
             PageId(201),
             None,
@@ -33698,11 +33718,21 @@ mod tests {
                 .unwrap()
                 .evaluate("JSON.stringify(events)")
                 .unwrap(),
+            r#"[["pop",true,true,null]]"#
+        );
+        pump_history_tasks(&mut page, 2);
+        assert_eq!(
+            page.executable
+                .as_mut()
+                .unwrap()
+                .evaluate("JSON.stringify(events)")
+                .unwrap(),
             r#"[["pop",true,true,null],["hash",true,true,"https://history.test/page","https://history.test/page#one"]]"#
         );
         let first = page.history[1].navigation.clone().unwrap();
         page.navigate("https://history.test/page#two".into(), HistoryUpdate::Push)
             .unwrap();
+        pump_history_tasks(&mut page, 4);
         assert_ne!(first.key, page.history[2].navigation.as_ref().unwrap().key);
         assert_eq!(
             first.document_id,
@@ -33717,6 +33747,7 @@ mod tests {
             r#"[["pop",true,true,null],["hash",true,true,"https://history.test/page","https://history.test/page#one"],["pop",true,true,null],["hash",true,true,"https://history.test/page#one","https://history.test/page#two"]]"#
         );
         page.traverse_history(-1).unwrap();
+        pump_history_tasks(&mut page, 6);
         assert_eq!(page.document_generation, generation);
         assert_eq!(page.history_index, Some(1));
         assert_eq!(

@@ -1017,8 +1017,11 @@ impl RawV8Host {
             // turn. Leave peer timers with the page scheduler instead of
             // polling every live binding again at each fetch checkpoint.
             // Waiting probes still service timers, and every real completion
-            // retains the fairness boundary above.
-            if pass != 0 || wait {
+            // retains the fairness boundary above. Direct standalone host
+            // checkpoints have no independent PageState task driver: they
+            // must also pump control/message/stylesheet/CSP tasks when the
+            // platform completion queue is empty.
+            if pass != 0 || wait || terminal.is_none() {
                 delivered += self.drain_scheduled_timers_with_terminal_control(false, terminal)?;
             }
             if delivered >= MAX_COMPLETIONS_PER_CHECKPOINT {
