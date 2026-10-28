@@ -11,6 +11,7 @@ pub mod baselines;
 pub mod font_selection;
 mod ink;
 pub mod metrics;
+pub mod outlines;
 
 #[derive(Default)]
 struct Cancellation(Option<Arc<dyn Fn() -> bool + Send + Sync>>);

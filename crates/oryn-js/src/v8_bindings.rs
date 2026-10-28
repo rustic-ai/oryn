@@ -203,6 +203,7 @@ mod canvas_gradients;
 mod canvas_patterns;
 mod canvas_path;
 mod canvas_path_svg;
+mod canvas_text_path;
 mod rect_lists;
 use canvas_composite::Composite;
 mod abort_any;
