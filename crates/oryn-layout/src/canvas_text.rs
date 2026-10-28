@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 pub mod baselines;
 pub mod font_selection;
+pub mod font_inputs;
 mod ink;
 pub mod metrics;
 pub mod outlines;
