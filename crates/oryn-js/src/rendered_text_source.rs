@@ -8,6 +8,68 @@ fn key(node: NodeId) -> u64 {
     (u64::from(node.generation) << 32) | u64::from(node.slot)
 }
 
+fn table_row_successors(
+    dom: &DomRuntime,
+    root: NodeId,
+    styles: &BTreeMap<u64, Arc<BTreeMap<String, String>>>,
+) -> Result<BTreeMap<u64, bool>, String> {
+    let display = |node| {
+        styles
+            .get(&key(node))
+            .and_then(|style| style.get("display"))
+            .map(String::as_str)
+            .unwrap_or("")
+    };
+    let mut inventory = root;
+    let mut cursor = dom.parent(root).map_err(|error| format!("{error:?}"))?;
+    let mut work = 0;
+    while let Some(node) = cursor {
+        work += 1;
+        if work > 2_097_152 {
+            return Err("rendered table traversal budget exceeded".into());
+        }
+        if matches!(display(node), "table" | "inline-table") {
+            inventory = node;
+            break;
+        }
+        cursor = dom.parent(node).map_err(|error| format!("{error:?}"))?;
+    }
+    let mut stack = vec![(inventory, None)];
+    let mut owners = BTreeMap::new();
+    let mut last = BTreeMap::new();
+    while let Some((node, mut table)) = stack.pop() {
+        work += 1;
+        if work > 2_097_152 {
+            return Err("rendered table traversal budget exceeded".into());
+        }
+        let record = dom
+            .arena()
+            .get(node)
+            .map_err(|error| format!("{error:?}"))?;
+        match display(node) {
+            "none" => continue,
+            "table" | "inline-table" => table = Some(key(node)),
+            "table-row" => {
+                let owner = table
+                    .or_else(|| record.parent.map(key))
+                    .unwrap_or(key(node));
+                owners.insert(key(node), owner);
+                last.insert(owner, key(node));
+            }
+            "table-row-group" | "table-header-group" | "table-footer-group" => {
+                table = table.or_else(|| record.parent.map(key));
+            }
+            "contents" => {}
+            _ => table = None,
+        }
+        stack.extend(record.children.iter().rev().map(|child| (*child, table)));
+    }
+    Ok(owners
+        .into_iter()
+        .map(|(row, owner)| (row, last.get(&owner) != Some(&row)))
+        .collect())
+}
+
 /// Collect the DOM-ordered rendered stream from an already refreshed native
 /// layout. The caller selects textContent fallback for a non-rendered root.
 pub fn collect_items(
@@ -16,6 +78,7 @@ pub fn collect_items(
     styles: &BTreeMap<u64, Arc<BTreeMap<String, String>>>,
     text: &BTreeMap<u64, String>,
 ) -> Result<Vec<RenderedTextItem>, String> {
+    let row_successors = table_row_successors(dom, root, styles)?;
     let mut items = Vec::new();
     let mut stack = vec![(root, false)];
     let mut visited = 0usize;
@@ -35,8 +98,27 @@ pub fn collect_items(
             continue;
         }
         match &record.kind {
-            NodeKind::Text { .. } | NodeKind::CDataSection { .. } => {
+            NodeKind::Text { data } | NodeKind::CDataSection { data } => {
                 let parent_style = record.parent.and_then(|parent| styles.get(&key(parent)));
+                let parent_display = parent_style
+                    .and_then(|style| style.get("display"))
+                    .map(String::as_str);
+                if matches!(
+                    parent_display,
+                    Some(
+                        "table"
+                            | "inline-table"
+                            | "table-row"
+                            | "table-row-group"
+                            | "table-header-group"
+                            | "table-footer-group"
+                    )
+                ) && data
+                    .chars()
+                    .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n' | '\u{c}'))
+                {
+                    continue;
+                }
                 let visibility = parent_style
                     .and_then(|style| style.get("visibility"))
                     .map(String::as_str);
@@ -72,7 +154,10 @@ pub fn collect_items(
                 };
                 if exiting {
                     if node != root && visible {
-                        if display == "table-cell" || display == "table-row" {
+                        if display == "table-row" && row_successors.get(&key(node)) == Some(&true) {
+                            items.push(RenderedTextItem::Text("\n".into()));
+                        }
+                        if display == "table-cell" {
                             if let Some(parent) = record.parent {
                                 let siblings = &dom
                                     .arena()
@@ -448,6 +533,88 @@ mod tests {
         assert_eq!(
             oryn_dom::reduce_rendered_text(collect_items(&dom, root, &styles, &text).unwrap()),
             "two"
+        );
+    }
+    #[test]
+    fn nested_tables_have_independent_last_rows() {
+        let mut dom = DomRuntime::new();
+        let table = dom.create_element("table");
+        let first = dom.create_element("tr");
+        let last = dom.create_element("tr");
+        let inner = dom.create_element("table");
+        let inner_row = dom.create_element("tr");
+        let cell = dom.create_element("td");
+        let anonymous_row = dom.create_element("div");
+        dom.append_child(table, first).unwrap();
+        dom.append_child(table, last).unwrap();
+        dom.append_child(first, inner).unwrap();
+        dom.append_child(inner, inner_row).unwrap();
+        dom.append_child(last, cell).unwrap();
+        dom.append_child(cell, anonymous_row).unwrap();
+        let styles = [
+            (table, "table"),
+            (first, "table-row"),
+            (last, "table-row"),
+            (inner, "inline-table"),
+            (inner_row, "table-row"),
+            (cell, "table-cell"),
+            (anonymous_row, "table-row"),
+        ]
+        .into_iter()
+        .map(|(node, display)| {
+            (
+                key(node),
+                Arc::new(BTreeMap::from([("display".into(), display.into())])),
+            )
+        })
+        .collect();
+        let rows = table_row_successors(&dom, table, &styles).unwrap();
+        assert_eq!(rows[&key(first)], true);
+        assert_eq!(rows[&key(last)], false);
+        assert_eq!(rows[&key(inner_row)], false);
+        assert_eq!(rows[&key(anonymous_row)], false);
+        assert_eq!(table_row_successors(&dom, first, &styles).unwrap(), rows);
+    }
+    #[test]
+    fn table_sections_share_row_separators_and_discard_anonymous_whitespace() {
+        let mut dom = DomRuntime::new();
+        let root = dom.create_element("table");
+        let mut styles = BTreeMap::from([(
+            key(root),
+            Arc::new(BTreeMap::from([
+                ("display".into(), "table".into()),
+                ("white-space".into(), "pre".into()),
+            ])),
+        )]);
+        let mut text = BTreeMap::new();
+        for (tag, display, value) in [
+            ("tfoot", "table-footer-group", "footer"),
+            ("thead", "table-header-group", "hidden"),
+            ("tbody", "table-row-group", "tbody"),
+        ] {
+            let whitespace = dom.create_text(" \n ");
+            dom.append_child(root, whitespace).unwrap();
+            text.insert(key(whitespace), " \n ".into());
+            let group = dom.create_element(tag);
+            let row = dom.create_element("tr");
+            let cell = dom.create_element("td");
+            let child = dom.create_text(value);
+            dom.append_child(root, group).unwrap();
+            dom.append_child(group, row).unwrap();
+            dom.append_child(row, cell).unwrap();
+            dom.append_child(cell, child).unwrap();
+            for (node, display) in [(group, display), (row, "table-row"), (cell, "table-cell")] {
+                let mut style = BTreeMap::from([("display".into(), display.into())]);
+                if node == cell && tag == "thead" {
+                    style.insert("visibility".into(), "collapse".into());
+                }
+                styles.insert(key(node), Arc::new(style));
+            }
+            text.insert(key(child), value.into());
+        }
+        assert_eq!(
+            oryn_dom::reduce_rendered_text(collect_items(&dom, root, &styles, &text).unwrap()),
+            "footer\n\ntbody"
         );
     }
     #[test]
