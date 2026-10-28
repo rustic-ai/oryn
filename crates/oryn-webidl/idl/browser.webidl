@@ -1101,6 +1101,42 @@ interface HTMLDivElement : HTMLElement {
 };
 
 [Exposed=Window]
+interface HTMLBRElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute DOMString clear;
+};
+[Exposed=Window]
+interface HTMLDataElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute DOMString value;
+};
+[Exposed=Window]
+interface HTMLTimeElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute DOMString dateTime;
+};
+[Exposed=Window]
+interface HTMLLegendElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  readonly attribute HTMLFormElement? form;
+  [CEReactions, Reflect] attribute DOMString align;
+};
+[Exposed=Window]
+interface HTMLMapElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute DOMString name;
+  [SameObject] readonly attribute HTMLCollection areas;
+};
+[Exposed=Window]
+interface HTMLParamElement : HTMLElement {
+  [HTMLConstructor] constructor();
+  [CEReactions, Reflect] attribute DOMString name;
+  [CEReactions, Reflect] attribute DOMString value;
+  [CEReactions, Reflect] attribute DOMString type;
+  [CEReactions, Reflect] attribute DOMString valueType;
+};
+
+[Exposed=Window]
 interface HTMLParagraphElement : HTMLElement {
   [HTMLConstructor] constructor();
   [CEReactions, Reflect] attribute DOMString align;

@@ -53,6 +53,7 @@ fn cache<'a>(
             filter: ElementFilter::Children,
         } => (&store.element_children, *root),
         Contents::Elements { root, filter: ElementFilter::TableBodies } => (&store.table_bodies, *root),
+        Contents::Elements { root, filter: ElementFilter::MapAreas } => (&store.map_areas, *root),
         Contents::Elements {
             root,
             filter: ElementFilter::TableRows | ElementFilter::TableCells,

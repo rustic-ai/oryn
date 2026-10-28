@@ -31878,7 +31878,13 @@ fn validate_interface_node(
         "HTMLDivElement" => Some("div"),
         "HTMLParagraphElement" => Some("p"),
         "HTMLHRElement" => Some("hr"),
-        "HTMLPreElement" => Some("pre"),
+        "HTMLPreElement" => None,
+        "HTMLBRElement" => Some("br"),
+        "HTMLDataElement" => Some("data"),
+        "HTMLTimeElement" => Some("time"),
+        "HTMLLegendElement" => Some("legend"),
+        "HTMLMapElement" => Some("map"),
+        "HTMLParamElement" => Some("param"),
         "HTMLOListElement" => Some("ol"),
         "HTMLUListElement" => Some("ul"),
         "HTMLLIElement" => Some("li"),
@@ -31926,11 +31932,12 @@ fn validate_interface_node(
         "HTMLSlotElement" => Some("slot"),
         _ => None,
     };
-    if matches!(interface, "HTMLTableColElement" | "HTMLTableSectionElement" | "HTMLTableCellElement" | "HTMLHeadingElement" | "HTMLQuoteElement" | "HTMLModElement") {
+    if matches!(interface, "HTMLPreElement" | "HTMLTableColElement" | "HTMLTableSectionElement" | "HTMLTableCellElement" | "HTMLHeadingElement" | "HTMLQuoteElement" | "HTMLModElement") {
         let record = dom.arena().get(node)?;
         let valid = match &record.kind {
             NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" => {
                 match interface {
+                    "HTMLPreElement" => matches!(name.local.as_ref(), "pre" | "listing" | "xmp"),
                     "HTMLTableColElement" => matches!(name.local.as_ref(), "col" | "colgroup"),
                     "HTMLTableSectionElement" => matches!(name.local.as_ref(), "thead" | "tbody" | "tfoot"),
                     "HTMLHeadingElement" => matches!(name.local.as_ref(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6"),
@@ -32142,7 +32149,13 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "div" => "HTMLDivElement",
             "p" => "HTMLParagraphElement",
             "hr" => "HTMLHRElement",
-            "pre" => "HTMLPreElement",
+            "pre" | "listing" | "xmp" => "HTMLPreElement",
+            "br" => "HTMLBRElement",
+            "data" => "HTMLDataElement",
+            "time" => "HTMLTimeElement",
+            "legend" => "HTMLLegendElement",
+            "map" => "HTMLMapElement",
+            "param" => "HTMLParamElement",
             "q" | "blockquote" => "HTMLQuoteElement",
             "ol" => "HTMLOListElement",
             "ul" => "HTMLUListElement",
@@ -34562,6 +34575,24 @@ mod reflected_long_tests {
             const eq=(a,b,label)=>{if(a!==b)throw Error(label+': '+a+' != '+b)};
             const table=document.createElement('table');
             eq(table instanceof HTMLTableElement,true,'table interface');
+            for(const [tag,name,member,attribute] of [['br','HTMLBRElement','clear','clear'],['data','HTMLDataElement','value','value'],['time','HTMLTimeElement','dateTime','datetime'],['legend','HTMLLegendElement','align','align'],['map','HTMLMapElement','name','name'],['param','HTMLParamElement','valueType','valuetype'],['listing','HTMLPreElement','width','width'],['xmp','HTMLPreElement','width','width']]) {
+                const element=document.createElement(tag);eq(Object.prototype.toString.call(element),'[object '+name+']','HTML primary interface '+tag);
+                eq(element instanceof globalThis[name],true,'HTML prototype '+tag);
+                element[member]=member==='width'?7:'\ud800';eq(element.getAttribute(attribute),member==='width'?'7':'\ud800','HTML reflection '+tag);
+                const descriptor=Object.getOwnPropertyDescriptor(globalThis[name].prototype,member);
+                let rejected=false;try{descriptor.set.call(document.createElementNS('urn:foreign',tag),'x')}catch(e){rejected=e instanceof TypeError}
+                eq(rejected,true,'HTML namespace brand '+tag);
+            }
+            const areaMap=document.createElement('map'),areas=areaMap.areas;
+            eq(areas,areaMap.areas,'map SameObject');eq(areas instanceof HTMLCollection,true,'map collection brand');
+            const areaContainer=document.createElement('div'),area=document.createElement('area');area.id='map-area';
+            areaMap.append(areaContainer);areaContainer.append(area);areaMap.append(document.createElementNS('urn:foreign','area'));
+            eq(areas.length,1,'map descendant namespaces');eq(areas.namedItem('map-area'),area,'map named access');
+            const mapOwner=document.implementation.createHTMLDocument('map');mapOwner.adoptNode(areaMap);
+            eq(areaMap.areas,areas,'map migration identity');eq(areas[0],area,'map migration contents');area.remove();eq(areas.length,0,'map live removal');
+            const legendForm=document.createElement('form'),legendFieldset=document.createElement('fieldset'),legend=document.createElement('legend');
+            legendForm.append(legendFieldset);legendFieldset.append(legend);eq(legend.form,legendForm,'legend fieldset owner');
+            legendForm.append(legend);eq(legend.form,null,'legend requires direct fieldset parent');
             const editingForm=document.createElement('form');editingForm.id='editing-owner';document.body.append(editingForm);
             editingForm.autocapitalize='WORDS';editingForm.autocorrect=false;
             for(const tag of ['button','fieldset','input','output','select','textarea','img','object','div']) {
@@ -34926,6 +34957,9 @@ fn get_attribute_value<'s>(
     if interface == "HTMLElement" && member == "headingOffset" {
         let value = reflected_clamped_unsigned(state.dom.borrow().attribute_in_null_namespace(node, "headingoffset")?, 0, 8, 0);
         return Ok(v8::Integer::new_from_unsigned(scope, value).into());
+    }
+    if interface == "HTMLMapElement" && member == "areas" {
+        return node_lists::elements(scope, state, node, node_lists::ElementFilter::MapAreas);
     }
     if (interface == "HTMLTableRowElement" && matches!(member, "rowIndex" | "sectionRowIndex")) || (interface == "HTMLTableCellElement" && member == "cellIndex") {
         return Ok(v8::Integer::new(scope, table_index(&state.dom.borrow(), node, member)?).into());
@@ -36118,6 +36152,11 @@ fn get_attribute_value<'s>(
                     {
                         dom.form_owner(control)?
                     }
+                    _ => None,
+                }
+            } else if interface == "HTMLLegendElement" {
+                match dom.parent(node)? {
+                    Some(parent) if dom.is_element(parent, "http://www.w3.org/1999/xhtml", "fieldset") => dom.form_owner(parent)?,
                     _ => None,
                 }
             } else {

@@ -15,6 +15,7 @@ pub(super) enum ElementFilter {
     SelectedOptions,
     Options,
     Links,
+    MapAreas,
     WindowName {
         name: String,
     },
@@ -83,6 +84,7 @@ pub(super) struct Store {
     element_children: RefCell<BTreeMap<NodeId, u64>>,
     table_rows: RefCell<BTreeMap<NodeId, u64>>,
     table_bodies: RefCell<BTreeMap<NodeId, u64>>,
+    map_areas: RefCell<BTreeMap<NodeId, u64>>,
     selected_options: RefCell<BTreeMap<NodeId, u64>>,
     options: RefCell<BTreeMap<NodeId, u64>>,
     collection_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
@@ -458,6 +460,7 @@ fn contents(state: &V8BindingState, id: u64) -> Result<Vec<NodeId>, V8BindingErr
                                 && matches!(name.local.as_ref(), "a" | "area")
                                 && record.attributes.namespaced(None, "href").is_some()
                         }
+                        ElementFilter::MapAreas => name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "area",
                         ElementFilter::WindowName { name } => window_named_match(&dom, *id, name),
                         ElementFilter::AllName { name } => all_named_match(&dom, *id, name),
                         ElementFilter::Tag { name: wanted, html } => {
@@ -683,6 +686,11 @@ pub(super) fn collect(state: &V8BindingState) -> Result<(), BindingError> {
                 state.node_lists.labels.borrow_mut().remove(root);
             }
         }
+        if let Contents::Elements { root, filter: ElementFilter::MapAreas } = &list.contents
+            && state.node_lists.map_areas.borrow().get(root).copied() == Some(id)
+        {
+            state.node_lists.map_areas.borrow_mut().remove(root);
+        }
         if let Contents::Elements { root, filter: ElementFilter::TableBodies } = &list.contents
             && state.node_lists.table_bodies.borrow().get(root).copied() == Some(id)
         {
@@ -763,6 +771,7 @@ fn create<'s>(
             filter: ElementFilter::Children,
         } => Some((*root, &state.node_lists.element_children)),
         Contents::Elements { root, filter: ElementFilter::TableBodies } => Some((*root, &state.node_lists.table_bodies)),
+        Contents::Elements { root, filter: ElementFilter::MapAreas } => Some((*root, &state.node_lists.map_areas)),
         Contents::Elements {
             root,
             filter: ElementFilter::TableRows | ElementFilter::TableCells,
@@ -931,6 +940,7 @@ fn create<'s>(
                 | ElementFilter::TableCells
                 | ElementFilter::TableBodies
                 | ElementFilter::Links
+                | ElementFilter::MapAreas
                 | ElementFilter::SelectedOptions
                 | ElementFilter::Options => 0,
                 ElementFilter::WindowName { name } | ElementFilter::AllName { name } => name.len(),
