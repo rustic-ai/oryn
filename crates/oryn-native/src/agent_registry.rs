@@ -288,6 +288,9 @@ pub struct AgentRegistry {
     retired: bool,
     retirement_inflight: bool,
     retirement_owner: Option<std::thread::ThreadId>,
+    // Detached processes remain owned and count against admission until the
+    // exact retirement owner settles or returns failed processes to the map.
+    retiring_agents: usize,
     pending_termination: BTreeMap<AgentId, Agent>,
     service_retirements: BTreeMap<AgentId, ServiceRetirementStatus>,
     frozen_owners: std::collections::BTreeSet<AgentOwner>,
@@ -360,10 +363,16 @@ impl AgentRegistry {
             retired: false,
             retirement_inflight: false,
             retirement_owner: None,
+            retiring_agents: 0,
             pending_termination: BTreeMap::new(),
             service_retirements: BTreeMap::new(),
             frozen_owners: Default::default(),
         }
+    }
+
+    fn owned_agent_count(&self) -> usize {
+        self.agents.len().saturating_add(self.pending_termination.len())
+            .saturating_add(self.retiring_agents)
     }
 
     /// Recompute reachability from runnable Window clients. Shared workers keep
@@ -473,10 +482,9 @@ impl AgentRegistry {
         if self.retired {
             return Err(error("context agents are retired"));
         }
-        if self.retirement_inflight {
-            return Err(error("agent retirement already in progress"));
-        }
-        if self.agents.len() + self.pending_termination.len() >= self.max_agents {
+        // Page/document cleanup owns detached processes, not unrelated live
+        // creators. Context retirement still revokes admission above.
+        if self.owned_agent_count() >= self.max_agents {
             return Err(WorkerError::new(
                 "QuotaExceededError",
                 "native agent capacity",
@@ -802,9 +810,6 @@ impl AgentRegistry {
         if self.retired {
             return Err(error("context agents are retired"));
         }
-        if self.retirement_inflight {
-            return Err(error("agent retirement already in progress"));
-        }
         let mut url = url::Url::parse(&bootstrap.script_url)
             .map_err(|_| WorkerError::new("SyntaxError", "invalid worker URL"))?;
         url.set_fragment(None);
@@ -862,7 +867,7 @@ impl AgentRegistry {
                     "existing shared worker URL, type or credentials differ",
                 ));
             }
-        } else if self.agents.len() + self.pending_termination.len() >= self.max_agents {
+        } else if self.owned_agent_count() >= self.max_agents {
             return Err(WorkerError::new(
                 "QuotaExceededError",
                 "native agent capacity",
@@ -1496,6 +1501,7 @@ impl AgentRegistry {
                 *status = ServiceRetirementStatus::Pending;
             }
         }
+        self.retiring_agents = agents.len();
         Ok(DetachedAgentRetirement {
             completed_services: Default::default(),
             agents,
@@ -1509,6 +1515,7 @@ impl AgentRegistry {
         if batch.active {
             self.retirement_inflight = false;
             self.retirement_owner = None;
+            self.retiring_agents = 0;
         }
         for id in batch.completed_services {
             if let Some(status) = self.service_retirements.get_mut(&id) {
@@ -1565,6 +1572,7 @@ impl AgentRegistry {
         }
         self.retirement_inflight = true;
         self.retirement_owner = Some(std::thread::current().id());
+        self.retiring_agents = self.pending_termination.len();
         Ok(DetachedAgentRetirement {
             completed_services: Default::default(),
             agents: std::mem::take(&mut self.pending_termination),
@@ -1657,6 +1665,7 @@ impl AgentRegistry {
                 agents.insert(id, agent);
             }
         }
+        self.retiring_agents = agents.len();
         Ok(DetachedAgentRetirement {
             completed_services: Default::default(),
             agents,
@@ -2101,6 +2110,82 @@ mod tests {
         let mut batch = registry.detach_pending_retirement(hub).unwrap();
         batch.terminate().unwrap();
         registry.retain_failed_retirement(batch);
+    }
+    #[test]
+    fn live_page_admission_during_unrelated_retirement_preserves_owned_capacity() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let mut registry = AgentRegistry::new(2);
+        let mut hub = oryn_js::message_wire::MessageHub::default();
+        let dedicated = || {
+            let mut value = bootstrap();
+            value.kind = AgentKind::Dedicated;
+            value
+        };
+        let first = connect(&mut registry, owner(1), dedicated(), &state).unwrap();
+        let mut batch = registry.detach_page_retirement(&mut hub, PageId(1)).unwrap();
+        let retirement_owner = registry.retirement_owner;
+        // Detached process ownership must not reject another live page's
+        // authority, or silently remove that process from the capacity limit.
+        let second = connect(&mut registry, owner(2), dedicated(), &state).unwrap();
+        assert_ne!(first.agent, second.agent);
+        assert!(registry.retirement_inflight);
+        assert_eq!(registry.retirement_owner, retirement_owner);
+        assert_eq!(connect(&mut registry, owner(3), dedicated(), &state).unwrap_err().name,
+            "QuotaExceededError");
+        assert_eq!(state.lock().unwrap().starts, 2);
+        batch.terminate().unwrap();
+        registry.retain_failed_retirement(batch);
+        let third = connect(&mut registry, owner(3), dedicated(), &state).unwrap();
+        assert_ne!(second.agent, third.agent);
+        assert_eq!(state.lock().unwrap().starts, 3);
+        let mut context = registry.detach_retirement(&mut hub).unwrap();
+        assert_eq!(connect(&mut registry, owner(4), dedicated(), &state).unwrap_err().name,
+            "InvalidStateError");
+        context.terminate().unwrap();
+        registry.retain_failed_retirement(context);
+        assert_eq!(state.lock().unwrap().stops, 3);
+    }
+    #[test]
+    fn failed_detached_retirement_retains_admission_capacity_until_retry() {
+        let state = Arc::new(Mutex::new(State { reject_stop: true, ..Default::default() }));
+        let mut registry = AgentRegistry::new(1);
+        let mut hub = oryn_js::message_wire::MessageHub::default();
+        connect(&mut registry, owner(1), bootstrap(), &state).unwrap();
+        let mut batch = registry.detach_page_retirement(&mut hub, PageId(1)).unwrap();
+        assert_eq!(registry.owned_agent_count(), 1);
+        assert!(batch.terminate().is_err());
+        registry.retain_failed_retirement(batch);
+        assert_eq!(registry.retiring_agents, 0);
+        assert_eq!(registry.owned_agent_count(), 1);
+        assert_eq!(connect(&mut registry, owner(2), bootstrap(), &state).unwrap_err().name,
+            "QuotaExceededError");
+        state.lock().unwrap().reject_stop = false;
+        finish_pending(&mut registry, &mut hub);
+        assert_eq!(registry.owned_agent_count(), 0);
+        connect(&mut registry, owner(2), bootstrap(), &state).unwrap();
+        assert_eq!(state.lock().unwrap().starts, 2);
+        let mut context = registry.detach_retirement(&mut hub).unwrap();
+        context.terminate().unwrap();
+        registry.retain_failed_retirement(context);
+    }
+    #[test]
+    fn shared_peer_admission_during_page_retirement_reuses_live_process() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let mut registry = AgentRegistry::new(1);
+        let mut hub = oryn_js::message_wire::MessageHub::default();
+        let first = connect(&mut registry, owner(1), bootstrap(), &state).unwrap();
+        connect(&mut registry, owner(2), bootstrap(), &state).unwrap();
+        let mut batch = registry.detach_page_retirement(&mut hub, PageId(1)).unwrap();
+        let peer = connect(&mut registry, owner(3), bootstrap(), &state).unwrap();
+        assert_eq!(first.agent, peer.agent);
+        assert_eq!(registry.owned_agent_count(), 1);
+        assert_eq!(state.lock().unwrap().starts, 1);
+        batch.terminate().unwrap();
+        registry.retain_failed_retirement(batch);
+        let mut context = registry.detach_retirement(&mut hub).unwrap();
+        context.terminate().unwrap();
+        registry.retain_failed_retirement(context);
+        assert_eq!(state.lock().unwrap().stops, 1);
     }
     #[test]
     fn service_retirement_receipt_survives_failed_and_unrelated_cleanup_until_owner_acknowledges() {
