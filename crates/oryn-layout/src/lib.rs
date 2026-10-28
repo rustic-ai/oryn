@@ -4779,6 +4779,49 @@ fn compute_with_scrollbar_gutters(
             text_engine.resolved_text.remove(id);
         }
     }
+    // A closed picker has no option paint geometry, but HTML rendered text
+    // still includes its authored option stream. Publish source-only runs from
+    // the original DOM input, using the same CSS normalization and shaping.
+    // Never attach selected button label bytes to an option's DOM identity.
+    let semantic_nodes = original_input.nodes.iter().map(|node| (node.id, node))
+        .collect::<BTreeMap<_, _>>();
+    let mut semantic_work = 0usize;
+    for option in original_input.nodes.iter().filter(|node| {
+        node.namespace == "http://www.w3.org/1999/xhtml" && node.tag == "option"
+    }) {
+        let mut cursor = option.parent;
+        let mut closed = false;
+        while let Some(id) = cursor {
+            layout_checkpoint(&cancelled)?;
+            semantic_work += 1;
+            if semantic_work > 4_000_000 {
+                return Err(LayoutError::StyleTraversal("option semantic ancestry exceeds native bound".into()));
+            }
+            let Some(parent) = semantic_nodes.get(&id) else { break; };
+            if parent.namespace == "http://www.w3.org/1999/xhtml" && parent.tag == "select" {
+                closed = matches!(control_states.get(&id), Some(oryn_common::v4::PaintControl::Select {
+                    multiple: false, display_size: 1, open: false, ..
+                }));
+                break;
+            }
+            cursor = parent.parent;
+        }
+        if !closed { continue; }
+        let Some(style) = computed_styles.get(&option.id) else { continue; };
+        if style_value(style, "display", "block") == "none" { continue; }
+        let source = text_source::TextSource::collect_visible(option, &semantic_nodes, true, Some(&computed_styles));
+        let font_size = length(style_value(style, "font-size", "16px"), 16., 16., original_input.viewport);
+        let shaped = text_engine.shape_source(&source, original_input.viewport.width.max(1.),
+            font_size, style, original_input.viewport, &computed_styles);
+        let runs = shaped.resolved_text.into_iter().map(|mut run| {
+            run.layout_node = option.id;
+            run.text.clear();
+            run.spans.clear();
+            run.aliases.clear();
+            run
+        }).collect();
+        text_engine.resolved_text.insert(option.id, runs);
+    }
     if let Some(error) = text_engine.font_demand_error {
         return Err(error);
     }
@@ -4789,7 +4832,9 @@ fn compute_with_scrollbar_gutters(
             .resolved_text
             .values()
             .flatten()
-            .map(|run| (run.text.len(), run.spans.len(), run.aliases.len())),
+            .map(|run| (run.text.len().saturating_add(run.semantic_source.as_ref().map_or(0, |source| source.text.len())),
+                run.spans.len().saturating_add(run.semantic_source.as_ref().map_or(0, |source| source.spans.len())),
+                run.aliases.len())),
     )
     .is_none_or(|bytes| bytes > 64 * 1024 * 1024)
     {
@@ -11136,6 +11181,10 @@ mod tests {
             node(3, Some(2), "option", "First"),
             node(4, Some(2), "option", "Second"),
         ]);
+        for (id, text_id, text) in [(3, 30, "First"), (4, 40, "Second")] {
+            input.nodes.iter_mut().find(|node| node.id == id).unwrap().content =
+                Some(vec![LayoutContent::Text { node_id: text_id, text: text.into() }]);
+        }
         input.control_states.insert(
             2,
             oryn_common::v4::PaintControl::Select {
@@ -11157,6 +11206,13 @@ mod tests {
         assert!(output.geometry[&3].box_model.is_none());
         assert!(output.geometry[&4].box_model.is_none());
         assert!(!output.text_clusters.contains_key(&2));
+        for (id, text_id, expected) in [(3, 30, "First"), (4, 40, "Second")] {
+            let run = output.resolved_text.iter().find(|run| run.layout_node == id).unwrap();
+            assert!(run.text.is_empty() && run.spans.is_empty() && run.aliases.is_empty());
+            let semantic = run.semantic_source.as_ref().unwrap();
+            assert_eq!(semantic.text, expected);
+            assert!(semantic.spans.iter().any(|span| span.source_node == Some(text_id)));
+        }
         assert_eq!(input.nodes[1].children, vec![3, 4]);
     }
 
