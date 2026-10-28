@@ -28,6 +28,18 @@ pub struct CanvasTextShape {
 }
 
 impl CanvasTextShape {
+    pub fn measure(
+        &self,
+        script: skrifa::raw::types::Tag,
+        baseline: metrics::Baseline,
+        alignment: f64,
+    ) -> Result<metrics::Metrics, LayoutError> {
+        self.project_metrics(
+            self.first_available_font.baseline_positions(script)?,
+            baseline,
+            alignment,
+        )
+    }
     /// Horizontal BASE data for the selected neutral face, if present. This
     /// connects the native parser to original font bytes without synthesizing
     /// absent baselines or pretending neutral selection is first-available.
@@ -257,6 +269,24 @@ mod tests {
         assert_eq!(empty.ink_bounds().unwrap(), None);
         assert!(empty.neutral_font_metrics.unwrap().ascent > 0.);
         assert_eq!(empty.neutral_font_metrics, single.neutral_font_metrics);
+        let script = skrifa::raw::types::Tag::new(b"latn");
+        let measured = single
+            .measure(script, metrics::Baseline::Alphabetic, 0.)
+            .unwrap();
+        assert_eq!(measured.width, single.width);
+        assert!((measured.em_height_ascent + measured.em_height_descent - 20.).abs() < 1e-9);
+        let top = single.measure(script, metrics::Baseline::Top, 0.).unwrap();
+        assert_eq!(top.em_height_ascent, 0.);
+        let middle = single
+            .measure(script, metrics::Baseline::Middle, 0.)
+            .unwrap();
+        assert!((middle.em_height_ascent - 10.).abs() < 1e-9);
+        assert!((middle.em_height_descent - 10.).abs() < 1e-9);
+        let empty_metrics = empty
+            .measure(script, metrics::Baseline::Alphabetic, 0.)
+            .unwrap();
+        assert_eq!(empty_metrics.actual_bounding_box_ascent, 0.);
+        assert!(empty_metrics.font_bounding_box_ascent > 0.);
         assert_eq!(
             empty
                 .neutral_baselines(skrifa::raw::types::Tag::new(b"latn"))

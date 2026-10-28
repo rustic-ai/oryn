@@ -7,7 +7,107 @@ pub struct MetricFont {
     pub source: PaintFontResource,
     pub normalized_coords: Vec<i16>,
     pub font_size: f64,
+    /// CSS em size before size-adjust scales glyphs and font metrics.
+    pub em_size: f64,
     pub metrics: skrifa::metrics::Metrics,
+}
+
+impl MetricFont {
+    /// CSS Inline em-box normalization and native BASE anchors. Missing
+    /// hanging baseline uses the specification's suggested .6em fallback.
+    pub fn baseline_positions(
+        &self,
+        script: skrifa::raw::types::Tag,
+    ) -> Result<super::metrics::BaselinePositions, LayoutError> {
+        use skrifa::raw::{TableProvider, types::Tag};
+        let face = FontRef::from_index(&self.source.bytes, self.source.collection_index)
+            .map_err(|e| LayoutError::InvalidRenderedTree(e.to_string()))?;
+        let units = face
+            .head()
+            .map_err(|e| LayoutError::InvalidRenderedTree(e.to_string()))?
+            .units_per_em();
+        if units == 0 {
+            return Err(LayoutError::InvalidRenderedTree(
+                "zero font units per em".into(),
+            ));
+        }
+        let baselines = face
+            .table_data(Tag::new(b"BASE"))
+            .map(|table| {
+                super::baselines::read_horizontal(
+                    table.as_bytes(),
+                    script,
+                    self.font_size / f64::from(units),
+                    &self.normalized_coords,
+                )
+            })
+            .transpose()?
+            .flatten()
+            .unwrap_or_default();
+        positions(
+            self.em_size,
+            f64::from(self.metrics.ascent),
+            -f64::from(self.metrics.descent),
+            &baselines,
+        )
+    }
+}
+
+fn positions(
+    size: f64,
+    ascent: f64,
+    descent: f64,
+    table: &BTreeMap<skrifa::raw::types::Tag, f64>,
+) -> Result<super::metrics::BaselinePositions, LayoutError> {
+    use skrifa::raw::types::Tag;
+    if [size, ascent, descent].iter().any(|v| !v.is_finite()) || size < 0. {
+        return Err(LayoutError::InvalidRenderedTree(
+            "invalid canvas baseline metrics".into(),
+        ));
+    }
+    let roman = table.get(&Tag::new(b"romn")).copied().unwrap_or(0.);
+    let read = |tag| table.get(&Tag::new(tag)).map(|v| *v - roman);
+    let under = read(b"ideo");
+    let over = read(b"idtp");
+    let center = match (over, under) {
+        (Some(over), Some(under)) => Some(over / 2. + under / 2.),
+        (Some(over), None) => Some(over - size / 2.),
+        (None, Some(under)) => Some(under + size / 2.),
+        _ => None,
+    };
+    let (em_over, em_under) = if let Some(center) = center {
+        (center + size / 2., center - size / 2.)
+    } else {
+        let sum = ascent + descent;
+        if !sum.is_finite() {
+            return Err(LayoutError::InvalidRenderedTree(
+                "canvas ascent/descent overflow".into(),
+            ));
+        }
+        let top = if sum > 0. {
+            size * (ascent / sum)
+        } else {
+            size / 2.
+        };
+        (top, top - size)
+    };
+    let p = super::metrics::BaselinePositions {
+        font_ascent: ascent,
+        font_descent: descent,
+        em_over,
+        em_under,
+        hanging: read(b"hang").unwrap_or(size * 0.6),
+        ideographic_under: under.unwrap_or(em_under),
+    };
+    if [p.em_over, p.em_under, p.hanging, p.ideographic_under]
+        .iter()
+        .any(|v| !v.is_finite())
+    {
+        return Err(LayoutError::InvalidRenderedTree(
+            "canvas baseline synthesis overflow".into(),
+        ));
+    }
+    Ok(p)
 }
 
 pub(super) fn select(
@@ -81,6 +181,7 @@ pub(super) fn select(
         },
         normalized_coords: location.coords().iter().map(|v| v.to_bits()).collect(),
         font_size: effective_size,
+        em_size: size,
         metrics,
     })
 }
@@ -88,6 +189,25 @@ pub(super) fn select(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_baseline_synthesis_normalizes_em_and_honors_base_coordinates() {
+        use skrifa::raw::types::Tag;
+        let no_base = BTreeMap::new();
+        let p = positions(40., 10., 10., &no_base).unwrap();
+        assert_eq!((p.em_over, p.em_under), (20., -20.));
+        assert_eq!(p.hanging, 24.);
+        let p = positions(40., 30., 0., &no_base).unwrap();
+        assert_eq!((p.em_over, p.em_under), (40., 0.));
+        let base = BTreeMap::from([
+            (Tag::new(b"romn"), 100.),
+            (Tag::new(b"ideo"), 90.),
+            (Tag::new(b"hang"), 125.),
+        ]);
+        let p = positions(40., 10., 10., &base).unwrap();
+        assert_eq!((p.em_over, p.em_under), (30., -10.));
+        assert_eq!(p.hanging, 25.);
+        assert_eq!(p.ideographic_under, -10.);
+    }
     #[test]
     fn metric_font_selection_does_not_require_a_space_glyph() {
         let mut bytes = crate::DEFAULT_FONT_BYTES.to_vec();
@@ -182,5 +302,9 @@ mod tests {
         assert_eq!(font.font_size, 40.);
         assert_eq!(font.metrics.ascent, 20.);
         assert_eq!(font.metrics.descent, -4.);
+        let p = font
+            .baseline_positions(skrifa::raw::types::Tag::new(b"latn"))
+            .unwrap();
+        assert!((p.em_over - p.em_under - 20.).abs() < 1e-9);
     }
 }
