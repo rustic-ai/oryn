@@ -1276,6 +1276,7 @@ pub(super) fn publish_objects(
             .set(scope, name.into(), get_accessibility.into());
         install_image_factory(scope, context)?;
         install_option_factory(scope, context)?;
+        install_audio_factory(scope, context)?;
     }
     if matches!(
         binding_global,

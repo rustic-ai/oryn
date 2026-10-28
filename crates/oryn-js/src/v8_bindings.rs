@@ -8746,6 +8746,97 @@ fn install_option_factory(
     Ok(())
 }
 
+fn install_audio_factory(
+    scope: &mut v8::PinScope,
+    context: v8::Local<v8::Context>,
+) -> Result<(), V8BindingError> {
+    let marker = v8::Integer::new(scope, 4);
+    let template = v8::FunctionTemplate::builder(image_factory_callback)
+        .data(marker.into())
+        .length(0)
+        .build(scope);
+    let name = v8::String::new(scope, "Audio").ok_or(V8BindingError::Allocation("Audio name"))?;
+    template.set_class_name(name);
+    let factory = template
+        .get_function(scope)
+        .ok_or(V8BindingError::Allocation("Audio factory"))?;
+    let prototype_name = v8::String::new(scope, "prototype")
+        .ok_or(V8BindingError::Allocation("Audio prototype key"))?;
+    let interface = v8::String::new(scope, "HTMLAudioElement")
+        .ok_or(V8BindingError::Allocation("HTMLAudioElement name"))?;
+    let prototype = context
+        .global(scope)
+        .get(scope, interface.into())
+        .and_then(|value| value.to_object(scope))
+        .and_then(|constructor| constructor.get(scope, prototype_name.into()))
+        .ok_or(V8BindingError::MissingInterface("HTMLAudioElement"))?;
+    factory.define_own_property(
+        scope,
+        prototype_name.into(),
+        prototype,
+        v8::PropertyAttribute::READ_ONLY
+            | v8::PropertyAttribute::DONT_ENUM
+            | v8::PropertyAttribute::DONT_DELETE,
+    );
+    let handler = v8::Object::new(scope);
+    let construct = v8::String::new(scope, "construct")
+        .ok_or(V8BindingError::Allocation("Audio construct key"))?;
+    let marker = v8::Integer::new(scope, 5);
+    let trap = v8::Function::builder(image_factory_callback)
+        .data(marker.into())
+        .build(scope)
+        .ok_or(V8BindingError::Allocation("Audio construct trap"))?;
+    handler.create_data_property(scope, construct.into(), trap.into());
+    let proxy = v8::Proxy::new(scope, factory.into(), handler)
+        .ok_or(V8BindingError::Allocation("Audio factory proxy"))?;
+    context.global(scope).define_own_property(
+        scope,
+        name.into(),
+        proxy.into(),
+        v8::PropertyAttribute::DONT_ENUM,
+    );
+    Ok(())
+}
+
+fn audio_factory<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: &v8::FunctionCallbackArguments<'s>,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    let values = args
+        .get(1)
+        .try_cast::<v8::Array>()
+        .map_err(|_| V8BindingError::Allocation("Audio arguments"))?;
+    let value = values
+        .get_index(scope, 0)
+        .ok_or(V8BindingError::JavaScriptException)?;
+    let src = if value.is_undefined() {
+        None
+    } else {
+        let value = value
+            .to_string(scope)
+            .ok_or(V8BindingError::JavaScriptException)?;
+        Some(rust_string_preserving_utf16(scope, value)?)
+    };
+    let prototype =
+        custom_elements::html_constructor_prototype(scope, args.get(2), "HTMLAudioElement")?;
+    let state = scope
+        .get_current_context()
+        .get_slot::<V8BindingState>()
+        .ok_or(V8BindingError::MissingInterface("Audio realm"))?;
+    let node = {
+        let mut dom = state.dom.borrow_mut();
+        let node = dom.create_element("audio");
+        dom.set_attribute_ns(node, None, "preload", "auto")?;
+        if let Some(src) = src {
+            dom.set_attribute_ns(node, None, "src", src)?;
+        }
+        node
+    };
+    let wrapper = wrap_node(scope, &state, node)?;
+    wrapper.set_prototype(scope, prototype);
+    Ok(wrapper.into())
+}
+
 fn option_factory<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     args: &v8::FunctionCallbackArguments,
@@ -8859,6 +8950,17 @@ fn image_factory_callback<'s>(
     args: v8::FunctionCallbackArguments<'s>,
     mut return_value: v8::ReturnValue,
 ) {
+    if args.data().int32_value(scope) == Some(4) {
+        throw_type_error(scope, "Audio constructor requires new");
+        return;
+    }
+    if args.data().int32_value(scope) == Some(5) {
+        match audio_factory(scope, &args) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if args.data().int32_value(scope) == Some(1) {
         throw_type_error(scope, "Option constructor requires new");
         return;
@@ -64423,6 +64525,44 @@ opening.onsuccess = () => {
         let source = v8::String::new(
             scope,
             "Object.hasOwn(Element.prototype,Symbol.unscopables)&&Object.getPrototypeOf(Element.prototype[Symbol.unscopables])===null&&Element.prototype[Symbol.unscopables].remove===true",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert!(result.boolean_value(scope));
+    }
+
+    #[test]
+    fn audio_legacy_factory_preserves_conversion_and_prototype_semantics() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"const cases=[[[],null],[[undefined],null],[[null],'null'],[[''],''],[['src'],'src']];
+            for(const [args,src] of cases){const a=new Audio(...args);
+              if(a.localName!=='audio'||a.tagName!=='AUDIO'||a.namespaceURI!=='http://www.w3.org/1999/xhtml'||a.ownerDocument!==document||a.nodeType!==1)throw Error('Audio DOM');
+              if(a.getAttribute('preload')!=='auto'||a.getAttribute('src')!==src)throw Error('Audio attributes');}
+            if(Audio.length!==0||Audio.name!=='Audio'||Audio.prototype!==HTMLAudioElement.prototype)throw Error('Audio metadata');
+            const d=Object.getOwnPropertyDescriptor(Audio,'prototype');if(d.writable||d.enumerable||d.configurable)throw Error('Audio prototype descriptor');
+            let rejected=false;try{Audio()}catch(e){rejected=e instanceof TypeError}if(!rejected)throw Error('Audio call');
+            class CustomAudio extends Audio{}const a=new CustomAudio('music');if(!(a instanceof CustomAudio)||!(a instanceof HTMLAudioElement))throw Error('Audio subclass');
+            const ignored={toString(){throw Error('extra converted')}};if(new Audio('',ignored).getAttribute('src')!=='')throw Error('Audio extra');
+            const order=[];const target=new Proxy(function Target(){},{get(t,k,r){if(k==='prototype')order.push('prototype');return Reflect.get(t,k,r)}});
+            Reflect.construct(Audio,[{toString(){order.push('src');return 'music'}}],target);
+            if(order.join('|')!=='src|prototype')throw Error('Audio order');
+            const sentinel={};try{new Audio({toString(){throw sentinel}});throw Error('conversion accepted')}catch(e){if(e!==sentinel)throw e}
+            function Fallback(){}Fallback.prototype=null;
+            if(Object.getPrototypeOf(Reflect.construct(Audio,[],Fallback))!==HTMLAudioElement.prototype)throw Error('Audio fallback');
+            if(new Audio('\ud800').getAttribute('src')!=='\ud800')throw Error('Audio DOMString');
+            true"#,
         )
         .unwrap();
         let result = v8::Script::compile(scope, source, None)
