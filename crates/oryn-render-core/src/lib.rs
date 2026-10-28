@@ -22,6 +22,8 @@ mod shadows;
 mod text_boxes;
 pub use shadows::BoxShadow;
 mod svg;
+mod svg_bitmap;
+pub use svg_bitmap::decode_svg_bitmap;
 mod svg_environment;
 pub use svg_environment::SvgEnvironment;
 mod builtin_image;

@@ -165,6 +165,31 @@ fn source_with_orientation(
         if owner.failed_images.borrow().contains(&node) {
             return Err(error("InvalidStateError"));
         }
+        if let Some(image) = owner.decoded_images.borrow().get(&node).cloned() {
+            return Ok(Some(image));
+        }
+        let svg = owner.decoded_svg_images.borrow().get(&node).cloned();
+        if let Some(bytes) = svg {
+            // A decoded zero-size SVG is an unavailable canvas image source,
+            // not a broken resource. createPattern returns null for this case.
+            if image_dimensions::svg_size(&bytes).is_some_and(|(width, height)| width == 0 || height == 0) {
+                return Ok(None);
+            }
+            let resource = oryn_common::v4::PaintImageResource {
+                svg_document_snapshot: false, svg_instances: Vec::new(), content_type: None,
+                url_aliases: Vec::new(), media_type: "image/svg+xml".into(), bytes,
+                url: owner.image_response_urls.borrow().get(&node).cloned().unwrap_or_default(),
+            };
+            let rgba = oryn_render_core::decode_svg_bitmap(&resource, 4 * 1024 * 1024)
+                .map_err(|_| error("InvalidStateError"))?;
+            let bitmap = DecodedImage {
+                width: rgba.width(), height: rgba.height(), rgba: rgba.into_raw(),
+                // Missing origin provenance is unclean, never an implicit grant.
+                origin_clean: owner.svg_image_origin_clean.borrow().get(&node).copied().unwrap_or(false),
+            };
+            owner.decoded_images.borrow_mut().insert(node, bitmap.clone());
+            return Ok(Some(bitmap));
+        }
         Ok(owner.decoded_images.borrow().get(&node).cloned())
     }
 }

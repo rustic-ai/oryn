@@ -1596,6 +1596,9 @@ interface CanvasGradient {
   undefined addColorStop(double offset, DOMString color);
 };
 
+typedef (HTMLImageElement or SVGImageElement) HTMLOrSVGImageElement;
+typedef (HTMLOrSVGImageElement or HTMLVideoElement or HTMLCanvasElement or ImageBitmap or OffscreenCanvas or VideoFrame) CanvasImageSource;
+
 [Exposed=(Window,Worker)]
 interface CanvasPattern {
   undefined setTransform(optional DOMMatrix2DInit transform = {});
@@ -1603,12 +1606,13 @@ interface CanvasPattern {
 
 [Exposed=Window]
 interface CanvasRenderingContext2D {
+  CanvasPattern? createPattern(CanvasImageSource image, [LegacyNullToEmptyString] DOMString repetition);
   CanvasGradient createLinearGradient(double x0, double y0, double x1, double y1);
   CanvasGradient createRadialGradient(double x0, double y0, double r0, double x1, double y1, double r1);
   CanvasGradient createConicGradient(double startAngle, double x, double y);
   readonly attribute HTMLCanvasElement canvas;
-  attribute any fillStyle;
-  attribute any strokeStyle;
+  attribute (DOMString or CanvasGradient or CanvasPattern) fillStyle;
+  attribute (DOMString or CanvasGradient or CanvasPattern) strokeStyle;
   attribute unrestricted double lineWidth;
   attribute DOMString lineCap;
   attribute DOMString lineJoin;
@@ -1676,12 +1680,13 @@ interface OffscreenCanvas : EventTarget {
 
 [Exposed=(Window,Worker)]
 interface OffscreenCanvasRenderingContext2D {
+  CanvasPattern? createPattern(CanvasImageSource image, [LegacyNullToEmptyString] DOMString repetition);
   CanvasGradient createLinearGradient(double x0, double y0, double x1, double y1);
   CanvasGradient createRadialGradient(double x0, double y0, double r0, double x1, double y1, double r1);
   CanvasGradient createConicGradient(double startAngle, double x, double y);
   readonly attribute OffscreenCanvas canvas;
-  attribute any fillStyle;
-  attribute any strokeStyle;
+  attribute (DOMString or CanvasGradient or CanvasPattern) fillStyle;
+  attribute (DOMString or CanvasGradient or CanvasPattern) strokeStyle;
   attribute unrestricted double lineWidth;
   attribute DOMString lineCap;
   attribute DOMString lineJoin;

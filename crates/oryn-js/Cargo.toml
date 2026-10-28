@@ -8,7 +8,7 @@ description = "V8 realm and generated binding boundary for Oryn"
 [features]
 historical-test-input = []
 default = []
-v8-host = ["dep:image", "dep:v8", "dep:oryn-layout"]
+v8-host = ["dep:image", "dep:v8", "dep:oryn-layout", "dep:oryn-render-core"]
 v8-sandbox = ["v8/v8_enable_sandbox"]
 
 [dependencies]
@@ -27,6 +27,7 @@ zeroize = { version = "1", features = ["serde"] }
 image = { version = "0.25", default-features = false, features = ["bmp", "png", "jpeg", "gif", "webp"], optional = true }
 oryn-dom = { path = "../oryn-dom" }
 oryn-layout = { path = "../oryn-layout", optional = true }
+oryn-render-core = { path = "../oryn-render-core", optional = true }
 oryn-net = { path = "../oryn-net" }
 markup5ever = "0.39"
 oryn-webidl = { path = "../oryn-webidl" }

@@ -3040,6 +3040,7 @@ pub struct V8BindingState {
     image_selection_cursor: Cell<u64>,
     image_response_urls: RefCell<BTreeMap<NodeId, String>>,
     decoded_svg_images: Rc<RefCell<BTreeMap<NodeId, Vec<u8>>>>,
+    svg_image_origin_clean: Rc<RefCell<BTreeMap<NodeId, bool>>>,
     decoded_images: Rc<RefCell<BTreeMap<NodeId, DecodedImage>>>,
     canvas_images: Rc<RefCell<BTreeMap<NodeId, DecodedImage>>>,
     canvas_draw_states: Rc<RefCell<BTreeMap<NodeId, CanvasDrawState>>>,
@@ -5481,6 +5482,7 @@ impl V8BindingState {
                                 image_dimensions::svg_intrinsics(&bytes),
                             )?;
                             self.decoded_svg_images.borrow_mut().insert(node, bytes);
+                            self.svg_image_origin_clean.borrow_mut().insert(node, origin_clean);
                             dispatch_image_event(scope, self, node, true)?;
                         }
                         Err(_) => {
@@ -6239,6 +6241,7 @@ impl V8BindingState {
         self.decoded_svg_images
             .borrow_mut()
             .retain(|node, _| dom.arena().get(*node).is_ok());
+        self.svg_image_origin_clean.borrow_mut().retain(|node, _| dom.arena().get(*node).is_ok());
         self.decoded_images
             .borrow_mut()
             .retain(|node, _| dom.arena().get(*node).is_ok());
@@ -7016,6 +7019,7 @@ impl V8BindingState {
         self.cancel_image_requests(Some(node))?;
         self.decoded_images.borrow_mut().remove(&node);
         self.decoded_svg_images.borrow_mut().remove(&node);
+        self.svg_image_origin_clean.borrow_mut().remove(&node);
         self.image_sources.borrow_mut().remove(&node);
         self.image_response_urls.borrow_mut().remove(&node);
         self.dom.borrow_mut().set_image_dimensions(node, None)?;
@@ -46398,7 +46402,10 @@ fn attribute_resource_changed(
             .dom
             .borrow()
             .is_element(node, "http://www.w3.org/2000/svg", "script");
-    if !svg_script_href && namespace.is_some_and(|value| !value.is_empty()) {
+    let svg_image = state.dom.borrow().is_element(node, "http://www.w3.org/2000/svg", "image");
+    let svg_image_href = svg_image && local_name == "href"
+        && namespace.is_none_or(|value| value.is_empty() || value == "http://www.w3.org/1999/xlink");
+    if !svg_script_href && !svg_image_href && namespace.is_some_and(|value| !value.is_empty()) {
         return Ok(());
     }
     let Some(owner) = active_document_state_for_node(scope, state, node) else {
@@ -46415,6 +46422,9 @@ fn attribute_resource_changed(
     let scope = &mut v8::ContextScope::new(scope, context);
     if svg_script_href {
         return prepare_dynamic_script_subtree(scope, state, node);
+    }
+    if svg_image && matches!(local_name, "href" | "crossorigin" | "referrerpolicy") {
+        return prepare_dynamic_image_subtree(scope, state, node);
     }
     if matches!(local_name, "width" | "height")
         && state
@@ -46848,8 +46858,9 @@ fn document_has_image_candidates(
     };
     while let Some((id, node)) = dom.arena().next_with_checkpoint(&mut cursor, &mut check)? {
         if matches!(&node.kind, NodeKind::Element { name }
-            if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+            if (name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
                 && matches!(name.local.as_ref(), "img" | "input" | "video"))
+                || (name.ns.as_ref() == "http://www.w3.org/2000/svg" && name.local.as_ref() == "image"))
             && dom.node_document(id)? == Some(state.document_root())
             && dom.is_connected(id)?
         {
@@ -47022,6 +47033,7 @@ pub fn publish_embedded_image(
         state.cancel_image_requests(Some(node))?;
         state.decoded_images.borrow_mut().remove(&node);
         state.decoded_svg_images.borrow_mut().remove(&node);
+        state.svg_image_origin_clean.borrow_mut().remove(&node);
         state.image_sources.borrow_mut().remove(&node);
         state
             .image_response_urls
@@ -47089,6 +47101,7 @@ fn prepare_dynamic_image_subtree(
             .into_iter()
             .filter(|node| {
                 dom.is_element(*node, "http://www.w3.org/1999/xhtml", "img")
+                    || dom.is_element(*node, "http://www.w3.org/2000/svg", "image")
                     || dom.is_element(*node, "http://www.w3.org/1999/xhtml", "input")
                     || dom.is_element(*node, "http://www.w3.org/1999/xhtml", "video")
             })
@@ -47098,13 +47111,19 @@ fn prepare_dynamic_image_subtree(
         let (mut source, cross_origin, referrer_policy, mut upgrade_mixed_image) = {
             let dom = state.dom.borrow();
             let poster = dom.is_element(node, "http://www.w3.org/1999/xhtml", "video");
-            let image_enabled = poster
+            let svg_image = dom.is_element(node, "http://www.w3.org/2000/svg", "image");
+            let image_enabled = poster || svg_image
                 || dom.is_element(node, "http://www.w3.org/1999/xhtml", "img")
                 || dom
                     .attribute_in_null_namespace(node, "type")?
                     .is_some_and(|kind| kind.eq_ignore_ascii_case("image"));
             (
-                dom.attribute_in_null_namespace(node, if poster { "poster" } else { "src" })?
+                (if svg_image {
+                    dom.attribute_in_null_namespace(node, "href")?
+                        .or(dom.attribute_ns(node, Some("http://www.w3.org/1999/xlink"), "href")?)
+                } else {
+                    dom.attribute_in_null_namespace(node, if poster { "poster" } else { "src" })?
+                })
                     .filter(|_| image_enabled)
                     .map(str::to_owned),
                 if poster {
@@ -47115,7 +47134,7 @@ fn prepare_dynamic_image_subtree(
                 },
                 dom.attribute_in_null_namespace(node, "referrerpolicy")?
                     .map(str::to_owned),
-                (poster || dom.is_element(node, "http://www.w3.org/1999/xhtml", "img"))
+                (poster || svg_image || dom.is_element(node, "http://www.w3.org/1999/xhtml", "img"))
                     && dom
                         .attribute_in_null_namespace(node, "srcset")?
                         .is_none_or(|value| value.trim().is_empty())
@@ -53751,6 +53770,35 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
     }
 
     #[test]
+    fn native_canvas_svg_patterns_rasterize_pixels_and_preserve_origin_provenance() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<img id=s><canvas id=c width=2 height=1></canvas>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let setup = v8::String::new(scope, "document.getElementById('s')").unwrap();
+        let image = v8::Script::compile(scope, setup, None).unwrap().run(scope).unwrap();
+        let node = argument_node(scope, &state, image).unwrap();
+        state.decoded_svg_images.borrow_mut().insert(node, b"<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'><rect width='1' height='1' fill='red'/></svg>".to_vec());
+        state.svg_image_origin_clean.borrow_mut().insert(node, true);
+        let source = v8::String::new(scope, "(()=>{const ctx=document.getElementById('c').getContext('2d');ctx.fillStyle=ctx.createPattern(document.getElementById('s'),'repeat');ctx.fillRect(0,0,2,1);return Array.from(ctx.getImageData(1,0,1,1).data).join()==='255,0,0,255'})()").unwrap();
+        v8::tc_scope!(let scope, scope);
+        let result = v8::Script::compile(scope, source, None).unwrap().run(scope);
+        let exception = scope.exception().map(|error| error.to_rust_string_lossy(scope));
+        assert!(result.is_some_and(|value| value.is_true()), "SVG pattern diagnostic: {exception:?}");
+        state.decoded_images.borrow_mut().remove(&node);
+        state.svg_image_origin_clean.borrow_mut().remove(&node);
+        assert!(!image_bitmap::source(scope, &state, image, false).unwrap().unwrap().origin_clean);
+        let source = v8::String::new(scope, "(()=>{const c=document.getElementById('c');c.width=2;const ctx=c.getContext('2d');ctx.fillStyle=ctx.createPattern(document.getElementById('s'),'repeat');try{ctx.getImageData(0,0,1,1)}catch(e){return e.name==='SecurityError'}return false})()").unwrap();
+        assert!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().is_true());
+        state.decoded_images.borrow_mut().remove(&node);
+        state.decoded_svg_images.borrow_mut().insert(node, b"<svg xmlns='http://www.w3.org/2000/svg' width='1' height='0'/>".to_vec());
+        assert!(image_bitmap::source(scope, &state, image, false).unwrap().is_none());
+    }
+
+    #[test]
     fn native_canvas_patterns_preserve_origin_clean_and_source_usability() {
         initialize_v8();
         let dom = Rc::new(RefCell::new(html::parse("<canvas id=s width=1 height=1></canvas><canvas id=c width=2 height=2></canvas>").into_runtime().unwrap()));
@@ -55450,6 +55498,37 @@ fn owned_schema_publication_rejects_wrong_owner_before_any_mutation() {
         assert!(host.0.borrow().is_empty());
         assert_eq!(state.pending_dynamic_frames.borrow().len(), 1);
     }
+    #[test]
+    fn native_svg_image_sources_follow_href_namespace_and_precedence() {
+        #[derive(Default)]
+        struct ImageHost(RefCell<Vec<String>>);
+        impl PlatformHost for ImageHost {
+            fn retire(&self) {}
+            fn submit(&self, _: HostOperationId, request: PlatformHostRequest) -> Result<(), String> {
+                if let PlatformHostRequest::ImageStart { request, .. } = request {
+                    self.0.borrow_mut().push(request.url);
+                }
+                Ok(())
+            }
+            fn cancel(&self, _: HostOperationId) {}
+            fn drain_completions(&self, _: usize) -> Vec<PlatformHostCompletion> { Vec::new() }
+        }
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body><svg><image id=s href='one.svg'></image></svg></body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/page").unwrap();
+        let host = Rc::new(ImageHost::default());
+        state.set_platform_host(host.clone());
+        prepare_document_images(scope, &state).unwrap();
+        let source = v8::String::new(scope, "const s=document.getElementById('s');s.setAttributeNS('http://www.w3.org/1999/xlink','xlink:href','legacy.svg');s.removeAttribute('href');s.setAttribute('href','modern.svg');s.setAttributeNS('urn:unrelated','x:href','ignored.svg');").unwrap();
+        v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap();
+        assert_eq!(*host.0.borrow(), ["https://example.test/one.svg", "https://example.test/legacy.svg", "https://example.test/modern.svg"]);
+    }
+
     #[test]
     fn image_request_reuse_tracks_cors_policy_and_base_changes() {
         #[derive(Default)]

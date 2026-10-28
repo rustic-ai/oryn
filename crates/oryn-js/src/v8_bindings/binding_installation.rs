@@ -418,6 +418,10 @@ pub(super) fn create_state(
         preload_resources: RefCell::new(preload_resources::State::default()),
         image_sources: RefCell::new(BTreeMap::new()),
         failed_images: RefCell::new(BTreeSet::new()),
+        svg_image_origin_clean: range_owner.as_ref().map_or_else(
+            || Rc::new(RefCell::new(BTreeMap::new())),
+            |owner| owner.svg_image_origin_clean.clone(),
+        ),
         image_generations: RefCell::new(BTreeMap::new()),
         images_deferred: Cell::new(false),
         image_selection_cursor: Cell::new(0),

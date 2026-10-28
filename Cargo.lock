@@ -2679,6 +2679,7 @@ dependencies = [
  "oryn-dom",
  "oryn-layout",
  "oryn-net",
+ "oryn-render-core",
  "oryn-webidl",
  "psl",
  "serde",
