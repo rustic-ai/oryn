@@ -93,7 +93,17 @@ async fn worker_redirect_csp_event_control(production_worker: bool) {
     )
     .await
     .unwrap();
-    page.evaluate("globalThis.workerResult=null;globalThis.workerStages=[];globalThis.worker=new Worker('/worker.js');worker.onmessage=e=>{if(e.data&&e.data.stage)workerStages.push(e.data.stage);else globalThis.workerResult=e.data};worker.onerror=()=>globalThis.workerResult='worker error';true").await.unwrap();
+    let startup = page.evaluate("globalThis.workerResult=null;globalThis.workerStages=[];globalThis.worker=new Worker('/worker.js');worker.onmessage=e=>{if(e.data&&e.data.stage)workerStages.push(e.data.stage);else globalThis.workerResult=e.data};worker.onerror=()=>globalThis.workerResult='worker error';true").await;
+    if startup.is_err() {
+        // Settle the original fixture before reporting startup failure. A panic
+        // here must not leave pages or agents alive for the next serial test.
+        for entry in context.pages() {
+            context.close_page(entry.page.page_id).await.unwrap();
+        }
+        context.retire_workers().await.unwrap();
+        fixture.finish();
+        panic!("worker startup (production_worker={production_worker}): {startup:?}");
+    }
     let wait = page
         .wait_for_timeout(
             WaitPredicate::JavaScript("workerResult!==null".into()),
