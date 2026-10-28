@@ -403,6 +403,15 @@ impl RawV8Host {
         wait: bool,
         terminal: Option<&crate::page_terminal_control::PageTerminalControl>,
     ) -> Result<usize, HostError> {
+        self.drain_native_tasks(wait, terminal, true)
+    }
+
+    fn drain_native_tasks(
+        &mut self,
+        wait: bool,
+        terminal: Option<&crate::page_terminal_control::PageTerminalControl>,
+        admit_timers: bool,
+    ) -> Result<usize, HostError> {
         let _stage = crate::native_timing::stage("host.timers");
         let retired = || terminal.is_some_and(|control| control.retired());
         if self.worker_tasks_stopped() || retired() {
@@ -426,7 +435,7 @@ impl RawV8Host {
         };
         #[cfg(not(unix))]
         let external_delivered = 0;
-        if wait
+        if admit_timers && wait
             && let Some(delay) = self.next_timer_delay()
             && !delay.is_zero()
             && delay <= self.execution_wall_limit
@@ -575,6 +584,12 @@ impl RawV8Host {
                 }
                 delivered += 1;
                 continue;
+            }
+            // Empty completion probes may publish native document events,
+            // but do not authorize a peer timer task. Explicit page/timer
+            // turns and real completion fairness boundaries admit timers.
+            if !admit_timers {
+                break;
             }
             let unloading = self
                 .binding_states
@@ -1021,8 +1036,10 @@ impl RawV8Host {
             // checkpoints have no independent PageState task driver: they
             // must also pump control/message/stylesheet/CSP tasks when the
             // platform completion queue is empty.
-            if pass != 0 || wait || terminal.is_none() {
+            if pass != 0 || wait {
                 delivered += self.drain_scheduled_timers_with_terminal_control(false, terminal)?;
+            } else if terminal.is_none() {
+                delivered += self.drain_native_tasks(false, None, false)?;
             }
             if delivered >= MAX_COMPLETIONS_PER_CHECKPOINT {
                 break;
