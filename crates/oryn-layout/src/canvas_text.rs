@@ -6,6 +6,7 @@ use skrifa::{
     instance::{LocationRef, NormalizedCoord, Size},
 };
 use std::collections::BTreeMap;
+mod ink;
 
 /// Original native glyphs and fonts, not estimated character advances.
 #[derive(Debug)]
@@ -17,6 +18,89 @@ pub struct CanvasTextShape {
 }
 
 impl CanvasTextShape {
+    /// Ink union in the shaped line's coordinate system (y increases down).
+    pub fn ink_bounds(&self) -> Result<Option<[f64; 4]>, LayoutError> {
+        use skrifa::{GlyphId, outline::DrawSettings};
+        let mut union: Option<[f64; 4]> = None;
+        for run in &self.glyph_runs {
+            if !run.font_size.is_finite()
+                || run.font_size <= 0.
+                || run.font_size > f64::from(f32::MAX)
+                || !run.scale_x.is_finite()
+                || run.scale_x <= 0.
+                || !run.skew_degrees.is_finite()
+                || run.skew_degrees.abs() >= 90.
+                || run
+                    .normalized_coords
+                    .iter()
+                    .any(|v| !(-16384..=16384).contains(v))
+                || run
+                    .glyphs
+                    .iter()
+                    .any(|g| !g.x.is_finite() || !g.y.is_finite())
+                || run.vertical
+            {
+                return Err(LayoutError::InvalidRenderedTree(
+                    "invalid horizontal canvas glyph instance".into(),
+                ));
+            }
+            let source = self.fonts.get(&run.font_key).ok_or_else(|| {
+                LayoutError::InvalidRenderedTree("canvas glyph font is missing".into())
+            })?;
+            let font = FontRef::from_index(&source.bytes, source.collection_index)
+                .map_err(|e| LayoutError::InvalidRenderedTree(e.to_string()))?;
+            let coords = run
+                .normalized_coords
+                .iter()
+                .map(|v| NormalizedCoord::from_bits(*v))
+                .collect::<Vec<_>>();
+            let outlines = font.outline_glyphs();
+            for glyph in &run.glyphs {
+                let outline = outlines.get(GlyphId::new(glyph.id)).ok_or_else(|| {
+                    LayoutError::InvalidRenderedTree("canvas glyph outline is missing".into())
+                })?;
+                let mut pen = ink::Pen::new(f64::from(run.skew_degrees).to_radians().tan());
+                outline
+                    .draw(
+                        DrawSettings::unhinted(
+                            Size::new(run.font_size as f32),
+                            LocationRef::new(&coords),
+                        ),
+                        &mut pen,
+                    )
+                    .map_err(|e| LayoutError::InvalidRenderedTree(e.to_string()))?;
+                if pen.invalid {
+                    return Err(LayoutError::InvalidRenderedTree(
+                        "non-finite canvas outline".into(),
+                    ));
+                }
+                if let Some(b) = pen.bounds {
+                    let radius = if run.embolden {
+                        run.font_size / 48.
+                    } else {
+                        0.
+                    };
+                    let b = [
+                        glyph.x + (b[0] - radius) * run.scale_x,
+                        glyph.y - b[3] - radius,
+                        glyph.x + (b[2] + radius) * run.scale_x,
+                        glyph.y - b[1] + radius,
+                    ];
+                    if b.iter().any(|v| !v.is_finite()) {
+                        return Err(LayoutError::InvalidRenderedTree(
+                            "canvas glyph bounds overflow".into(),
+                        ));
+                    }
+                    let u = union.get_or_insert(b);
+                    u[0] = u[0].min(b[0]);
+                    u[1] = u[1].min(b[1]);
+                    u[2] = u[2].max(b[2]);
+                    u[3] = u[3].max(b[3]);
+                }
+            }
+        }
+        Ok(union)
+    }
     /// Font-instance metrics in glyph-run order. Fallback faces and variation
     /// coordinates must remain distinct; these are not yet canvas baseline-
     /// adjusted TextMetrics values.
@@ -100,6 +184,22 @@ mod tests {
         assert_eq!(measure("a\r\nb").width, double.width);
         assert!(measure(" a b ").width > single.width);
         assert!(single.baseline > 0.);
+        let bounds = single.ink_bounds().unwrap().unwrap();
+        assert!(bounds[2] > bounds[0] && bounds[3] > bounds[1]);
+        assert_eq!(measure("   ").ink_bounds().unwrap(), None);
+        let mut translated = measure("a b");
+        for run in &mut translated.glyph_runs {
+            for glyph in &mut run.glyphs {
+                glyph.x += 23.;
+                glyph.y += 17.;
+            }
+        }
+        let shifted = translated.ink_bounds().unwrap().unwrap();
+        for i in 0..4 {
+            assert!((shifted[i] - bounds[i] - if i % 2 == 0 { 23. } else { 17. }).abs() < 1e-9);
+        }
+        translated.glyph_runs[0].skew_degrees = f32::NAN;
+        assert!(translated.ink_bounds().is_err());
         assert!(!single.glyph_runs.is_empty());
         let metrics = single.font_metrics().unwrap();
         assert_eq!(metrics.len(), single.glyph_runs.len());
