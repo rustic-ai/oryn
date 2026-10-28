@@ -285,7 +285,61 @@ pub struct NativeFontShorthand {
     pub declarations: style::properties::SourcePropertyDeclaration,
     _allocation: LeaseArc<dyn Send + Sync>,
 }
+/// Serialized native shaping longhands, retained with their output admission.
+/// Consumers resolve relative values in their native canvas style context;
+/// this projection does not approximate font sizes or choose fallback fonts.
+pub struct NativeFontStyleProjection {
+    pub declarations: Vec<(String, String)>,
+    _allocation: LeaseArc<dyn Send + Sync>,
+}
+fn write_native_font_value<W: std::fmt::Write>(declaration: &style::properties::PropertyDeclaration, writer: &mut style_traits::CssWriter<W>) -> Result<bool, std::fmt::Error> {
+    use style::properties::PropertyDeclaration as P;
+    use style_traits::ToCss;
+    // Match the native typed values used by the shaping consumer, rather than
+    // allocating through PropertyDeclaration's String-only serializer.
+    macro_rules! values { ($($variant:ident),+ $(,)?) => { match declaration {
+        $(P::$variant(value) => { value.to_css(writer)?; Ok(true) },)+
+        _ => Ok(false),
+    } }; }
+    values!(FontSize, FontFamily, FontStyle, FontWeight, FontStretch, FontVariantCaps,
+        FontKerning, FontFeatureSettings, FontVariationSettings, FontOpticalSizing,
+        FontSizeAdjust, FontLanguageOverride, FontVariantLigatures, FontVariantNumeric,
+        FontVariantEastAsian, FontVariantPosition, LineHeight)
+}
 impl NativeFontShorthand {
+    pub fn style_projection(&self, admission: &dyn ImportAdmission) -> Result<NativeFontStyleProjection, String> {
+        admission.checkpoint()?;
+        let count = self.declarations.declarations.len();
+        let mut bytes = count.checked_mul(std::mem::size_of::<(String, String)>()).ok_or("font projection overflow")?;
+        for declaration in &self.declarations.declarations {
+            let mut value = FontDescriptorCount::default();
+            if !write_native_font_value(declaration, &mut style_traits::CssWriter::new(&mut value)).map_err(|e| e.to_string())? { continue; }
+            bytes = bytes.checked_add(declaration.id().name().len()).and_then(|n| n.checked_add(value.bytes)).ok_or("font projection overflow")?;
+            admission.checkpoint()?;
+        }
+        let allocation = admission.reserve(bytes)?;
+        admission.checkpoint()?;
+        let mut declarations = Vec::new();
+        declarations.try_reserve_exact(count).map_err(|e| e.to_string())?;
+        if declarations.capacity() > count { return Err("font projection exceeded admission".into()); }
+        for declaration in &self.declarations.declarations {
+            admission.checkpoint()?;
+            let mut count = FontDescriptorCount::default();
+            if !write_native_font_value(declaration, &mut style_traits::CssWriter::new(&mut count)).map_err(|e| e.to_string())? { continue; }
+            let name = declaration.id().name();
+            let mut key = String::new();
+            key.try_reserve_exact(name.len()).map_err(|e| e.to_string())?;
+            if key.capacity() > name.len() { return Err("font key exceeded admission".into()); }
+            key.push_str(&name);
+            let mut value = String::new();
+            value.try_reserve_exact(count.bytes).map_err(|e| e.to_string())?;
+            if value.capacity() > count.bytes { return Err("font value exceeded admission".into()); }
+            write_native_font_value(declaration, &mut style_traits::CssWriter::new(&mut FontBoundedWriter { text: &mut value, limit: count.bytes })).map_err(|e| e.to_string())?;
+            declarations.push((key, value));
+        }
+        admission.checkpoint()?;
+        Ok(NativeFontStyleProjection { declarations, _allocation: allocation })
+    }
     pub fn axes(&self) -> Result<NativeFontAxes, String> {
         use style::properties::PropertyDeclaration as P;
         use style::values::specified::font::{FontStretch, FontStyle, FontWeight};
@@ -366,6 +420,56 @@ mod constructed_font_controls {
         }
         fn reserve(&self, _: usize) -> Result<LeaseArc<dyn Send + Sync>, String> {
             Ok(LeaseArc::new(()))
+        }
+    }
+    #[test]
+    fn native_font_style_projection_preserves_parsed_longhands_and_admission() {
+        let font = parse_native_font_shorthand_typed("italic bold 20px/2 Example, serif", "https://example.test/", &Admission).unwrap();
+        let projection = font.style_projection(&Admission).unwrap();
+        let get = |name: &str| projection.declarations.iter().find(|(key, _)| key == name).map(|(_, value)| value.as_str()).unwrap();
+        assert_eq!(get("font-size"), "20px");
+        assert_eq!(get("font-style"), "italic");
+        assert_eq!(get("font-weight"), "bold");
+        assert_eq!(get("line-height"), "2");
+        assert!(get("font-family").contains("Example"));
+        let style = projection.declarations.iter().cloned().collect();
+        let shape = crate::canvas_text::shape("Ag", &style, Default::default(), &[]).unwrap();
+        assert_eq!(shape.font_size, 20.);
+        assert!(shape.width > 0.);
+        struct Denied;
+        impl ImportAdmission for Denied {
+            fn checkpoint(&self) -> Result<(), String> { Ok(()) }
+            fn reserve(&self, _: usize) -> Result<LeaseArc<dyn Send + Sync>, String> { Err("denied".into()) }
+        }
+        assert!(font.style_projection(&Denied).is_err());
+    }
+    #[test]
+    fn native_font_style_projection_retains_charge_and_discards_every_cancelled_stage() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Charge(LeaseArc<AtomicUsize>);
+        impl Drop for Charge { fn drop(&mut self) { self.0.fetch_sub(1, Ordering::SeqCst); } }
+        struct Controlled { live: LeaseArc<AtomicUsize>, checks: AtomicUsize, deny_at: usize }
+        impl ImportAdmission for Controlled {
+            fn checkpoint(&self) -> Result<(), String> {
+                if self.checks.fetch_add(1, Ordering::SeqCst) >= self.deny_at { Err("cancelled".into()) } else { Ok(()) }
+            }
+            fn reserve(&self, _: usize) -> Result<LeaseArc<dyn Send + Sync>, String> {
+                self.live.fetch_add(1, Ordering::SeqCst);
+                Ok(LeaseArc::new(Charge(self.live.clone())))
+            }
+        }
+        let font = parse_native_font_shorthand_typed("italic bold 20px/2 Example, serif", "https://example.test/", &Admission).unwrap();
+        let admission = Controlled { live: LeaseArc::new(AtomicUsize::new(0)), checks: AtomicUsize::new(0), deny_at: usize::MAX };
+        let projection = font.style_projection(&admission).unwrap();
+        assert_eq!(admission.live.load(Ordering::SeqCst), 1);
+        let stages = admission.checks.load(Ordering::SeqCst);
+        assert!(stages > 3);
+        drop(projection);
+        assert_eq!(admission.live.load(Ordering::SeqCst), 0);
+        for deny_at in 0..stages {
+            let admission = Controlled { deny_at, live: admission.live.clone(), checks: AtomicUsize::new(0) };
+            assert!(font.style_projection(&admission).is_err(), "cancel checkpoint {deny_at}");
+            assert_eq!(admission.live.load(Ordering::SeqCst), 0, "leaked checkpoint {deny_at}");
         }
     }
     #[test]

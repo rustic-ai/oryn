@@ -204,6 +204,7 @@ mod canvas_patterns;
 mod canvas_path;
 mod canvas_path_svg;
 mod canvas_text_path;
+mod canvas_text_state;
 mod rect_lists;
 use canvas_composite::Composite;
 mod abort_any;
@@ -869,6 +870,7 @@ struct ImageRequestKey {
 
 #[derive(Debug, Clone)]
 struct CanvasDrawState {
+    text: canvas_text_state::TextState,
     fill_color: [u8; 4],
     stroke_color: [u8; 4],
     fill_gradient: Option<canvas_gradients::Paint>,
@@ -885,6 +887,7 @@ struct CanvasDrawState {
 impl Default for CanvasDrawState {
     fn default() -> Self {
         Self {
+            text: canvas_text_state::TextState::default(),
             fill_color: [0, 0, 0, 255],
             stroke_color: [0, 0, 0, 255],
             fill_gradient: None,
@@ -40971,6 +40974,7 @@ fn install_canvas_context_members(
 ) -> Result<(), V8BindingError> {
     canvas_gradients::install_factories(scope, context)?;
     canvas_patterns::install_factory(scope, context)?;
+    canvas_text_state::install(scope, context)?;
     for name in [
         "strokeStyle",
         "lineWidth",

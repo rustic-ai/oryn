@@ -1604,8 +1604,15 @@ interface CanvasPattern {
   undefined setTransform(optional DOMMatrix2DInit transform = {});
 };
 
+enum CanvasTextAlign { "start", "end", "left", "right", "center" };
+enum CanvasTextBaseline { "top", "hanging", "middle", "alphabetic", "ideographic", "bottom" };
+enum CanvasDirection { "ltr", "rtl", "inherit" };
+
 [Exposed=Window]
 interface CanvasRenderingContext2D {
+  attribute CanvasTextAlign textAlign;
+  attribute CanvasTextBaseline textBaseline;
+  attribute CanvasDirection direction;
   CanvasPattern? createPattern(CanvasImageSource image, [LegacyNullToEmptyString] DOMString repetition);
   CanvasGradient createLinearGradient(double x0, double y0, double x1, double y1);
   CanvasGradient createRadialGradient(double x0, double y0, double r0, double x1, double y1, double r1);
@@ -1680,6 +1687,9 @@ interface OffscreenCanvas : EventTarget {
 
 [Exposed=(Window,Worker)]
 interface OffscreenCanvasRenderingContext2D {
+  attribute CanvasTextAlign textAlign;
+  attribute CanvasTextBaseline textBaseline;
+  attribute CanvasDirection direction;
   CanvasPattern? createPattern(CanvasImageSource image, [LegacyNullToEmptyString] DOMString repetition);
   CanvasGradient createLinearGradient(double x0, double y0, double x1, double y1);
   CanvasGradient createRadialGradient(double x0, double y0, double r0, double x1, double y1, double r1);
