@@ -1388,6 +1388,9 @@ interface DOMTokenList {
 
 [Exposed=Window]
 interface HTMLElement : Element {
+  [CEReactions] attribute DOMString writingSuggestions;
+  [CEReactions] attribute DOMString autocapitalize;
+  [CEReactions] attribute boolean autocorrect;
   [CEReactions, Reflect, ReflectRange=(0, 8)] attribute unsigned long headingOffset;
   [CEReactions, Reflect] attribute boolean headingReset;
   attribute EventHandler onabort;

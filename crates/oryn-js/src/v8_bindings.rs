@@ -34562,6 +34562,49 @@ mod reflected_long_tests {
             const eq=(a,b,label)=>{if(a!==b)throw Error(label+': '+a+' != '+b)};
             const table=document.createElement('table');
             eq(table instanceof HTMLTableElement,true,'table interface');
+            const editingForm=document.createElement('form');editingForm.id='editing-owner';document.body.append(editingForm);
+            editingForm.autocapitalize='WORDS';editingForm.autocorrect=false;
+            for(const tag of ['button','fieldset','input','output','select','textarea','img','object','div']) {
+                const inherits=['button','fieldset','input','output','select','textarea'].includes(tag);
+                const element=document.createElement(tag);editingForm.append(element);
+                eq(element.autocapitalize,inherits?'words':'','form capital inheritance '+tag);
+                eq(element.autocorrect,!inherits,'form correction inheritance '+tag);
+                element.autocapitalize='';eq(element.autocapitalize,inherits?'words':'','empty capital inheritance '+tag);
+                element.autocorrect='false';eq(element.autocorrect,true,'correction boolean conversion');eq(element.getAttribute('autocorrect'),'on','correction on');
+                element.setAttribute('autocorrect','OFF');eq(element.autocorrect,false,'correction canonical');
+                element.setAttribute('autocorrect','');eq(element.autocorrect,true,'correction explicit empty override');
+                for(const [raw,expected] of [['off','none'],['On','sentences'],['ChArAcTeRs','characters'],['invalid','sentences']]) {
+                    element.autocapitalize=raw;eq(element.autocapitalize,expected,'capital canonical');eq(element.getAttribute('autocapitalize'),raw,'capital raw');
+                }
+                element.removeAttribute('autocapitalize');element.removeAttribute('autocorrect');
+                element.setAttribute('form','editing-owner');document.body.append(element);
+                eq(element.autocapitalize,inherits?'words':'','explicit form inheritance '+tag);
+                eq(element.autocorrect,!inherits,'explicit correction inheritance '+tag);
+                element.remove();
+            }
+            const writingParent=document.createElement('div'),writingChild=document.createElement('span');writingParent.append(writingChild);
+            eq(writingChild.writingSuggestions,'true','writing default');writingParent.writingSuggestions='FaLsE';
+            eq(writingChild.writingSuggestions,'false','writing inheritance');eq(writingParent.getAttribute('writingsuggestions'),'FaLsE','writing raw');
+            for(const raw of ['', 'invalid', 'true']) {writingChild.writingSuggestions=raw;eq(writingChild.writingSuggestions,'true','writing explicit override');}
+            writingChild.removeAttribute('writingsuggestions');eq(writingChild.writingSuggestions,'false','writing removal inherits');
+            writingParent.removeChild(writingChild);eq(writingChild.writingSuggestions,'true','writing detached default');editingForm.remove();
+            const editingChanges=[];
+            customElements.define('editing-reflection-control',class extends HTMLElement {
+                static get observedAttributes(){return ['autocapitalize','autocorrect','writingsuggestions']}
+                attributeChangedCallback(name,oldValue,newValue){editingChanges.push([name,newValue])}
+            });
+            const editingControl=document.createElement('editing-reflection-control');
+            editingControl.autocapitalize='WORDS';editingControl.autocorrect=false;editingControl.writingSuggestions='false';
+            eq(editingChanges.map(change=>change.join(':')).join('|'),'autocapitalize:WORDS|autocorrect:off|writingsuggestions:false','editing reactions');
+            const editingOwner=document.implementation.createHTMLDocument('editing');
+            editingControl.writingSuggestions={toString(){editingOwner.adoptNode(editingControl);return 'FaLsE'}};
+            eq(editingControl.ownerDocument,editingOwner,'editing string conversion adoption');eq(editingControl.writingSuggestions,'false','editing adopted setter');
+            for(const key of ['autocapitalize','autocorrect','writingSuggestions']) {
+                const descriptor=Object.getOwnPropertyDescriptor(HTMLElement.prototype,key);
+                let converted=false,rejected=false;
+                try{descriptor.set.call({}, {toString(){converted=true;return 'false'}})}catch(e){rejected=e instanceof TypeError}
+                eq(rejected,true,'editing receiver rejection');eq(converted,false,'editing brand before conversion');
+            }
             eq(table.headingOffset,0,'heading default');eq(table.headingReset,false,'reset default');
             for(const [raw,expected] of [['',0],['garbage',0],['-1',0],[' +3tail',3],['8',8],['9',8],['9999999999999999999999999999999999',8]]) {
                 table.setAttribute('headingoffset',raw);eq(table.headingOffset,expected,'heading parse '+raw);
@@ -34846,6 +34889,39 @@ fn get_attribute_value<'s>(
         if member == "tBodies" {
             return node_lists::elements(scope, state, node, node_lists::ElementFilter::TableBodies);
         }
+    }
+    if interface == "HTMLElement" && matches!(member, "autocapitalize" | "autocorrect") {
+        let dom = state.dom.borrow();
+        let mut value = dom.attribute_in_null_namespace(node, member)?;
+        let inherit = value.is_none() || (member == "autocapitalize" && value == Some(""));
+        if inherit && matches!(interface_for_node(&dom.arena().get(node)?.kind),
+            "HTMLButtonElement" | "HTMLFieldSetElement" | "HTMLInputElement" | "HTMLOutputElement" | "HTMLSelectElement" | "HTMLTextAreaElement")
+            && let Some(form) = dom.form_owner(node)?
+        {
+            value = dom.attribute_in_null_namespace(form, member)?;
+        }
+        if member == "autocorrect" {
+            return Ok(v8::Boolean::new(scope, !value.is_some_and(|raw| raw.eq_ignore_ascii_case("off"))).into());
+        }
+        let value = value.unwrap_or("").to_ascii_lowercase();
+        let canonical = match value.as_str() {
+            "" => "", "off" | "none" => "none", "characters" => "characters", "words" => "words", _ => "sentences",
+        };
+        return v8_string(scope, canonical);
+    }
+    if interface == "HTMLElement" && member == "writingSuggestions" {
+        let dom = state.dom.borrow();
+        let mut current = Some(node);
+        while let Some(candidate) = current {
+            let record = dom.arena().get(candidate)?;
+            if matches!(&record.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml")
+                && let Some(value) = record.attributes.get_null("writingsuggestions")
+            {
+                return v8_string(scope, if value.eq_ignore_ascii_case("false") { "false" } else { "true" });
+            }
+            current = record.parent;
+        }
+        return v8_string(scope, "true");
     }
     if interface == "HTMLElement" && member == "headingOffset" {
         let value = reflected_clamped_unsigned(state.dom.borrow().attribute_in_null_namespace(node, "headingoffset")?, 0, 8, 0);
@@ -37024,7 +37100,7 @@ fn set_attribute_value<'s>(
         }
         return Ok(());
     }
-    if interface == "HTMLElement" && matches!(member, "inputMode" | "enterKeyHint") {
+    if interface == "HTMLElement" && matches!(member, "inputMode" | "enterKeyHint" | "writingSuggestions" | "autocapitalize") {
         let original = wrap_node(scope, state, node)?;
         let value = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
         let value = rust_string_preserving_utf16(scope, value)?;
@@ -37460,11 +37536,13 @@ fn set_attribute_value<'s>(
             .set_attribute(node, "accesskey", value)?;
         return Ok(());
     }
-    if interface == "HTMLElement" && matches!(member, "translate" | "spellcheck") {
+    if interface == "HTMLElement" && matches!(member, "translate" | "spellcheck" | "autocorrect") {
         let enabled = value.boolean_value(scope);
         let value = match (member, enabled) {
             ("translate", true) => "yes",
             ("translate", false) => "no",
+            ("autocorrect", true) => "on",
+            ("autocorrect", false) => "off",
             (_, true) => "true",
             (_, false) => "false",
         };
