@@ -35211,6 +35211,30 @@ fn get_attribute_value<'s>(
             return node_lists::elements(scope, state, node, node_lists::ElementFilter::TableBodies);
         }
     }
+    if matches!(interface, "HTMLElement" | "HTMLScriptElement") && matches!(member, "innerText" | "outerText") {
+        // Layout belongs to the receiver's active document, not the realm
+        // supplying a borrowed getter. Inactive/detached roots use textContent.
+        let connected = state.dom.borrow().is_connected(node)?;
+        let owner = active_document_state_for_node(scope, state, node);
+        if !connected || owner.is_none() {
+            return v8_string(scope, &state.dom.borrow().arena().text_content(node)?);
+        }
+        let owner = owner.expect("active owner checked");
+        refresh_layout_in_scope(scope, &owner)?;
+        let layout = owner.layout.borrow();
+        let display = layout.styles.get(&node_key(node)).and_then(|style| style.get("display")).map(String::as_str);
+        let contents = display == Some("contents");
+        if display == Some("none") || (!contents && matches!(layout.geometry.get(&node_key(node)), Some(BindingGeometry::Hidden))) {
+            return v8_string(scope, &owner.dom.borrow().arena().text_content(node)?);
+        }
+        if !contents && !matches!(layout.geometry.get(&node_key(node)), Some(BindingGeometry::Available(_))) {
+            return Err(V8BindingError::Message("rendered text root layout is unavailable".into()));
+        }
+        let sources = crate::rendered_text_source::semantic_nodes(&layout.resolved_text).map_err(V8BindingError::Message)?;
+        let dom = owner.dom.borrow();
+        let items = crate::rendered_text_source::collect_items(&dom, node, &layout.styles, &sources).map_err(V8BindingError::Message)?;
+        return v8_string(scope, &oryn_dom::reduce_rendered_text(items));
+    }
     if interface == "HTMLElement" && matches!(member, "autocapitalize" | "autocorrect") {
         let dom = state.dom.borrow();
         let mut value = dom.attribute_in_null_namespace(node, member)?;
@@ -36821,7 +36845,7 @@ fn get_attribute_value<'s>(
         {
             v8::null(scope).into()
         }
-        (_, "textContent") | ("HTMLElement" | "HTMLScriptElement", "innerText") => {
+        (_, "textContent") => {
             v8_string(scope, &dom.arena().text_content(node)?)?
         }
         ("Element", "tagName") => v8_string(scope, &reflected_node_name(state, node)?)?,
@@ -60813,6 +60837,46 @@ fn document_head_body_getters_keep_foreign_owner_and_namespace() {
                 .unwrap()
                 .is_true()
         );
+    }
+
+    #[test]
+    fn native_rendered_text_getter_uses_semantic_layout_and_root_fallback() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body><div id=target>source</div></body>").into_runtime().unwrap()));
+        let target = dom.borrow().find_by_id("target").unwrap();
+        let child = dom.borrow().arena().get(target).unwrap().children[0];
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let mut layout = BindingLayout::default();
+        layout.geometry.insert(node_key(target), BindingGeometry::Available(BindingRect { x:0.0, y:0.0, width:10.0, height:10.0 }));
+        layout.styles.insert(node_key(target), std::sync::Arc::new(BTreeMap::from([("display".into(), "block".into()), ("visibility".into(), "visible".into())])));
+        layout.resolved_text.push(oryn_common::v4::ResolvedTextRun {
+            layout_node: node_key(target), text: "AB".into(), spans:vec![], aliases:vec![],
+            semantic_source: Some(oryn_common::v4::SemanticTextSource {
+                text:"A B".into(), spans:vec![oryn_common::v4::ResolvedTextSpan {
+                    owner:node_key(target), source_node:Some(node_key(child)),
+                    rendered_start:0, rendered_end:3, source_start:0, source_end:6,
+                    transformed:true, atomic:false,
+                }],
+            }),
+        });
+        for (mode, expected) in [("block", "A B"), ("none", "source"), ("contents", "A B")] {
+            layout.styles.insert(node_key(target), std::sync::Arc::new(BTreeMap::from([("display".into(), mode.into())])));
+            layout.geometry.insert(node_key(target), if mode == "block" {
+                BindingGeometry::Available(BindingRect { x:0.0, y:0.0, width:10.0, height:10.0 })
+            } else { BindingGeometry::Hidden });
+            state.set_layout(layout.clone());
+            let source = v8::String::new(scope, "document.getElementById('target').innerText").unwrap();
+            v8::tc_scope!(let scope, scope);
+            let result = v8::Script::compile(scope, source, None).unwrap().run(scope);
+            let exception = scope.exception().map(|error| error.to_rust_string_lossy(scope));
+            assert_eq!(result.map(|value| value.to_rust_string_lossy(scope)), Some(expected.into()), "mode={mode} exception={exception:?}");
+        }
+        let source = v8::String::new(scope, "const detached=document.getElementById('target');detached.remove();detached.innerText").unwrap();
+        assert_eq!(v8::Script::compile(scope, source, None).unwrap().run(scope).unwrap().to_rust_string_lossy(scope), "source");
     }
 
     #[test]
