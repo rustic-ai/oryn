@@ -1639,6 +1639,8 @@ interface HTMLMediaElement : HTMLElement {
 };
 [Exposed=Window]
 interface HTMLVideoElement : HTMLMediaElement {
+  [CEReactions, Reflect] attribute unsigned long width;
+  [CEReactions, Reflect] attribute unsigned long height;
   [CEReactions, Reflect] attribute boolean playsInline;
   [CEReactions] attribute USVString poster;
   readonly attribute unsigned long videoWidth;
@@ -1804,6 +1806,8 @@ interface OffscreenCanvasRenderingContext2D {
 
 [Exposed=Window]
 interface HTMLImageElement : HTMLElement {
+  [CEReactions, Reflect] attribute unsigned long hspace;
+  [CEReactions, Reflect] attribute unsigned long vspace;
   [CEReactions, ReflectURL] attribute USVString lowsrc;
   [CEReactions, ReflectURL] attribute USVString longDesc;
   [CEReactions, Reflect] attribute DOMString alt;
@@ -2092,6 +2096,8 @@ interface HTMLFieldSetElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLObjectElement : HTMLElement {
+  [CEReactions, Reflect] attribute unsigned long hspace;
+  [CEReactions, Reflect] attribute unsigned long vspace;
   [CEReactions, ReflectURL] attribute DOMString codeBase;
   [CEReactions, Reflect] attribute DOMString align;
   [CEReactions, Reflect] attribute DOMString archive;

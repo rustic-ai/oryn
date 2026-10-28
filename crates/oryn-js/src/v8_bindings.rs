@@ -34578,6 +34578,22 @@ mod reflected_long_tests {
             const eq=(a,b,label)=>{if(a!==b)throw Error(label+': '+a+' != '+b)};
             const table=document.createElement('table');
             eq(table instanceof HTMLTableElement,true,'table interface');
+            for(const [tag,member] of [['img','hspace'],['img','vspace'],['object','hspace'],['object','vspace'],['video','width'],['video','height']]) {
+                const element=document.createElement(tag);eq(element[member],0,'unsigned default '+tag+'.'+member);
+                for(const [raw,expected] of [['',0],['-1',0],['-0',0],[' +7tail',7],['2147483647',2147483647],['2147483648',0],['999999999999999999999999',0],['\u000b7',0],['7\u000b',7]]) {
+                    element.setAttribute(member,raw);eq(element[member],expected,'unsigned parse '+tag+'.'+member+' '+raw);
+                    eq(element.getAttribute(member),raw,'unsigned author content retained');
+                }
+                for(const [value,expected] of [[-1,0],[2147483648,0],[4294967297,1],[7.9,7],[NaN,0],[Infinity,0]]) {
+                    element[member]=value;eq(element[member],expected,'unsigned conversion');eq(element.getAttribute(member),String(expected),'unsigned serialized');
+                }
+                const owner=document.implementation.createHTMLDocument('unsigned');
+                element[member]={valueOf(){owner.adoptNode(element);return 3}};
+                eq(element.ownerDocument,owner,'unsigned conversion adoption');eq(element[member],3,'unsigned adopted mutation');
+                const descriptor=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element),member);
+                let converted=false,rejected=false;try{descriptor.set.call(table,{valueOf(){converted=true;return 1}})}catch(e){rejected=e instanceof TypeError}
+                eq(rejected,true,'unsigned wrong brand');eq(converted,false,'unsigned brand precedence');
+            }
             for(const [tag,members] of [['a',['coords','charset','rev','shape','hreflang','type']],['area',['alt','hreflang','type']],['img',['alt','align','useMap','border']],['iframe',['align','scrolling','frameBorder','marginHeight','marginWidth']],['object',['align','archive','code','standby','codeType','useMap','border']],['embed',['align']]]) {
                 const element=document.createElement(tag);
                 for(const member of members) {
@@ -35013,7 +35029,10 @@ fn get_attribute_value<'s>(
         };
         return v8_string(scope, if valid { &value } else { "" });
     }
-    if interface == "HTMLMarqueeElement" && matches!(member, "hspace" | "vspace" | "scrollAmount" | "scrollDelay") {
+    if (interface == "HTMLMarqueeElement" && matches!(member, "hspace" | "vspace" | "scrollAmount" | "scrollDelay"))
+        || (matches!(interface, "HTMLImageElement" | "HTMLObjectElement") && matches!(member, "hspace" | "vspace"))
+        || (interface == "HTMLVideoElement" && matches!(member, "width" | "height"))
+    {
         let default = match member { "scrollAmount" => 6, "scrollDelay" => 85, _ => 0 };
         let attribute = member.to_ascii_lowercase();
         let value = state.dom.borrow().attribute_in_null_namespace(node, &attribute)?
@@ -37187,7 +37206,10 @@ fn set_attribute_value<'s>(
         owner.dom.borrow_mut().set_attribute_ns(node, None, &attribute, value)?;
         return attribute_resource_changed(scope, &owner, node, None, &attribute);
     }
-    if interface == "HTMLMarqueeElement" && matches!(member, "hspace" | "vspace" | "scrollAmount" | "scrollDelay" | "behavior" | "direction") {
+    if (interface == "HTMLMarqueeElement" && matches!(member, "hspace" | "vspace" | "scrollAmount" | "scrollDelay" | "behavior" | "direction"))
+        || (matches!(interface, "HTMLImageElement" | "HTMLObjectElement") && matches!(member, "hspace" | "vspace"))
+        || (interface == "HTMLVideoElement" && matches!(member, "width" | "height"))
+    {
         let original = wrap_node(scope, state, node)?;
         let string = if matches!(member, "behavior" | "direction") {
             let value = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
