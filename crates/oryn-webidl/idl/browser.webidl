@@ -1804,6 +1804,8 @@ interface OffscreenCanvasRenderingContext2D {
 
 [Exposed=Window]
 interface HTMLImageElement : HTMLElement {
+  [CEReactions, ReflectURL] attribute USVString lowsrc;
+  [CEReactions, ReflectURL] attribute USVString longDesc;
   [CEReactions, Reflect] attribute DOMString alt;
   [CEReactions, Reflect] attribute DOMString align;
   [CEReactions, Reflect] attribute DOMString useMap;
@@ -2090,6 +2092,7 @@ interface HTMLFieldSetElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLObjectElement : HTMLElement {
+  [CEReactions, ReflectURL] attribute DOMString codeBase;
   [CEReactions, Reflect] attribute DOMString align;
   [CEReactions, Reflect] attribute DOMString archive;
   [CEReactions, Reflect] attribute DOMString code;
@@ -2225,6 +2228,7 @@ interface HTMLStyleElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLIFrameElement : HTMLElement {
+  [CEReactions, ReflectURL] attribute USVString longDesc;
   [CEReactions, Reflect] attribute DOMString align;
   [CEReactions, Reflect] attribute DOMString scrolling;
   [CEReactions, Reflect] attribute DOMString frameBorder;

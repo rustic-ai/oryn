@@ -34813,6 +34813,17 @@ mod reflected_long_tests {
             const reflectionBase=document.createElement('base');reflectionBase.href='https://reflection.example/path';
             document.head.appendChild(reflectionBase);
             quote.cite='';eq(quote.cite,'https://reflection.example/path','present empty URL resolves');
+            for(const [tag,member] of [['img','lowsrc'],['img','longDesc'],['iframe','longDesc'],['object','codeBase']]) {
+                const resource=document.createElement(tag),attribute=member.toLowerCase();
+                eq(resource[member],'','legacy URL missing');resource[member]='';eq(resource[member],'https://reflection.example/path','legacy URL empty');
+                resource[member]='relative';eq(resource[member],'https://reflection.example/relative','legacy URL relative');eq(resource.getAttribute(attribute),'relative','legacy URL raw');
+                resource[member]='http://[\ud800';eq(resource[member],tag==='object'?'http://[\ud800':'http://[\ufffd','legacy URL malformed fallback');
+                eq(resource.getAttribute(attribute),tag==='object'?'http://[\ud800':'http://[\ufffd','legacy URL setter conversion');
+                resource.removeAttribute(attribute);eq(resource[member],'','legacy URL removed');
+                const otherOwner=document.implementation.createHTMLDocument('URL');const otherBase=otherOwner.createElement('base');otherBase.href='https://other.example/base/';otherOwner.head.append(otherBase);
+                resource[member]={toString(){otherOwner.adoptNode(resource);return 'child'}};
+                eq(resource.ownerDocument,otherOwner,'legacy URL conversion adoption');eq(resource[member],'https://other.example/base/child','legacy URL adopted base');
+            }
             for(const [tag,member] of [['link','href'],['script','src'],['frame','src'],['img','src'],['video','poster']]) {
                 const resource=document.createElement(tag);eq(resource[member],'','missing resource URL '+tag);
                 resource.setAttribute(member,'');eq(resource[member],'https://reflection.example/path','empty resource URL '+tag);
@@ -35022,20 +35033,20 @@ fn get_attribute_value<'s>(
     if interface == "HTMLLinkElement" && member == "sizes" {
         return associated_wrapper(scope, state, node, "DOMTokenList.sizes");
     }
-    if matches!((interface, member), ("HTMLQuoteElement" | "HTMLModElement", "cite") | ("HTMLFrameElement", "longDesc")) {
-        let attribute = if member == "longDesc" { "longdesc" } else { "cite" };
-        let Some(value) = state.dom.borrow().attribute_in_null_namespace(node, attribute)?.map(str::to_owned) else {
+    if matches!((interface, member), ("HTMLQuoteElement" | "HTMLModElement", "cite") | ("HTMLFrameElement" | "HTMLIFrameElement" | "HTMLImageElement", "longDesc") | ("HTMLImageElement", "lowsrc") | ("HTMLObjectElement", "codeBase")) {
+        let attribute = member.to_ascii_lowercase();
+        let Some(raw) = state.dom.borrow().attribute_in_null_namespace(node, &attribute)?.map(str::to_owned) else {
             return v8_string(scope, "");
         };
         // The URL reflection getter returns USVString even for malformed
         // content authored through setAttribute (which accepts DOMString).
-        let value = v8_string(scope, &value)?.to_string(scope)
+        let value = v8_string(scope, &raw)?.to_string(scope)
             .ok_or(V8BindingError::JavaScriptException)?.to_rust_string_lossy(scope);
         let document = owner_document_for_node(state, node)?;
         let base = hyperlinks::document_base(scope, state, document)?.0;
         let encoding = hyperlinks::document_encoding(state, document)?;
         let resolved = Url::parse(&base).and_then(|base| hyperlinks::parse(&value, Some(&base), encoding))
-            .map(|url| url.to_string()).unwrap_or(value);
+            .map(|url| url.to_string()).unwrap_or_else(|_| if interface == "HTMLObjectElement" { raw } else { value });
         return v8_string(scope, &resolved);
     }
     if interface == "Document" && matches!(member, "dir" | "fgColor" | "linkColor" | "vlinkColor" | "alinkColor" | "bgColor") {
@@ -37192,14 +37203,15 @@ fn set_attribute_value<'s>(
         owner.dom.borrow_mut().set_attribute_ns(node, None, &attribute, string)?;
         return attribute_resource_changed(scope, &owner, node, None, &attribute);
     }
-    if matches!((interface, member), ("HTMLQuoteElement" | "HTMLModElement", "cite") | ("HTMLFrameElement", "longDesc")) {
+    if matches!((interface, member), ("HTMLQuoteElement" | "HTMLModElement", "cite") | ("HTMLFrameElement" | "HTMLIFrameElement" | "HTMLImageElement", "longDesc") | ("HTMLImageElement", "lowsrc") | ("HTMLObjectElement", "codeBase")) {
         let original = wrap_node(scope, state, node)?;
-        let value = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?.to_rust_string_lossy(scope);
+        let string = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let value = if interface == "HTMLObjectElement" { rust_string_preserving_utf16(scope, string)? } else { string.to_rust_string_lossy(scope) };
         let (owner, node) = node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
         validate_interface_node(&owner.dom.borrow(), node, interface)?;
-        let attribute = if member == "longDesc" { "longdesc" } else { "cite" };
-        owner.dom.borrow_mut().set_attribute_ns(node, None, attribute, value)?;
-        return attribute_resource_changed(scope, &owner, node, None, attribute);
+        let attribute = member.to_ascii_lowercase();
+        owner.dom.borrow_mut().set_attribute_ns(node, None, &attribute, value)?;
+        return attribute_resource_changed(scope, &owner, node, None, &attribute);
     }
     if interface == "Document" && matches!(member, "dir" | "fgColor" | "linkColor" | "vlinkColor" | "alinkColor" | "bgColor") {
         let original = wrap_node(scope, state, node)?;
