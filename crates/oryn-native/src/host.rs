@@ -13465,7 +13465,10 @@ mod raw_v8 {
                 .map(|rejections| {
                     std::mem::take(&mut rejections.0)
                         .into_values()
-                        .map(|(_, detail)| detail)
+                        .map(|(environment, detail)| {
+                            crate::native_timing::unhandled_rejection(environment.map(|id| id.0), &detail);
+                            detail
+                        })
                         .collect()
                 })
                 .unwrap_or_default()

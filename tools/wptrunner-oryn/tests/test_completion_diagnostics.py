@@ -5,6 +5,55 @@ from oryn_wptrunner.completion_diagnostics import capture
 
 
 class CompletionDiagnosticsTests(unittest.TestCase):
+    def test_child_realm_observation_restores_top_level_scope(self):
+        commands = []
+        logs = []
+        selected_child = False
+        def send(method, uri, body=None, timeout=None):
+            nonlocal selected_child
+            commands.append((uri, body))
+            if uri == 'window' and method == 'GET':
+                return 'original'
+            if uri == 'window/handles':
+                return ['popup']
+            if uri == 'frame':
+                selected_child = body['id'] == 0
+            if uri == 'execute/sync':
+                return {'frame_count': 0 if selected_child else 1,
+                        'script_count': 5, 'executor_type': 'function',
+                        'worker_path_present': True, 'token_function': False,
+                        'ready_state': 'complete', 'uuid': 'private payload'}
+        protocol = SimpleNamespace(webdriver=SimpleNamespace(send_session_command=send),
+                                   logger=SimpleNamespace(info=logs.append))
+        with patch.dict('os.environ', {'ORYN_WPT_COMPLETION_DIAGNOSTICS': '1'}):
+            capture(protocol, '/FileAPI/BlobURL/cross-partition.https.html')
+        self.assertFalse(selected_child)
+        self.assertIn(('frame', {'id': None}), commands)
+        self.assertIn('"frame_index": 0', logs[0])
+        self.assertIn('"worker_path_present": true', logs[0])
+        self.assertNotIn('private payload', logs[0])
+
+    def test_child_dispatcher_metadata_is_bounded_and_payload_free(self):
+        logs = []
+        def send(method, uri, body=None, timeout=None):
+            if uri == 'window' and method == 'GET':
+                return 'original'
+            if uri == 'window/handles':
+                return ['child']
+            if uri == 'execute/sync':
+                return {'child_dispatcher': {'accessible': True,
+                    'script_count': 5.0, 'request_count': True,
+                    'executor_type': 'function', 'receive_type': 'private payload',
+                    'ready_state': 'complete', 'uuid': 'private payload'}}
+        protocol = SimpleNamespace(webdriver=SimpleNamespace(send_session_command=send),
+                                   logger=SimpleNamespace(info=logs.append))
+        with patch.dict('os.environ', {'ORYN_WPT_COMPLETION_DIAGNOSTICS': '1'}):
+            capture(protocol, '/FileAPI/BlobURL/cross-partition.https.html')
+        self.assertIn('"script_count": 5', logs[0])
+        self.assertIn('"executor_type": "function"', logs[0])
+        self.assertNotIn('request_count', logs[0])
+        self.assertNotIn('private payload', logs[0])
+
     def test_encoding_population_counts_are_opt_in_and_validated(self):
         for span_count, test_count, expected in (
             (13459, 636.0, '"encoding_test_count": 636'),

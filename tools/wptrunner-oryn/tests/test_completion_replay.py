@@ -8,6 +8,101 @@ URL = '/FileAPI/BlobURL/cross-partition.https.html'
 
 
 class ReplayTests(unittest.TestCase):
+    def test_load_probe_never_injects_fresh_task_and_restores_frame(self):
+        logs, calls = [], []
+        selected = None
+        def send(method, uri, body=None, timeout=None):
+            nonlocal selected
+            calls.append((uri, body))
+            if uri == 'window' and method == 'GET': return 'original'
+            if uri == 'window/handles': return ['root', 'popup', 'other']
+            if uri == 'window': selected = body['handle']
+            if uri == 'execute/sync':
+                if 'create_dedicated_worker_js' in body['script']:
+                    return {'kind': 'worker', 'source': 'private task'}
+                if 'script_count' in body['script']: return {'script_count': 5}
+                return selected if selected != 'other' else 'popup'
+            if uri == 'execute/async':
+                self.assertNotIn('eval(', body['script'])
+                if 'limiter_available' in body['script']: return {'limiter_available': True}
+                if 'dispatchEvent' in body['script']:
+                    return {'handler_present': True, 'script_count': 5, 'payload': 'private'}
+                return {'frame_count': 1}
+        protocol = SimpleNamespace(webdriver=SimpleNamespace(send_session_command=send),
+                                   logger=SimpleNamespace(info=logs.append))
+        with patch.dict('os.environ', {'ORYN_WPT_COMPLETION_REPLAY': 'load'}, clear=True):
+            replay(protocol, URL)
+        self.assertEqual(calls[-1], ('window', {'handle': 'original'}))
+        self.assertIn(('frame', {'id': None}), calls)
+        self.assertIn('"synthetic_load_probe": true', logs[0])
+        self.assertIn('"other_child_after_load": true', logs[0])
+        self.assertNotIn('private', logs[0])
+
+    def test_successful_worker_replay_checks_reply_without_logging_queue_id(self):
+        logs = []
+        selected = None
+        child = False
+        def send(method, uri, body=None, timeout=None):
+            nonlocal selected, child
+            if uri == 'window' and method == 'GET': return 'original'
+            if uri == 'window/handles': return ['root', 'popup']
+            if uri == 'window': selected = body['handle']
+            if uri == 'frame': child = body['id'] == 0
+            if uri == 'execute/sync':
+                if 'create_dedicated_worker_js' in body['script']:
+                    return {'kind': 'worker', 'source': 'private source'}
+                return selected
+            if uri == 'execute/async':
+                if 'reply_received' in body['script']:
+                    self.assertEqual(selected, 'root')
+                    self.assertFalse(child)
+                    uuid.UUID(body['args'][0])
+                    return {'reply_received': True, 'payload': 'private value'}
+                if 'limiter_available' in body['script']: return {'limiter_available': True}
+                if not body['args']: return {'frame_count': 1}
+                return {'settled': True, 'failed': False}
+        protocol = SimpleNamespace(webdriver=SimpleNamespace(send_session_command=send),
+                                   logger=SimpleNamespace(info=logs.append))
+        with patch.dict('os.environ', {'ORYN_WPT_COMPLETION_REPLAY': '1'}, clear=True):
+            replay(protocol, URL)
+        self.assertIn('"root_reply_received": true', logs[0])
+        self.assertNotIn('private', logs[0])
+
+    def test_worker_creation_replay_selects_child_and_restores_scope(self):
+        calls, logs = [], []
+        selected = None
+        child = False
+        def send(method, uri, body=None, timeout=None):
+            nonlocal selected, child
+            calls.append((uri, body))
+            if uri == 'window' and method == 'GET': return 'original'
+            if uri == 'window/handles': return ['root', 'popup']
+            if uri == 'window': selected = body['handle']
+            if uri == 'frame': child = body['id'] == 0
+            if uri == 'execute/sync':
+                if 'create_dedicated_worker_js' in body['script']:
+                    return {'kind': 'worker', 'source': 'private source'}
+                return selected
+            if uri == 'execute/async':
+                if 'limiter_available' in body['script']:
+                    self.assertEqual(selected, 'root')
+                    self.assertNotIn('fetch(', body['script'])
+                    return {'limiter_available': False}
+                if not body['args']: return {'frame_count': 1, 'script_count': 5}
+                self.assertTrue(child)
+                return {'settled': True, 'failed': True,
+                        'exception_type': 'InvalidStateError', 'message': 'private payload'}
+        protocol = SimpleNamespace(webdriver=SimpleNamespace(send_session_command=send),
+                                   logger=SimpleNamespace(info=logs.append))
+        with patch.dict('os.environ', {'ORYN_WPT_COMPLETION_REPLAY': '1'}, clear=True):
+            replay(protocol, URL)
+        self.assertFalse(child)
+        self.assertIn(('frame', {'id': None}), calls)
+        self.assertIn('"worker_creation": true', logs[0])
+        self.assertIn('"root_limiter_available": false', logs[0])
+        self.assertIn('InvalidStateError', logs[0])
+        self.assertNotIn('private', logs[0])
+
     def test_disabled_or_unselected_never_touches_driver(self):
         with patch.dict('os.environ', {}, clear=True):
             replay(SimpleNamespace(), URL)

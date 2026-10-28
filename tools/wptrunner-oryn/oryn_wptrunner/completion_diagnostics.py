@@ -12,10 +12,23 @@ SCRIPT = """return {
   })(),
   import_source_native: typeof importScript !== 'function' ? null : String(importScript).includes('[native code]'),
   frame_count: frames.length,
+  child_dispatcher: (() => {
+    if (!frames.length) return null;
+    try {
+      const child = frames[0];
+      return {accessible:true, ready_state:child.document.readyState,
+        script_count:child.document.querySelectorAll('script').length,
+        executor_type:typeof child.executeOrders, receive_type:typeof child.receive,
+        request_count:typeof child.__oryn_context_trace === 'undefined' ? 0 :
+          child.__oryn_context_trace.filter(e=>e.kind==='request_started').length};
+    } catch (_) { return {accessible:false}; }
+  })(),
   script_count: document.querySelectorAll('script').length,
   location_kind: location.href === 'about:blank' ? 'initial' :
     location.pathname === '/common/dispatcher/executor.html' ? 'dispatcher' : 'other',
   executor_type: typeof executeOrders,
+  worker_path_present: typeof executor_worker_path === 'string',
+  token_function: typeof token === 'function',
   receive_type: typeof receive,
   send_queue_count: typeof sendQueues === 'undefined' ? null : sendQueues.size,
   uuid_is_string: typeof uuid === 'undefined' ? null : typeof uuid === 'string',
@@ -76,11 +89,25 @@ def capture(protocol, url):
                 for name in ('executor_type', 'receive_type'):
                     if value.get(name) in ('undefined', 'function'):
                         observation[name] = value[name]
-                for name in ('uuid_is_string', 'body_present', 'iframe_task_parses', 'import_source_native'):
+                for name in ('uuid_is_string', 'body_present', 'iframe_task_parses', 'import_source_native', 'worker_path_present', 'token_function'):
                     if type(value.get(name)) is bool:
                         observation[name] = value[name]
                 if value.get('location_kind') in ('initial', 'dispatcher', 'other'):
                     observation['location_kind'] = value['location_kind']
+                child = value.get('child_dispatcher')
+                if isinstance(child, dict) and type(child.get('accessible')) is bool:
+                    safe_child = {'accessible': child['accessible']}
+                    if child['accessible']:
+                        for name in ('script_count', 'request_count'):
+                            count = child.get(name)
+                            if type(count) in (int, float) and 0 <= count <= 1_000_000 and int(count) == count:
+                                safe_child[name] = int(count)
+                        for name in ('executor_type', 'receive_type'):
+                            if child.get(name) in ('undefined', 'function'):
+                                safe_child[name] = child[name]
+                        if child.get('ready_state') in ('loading', 'interactive', 'complete'):
+                            safe_child['ready_state'] = child['ready_state']
+                    observation['child_dispatcher'] = safe_child
                 recent = value.get('recent_requests')
                 if isinstance(recent, list):
                     safe = []
@@ -102,6 +129,32 @@ def capture(protocol, url):
                         safe.append(item)
                     observation['recent_requests'] = safe
             records.append({'window_index': index, 'observation': observation})
+            if observation.get('frame_count', 0) > 0:
+                # WindowProxy property forwarding is not evidence of globals
+                # in the child realm. Observe at most the first child through
+                # the driver's existing realm selection, then always restore.
+                try:
+                    driver.send_session_command('POST', 'frame', {'id': 0}, timeout=2)
+                    child_value = driver.send_session_command('POST', 'execute/sync',
+                        {'script': SCRIPT, 'args': []}, timeout=2)
+                    child_observation = {}
+                    if isinstance(child_value, dict):
+                        for name in ('script_count', 'send_queue_count', 'frame_count'):
+                            count = child_value.get(name)
+                            if type(count) in (int, float) and 0 <= count <= 1_000_000 and int(count) == count:
+                                child_observation[name] = int(count)
+                        for name in ('executor_type', 'receive_type'):
+                            if child_value.get(name) in ('undefined', 'function'):
+                                child_observation[name] = child_value[name]
+                        if child_value.get('ready_state') in ('loading', 'interactive', 'complete'):
+                            child_observation['ready_state'] = child_value['ready_state']
+                        for name in ('worker_path_present', 'token_function'):
+                            if type(child_value.get(name)) is bool:
+                                child_observation[name] = child_value[name]
+                    records.append({'window_index': index, 'frame_index': 0,
+                                    'observation': child_observation})
+                finally:
+                    driver.send_session_command('POST', 'frame', {'id': None}, timeout=2)
     except Exception as error:
         records.append({'collection_error_type': type(error).__name__})
     finally:
@@ -115,6 +168,6 @@ def capture(protocol, url):
             protocol.logger.info('oryn-completion-diagnostic ' + json.dumps(records))
         except Exception:
             pass
-    if os.environ.get('ORYN_WPT_COMPLETION_REPLAY') == '1':
+    if os.environ.get('ORYN_WPT_COMPLETION_REPLAY') in ('1', 'load'):
         from .completion_replay import replay
         replay(protocol, url)

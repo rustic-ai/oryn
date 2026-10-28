@@ -162,8 +162,8 @@ def runtime_environment(bound, output, config_path):
     # not worker authority: native launches still clear ambient environment.
     if os.environ.get('ORYN_WPT_COMPLETION_DIAGNOSTICS') == '1':
         env['ORYN_WPT_COMPLETION_DIAGNOSTICS'] = '1'
-        if os.environ.get('ORYN_WPT_COMPLETION_REPLAY') == '1':
-            env['ORYN_WPT_COMPLETION_REPLAY'] = '1'
+        if os.environ.get('ORYN_WPT_COMPLETION_REPLAY') in ('1', 'load'):
+            env['ORYN_WPT_COMPLETION_REPLAY'] = os.environ['ORYN_WPT_COMPLETION_REPLAY']
     assert_worker_environment(bound, env)
     return env
 

@@ -36899,6 +36899,79 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn child_worker_creation_after_async_script_imports_replies_without_frame_selection() {
+        child_import_worker_fixture(false).await;
+    }
+
+    #[cfg(all(unix, feature = "v8-host"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn production_child_worker_creation_after_async_script_imports_replies_without_frame_selection() {
+        child_import_worker_fixture(true).await;
+    }
+
+    #[cfg(feature = "v8-host")]
+    async fn child_import_worker_fixture(worker_process: bool) {
+        struct Fixture(std::sync::atomic::AtomicBool);
+        impl NetworkBroker for Fixture {
+            fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, crate::network::NetworkError> {
+                let path = Url::parse(&request.url).unwrap().path().to_owned();
+                let (mime, body) = match path.as_str() {
+                    "/child" => ("text/html", r#"<!doctype html><script>
+                        const importScript=url=>new Promise((resolve,reject)=>{
+                            const script=document.createElement('script');script.src=url;
+                            script.onload=resolve;script.onerror=reject;document.head.appendChild(script)});
+                        (async()=>{while(true){await (await fetch('/poll')).text();await new Promise(r=>setTimeout(r,10))}})();
+                        (async()=>{try{
+                            await importScript('/one.js');await importScript('/two.js');await importScript('/three.js');
+                            const worker=new Worker('/worker.js');
+                            worker.onmessage=event=>parent.postMessage(event.data,'*');
+                            worker.onerror=()=>parent.postMessage('worker error','*');
+                            await (await fetch('/reply',{method:'POST',body:'created'})).text();
+                        }catch(error){parent.postMessage(error.name,'*')}})();
+                        </script>"#),
+                    "/one.js" | "/two.js" | "/three.js" => ("text/javascript", "void 0;"),
+                    "/worker.js" => ("text/javascript", "postMessage('worker started');(async()=>{while(true){await (await fetch('/poll')).text();await new Promise(r=>setTimeout(r,10))}})();"),
+                    "/poll" => ("text/plain", "not ready"),
+                    "/reply" if request.method == "POST" => {
+                        assert_eq!(request.body.as_slice(), b"created");
+                        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+                        ("text/plain", "done")
+                    }
+                    "/reply" => ("text/plain", if self.0.swap(false, std::sync::atomic::Ordering::SeqCst) { "created" } else { "not ready" }),
+                    _ => panic!("unexpected fixture request {}", request.url),
+                };
+                Ok(NetworkResponse { response_policy: None, timing: None,
+                    request_id: request.request_id, status: 200,
+                    headers: vec![("content-type".into(), mime.into())],
+                    body: body.as_bytes().to_vec() })
+            }
+        }
+        let mut context = Browser::in_process_with_config(BrowserConfig::default())
+            .new_context_with_broker(ContextOptions::default(), SharedNetworkBroker::new(Fixture(std::sync::atomic::AtomicBool::new(false))));
+        // Test-only selection before pages or worker services are created.
+        Arc::get_mut(&mut context.inner).unwrap().worker_process = worker_process;
+        for top in ["https://b.test/", "https://a.test/"] {
+            let page = context.new_page();
+            page.load_html(top, r#"<!doctype html><script>
+                globalThis.replies=[];onmessage=event=>replies.push(event.data);
+                (async()=>{while(!replies.includes('created')){
+                    const reply=await (await fetch('/reply')).text();
+                    if(reply!=='not ready')replies.push(reply);
+                    await new Promise(r=>setTimeout(r,10));
+                }})();
+                </script><iframe src="https://a.test/child"></iframe>"#).await.unwrap();
+            assert_eq!(page.worker.is_some(), worker_process);
+            let result = page.wait_for_timeout(WaitPredicate::JavaScript(
+                "replies.includes('created')&&replies.includes('worker started')".into()),
+                Some(Duration::from_secs(5))).await;
+            let replies = page.evaluate("JSON.stringify(replies)").await.unwrap();
+            page.close().await.unwrap();
+            assert!(result.is_ok(), "ordinary child imports and worker must settle: {replies}");
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn child_frame_blob_fetch_settles_for_same_and_cross_top_level_partition() {
         struct Fixture(Arc<Mutex<String>>);
         impl NetworkBroker for Fixture {

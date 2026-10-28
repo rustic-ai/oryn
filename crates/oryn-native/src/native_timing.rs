@@ -665,6 +665,46 @@ pub fn point(phase: &'static str, identity: Value) {
     }
 }
 
+/// A diagnostic classification of an already-rendered rejection, not an
+/// inspection of author objects and not evidence of the exception's authority.
+/// Only fixed labels leave this function; messages, stack text and URLs do not.
+pub(crate) fn rejection_class(detail: &str) -> &'static str {
+    for name in ["TypeError", "ReferenceError", "SyntaxError", "RangeError",
+        "SecurityError", "InvalidStateError", "QuotaExceededError",
+        "NetworkError", "AbortError", "NotSupportedError", "Error"] {
+        if detail == name || detail.strip_prefix(name).is_some_and(|rest| rest.starts_with(':')) {
+            return name;
+        }
+    }
+    "other"
+}
+
+pub(crate) fn unhandled_rejection(environment: Option<u64>, detail: &str) {
+    if enabled() {
+        point("unhandled_promise_rejection", json!({
+            "environment_id": environment,
+            "rendered_class": rejection_class(detail),
+            "payload_retained": false
+        }));
+    }
+}
+
+#[cfg(test)]
+mod rejection_class_tests {
+    #[test]
+    fn classifier_emits_only_fixed_labels() {
+        for name in ["TypeError", "ReferenceError", "SyntaxError", "RangeError",
+            "SecurityError", "InvalidStateError", "QuotaExceededError",
+            "NetworkError", "AbortError", "NotSupportedError", "Error"] {
+            assert_eq!(super::rejection_class(name), name);
+            assert_eq!(super::rejection_class(&format!("{name}: private payload\nhttps://private.invalid/")), name);
+        }
+        for detail in ["private payload", "TypeErrorprivate", "https://private.invalid/TypeError", ""] {
+            assert_eq!(super::rejection_class(detail), "other");
+        }
+    }
+}
+
 pub(crate) fn worker_identity(
     process_session: u64,
     context_id: u64,
