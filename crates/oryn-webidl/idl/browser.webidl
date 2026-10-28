@@ -1588,6 +1588,7 @@ interface HTMLTemplateElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLMediaElement : HTMLElement {
+  [CEReactions] attribute DOMString loading;
   [CEReactions, Reflect] attribute boolean controls;
   [CEReactions, Reflect=muted] attribute boolean defaultMuted;
   [SameObject] readonly attribute AudioTrackList audioTracks;
@@ -1806,6 +1807,7 @@ interface OffscreenCanvasRenderingContext2D {
 
 [Exposed=Window]
 interface HTMLImageElement : HTMLElement {
+  [CEReactions] attribute DOMString decoding;
   [CEReactions, Reflect] attribute unsigned long hspace;
   [CEReactions, Reflect] attribute unsigned long vspace;
   [CEReactions, ReflectURL] attribute USVString lowsrc;
@@ -1823,7 +1825,7 @@ interface HTMLImageElement : HTMLElement {
   readonly attribute boolean complete;
   [CEReactions] attribute DOMString name;
   [CEReactions] attribute DOMString src;
-  [CEReactions] attribute DOMString crossOrigin;
+  [CEReactions] attribute DOMString? crossOrigin;
   [CEReactions] attribute DOMString referrerPolicy;
   [CEReactions] attribute unsigned long width;
   [CEReactions] attribute unsigned long height;

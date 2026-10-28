@@ -34578,6 +34578,18 @@ mod reflected_long_tests {
             const eq=(a,b,label)=>{if(a!==b)throw Error(label+': '+a+' != '+b)};
             const table=document.createElement('table');
             eq(table instanceof HTMLTableElement,true,'table interface');
+            for(const [tag,member,keyword,fallback] of [['img','decoding','sync','auto'],['img','loading','lazy','eager'],['audio','loading','lazy','eager'],['video','loading','lazy','eager'],['audio','preload','metadata','auto'],['video','preload','none','auto']]) {
+                const element=document.createElement(tag);eq(element[member],fallback,'enum missing '+tag+'.'+member);
+                element[member]=keyword.toUpperCase();eq(element[member],keyword,'enum canonical');eq(element.getAttribute(member),keyword.toUpperCase(),'enum raw');
+                for(const raw of ['', 'invalid', ' '+keyword, '\ud800']) {element[member]=raw;eq(element[member],fallback,'enum invalid');eq(element.getAttribute(member),raw,'enum retains invalid');}
+                const owner=document.implementation.createHTMLDocument('enum');element[member]={toString(){owner.adoptNode(element);return keyword}};
+                eq(element.ownerDocument,owner,'enum conversion adoption');eq(element[member],keyword,'enum adopted mutation');
+            }
+            const corsImage=document.createElement('img');eq(corsImage.crossOrigin,null,'image CORS nullable default');
+            for(const [raw,expected] of [['','anonymous'],['invalid','anonymous'],['USE-CREDENTIALS','use-credentials'],['ANONYMOUS','anonymous']]) {
+                corsImage.crossOrigin=raw;eq(corsImage.crossOrigin,expected,'image CORS canonical');eq(corsImage.getAttribute('crossorigin'),raw,'image CORS raw');
+            }
+            corsImage.crossOrigin=null;eq(corsImage.crossOrigin,null,'image CORS null removes');eq(corsImage.hasAttribute('crossorigin'),false,'image CORS removed');
             for(const [tag,member] of [['img','hspace'],['img','vspace'],['object','hspace'],['object','vspace'],['video','width'],['video','height']]) {
                 const element=document.createElement(tag);eq(element[member],0,'unsigned default '+tag+'.'+member);
                 for(const [raw,expected] of [['',0],['-1',0],['-0',0],[' +7tail',7],['2147483647',2147483647],['2147483648',0],['999999999999999999999999',0],['\u000b7',0],['7\u000b',7]]) {
@@ -35015,6 +35027,16 @@ fn get_attribute_value<'s>(
     }
     if interface == "HTMLMapElement" && member == "areas" {
         return node_lists::elements(scope, state, node, node_lists::ElementFilter::MapAreas);
+    }
+    if (interface == "HTMLImageElement" && matches!(member, "decoding" | "loading"))
+        || (interface == "HTMLMediaElement" && matches!(member, "preload" | "loading"))
+    {
+        let value = state.dom.borrow().attribute_in_null_namespace(node, member)?.unwrap_or("").to_ascii_lowercase();
+        let canonical = match (member, value.as_str()) {
+            ("decoding", "async" | "sync") | ("preload", "none" | "metadata") | ("loading", "lazy") => value.as_str(),
+            ("loading", _) => "eager", _ => "auto",
+        };
+        return v8_string(scope, canonical);
     }
     if (interface == "HTMLTableRowElement" && matches!(member, "rowIndex" | "sectionRowIndex")) || (interface == "HTMLTableCellElement" && member == "cellIndex") {
         return Ok(v8::Integer::new(scope, table_index(&state.dom.borrow(), node, member)?).into());
@@ -36962,7 +36984,7 @@ fn get_attribute_value<'s>(
             };
             if matches!(
                 interface,
-                "HTMLScriptElement" | "HTMLMediaElement" | "HTMLLinkElement"
+                "HTMLScriptElement" | "HTMLMediaElement" | "HTMLLinkElement" | "HTMLImageElement"
             ) && member == "crossOrigin"
             {
                 return match record.attributes.get_null("crossorigin") {
@@ -37196,6 +37218,16 @@ fn set_attribute_value<'s>(
             state.dom.borrow_mut().remove_attribute_ns(node, None, "hidden")?;
         }
         return Ok(());
+    }
+    if (interface == "HTMLImageElement" && matches!(member, "decoding" | "loading"))
+        || (interface == "HTMLMediaElement" && matches!(member, "preload" | "loading"))
+    {
+        let original = wrap_node(scope, state, node)?;
+        let string = value.to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let string = rust_string_preserving_utf16(scope, string)?;
+        let (owner, node) = node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
+        owner.dom.borrow_mut().set_attribute_ns(node, None, member, string)?;
+        return attribute_resource_changed(scope, &owner, node, None, member);
     }
     if interface == "HTMLElement" && matches!(member, "inputMode" | "enterKeyHint" | "writingSuggestions" | "autocapitalize") {
         let original = wrap_node(scope, state, node)?;
@@ -37610,7 +37642,7 @@ fn set_attribute_value<'s>(
     }
     if matches!(
         interface,
-        "HTMLScriptElement" | "HTMLMediaElement" | "HTMLLinkElement"
+        "HTMLScriptElement" | "HTMLMediaElement" | "HTMLLinkElement" | "HTMLImageElement"
     ) && member == "crossOrigin"
         && value.is_null_or_undefined()
     {
