@@ -34578,6 +34578,27 @@ mod reflected_long_tests {
             const eq=(a,b,label)=>{if(a!==b)throw Error(label+': '+a+' != '+b)};
             const table=document.createElement('table');
             eq(table instanceof HTMLTableElement,true,'table interface');
+            const meter=document.createElement('meter'),progress=document.createElement('progress');
+            eq(meter.min,0,'meter min default');eq(meter.max,1,'meter max default');eq(meter.low,0,'meter low default');eq(meter.high,1,'meter high default');eq(meter.optimum,0.5,'meter optimum default');
+            meter.min=2;meter.max=8;meter.low=7;meter.high=3;meter.value=20;
+            eq(meter.high,7,'meter high low bound');eq(meter.value,8,'meter value upper bound');eq(meter.optimum,5,'meter midpoint');eq(meter.getAttribute('high'),'3','meter raw bound retained');
+            meter.max=1;eq(meter.max,2,'meter max min bound');eq(meter.high,2,'meter live high bound');
+            meter.min=-10;meter.max=10;meter.setAttribute('value',' +1.5e1tail');eq(meter.value,10,'meter float prefix');
+            eq(progress.position,-1,'progress indeterminate');eq(progress.max,1,'progress max default');
+            progress.max=4;progress.value=2;eq(progress.position,0.5,'progress fraction');progress.value=-1;eq(progress.value,0,'progress lower clamp');
+            progress.max=0;eq(progress.getAttribute('max'),'4','nonpositive max ignored');progress.max=-2;eq(progress.max,4,'negative max ignored');
+            progress.setAttribute('max','garbage');eq(progress.max,1,'invalid max fallback');progress.value=2;eq(progress.value,1,'progress upper clamp');
+            for(const [element,members] of [[meter,['min','max','low','high','optimum','value']],[progress,['max','value']]]) {
+                for(const member of members) {
+                    const prior=element.getAttribute(member);
+                    for(const value of [NaN,Infinity,-Infinity,undefined]) {let rejected=false;try{element[member]=value}catch(e){rejected=e instanceof TypeError}eq(rejected,true,'restricted double rejects');eq(element.getAttribute(member),prior,'restricted double preserves');}
+                    const descriptor=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element),member);
+                    let converted=false,rejected=false;try{descriptor.set.call(table,{valueOf(){converted=true;return 1}})}catch(e){rejected=e instanceof TypeError}
+                    eq(rejected,true,'double receiver');eq(converted,false,'double brand precedence');
+                }
+            }
+            const numericOwner=document.implementation.createHTMLDocument('numeric');progress.value={valueOf(){numericOwner.adoptNode(progress);return 0.25}};
+            eq(progress.ownerDocument,numericOwner,'double conversion adoption');eq(progress.value,0.25,'double adopted mutation');
             for(const [tag,defaultType,keywords] of [['input','text',['hidden','text','search','tel','url','email','password','date','month','week','time','datetime-local','number','range','color','checkbox','radio','file','submit','image','reset','button']],['button','submit',['submit','reset','button']]]) {
                 const element=document.createElement(tag);eq(element.type,defaultType,'form type missing');
                 for(const keyword of keywords) {element.type=keyword.toUpperCase();eq(element.type,keyword,'form type canonical');eq(element.getAttribute('type'),keyword.toUpperCase(),'form type raw');}
@@ -35035,6 +35056,35 @@ fn get_attribute_value<'s>(
     }
     if interface == "HTMLMapElement" && member == "areas" {
         return node_lists::elements(scope, state, node, node_lists::ElementFilter::MapAreas);
+    }
+    if (interface == "HTMLMeterElement" && matches!(member, "value" | "min" | "max" | "low" | "high" | "optimum"))
+        || (interface == "HTMLProgressElement" && matches!(member, "value" | "max" | "position"))
+    {
+        let dom = state.dom.borrow();
+        let parsed = |attribute: &str| -> Result<Option<f64>, V8BindingError> {
+            Ok(dom.attribute_in_null_namespace(node, attribute)?.and_then(oryn_dom::parse_html_floating_point))
+        };
+        let value = if interface == "HTMLProgressElement" {
+            let max = parsed("max")?.filter(|value| *value > 0.0).unwrap_or(1.0);
+            let value = parsed("value")?.unwrap_or(0.0).clamp(0.0, max);
+            match member {
+                "max" => max,
+                "position" if dom.attribute_in_null_namespace(node, "value")?.is_none() => -1.0,
+                "position" => value / max,
+                _ => value,
+            }
+        } else {
+            let min = parsed("min")?.unwrap_or(0.0);
+            let max = parsed("max")?.unwrap_or(1.0).max(min);
+            let low = parsed("low")?.unwrap_or(min).clamp(min, max);
+            let high = parsed("high")?.unwrap_or(max).clamp(low, max);
+            match member {
+                "min" => min, "max" => max, "low" => low, "high" => high,
+                "optimum" => parsed("optimum")?.unwrap_or(min * 0.5 + max * 0.5).clamp(min, max),
+                _ => parsed("value")?.unwrap_or(0.0).clamp(min, max),
+            }
+        };
+        return Ok(v8::Number::new(scope, value).into());
     }
     if interface == "HTMLInputElement" && member == "type" {
         return v8_string(scope, &state.dom.borrow().effective_input_type(node)?);
@@ -37233,6 +37283,21 @@ fn set_attribute_value<'s>(
             state.dom.borrow_mut().remove_attribute_ns(node, None, "hidden")?;
         }
         return Ok(());
+    }
+    if (interface == "HTMLMeterElement" && matches!(member, "value" | "min" | "max" | "low" | "high" | "optimum"))
+        || (interface == "HTMLProgressElement" && matches!(member, "value" | "max"))
+    {
+        let original = wrap_node(scope, state, node)?;
+        let number = value.number_value(scope).ok_or(V8BindingError::JavaScriptException)?;
+        if !number.is_finite() {
+            return Err(V8BindingError::Unsupported { interface: interface.into(), member: "TypeError".into() });
+        }
+        if interface == "HTMLProgressElement" && member == "max" && number <= 0.0 { return Ok(()); }
+        let string = v8::Number::new(scope, number).to_string(scope).ok_or(V8BindingError::JavaScriptException)?;
+        let string = string.to_rust_string_lossy(scope);
+        let (owner, node) = node_identity::argument(scope, original.into())?.ok_or(DomError::StaleNode(node))?;
+        owner.dom.borrow_mut().set_attribute_ns(node, None, member, string)?;
+        return attribute_resource_changed(scope, &owner, node, None, member);
     }
     if matches!(interface, "HTMLInputElement" | "HTMLButtonElement") && member == "type" {
         let original = wrap_node(scope, state, node)?;

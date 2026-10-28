@@ -2056,11 +2056,20 @@ interface HTMLLabelElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLMeterElement : HTMLElement {
+  [CEReactions] attribute double value;
+  [CEReactions] attribute double min;
+  [CEReactions] attribute double max;
+  [CEReactions] attribute double low;
+  [CEReactions] attribute double high;
+  [CEReactions] attribute double optimum;
   readonly attribute NodeList labels;
 };
 
 [Exposed=Window]
 interface HTMLProgressElement : HTMLElement {
+  [CEReactions] attribute double value;
+  [CEReactions] attribute double max;
+  readonly attribute double position;
   readonly attribute NodeList labels;
 };
 
